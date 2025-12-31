@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Unit = "none" | "ml" | "l" | "kg";
 type Category = { id: string; name: string };
 type Brand = { id: string; name: string };
+
+// ✅ Tipos compatíveis com o SELECT do Supabase (incluindo relações)
+// (o erro do Vercel vinha do cast (variantsRes.data as Row[]) quando o "products" não batia 100%)
+type RowProduct = {
+    name: string | null;
+    category_id: string | null;
+    brand_id: string | null;
+    categories: { id: string; name: string } | null;
+    brands: { id: string; name: string } | null;
+} | null;
 
 type Row = {
     id: string;
@@ -22,15 +32,7 @@ type Row = {
 
     is_active: boolean;
 
-    products: {
-        name: string;
-
-        category_id: string | null;
-        brand_id: string | null;
-
-        categories: { id: string; name: string } | null;
-        brands: { id: string; name: string } | null;
-    } | null;
+    products: RowProduct;
 };
 
 function formatBRL(n: number | null | undefined) {
@@ -90,6 +92,8 @@ function Modal({
                     borderRadius: 14,
                     border: "1px solid #ddd",
                     padding: 16,
+                    maxHeight: "90vh",
+                    overflow: "auto",
                 }}
             >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -105,6 +109,45 @@ function Modal({
             </div>
         </div>
     );
+}
+
+// ✅ Normaliza com segurança o retorno do Supabase (evita cast direto em build)
+function normalizeRows(input: unknown): Row[] {
+    const arr = Array.isArray(input) ? input : [];
+    return arr.map((r: any) => {
+        const unit = (r?.unit ?? "none") as Unit;
+        const safeUnit: Unit = unit === "ml" || unit === "l" || unit === "kg" || unit === "none" ? unit : "none";
+
+        const products: RowProduct = r?.products
+            ? {
+                  name: r.products.name ?? null,
+                  category_id: r.products.category_id ?? null,
+                  brand_id: r.products.brand_id ?? null,
+                  categories: r.products.categories
+                      ? { id: String(r.products.categories.id), name: String(r.products.categories.name ?? "") }
+                      : null,
+                  brands: r.products.brands ? { id: String(r.products.brands.id), name: String(r.products.brands.name ?? "") } : null,
+              }
+            : null;
+
+        return {
+            id: String(r?.id ?? ""),
+            product_id: String(r?.product_id ?? ""),
+
+            details: r?.details ?? null,
+            volume_value: r?.volume_value ?? null,
+            unit: safeUnit,
+
+            unit_price: Number(r?.unit_price ?? 0),
+            has_case: Boolean(r?.has_case),
+            case_qty: r?.case_qty ?? null,
+            case_price: r?.case_price ?? null,
+
+            is_active: Boolean(r?.is_active),
+
+            products,
+        };
+    });
 }
 
 export default function ProdutosListaPage() {
@@ -187,10 +230,11 @@ export default function ProdutosListaPage() {
             return;
         }
 
-        if (!categoriesRes.error) setCategories((categoriesRes.data as Category[]) ?? []);
-        if (!brandsRes.error) setBrands((brandsRes.data as Brand[]) ?? []);
+        if (!categoriesRes.error) setCategories(((categoriesRes.data as Category[]) ?? []).map((c) => ({ id: String(c.id), name: c.name })));
+        if (!brandsRes.error) setBrands(((brandsRes.data as Brand[]) ?? []).map((b) => ({ id: String(b.id), name: b.name })));
 
-        setRows((variantsRes.data as Row[]) ?? []);
+        // ✅ sem cast direto
+        setRows(normalizeRows(variantsRes.data));
         setLoading(false);
     }
 
@@ -239,8 +283,8 @@ export default function ProdutosListaPage() {
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
             supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
         ]);
-        if (!cats.error) setCategories((cats.data as Category[]) ?? []);
-        if (!brs.error) setBrands((brs.data as Brand[]) ?? []);
+        if (!cats.error) setCategories((((cats.data as any[]) ?? []) as Category[]).map((c) => ({ id: String(c.id), name: c.name })));
+        if (!brs.error) setBrands((((brs.data as any[]) ?? []) as Brand[]).map((b) => ({ id: String(b.id), name: b.name })));
     }
 
     async function createCategory(name: string) {
@@ -257,7 +301,7 @@ export default function ProdutosListaPage() {
         }
 
         await reloadCatsAndBrands();
-        return data.id as string;
+        return String(data.id);
     }
 
     async function createBrand(name: string) {
@@ -274,7 +318,7 @@ export default function ProdutosListaPage() {
         }
 
         await reloadCatsAndBrands();
-        return data.id as string;
+        return String(data.id);
     }
 
     async function saveEdit() {
@@ -330,7 +374,16 @@ export default function ProdutosListaPage() {
         }
 
         // 4) atualizar variação
-        const patch: any = {
+        const patch: {
+            details: string | null;
+            unit_price: number;
+            has_case: boolean;
+            is_active: boolean;
+            volume_value?: number | null;
+            unit?: Unit;
+            case_qty?: number | null;
+            case_price?: number | null;
+        } = {
             details: details.trim() || null,
             unit_price: brlToNumber(unitPrice),
             has_case: hasCase,
@@ -341,8 +394,8 @@ export default function ProdutosListaPage() {
             patch.volume_value = null;
             patch.unit = "none";
         } else {
-            const vv = Number(volumeValue.replace(",", "."));
-            patch.volume_value = isNaN(vv) ? null : vv;
+            const vv = Number(String(volumeValue).replace(",", "."));
+            patch.volume_value = Number.isFinite(vv) ? vv : null;
             patch.unit = unit;
         }
 
@@ -350,7 +403,7 @@ export default function ProdutosListaPage() {
             patch.case_qty = null;
             patch.case_price = null;
         } else {
-            const cq = Number(caseQty || "0");
+            const cq = Number(String(caseQty || "0").replace(/\D/g, ""));
             patch.case_qty = cq > 0 ? cq : null;
             patch.case_price = brlToNumber(casePrice);
         }
@@ -743,9 +796,7 @@ export default function ProdutosListaPage() {
 
                 {/* SUBMODAL: ADICIONAR CATEGORIA */}
                 <Modal title="Adicionar categoria" open={addCategoryOpen} onClose={() => setAddCategoryOpen(false)}>
-                    <p style={{ marginTop: 0, color: "#555" }}>
-                        Cria uma categoria nova e já seleciona ela para este produto.
-                    </p>
+                    <p style={{ marginTop: 0, color: "#555" }}>Cria uma categoria nova e já seleciona ela para este produto.</p>
                     <input
                         value={newCategoryName}
                         onChange={(e) => setNewCategoryName(e.target.value)}
@@ -779,9 +830,7 @@ export default function ProdutosListaPage() {
 
                 {/* SUBMODAL: ADICIONAR MARCA */}
                 <Modal title="Adicionar marca" open={addBrandOpen} onClose={() => setAddBrandOpen(false)}>
-                    <p style={{ marginTop: 0, color: "#555" }}>
-                        Cria uma marca nova e já seleciona ela para este produto.
-                    </p>
+                    <p style={{ marginTop: 0, color: "#555" }}>Cria uma marca nova e já seleciona ela para este produto.</p>
                     <input
                         value={newBrandName}
                         onChange={(e) => setNewBrandName(e.target.value)}
