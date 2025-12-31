@@ -1,8 +1,9 @@
-import { cookies } from "next/headers";
+import "server-only";
 import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
-export function createClient() {
-    const cookieStore = cookies();
+export async function createClient() {
+    const cookieStore = await cookies();
 
     return createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,11 +15,12 @@ export function createClient() {
                 },
                 setAll(cookiesToSet) {
                     try {
-                        cookiesToSet.forEach(({ name, value, options }) => {
+                        for (const { name, value, options } of cookiesToSet) {
                             cookieStore.set(name, value, options);
-                        });
+                        }
                     } catch {
-                        // Server Components podem bloquear set de cookies em alguns cenários; ok em dev.
+                        // Em Server Components, set pode falhar (sem response).
+                        // Se você chamar isso em Route Handler / Server Action, funciona.
                     }
                 },
             },

@@ -8,12 +8,14 @@ import { useAdminOrders } from "@/components/AdminOrdersContext";
 
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
 
+type CustomerRow = { name: string; phone: string; address: string | null };
+
 type OrderRow = {
     id: string;
     status: OrderStatus | string;
     total_amount: number;
     created_at: string;
-    customers: { name: string; phone: string; address: string | null } | null;
+    customers: CustomerRow | null;
 };
 
 function formatBRL(n: number | null | undefined) {
@@ -105,6 +107,44 @@ function btnPurpleOutline(active?: boolean): React.CSSProperties {
     };
 }
 
+/**
+ * Normaliza o retorno do Supabase:
+ * - às vezes `customers` vem como array (customers: [{...}])
+ * - às vezes vem como objeto (customers: {...})
+ * Aqui garantimos `customers: CustomerRow | null` e tipos seguros pro build.
+ */
+function normalizeOrders(input: unknown): OrderRow[] {
+    const arr = Array.isArray(input) ? input : [];
+
+    return arr.map((o: any) => {
+        const rawCustomers = o?.customers;
+
+        const c: CustomerRow | null = Array.isArray(rawCustomers)
+            ? rawCustomers[0]
+                ? {
+                    name: String(rawCustomers[0]?.name ?? ""),
+                    phone: String(rawCustomers[0]?.phone ?? ""),
+                    address: (rawCustomers[0]?.address ?? null) as string | null,
+                }
+                : null
+            : rawCustomers
+                ? {
+                    name: String(rawCustomers?.name ?? ""),
+                    phone: String(rawCustomers?.phone ?? ""),
+                    address: (rawCustomers?.address ?? null) as string | null,
+                }
+                : null;
+
+        return {
+            id: String(o?.id),
+            status: String(o?.status ?? ""),
+            total_amount: Number(o?.total_amount ?? 0),
+            created_at: String(o?.created_at ?? ""),
+            customers: c,
+        };
+    });
+}
+
 export default function AdminSidebar() {
     const supabase = useMemo(() => createClient(), []);
     const router = useRouter();
@@ -139,7 +179,7 @@ export default function AdminSidebar() {
             return;
         }
 
-        setOrders((data as OrderRow[]) ?? []);
+        setOrders(normalizeOrders(data));
         setLoading(false);
     }
 
