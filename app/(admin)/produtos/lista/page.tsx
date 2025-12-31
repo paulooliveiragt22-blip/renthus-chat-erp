@@ -7,8 +7,6 @@ type Unit = "none" | "ml" | "l" | "kg";
 type Category = { id: string; name: string };
 type Brand = { id: string; name: string };
 
-// ✅ Tipos compatíveis com o SELECT do Supabase (incluindo relações)
-// (o erro do Vercel vinha do cast (variantsRes.data as Row[]) quando o "products" não batia 100%)
 type RowProduct = {
     name: string | null;
     category_id: string | null;
@@ -111,23 +109,35 @@ function Modal({
     );
 }
 
-// ✅ Normaliza com segurança o retorno do Supabase (evita cast direto em build)
+// ✅ helper: se vier objeto OU array (por bug/ambiguidade de relação), pega o primeiro ou null
+function firstOrNull<T>(v: T | T[] | null | undefined): T | null {
+    if (!v) return null;
+    return Array.isArray(v) ? (v[0] ?? null) : v;
+}
+
+// ✅ Normaliza o retorno do Supabase para bater com Row
 function normalizeRows(input: unknown): Row[] {
     const arr = Array.isArray(input) ? input : [];
-    return arr.map((r: any) => {
-        const unit = (r?.unit ?? "none") as Unit;
-        const safeUnit: Unit = unit === "ml" || unit === "l" || unit === "kg" || unit === "none" ? unit : "none";
 
-        const products: RowProduct = r?.products
+    return arr.map((r: any) => {
+        const rawUnit = (r?.unit ?? "none") as string;
+        const unit: Unit = rawUnit === "ml" || rawUnit === "l" || rawUnit === "kg" || rawUnit === "none" ? (rawUnit as Unit) : "none";
+
+        // products pode vir como array
+        const p0: any = firstOrNull<any>(r?.products);
+
+        // categories/brands podem vir como array
+        const c0: any = firstOrNull<any>(p0?.categories);
+        const b0: any = firstOrNull<any>(p0?.brands);
+
+        const products: RowProduct = p0
             ? {
-                  name: r.products.name ?? null,
-                  category_id: r.products.category_id ?? null,
-                  brand_id: r.products.brand_id ?? null,
-                  categories: r.products.categories
-                      ? { id: String(r.products.categories.id), name: String(r.products.categories.name ?? "") }
-                      : null,
-                  brands: r.products.brands ? { id: String(r.products.brands.id), name: String(r.products.brands.name ?? "") } : null,
-              }
+                name: p0?.name ?? null,
+                category_id: p0?.category_id ?? null,
+                brand_id: p0?.brand_id ?? null,
+                categories: c0 ? { id: String(c0.id), name: String(c0.name ?? "") } : null,
+                brands: b0 ? { id: String(b0.id), name: String(b0.name ?? "") } : null,
+            }
             : null;
 
         return {
@@ -136,7 +146,7 @@ function normalizeRows(input: unknown): Row[] {
 
             details: r?.details ?? null,
             volume_value: r?.volume_value ?? null,
-            unit: safeUnit,
+            unit,
 
             unit_price: Number(r?.unit_price ?? 0),
             has_case: Boolean(r?.has_case),
@@ -230,10 +240,24 @@ export default function ProdutosListaPage() {
             return;
         }
 
-        if (!categoriesRes.error) setCategories(((categoriesRes.data as Category[]) ?? []).map((c) => ({ id: String(c.id), name: c.name })));
-        if (!brandsRes.error) setBrands(((brandsRes.data as Brand[]) ?? []).map((b) => ({ id: String(b.id), name: b.name })));
+        if (!categoriesRes.error) {
+            setCategories(
+                ((categoriesRes.data as any[]) ?? []).map((c) => ({
+                    id: String(c.id),
+                    name: String(c.name ?? ""),
+                }))
+            );
+        }
+        if (!brandsRes.error) {
+            setBrands(
+                ((brandsRes.data as any[]) ?? []).map((b) => ({
+                    id: String(b.id),
+                    name: String(b.name ?? ""),
+                }))
+            );
+        }
 
-        // ✅ sem cast direto
+        // ✅ AQUI está a correção (sem cast que quebra no build)
         setRows(normalizeRows(variantsRes.data));
         setLoading(false);
     }
@@ -283,8 +307,23 @@ export default function ProdutosListaPage() {
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
             supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
         ]);
-        if (!cats.error) setCategories((((cats.data as any[]) ?? []) as Category[]).map((c) => ({ id: String(c.id), name: c.name })));
-        if (!brs.error) setBrands((((brs.data as any[]) ?? []) as Brand[]).map((b) => ({ id: String(b.id), name: b.name })));
+
+        if (!cats.error) {
+            setCategories(
+                ((cats.data as any[]) ?? []).map((c) => ({
+                    id: String(c.id),
+                    name: String(c.name ?? ""),
+                }))
+            );
+        }
+        if (!brs.error) {
+            setBrands(
+                ((brs.data as any[]) ?? []).map((b) => ({
+                    id: String(b.id),
+                    name: String(b.name ?? ""),
+                }))
+            );
+        }
     }
 
     async function createCategory(name: string) {
@@ -301,7 +340,7 @@ export default function ProdutosListaPage() {
         }
 
         await reloadCatsAndBrands();
-        return String(data.id);
+        return String((data as any).id);
     }
 
     async function createBrand(name: string) {
@@ -318,7 +357,7 @@ export default function ProdutosListaPage() {
         }
 
         await reloadCatsAndBrands();
-        return String(data.id);
+        return String((data as any).id);
     }
 
     async function saveEdit() {
