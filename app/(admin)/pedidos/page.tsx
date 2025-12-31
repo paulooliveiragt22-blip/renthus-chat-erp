@@ -19,7 +19,7 @@ type OrderRow = {
     change_for: number | null;
     created_at: string;
     details: string | null;
-    customers: { name: string; phone: string; address: string | null } | null;
+    customers: { name: string | null; phone: string | null; address: string | null } | null;
 };
 
 type OrderItemRow = {
@@ -497,7 +497,20 @@ export default function PedidosPage() {
             return;
         }
 
-        setOrders((data as OrderRow[]) ?? []);
+        const rows = Array.isArray(data) ? data : [];
+        setOrders(
+            rows.map((o: any) => ({
+                ...o,
+                customers: o.customers
+                    ? {
+                        name: o.customers.name ?? null,
+                        phone: o.customers.phone ?? null,
+                        address: o.customers.address ?? null,
+                    }
+                    : null,
+            })) as OrderRow[]
+        );
+
         setLoading(false);
     }
 
