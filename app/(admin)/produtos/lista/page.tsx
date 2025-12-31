@@ -1,5 +1,5 @@
 "use client";
-
+// vercel: rebuild with normalizeRows
 import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
