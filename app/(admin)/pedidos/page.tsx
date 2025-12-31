@@ -40,18 +40,15 @@ type OrderFull = OrderRow & { items: OrderItemRow[] };
 type Variant = {
     id: string;
     unit_price: number;
-    case_price: number | null;
-    case_qty: number | null;
-    has_case: boolean;
-    unit: "none" | "ml" | "l" | "kg";
-    volume_value: number | null;
-    details: string | null;
-    is_active: boolean;
+    has_case?: boolean | null;
+
     products: {
-        categories: { name: string } | null;
-        brands: { name: string } | null;
+        name?: string | null;
+        categories?: { name?: string | null } | null;
+        brands?: { name?: string | null } | null;
     } | null;
 };
+
 
 function formatBRL(n: number | null | undefined) {
     const v = typeof n === "number" ? n : 0;
