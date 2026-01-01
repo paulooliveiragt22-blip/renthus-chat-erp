@@ -1,34 +1,56 @@
 import { NextResponse } from "next/server";
-// webhook twilio test
-// Twilio manda x-www-form-urlencoded :contentReference[oaicite:1]{index=1}
+import twilio from "twilio";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+export const runtime = "nodejs";
+
 export async function POST(req: Request) {
-    const form = await req.formData(); // funciona com x-www-form-urlencoded no runtime Web
-    const from = String(form.get("From") || "");
-    const body = String(form.get("Body") || "").trim();
+    const form = await req.formData();
 
-    // Ex: From = "whatsapp:+55XXXXXXXXXXX"
-    console.log("TWILIO IN:", { from, body });
+    const From = String(form.get("From") ?? "");
+    const To = String(form.get("To") ?? "");
+    const Body = String(form.get("Body") ?? "");
+    const MessageSid = String(form.get("MessageSid") ?? "");
+    const AccountSid = String(form.get("AccountSid") ?? "");
+    const ProfileName = String(form.get("ProfileName") ?? "");
+    const NumMedia = Number(form.get("NumMedia") ?? 0);
 
-    // Responder com TwiML (XML) é o jeito mais simples
-    const reply = `Você disse: ${body}\n\nResponda 1 para ver o cardápio.`;
+    // salvar no supabase (pode manter)
+    const supabase = createAdminClient();
+    const phoneE164 = From.replace("whatsapp:", "");
 
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Message>${escapeXml(reply)}</Message>
-</Response>`;
+    await supabase
+        .from("whatsapp_threads")
+        .upsert(
+            {
+                phone_e164: phoneE164,
+                wa_from: From,
+                wa_to: To,
+                profile_name: ProfileName || null,
+                last_message_at: new Date().toISOString(),
+            },
+            { onConflict: "phone_e164" }
+        );
 
-    return new NextResponse(twiml, {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
+    await supabase.from("whatsapp_messages").insert({
+        thread_id: (await supabase.from("whatsapp_threads").select("id").eq("phone_e164", phoneE164).single()).data?.id,
+        direction: "inbound",
+        channel: "whatsapp",
+        twilio_message_sid: MessageSid || null,
+        twilio_account_sid: AccountSid || null,
+        from_addr: From,
+        to_addr: To,
+        body: Body || null,
+        num_media: Number.isFinite(NumMedia) ? NumMedia : 0,
+        raw_payload: Object.fromEntries(form.entries()),
     });
-}
 
-// Evita quebrar XML
-function escapeXml(input: string) {
-    return input
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&apos;");
+    // ✅ Responder TwiML
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message(`✅ Conectado! Você disse: ${Body || "(vazio)"}`);
+
+    return new NextResponse(twiml.toString(), {
+        status: 200,
+        headers: { "Content-Type": "text/xml; charset=utf-8" },
+    });
 }
