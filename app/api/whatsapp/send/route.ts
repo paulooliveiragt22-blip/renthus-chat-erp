@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { checkLimit, requireFeature } from "@/lib/billing/entitlements";
 
 export const runtime = "nodejs";
 
@@ -78,6 +79,27 @@ export async function POST(req: Request) {
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
         const { admin, companyId } = ctx;
+
+        // ✅ Entitlements: precisa ter WhatsApp habilitado
+        try {
+            await requireFeature(admin, companyId, "whatsapp_messages");
+        } catch (e: any) {
+            const msg = e?.message ?? "Feature not enabled";
+            return NextResponse.json({ error: msg }, { status: 403 });
+        }
+
+        // ✅ Limite: se estourou e NÃO aceitou overage/upgrade, BLOQUEIA
+        const usage = await checkLimit(admin, companyId, "whatsapp_messages", 1);
+        if (!usage.allowed) {
+            return NextResponse.json(
+                {
+                    error: "message_limit_reached",
+                    upgrade_required: true,
+                    usage,
+                },
+                { status: 402 } // Payment Required
+            );
+        }
 
         // Canal ativo da company
         const { data: channel, error: chErr } = await admin
@@ -199,7 +221,12 @@ export async function POST(req: Request) {
             })
             .eq("id", threadId);
 
-        return NextResponse.json({ ok: true, provider, provider_message_id: providerMessageId });
+        return NextResponse.json({
+            ok: true,
+            provider,
+            provider_message_id: providerMessageId,
+            usage,
+        });
     } catch (e: any) {
         return NextResponse.json({ error: e?.message ?? "Unexpected error" }, { status: 500 });
     }

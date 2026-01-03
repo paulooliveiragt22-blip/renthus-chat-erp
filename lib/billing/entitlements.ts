@@ -7,15 +7,17 @@ export type ActiveSubscription = {
     plan_id: string;
     plan_key: string;
     plan_name: string | null;
+    allow_overage: boolean;
 };
 
 export type LimitCheckResult = {
-    allowed: boolean;               // por enquanto sempre true; você pode mudar pra bloquear
+    allowed: boolean; // true se pode prosseguir; false se bloqueado (excesso + não aceitou overage)
     feature_key: string;
     year_month: string;
-    used: number;                   // uso atual
-    limit_per_month: number | null; // null = ilimitado/não definido
-    will_overage_by: number;        // >0 se passar do limite com o incremento
+    used: number;
+    limit_per_month: number | null; // null => ilimitado/não definido
+    will_overage_by: number; // >0 se passaria do limite com o incremento
+    allow_overage: boolean;
 };
 
 function formatYearMonth(d: Date) {
@@ -26,7 +28,6 @@ function formatYearMonth(d: Date) {
 
 /**
  * Usa a função do banco se existir (current_year_month), senão fallback UTC.
- * A função foi criada na migration de helpers.
  */
 export async function getCurrentYearMonth(admin: AdminClient): Promise<string> {
     try {
@@ -38,15 +39,10 @@ export async function getCurrentYearMonth(admin: AdminClient): Promise<string> {
     return formatYearMonth(new Date());
 }
 
-export async function getActiveSubscription(
-    admin: AdminClient,
-    companyId: string
-): Promise<ActiveSubscription | null> {
-    // subscriptions.status = 'active'
-    // join com plans para pegar plan.key
+export async function getActiveSubscription(admin: AdminClient, companyId: string): Promise<ActiveSubscription | null> {
     const { data, error } = await admin
         .from("subscriptions")
-        .select("id, plan_id, plans:plans ( key, name )")
+        .select("id, plan_id, allow_overage, plans:plans ( key, name )")
         .eq("company_id", companyId)
         .eq("status", "active")
         .order("started_at", { ascending: false })
@@ -59,16 +55,14 @@ export async function getActiveSubscription(
     const planKey = (data as any)?.plans?.key as string | undefined;
     const planName = (data as any)?.plans?.name as string | null | undefined;
 
-    if (!planKey) {
-        // plano inválido / sem FK resolvida
-        return null;
-    }
+    if (!planKey) return null;
 
     return {
         subscription_id: data.id,
         plan_id: data.plan_id,
         plan_key: planKey,
         plan_name: planName ?? null,
+        allow_overage: Boolean((data as any)?.allow_overage),
     };
 }
 
@@ -76,26 +70,15 @@ export async function getEnabledFeatures(admin: AdminClient, companyId: string):
     const sub = await getActiveSubscription(admin, companyId);
     if (!sub) return new Set();
 
-    // 1) features do plano
-    const { data: pf, error: pfErr } = await admin
-        .from("plan_features")
-        .select("feature_key")
-        .eq("plan_id", sub.plan_id);
-
+    const { data: pf, error: pfErr } = await admin.from("plan_features").select("feature_key").eq("plan_id", sub.plan_id);
     if (pfErr) throw new Error(pfErr.message);
 
-    // 2) addons da company
-    const { data: addons, error: addErr } = await admin
-        .from("subscription_addons")
-        .select("feature_key")
-        .eq("company_id", companyId);
-
+    const { data: addons, error: addErr } = await admin.from("subscription_addons").select("feature_key").eq("company_id", companyId);
     if (addErr) throw new Error(addErr.message);
 
     const s = new Set<string>();
     for (const row of pf ?? []) if (row?.feature_key) s.add(String(row.feature_key));
     for (const row of addons ?? []) if (row?.feature_key) s.add(String(row.feature_key));
-
     return s;
 }
 
@@ -108,11 +91,7 @@ export async function hasFeature(admin: AdminClient, companyId: string, featureK
  * Retorna o limite mensal do plano atual (feature_limits).
  * null => sem limite definido
  */
-export async function getPlanMonthlyLimit(
-    admin: AdminClient,
-    companyId: string,
-    featureKey: string
-): Promise<number | null> {
+export async function getPlanMonthlyLimit(admin: AdminClient, companyId: string, featureKey: string): Promise<number | null> {
     const sub = await getActiveSubscription(admin, companyId);
     if (!sub) return null;
 
@@ -152,7 +131,10 @@ export async function getCurrentMonthUsage(
 
 /**
  * Checa limite antes de executar uma ação que incrementa o uso.
- * Política atual: NÃO bloqueia (allowed = true), só calcula overage.
+ * Política:
+ * - se não tem limite => allowed = true
+ * - se está dentro do limite => allowed = true
+ * - se passaria do limite => allowed = allow_overage (flag de subscription)
  */
 export async function checkLimit(
     admin: AdminClient,
@@ -160,34 +142,34 @@ export async function checkLimit(
     featureKey: string,
     increment = 1
 ): Promise<LimitCheckResult> {
-    const [{ year_month, used }, limit] = await Promise.all([
+    const [sub, usage, limit] = await Promise.all([
+        getActiveSubscription(admin, companyId),
         getCurrentMonthUsage(admin, companyId, featureKey),
         getPlanMonthlyLimit(admin, companyId, featureKey),
     ]);
 
-    const nextUsed = used + Math.max(0, Math.floor(increment || 0));
+    const allowOverage = Boolean(sub?.allow_overage);
+
+    const nextUsed = usage.used + Math.max(0, Math.floor(increment || 0));
     const willOverageBy = limit == null ? 0 : Math.max(0, nextUsed - limit);
 
+    const allowed = limit == null || nextUsed <= limit || allowOverage;
+
     return {
-        allowed: true, // por enquanto: não bloqueia (overage é auditável)
+        allowed,
         feature_key: featureKey,
-        year_month,
-        used,
+        year_month: usage.year_month,
+        used: usage.used,
         limit_per_month: limit,
         will_overage_by: willOverageBy,
+        allow_overage: allowOverage,
     };
 }
 
 /**
- * Helper opcional pra usar em endpoints: exige feature e lança erro amigável.
+ * Exige feature e lança erro amigável.
  */
-export async function requireFeature(
-    admin: AdminClient,
-    companyId: string,
-    featureKey: string
-) {
+export async function requireFeature(admin: AdminClient, companyId: string, featureKey: string) {
     const ok = await hasFeature(admin, companyId, featureKey);
-    if (!ok) {
-        throw new Error(`Feature not enabled: ${featureKey}`);
-    }
+    if (!ok) throw new Error(`Feature not enabled: ${featureKey}`);
 }

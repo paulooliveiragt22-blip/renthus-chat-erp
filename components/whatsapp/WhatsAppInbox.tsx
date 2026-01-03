@@ -27,6 +27,16 @@ type Message = {
     created_at: string;
 };
 
+type Usage = {
+    allowed: boolean;
+    feature_key: string;
+    year_month: string;
+    used: number;
+    limit_per_month: number | null;
+    will_overage_by: number;
+    allow_overage: boolean;
+};
+
 function formatDT(ts?: string | null) {
     if (!ts) return "";
     try {
@@ -38,9 +48,7 @@ function formatDT(ts?: string | null) {
 
 /**
  * Convert an input containing digits and optional punctuation into a valid
- * Brazilian E.164 number.  Handles plain 11-digit strings (e.g. 66999999999)
- * or values already prefaced with +55.  Returns either an E.164 string or an
- * error message.
+ * Brazilian E.164 number.
  */
 function normalizeBrazilToE164(input: string): { ok: true; e164: string } | { ok: false; error: string } {
     const raw = (input ?? "").trim();
@@ -71,13 +79,6 @@ function normalizeBrazilToE164(input: string): { ok: true; e164: string } | { ok
     return { ok: false, error: "Use formato BR: 66999999999 (DDD + número)" };
 }
 
-/**
- * WhatsApp inbox component.  Displays a list of threads in the left column
- * and messages in the right column.  Allows starting a new conversation by
- * phone number.  Polls periodically for updates.  This component is a
- * client component because it uses `useState`, `useEffect`, and fetches
- * data on the client.
- */
 export default function WhatsAppInbox() {
     const [threads, setThreads] = useState<Thread[]>([]);
     const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -93,10 +94,12 @@ export default function WhatsAppInbox() {
     const [newName, setNewName] = useState("");
     const [creatingThread, setCreatingThread] = useState(false);
 
-    /**
-     * Load threads from the API.  Accepts an optional thread ID to preserve
-     * selection when refreshing or after creating a new thread.
-     */
+    // ✅ Upgrade/overage modal state
+    const [limitOpen, setLimitOpen] = useState(false);
+    const [limitUsage, setLimitUsage] = useState<Usage | null>(null);
+    const [pendingText, setPendingText] = useState<string | null>(null);
+    const [billingBusy, setBillingBusy] = useState(false);
+
     async function loadThreads(nextSelectedId?: string | null) {
         setLoadingThreads(true);
         setErr(null);
@@ -114,9 +117,7 @@ export default function WhatsAppInbox() {
             }
             const list: Thread[] = Array.isArray(json.threads) ? json.threads : [];
             setThreads(list);
-            // Preserve selection: if the provided nextSelectedId exists, use it;
-            // otherwise keep current selection if it still exists; otherwise
-            // select the first thread.
+
             const desired = nextSelectedId ?? selectedThreadId;
             if (desired && list.some((t) => t.id === desired)) {
                 setSelectedThreadId(desired);
@@ -125,6 +126,7 @@ export default function WhatsAppInbox() {
             } else if (desired && !list.some((t) => t.id === desired)) {
                 setSelectedThreadId(list[0]?.id ?? null);
             }
+
             setLoadingThreads(false);
         } catch (e: any) {
             console.error(e);
@@ -134,9 +136,6 @@ export default function WhatsAppInbox() {
         }
     }
 
-    /**
-     * Load messages for a given thread ID.
-     */
     async function loadMessages(threadId: string) {
         setLoadingMessages(true);
         setErr(null);
@@ -161,13 +160,11 @@ export default function WhatsAppInbox() {
         }
     }
 
-    // Load threads on mount
     useEffect(() => {
         loadThreads();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Load messages when selected thread changes
     useEffect(() => {
         if (selectedThreadId) {
             loadMessages(selectedThreadId);
@@ -177,7 +174,6 @@ export default function WhatsAppInbox() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
 
-    // Poll for updates every 8 seconds
     useEffect(() => {
         const id = window.setInterval(() => {
             loadThreads();
@@ -189,31 +185,90 @@ export default function WhatsAppInbox() {
 
     const selectedThread = useMemo(() => threads.find((t) => t.id === selectedThreadId) ?? null, [threads, selectedThreadId]);
 
-    /**
-     * Send a message to the currently selected thread.  Calls the send API
-     * and refreshes messages and threads on success.
-     */
     async function sendMessage(text: string) {
         if (!selectedThread) return;
+
         const res = await fetch("/api/whatsapp/send", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({ to_phone_e164: selectedThread.phone_e164, text }),
         });
+
         const json = await res.json().catch(() => ({}));
+
+        // ✅ limite atingido → abre modal de upgrade/overage
+        if (res.status === 402 && json?.error === "message_limit_reached" && json?.upgrade_required) {
+            setErr(null);
+            setPendingText(text);
+            setLimitUsage(json?.usage ?? null);
+            setLimitOpen(true);
+            return;
+        }
+
         if (!res.ok) {
             setErr(json?.error ?? "Falha ao enviar mensagem");
             return;
         }
+
         await loadMessages(selectedThread.id);
         await loadThreads(selectedThread.id);
     }
 
-    /**
-     * Create a new WhatsApp thread by calling the create API.  The phone
-     * number is converted from BR format to E.164 before sending.
-     */
+    async function acceptOverageAndRetry() {
+        if (!pendingText || !selectedThread) return;
+        setBillingBusy(true);
+        setErr(null);
+        try {
+            const res = await fetch("/api/billing/allow-overage", {
+                method: "POST",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setErr(json?.error ?? `Falha ao liberar overage (HTTP ${res.status})`);
+                return;
+            }
+            setLimitOpen(false);
+            // reenvia
+            await sendMessage(pendingText);
+            setPendingText(null);
+        } catch (e: any) {
+            console.error(e);
+            setErr("Falha ao liberar overage");
+        } finally {
+            setBillingBusy(false);
+        }
+    }
+
+    async function upgradeToFullAndRetry() {
+        if (!pendingText || !selectedThread) return;
+        setBillingBusy(true);
+        setErr(null);
+        try {
+            const res = await fetch("/api/billing/upgrade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ plan_key: "full_erp" }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setErr(json?.error ?? `Falha ao fazer upgrade (HTTP ${res.status})`);
+                return;
+            }
+            setLimitOpen(false);
+            // reenvia
+            await sendMessage(pendingText);
+            setPendingText(null);
+        } catch (e: any) {
+            console.error(e);
+            setErr("Falha ao fazer upgrade");
+        } finally {
+            setBillingBusy(false);
+        }
+    }
+
     async function createThread() {
         const name = newName.trim();
         const phoneParsed = normalizeBrazilToE164(newPhoneBR);
@@ -251,13 +306,19 @@ export default function WhatsAppInbox() {
         }
     }
 
-    // Helper to display a hint for the phone input based on the current value
     const phoneHint = useMemo(() => {
         const v = newPhoneBR.trim();
         if (!v) return "Exemplo: 66999999999";
         const parsed = normalizeBrazilToE164(v);
         return parsed.ok ? `Vai salvar como: ${parsed.e164}` : parsed.error;
     }, [newPhoneBR]);
+
+    const usageLabel = useMemo(() => {
+        if (!limitUsage) return null;
+        const lim = limitUsage.limit_per_month;
+        if (lim == null) return `Uso: ${limitUsage.used} (sem limite definido)`;
+        return `Uso: ${limitUsage.used} / ${lim} • Excedente previsto: ${limitUsage.will_overage_by}`;
+    }, [limitUsage]);
 
     return (
         <div
@@ -386,6 +447,7 @@ export default function WhatsAppInbox() {
                     )}
                 </div>
             </aside>
+
             {/* Messages column */}
             <section
                 style={{
@@ -402,10 +464,9 @@ export default function WhatsAppInbox() {
                     <div style={{ fontWeight: 900, color: PURPLE }}>
                         {selectedThread ? selectedThread.profile_name || selectedThread.phone_e164 : "Selecione uma conversa"}
                     </div>
-                    {selectedThread ? (
-                        <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div>
-                    ) : null}
+                    {selectedThread ? <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div> : null}
                 </div>
+
                 <div style={{ padding: 12, overflowY: "auto", minHeight: 0, background: "#fafafa" }}>
                     {!selectedThread ? (
                         <div style={{ color: "#666" }}>Selecione uma conversa à esquerda.</div>
@@ -418,10 +479,7 @@ export default function WhatsAppInbox() {
                             {messages.map((m) => {
                                 const isOut = m.direction === "out";
                                 return (
-                                    <div
-                                        key={m.id}
-                                        style={{ display: "flex", justifyContent: isOut ? "flex-end" : "flex-start" }}
-                                    >
+                                    <div key={m.id} style={{ display: "flex", justifyContent: isOut ? "flex-end" : "flex-start" }}>
                                         <div
                                             style={{
                                                 maxWidth: 560,
@@ -444,8 +502,93 @@ export default function WhatsAppInbox() {
                         </div>
                     )}
                 </div>
+
                 <MessageComposer disabled={!selectedThread} onSend={sendMessage} />
             </section>
+
+            {/* Modal: limite atingido / upgrade */}
+            {limitOpen ? (
+                <Modal
+                    title="Limite do plano atingido"
+                    onClose={() => {
+                        if (!billingBusy) setLimitOpen(false);
+                    }}
+                    footer={
+                        <>
+                            <button
+                                onClick={() => setLimitOpen(false)}
+                                disabled={billingBusy}
+                                style={{
+                                    padding: "10px 12px",
+                                    borderRadius: 10,
+                                    border: `1px solid ${PURPLE}`,
+                                    cursor: billingBusy ? "not-allowed" : "pointer",
+                                    opacity: billingBusy ? 0.6 : 1,
+                                    background: "#fff",
+                                    color: PURPLE,
+                                    fontWeight: 900,
+                                }}
+                            >
+                                Cancelar
+                            </button>
+
+                            <button
+                                onClick={acceptOverageAndRetry}
+                                disabled={billingBusy}
+                                style={{
+                                    padding: "10px 12px",
+                                    borderRadius: 10,
+                                    border: `1px solid ${ORANGE}`,
+                                    cursor: billingBusy ? "not-allowed" : "pointer",
+                                    opacity: billingBusy ? 0.6 : 1,
+                                    background: "#fff",
+                                    color: ORANGE,
+                                    fontWeight: 900,
+                                }}
+                                title="Libera continuar enviando e registra aceite de cobrança extra"
+                            >
+                                {billingBusy ? "Processando..." : "Aceitar cobrança extra"}
+                            </button>
+
+                            <button
+                                onClick={upgradeToFullAndRetry}
+                                disabled={billingBusy}
+                                style={{
+                                    padding: "10px 12px",
+                                    borderRadius: 10,
+                                    border: `1px solid ${ORANGE}`,
+                                    cursor: billingBusy ? "not-allowed" : "pointer",
+                                    opacity: billingBusy ? 0.6 : 1,
+                                    background: ORANGE,
+                                    color: "#fff",
+                                    fontWeight: 900,
+                                }}
+                                title="Troca para ERP Full e reenvia"
+                            >
+                                {billingBusy ? "Processando..." : "Fazer upgrade (ERP Full)"}
+                            </button>
+                        </>
+                    }
+                >
+                    <div style={{ display: "grid", gap: 10 }}>
+                        <div style={{ color: "#333", fontSize: 13 }}>
+                            Você atingiu o limite mensal de mensagens do seu plano. Para continuar enviando, escolha uma opção:
+                        </div>
+
+                        {usageLabel ? <div style={{ fontSize: 12, color: "#666" }}>{usageLabel}</div> : null}
+
+                        <div style={{ fontSize: 12, color: "#666" }}>
+                            Mensagem pendente: <span style={{ color: "#333", fontWeight: 700 }}>{pendingText ? `"${pendingText.slice(0, 80)}"` : "-"}</span>
+                        </div>
+
+                        <div style={{ fontSize: 11, color: "#666" }}>
+                            Dica: “Aceitar cobrança extra” só libera continuar (flag <code>allow_overage</code>). “Upgrade” troca o plano da empresa.
+                        </div>
+                    </div>
+                </Modal>
+            ) : null}
+
+            {/* Modal: nova conversa */}
             {newOpen ? (
                 <Modal
                     title="Nova conversa"
@@ -537,11 +680,6 @@ export default function WhatsAppInbox() {
     );
 }
 
-/**
- * Message composer component.  Renders an input and send button.  Handles
- * sending the message on Enter keypress or clicking the button.  Disables
- * itself when there is no selected thread.
- */
 function MessageComposer({
     disabled,
     onSend,
@@ -551,6 +689,7 @@ function MessageComposer({
 }) {
     const [text, setText] = useState("");
     const [sending, setSending] = useState(false);
+
     async function handleSend() {
         const t = text.trim();
         if (!t || disabled) return;
@@ -562,6 +701,7 @@ function MessageComposer({
             setSending(false);
         }
     }
+
     return (
         <div style={{ borderTop: "1px solid #eee", padding: 12, background: "#fff" }}>
             <div style={{ display: "flex", gap: 8 }}>
@@ -609,8 +749,7 @@ function MessageComposer({
 }
 
 /**
- * Generic modal component used for creating a new conversation.  Closes when
- * clicking outside the content.  Footer buttons are provided via children.
+ * Generic modal component used for creating a new conversation / upgrade prompts.
  */
 function Modal({
     title,

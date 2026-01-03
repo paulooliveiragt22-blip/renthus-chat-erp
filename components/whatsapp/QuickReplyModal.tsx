@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 
-// Define a Message type similar to the one used in WhatsAppInbox.
 type Message = {
     id: string;
     direction: "in" | "out";
@@ -14,7 +13,6 @@ type Message = {
     created_at: string;
 };
 
-// Thread type aligned with AdminSidebar
 type Thread = {
     id: string;
     phone_e164: string;
@@ -23,13 +21,16 @@ type Thread = {
     last_message_preview: string | null;
 };
 
-/**
- * QuickReplyModal
- *
- * Este componente exibe uma conversa em formato de modal flutuante, permitindo que o
- * usuário visualize as mensagens recentes e responda rapidamente sem sair da tela
- * atual. Ao abrir, ele marca a conversa como lida (POST /api/whatsapp/threads/:id/read).
- */
+type Usage = {
+    allowed: boolean;
+    feature_key: string;
+    year_month: string;
+    used: number;
+    limit_per_month: number | null;
+    will_overage_by: number;
+    allow_overage: boolean;
+};
+
 export default function QuickReplyModal({
     thread,
     onClose,
@@ -43,7 +44,12 @@ export default function QuickReplyModal({
     const [sending, setSending] = useState<boolean>(false);
     const [text, setText] = useState<string>("");
 
-    // Carrega mensagens da thread
+    // ✅ upgrade modal state
+    const [limitOpen, setLimitOpen] = useState(false);
+    const [limitUsage, setLimitUsage] = useState<Usage | null>(null);
+    const [pendingText, setPendingText] = useState<string | null>(null);
+    const [billingBusy, setBillingBusy] = useState(false);
+
     async function loadMessages() {
         setLoading(true);
         setError(null);
@@ -68,7 +74,6 @@ export default function QuickReplyModal({
         }
     }
 
-    // Marca a conversa como lida para o usuário atual
     async function markAsRead() {
         try {
             await fetch(`/api/whatsapp/threads/${thread.id}/read`, {
@@ -86,35 +91,96 @@ export default function QuickReplyModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [thread.id]);
 
-    // Envia uma resposta
+    async function sendMessageDirect(msg: string) {
+        const res = await fetch("/api/whatsapp/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                to_phone_e164: thread.phone_e164,
+                text: msg,
+            }),
+        });
+
+        const json = await res.json().catch(() => ({}));
+
+        if (res.status === 402 && json?.error === "message_limit_reached" && json?.upgrade_required) {
+            setError(null);
+            setPendingText(msg);
+            setLimitUsage(json?.usage ?? null);
+            setLimitOpen(true);
+            return;
+        }
+
+        if (!res.ok) {
+            setError(json?.error ?? `Erro ao enviar mensagem (HTTP ${res.status})`);
+            return;
+        }
+
+        setText("");
+        await loadMessages();
+    }
+
     async function sendMessage() {
         const trimmed = text.trim();
         if (!trimmed) return;
         setSending(true);
         try {
-            const res = await fetch("/api/whatsapp/send", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                    to_phone_e164: thread.phone_e164,
-                    text: trimmed,
-                }),
-            });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                setError(json?.error ?? `Erro ao enviar mensagem (HTTP ${res.status})`);
-                setSending(false);
-                return;
-            }
-            setText("");
-            // Recarrega mensagens após enviar
-            await loadMessages();
+            await sendMessageDirect(trimmed);
         } catch (e: any) {
             console.error(e);
             setError("Falha ao enviar mensagem");
         } finally {
             setSending(false);
+        }
+    }
+
+    async function acceptOverageAndRetry() {
+        if (!pendingText) return;
+        setBillingBusy(true);
+        setError(null);
+        try {
+            const res = await fetch("/api/billing/allow-overage", { method: "POST", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json?.error ?? `Falha ao liberar overage (HTTP ${res.status})`);
+                return;
+            }
+            setLimitOpen(false);
+            await sendMessageDirect(pendingText);
+            setPendingText(null);
+        } catch (e: any) {
+            console.error(e);
+            setError("Falha ao liberar overage");
+        } finally {
+            setBillingBusy(false);
+        }
+    }
+
+    async function upgradeToFullAndRetry() {
+        if (!pendingText) return;
+        setBillingBusy(true);
+        setError(null);
+        try {
+            const res = await fetch("/api/billing/upgrade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ plan_key: "full_erp" }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json?.error ?? `Falha ao fazer upgrade (HTTP ${res.status})`);
+                return;
+            }
+            setLimitOpen(false);
+            await sendMessageDirect(pendingText);
+            setPendingText(null);
+        } catch (e: any) {
+            console.error(e);
+            setError("Falha ao fazer upgrade");
+        } finally {
+            setBillingBusy(false);
         }
     }
 
@@ -128,14 +194,19 @@ export default function QuickReplyModal({
     }
 
     const reversed = useMemo(() => {
-        // Mostra mensagens da mais antiga para a mais recente (listagem "normal")
         return messages.slice().sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     }, [messages]);
+
+    const usageLabel = useMemo(() => {
+        if (!limitUsage) return null;
+        const lim = limitUsage.limit_per_month;
+        if (lim == null) return `Uso: ${limitUsage.used} (sem limite definido)`;
+        return `Uso: ${limitUsage.used} / ${lim} • Excedente previsto: ${limitUsage.will_overage_by}`;
+    }, [limitUsage]);
 
     return (
         <div
             onMouseDown={(e) => {
-                // Fechar modal se clicar fora da caixa de diálogo
                 if (e.target === e.currentTarget) onClose();
             }}
             style={{
@@ -195,7 +266,7 @@ export default function QuickReplyModal({
                                                 padding: "10px 12px",
                                                 borderRadius: 12,
                                                 border: "1px solid #e6e6e6",
-                                                background: isOut ? "#fff" : "#ffffff",
+                                                background: "#fff",
                                             }}
                                         >
                                             <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{m.body ?? ""}</div>
@@ -212,7 +283,7 @@ export default function QuickReplyModal({
                     )}
                 </div>
 
-                {/* Compositor de mensagens */}
+                {/* Compositor */}
                 <div style={{ borderTop: "1px solid #eee", padding: 12, background: "#fff" }}>
                     <div style={{ display: "flex", gap: 8 }}>
                         <input
@@ -246,6 +317,88 @@ export default function QuickReplyModal({
                         </button>
                     </div>
                 </div>
+
+                {/* Upgrade modal */}
+                {limitOpen ? (
+                    <div
+                        onMouseDown={(e) => {
+                            if (e.currentTarget === e.target && !billingBusy) setLimitOpen(false);
+                        }}
+                        style={{
+                            position: "fixed",
+                            inset: 0,
+                            background: "rgba(0,0,0,0.35)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: 16,
+                            zIndex: 120,
+                        }}
+                    >
+                        <div style={{ width: "min(520px, 100%)", background: "#fff", borderRadius: 14, border: "1px solid #eee", overflow: "hidden" }}>
+                            <div style={{ padding: 12, borderBottom: "1px solid #eee", fontWeight: 900, color: "#3B246B" }}>Limite do plano atingido</div>
+                            <div style={{ padding: 12, display: "grid", gap: 10 }}>
+                                <div style={{ fontSize: 13 }}>
+                                    Você atingiu o limite mensal de mensagens. Para continuar enviando, escolha uma opção:
+                                </div>
+                                {usageLabel ? <div style={{ fontSize: 12, color: "#666" }}>{usageLabel}</div> : null}
+                                <div style={{ fontSize: 12, color: "#666" }}>
+                                    Mensagem pendente: <b>{pendingText ? `"${pendingText.slice(0, 80)}"` : "-"}</b>
+                                </div>
+                            </div>
+                            <div style={{ padding: 12, borderTop: "1px solid #eee", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                                <button
+                                    onClick={() => setLimitOpen(false)}
+                                    disabled={billingBusy}
+                                    style={{
+                                        padding: "10px 12px",
+                                        borderRadius: 10,
+                                        border: "1px solid #3B246B",
+                                        background: "#fff",
+                                        color: "#3B246B",
+                                        fontWeight: 900,
+                                        cursor: billingBusy ? "not-allowed" : "pointer",
+                                        opacity: billingBusy ? 0.6 : 1,
+                                    }}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={acceptOverageAndRetry}
+                                    disabled={billingBusy}
+                                    style={{
+                                        padding: "10px 12px",
+                                        borderRadius: 10,
+                                        border: "1px solid #FF6600",
+                                        background: "#fff",
+                                        color: "#FF6600",
+                                        fontWeight: 900,
+                                        cursor: billingBusy ? "not-allowed" : "pointer",
+                                        opacity: billingBusy ? 0.6 : 1,
+                                    }}
+                                >
+                                    {billingBusy ? "Processando..." : "Aceitar cobrança extra"}
+                                </button>
+                                <button
+                                    onClick={upgradeToFullAndRetry}
+                                    disabled={billingBusy}
+                                    style={{
+                                        padding: "10px 12px",
+                                        borderRadius: 10,
+                                        border: "1px solid #FF6600",
+                                        background: "#FF6600",
+                                        color: "#fff",
+                                        fontWeight: 900,
+                                        cursor: billingBusy ? "not-allowed" : "pointer",
+                                        opacity: billingBusy ? 0.6 : 1,
+                                    }}
+                                >
+                                    {billingBusy ? "Processando..." : "Fazer upgrade (ERP Full)"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </div>
     );
