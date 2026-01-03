@@ -2,8 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
-const PURPLE = "#3B246B";
+// Primary colour palette for the WhatsApp inbox.  Orange is used for primary
+// actions (create conversation) and purple for secondary actions (send).
 const ORANGE = "#FF6600";
+const PURPLE = "#3B246B";
 
 type Thread = {
     id: string;
@@ -30,57 +32,52 @@ function formatDT(ts?: string | null) {
     try {
         return new Date(ts).toLocaleString("pt-BR");
     } catch {
-        return ts;
+        return ts || "";
     }
-}
-
-function shortPhone(p: string) {
-    return p;
-}
-
-function onlyDigits(v: string) {
-    return (v ?? "").replace(/\D+/g, "");
 }
 
 /**
- * Aceita:
- * - "66999999999"
- * - "66 99999-9999"
- * - "(66) 99999-9999"
- * - "5566999999999"
- * - "+5566999999999"
- *
- * Retorna E.164: +55XXXXXXXXXXX
+ * Convert an input containing digits and optional punctuation into a valid
+ * Brazilian E.164 number.  Handles plain 11-digit strings (e.g. 66999999999)
+ * or values already prefaced with +55.  Returns either an E.164 string or an
+ * error message.
  */
-function normalizeBrazilToE164(input: string) {
+function normalizeBrazilToE164(input: string): { ok: true; e164: string } | { ok: false; error: string } {
     const raw = (input ?? "").trim();
-    if (!raw) return { ok: false as const, error: "Telefone obrigatório" };
+    if (!raw) return { ok: false, error: "Telefone obrigatório" };
 
+    // Accept already valid E.164 numbers
     if (raw.startsWith("+")) {
         const digits = raw.replace(/\s+/g, "");
-        if (/^\+\d{8,16}$/.test(digits)) return { ok: true as const, e164: digits };
-        return { ok: false as const, error: "Telefone inválido. Ex: +5566999999999" };
+        if (/^\+\d{8,16}$/.test(digits)) return { ok: true, e164: digits };
+        return { ok: false, error: "Telefone inválido. Ex: +5566999999999" };
     }
 
-    const digits = onlyDigits(raw);
+    // Remove all non-digits
+    const digits = raw.replace(/\D+/g, "");
 
-    // caso já venha com 55 + DDD + número
-    if (digits.startsWith("55") && digits.length >= 12 && digits.length <= 13 + 2) {
+    // If starts with country code 55 and length is acceptable
+    if (digits.startsWith("55") && digits.length >= 12 && digits.length <= 14) {
         const e164 = `+${digits}`;
-        if (/^\+\d{8,16}$/.test(e164)) return { ok: true as const, e164 };
-        return { ok: false as const, error: "Telefone inválido" };
+        if (/^\+\d{8,16}$/.test(e164)) return { ok: true, e164 };
+        return { ok: false, error: "Telefone inválido" };
     }
 
-    // BR padrão: DDD(2) + número (8 ou 9)
-    // Ex: 66 + 999999999 (11 dígitos total)
+    // Expect DDD (2) + number (8 or 9)
     if (digits.length === 10 || digits.length === 11) {
-        const e164 = `+55${digits}`;
-        return { ok: true as const, e164 };
+        return { ok: true, e164: `+55${digits}` };
     }
 
-    return { ok: false as const, error: "Use formato BR: 66999999999 (DDD + número)" };
+    return { ok: false, error: "Use formato BR: 66999999999 (DDD + número)" };
 }
 
+/**
+ * WhatsApp inbox component.  Displays a list of threads in the left column
+ * and messages in the right column.  Allows starting a new conversation by
+ * phone number.  Polls periodically for updates.  This component is a
+ * client component because it uses `useState`, `useEffect`, and fetches
+ * data on the client.
+ */
 export default function WhatsAppInbox() {
     const [threads, setThreads] = useState<Thread[]>([]);
     const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -90,34 +87,36 @@ export default function WhatsAppInbox() {
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
-    // modal "Nova conversa"
+    // Modal state for creating a new conversation
     const [newOpen, setNewOpen] = useState(false);
     const [newPhoneBR, setNewPhoneBR] = useState("");
     const [newName, setNewName] = useState("");
     const [creatingThread, setCreatingThread] = useState(false);
 
+    /**
+     * Load threads from the API.  Accepts an optional thread ID to preserve
+     * selection when refreshing or after creating a new thread.
+     */
     async function loadThreads(nextSelectedId?: string | null) {
         setLoadingThreads(true);
         setErr(null);
-
         try {
             const url = new URL("/api/whatsapp/threads", window.location.origin);
             url.searchParams.set("limit", "60");
             if (q.trim()) url.searchParams.set("q", q.trim());
-
             const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
-
             if (!res.ok) {
                 setErr(json?.error ?? `Erro ao carregar threads (HTTP ${res.status})`);
                 setThreads([]);
                 setLoadingThreads(false);
                 return;
             }
-
             const list: Thread[] = Array.isArray(json.threads) ? json.threads : [];
             setThreads(list);
-
+            // Preserve selection: if the provided nextSelectedId exists, use it;
+            // otherwise keep current selection if it still exists; otherwise
+            // select the first thread.
             const desired = nextSelectedId ?? selectedThreadId;
             if (desired && list.some((t) => t.id === desired)) {
                 setSelectedThreadId(desired);
@@ -126,7 +125,6 @@ export default function WhatsAppInbox() {
             } else if (desired && !list.some((t) => t.id === desired)) {
                 setSelectedThreadId(list[0]?.id ?? null);
             }
-
             setLoadingThreads(false);
         } catch (e: any) {
             console.error(e);
@@ -136,24 +134,23 @@ export default function WhatsAppInbox() {
         }
     }
 
+    /**
+     * Load messages for a given thread ID.
+     */
     async function loadMessages(threadId: string) {
         setLoadingMessages(true);
         setErr(null);
-
         try {
             const url = new URL(`/api/whatsapp/threads/${threadId}/messages`, window.location.origin);
             url.searchParams.set("limit", "200");
-
             const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
-
             if (!res.ok) {
                 setErr(json?.error ?? `Erro ao carregar mensagens (HTTP ${res.status})`);
                 setMessages([]);
                 setLoadingMessages(false);
                 return;
             }
-
             setMessages(Array.isArray(json.messages) ? json.messages : []);
             setLoadingMessages(false);
         } catch (e: any) {
@@ -164,92 +161,86 @@ export default function WhatsAppInbox() {
         }
     }
 
+    // Load threads on mount
     useEffect(() => {
         loadThreads();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Load messages when selected thread changes
     useEffect(() => {
-        if (selectedThreadId) loadMessages(selectedThreadId);
-        else setMessages([]);
+        if (selectedThreadId) {
+            loadMessages(selectedThreadId);
+        } else {
+            setMessages([]);
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
 
+    // Poll for updates every 8 seconds
     useEffect(() => {
         const id = window.setInterval(() => {
             loadThreads();
             if (selectedThreadId) loadMessages(selectedThreadId);
         }, 8000);
-
         return () => window.clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId, q]);
 
-    const selectedThread = useMemo(
-        () => threads.find((t) => t.id === selectedThreadId) ?? null,
-        [threads, selectedThreadId]
-    );
+    const selectedThread = useMemo(() => threads.find((t) => t.id === selectedThreadId) ?? null, [threads, selectedThreadId]);
 
+    /**
+     * Send a message to the currently selected thread.  Calls the send API
+     * and refreshes messages and threads on success.
+     */
     async function sendMessage(text: string) {
         if (!selectedThread) return;
-
         const res = await fetch("/api/whatsapp/send", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({
-                to_phone_e164: selectedThread.phone_e164,
-                text,
-            }),
+            body: JSON.stringify({ to_phone_e164: selectedThread.phone_e164, text }),
         });
-
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
             setErr(json?.error ?? "Falha ao enviar mensagem");
             return;
         }
-
         await loadMessages(selectedThread.id);
         await loadThreads(selectedThread.id);
     }
 
+    /**
+     * Create a new WhatsApp thread by calling the create API.  The phone
+     * number is converted from BR format to E.164 before sending.
+     */
     async function createThread() {
         const name = newName.trim();
         const phoneParsed = normalizeBrazilToE164(newPhoneBR);
-
         if (!phoneParsed.ok) {
             setErr(phoneParsed.error);
             return;
         }
-
         setCreatingThread(true);
         setErr(null);
-
         try {
             const res = await fetch("/api/whatsapp/threads/create", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({
-                    phone_e164: phoneParsed.e164,
-                    profile_name: name || undefined,
-                }),
+                body: JSON.stringify({ phone_e164: phoneParsed.e164, profile_name: name || undefined }),
             });
-
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
                 setErr(json?.error ?? `Falha ao criar conversa (HTTP ${res.status})`);
                 setCreatingThread(false);
                 return;
             }
-
             const created: Thread | null = json.thread ?? null;
             const newId = created?.id ?? null;
-
             setNewOpen(false);
             setNewPhoneBR("");
             setNewName("");
-
             await loadThreads(newId);
             if (newId) await loadMessages(newId);
         } catch (e: any) {
@@ -260,6 +251,7 @@ export default function WhatsAppInbox() {
         }
     }
 
+    // Helper to display a hint for the phone input based on the current value
     const phoneHint = useMemo(() => {
         const v = newPhoneBR.trim();
         if (!v) return "Exemplo: 66999999999";
@@ -278,6 +270,7 @@ export default function WhatsAppInbox() {
                 boxSizing: "border-box",
             }}
         >
+            {/* Threads column */}
             <aside
                 style={{
                     border: "1px solid #eee",
@@ -292,7 +285,6 @@ export default function WhatsAppInbox() {
                 <div style={{ padding: 12, borderBottom: "1px solid #eee" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                         <div style={{ fontWeight: 900, color: PURPLE }}>WhatsApp</div>
-
                         <button
                             onClick={() => {
                                 setErr(null);
@@ -313,19 +305,12 @@ export default function WhatsAppInbox() {
                             + Nova conversa
                         </button>
                     </div>
-
                     <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
                         <input
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
                             placeholder="Buscar por nome/telefone..."
-                            style={{
-                                flex: 1,
-                                padding: 10,
-                                borderRadius: 10,
-                                border: "1px solid #ddd",
-                                outline: "none",
-                            }}
+                            style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #ddd", outline: "none" }}
                             onFocus={(e) => {
                                 e.currentTarget.style.borderColor = PURPLE;
                                 e.currentTarget.style.boxShadow = `0 0 0 3px rgba(59,36,107,0.12)`;
@@ -350,10 +335,8 @@ export default function WhatsAppInbox() {
                             Buscar
                         </button>
                     </div>
-
                     {err ? <div style={{ marginTop: 10, color: "crimson", fontSize: 12 }}>{err}</div> : null}
                 </div>
-
                 <div style={{ overflowY: "auto", minHeight: 0 }}>
                     {loadingThreads ? (
                         <div style={{ padding: 12, color: "#666" }}>Carregando conversas...</div>
@@ -378,13 +361,11 @@ export default function WhatsAppInbox() {
                                 >
                                     <div style={{ fontWeight: 900, display: "flex", justifyContent: "space-between", gap: 8 }}>
                                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            {t.profile_name || shortPhone(t.phone_e164)}
+                                            {t.profile_name || t.phone_e164}
                                         </span>
                                         <span style={{ fontWeight: 700, fontSize: 11, color: "#666" }}>{formatDT(t.last_message_at)}</span>
                                     </div>
-
                                     <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{t.phone_e164}</div>
-
                                     {t.last_message_preview ? (
                                         <div
                                             style={{
@@ -405,7 +386,7 @@ export default function WhatsAppInbox() {
                     )}
                 </div>
             </aside>
-
+            {/* Messages column */}
             <section
                 style={{
                     border: "1px solid #eee",
@@ -419,11 +400,12 @@ export default function WhatsAppInbox() {
             >
                 <div style={{ padding: 12, borderBottom: "1px solid #eee" }}>
                     <div style={{ fontWeight: 900, color: PURPLE }}>
-                        {selectedThread ? (selectedThread.profile_name || selectedThread.phone_e164) : "Selecione uma conversa"}
+                        {selectedThread ? selectedThread.profile_name || selectedThread.phone_e164 : "Selecione uma conversa"}
                     </div>
-                    {selectedThread ? <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div> : null}
+                    {selectedThread ? (
+                        <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div>
+                    ) : null}
                 </div>
-
                 <div style={{ padding: 12, overflowY: "auto", minHeight: 0, background: "#fafafa" }}>
                     {!selectedThread ? (
                         <div style={{ color: "#666" }}>Selecione uma conversa à esquerda.</div>
@@ -438,10 +420,7 @@ export default function WhatsAppInbox() {
                                 return (
                                     <div
                                         key={m.id}
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: isOut ? "flex-end" : "flex-start",
-                                        }}
+                                        style={{ display: "flex", justifyContent: isOut ? "flex-end" : "flex-start" }}
                                     >
                                         <div
                                             style={{
@@ -465,10 +444,8 @@ export default function WhatsAppInbox() {
                         </div>
                     )}
                 </div>
-
                 <MessageComposer disabled={!selectedThread} onSend={sendMessage} />
             </section>
-
             {newOpen ? (
                 <Modal
                     title="Nova conversa"
@@ -514,21 +491,13 @@ export default function WhatsAppInbox() {
                 >
                     <div style={{ display: "grid", gap: 10 }}>
                         <div>
-                            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: PURPLE }}>
-                                Telefone (BR)
-                            </div>
+                            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: PURPLE }}>Telefone (BR)</div>
                             <input
                                 value={newPhoneBR}
                                 onChange={(e) => setNewPhoneBR(e.target.value)}
                                 placeholder="66999999999"
                                 disabled={creatingThread}
-                                style={{
-                                    width: "100%",
-                                    padding: 12,
-                                    borderRadius: 12,
-                                    border: "1px solid #ddd",
-                                    outline: "none",
-                                }}
+                                style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #ddd", outline: "none" }}
                                 onFocus={(e) => {
                                     e.currentTarget.style.borderColor = PURPLE;
                                     e.currentTarget.style.boxShadow = `0 0 0 3px rgba(59,36,107,0.12)`;
@@ -538,27 +507,16 @@ export default function WhatsAppInbox() {
                                     e.currentTarget.style.boxShadow = "none";
                                 }}
                             />
-                            <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>
-                                {phoneHint}
-                            </div>
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>{phoneHint}</div>
                         </div>
-
                         <div>
-                            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: PURPLE }}>
-                                Nome (opcional)
-                            </div>
+                            <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: PURPLE }}>Nome (opcional)</div>
                             <input
                                 value={newName}
                                 onChange={(e) => setNewName(e.target.value)}
                                 placeholder="Ex: João da Silva"
                                 disabled={creatingThread}
-                                style={{
-                                    width: "100%",
-                                    padding: 12,
-                                    borderRadius: 12,
-                                    border: "1px solid #ddd",
-                                    outline: "none",
-                                }}
+                                style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #ddd", outline: "none" }}
                                 onFocus={(e) => {
                                     e.currentTarget.style.borderColor = PURPLE;
                                     e.currentTarget.style.boxShadow = `0 0 0 3px rgba(59,36,107,0.12)`;
@@ -569,7 +527,6 @@ export default function WhatsAppInbox() {
                                 }}
                             />
                         </div>
-
                         <div style={{ fontSize: 11, color: "#666" }}>
                             Isso cria a conversa no banco sem enviar mensagem. Depois você envia normalmente.
                         </div>
@@ -580,6 +537,11 @@ export default function WhatsAppInbox() {
     );
 }
 
+/**
+ * Message composer component.  Renders an input and send button.  Handles
+ * sending the message on Enter keypress or clicking the button.  Disables
+ * itself when there is no selected thread.
+ */
 function MessageComposer({
     disabled,
     onSend,
@@ -589,11 +551,9 @@ function MessageComposer({
 }) {
     const [text, setText] = useState("");
     const [sending, setSending] = useState(false);
-
     async function handleSend() {
         const t = text.trim();
         if (!t || disabled) return;
-
         setSending(true);
         try {
             await onSend(t);
@@ -602,7 +562,6 @@ function MessageComposer({
             setSending(false);
         }
     }
-
     return (
         <div style={{ borderTop: "1px solid #eee", padding: 12, background: "#fff" }}>
             <div style={{ display: "flex", gap: 8 }}>
@@ -617,13 +576,7 @@ function MessageComposer({
                             handleSend();
                         }
                     }}
-                    style={{
-                        flex: 1,
-                        padding: 12,
-                        borderRadius: 12,
-                        border: "1px solid #ddd",
-                        outline: "none",
-                    }}
+                    style={{ flex: 1, padding: 12, borderRadius: 12, border: "1px solid #ddd", outline: "none" }}
                     onFocus={(e) => {
                         e.currentTarget.style.borderColor = PURPLE;
                         e.currentTarget.style.boxShadow = `0 0 0 3px rgba(59,36,107,0.12)`;
@@ -650,13 +603,15 @@ function MessageComposer({
                     {sending ? "Enviando..." : "Enviar"}
                 </button>
             </div>
-            <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>
-                Dica: Enter envia • Shift+Enter quebra linha
-            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>Dica: Enter envia • Shift+Enter quebra linha</div>
         </div>
     );
 }
 
+/**
+ * Generic modal component used for creating a new conversation.  Closes when
+ * clicking outside the content.  Footer buttons are provided via children.
+ */
 function Modal({
     title,
     children,
@@ -693,9 +648,7 @@ function Modal({
                     overflow: "hidden",
                 }}
             >
-                <div style={{ padding: 12, borderBottom: "1px solid #eee", fontWeight: 900, color: PURPLE }}>
-                    {title}
-                </div>
+                <div style={{ padding: 12, borderBottom: "1px solid #eee", fontWeight: 900, color: PURPLE }}>{title}</div>
                 <div style={{ padding: 12 }}>{children}</div>
                 <div
                     style={{
