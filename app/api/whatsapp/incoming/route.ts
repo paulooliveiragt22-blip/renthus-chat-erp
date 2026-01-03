@@ -1,11 +1,26 @@
 import { NextResponse } from "next/server";
-import twilio from "twilio";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 function stripWhatsAppPrefix(v: string) {
-    return v.startsWith("whatsapp:") ? v.replace("whatsapp:", "") : v;
+    const s = String(v ?? "").trim();
+    return s.startsWith("whatsapp:") ? s.replace("whatsapp:", "") : s;
+}
+
+function normalizeE164(v: string) {
+    const p = stripWhatsAppPrefix(v).trim();
+    if (!p) return null;
+    if (!p.startsWith("+")) return null;
+    return p;
+}
+
+function safeJson(obj: any) {
+    try {
+        return JSON.parse(JSON.stringify(obj));
+    } catch {
+        return obj;
+    }
 }
 
 async function resolveTwilioChannel(admin: ReturnType<typeof createAdminClient>, toAddr: string) {
@@ -44,24 +59,26 @@ async function getOrCreateThread(params: {
 }) {
     const { admin, companyId, channelId, fromPhoneE164, waFrom, waTo, profileName } = params;
 
-    const { data: existing } = await admin
+    const { data: existing, error: exErr } = await admin
         .from("whatsapp_threads")
-        .select("id")
+        .select("id, profile_name")
         .eq("company_id", companyId)
         .eq("phone_e164", fromPhoneE164)
         .maybeSingle();
 
+    if (exErr) throw new Error(exErr.message);
+
     if (existing?.id) {
-        await admin
-            .from("whatsapp_threads")
-            .update({
-                channel_id: channelId,
-                wa_from: waFrom,
-                wa_to: waTo,
-                profile_name: profileName ?? null,
-                last_message_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id);
+        // ✅ não sobrescreve nome com null se não veio
+        const updatePayload: any = {
+            channel_id: channelId,
+            wa_from: waFrom,
+            wa_to: waTo,
+            last_message_at: new Date().toISOString(),
+        };
+        if (profileName) updatePayload.profile_name = profileName;
+
+        await admin.from("whatsapp_threads").update(updatePayload).eq("id", existing.id);
 
         return existing.id;
     }
@@ -76,6 +93,7 @@ async function getOrCreateThread(params: {
             wa_to: waTo,
             profile_name: profileName ?? null,
             last_message_at: new Date().toISOString(),
+            last_message_preview: null,
         })
         .select("id")
         .single();
@@ -95,18 +113,37 @@ export async function POST(req: Request) {
     const ProfileName = String(form.get("ProfileName") ?? "");
     const NumMedia = Number(form.get("NumMedia") ?? 0);
 
+    // callbacks de status às vezes vêm assim
+    const MessageStatus = String(form.get("MessageStatus") ?? form.get("SmsStatus") ?? "");
+
     const admin = createAdminClient();
+
+    // ✅ se for status callback (sem Body) apenas atualiza whatsapp_messages
+    if ((!Body || !Body.trim()) && MessageSid && MessageStatus) {
+        await admin
+            .from("whatsapp_messages")
+            .update({
+                status: MessageStatus,
+                raw_payload: safeJson(Object.fromEntries(form.entries())),
+            })
+            .eq("provider", "twilio")
+            .eq("provider_message_id", MessageSid);
+
+        // TwiML vazio
+        return new NextResponse(`<Response></Response>`, { status: 200, headers: { "Content-Type": "text/xml" } });
+    }
 
     // Identifica company pelo canal Twilio (To)
     const channel = await resolveTwilioChannel(admin, To);
     if (!channel) {
-        // sem canal configurado, responde ok mas loga
-        const twiml = new twilio.twiml.MessagingResponse();
-        twiml.message("✅ Recebido. (Canal não configurado no ERP)");
-        return new NextResponse(twiml.toString(), { status: 200, headers: { "Content-Type": "text/xml" } });
+        // Sem canal configurado -> responde 200 pra evitar reentrega infinita
+        return new NextResponse(`<Response></Response>`, { status: 200, headers: { "Content-Type": "text/xml" } });
     }
 
-    const fromPhoneE164 = stripWhatsAppPrefix(From);
+    const fromPhoneE164 = normalizeE164(From);
+    if (!fromPhoneE164) {
+        return new NextResponse(`<Response></Response>`, { status: 200, headers: { "Content-Type": "text/xml" } });
+    }
 
     const threadId = await getOrCreateThread({
         admin,
@@ -118,8 +155,10 @@ export async function POST(req: Request) {
         profileName: ProfileName || null,
     });
 
-    // Salva mensagem inbound (provider != null => trigger conta usage)
-    await admin.from("whatsapp_messages").insert({
+    const bodyText = (Body ?? "").trim();
+
+    // Salva mensagem inbound
+    const { error: insErr } = await admin.from("whatsapp_messages").insert({
         thread_id: threadId,
         direction: "in",
         channel: "whatsapp",
@@ -129,16 +168,25 @@ export async function POST(req: Request) {
         twilio_account_sid: AccountSid || null,
         from_addr: From,
         to_addr: To,
-        body: Body || null,
+        body: bodyText || null,
         num_media: Number.isFinite(NumMedia) ? NumMedia : 0,
         status: "received",
-        raw_payload: Object.fromEntries(form.entries()),
+        raw_payload: safeJson(Object.fromEntries(form.entries())),
     });
 
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message(`✅ OK! Recebi: ${Body || "(vazio)"}`);
+    // ✅ atualiza preview/last_message_at na thread (só se inseriu sem duplicar)
+    if (!insErr) {
+        await admin
+            .from("whatsapp_threads")
+            .update({
+                last_message_at: new Date().toISOString(),
+                last_message_preview: (bodyText ?? "").slice(0, 120) || null,
+            })
+            .eq("id", threadId);
+    }
 
-    return new NextResponse(twiml.toString(), {
+    // ✅ NÃO responder mensagem automática (TwiML vazio)
+    return new NextResponse(`<Response></Response>`, {
         status: 200,
         headers: { "Content-Type": "text/xml" },
     });
