@@ -1,3 +1,10 @@
+## Documentação
+- Visão geral do projeto: docs/PROJECT_SPEC.md
+- Arquitetura: docs/ARCHITECTURE.md
+- Planos e billing: docs/BILLING_PLANS.md
+- Estado atual do banco: docs/DB_CURRENT_STATE.md
+
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Category = { id: string; name: string };
@@ -12,21 +12,27 @@ type VariantRow = {
     tempId: string;
 
     hasVolume: boolean;
-    volumeValue: string; // ex: "350" ou "2"
-    unit: Unit; // none/ml/l/kg
+    volumeValue: string;
+    unit: Unit;
 
     details: string;
 
-    unitPrice: string; // "0,00"
+    unitPrice: string;
 
     hasCase: boolean;
-    caseQty: string; // livre: "12", "24"...
-    casePrice: string; // "0,00"
+    caseQty: string;
+    casePrice: string;
 };
 
-function newRow(): VariantRow {
+function makeClientId() {
+    // Só é usado em ações do usuário (client), então não dá mismatch.
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function newRow(tempId: string): VariantRow {
     return {
-        tempId: crypto.randomUUID(),
+        tempId,
 
         hasVolume: false,
         volumeValue: "",
@@ -50,7 +56,6 @@ function formatBRLInput(raw: string) {
 }
 
 function brlToNumber(v: string) {
-    // "1.234,56" -> 1234.56
     const cleaned = v.replace(/\./g, "").replace(",", ".");
     const n = Number(cleaned);
     return isNaN(n) ? 0 : n;
@@ -75,16 +80,43 @@ function Modal({
 }) {
     if (!open) return null;
 
+    const theme = {
+        purple: "#3B246B",
+        orange: "#FF6600",
+        border: "#E7E3EF",
+        text: "#201A2B",
+        muted: "#6B647A",
+    };
+
+    const btn: React.CSSProperties = {
+        borderRadius: 10,
+        padding: "7px 10px",
+        fontSize: 12.5,
+        fontWeight: 900,
+        cursor: "pointer",
+        border: `1px solid ${theme.border}`,
+        background: "#fff",
+        color: theme.text,
+        whiteSpace: "nowrap",
+    };
+
+    const btnPrimary: React.CSSProperties = {
+        ...btn,
+        background: theme.purple,
+        border: `1px solid ${theme.purple}`,
+        color: "#fff",
+    };
+
     return (
         <div
             onClick={onClose}
             style={{
                 position: "fixed",
                 inset: 0,
-                background: "rgba(0,0,0,0.35)",
+                background: "rgba(0,0,0,0.40)",
                 display: "grid",
                 placeItems: "center",
-                padding: 16,
+                padding: 12,
                 zIndex: 50,
             }}
         >
@@ -94,20 +126,18 @@ function Modal({
                     width: "min(520px, 100%)",
                     background: "#fff",
                     borderRadius: 14,
-                    border: "1px solid #ddd",
-                    padding: 16,
+                    border: `1px solid ${theme.border}`,
+                    padding: 12,
+                    boxShadow: "0 12px 28px rgba(0,0,0,0.12)",
                 }}
             >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{title}</h3>
-                    <button
-                        onClick={onClose}
-                        style={{ border: "1px solid #ccc", borderRadius: 10, padding: "6px 10px", cursor: "pointer" }}
-                    >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 950, color: theme.text }}>{title}</h3>
+                    <button onClick={onClose} style={btnPrimary}>
                         Fechar
                     </button>
                 </div>
-                <div style={{ marginTop: 12 }}>{children}</div>
+                <div style={{ marginTop: 10 }}>{children}</div>
             </div>
         </div>
     );
@@ -120,24 +150,85 @@ export default function ProdutosPage() {
     const [categories, setCategories] = useState<Category[]>([]);
     const [brands, setBrands] = useState<Brand[]>([]);
 
-    // Categoria UX (boolean selecionar existente)
-    const [useExistingCategory, setUseExistingCategory] = useState(false);
+    // agora é SEM checkbox: sempre "selecionar existente" (invisível pro usuário)
     const [categoryId, setCategoryId] = useState("");
-    const [categoryNewName, setCategoryNewName] = useState("");
-    const [categoryModalOpen, setCategoryModalOpen] = useState(false);
-
-    // Marca UX (boolean selecionar existente)
-    const [useExistingBrand, setUseExistingBrand] = useState(false);
     const [brandId, setBrandId] = useState("");
+
+    // modal input
+    const [categoryNewName, setCategoryNewName] = useState("");
     const [brandNewName, setBrandNewName] = useState("");
+    const [categoryModalOpen, setCategoryModalOpen] = useState(false);
     const [brandModalOpen, setBrandModalOpen] = useState(false);
 
-    // linhas
-    const [rows, setRows] = useState<VariantRow[]>([newRow()]);
+    // linhas (ID estável no SSR)
+    const [rows, setRows] = useState<VariantRow[]>(() => [newRow("row-0")]);
 
     // status
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
+
+    const theme = {
+        purple: "#3B246B",
+        orange: "#FF6600",
+        border: "#E7E3EF",
+        border2: "#F0EDF6",
+        text: "#201A2B",
+        muted: "#6B647A",
+        panel: "#FBFAFE",
+        softPurple: "#F4F0FF",
+    };
+
+    const shadowSm = "0 8px 20px rgba(32,26,43,0.06)";
+
+    // mais slim (produto base ~50% menor)
+    const inputSm: React.CSSProperties = {
+        width: "100%",
+        padding: "6px 8px",
+        border: `1px solid ${theme.border}`,
+        borderRadius: 10,
+        fontSize: 12,
+        outline: "none",
+        background: "#fff",
+        color: theme.text,
+    };
+
+    const selectSm: React.CSSProperties = {
+        ...inputSm,
+        padding: "6px 8px",
+    };
+
+    const btnBase: React.CSSProperties = {
+        borderRadius: 10,
+        padding: "6px 9px",
+        fontSize: 12,
+        fontWeight: 900,
+        cursor: "pointer",
+        border: `1px solid ${theme.border}`,
+        background: "#fff",
+        color: theme.text,
+        whiteSpace: "nowrap",
+    };
+
+    const btnPrimary: React.CSSProperties = {
+        ...btnBase,
+        background: theme.purple,
+        border: `1px solid ${theme.purple}`,
+        color: "#fff",
+    };
+
+    const btnOrange: React.CSSProperties = {
+        ...btnBase,
+        background: theme.orange,
+        border: `1px solid ${theme.orange}`,
+        color: "#fff",
+    };
+
+    const btnGhost: React.CSSProperties = {
+        ...btnBase,
+        background: "#fff",
+        border: `1px solid ${theme.border}`,
+        color: theme.text,
+    };
 
     async function loadLists() {
         setMsg(null);
@@ -150,8 +241,19 @@ export default function ProdutosPage() {
         if (catRes.error) setMsg(`Erro categorias: ${catRes.error.message}`);
         if (brandRes.error) setMsg(`Erro marcas: ${brandRes.error.message}`);
 
-        setCategories((catRes.data as Category[]) ?? []);
-        setBrands((brandRes.data as Brand[]) ?? []);
+        const cats = (catRes.data as Category[]) ?? [];
+        const brs = (brandRes.data as Brand[]) ?? [];
+
+        setCategories(cats);
+        setBrands(brs);
+
+        // auto-seleciona o primeiro item (se ainda não selecionou)
+        if (!categoryId && cats.length > 0) setCategoryId(cats[0].id);
+        if (!brandId && brs.length > 0) setBrandId(brs[0].id);
+
+        // se não existe nada, abre modal automaticamente
+        if (cats.length === 0) setCategoryModalOpen(true);
+        if (brs.length === 0) setBrandModalOpen(true);
     }
 
     useEffect(() => {
@@ -159,17 +261,8 @@ export default function ProdutosPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Quando usuário ativa "selecionar existente" mas não existe nada => abrir modal de adicionar
-    useEffect(() => {
-        if (useExistingCategory && categories.length === 0) setCategoryModalOpen(true);
-    }, [useExistingCategory, categories.length]);
-
-    useEffect(() => {
-        if (useExistingBrand && brands.length === 0) setBrandModalOpen(true);
-    }, [useExistingBrand, brands.length]);
-
     function addRow() {
-        setRows((prev) => [...prev, newRow()]);
+        setRows((prev) => [...prev, newRow(makeClientId())]);
     }
 
     function removeRow(tempId: string) {
@@ -214,62 +307,31 @@ export default function ProdutosPage() {
         return data.id as string;
     }
 
-    async function resolveCategoryId() {
-        // Se usuário escolheu "selecionar existente", precisa do select
-        if (useExistingCategory) {
-            if (!categoryId) return null;
-            return categoryId;
-        }
-
-        // Senão, cria nova (a ideia é "salvar" = digitar e salvar)
-        if (!categoryNewName.trim()) return null;
-        const created = await createCategory(categoryNewName);
-        if (created) setCategoryNewName("");
-        return created;
-    }
-
-    async function resolveBrandId() {
-        if (useExistingBrand) {
-            if (!brandId) return null;
-            return brandId;
-        }
-
-        if (!brandNewName.trim()) return null;
-        const created = await createBrand(brandNewName);
-        if (created) setBrandNewName("");
-        return created;
-    }
-
     async function saveAll() {
         setSaving(true);
         setMsg(null);
 
-        const finalCategoryId = await resolveCategoryId();
-        if (!finalCategoryId) {
-            setMsg("Categoria: selecione uma existente (boolean) ou adicione uma nova.");
+        if (!categoryId) {
+            setMsg("Categoria: selecione uma existente ou adicione uma nova.");
+            setSaving(false);
+            return;
+        }
+        if (!brandId) {
+            setMsg("Marca: selecione uma existente ou adicione uma nova.");
             setSaving(false);
             return;
         }
 
-        const finalBrandId = await resolveBrandId();
-        if (!finalBrandId) {
-            setMsg("Marca: selecione uma existente (boolean) ou adicione uma nova.");
-            setSaving(false);
-            return;
-        }
-
-        // Nome automático (pode mudar depois)
-        const catName = categories.find((c) => c.id === finalCategoryId)?.name ?? "Categoria";
-        const brandName = brands.find((b) => b.id === finalBrandId)?.name ?? "Marca";
+        const catName = categories.find((c) => c.id === categoryId)?.name ?? "Categoria";
+        const brandName = brands.find((b) => b.id === brandId)?.name ?? "Marca";
         const baseName = `${catName} ${brandName}`.trim();
 
-        // Cria produto base
         const { data: product, error: productErr } = await supabase
             .from("products")
             .insert({
                 name: baseName,
-                category_id: finalCategoryId,
-                brand_id: finalBrandId,
+                category_id: categoryId,
+                brand_id: brandId,
                 is_active: true,
             })
             .select("id")
@@ -283,7 +345,6 @@ export default function ProdutosPage() {
 
         const productId = product.id as string;
 
-        // Variantes
         const payload = rows.map((r) => {
             const unitPrice = brlToNumber(r.unitPrice);
             const casePrice = brlToNumber(r.casePrice);
@@ -301,7 +362,7 @@ export default function ProdutosPage() {
                 details: r.details?.trim() || null,
 
                 volume_value: volumeValue,
-                unit, // none/ml/l/kg
+                unit,
 
                 unit_price: unitPrice,
 
@@ -322,187 +383,127 @@ export default function ProdutosPage() {
         }
 
         setMsg("✅ Salvo com sucesso!");
-        setRows([newRow()]);
+        setRows([newRow("row-0")]); // volta pra um id estável
         setSaving(false);
     }
 
     return (
-        <main style={{ padding: 24, maxWidth: 1200 }}>
-            <h1 style={{ fontSize: 28, fontWeight: 800 }}>Cadastro de Produtos</h1>
-            <p style={{ marginTop: 8, color: "#555" }}>
-                Categoria e Marca têm opção de <b>selecionar existente</b> (boolean) ou <b>adicionar nova</b>.
-            </p>
+        <main style={{ padding: 12, maxWidth: 1050, margin: "0 auto", color: theme.text }}>
+            {/* CSS global estável (SEM hydration mismatch) */}
+            <style jsx global>{`
+        @media (max-width: 840px) {
+          .pb-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        input:focus,
+        select:focus {
+          border-color: ${theme.purple} !important;
+          box-shadow: 0 0 0 3px rgba(59, 36, 107, 0.12) !important;
+        }
+      `}</style>
 
-            {/* PRODUTO BASE */}
-            <section style={{ marginTop: 18, padding: 16, border: "1px solid #ddd", borderRadius: 14 }}>
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Produto base</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                    <h1 style={{ fontSize: 18, fontWeight: 950, margin: 0, letterSpacing: -0.2 }}>Cadastro de Produtos</h1>
+                    <p style={{ margin: "4px 0 0", color: theme.muted, fontSize: 12.5 }}>
+                        Categoria e Marca: seleção automática + botão de adicionar.
+                    </p>
+                </div>
+            </div>
 
-                <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
+            {/* PRODUTO BASE (bem menor) */}
+            <section
+                style={{
+                    marginTop: 10,
+                    padding: 10,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 14,
+                    background: theme.panel,
+                    boxShadow: shadowSm,
+                }}
+            >
+                <h2 style={{ margin: 0, fontSize: 13.5, fontWeight: 950 }}>Produto base</h2>
+
+                <div className="pb-grid" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(2, minmax(0, 1fr))", marginTop: 8 }}>
                     {/* CATEGORIA */}
-                    <div style={{ border: "1px solid #eee", borderRadius: 14, padding: 12 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ fontWeight: 800 }}>Categoria</div>
-                            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <input
-                                    type="checkbox"
-                                    checked={useExistingCategory}
-                                    onChange={(e) => {
-                                        const v = e.target.checked;
-                                        setUseExistingCategory(v);
-                                        setMsg(null);
-                                        if (!v) setCategoryId("");
-                                        if (v && categories.length === 0) setCategoryModalOpen(true);
-                                    }}
-                                />
-                                Selecionar existente
-                            </label>
+                    <div style={{ border: `1px solid ${theme.border2}`, borderRadius: 14, padding: 8, background: "#fff" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                            <div style={{ fontWeight: 950, fontSize: 12.5 }}>Categoria</div>
+                            <button onClick={() => setCategoryModalOpen(true)} style={btnOrange}>
+                                + Adicionar
+                            </button>
                         </div>
 
-                        {useExistingCategory ? (
-                            <>
-                                <select
-                                    value={categoryId}
-                                    onChange={(e) => setCategoryId(e.target.value)}
-                                    style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10, marginTop: 10 }}
-                                >
-                                    <option value="">Selecione...</option>
-                                    {categories.map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                            {c.name}
-                                        </option>
-                                    ))}
-                                </select>
-
-                                {categories.length > 0 && (
-                                    <button
-                                        onClick={() => setCategoryModalOpen(true)}
-                                        style={{
-                                            marginTop: 10,
-                                            padding: "10px 12px",
-                                            borderRadius: 10,
-                                            border: "1px solid #999",
-                                            cursor: "pointer",
-                                        }}
-                                    >
-                                        + Adicionar categoria
-                                    </button>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <input
-                                    placeholder="Digite para salvar nova categoria"
-                                    value={categoryNewName}
-                                    onChange={(e) => setCategoryNewName(e.target.value)}
-                                    style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10, marginTop: 10 }}
-                                />
-                                <small style={{ display: "block", marginTop: 6, color: "#666" }}>
-                                    Ao salvar, essa categoria fica guardada para usar depois.
-                                </small>
-                            </>
-                        )}
+                        <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} style={{ ...selectSm, marginTop: 8 }}>
+                            <option value="">{categories.length ? "Selecione..." : "Sem categorias"}</option>
+                            {categories.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {c.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     {/* MARCA */}
-                    <div style={{ border: "1px solid #eee", borderRadius: 14, padding: 12 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ fontWeight: 800 }}>Marca</div>
-                            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <input
-                                    type="checkbox"
-                                    checked={useExistingBrand}
-                                    onChange={(e) => {
-                                        const v = e.target.checked;
-                                        setUseExistingBrand(v);
-                                        setMsg(null);
-                                        if (!v) setBrandId("");
-                                        if (v && brands.length === 0) setBrandModalOpen(true);
-                                    }}
-                                />
-                                Selecionar existente
-                            </label>
+                    <div style={{ border: `1px solid ${theme.border2}`, borderRadius: 14, padding: 8, background: "#fff" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                            <div style={{ fontWeight: 950, fontSize: 12.5 }}>Marca</div>
+                            <button onClick={() => setBrandModalOpen(true)} style={btnOrange}>
+                                + Adicionar
+                            </button>
                         </div>
 
-                        {useExistingBrand ? (
-                            <>
-                                <select
-                                    value={brandId}
-                                    onChange={(e) => setBrandId(e.target.value)}
-                                    style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10, marginTop: 10 }}
-                                >
-                                    <option value="">Selecione...</option>
-                                    {brands.map((b) => (
-                                        <option key={b.id} value={b.id}>
-                                            {b.name}
-                                        </option>
-                                    ))}
-                                </select>
-
-                                {brands.length > 0 && (
-                                    <button
-                                        onClick={() => setBrandModalOpen(true)}
-                                        style={{
-                                            marginTop: 10,
-                                            padding: "10px 12px",
-                                            borderRadius: 10,
-                                            border: "1px solid #999",
-                                            cursor: "pointer",
-                                        }}
-                                    >
-                                        + Adicionar marca
-                                    </button>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <input
-                                    placeholder="Digite para salvar nova marca"
-                                    value={brandNewName}
-                                    onChange={(e) => setBrandNewName(e.target.value)}
-                                    style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10, marginTop: 10 }}
-                                />
-                                <small style={{ display: "block", marginTop: 6, color: "#666" }}>
-                                    Ao salvar, essa marca fica guardada para usar depois.
-                                </small>
-                            </>
-                        )}
+                        <select value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ ...selectSm, marginTop: 8 }}>
+                            <option value="">{brands.length ? "Selecione..." : "Sem marcas"}</option>
+                            {brands.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                    {b.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </div>
             </section>
 
-            {/* VARIANTES */}
-            <section style={{ marginTop: 18, padding: 16, border: "1px solid #ddd", borderRadius: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Variações (linhas)</h2>
-                    <button
-                        onClick={addRow}
-                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
-                    >
+            {/* VARIANTES (mais compactas) */}
+            <section
+                style={{
+                    marginTop: 10,
+                    padding: 10,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 14,
+                    background: theme.panel,
+                    boxShadow: shadowSm,
+                }}
+            >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <h2 style={{ margin: 0, fontSize: 13.5, fontWeight: 950 }}>Variações (linhas)</h2>
+                    <button onClick={addRow} style={btnOrange}>
                         + Adicionar linha
                     </button>
                 </div>
 
-                <div style={{ marginTop: 12, overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+                <div style={{ marginTop: 8, overflowX: "auto", borderRadius: 12, border: `1px solid ${theme.border2}`, background: "#fff" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
                         <thead>
-                            <tr style={{ background: "#f5f5f5" }}>
-                                <th style={{ textAlign: "center", padding: 10 }}>Volume?</th>
-                                <th style={{ textAlign: "left", padding: 10 }}>Volume</th>
-                                <th style={{ textAlign: "left", padding: 10 }}>Unidade</th>
-                                <th style={{ textAlign: "left", padding: 10 }}>Detalhes</th>
-                                <th style={{ textAlign: "left", padding: 10 }}>Valor unitário (R$)</th>
-                                <th style={{ textAlign: "center", padding: 10 }}>Caixa?</th>
-                                <th style={{ textAlign: "left", padding: 10 }}>Caixa com</th>
-                                <th style={{ textAlign: "left", padding: 10 }}>Valor caixa (R$)</th>
-                                <th style={{ textAlign: "center", padding: 10 }}>Ações</th>
+                            <tr style={{ background: theme.softPurple }}>
+                                <th style={{ textAlign: "center", padding: "6px 6px", fontSize: 12 }}>Vol?</th>
+                                <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 12 }}>Volume</th>
+                                <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 12 }}>Un</th>
+                                <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 12 }}>Detalhes</th>
+                                <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 12 }}>Unit (R$)</th>
+                                <th style={{ textAlign: "center", padding: "6px 6px", fontSize: 12 }}>Cx?</th>
+                                <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 12 }}>Cx c/</th>
+                                <th style={{ textAlign: "left", padding: "6px 6px", fontSize: 12 }}>Cx (R$)</th>
+                                <th style={{ textAlign: "center", padding: "6px 6px", fontSize: 12 }}>Ações</th>
                             </tr>
                         </thead>
 
                         <tbody>
                             {rows.map((r) => (
-                                <tr key={r.tempId} style={{ borderTop: "1px solid #eee" }}>
-                                    {/* VOLUME BOOL */}
-                                    <td style={{ padding: 10, textAlign: "center" }}>
+                                <tr key={r.tempId} style={{ borderTop: `1px solid ${theme.border2}` }}>
+                                    <td style={{ padding: "6px 6px", textAlign: "center" }}>
                                         <input
                                             type="checkbox"
                                             checked={r.hasVolume}
@@ -516,53 +517,48 @@ export default function ProdutosPage() {
                                         />
                                     </td>
 
-                                    {/* VOLUME VALUE */}
-                                    <td style={{ padding: 10 }}>
+                                    <td style={{ padding: "6px 6px" }}>
                                         <input
                                             disabled={!r.hasVolume}
                                             value={r.volumeValue}
                                             onChange={(e) => updateRow(r.tempId, { volumeValue: e.target.value })}
-                                            placeholder={r.hasVolume ? "Ex: 350, 2, 5" : "—"}
-                                            style={{ width: 150, padding: 8, border: "1px solid #ccc", borderRadius: 10 }}
+                                            placeholder={r.hasVolume ? "350" : "—"}
+                                            style={{ ...inputSm, width: 90, opacity: r.hasVolume ? 1 : 0.55 }}
                                         />
                                     </td>
 
-                                    {/* UNIDADE */}
-                                    <td style={{ padding: 10 }}>
+                                    <td style={{ padding: "6px 6px" }}>
                                         <select
                                             disabled={!r.hasVolume}
                                             value={r.hasVolume ? r.unit : "none"}
                                             onChange={(e) => updateRow(r.tempId, { unit: e.target.value as Unit })}
-                                            style={{ width: 150, padding: 8, border: "1px solid #ccc", borderRadius: 10 }}
+                                            style={{ ...selectSm, width: 90, opacity: r.hasVolume ? 1 : 0.55 }}
                                         >
                                             <option value="ml">ml</option>
-                                            <option value="l">litros</option>
+                                            <option value="l">l</option>
                                             <option value="kg">kg</option>
                                         </select>
                                     </td>
 
-                                    {/* DETALHES */}
-                                    <td style={{ padding: 10 }}>
+                                    <td style={{ padding: "6px 6px" }}>
                                         <input
                                             value={r.details}
                                             onChange={(e) => updateRow(r.tempId, { details: e.target.value })}
-                                            placeholder="Ex: retornável, long neck..."
-                                            style={{ width: 260, padding: 8, border: "1px solid #ccc", borderRadius: 10 }}
+                                            placeholder="Ex: retornável..."
+                                            style={{ ...inputSm, width: 220 }}
                                         />
                                     </td>
 
-                                    {/* VALOR UNIT */}
-                                    <td style={{ padding: 10 }}>
+                                    <td style={{ padding: "6px 6px" }}>
                                         <input
                                             value={r.unitPrice}
                                             onChange={(e) => updateRow(r.tempId, { unitPrice: formatBRLInput(e.target.value) })}
-                                            style={{ width: 170, padding: 8, border: "1px solid #ccc", borderRadius: 10 }}
+                                            style={{ ...inputSm, width: 110 }}
                                             inputMode="numeric"
                                         />
                                     </td>
 
-                                    {/* CAIXA BOOL */}
-                                    <td style={{ padding: 10, textAlign: "center" }}>
+                                    <td style={{ padding: "6px 6px", textAlign: "center" }}>
                                         <input
                                             type="checkbox"
                                             checked={r.hasCase}
@@ -576,36 +572,39 @@ export default function ProdutosPage() {
                                         />
                                     </td>
 
-                                    {/* CAIXA COM (LIVRE) */}
-                                    <td style={{ padding: 10 }}>
+                                    <td style={{ padding: "6px 6px" }}>
                                         <input
                                             disabled={!r.hasCase}
                                             value={r.caseQty}
                                             onChange={(e) => updateRow(r.tempId, { caseQty: e.target.value })}
-                                            placeholder={r.hasCase ? "Ex: 6, 12, 24" : "—"}
-                                            style={{ width: 140, padding: 8, border: "1px solid #ccc", borderRadius: 10 }}
+                                            placeholder={r.hasCase ? "12" : "—"}
+                                            style={{ ...inputSm, width: 90, opacity: r.hasCase ? 1 : 0.55 }}
                                             inputMode="numeric"
                                         />
                                     </td>
 
-                                    {/* VALOR CAIXA */}
-                                    <td style={{ padding: 10 }}>
+                                    <td style={{ padding: "6px 6px" }}>
                                         <input
                                             disabled={!r.hasCase}
                                             value={r.casePrice}
                                             onChange={(e) => updateRow(r.tempId, { casePrice: formatBRLInput(e.target.value) })}
                                             placeholder={r.hasCase ? "0,00" : "—"}
-                                            style={{ width: 170, padding: 8, border: "1px solid #ccc", borderRadius: 10 }}
+                                            style={{ ...inputSm, width: 110, opacity: r.hasCase ? 1 : 0.55 }}
                                             inputMode="numeric"
                                         />
                                     </td>
 
-                                    {/* AÇÕES */}
-                                    <td style={{ padding: 10, textAlign: "center" }}>
+                                    <td style={{ padding: "6px 6px", textAlign: "center" }}>
                                         <button
                                             onClick={() => removeRow(r.tempId)}
                                             disabled={rows.length === 1}
-                                            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
+                                            style={{
+                                                ...btnGhost,
+                                                padding: "6px 8px",
+                                                fontSize: 12,
+                                                opacity: rows.length === 1 ? 0.55 : 1,
+                                                cursor: rows.length === 1 ? "not-allowed" : "pointer",
+                                            }}
                                         >
                                             Remover
                                         </button>
@@ -616,50 +615,48 @@ export default function ProdutosPage() {
                     </table>
                 </div>
 
-                <div style={{ display: "flex", gap: 12, marginTop: 16, alignItems: "center" }}>
-                    <button
-                        onClick={saveAll}
-                        disabled={saving}
-                        style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
-                    >
+                <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <button onClick={saveAll} disabled={saving} style={{ ...btnPrimary, padding: "8px 12px", fontSize: 12.5, opacity: saving ? 0.8 : 1 }}>
                         {saving ? "Salvando..." : "Salvar tudo"}
                     </button>
 
-                    {msg && <p style={{ color: msg.startsWith("✅") ? "green" : "crimson" }}>{msg}</p>}
+                    {msg && (
+                        <p style={{ margin: 0, fontSize: 12.5, fontWeight: 900, color: msg.startsWith("✅") ? "#0DAA00" : "crimson" }}>
+                            {msg}
+                        </p>
+                    )}
                 </div>
             </section>
 
             {/* MODAL CATEGORIA */}
             <Modal title="Adicionar categoria" open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)}>
-                <p style={{ marginTop: 0, color: "#555" }}>
-                    Digite o nome e clique em salvar. Ela ficará disponível para seleção depois.
+                <p style={{ marginTop: 0, color: theme.muted, fontSize: 12.5 }}>
+                    Digite o nome e clique em salvar.
                 </p>
 
                 <input
                     value={categoryNewName}
                     onChange={(e) => setCategoryNewName(e.target.value)}
                     placeholder="Ex: Cerveja"
-                    style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10 }}
+                    style={inputSm}
                 />
 
-                <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
                     <button
                         onClick={async () => {
                             const id = await createCategory(categoryNewName);
                             if (id) {
+                                setCategoryNewName("");
                                 setCategoryModalOpen(false);
-                                if (useExistingCategory) setCategoryId(id);
+                                setCategoryId(id);
                             }
                         }}
-                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
+                        style={btnOrange}
                     >
                         Salvar
                     </button>
 
-                    <button
-                        onClick={() => setCategoryModalOpen(false)}
-                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
-                    >
+                    <button onClick={() => setCategoryModalOpen(false)} style={btnGhost}>
                         Cancelar
                     </button>
                 </div>
@@ -667,35 +664,33 @@ export default function ProdutosPage() {
 
             {/* MODAL MARCA */}
             <Modal title="Adicionar marca" open={brandModalOpen} onClose={() => setBrandModalOpen(false)}>
-                <p style={{ marginTop: 0, color: "#555" }}>
-                    Digite o nome e clique em salvar. Ela ficará disponível para seleção depois.
+                <p style={{ marginTop: 0, color: theme.muted, fontSize: 12.5 }}>
+                    Digite o nome e clique em salvar.
                 </p>
 
                 <input
                     value={brandNewName}
                     onChange={(e) => setBrandNewName(e.target.value)}
                     placeholder="Ex: Skol"
-                    style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10 }}
+                    style={inputSm}
                 />
 
-                <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
                     <button
                         onClick={async () => {
                             const id = await createBrand(brandNewName);
                             if (id) {
+                                setBrandNewName("");
                                 setBrandModalOpen(false);
-                                if (useExistingBrand) setBrandId(id);
+                                setBrandId(id);
                             }
                         }}
-                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
+                        style={btnOrange}
                     >
                         Salvar
                     </button>
 
-                    <button
-                        onClick={() => setBrandModalOpen(false)}
-                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
-                    >
+                    <button onClick={() => setBrandModalOpen(false)} style={btnGhost}>
                         Cancelar
                     </button>
                 </div>

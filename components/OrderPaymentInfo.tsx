@@ -1,50 +1,64 @@
 "use client";
 
 import React from "react";
-
-type PaymentMethod = "pix" | "card" | "cash";
-
-function formatBRL(n: number | null | undefined) {
-    const v = typeof n === "number" ? n : 0;
-    return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function changeToBring(total: number, changeFor: number | null) {
-    const cf = Number(changeFor ?? 0);
-    const diff = cf - Number(total ?? 0);
-    return diff > 0 ? diff : 0;
-}
+import { calcTroco, formatBRL } from "@/lib/orders/helpers";
+import type { PaymentMethod } from "@/lib/orders/types";
 
 export default function OrderPaymentInfo({
     payment_method,
     paid,
-    total_amount,
     change_for,
+    total_amount,
+    compact,
 }: {
-    payment_method: PaymentMethod;
+    payment_method: PaymentMethod | string;
     paid: boolean;
-    total_amount: number;
     change_for: number | null;
+    total_amount: number | null | undefined;
+    compact?: boolean;
 }) {
-    const methodLabel = payment_method === "pix" ? "PIX" : payment_method === "card" ? "Cartão" : "Dinheiro";
+    const pm = String(payment_method) as PaymentMethod | string;
+    const label = pm === "pix" ? "PIX" : pm === "card" ? "Cartão" : pm === "cash" ? "Dinheiro" : pm;
+
+    const total = Number(total_amount ?? 0);
+    const customerPays = Number(change_for ?? 0);
+    const troco = calcTroco(total, customerPays);
+
+    const baseText: React.CSSProperties = { fontSize: compact ? 12 : 12, lineHeight: 1.2 };
+    const muted: React.CSSProperties = { ...baseText, color: "#666" };
+    const strong: React.CSSProperties = { ...baseText, fontWeight: 900, color: "#111" };
+
+    if (pm === "card") {
+        return (
+            <div>
+                <div style={strong}>
+                    {label}
+                    {paid ? " (pago)" : ""}
+                </div>
+                <div style={muted}>Levar maquininha</div>
+            </div>
+        );
+    }
+
+    if (pm === "cash") {
+        return (
+            <div>
+                <div style={strong}>
+                    {label}
+                    {paid ? " (pago)" : ""}
+                </div>
+                <div style={muted}>Cliente paga com: R$ {formatBRL(customerPays)}</div>
+                <div style={muted}>Levar de troco: R$ {formatBRL(troco)}</div>
+            </div>
+        );
+    }
 
     return (
-        <div style={{ fontSize: 12, lineHeight: 1.25 }}>
-            <div style={{ fontWeight: 900 }}>
-                {methodLabel}
+        <div>
+            <div style={strong}>
+                {label}
                 {paid ? " (pago)" : ""}
-                {payment_method === "card" ? " • Levar maquininha" : ""}
             </div>
-
-            {payment_method === "cash" ? (
-                <>
-                    <div style={{ color: "#666", marginTop: 4 }}>Cliente paga com: R$ {formatBRL(change_for ?? 0)}</div>
-                    <div style={{ marginTop: 2 }}>
-                        <span style={{ color: "#666" }}>Levar de troco:</span>{" "}
-                        <b>R$ {formatBRL(changeToBring(total_amount, change_for))}</b>
-                    </div>
-                </>
-            ) : null}
         </div>
     );
 }

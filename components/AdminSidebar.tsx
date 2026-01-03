@@ -3,8 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useAdminOrders } from "@/components/AdminOrdersContext";
+import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
 
@@ -146,12 +146,11 @@ function normalizeOrders(input: unknown): OrderRow[] {
 }
 
 export default function AdminSidebar() {
-    const supabase = useMemo(() => createClient(), []);
     const router = useRouter();
     const sp = useSearchParams();
     const { openOrder } = useAdminOrders();
 
-    const selected = (sp.get("status") as OrderStatus | null) ?? null;
+    const [selected, setSelected] = useState<OrderStatus | null>((sp.get("status") as OrderStatus | null) ?? null);
 
     const [orders, setOrders] = useState<OrderRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -161,42 +160,38 @@ export default function AdminSidebar() {
         setLoading(true);
         setMsg(null);
 
-        const { data, error } = await supabase
-            .from("orders")
-            .select(
-                `
-        id, status, total_amount, created_at,
-        customers ( name, phone, address )
-      `
-            )
-            .order("created_at", { ascending: false })
-            .limit(120);
+        const url = new URL("/api/orders/list", window.location.origin);
+        url.searchParams.set("limit", "120");
+        // Se você quiser filtrar server-side também:
+        // url.searchParams.set("status", selected ?? "all");
 
-        if (error) {
-            setMsg(`Erro ao carregar pedidos: ${error.message}`);
+        const res = await fetch(url.toString(), { cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+            setMsg(json?.error ?? "Erro ao carregar pedidos");
             setOrders([]);
             setLoading(false);
             return;
         }
 
-        setOrders(normalizeOrders(data));
+        setOrders(normalizeOrders(json.orders));
         setLoading(false);
     }
 
+    // Carrega ao montar
     useEffect(() => {
         loadOrders();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-        // ✅ Realtime: acompanha pedidos mesmo em outras abas
-        const channel = supabase
-            .channel("orders-live")
-            .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-                loadOrders();
-            })
-            .subscribe();
+    // Polling leve (realtime seguro)
+    useEffect(() => {
+        const id = window.setInterval(() => {
+            loadOrders();
+        }, 10000); // 10s
 
-        return () => {
-            supabase.removeChannel(channel);
-        };
+        return () => window.clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -210,8 +205,8 @@ export default function AdminSidebar() {
     }, [orders]);
 
     function goStatus(s: OrderStatus | "all") {
-        if (s === "all") router.push("/pedidos");
-        else router.push(`/pedidos?status=${encodeURIComponent(s)}`);
+        if (s === "all") setSelected(null);
+        else setSelected(s);
     }
 
     function cardStyle(active: boolean): React.CSSProperties {
@@ -223,6 +218,7 @@ export default function AdminSidebar() {
             cursor: "pointer",
             textAlign: "left",
             width: "100%",
+            boxSizing: "border-box",
         };
     }
 
@@ -235,7 +231,7 @@ export default function AdminSidebar() {
 
     function labelSelected() {
         if (!selected) return "Todos";
-        return prettyStatus(selected);
+        return String(prettyStatus(selected));
     }
 
     return (
@@ -245,16 +241,32 @@ export default function AdminSidebar() {
                 top: 14,
                 height: "calc(100vh - 28px)",
                 width: 260,
+                maxWidth: 260,
                 border: "1px solid #e6e6e6",
                 borderRadius: 14,
                 padding: 12,
                 background: "#fff",
-                overflow: "auto",
+                overflowY: "auto",
+                overflowX: "hidden",
+                boxSizing: "border-box",
             }}
         >
-            <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 10, color: "#111" }}>Dashboard</div>
+            {/* Workspace */}
+            <div style={{ marginBottom: 10 }}>
+                <WorkspaceSwitcher />
+            </div>
 
-            {/* ✅ Botões principais */}
+            <div style={{ borderTop: "1px solid #eee", paddingTop: 10, marginBottom: 10 }}>
+                <div style={{ fontWeight: 900, fontSize: 12, color: "#111" }}>Dashboard</div>
+            </div>
+
+            {/* Botões principais */}
+            <Link href="/whatsapp" style={{ textDecoration: "none" }}>
+                <button style={{ /* seu estilo */ width: "100%", marginTop: 8 }}>
+                    WhatsApp
+                </button>
+            </Link>
+
             <Link href="/produtos" style={{ textDecoration: "none" }}>
                 <button style={{ ...btnOrange(false), width: "100%", padding: "10px 10px", borderRadius: 12, fontSize: 12 }}>
                     Cadastrar produto
@@ -276,7 +288,6 @@ export default function AdminSidebar() {
                 </button>
             </Link>
 
-            {/* ✅ NOVO: botão Pedidos */}
             <Link href="/pedidos" style={{ textDecoration: "none" }}>
                 <button
                     style={{
@@ -298,7 +309,7 @@ export default function AdminSidebar() {
                 </button>
             </div>
 
-            {/* ✅ Cards de status */}
+            {/* Cards */}
             <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <div style={{ fontWeight: 900, fontSize: 12 }}>Pedidos</div>
@@ -334,7 +345,7 @@ export default function AdminSidebar() {
                 {loading ? <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>Carregando...</div> : null}
             </div>
 
-            {/* ✅ Lista abaixo dos cards: acompanha em qualquer aba + abre modal */}
+            {/* Lista */}
             <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <div style={{ fontWeight: 900, fontSize: 12 }}>Acompanhar</div>
@@ -354,6 +365,7 @@ export default function AdminSidebar() {
                             return (
                                 <button
                                     key={o.id}
+                                    type="button"
                                     onClick={() => openOrder(o.id)}
                                     style={{
                                         width: "100%",
@@ -363,11 +375,21 @@ export default function AdminSidebar() {
                                         padding: 10,
                                         cursor: "pointer",
                                         background: "#fff",
+                                        boxSizing: "border-box",
                                     }}
                                     title="Abrir pedido"
                                 >
-                                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                                        <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
+                                        <div
+                                            style={{
+                                                fontWeight: 900,
+                                                fontSize: 12,
+                                                whiteSpace: "nowrap",
+                                                overflow: "hidden",
+                                                textOverflow: "ellipsis",
+                                                minWidth: 0,
+                                            }}
+                                        >
                                             {name}
                                         </div>
                                         <span style={{ ...statusBadgeStyle(st), fontSize: 11, padding: "3px 7px" }}>{prettyStatus(st)}</span>

@@ -2,6 +2,32 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
+    const pathname = request.nextUrl.pathname;
+
+    // ✅ Libera webhooks (Twilio/WhatsApp) e endpoints técnicos
+    // (Twilio precisa acessar sem autenticação)
+    if (pathname.startsWith("/api/whatsapp/")) {
+        return NextResponse.next();
+    }
+
+    // ✅ (Opcional) Libera fila de impressão / agentes
+    // Se você criar endpoints como /api/print/pull etc., evita bloqueio pelo middleware
+    if (pathname.startsWith("/api/print/")) {
+        return NextResponse.next();
+    }
+
+    // ✅ Rotas públicas (não exigem login)
+    const isPublic =
+        pathname.startsWith("/login") ||
+        pathname.startsWith("/auth") ||
+        pathname.startsWith("/_next") ||
+        pathname === "/favicon.ico";
+
+    // Para rotas públicas, não precisa bater no Supabase (economiza e evita latência)
+    if (isPublic) {
+        return NextResponse.next();
+    }
+
     const response = NextResponse.next();
 
     const supabase = createServerClient(
@@ -22,16 +48,7 @@ export async function middleware(request: NextRequest) {
     const { data } = await supabase.auth.getUser();
     const isLoggedIn = !!data.user;
 
-    const pathname = request.nextUrl.pathname;
-
-    // Rotas públicas
-    const isPublic =
-        pathname.startsWith("/login") ||
-        pathname.startsWith("/auth") ||
-        pathname.startsWith("/_next") ||
-        pathname.startsWith("/favicon.ico");
-
-    if (!isLoggedIn && !isPublic) {
+    if (!isLoggedIn) {
         const url = request.nextUrl.clone();
         url.pathname = "/login";
         return NextResponse.redirect(url);
