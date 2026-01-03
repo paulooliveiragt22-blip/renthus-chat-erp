@@ -352,3 +352,240 @@ Impressão automática (add-on)
 
 UI nunca fala direto com o banco.
 Toda ação passa pelo backend validando company, plano e permissão.
+
+📄 Registro oficial – Entitlements, PDV, Fiscal e TEF
+Documento
+
+ADR-0003 — Entitlements, PDV Windows, Fiscal (NF) e TEF
+
+Status: Aprovado
+Data: 2026-01-03
+Contexto: Renthus Chat ERP / ERP Full
+Decisores: Produto + Engenharia
+
+1. Contexto
+
+O Renthus evolui de um ERP com WhatsApp para um ERP Full, incluindo:
+
+Emissão fiscal (NFS-e, NF-e, NFC-e)
+
+Operação de loja balcão (varejo)
+
+Pagamentos integrados via TEF
+
+Controle comercial e financeiro com billing por plano/uso
+
+O sistema já possui a base de entitlements (plans, features, limits, usage) e arquitetura onde:
+
+Frontends não acessam dados sensíveis diretamente
+
+Toda regra de negócio passa pela API (app/api/...)
+
+Billing e permissões são validados no backend
+
+2. Decisão: Modelo de Entitlements
+2.1 Features (fonte de verdade)
+
+Core
+
+erp_full
+
+Fiscal
+
+fiscal_nfse
+
+fiscal_nfe
+
+fiscal_nfce
+
+PDV / Pagamentos
+
+pdv
+
+tef
+
+Outros
+
+printing_auto (add-on)
+
+2.2 Planos
+
+Mini ERP
+
+Não inclui erp_full
+
+Sem fiscal
+
+Sem PDV
+
+ERP Full
+
+Inclui erp_full
+
+Inclui fiscal_nfse, fiscal_nfe, fiscal_nfce
+
+Inclui pdv
+
+Add-ons
+
+tef
+
+printing_auto
+
+TEF é tratado como add-on por custo operacional, complexidade técnica e variação por cliente.
+
+3. Decisão: Onde rodar o PDV
+Cenário do cliente
+
+Loja balcão (varejo)
+
+Emissão de NFC-e
+
+Uso de PC Windows
+
+Necessidade de TEF clássico e periféricos (pinpad, impressora, gaveta)
+
+Decisão
+
+👉 PDV Windows Desktop é a plataforma principal
+
+Justificativa
+
+TEF clássico no Brasil exige integração local (pinpad/SDK/serviço)
+
+Impressoras térmicas USB/rede funcionam melhor em Windows
+
+Operação de balcão tradicional já está nesse ambiente
+
+Web puro não atende bem TEF nem periféricos
+
+4. Arquitetura adotada para o PDV
+PDV Windows (UI Desktop)
+        |
+        v
+Backend API (Next / app/api)
+        |
+        v
+Supabase (Service Role)
+
+Componente adicional
+
+Bridge Local (Windows)
+Responsável por:
+
+Integração TEF
+
+Impressão térmica
+
+Gaveta de dinheiro
+
+Comunicação local (localhost / named pipes)
+
+O PDV nunca acessa fiscal ou TEF diretamente, tudo passa pelo backend ou pelo bridge controlado.
+
+5. Fiscal (NFS-e, NF-e, NFC-e)
+Estratégia
+
+Emissão fiscal ocorre no backend
+
+Certificados e integrações não ficam no PDV
+
+PDV apenas solicita emissão e recebe status
+
+Entitlement enforcement
+
+Endpoints fiscais exigem:
+
+fiscal_nfse ou
+
+fiscal_nfe ou
+
+fiscal_nfce
+
+Uso / Billing
+
+Nota autorizada incrementa:
+
+usage_monthly.feature_key = invoices_per_month
+
+ou nfce_per_month (separável no futuro)
+
+6. TEF
+Estratégia
+
+TEF é feature add-on
+
+Implementado via bridge local no Windows
+
+Backend coordena:
+
+criação de payment
+
+criação de tef_transaction
+
+confirmação/estorno
+
+contabilização de uso
+
+Entitlement enforcement
+
+Endpoints TEF exigem tef
+
+Uso / Billing
+
+Transação TEF aprovada → incrementa tef_transactions_per_month
+
+7. Roadmap acordado (continuidade do projeto)
+Fase 1 — Entitlements (em andamento)
+
+Seed de plans, features e limits
+
+Helper entitlements.ts
+
+Enforcement no /api/whatsapp/send
+
+Fase 2 — PDV MVP
+
+PDV Windows (checkout, pagamento manual)
+
+Feature gate: pdv
+
+Integração com pedidos existentes
+
+Fase 3 — Fiscal NFC-e
+
+Emissão NFC-e via backend
+
+Feature gate: fiscal_nfce
+
+Fase 4 — TEF
+
+Bridge local Windows
+
+Feature gate: tef
+
+Integração completa com PDV
+
+8. Consequências
+
+Arquitetura permanece consistente (UI → API → Infra)
+
+Billing e permissões centralizados
+
+PDV e fiscal evoluem sem acoplamento
+
+Possível adicionar Android PDV no futuro reutilizando APIs
+
+✅ Conclusão
+
+Este documento define oficialmente:
+
+Modelo de entitlements
+
+Plataforma do PDV
+
+Estratégia fiscal
+
+Estratégia de TEF
+
+Base para continuidade técnica e de produto
