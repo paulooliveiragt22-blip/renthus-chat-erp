@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAdminOrders } from "@/components/AdminOrdersContext";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
+import OrdersStatsModal from "@/components/OrdersStatsModal";
 
 // Possíveis status de um pedido (order)
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
@@ -172,13 +173,13 @@ export default function AdminSidebar() {
     const [threadsMsg, setThreadsMsg] = useState<string | null>(null);
     // Thread selecionada no modal de resposta rápida
     const [openThread, setOpenThread] = useState<Thread | null>(null);
+    const [showStats, setShowStats] = useState(false);
 
     async function loadOrders() {
         setLoading(true);
         setMsg(null);
         const url = new URL("/api/orders/list", window.location.origin);
         url.searchParams.set("limit", "120");
-        const res = await fetch(url.toString(), { cache: "no-store" });
         const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
 
         const json = await res.json().catch(() => ({}));
@@ -217,35 +218,33 @@ export default function AdminSidebar() {
         }
     }
 
-    // Carrega pedidos ao montar
-    // inserir/ substituir o useEffect de montagem por este:
+    // Carrega pedidos ao montar — tenta auto-select da company se houver apenas 1
     useEffect(() => {
-        // Auto-select workspace if user has only 1 company, then load orders.
         async function ensureWorkspaceSelectedAndLoad() {
             try {
-                // 1) List companies available for this user
-                const listRes = await fetch('/api/workspace/list', { credentials: 'include' });
+                // 1) listar companies do usuário
+                const listRes = await fetch("/api/workspace/list", { credentials: "include" });
                 const listJson = await listRes.json().catch(() => ({ companies: [] }));
                 const companies = Array.isArray(listJson.companies) ? listJson.companies : [];
 
-                // 2) If exactly one company, try to select it (server will set cookie)
+                // 2) se houver exatamente 1 company, tentar selecionar (backend seta cookie)
                 if (companies.length === 1) {
                     try {
-                        await fetch('/api/workspace/select', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
+                        await fetch("/api/workspace/select", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
                             body: JSON.stringify({ company_id: companies[0].id }),
                         });
-                        // ignore response; we proceed to load orders anyway
+                        // ignoramos o retorno; prosseguimos para carregar pedidos
                     } catch (err) {
-                        console.warn('workspace/select failed', err);
+                        console.warn("workspace/select failed", err);
                     }
                 }
             } catch (e) {
-                console.warn('auto-select workspace failed', e);
+                console.warn("auto-select workspace failed", e);
             } finally {
-                // 3) Now load orders (independent of auto-select result)
+                // 3) agora carrega os pedidos, independentemente do resultado do select
                 loadOrders();
             }
         }
@@ -254,7 +253,6 @@ export default function AdminSidebar() {
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
 
     // Polling leve para pedidos
     useEffect(() => {
@@ -406,9 +404,14 @@ export default function AdminSidebar() {
             <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <div style={{ fontWeight: 900, fontSize: 12 }}>Pedidos</div>
-                    <button onClick={() => goStatus("all")} style={{ ...btnOrangeOutline(false), padding: "6px 8px", fontSize: 11 }}>
-                        Ver todos ({stats.total})
-                    </button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setShowStats(true)} style={{ ...btnPurpleOutline(false), padding: "6px 8px", fontSize: 11 }}>
+                            Estatísticas
+                        </button>
+                        <button onClick={() => goStatus("all")} style={{ ...btnOrangeOutline(false), padding: "6px 8px", fontSize: 11 }}>
+                            Ver todos ({stats.total})
+                        </button>
+                    </div>
                 </div>
                 {msg ? <div style={{ marginTop: 8, color: "crimson", fontSize: 12 }}>{msg}</div> : null}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
@@ -557,9 +560,8 @@ export default function AdminSidebar() {
             </div>
 
             {/* Modal de resposta rápida */}
-            {openThread ? (
-                <QuickReplyModal thread={openThread} onClose={() => setOpenThread(null)} />
-            ) : null}
+            {openThread ? <QuickReplyModal thread={openThread} onClose={() => setOpenThread(null)} /> : null}
+            {showStats ? <OrdersStatsModal open={showStats} onClose={() => setShowStats(false)} /> : null}
         </aside>
     );
 }
