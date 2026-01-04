@@ -1,0 +1,110 @@
+﻿*** Begin Patch
+*** Update File: lib/supabase/admin.ts
+@@
+-import "server-only";
+-import { createClient } from "@supabase/supabase-js";
+-
+-export function createAdminClient() {
+-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+-
+-  // ---------------------------
+-  // DEBUG: imprimir prefixos (8 chars) para confirmar qual chave está na env
+-  // REMOVA estes console.log após verificação por motivos de segurança.
+-  // ---------------------------
+-  try {
+-    console.log("[DEBUG] NEXT_PUBLIC_SUPABASE_URL =", url ?? "<<undefined>>");
+-    console.log(
+-      "[DEBUG] NEXT_PUBLIC_SUPABASE_ANON_KEY_PREFIX =",
+-      anonKey ? anonKey.slice(0, 8) : "<<undefined>>"
+-    );
+-    console.log(
+-      "[DEBUG] SUPABASE_SERVICE_ROLE_KEY_PREFIX =",
+-      serviceKey ? serviceKey.slice(0, 8) : "<<undefined>>"
+-    );
+-  } catch (e) {
+-    console.warn("[DEBUG] erro ao imprimir prefixos de chave:", e);
+-  }
+-  // ---------------------------
+-
+-  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+-  if (!serviceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+-
+-  return createClient(url, serviceKey, { auth: { persistSession: false } });
+-}
++import "server-only";
++import { createClient } from "@supabase/supabase-js";
++
++export function createAdminClient() {
++  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
++  if (!serviceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
++
++  return createClient(url, serviceKey, { auth: { persistSession: false } });
++}
+*** End Patch
+
+*** Begin Patch
+*** Update File: components/AdminSidebar.tsx
+@@
+     async function loadOrders() {
+         setLoading(true);
+         setMsg(null);
+         const url = new URL("/api/orders/list", window.location.origin);
+         url.searchParams.set("limit", "120");
+-        const res = await fetch(url.toString(), { cache: "no-store" });
++        const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
+         const json = await res.json().catch(() => ({}));
+         if (!res.ok) {
+             setMsg(json?.error ?? "Erro ao carregar pedidos");
+             setOrders([]);
+             setLoading(false);
+             return;
+         }
+         setOrders(normalizeOrders(json.orders));
+         setLoading(false);
+     }
+@@
+-    // Carrega pedidos ao montar
+-    useEffect(() => {
+-        loadOrders();
+-        // eslint-disable-next-line react-hooks/exhaustive-deps
+-    }, []);
++    // Carrega pedidos ao montar — tenta auto-select da company se houver apenas 1
++    useEffect(() => {
++        async function ensureWorkspaceSelectedAndLoad() {
++            try {
++                // 1) listar companies do usuário
++                const listRes = await fetch('/api/workspace/list', { credentials: 'include' });
++                const listJson = await listRes.json().catch(() => ({ companies: [] }));
++                const companies = Array.isArray(listJson.companies) ? listJson.companies : [];
++
++                // 2) se houver exatamente 1 company, tentar selecionar (backend seta cookie)
++                if (companies.length === 1) {
++                    try {
++                        await fetch('/api/workspace/select', {
++                            method: 'POST',
++                            headers: { 'Content-Type': 'application/json' },
++                            credentials: 'include',
++                            body: JSON.stringify({ company_id: companies[0].id }),
++                        });
++                        // ignoramos o retorno; prosseguimos para carregar pedidos
++                    } catch (err) {
++                        console.warn('workspace/select failed', err);
++                    }
++                }
++            } catch (e) {
++                console.warn('auto-select workspace failed', e);
++            } finally {
++                // 3) agora carrega os pedidos, independentemente do resultado do select
++                loadOrders();
++            }
++        }
++
++        ensureWorkspaceSelectedAndLoad();
++
++        // eslint-disable-next-line react-hooks/exhaustive-deps
++    }, []);
+*** End Patch

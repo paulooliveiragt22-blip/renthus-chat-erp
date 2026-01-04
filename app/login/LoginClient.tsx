@@ -31,6 +31,30 @@ export default function LoginPage() {
 
     const redirectTo = searchParams.get("redirectTo") || "/pedidos";
 
+    // Auto-select workspace if the user has only 1 company
+    async function autoSelectCompany() {
+        try {
+            // lista workspaces do usuário
+            const res = await fetch('/api/workspace/list');
+            if (!res.ok) return;
+            const json = await res.json();
+            const companies = Array.isArray(json.companies) ? json.companies : [];
+            if (companies.length === 1) {
+                // seleciona automaticamente
+                await fetch('/api/workspace/select', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ company_id: companies[0].id }),
+                });
+                // cookie renthus_company_id será setado pelo backend (HttpOnly)
+            }
+        } catch (e) {
+            // silenciar: se der errado, o usuário poderá selecionar manualmente
+            console.warn('autoSelectCompany failed', e);
+        }
+    }
+
+
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -49,6 +73,9 @@ export default function LoginPage() {
         setLoading(false);
 
         if (error) return setErr(error.message);
+
+        // tenta auto-select (se houver apenas 1 company)
+        await autoSelectCompany();
 
         router.replace(redirectTo);
         router.refresh();

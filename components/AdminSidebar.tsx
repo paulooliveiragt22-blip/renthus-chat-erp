@@ -179,6 +179,8 @@ export default function AdminSidebar() {
         const url = new URL("/api/orders/list", window.location.origin);
         url.searchParams.set("limit", "120");
         const res = await fetch(url.toString(), { cache: "no-store" });
+        const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
+
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
             setMsg(json?.error ?? "Erro ao carregar pedidos");
@@ -216,10 +218,43 @@ export default function AdminSidebar() {
     }
 
     // Carrega pedidos ao montar
+    // inserir/ substituir o useEffect de montagem por este:
     useEffect(() => {
-        loadOrders();
+        // Auto-select workspace if user has only 1 company, then load orders.
+        async function ensureWorkspaceSelectedAndLoad() {
+            try {
+                // 1) List companies available for this user
+                const listRes = await fetch('/api/workspace/list', { credentials: 'include' });
+                const listJson = await listRes.json().catch(() => ({ companies: [] }));
+                const companies = Array.isArray(listJson.companies) ? listJson.companies : [];
+
+                // 2) If exactly one company, try to select it (server will set cookie)
+                if (companies.length === 1) {
+                    try {
+                        await fetch('/api/workspace/select', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ company_id: companies[0].id }),
+                        });
+                        // ignore response; we proceed to load orders anyway
+                    } catch (err) {
+                        console.warn('workspace/select failed', err);
+                    }
+                }
+            } catch (e) {
+                console.warn('auto-select workspace failed', e);
+            } finally {
+                // 3) Now load orders (independent of auto-select result)
+                loadOrders();
+            }
+        }
+
+        ensureWorkspaceSelectedAndLoad();
+
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
 
     // Polling leve para pedidos
     useEffect(() => {
