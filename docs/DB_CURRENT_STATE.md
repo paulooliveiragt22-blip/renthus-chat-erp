@@ -223,4 +223,51 @@ WHERE company_id = '<COMPANY_ID>' AND user_id = '<USER_ID>';
 
 ---
 
-Se quiser eu já **gero um `docs/minierp-final-tasks.md`** pronto com esse conteúdo formatado e com links para os arquivos relevantes do repo (e.g., `components/AdminSidebar.tsx`, `app/api/orders/stats/route.ts`). Quer que eu crie o arquivo MD para você colar no repositório?
+Estado do Mini-ERP + Chatbot — Resumo rápido
+Finalizado (implementado e testado)
+
+Tabelas do chatbot
+
+chatbots — configurações por company (id, company_id, name, config, is_active, timestamps).
+
+bot_intents — intents/templates por company (intent_key, examples, response_template, response_json, priority, active, timestamps).
+
+bot_logs — auditoria / decisões do bot (intent, confidence, provider, prompt, response_text/json, llm tokens/cost, timestamps).
+
+Function / Usage
+
+increment_usage_monthly(p_company uuid, p_used integer) — RPC atômico para incrementar usage_monthly para o feature chatbot.
+
+usage_monthly já usada/atualizada no fluxo do bot e testada (upsert funciona; valor do mês incrementado).
+
+Route handler
+
+POST /api/chatbot/resolve (Next.js server route) — implementado e deployado em versão no-LLM:
+
+verifica chatbots.is_active, Pesquisa bot_intents, classifica por exemplos (fast path), aplica threshold,
+
+usa response_template (fallback padrão se não houver template),
+
+grava bot_logs, insere whatsapp_messages (outbound) e atualiza whatsapp_threads (preview/last_message_at),
+
+chama increment_usage_monthly para contabilizar uso.
+
+Handler robusto para ambiente sem OpenAI / sem Twilio — permite test dev sem provedores.
+
+Smoke / testes manuais
+
+Teste via browser console: fetch('/api/chatbot/resolve', ...) → respondeu com template e gerou registros.
+
+bot_logs, whatsapp_messages, whatsapp_threads e usage_monthly confirmados com dados de teste.
+
+Correções de conteúdo
+
+Corrigido typo no template (0 pedido → O pedido) e atualizadas ocorrências em bot_logs, whatsapp_messages e whatsapp_threads.
+
+Índices e unicidade
+
+Índices/unique para bot_intents(company_id,intent_key) e chatbots(company_id,name) criados.
+
+Deploy / ambiente
+
+Ajuste feito: variáveis SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY configuradas no Vercel; build aprovada.
