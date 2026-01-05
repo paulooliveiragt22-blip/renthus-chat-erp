@@ -4,6 +4,9 @@ import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { ToastProvider, useToast } from "@/components/ToastProvider";
+import { resolveSiteOrigin } from "@/lib/origin";
+import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 
 type Mode = "login" | "signup";
 
@@ -11,10 +14,11 @@ function isValidEmail(email: string) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-export default function LoginPage() {
+function LoginContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const supabase = useMemo(() => createClient(), []);
+    const { showToast } = useToast();
 
     const initialMode = (searchParams.get("mode") as Mode) || "login";
     const [mode, setMode] = useState<Mode>(initialMode);
@@ -24,10 +28,6 @@ export default function LoginPage() {
 
     // opcional pra signup (se quiser salvar nome depois em profile/customers)
     const [name, setName] = useState("");
-
-    const [loading, setLoading] = useState(false);
-    const [msg, setMsg] = useState<string | null>(null);
-    const [err, setErr] = useState<string | null>(null);
 
     const redirectTo = searchParams.get("redirectTo") || "/pedidos";
 
@@ -54,43 +54,31 @@ export default function LoginPage() {
         }
     }
 
-
-
-    async function handleLogin(e: React.FormEvent) {
-        e.preventDefault();
-        setMsg(null);
-        setErr(null);
-
+    const loginAction = useAsyncAction(async () => {
         const e1 = email.trim().toLowerCase();
-        if (!isValidEmail(e1)) return setErr("Informe um e-mail válido.");
-        if (!password || password.length < 6) return setErr("Senha deve ter no mínimo 6 caracteres.");
+        if (!isValidEmail(e1)) throw { message: "Informe um e-mail válido." };
+        if (!password || password.length < 6) throw { message: "Senha deve ter no mínimo 6 caracteres." };
 
-        setLoading(true);
         const { error } = await supabase.auth.signInWithPassword({
             email: e1,
             password,
         });
-        setLoading(false);
 
-        if (error) return setErr(error.message);
+        if (error) throw error;
 
         // tenta auto-select (se houver apenas 1 company)
         await autoSelectCompany();
 
         router.replace(redirectTo);
         router.refresh();
-    }
 
-    async function handleSignup(e: React.FormEvent) {
-        e.preventDefault();
-        setMsg(null);
-        setErr(null);
+        return { message: "Login realizado com sucesso." };
+    });
 
+    const signupAction = useAsyncAction(async () => {
         const e1 = email.trim().toLowerCase();
-        if (!isValidEmail(e1)) return setErr("Informe um e-mail válido.");
-        if (!password || password.length < 6) return setErr("Senha deve ter no mínimo 6 caracteres.");
-
-        setLoading(true);
+        if (!isValidEmail(e1)) throw { message: "Informe um e-mail válido." };
+        if (!password || password.length < 6) throw { message: "Senha deve ter no mínimo 6 caracteres." };
 
         // Se você tiver confirmação de e-mail no Supabase, isso vai mandar e-mail.
         // Se não tiver, ele já cria e loga (dependendo da config do projeto).
@@ -104,40 +92,71 @@ export default function LoginPage() {
             },
         });
 
-        setLoading(false);
-
-        if (error) return setErr(error.message);
+        if (error) throw error;
 
         // Se exigir confirmação de e-mail, session pode vir nula.
         if (!data.session) {
-            setMsg("Conta criada! Confirme seu e-mail para entrar.");
-            return;
+            return { message: "Conta criada! Confirme seu e-mail para entrar." };
         }
 
         router.replace(redirectTo);
         router.refresh();
-    }
 
-    async function handleResetPassword() {
-        setMsg(null);
-        setErr(null);
+        return { message: "Conta criada com sucesso." };
+    });
 
+    const resetAction = useAsyncAction(async () => {
         const e1 = email.trim().toLowerCase();
-        if (!isValidEmail(e1)) return setErr("Digite seu e-mail para recuperar a senha.");
-
-        setLoading(true);
+        if (!isValidEmail(e1)) throw { message: "Digite seu e-mail para recuperar a senha." };
 
         // IMPORTANT: essa URL precisa existir no seu app (abaixo te dou a rota)
-        const origin =
-            typeof window !== "undefined" ? window.location.origin : "";
+        const origin = resolveSiteOrigin() || (typeof window !== "undefined" ? window.location.origin : "");
         const { error } = await supabase.auth.resetPasswordForEmail(e1, {
             redirectTo: `${origin}/auth/reset`,
         });
 
-        setLoading(false);
+        if (error) throw error;
+        return { message: "Te enviei um e-mail para redefinir a senha." };
+    });
 
-        if (error) return setErr(error.message);
-        setMsg("Te enviei um e-mail para redefinir a senha.");
+    const loading = loginAction.loading || signupAction.loading || resetAction.loading;
+
+    async function handleAction(
+        action: typeof loginAction | typeof signupAction | typeof resetAction
+    ) {
+        const result = await action.execute();
+
+        if (result.ok) {
+            const message = result.data?.message;
+            if (message) {
+                showToast({ variant: "success", message });
+            }
+            return true;
+        }
+
+        if (result.error) {
+            showToast({
+                variant: "error",
+                message: result.error.message,
+                actionLabel: result.error.retryable ? "Tentar novamente" : undefined,
+                onAction: result.error.retryable ? action.retry : undefined,
+            });
+        }
+        return false;
+    }
+
+    async function handleLogin(e: React.FormEvent) {
+        e.preventDefault();
+        await handleAction(loginAction);
+    }
+
+    async function handleSignup(e: React.FormEvent) {
+        e.preventDefault();
+        await handleAction(signupAction);
+    }
+
+    async function handleResetPassword() {
+        await handleAction(resetAction);
     }
 
     const isLogin = mode === "login";
@@ -191,18 +210,6 @@ export default function LoginPage() {
                 <h1 style={{ fontSize: 20, margin: "4px 0 10px 0" }}>
                     {isLogin ? "Acessar sua conta" : "Criar uma nova conta"}
                 </h1>
-
-                {msg ? (
-                    <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(13,170,0,0.12)" }}>
-                        {msg}
-                    </div>
-                ) : null}
-
-                {err ? (
-                    <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(255,0,0,0.10)" }}>
-                        {err}
-                    </div>
-                ) : null}
 
                 <form onSubmit={isLogin ? handleLogin : handleSignup}>
                     {!isLogin ? (
@@ -304,5 +311,13 @@ export default function LoginPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <ToastProvider>
+            <LoginContent />
+        </ToastProvider>
     );
 }
