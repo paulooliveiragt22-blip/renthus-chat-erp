@@ -53,6 +53,7 @@ export async function middleware(
         console.error("Missing Supabase environment variables in middleware");
         const url = request.nextUrl.clone();
         url.pathname = "/login";
+        url.searchParams.set("redirectTo", pathname || "/app/pedidos");
         return NextResponse.redirect(url);
     }
 
@@ -77,6 +78,7 @@ export async function middleware(
     if (!isLoggedIn) {
         const url = request.nextUrl.clone();
         url.pathname = "/login";
+        url.searchParams.set("redirectTo", pathname || "/app/pedidos");
         return NextResponse.redirect(url);
     }
 
