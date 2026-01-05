@@ -271,3 +271,95 @@ Corrigido typo no template (0 pedido → O pedido) e atualizadas ocorrências em
 Deploy / ambiente
 
 Ajuste feito: variáveis SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY configuradas no Vercel; build aprovada.
+
+Faltante (para finalizar o Mini-ERP + Chatbot)
+
+Organizado por prioridade (Crítico → Importante → Opcional).
+
+Crítico (necessário antes de entrega a clientes)
+
+Entitlements / Billing
+
+Implementar validação feature_limits no backend (bloqueio/rejeição e overage).
+
+Integrar usage_monthly com cobrança (Stripe ou fluxo de cobrança).
+
+Acceptance: endpoints rejeitam ação quando limite excedido; overage tratado conforme subscriptions.allow_overage.
+
+Segurança & RLS
+
+Definir e aplicar RLS policies para tabelas sensíveis (orders, company_users, whatsapp_threads, whatsapp_messages, bot_logs, chatbots, bot_intents).
+
+Garantir que apenas backend/service-role pode fazer operações sensíveis; ou políticas que permitam leitura segura quando apropriado.
+
+requireCompanyAccess()
+
+Finalizar fallback/strategia (server client / service role) para evitar 403 indevidos em rotas protegidas.
+
+Env & deploy hardening
+
+Validar e tratar ausências de env vars no server (já adicionada checagem sugerida).
+
+Adicionar OPTIONS() handler para evitar 405 em preflight (melhoria aplicada via PR recomendada).
+
+Acceptance tests / Smoke in CI
+
+Criar scripts de smoke (login → select workspace → create thread → resolve bot) e adicionar ao CI.
+
+Importante (prioridade média)
+
+Integração de envio real
+
+Integrar dispatcher com Twilio e 360dialog (quando contas aprovadas). Substituir gravação simulada de whatsapp_messages pelo envio real + logging do provider ids.
+
+LLM / custo e contabilidade
+
+Implementar integração LLM (OpenAI ou outro) com leitura de tokens e custo; gravar llm_tokens_used e llm_cost em bot_logs.
+
+Template engine & NLU
+
+Substituir replace simples por template engine (ex.: mustache) para evitar typos/injection.
+
+Melhorar classificação (classifier/embedding) para intents (em vez de matching por includes).
+
+Unicidade whatsapp_threads
+
+Migrar UNIQUE(phone_e164) → UNIQUE(company_id, phone_e164) (migração segura: detectar duplicatas, criar índice CONCURRENTLY via psql, remover constraint antiga).
+
+RLS policies específicas para chatbot
+
+Políticas que permitam leitura de bot_logs por admins only, impedir clientes de alterar logs/intents.
+
+Opcional / Nice-to-have
+
+UI / Admin
+
+Painel CRUD para chatbots e bot_intents (templates, examples, thresholds).
+
+Bot activation toggle e history viewer (bot_logs).
+
+Observability & Billing exports
+
+Dashboard métricas: chamadas LLM, latência, custos, overage alerts.
+
+Export CSV de uso por company.
+
+Impressão / PDV / TEF
+
+Worker/queue para print_jobs e integrações PDV (fase ERP full).
+
+Handover workflow
+
+Fila/Notificações para atendimento humano quando confidence < threshold, com UI para operadores.
+
+Critérios de aceitação (resumido)
+
+Bot configurável por company; bot_intents CRUD em backend.
+
+Mensagens automatizadas gravadas em bot_logs e whatsapp_messages; preview na thread atualizado.
+
+Uso contabilizado em usage_monthly e respeitado por feature_limits antes de chamar LLM.
+
+RLS/policies aprovadas e testadas para impedir vazamento entre companies.
+
+Envio real via Twilio/360dialog integrado e testado (quando contas estiverem prontas).
