@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 type AuthClient = {
@@ -15,7 +15,8 @@ export type SupabaseClientFactory = (
 
 export async function middleware(
     request: NextRequest,
-    createClient: SupabaseClientFactory = createServerClient
+    _event?: NextFetchEvent,
+    options?: { createClient?: SupabaseClientFactory }
 ) {
     const pathname = request.nextUrl.pathname;
 
@@ -45,7 +46,7 @@ export async function middleware(
 
     const response = NextResponse.next();
 
-    const supabase = createClient(
+    const supabase = (options?.createClient ?? createServerClient)(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {

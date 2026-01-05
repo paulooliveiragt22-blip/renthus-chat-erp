@@ -28,15 +28,23 @@ describe("middleware auth routing", () => {
     });
 
     it("bypasses public auth routes without invoking Supabase", async () => {
-        const response = await middleware(createRequest("/login"), factory);
+        const response = await middleware(createRequest("/login"), undefined, {
+            createClient: factory,
+        });
 
         assert.strictEqual(factory.mock.calls.length, 0);
         assert.strictEqual(response.headers.get("location"), null);
     });
 
     it("exempts webhook and print endpoints", async () => {
-        const response = await middleware(createRequest("/api/whatsapp/inbound"), factory);
-        const printResponse = await middleware(createRequest("/api/print/pull"), factory);
+        const response = await middleware(
+            createRequest("/api/whatsapp/inbound"),
+            undefined,
+            { createClient: factory }
+        );
+        const printResponse = await middleware(createRequest("/api/print/pull"), undefined, {
+            createClient: factory,
+        });
 
         assert.strictEqual(factory.mock.calls.length, 0);
         assert.strictEqual(response.headers.get("location"), null);
@@ -45,7 +53,9 @@ describe("middleware auth routing", () => {
 
     it("redirects unauthenticated users on protected routes", async () => {
         const { factory: protectedFactory } = createMockClient(null);
-        const response = await middleware(createRequest("/dashboard"), protectedFactory);
+        const response = await middleware(createRequest("/dashboard"), undefined, {
+            createClient: protectedFactory,
+        });
 
         assert.strictEqual(protectedFactory.mock.calls.length, 1);
         assert.strictEqual(response.status, 307);
@@ -54,7 +64,9 @@ describe("middleware auth routing", () => {
 
     it("allows protected routes when a session exists", async () => {
         const { factory: protectedFactory, getUser } = createMockClient({ id: "user-123" });
-        const response = await middleware(createRequest("/dashboard"), protectedFactory);
+        const response = await middleware(createRequest("/dashboard"), undefined, {
+            createClient: protectedFactory,
+        });
 
         assert.strictEqual(protectedFactory.mock.calls.length, 1);
         assert.strictEqual(getUser.mock.calls.length, 1);
