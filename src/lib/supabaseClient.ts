@@ -1,6 +1,21 @@
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient, createServerClient as createSupabaseServerClient } from "@supabase/ssr";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { getSupabaseServiceRoleKey, supabasePublicEnv } from "./env";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+export type SupabaseCookieAdapter = NonNullable<Parameters<typeof createSupabaseServerClient>[2]>["cookies"];
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export function createBrowserSupabaseClient() {
+    return createBrowserClient(supabasePublicEnv.url, supabasePublicEnv.anonKey);
+}
+
+export function createServerSupabaseClient(cookies: SupabaseCookieAdapter) {
+    return createSupabaseServerClient(supabasePublicEnv.url, supabasePublicEnv.anonKey, { cookies });
+}
+
+export function createServiceSupabaseClient() {
+    if (typeof window !== "undefined") {
+        throw new Error("Service role client is only available on the server");
+    }
+
+    return createServiceClient(supabasePublicEnv.url, getSupabaseServiceRoleKey(), { auth: { persistSession: false } });
+}
