@@ -46,9 +46,20 @@ export async function middleware(
 
     const response = NextResponse.next();
 
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+        console.error("Missing Supabase environment variables in middleware");
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        url.searchParams.set("redirectTo", pathname || "/app/pedidos");
+        return NextResponse.redirect(url);
+    }
+
     const supabase = (options?.createClient ?? createServerClient)(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        supabaseUrl,
+        supabaseAnonKey,
         {
             cookies: {
                 getAll: () => request.cookies.getAll(),
@@ -67,6 +78,7 @@ export async function middleware(
     if (!isLoggedIn) {
         const url = request.nextUrl.clone();
         url.pathname = "/login";
+        url.searchParams.set("redirectTo", pathname || "/app/pedidos");
         return NextResponse.redirect(url);
     }
 

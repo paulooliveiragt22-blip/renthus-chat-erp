@@ -29,7 +29,7 @@ export default function LoginPage() {
     const [msg, setMsg] = useState<string | null>(null);
     const [err, setErr] = useState<string | null>(null);
 
-    const redirectTo = searchParams.get("redirectTo") || "/pedidos";
+    const redirectTo = searchParams.get("redirectTo") || "/app/pedidos";
 
     // Auto-select workspace if the user has only 1 company
     async function autoSelectCompany() {
