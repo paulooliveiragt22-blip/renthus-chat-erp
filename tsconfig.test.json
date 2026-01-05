@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": ".tests-dist",
+    "types": ["node"],
+    "target": "ES2020",
+    "lib": ["es2020", "dom"],
+    "allowJs": true
+  },
+  "include": ["middleware.ts", "tests/**/*.ts"]
+}
