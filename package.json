@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsc -p tsconfig.test.json && node --test --require ./tests/cjs-mocks.js .test-dist/tests/login.snapshot.test.js"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

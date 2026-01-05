@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import styles from "./Login.module.css";
 
 type Mode = "login" | "signup";
 
@@ -143,30 +144,15 @@ export default function LoginPage() {
     const isLogin = mode === "login";
 
     return (
-        <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 16 }}>
-            <div
-                style={{
-                    width: "100%",
-                    maxWidth: 420,
-                    border: "1px solid rgba(0,0,0,0.12)",
-                    borderRadius: 14,
-                    padding: 18,
-                }}
-            >
-                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <div className={styles.authPage}>
+            <div className={styles.authCard}>
+                <div className={styles.modeSwitcher}>
                     <button
                         type="button"
                         onClick={() => setMode("login")}
                         disabled={loading}
-                        style={{
-                            flex: 1,
-                            padding: "10px 12px",
-                            borderRadius: 10,
-                            border: "1px solid rgba(0,0,0,0.12)",
-                            background: isLogin ? "#3B246B" : "transparent",
-                            color: isLogin ? "#fff" : "#111",
-                            cursor: "pointer",
-                        }}
+                        className={styles.tabButton}
+                        data-active={isLogin ? "login" : undefined}
                     >
                         Entrar
                     </button>
@@ -174,59 +160,45 @@ export default function LoginPage() {
                         type="button"
                         onClick={() => setMode("signup")}
                         disabled={loading}
-                        style={{
-                            flex: 1,
-                            padding: "10px 12px",
-                            borderRadius: 10,
-                            border: "1px solid rgba(0,0,0,0.12)",
-                            background: !isLogin ? "#FF6600" : "transparent",
-                            color: !isLogin ? "#fff" : "#111",
-                            cursor: "pointer",
-                        }}
+                        className={styles.tabButton}
+                        data-active={!isLogin ? "signup" : undefined}
                     >
                         Criar conta
                     </button>
                 </div>
 
-                <h1 style={{ fontSize: 20, margin: "4px 0 10px 0" }}>
+                <h1 className={styles.heading}>
                     {isLogin ? "Acessar sua conta" : "Criar uma nova conta"}
                 </h1>
 
                 {msg ? (
-                    <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(13,170,0,0.12)" }}>
+                    <div className={`${styles.feedback} ${styles.feedbackSuccess}`}>
                         {msg}
                     </div>
                 ) : null}
 
                 {err ? (
-                    <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(255,0,0,0.10)" }}>
+                    <div className={`${styles.feedback} ${styles.feedbackError}`}>
                         {err}
                     </div>
                 ) : null}
 
                 <form onSubmit={isLogin ? handleLogin : handleSignup}>
                     {!isLogin ? (
-                        <div style={{ marginBottom: 10 }}>
-                            <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
-                                Nome (opcional)
-                            </label>
+                        <div className={styles.formField}>
+                            <label className={styles.label}>Nome (opcional)</label>
                             <input
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 disabled={loading}
                                 placeholder="Ex.: João"
-                                style={{
-                                    width: "100%",
-                                    padding: 10,
-                                    borderRadius: 10,
-                                    border: "1px solid rgba(0,0,0,0.15)",
-                                }}
+                                className={styles.input}
                             />
                         </div>
                     ) : null}
 
-                    <div style={{ marginBottom: 10 }}>
-                        <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>E-mail</label>
+                    <div className={styles.formField}>
+                        <label className={styles.label}>E-mail</label>
                         <input
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
@@ -234,17 +206,12 @@ export default function LoginPage() {
                             inputMode="email"
                             autoComplete="email"
                             placeholder="seuemail@exemplo.com"
-                            style={{
-                                width: "100%",
-                                padding: 10,
-                                borderRadius: 10,
-                                border: "1px solid rgba(0,0,0,0.15)",
-                            }}
+                            className={styles.input}
                         />
                     </div>
 
-                    <div style={{ marginBottom: 10 }}>
-                        <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Senha</label>
+                    <div className={styles.formField}>
+                        <label className={styles.label}>Senha</label>
                         <input
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
@@ -252,29 +219,14 @@ export default function LoginPage() {
                             type="password"
                             autoComplete={isLogin ? "current-password" : "new-password"}
                             placeholder="••••••••"
-                            style={{
-                                width: "100%",
-                                padding: 10,
-                                borderRadius: 10,
-                                border: "1px solid rgba(0,0,0,0.15)",
-                            }}
+                            className={styles.input}
                         />
                     </div>
 
                     <button
                         type="submit"
                         disabled={loading}
-                        style={{
-                            width: "100%",
-                            padding: "11px 12px",
-                            borderRadius: 12,
-                            border: "none",
-                            background: isLogin ? "#3B246B" : "#FF6600",
-                            color: "#fff",
-                            cursor: "pointer",
-                            fontWeight: 700,
-                            marginTop: 6,
-                        }}
+                        className={isLogin ? styles.primaryButton : styles.secondaryButton}
                     >
                         {loading ? "Aguarde..." : isLogin ? "Entrar" : "Criar conta"}
                     </button>
@@ -284,22 +236,14 @@ export default function LoginPage() {
                             type="button"
                             onClick={handleResetPassword}
                             disabled={loading}
-                            style={{
-                                width: "100%",
-                                padding: "10px 12px",
-                                borderRadius: 12,
-                                border: "1px solid rgba(0,0,0,0.12)",
-                                background: "transparent",
-                                cursor: "pointer",
-                                marginTop: 10,
-                            }}
+                            className={styles.ghostButton}
                         >
                             Esqueci minha senha
                         </button>
                     ) : null}
                 </form>
 
-                <div style={{ marginTop: 14, fontSize: 12, opacity: 0.8 }}>
+                <div className={styles.footer}>
                     <Link href="/">Voltar</Link>
                 </div>
             </div>
