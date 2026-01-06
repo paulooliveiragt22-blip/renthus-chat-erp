@@ -48,7 +48,7 @@ export default function DashboardClient() {
 
     fetch("/api/orders/status", { credentials: "include" })
       .then((r) => r.json())
-      .then((json) => setStatusSummary(json))
+      .then((json) => setStatusSummary(json?.summary ?? null))
       .catch(() => setStatusSummary(null));
   }, []);
 
