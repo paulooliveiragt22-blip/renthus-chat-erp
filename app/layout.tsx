@@ -1,5 +1,5 @@
+import "@/styles/globals.css";
 import AdminSidebar from "@/components/AdminSidebar";
-
 
 export const metadata = {
   title: "Disk Bebidas - Admin",
@@ -25,7 +25,7 @@ export default function RootLayout({
         >
           <div style={{ fontWeight: 700 }}>Disk Bebidas</div>
           <nav style={{ display: "flex", gap: 12 }}>
-            
+            <a href="/dashboard">Dashboard</a>
             <a href="/login">Sair</a>
           </nav>
         </header>

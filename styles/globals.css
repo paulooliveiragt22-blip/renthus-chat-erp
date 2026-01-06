@@ -1,0 +1,22 @@
+/* styles/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Colocar regras base dentro de @layer base para garantir que @apply funcione */
+@layer base {
+  html, body {
+    min-height: 100%;
+    /* aplica a cor de fundo usando @apply em layer base */
+    @apply bg-gray-50;
+  }
+
+  /* Ajustes globais adicionais (opcionais) */
+  body {
+    margin: 0;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+      Arial, "Noto Sans", "Liberation Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
