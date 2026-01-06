@@ -1,7 +1,23 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-export async function middleware(request: NextRequest) {
+type AuthClient = {
+    auth: {
+        getUser: () => Promise<{ data: { user: unknown } }>;
+    };
+};
+
+export type SupabaseClientFactory = (
+    supabaseUrl: string,
+    supabaseKey: string,
+    options: Parameters<typeof createServerClient>[2]
+) => AuthClient;
+
+export async function middleware(
+    request: NextRequest,
+    _event?: NextFetchEvent,
+    options?: { createClient?: SupabaseClientFactory }
+) {
     const pathname = request.nextUrl.pathname;
 
     // ✅ Libera webhooks (Twilio/WhatsApp) e endpoints técnicos
@@ -30,7 +46,7 @@ export async function middleware(request: NextRequest) {
 
     const response = NextResponse.next();
 
-    const supabase = createServerClient(
+    const supabase = (options?.createClient ?? createServerClient)(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
