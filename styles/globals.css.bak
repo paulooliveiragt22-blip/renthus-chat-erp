@@ -1,4 +1,4 @@
-﻿/* styles/globals.css */
+/* styles/globals.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,8 +7,8 @@
 @layer base {
   html, body {
     min-height: 100%;
-    /* define a cor de fundo diretamente para evitar erros de utilitÃ¡rio durante o build */
-    background-color: #f2f2f4;
+    /* define a cor de fundo diretamente para evitar erros de utilitário durante o build */
+    background-color: #f9fafb;
   }
 
   /* Ajustes globais adicionais (opcionais) */
@@ -19,12 +19,4 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-}
-
-/* Card padrÃ£o: fundo branco e sombra para sensaÃ§Ã£o de profundidade */
-.card {
-  background: #fff;
-  border-radius: 12px;
-  border: 1px solid #eee;
-  box-shadow: 0 8px 20px rgba(32,26,43,0.06);
 }

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -8,7 +8,7 @@ import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
 import OrdersStatsModal from "@/components/OrdersStatsModal";
 
-// Possíveis status de um pedido (order)
+// PossÃ­veis status de um pedido (order)
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
 
 type CustomerRow = { name: string; phone: string; address: string | null };
@@ -21,10 +21,7 @@ type OrderRow = {
     customers: CustomerRow | null;
 };
 
-// Modelo de uma conversa (thread) do WhatsApp. Inclui campos básicos
-// retornados pelo endpoint de threads.  O campo last_message_read_at não
-// é retornado pelo endpoint atual, mas poderá ser usado futuramente
-// para ordenar conversas não lidas.
+// Modelo de uma conversa (thread) do WhatsApp.
 type Thread = {
     id: string;
     phone_e164: string;
@@ -124,9 +121,8 @@ function btnPurpleOutline(active?: boolean): React.CSSProperties {
 
 /**
  * Normaliza o retorno do Supabase:
- * - às vezes `customers` vem como array (customers: [{...}])
- * - às vezes vem como objeto (customers: {...})
- * Aqui garantimos `customers: CustomerRow | null` e tipos seguros pro build.
+ * - Ã s vezes `customers` vem como array (customers: [{...}])
+ * - Ã s vezes vem como objeto (customers: {...})
  */
 function normalizeOrders(input: unknown): OrderRow[] {
     const arr = Array.isArray(input) ? input : [];
@@ -157,6 +153,92 @@ function normalizeOrders(input: unknown): OrderRow[] {
     });
 }
 
+// Modal simples para esse arquivo (perfil de empresa)
+function ModalSimple({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {
+    if (!open) return null;
+    return (
+        <div
+            onClick={onClose}
+            style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.35)",
+                display: "grid",
+                placeItems: "center",
+                padding: 12,
+                zIndex: 80,
+            }}
+        >
+            <div onClick={(e) => e.stopPropagation()} style={{ width: "min(720px, 100%)", background: "#fff", borderRadius: 14, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900 }}>{title}</h3>
+                    <button onClick={onClose} style={{ borderRadius: 10, padding: "6px 10px", cursor: "pointer" }}>
+                        Fechar
+                    </button>
+                </div>
+                <div style={{ marginTop: 12 }}>{children}</div>
+            </div>
+        </div>
+    );
+}
+
+// FormulÃ¡rio de perfil (simples, integrado)
+function CompanyProfileForm({ company, onChange, onLoad, onSave }: { company: any; onChange: (c: any) => void; onLoad: () => Promise<void>; onSave: () => Promise<void> }) {
+    useEffect(() => {
+        if (!company) {
+            onLoad();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    function updateField(key: string, value: any) {
+        onChange({ ...(company ?? {}), [key]: value });
+    }
+
+    async function handleCepLookup() {
+        const cep = String(company?.cep ?? "").replace(/\D/g, "");
+        if (!cep) return alert("Informe o CEP");
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const json = await res.json();
+            if (json.erro) return alert("CEP nÃ£o encontrado");
+            updateField("street", json.logradouro || "");
+            updateField("neighborhood", json.bairro || "");
+            updateField("city", json.localidade || "");
+            updateField("state", json.uf || "");
+        } catch (e) {
+            alert("Erro ao consultar CEP");
+        }
+    }
+
+    return (
+        <div style={{ display: "grid", gap: 8 }}>
+            <input value={company?.company_name ?? ""} onChange={(e) => updateField("company_name", e.target.value)} placeholder="RazÃ£o social" />
+            <input value={company?.cnpj ?? ""} onChange={(e) => updateField("cnpj", e.target.value)} placeholder="CNPJ" />
+
+            <div style={{ display: "flex", gap: 8 }}>
+                <input value={company?.cep ?? ""} onChange={(e) => updateField("cep", e.target.value)} placeholder="CEP" />
+                <button onClick={handleCepLookup} style={{ padding: "6px 10px", cursor: "pointer" }}>Preencher</button>
+            </div>
+
+            <input id="company-street" value={company?.street ?? ""} onChange={(e) => updateField("street", e.target.value)} placeholder="Rua" />
+            <input value={company?.number ?? ""} onChange={(e) => updateField("number", e.target.value)} placeholder="NÃºmero (manual)" />
+            <input value={company?.neighborhood ?? ""} onChange={(e) => updateField("neighborhood", e.target.value)} placeholder="Bairro" />
+            <input value={company?.city ?? ""} onChange={(e) => updateField("city", e.target.value)} placeholder="Cidade" />
+            <input value={company?.state ?? ""} onChange={(e) => updateField("state", e.target.value)} placeholder="Estado" />
+
+            <input value={company?.phone ?? ""} onChange={(e) => updateField("phone", e.target.value)} placeholder="Telefone" />
+            <input value={company?.email ?? ""} onChange={(e) => updateField("email", e.target.value)} placeholder="Email" />
+            <input value={company?.responsible ?? ""} onChange={(e) => updateField("responsible", e.target.value)} placeholder="ResponsÃ¡vel" />
+
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={onSave} style={{ background: "#3B246B", color: "#fff", padding: "8px 12px", borderRadius: 10 }}>Salvar</button>
+                <button onClick={() => { /* fechar Ã© responsabilidade do pai */ }} style={{ padding: "8px 12px", borderRadius: 10 }}>Cancelar</button>
+            </div>
+        </div>
+    );
+}
+
 export default function AdminSidebar() {
     const router = useRouter();
     const sp = useSearchParams();
@@ -165,15 +247,15 @@ export default function AdminSidebar() {
     const [orders, setOrders] = useState<OrderRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [msg, setMsg] = useState<string | null>(null);
-    // Estado para alternar entre a lista de pedidos e a lista de conversas
-    const [tab, setTab] = useState<"orders" | "chatbot">("orders");
-    // Lista de conversas
+    const [tab, setTab] = useState<"orders" | "whatsapp">("orders");
     const [threads, setThreads] = useState<Thread[]>([]);
     const [loadingThreads, setLoadingThreads] = useState(false);
     const [threadsMsg, setThreadsMsg] = useState<string | null>(null);
-    // Thread selecionada no modal de resposta rápida
     const [openThread, setOpenThread] = useState<Thread | null>(null);
     const [showStats, setShowStats] = useState(false);
+    const [profileOpen, setProfileOpen] = useState(false);
+    const [companyProfile, setCompanyProfile] = useState<any>(null);
+    const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
     async function loadOrders() {
         setLoading(true);
@@ -193,12 +275,73 @@ export default function AdminSidebar() {
         setLoading(false);
     }
 
-    // Carrega conversas (threads) do WhatsApp
+    useEffect(() => {
+        async function ensureWorkspaceSelectedAndLoad() {
+            try {
+                const listRes = await fetch("/api/workspace/list", { credentials: "include" });
+                const listJson = await listRes.json().catch(() => ({ companies: [] }));
+                const companies = Array.isArray(listJson.companies) ? listJson.companies : [];
+
+                if (companies.length === 1) {
+                    try {
+                        await fetch("/api/workspace/select", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ company_id: companies[0].id }),
+                        });
+                    } catch (err) {
+                        console.warn("workspace/select failed", err);
+                    }
+                }
+            } catch (e) {
+                console.warn("auto-select workspace failed", e);
+            } finally {
+                loadOrders();
+            }
+        }
+
+        ensureWorkspaceSelectedAndLoad();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        const id = window.setInterval(() => {
+            loadOrders();
+        }, 10000);
+        return () => window.clearInterval(id);
+    }, []);
+
+    useEffect(() => {
+        if (tab === "whatsapp") {
+            loadThreads();
+            const id = window.setInterval(() => {
+                loadThreads();
+            }, 10000);
+            return () => window.clearInterval(id);
+        }
+        return;
+    }, [tab]);
+
+    const stats = useMemo(() => {
+        const by = { new: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
+        for (const o of orders) {
+            const s = String(o.status) as OrderStatus;
+            if (by[s] !== undefined) by[s] += 1;
+        }
+        return { total: orders.length, ...by };
+    }, [orders]);
+
+    function goStatus(s: OrderStatus | "all") {
+        if (s === "all") setSelected(null);
+        else setSelected(s);
+    }
+
     async function loadThreads() {
         setLoadingThreads(true);
         setThreadsMsg(null);
         try {
-            const url = new URL("/api/chatbot/threads", window.location.origin);
+            const url = new URL("/api/whatsapp/threads", window.location.origin);
             url.searchParams.set("limit", "30");
             const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
@@ -218,91 +361,6 @@ export default function AdminSidebar() {
         }
     }
 
-    // Carrega pedidos ao montar — tenta auto-select da company se houver apenas 1
-    useEffect(() => {
-        async function ensureWorkspaceSelectedAndLoad() {
-            try {
-                // 1) listar companies do usuário
-                const listRes = await fetch("/api/workspace/list", { credentials: "include" });
-                const listJson = await listRes.json().catch(() => ({ companies: [] }));
-                const companies = Array.isArray(listJson.companies) ? listJson.companies : [];
-
-                // 2) se houver exatamente 1 company, tentar selecionar (backend seta cookie)
-                if (companies.length === 1) {
-                    try {
-                        await fetch("/api/workspace/select", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            credentials: "include",
-                            body: JSON.stringify({ company_id: companies[0].id }),
-                        });
-                        // ignoramos o retorno; prosseguimos para carregar pedidos
-                    } catch (err) {
-                        console.warn("workspace/select failed", err);
-                    }
-                }
-            } catch (e) {
-                console.warn("auto-select workspace failed", e);
-            } finally {
-                // 3) agora carrega os pedidos, independentemente do resultado do select
-                loadOrders();
-            }
-        }
-
-        ensureWorkspaceSelectedAndLoad();
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // Polling leve para pedidos
-    useEffect(() => {
-        const id = window.setInterval(() => {
-            loadOrders();
-        }, 10000);
-        return () => window.clearInterval(id);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // Carrega conversas quando a aba muda para chatbot
-    useEffect(() => {
-        if (tab === "chatbot") {
-            loadThreads();
-            const id = window.setInterval(() => {
-                loadThreads();
-            }, 10000);
-            return () => window.clearInterval(id);
-        }
-        return;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab]);
-
-    const stats = useMemo(() => {
-        const by = { new: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
-        for (const o of orders) {
-            const s = String(o.status) as OrderStatus;
-            if (by[s] !== undefined) by[s] += 1;
-        }
-        return { total: orders.length, ...by };
-    }, [orders]);
-
-    function goStatus(s: OrderStatus | "all") {
-        if (s === "all") setSelected(null);
-        else setSelected(s);
-    }
-
-    function cardStyle(active: boolean): React.CSSProperties {
-        return {
-            border: `1px solid ${active ? PURPLE : "#eee"}`,
-            borderRadius: 12,
-            padding: 10,
-            background: active ? "#f5f1fb" : "#fff",
-            cursor: "pointer",
-            textAlign: "left",
-            width: "100%",
-            boxSizing: "border-box",
-        };
-    }
-
     const filtered = useMemo(() => {
         if (!selected) return orders;
         return orders.filter((o) => String(o.status) === selected);
@@ -310,7 +368,6 @@ export default function AdminSidebar() {
 
     const latest = useMemo(() => filtered.slice(0, 8), [filtered]);
 
-    // Ordena conversas por data da última mensagem (desc). Mostra apenas as 8 mais recentes
     const latestThreads = useMemo(() => {
         const sorted = threads.slice().sort((a, b) => {
             const da = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
@@ -342,62 +399,61 @@ export default function AdminSidebar() {
                 boxSizing: "border-box",
             }}
         >
-            {/* Workspace */}
-            <div style={{ marginBottom: 10 }}>
+            {/* Workspace: Ã­cones + nome da empresa */}
+            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                 <WorkspaceSwitcher />
+                <div style={{ fontWeight: 900 }}>Disk Bebidas</div>
             </div>
 
             <div style={{ borderTop: "1px solid #eee", paddingTop: 10, marginBottom: 10 }}>
-                <div style={{ fontWeight: 900, fontSize: 12, color: "#111" }}>Dashboard</div>
-            </div>
+                {/* BotÃµes principais */}
+                <Link href="/whatsapp" style={{ textDecoration: "none" }}>
+                    <button style={{ width: "100%", marginTop: 8 }}>
+                        WhatsApp
+                    </button>
+                </Link>
 
-            {/* Botões principais */}
-            <Link href="/chatbot" style={{ textDecoration: "none" }}>
-                <button style={{ /* estilo do WhatsApp */ width: "100%", marginTop: 8 }}>
-                    WhatsApp
-                </button>
-            </Link>
+                <Link href="/produtos" style={{ textDecoration: "none" }}>
+                    <button style={{ ...btnOrange(false), width: "100%", padding: "10px 10px", borderRadius: 12, fontSize: 12 }}>
+                        Cadastrar produto
+                    </button>
+                </Link>
 
-            <Link href="/produtos" style={{ textDecoration: "none" }}>
-                <button style={{ ...btnOrange(false), width: "100%", padding: "10px 10px", borderRadius: 12, fontSize: 12 }}>
-                    Cadastrar produto
-                </button>
-            </Link>
+                <Link href="/produtos/lista" style={{ textDecoration: "none" }}>
+                    <button
+                        style={{
+                            ...btnOrangeOutline(false),
+                            width: "100%",
+                            marginTop: 8,
+                            padding: "10px 10px",
+                            borderRadius: 12,
+                            fontSize: 12,
+                        }}
+                    >
+                        Produtos
+                    </button>
+                </Link>
 
-            <Link href="/produtos/lista" style={{ textDecoration: "none" }}>
-                <button
-                    style={{
-                        ...btnOrangeOutline(false),
-                        width: "100%",
-                        marginTop: 8,
-                        padding: "10px 10px",
-                        borderRadius: 12,
-                        fontSize: 12,
-                    }}
-                >
-                    Produtos
-                </button>
-            </Link>
+                <Link href="/pedidos" style={{ textDecoration: "none" }}>
+                    <button
+                        style={{
+                            ...btnOrangeOutline(false),
+                            width: "100%",
+                            marginTop: 8,
+                            padding: "10px 10px",
+                            borderRadius: 12,
+                            fontSize: 12,
+                        }}
+                    >
+                        Pedidos
+                    </button>
+                </Link>
 
-            <Link href="/pedidos" style={{ textDecoration: "none" }}>
-                <button
-                    style={{
-                        ...btnOrangeOutline(false),
-                        width: "100%",
-                        marginTop: 8,
-                        padding: "10px 10px",
-                        borderRadius: 12,
-                        fontSize: 12,
-                    }}
-                >
-                    Pedidos
-                </button>
-            </Link>
-
-            <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
-                <button onClick={loadOrders} style={{ ...btnOrangeOutline(false), width: "100%" }}>
-                    Recarregar
-                </button>
+                <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
+                    <button onClick={loadOrders} style={{ ...btnOrangeOutline(false), width: "100%" }}>
+                        Recarregar
+                    </button>
+                </div>
             </div>
 
             {/* Cards */}
@@ -406,7 +462,7 @@ export default function AdminSidebar() {
                     <div style={{ fontWeight: 900, fontSize: 12 }}>Pedidos</div>
                     <div style={{ display: "flex", gap: 8 }}>
                         <button onClick={() => setShowStats(true)} style={{ ...btnPurpleOutline(false), padding: "6px 8px", fontSize: 11 }}>
-                            Estatísticas
+                            EstatÃ­sticas
                         </button>
                         <button onClick={() => goStatus("all")} style={{ ...btnOrangeOutline(false), padding: "6px 8px", fontSize: 11 }}>
                             Ver todos ({stats.total})
@@ -447,8 +503,8 @@ export default function AdminSidebar() {
                             Pedidos ({filtered.length})
                         </button>
                         <button
-                            onClick={() => setTab("chatbot")}
-                            style={{ ...btnPurpleOutline(tab === "chatbot"), padding: "6px 8px", fontSize: 11 }}
+                            onClick={() => setTab("whatsapp")}
+                            style={{ ...btnPurpleOutline(tab === "whatsapp"), padding: "6px 8px", fontSize: 11 }}
                         >
                             WhatsApp ({threads.length})
                         </button>
@@ -554,16 +610,82 @@ export default function AdminSidebar() {
                                 })}
                             </div>
                         )}
-                        {/* Não há botão de lista completa para WhatsApp na sidebar */}
                     </>
                 )}
             </div>
 
-            {/* Modal de resposta rápida */}
+            {/* Perfil e Sair */}
+            <div style={{ marginTop: 14, borderTop: "1px solid #eee", paddingTop: 12 }}>
+                <button onClick={() => setProfileOpen(true)} style={{ ...btnPurpleOutline(false), width: "100%", marginBottom: 8 }}>
+                    Editar perfil da empresa
+                </button>
+                <button
+                    onClick={async () => {
+                        try {
+                            await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+                        } catch (e) {
+                            // ignore
+                        }
+                        router.push("/login");
+                    }}
+                    style={{ ...btnOrangeOutline(false), width: "100%" }}
+                >
+                    Sair
+                </button>
+            </div>
+
             {openThread ? <QuickReplyModal thread={openThread} onClose={() => setOpenThread(null)} /> : null}
             {showStats ? <OrdersStatsModal open={showStats} onClose={() => setShowStats(false)} /> : null}
+
+            {profileOpen ? (
+                <ModalSimple
+                    title="Editar perfil da empresa"
+                    open={profileOpen}
+                    onClose={() => {
+                        setProfileOpen(false);
+                        setProfileMsg(null);
+                    }}
+                >
+                    <CompanyProfileForm
+                        company={companyProfile}
+                        onChange={(next: any) => setCompanyProfile(next)}
+                        onLoad={async () => {
+                            try {
+                                const res = await fetch("/api/company/me", { credentials: "include" });
+                                if (res.ok) {
+                                    const json = await res.json();
+                                    setCompanyProfile(json.company ?? json);
+                                }
+                            } catch (e) {
+                                // ignore
+                            }
+                        }}
+                        onSave={async () => {
+                            setProfileMsg(null);
+                            try {
+                                const res = await fetch("/api/company/update", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    credentials: "include",
+                                    body: JSON.stringify(companyProfile ?? {}),
+                                });
+                                const json = await res.json().catch(() => ({}));
+                                if (!res.ok) {
+                                    setProfileMsg(json?.error ?? "Erro ao salvar perfil");
+                                    return;
+                                }
+                                setProfileMsg("âœ… Salvo");
+                                setTimeout(() => {
+                                    setProfileOpen(false);
+                                }, 800);
+                            } catch (e) {
+                                setProfileMsg("Erro ao salvar perfil");
+                            }
+                        }}
+                    />
+                    {profileMsg ? <div style={{ marginTop: 8, color: profileMsg.startsWith("âœ…") ? "#0DAA00" : "crimson" }}>{profileMsg}</div> : null}
+                </ModalSimple>
+            ) : null}
         </aside>
     );
 }
-
-

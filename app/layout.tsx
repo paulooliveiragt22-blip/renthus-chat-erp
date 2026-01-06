@@ -1,6 +1,5 @@
-// app/layout.tsx
-import "@/styles/globals.css";
-import Sidebar from "@/components/Sidebar";
+﻿import "@/styles/globals.css";
+import AdminSidebar from "@/components/AdminSidebar";
 
 export const metadata = {
   title: "Disk Bebidas - Admin",
@@ -14,34 +13,26 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
-      <body>
-        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "row" }}>
-          {/* Sidebar à esquerda */}
-          <Sidebar />
-
-          {/* Conteúdo à direita (header + main) */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-            <header
-              style={{
-                padding: 16,
-                borderBottom: "1px solid #eee",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>Disk Bebidas</div>
-              <nav style={{ display: "flex", gap: 12 }}>
-                <a href="/dashboard">Dashboard</a>
-                <a href="/login">Sair</a>
-              </nav>
-            </header>
-
-            <main style={{ flex: 1, minHeight: 0 }}>
-              {children}
-            </main>
+      <body style={{ background: "#f2f2f4", margin: 0, minHeight: "100vh" }}>
+        <header
+          style={{
+            padding: 12,
+            borderBottom: "1px solid #eee",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* Ã­cone / marca */}
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: "#3B246B" }} />
+            <div style={{ fontWeight: 700 }}>Disk Bebidas</div>
           </div>
-        </div>
+
+          {/* Nav removida (Dashboard / Sair migrados para a sidebar) */}
+          <div />
+        </header>
+        {children}
       </body>
     </html>
   );

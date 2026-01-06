@@ -1,4 +1,5 @@
-﻿"use client";
+
+"use client";
 // vercel: rebuild with normalizeRows
 import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -109,13 +110,13 @@ function Modal({
     );
 }
 
-// âœ… helper: se vier objeto OU array (por bug/ambiguidade de relaÃ§Ã£o), pega o primeiro ou null
+// ✅ helper: se vier objeto OU array (por bug/ambiguidade de relação), pega o primeiro ou null
 function firstOrNull<T>(v: T | T[] | null | undefined): T | null {
     if (!v) return null;
     return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
-// âœ… Normaliza o retorno do Supabase para bater com Row
+// ✅ Normaliza o retorno do Supabase para bater com Row
 function normalizeRows(input: unknown): Row[] {
     const arr = Array.isArray(input) ? input : [];
 
@@ -173,13 +174,11 @@ export default function ProdutosListaPage() {
 
     const [search, setSearch] = useState("");
 
-    // modal principal (editar variaÃ§Ã£o)
+    // modal principal (editar variação)
     const [open, setOpen] = useState(false);
-    // modal para cadastrar produto (abre iframe com /produtos)
-    const [createOpen, setCreateOpen] = useState(false);
     const [selected, setSelected] = useState<Row | null>(null);
 
-    // === ediÃ§Ã£o VARIANTE ===
+    // === edição VARIANTE ===
     const [details, setDetails] = useState("");
     const [hasVolume, setHasVolume] = useState(false);
     const [volumeValue, setVolumeValue] = useState("");
@@ -193,7 +192,7 @@ export default function ProdutosListaPage() {
 
     const [isActive, setIsActive] = useState(true);
 
-    // === ediÃ§Ã£o PRODUTO BASE (categoria/marca) ===
+    // === edição PRODUTO BASE (categoria/marca) ===
     const [useExistingCategory, setUseExistingCategory] = useState(true);
     const [categoryId, setCategoryId] = useState("");
     const [newCategoryName, setNewCategoryName] = useState("");
@@ -202,7 +201,7 @@ export default function ProdutosListaPage() {
     const [brandId, setBrandId] = useState("");
     const [newBrandName, setNewBrandName] = useState("");
 
-    // sub-modais: adicionar categoria/marca (botÃµes dentro do modal)
+    // sub-modais: adicionar categoria/marca (botões dentro do modal)
     const [addCategoryOpen, setAddCategoryOpen] = useState(false);
     const [addBrandOpen, setAddBrandOpen] = useState(false);
 
@@ -260,7 +259,7 @@ export default function ProdutosListaPage() {
             );
         }
 
-        // âœ… AQUI estÃ¡ a correÃ§Ã£o (sem cast que quebra no build)
+        // ✅ AQUI está a correção (sem cast que quebra no build)
         setRows(normalizeRows(variantsRes.data));
         setLoading(false);
     }
@@ -415,7 +414,7 @@ export default function ProdutosListaPage() {
             return;
         }
 
-        // 4) atualizar variaÃ§Ã£o
+        // 4) atualizar variação
         const patch: {
             details: string | null;
             unit_price: number;
@@ -453,7 +452,7 @@ export default function ProdutosListaPage() {
         const { error: varErr } = await supabase.from("product_variants").update(patch).eq("id", selected.id);
 
         if (varErr) {
-            setMsg(`Erro ao salvar variaÃ§Ã£o: ${varErr.message}`);
+            setMsg(`Erro ao salvar variação: ${varErr.message}`);
             setSaving(false);
             return;
         }
@@ -479,47 +478,31 @@ export default function ProdutosListaPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                 <div>
                     <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>Lista de Produtos</h1>
-                    <p style={{ marginTop: 8, color: "#555" }}>Editar por modal (com botÃ£o Salvar).</p>
+                    <p style={{ marginTop: 8, color: "#555" }}>Editar por modal (com botão Salvar).</p>
                 </div>
+
+                <a href="/produtos" style={{ border: "1px solid #999", borderRadius: 10, padding: "10px 12px" }}>
+                    + Cadastrar
+                </a>
             </div>
 
-            <section style={{ marginTop: 16, padding: 16, border: "1px solid #ddd", borderRadius: 14, background: "#fff", boxShadow: "0 8px 20px rgba(32,26,43,0.06)" }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                        <input
-                            placeholder="Buscar por categoria, marca, detalhes..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            style={{ minWidth: 320, padding: 10, border: "1px solid #ccc", borderRadius: 10 }}
-                        />
+            <section style={{ marginTop: 16, padding: 16, border: "1px solid #ddd", borderRadius: 14 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                        placeholder="Buscar por categoria, marca, detalhes..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        style={{ minWidth: 320, padding: 10, border: "1px solid #ccc", borderRadius: 10 }}
+                    />
 
-                        <button
-                            onClick={load}
-                            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
-                        >
-                            Recarregar
-                        </button>
+                    <button
+                        onClick={load}
+                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #999", cursor: "pointer" }}
+                    >
+                        Recarregar
+                    </button>
 
-                        {msg && <span style={{ color: msg.startsWith("âœ…") ? "green" : "crimson" }}>{msg}</span>}
-                    </div>
-
-                    {/* BotÃ£o Cadastrar produto no topo do card */}
-                    <div>
-                        <button
-                            onClick={() => setCreateOpen(true)}
-                            style={{
-                                background: "#FF6600",
-                                color: "#fff",
-                                padding: "10px 14px",
-                                borderRadius: 12,
-                                border: "1px solid #FF6600",
-                                cursor: "pointer",
-                                fontWeight: 900,
-                            }}
-                        >
-                            Cadastrar produto
-                        </button>
-                    </div>
+                    {msg && <span style={{ color: msg.startsWith("✅") ? "green" : "crimson" }}>{msg}</span>}
                 </div>
 
                 <div style={{ marginTop: 14, overflowX: "auto" }}>
@@ -533,11 +516,11 @@ export default function ProdutosListaPage() {
                                     <th style={{ textAlign: "left", padding: 10 }}>Marca</th>
                                     <th style={{ textAlign: "left", padding: 10 }}>Detalhes</th>
                                     <th style={{ textAlign: "left", padding: 10 }}>Volume</th>
-                                    <th style={{ textAlign: "right", padding: 10 }}>Valor unitÃ¡rio(R$)</th>
+                                    <th style={{ textAlign: "right", padding: 10 }}>Valor unitário(R$)</th>
                                     <th style={{ textAlign: "left", padding: 10 }}>Caixa</th>
                                     <th style={{ textAlign: "right", padding: 10 }}>Caixa (R$)</th>
                                     <th style={{ textAlign: "center", padding: 10 }}>Ativo</th>
-                                    <th style={{ textAlign: "center", padding: 10 }}>AÃ§Ãµes</th>
+                                    <th style={{ textAlign: "center", padding: 10 }}>Ações</th>
                                 </tr>
                             </thead>
 
@@ -549,16 +532,16 @@ export default function ProdutosListaPage() {
                                         <td style={{ padding: 10 }}>{r.details ?? "-"}</td>
 
                                         <td style={{ padding: 10 }}>
-                                            {r.unit === "none" || r.volume_value === null ? "â€”" : `${r.volume_value} ${unitLabel(r.unit)}`}
+                                            {r.unit === "none" || r.volume_value === null ? "—" : `${r.volume_value} ${unitLabel(r.unit)}`}
                                         </td>
 
                                         <td style={{ padding: 10, textAlign: "right" }}>{formatBRL(r.unit_price)}</td>
 
-                                        <td style={{ padding: 10 }}>{r.has_case ? `com ${r.case_qty ?? "?"}` : "â€”"}</td>
+                                        <td style={{ padding: 10 }}>{r.has_case ? `com ${r.case_qty ?? "?"}` : "—"}</td>
 
-                                        <td style={{ padding: 10, textAlign: "right" }}>{r.has_case ? formatBRL(r.case_price ?? 0) : "â€”"}</td>
+                                        <td style={{ padding: 10, textAlign: "right" }}>{r.has_case ? formatBRL(r.case_price ?? 0) : "—"}</td>
 
-                                        <td style={{ padding: 10, textAlign: "center" }}>{r.is_active ? "âœ…" : "â€”"}</td>
+                                        <td style={{ padding: 10, textAlign: "center" }}>{r.is_active ? "✅" : "—"}</td>
 
                                         <td style={{ padding: 10, textAlign: "center" }}>
                                             <button
@@ -597,7 +580,8 @@ export default function ProdutosListaPage() {
                     setSelected(null);
                     setMsg(null);
                 }}
-            >                {/* CATEGORIA */}
+            >
+                {/* CATEGORIA */}
                 <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12, marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                         <div>
@@ -646,7 +630,7 @@ export default function ProdutosListaPage() {
                                     </option>
                                 ))}
                             </select>
-                            <small style={{ color: "#666" }}>Ao salvar, a categoria do produto base serÃ¡ atualizada.</small>
+                            <small style={{ color: "#666" }}>Ao salvar, a categoria do produto base será atualizada.</small>
                         </div>
                     ) : (
                         <div style={{ marginTop: 10 }}>
@@ -656,7 +640,7 @@ export default function ProdutosListaPage() {
                                 placeholder="Digite para criar nova categoria"
                                 style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10 }}
                             />
-                            <small style={{ color: "#666" }}>A nova categoria serÃ¡ criada e usada neste produto.</small>
+                            <small style={{ color: "#666" }}>A nova categoria será criada e usada neste produto.</small>
                         </div>
                     )}
                 </div>
@@ -710,7 +694,7 @@ export default function ProdutosListaPage() {
                                     </option>
                                 ))}
                             </select>
-                            <small style={{ color: "#666" }}>Ao salvar, a marca do produto base serÃ¡ atualizada.</small>
+                            <small style={{ color: "#666" }}>Ao salvar, a marca do produto base será atualizada.</small>
                         </div>
                     ) : (
                         <div style={{ marginTop: 10 }}>
@@ -720,7 +704,7 @@ export default function ProdutosListaPage() {
                                 placeholder="Digite para criar nova marca"
                                 style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10 }}
                             />
-                            <small style={{ color: "#666" }}>A nova marca serÃ¡ criada e usada neste produto.</small>
+                            <small style={{ color: "#666" }}>A nova marca será criada e usada neste produto.</small>
                         </div>
                     )}
                 </div>
@@ -732,7 +716,7 @@ export default function ProdutosListaPage() {
                         <input
                             value={details}
                             onChange={(e) => setDetails(e.target.value)}
-                            placeholder="Ex: long neck, retornÃ¡vel..."
+                            placeholder="Ex: long neck, retornável..."
                             style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10, marginTop: 6 }}
                         />
                     </div>
@@ -761,7 +745,7 @@ export default function ProdutosListaPage() {
                                 disabled={!hasVolume}
                                 value={volumeValue}
                                 onChange={(e) => setVolumeValue(e.target.value)}
-                                placeholder={hasVolume ? "Ex: 350" : "â€”"}
+                                placeholder={hasVolume ? "Ex: 350" : "—"}
                                 style={{ flex: 1, padding: 10, border: "1px solid #ccc", borderRadius: 10 }}
                             />
                             <select
@@ -778,7 +762,7 @@ export default function ProdutosListaPage() {
                     </div>
 
                     <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
-                        <label style={{ fontWeight: 800 }}>Valor unitÃ¡rio (R$)</label>
+                        <label style={{ fontWeight: 800 }}>Valor unitário (R$)</label>
                         <input
                             value={unitPrice}
                             onChange={(e) => setUnitPrice(formatBRLInput(e.target.value))}
@@ -811,7 +795,7 @@ export default function ProdutosListaPage() {
                                     disabled={!hasCase}
                                     value={caseQty}
                                     onChange={(e) => setCaseQty(e.target.value)}
-                                    placeholder={hasCase ? "Ex: 12" : "â€”"}
+                                    placeholder={hasCase ? "Ex: 12" : "—"}
                                     style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 10, marginTop: 6 }}
                                     inputMode="numeric"
                                 />
@@ -835,7 +819,7 @@ export default function ProdutosListaPage() {
                             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
                             Ativo
                         </label>
-                        <small style={{ color: "#666" }}>Desmarque para â€œdesativarâ€ sem apagar.</small>
+                        <small style={{ color: "#666" }}>Desmarque para “desativar” sem apagar.</small>
                     </div>
                 </div>
 
@@ -848,12 +832,12 @@ export default function ProdutosListaPage() {
                         {saving ? "Salvando..." : "Salvar"}
                     </button>
 
-                    {msg && <span style={{ color: msg.startsWith("âœ…") ? "green" : "crimson" }}>{msg}</span>}
+                    {msg && <span style={{ color: msg.startsWith("✅") ? "green" : "crimson" }}>{msg}</span>}
                 </div>
 
                 {/* SUBMODAL: ADICIONAR CATEGORIA */}
                 <Modal title="Adicionar categoria" open={addCategoryOpen} onClose={() => setAddCategoryOpen(false)}>
-                    <p style={{ marginTop: 0, color: "#555" }}>Cria uma categoria nova e jÃ¡ seleciona ela para este produto.</p>
+                    <p style={{ marginTop: 0, color: "#555" }}>Cria uma categoria nova e já seleciona ela para este produto.</p>
                     <input
                         value={newCategoryName}
                         onChange={(e) => setNewCategoryName(e.target.value)}
@@ -887,7 +871,7 @@ export default function ProdutosListaPage() {
 
                 {/* SUBMODAL: ADICIONAR MARCA */}
                 <Modal title="Adicionar marca" open={addBrandOpen} onClose={() => setAddBrandOpen(false)}>
-                    <p style={{ marginTop: 0, color: "#555" }}>Cria uma marca nova e jÃ¡ seleciona ela para este produto.</p>
+                    <p style={{ marginTop: 0, color: "#555" }}>Cria uma marca nova e já seleciona ela para este produto.</p>
                     <input
                         value={newBrandName}
                         onChange={(e) => setNewBrandName(e.target.value)}
@@ -918,17 +902,6 @@ export default function ProdutosListaPage() {
                         </button>
                     </div>
                 </Modal>
-            </Modal>
-
-            {/* MODAL: CADASTRAR PRODUTO (iframe com a pÃ¡gina /produtos) */}
-            <Modal title="Cadastrar produto" open={createOpen} onClose={() => setCreateOpen(false)}>
-                <div style={{ width: "min(860px, 100%)", height: "70vh" }}>
-                    <iframe
-                        src="/produtos"
-                        title="Cadastrar produto"
-                        style={{ width: "100%", height: "100%", border: 0, borderRadius: 10 }}
-                    />
-                </div>
             </Modal>
         </main>
     );
