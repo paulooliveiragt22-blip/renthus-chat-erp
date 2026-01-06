@@ -1,9 +1,10 @@
+// app/(admin)/layout.tsx
 "use client";
 
 import React, { Suspense, useMemo, useState } from "react";
 import AdminSidebar from "@/components/AdminSidebar";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
-import { createClient } from "@/lib/supabase/client";
+import { getSupabase } from "@/lib/supabaseClient";
 
 type PaymentMethod = "pix" | "card" | "cash";
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
@@ -219,7 +220,8 @@ function SidebarFallback() {
 }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-    const supabase = useMemo(() => createClient(), []);
+    // use the lazy singleton factory (safely creates the client at runtime)
+    const supabase = useMemo(() => getSupabase(), []);
 
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 type Category = { id: string; name: string };
 type Brand = { id: string; name: string };
 
-type Unit = "none" | "ml" | "l" | "kg";
+type Unit = "none" | "ml" | "L" | "kg";
 
 type VariantRow = {
     tempId: string;

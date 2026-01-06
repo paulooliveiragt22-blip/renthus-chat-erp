@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAdminOrders } from "@/components/AdminOrdersContext";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
-import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
+import QuickReplyModal from "@/components/chatbot/QuickReplyModal";
 import OrdersStatsModal from "@/components/OrdersStatsModal";
 
 // Possíveis status de um pedido (order)
@@ -565,5 +565,3 @@ export default function AdminSidebar() {
         </aside>
     );
 }
-
-
