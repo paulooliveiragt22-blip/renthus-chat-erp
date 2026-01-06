@@ -206,14 +206,15 @@ function SidebarFallback() {
         <aside
             style={{
                 width: 260,
-                border: "1px solid #e6e6e6",
+                border: "1px solid rgba(255,255,255,0.25)",
                 borderRadius: 14,
                 padding: 12,
-                background: "#fff",
+                background: "#5B2C8E",
                 height: "calc(100vh - 28px)",
+                color: "#fff",
             }}
         >
-            <div style={{ fontWeight: 900, fontSize: 12, color: "#111" }}>Carregando...</div>
+            <div style={{ fontWeight: 900, fontSize: 12, color: "#fff" }}>Carregando...</div>
         </aside>
     );
 }
@@ -270,7 +271,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     return (
         <AdminOrdersProvider openOrder={openOrder}>
-            <div style={{ display: "flex", gap: 12, padding: 14, alignItems: "flex-start" }}>
+            <div style={{ display: "flex", gap: 12, padding: 14, alignItems: "flex-start", minHeight: "100vh" }}>
                 {/* ✅ FIX VERCEL: AdminSidebar usa useSearchParams -> precisa estar dentro de Suspense */}
                 <Suspense fallback={<SidebarFallback />}>
                     <AdminSidebar />
