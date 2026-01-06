@@ -1,7 +1,6 @@
 "use client";
 
-import React, { Suspense, useMemo, useState } from "react";
-import AdminSidebar from "@/components/AdminSidebar";
+import React, { useMemo, useState } from "react";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
 import { createClient } from "@/lib/supabase/client";
 
@@ -201,23 +200,6 @@ function Modal({
     );
 }
 
-function SidebarFallback() {
-    return (
-        <aside
-            style={{
-                width: 260,
-                border: "1px solid #e6e6e6",
-                borderRadius: 14,
-                padding: 12,
-                background: "#fff",
-                height: "calc(100vh - 28px)",
-            }}
-        >
-            <div style={{ fontWeight: 900, fontSize: 12, color: "#111" }}>Carregando...</div>
-        </aside>
-    );
-}
-
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
     const supabase = useMemo(() => createClient(), []);
 
@@ -270,13 +252,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     return (
         <AdminOrdersProvider openOrder={openOrder}>
-            <div style={{ display: "flex", gap: 12, padding: 14, alignItems: "flex-start" }}>
-                {/* ✅ FIX VERCEL: AdminSidebar usa useSearchParams -> precisa estar dentro de Suspense */}
-                <Suspense fallback={<SidebarFallback />}>
-                    <AdminSidebar />
-                </Suspense>
-
-                <main style={{ flex: 1, minWidth: 0 }}>{children}</main>
+            <div style={{ padding: 14 }}>
+                <main style={{ minWidth: 0 }}>{children}</main>
             </div>
 
             <Modal

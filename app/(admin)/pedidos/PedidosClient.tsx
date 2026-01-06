@@ -910,149 +910,177 @@ export default function PedidosPage() {
 
             {msg && <p style={{ color: msg.startsWith("✅") ? "green" : "crimson", marginTop: 10 }}>{msg}</p>}
 
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button onClick={() => setStatusFilter("new")} style={chip(statusFilter === "new")}>
-                    Novo ({stats.new})
-                </button>
-                <button onClick={() => setStatusFilter("delivered")} style={chip(statusFilter === "delivered")}>
-                    Entregue ({stats.delivered})
-                </button>
-                <button onClick={() => setStatusFilter("finalized")} style={chip(statusFilter === "finalized")}>
-                    Finalizado ({stats.finalized})
-                </button>
-                <button onClick={() => setStatusFilter("canceled")} style={chip(statusFilter === "canceled")}>
-                    Cancelado ({stats.canceled})
-                </button>
-                <button onClick={() => setStatusFilter("all")} style={chip(statusFilter === "all")}>
-                    Ver todos ({stats.total})
-                </button>
-            </div>
+            <div
+                style={{
+                    marginTop: 12,
+                    display: "grid",
+                    gridTemplateColumns: "minmax(230px, 280px) minmax(0, 1fr)",
+                    gap: 12,
+                    alignItems: "start",
+                }}
+            >
+                <div
+                    style={{
+                        padding: 12,
+                        border: "1px solid #e6e6e6",
+                        borderRadius: 14,
+                        background: "#fff",
+                        display: "grid",
+                        gap: 10,
+                    }}
+                >
+                    <div>
+                        <div style={{ fontWeight: 900, fontSize: 14 }}>Filtros de pedidos</div>
+                        <p style={{ margin: "4px 0 0", color: "#666", fontSize: 12, lineHeight: 1.3 }}>
+                            Selecione um status para filtrar rapidamente a lista ao lado.
+                        </p>
+                    </div>
 
-            <section style={{ marginTop: 12, padding: 12, border: "1px solid #e6e6e6", borderRadius: 14 }}>
-                {loading ? (
-                    <p>Carregando...</p>
-                ) : (
-                    <div style={{ width: "100%", overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
-                            <thead>
-                                <tr style={{ background: "#f7f7f7" }}>
-                                    <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Data</th>
-                                    <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Cliente</th>
-                                    <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Pagamento</th>
-                                    <th style={{ textAlign: "center", padding: 8, fontSize: 12 }}>Status</th>
-                                    <th style={{ textAlign: "right", padding: 8, fontSize: 12 }}>Total</th>
-                                    <th style={{ textAlign: "right", padding: 8, fontSize: 12 }}>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredOrders.map((o) => {
-                                    const st = String(o.status);
-                                    const editOk = canEdit(st);
+                    <div style={{ display: "grid", gap: 8 }}>
+                        <button onClick={() => setStatusFilter("new")} style={chip(statusFilter === "new")}>
+                            Pedidos novos ({stats.new})
+                        </button>
+                        <button onClick={() => setStatusFilter("delivered")} style={chip(statusFilter === "delivered")}>
+                            Entregues ({stats.delivered})
+                        </button>
+                        <button onClick={() => setStatusFilter("finalized")} style={chip(statusFilter === "finalized")}>
+                            Finalizados ({stats.finalized})
+                        </button>
+                        <button onClick={() => setStatusFilter("canceled")} style={chip(statusFilter === "canceled")}>
+                            Cancelados ({stats.canceled})
+                        </button>
+                        <button onClick={() => setStatusFilter("all")} style={chip(statusFilter === "all")}>
+                            Ver todos ({stats.total})
+                        </button>
+                    </div>
+                </div>
 
-                                    return (
-                                        <tr key={o.id} style={{ borderTop: "1px solid #f0f0f0" }}>
-                                            <td style={{ padding: 8, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</td>
+                <section style={{ padding: 12, border: "1px solid #e6e6e6", borderRadius: 14, background: "#fff" }}>
+                    {loading ? (
+                        <p>Carregando...</p>
+                    ) : (
+                        <div style={{ width: "100%", overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
+                                <thead>
+                                    <tr style={{ background: "#f7f7f7" }}>
+                                        <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Data</th>
+                                        <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Cliente</th>
+                                        <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Pagamento</th>
+                                        <th style={{ textAlign: "center", padding: 8, fontSize: 12 }}>Status</th>
+                                        <th style={{ textAlign: "right", padding: 8, fontSize: 12 }}>Total</th>
+                                        <th style={{ textAlign: "right", padding: 8, fontSize: 12 }}>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredOrders.map((o) => {
+                                        const st = String(o.status);
+                                        const editOk = canEdit(st);
 
-                                            <td style={{ padding: 8, minWidth: 360 }}>
-                                                <div
-                                                    style={{
-                                                        fontWeight: 900,
-                                                        fontSize: 13,
-                                                        whiteSpace: "nowrap",
-                                                        overflow: "hidden",
-                                                        textOverflow: "ellipsis",
-                                                    }}
-                                                >
-                                                    {o.customers?.name ?? "-"}
-                                                </div>
-                                                <div style={{ color: "#666", fontSize: 12, whiteSpace: "nowrap" }}>
-                                                    {o.customers?.phone ?? ""}
-                                                </div>
-                                                {o.details ? (
-                                                    <div style={{ color: "#111", marginTop: 6, fontSize: 13, fontWeight: 900 }}>
-                                                        OBS: {o.details}
+                                        return (
+                                            <tr key={o.id} style={{ borderTop: "1px solid #f0f0f0" }}>
+                                                <td style={{ padding: 8, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</td>
+
+                                                <td style={{ padding: 8, minWidth: 360 }}>
+                                                    <div
+                                                        style={{
+                                                            fontWeight: 900,
+                                                            fontSize: 13,
+                                                            whiteSpace: "nowrap",
+                                                            overflow: "hidden",
+                                                            textOverflow: "ellipsis",
+                                                        }}
+                                                    >
+                                                        {o.customers?.name ?? "-"}
                                                     </div>
-                                                ) : null}
-                                            </td>
+                                                    <div style={{ color: "#666", fontSize: 12, whiteSpace: "nowrap" }}>
+                                                        {o.customers?.phone ?? ""}
+                                                    </div>
+                                                    {o.details ? (
+                                                        <div style={{ color: "#111", marginTop: 6, fontSize: 13, fontWeight: 900 }}>
+                                                            OBS: {o.details}
+                                                        </div>
+                                                    ) : null}
+                                                </td>
 
-                                            <td style={{ padding: 8, minWidth: 220 }}>
-                                                <OrderPaymentInfo
-                                                    payment_method={o.payment_method}
-                                                    paid={!!o.paid}
-                                                    change_for={o.change_for}
-                                                    total_amount={o.total_amount}
-                                                    compact
-                                                />
-                                            </td>
+                                                <td style={{ padding: 8, minWidth: 220 }}>
+                                                    <OrderPaymentInfo
+                                                        payment_method={o.payment_method}
+                                                        paid={!!o.paid}
+                                                        change_for={o.change_for}
+                                                        total_amount={o.total_amount}
+                                                        compact
+                                                    />
+                                                </td>
 
-                                            <td style={{ padding: 8, textAlign: "center", whiteSpace: "nowrap" }}>
-                                                <span style={statusBadgeStyle(st)}>{prettyStatus(st)}</span>
-                                            </td>
+                                                <td style={{ padding: 8, textAlign: "center", whiteSpace: "nowrap" }}>
+                                                    <span style={statusBadgeStyle(st)}>{prettyStatus(st)}</span>
+                                                </td>
 
-                                            <td style={{ padding: 8, textAlign: "right", fontWeight: 900, whiteSpace: "nowrap" }}>
-                                                R$ {formatBRL(o.total_amount)}
-                                            </td>
+                                                <td style={{ padding: 8, textAlign: "right", fontWeight: 900, whiteSpace: "nowrap" }}>
+                                                    R$ {formatBRL(o.total_amount)}
+                                                </td>
 
-                                            <td style={{ padding: 8, textAlign: "right" }}>
-                                                <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" }}>
-                                                    <button onClick={() => openOrder(o.id)} style={btnPurpleOutline(false)}>
-                                                        Ver
-                                                    </button>
+                                                <td style={{ padding: 8, textAlign: "right" }}>
+                                                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" }}>
+                                                        <button onClick={() => openOrder(o.id)} style={btnPurpleOutline(false)}>
+                                                            Ver
+                                                        </button>
 
-                                                    <button onClick={() => printOrder(o.id)} style={btnPurpleOutline(false)}>
-                                                        Imprimir
-                                                    </button>
+                                                        <button onClick={() => printOrder(o.id)} style={btnPurpleOutline(false)}>
+                                                            Imprimir
+                                                        </button>
 
-                                                    <button
-                                                        onClick={() => openActionModal("cancel", o.id)}
-                                                        disabled={!canCancel(st)}
-                                                        style={btnPurple(!canCancel(st))}
-                                                    >
-                                                        Cancelar
-                                                    </button>
+                                                        <button
+                                                            onClick={() => openActionModal("cancel", o.id)}
+                                                            disabled={!canCancel(st)}
+                                                            style={btnPurple(!canCancel(st))}
+                                                        >
+                                                            Cancelar
+                                                        </button>
 
-                                                    <button
-                                                        onClick={() => openActionModal("deliver", o.id)}
-                                                        disabled={!canDeliver(st)}
-                                                        style={btnPurple(!canDeliver(st))}
-                                                    >
-                                                        Entregue
-                                                    </button>
+                                                        <button
+                                                            onClick={() => openActionModal("deliver", o.id)}
+                                                            disabled={!canDeliver(st)}
+                                                            style={btnPurple(!canDeliver(st))}
+                                                        >
+                                                            Entregue
+                                                        </button>
 
-                                                    <button
-                                                        onClick={() => openActionModal("finalize", o.id)}
-                                                        disabled={!canFinalize(st)}
-                                                        style={btnPurple(!canFinalize(st))}
-                                                    >
-                                                        Finalizar
-                                                    </button>
+                                                        <button
+                                                            onClick={() => openActionModal("finalize", o.id)}
+                                                            disabled={!canFinalize(st)}
+                                                            style={btnPurple(!canFinalize(st))}
+                                                        >
+                                                            Finalizar
+                                                        </button>
 
-                                                    <button
-                                                        onClick={() => openEditOrder(o.id)}
-                                                        disabled={!editOk}
-                                                        title={!editOk ? "Editar bloqueado após ação de status" : "Editar pedido"}
-                                                        style={{ ...btnPurpleOutline(!editOk), borderWidth: 2, fontWeight: 900 }}
-                                                    >
-                                                        EDITAR
-                                                    </button>
-                                                </div>
+                                                        <button
+                                                            onClick={() => openEditOrder(o.id)}
+                                                            disabled={!editOk}
+                                                            title={!editOk ? "Editar bloqueado após ação de status" : "Editar pedido"}
+                                                            style={{ ...btnPurpleOutline(!editOk), borderWidth: 2, fontWeight: 900 }}
+                                                        >
+                                                            EDITAR
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+
+                                    {filteredOrders.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} style={{ padding: 10, color: "#666", fontSize: 12 }}>
+                                                Nenhum pedido nesse filtro.
                                             </td>
                                         </tr>
-                                    );
-                                })}
-
-                                {filteredOrders.length === 0 && (
-                                    <tr>
-                                        <td colSpan={6} style={{ padding: 10, color: "#666", fontSize: 12 }}>
-                                            Nenhum pedido nesse filtro.
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </section>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
+            </div>
 
             {/* MODAIS */}
 
