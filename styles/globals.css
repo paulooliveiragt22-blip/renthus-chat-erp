@@ -7,8 +7,8 @@
 @layer base {
   html, body {
     min-height: 100%;
-    /* aplica a cor de fundo usando @apply em layer base */
-    @apply bg-gray-50;
+    /* define a cor de fundo diretamente para evitar erros de utilitário durante o build */
+    background-color: #f9fafb;
   }
 
   /* Ajustes globais adicionais (opcionais) */
