@@ -6,44 +6,56 @@ import Link from "next/link";
 
 type MenuButtonsProps = {
     compact?: boolean; // quando true renderiza só ícones
-    onNavigate?: () => void; // opcional: chamado após navegação (fechar menu)
+    onNavigate?: () => void;
+    textColor?: string;
+    iconColor?: string;
 };
 
 function IconHome() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M3 10.5L12 4l9 6.5" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M5 20V11h14v9" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 10.5L12 4l9 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M5 20V11h14v9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
     );
 }
 function IconProducts() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <rect x="3" y="3" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
-            <rect x="14" y="3" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
-            <rect x="3" y="14" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
-            <rect x="14" y="14" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
+            <rect x="3" y="3" width="7" height="7" stroke="currentColor" strokeWidth="1.4" rx="1" fill="none" />
+            <rect x="14" y="3" width="7" height="7" stroke="currentColor" strokeWidth="1.4" rx="1" fill="none" />
+            <rect x="3" y="14" width="7" height="7" stroke="currentColor" strokeWidth="1.4" rx="1" fill="none" />
+            <rect x="14" y="14" width="7" height="7" stroke="currentColor" strokeWidth="1.4" rx="1" fill="none" />
         </svg>
     );
 }
 function IconOrders() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M3 7h18" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" />
-            <path d="M6 7v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M3 7h18" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M6 7v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
     );
 }
 function IconWhatsApp() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M21 12a9 9 0 1 0-2.7 6.1L21 21l-2.9-1" stroke="#0DAA00" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M21 12a9 9 0 1 0-2.7 6.1L21 21l-2.9-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+function IconReport() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M3 3v18h18" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="6.5" y="10" width="2.8" height="7" rx="0.6" fill="currentColor" />
+            <rect x="11" y="6" width="2.8" height="11" rx="0.6" fill="currentColor" />
+            <rect x="15.5" y="13" width="2.8" height="4" rx="0.6" fill="currentColor" />
         </svg>
     );
 }
 
-export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
+export default function MenuButtons({ compact = false, onNavigate, textColor = "#111", iconColor = "#3B246B" }: MenuButtonsProps) {
     const btnStyle: React.CSSProperties = {
         display: "flex",
         alignItems: "center",
@@ -55,7 +67,7 @@ export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
         cursor: "pointer",
         padding: compact ? "8px 6px" : "10px 12px",
         borderRadius: compact ? 12 : 10,
-        color: "#111",
+        color: textColor,
         fontWeight: 700,
         fontSize: 13,
         boxSizing: "border-box",
@@ -67,15 +79,17 @@ export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
         display: "grid",
         placeItems: "center",
         borderRadius: 10,
+        // color controls the icon because SVG uses currentColor
+        color: iconColor,
     };
 
-    // Lista de itens (mesma ordem / rotas do AdminSidebar)
     const items = [
-        { href: "/dashboard", icon: <IconHome />, label: "Dashboard", orange: false },
-        { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp", orange: false },
-        { href: "/produtos", icon: <IconProducts />, label: "Cadastrar produto", orange: true },
-        { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos", orange: false },
-        { href: "/pedidos", icon: <IconOrders />, label: "Pedidos", orange: false },
+        { href: "/dashboard", icon: <IconHome />, label: "Dashboard" },
+        { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp" },
+        { href: "/produtos", icon: <IconProducts />, label: "Cadastrar produto" },
+        { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos" },
+        { href: "/pedidos", icon: <IconOrders />, label: "Pedidos" },
+        { href: "/relatorio", icon: <IconReport />, label: "Relatório" },
     ];
 
     return (
@@ -90,6 +104,7 @@ export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
                         alignItems: "center",
                         borderRadius: 10,
                         overflow: "hidden",
+                        width: "100%",
                     }}
                     onClick={() => onNavigate?.()}
                 >

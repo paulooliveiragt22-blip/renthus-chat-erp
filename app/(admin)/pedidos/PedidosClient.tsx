@@ -34,6 +34,9 @@ import {
     statusBadgeStyle,
     btnPurple,
     btnPurpleOutline,
+    btnOrange,
+    btnOrangeOutline,
+    ORANGE,
     escapeHtml,
 } from "@/lib/orders/helpers";
 
@@ -353,10 +356,10 @@ export default function PedidosPage() {
             .from("orders")
             .select(
                 `
-          id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at,
-          details,
-          customers ( name, phone, address )
-        `
+      id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at,
+      details,
+      customers ( name, phone, address )
+    `
             )
             .eq("id", orderId)
             .single();
@@ -366,14 +369,15 @@ export default function PedidosPage() {
             return null;
         }
 
-        // ✅ itens com campos que modais normalmente usam
+        // itens + trazer case_qty do product_variants
         const { data: items, error: itemsErr } = await supabase
             .from("order_items")
             .select(
                 `
-          id, order_id, product_variant_id, product_name,
-          quantity, unit_type, unit_price, line_total, created_at
-        `
+      id, order_id, product_variant_id, product_name,
+      quantity, unit_type, unit_price, line_total, created_at, qty,
+      product_variants ( case_qty )
+    `
             )
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
@@ -383,15 +387,33 @@ export default function PedidosPage() {
             return null;
         }
 
-        // ✅ compat: alguns modais esperam qty ao invés de quantity
-        const mappedItems = (Array.isArray(items) ? items : []).map((it: any) => ({
-            ...it,
-            qty: it?.qty ?? it?.quantity ?? 0,
-            quantity: it?.quantity ?? it?.qty ?? 0,
-        }));
+        // compat: alguns modais esperam qty ao invés de quantity
+        const mappedItems = (Array.isArray(items) ? items : []).map((it: any) => {
+            // product_variants pode vir como objeto ou array — tratamos ambos
+            const pv = it.product_variants;
+            let caseQty = null;
+            if (pv != null) {
+                if (Array.isArray(pv)) {
+                    caseQty = pv[0]?.case_qty ?? null;
+                } else {
+                    caseQty = pv.case_qty ?? null;
+                }
+            }
+
+            return {
+                ...it,
+                qty: it?.qty ?? it?.quantity ?? 0,
+                quantity: it?.quantity ?? it?.qty ?? 0,
+                // coloca case_qty direto no item para facilitar leitura no modal
+                case_qty: caseQty ?? null,
+                // mantém product_variants caso seja necessário
+                product_variants: pv,
+            };
+        });
 
         return { ...(ord as any), items: mappedItems as any };
     }
+
 
     async function openOrder(orderId: string, alsoCleanUrl?: boolean) {
         setViewLoading(true);
@@ -586,7 +608,7 @@ export default function PedidosPage() {
             .strong { font-weight: 900; }
             .box { border: 1px solid #ddd; border-radius: 10px; padding: 8px; margin-top: 10px; }
             .obsTitle { font-weight: 900; font-size: 14px; }
-            .obsText { font-weight: 900; font-size: 14px; }
+            .obsText { font-weight: 900; font-size: 14px; color: ${ORANGE}; }
             @media print { button { display:none; } }
           </style>
         </head>
@@ -731,7 +753,7 @@ export default function PedidosPage() {
                 unit_price: Number(it.unit_price ?? 0),
                 has_case: false,
                 case_price: null,
-                case_qty: null,
+                case_qty: it.case_qty ?? null,
                 unit: it.unit_type ?? "none",
                 volume_value: null,
                 details: it.product_name ?? null,
@@ -744,7 +766,7 @@ export default function PedidosPage() {
                 variant: fallbackVariant,
                 qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
                 price,
-                mode: "unit",
+                mode: it.unit_type === "case" ? "case" : "unit",
             };
         });
 
@@ -891,8 +913,33 @@ export default function PedidosPage() {
                     </p>
                 </div>
 
+                {/* removi bloco de botões daqui - agora eles aparecem junto aos chips (abaixo) */}
+            </div>
+
+            {msg && <p style={{ color: msg.startsWith("✅") ? "green" : "crimson", marginTop: 10 }}>{msg}</p>}
+
+            {/* CHIPS + BOTÕES (os botões ficam no canto direito, cor laranja) */}
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <button onClick={loadOrders} style={btnPurpleOutline(false)}>
+                    <button onClick={() => setStatusFilter("new")} style={chip(statusFilter === "new")}>
+                        Novo ({stats.new})
+                    </button>
+                    <button onClick={() => setStatusFilter("delivered")} style={chip(statusFilter === "delivered")}>
+                        Entregue ({stats.delivered})
+                    </button>
+                    <button onClick={() => setStatusFilter("finalized")} style={chip(statusFilter === "finalized")}>
+                        Finalizado ({stats.finalized})
+                    </button>
+                    <button onClick={() => setStatusFilter("canceled")} style={chip(statusFilter === "canceled")}>
+                        Cancelado ({stats.canceled})
+                    </button>
+                    <button onClick={() => setStatusFilter("all")} style={chip(statusFilter === "all")}>
+                        Ver todos ({stats.total})
+                    </button>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button onClick={loadOrders} style={btnOrangeOutline(false)}>
                         Recarregar
                     </button>
 
@@ -901,31 +948,11 @@ export default function PedidosPage() {
                             resetNewOrder();
                             setOpenNew(true);
                         }}
-                        style={btnPurple(false)}
+                        style={btnOrange(false)}
                     >
                         + Novo pedido
                     </button>
                 </div>
-            </div>
-
-            {msg && <p style={{ color: msg.startsWith("✅") ? "green" : "crimson", marginTop: 10 }}>{msg}</p>}
-
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button onClick={() => setStatusFilter("new")} style={chip(statusFilter === "new")}>
-                    Novo ({stats.new})
-                </button>
-                <button onClick={() => setStatusFilter("delivered")} style={chip(statusFilter === "delivered")}>
-                    Entregue ({stats.delivered})
-                </button>
-                <button onClick={() => setStatusFilter("finalized")} style={chip(statusFilter === "finalized")}>
-                    Finalizado ({stats.finalized})
-                </button>
-                <button onClick={() => setStatusFilter("canceled")} style={chip(statusFilter === "canceled")}>
-                    Cancelado ({stats.canceled})
-                </button>
-                <button onClick={() => setStatusFilter("all")} style={chip(statusFilter === "all")}>
-                    Ver todos ({stats.total})
-                </button>
             </div>
 
             <section style={{ marginTop: 12, padding: 12, border: "1px solid #e6e6e6", borderRadius: 14 }}>
@@ -948,9 +975,14 @@ export default function PedidosPage() {
                                 {filteredOrders.map((o) => {
                                     const st = String(o.status);
                                     const editOk = canEdit(st);
+                                    const obsIsOrange = ["delivered", "canceled", "finalized"].includes(st);
 
                                     return (
-                                        <tr key={o.id} style={{ borderTop: "1px solid #f0f0f0" }}>
+                                        <tr
+                                            key={o.id}
+                                            style={{ borderTop: "1px solid #f0f0f0", cursor: "pointer" }}
+                                            onClick={() => openOrder(o.id)}
+                                        >
                                             <td style={{ padding: 8, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</td>
 
                                             <td style={{ padding: 8, minWidth: 360 }}>
@@ -969,7 +1001,7 @@ export default function PedidosPage() {
                                                     {o.customers?.phone ?? ""}
                                                 </div>
                                                 {o.details ? (
-                                                    <div style={{ color: "#111", marginTop: 6, fontSize: 13, fontWeight: 900 }}>
+                                                    <div style={{ color: obsIsOrange ? ORANGE : "#111", marginTop: 6, fontSize: 13, fontWeight: 900 }}>
                                                         OBS: {o.details}
                                                     </div>
                                                 ) : null}
@@ -995,16 +1027,12 @@ export default function PedidosPage() {
 
                                             <td style={{ padding: 8, textAlign: "right" }}>
                                                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" }}>
-                                                    <button onClick={() => openOrder(o.id)} style={btnPurpleOutline(false)}>
-                                                        Ver
-                                                    </button>
-
-                                                    <button onClick={() => printOrder(o.id)} style={btnPurpleOutline(false)}>
+                                                    <button onClick={(e: React.MouseEvent) => { e.stopPropagation(); printOrder(o.id); }} style={btnPurpleOutline(false)}>
                                                         Imprimir
                                                     </button>
 
                                                     <button
-                                                        onClick={() => openActionModal("cancel", o.id)}
+                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openActionModal("cancel", o.id); }}
                                                         disabled={!canCancel(st)}
                                                         style={btnPurple(!canCancel(st))}
                                                     >
@@ -1012,7 +1040,7 @@ export default function PedidosPage() {
                                                     </button>
 
                                                     <button
-                                                        onClick={() => openActionModal("deliver", o.id)}
+                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openActionModal("deliver", o.id); }}
                                                         disabled={!canDeliver(st)}
                                                         style={btnPurple(!canDeliver(st))}
                                                     >
@@ -1020,7 +1048,7 @@ export default function PedidosPage() {
                                                     </button>
 
                                                     <button
-                                                        onClick={() => openActionModal("finalize", o.id)}
+                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openActionModal("finalize", o.id); }}
                                                         disabled={!canFinalize(st)}
                                                         style={btnPurple(!canFinalize(st))}
                                                     >
@@ -1028,7 +1056,7 @@ export default function PedidosPage() {
                                                     </button>
 
                                                     <button
-                                                        onClick={() => openEditOrder(o.id)}
+                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEditOrder(o.id); }}
                                                         disabled={!editOk}
                                                         title={!editOk ? "Editar bloqueado após ação de status" : "Editar pedido"}
                                                         style={{ ...btnPurpleOutline(!editOk), borderWidth: 2, fontWeight: 900 }}
