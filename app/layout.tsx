@@ -1,5 +1,6 @@
+// app/layout.tsx
 import "@/styles/globals.css";
-import AdminSidebar from "@/components/AdminSidebar";
+import AdminShell from "@/components/AdminShell";
 
 export const metadata = {
   title: "Disk Bebidas - Admin",
@@ -29,7 +30,9 @@ export default function RootLayout({
             <a href="/login">Sair</a>
           </nav>
         </header>
-        {children}
+
+        {/* AdminShell envolve as páginas (oculta em /login) */}
+        <AdminShell>{children}</AdminShell>
       </body>
     </html>
   );
