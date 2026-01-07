@@ -51,18 +51,18 @@ const SIDEBAR_MUTED = "rgba(255,255,255,0.80)";
 const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
 const SIDEBAR_CARD_BG = "rgba(255,255,255,0.06)";
 
-/* SIZE / TYPOGRAPHY (compact) */
-const CARD_PADDING = 8;
-const CARD_RADIUS = 10;
-const CARD_GAP = 8;
-const NAME_FONT = 12;
-const MSG_FONT = 11;
-const DATE_FONT = 10;
-const CHIP_FONT = 12;
+/* SIZE / TYPOGRAPHY (compact) - ajustado para caber no painel */
+const CARD_PADDING = 6;
+const CARD_RADIUS = 8;
+const CARD_GAP = 6;
+const NAME_FONT = 11;
+const MSG_FONT = 10;
+const DATE_FONT = 9;
+const CHIP_FONT = 11;
 
 function btnBaseSlim(disabled?: boolean): React.CSSProperties {
     return {
-        padding: "6px 9px",
+        padding: "4px 8px",
         borderRadius: 10,
         border: `1px solid ${SIDEBAR_BORDER}`,
         cursor: disabled ? "not-allowed" : "pointer",
@@ -80,7 +80,7 @@ function chipOrangeStyle(active?: boolean): React.CSSProperties {
     if (active) {
         return {
             borderRadius: 999,
-            padding: "6px 10px",
+            padding: "5px 8px",
             background: ORANGE,
             color: "#fff",
             fontWeight: 800,
@@ -90,7 +90,7 @@ function chipOrangeStyle(active?: boolean): React.CSSProperties {
     }
     return {
         borderRadius: 999,
-        padding: "6px 10px",
+        padding: "5px 8px",
         background: "transparent",
         color: ORANGE,
         fontWeight: 800,
@@ -277,17 +277,17 @@ export default function AdminSidebar() {
     const newOrdersCount = newOrders.length;
     const newMessagesCount = threads.length; // se tiver flag de unread, trocar por threads.filter(...).length
 
-    const latestNewOrders = useMemo(() => newOrders.slice(0, 8), [newOrders]);
+    const latestNewOrders = useMemo(() => newOrders.slice(0, 6), [newOrders]);
     const latestThreads = useMemo(() => {
         const sorted = threads.slice().sort((a, b) => {
             const da = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
             const db = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
             return db - da;
         });
-        return sorted.slice(0, 8);
+        return sorted.slice(0, 6);
     }, [threads]);
 
-    const width = collapsed ? 80 : 260;
+    const width = collapsed ? 80 : 240;
 
     // hide scrollbar visually while keeping scroll functionality
     return (
