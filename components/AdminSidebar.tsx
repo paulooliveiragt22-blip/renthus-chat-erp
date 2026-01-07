@@ -49,7 +49,7 @@ function statusBadgeStyle(s: string): React.CSSProperties {
         fontWeight: 900,
         border: `1px solid ${c}`,
         color: c,
-        background: "rgba(0,0,0,0.02)",
+        background: "rgba(255,255,255,0.06)",
         lineHeight: 1,
         fontSize: 12,
         whiteSpace: "nowrap",
@@ -59,17 +59,26 @@ function statusBadgeStyle(s: string): React.CSSProperties {
 const ORANGE = "#FF6600";
 const PURPLE = "#3B246B";
 
+// sidebar theme colors
+const SIDEBAR_BG = PURPLE;
+const SIDEBAR_TEXT = "#FFFFFF";
+const SIDEBAR_MUTED = "rgba(255,255,255,0.80)";
+const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
+const SIDEBAR_CARD_BG = "rgba(255,255,255,0.06)";
+
 function btnBaseSlim(disabled?: boolean): React.CSSProperties {
     return {
         padding: "6px 9px",
         borderRadius: 10,
-        border: "1px solid #999",
+        border: `1px solid ${SIDEBAR_BORDER}`,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.55 : 1,
         fontSize: 12,
         fontWeight: 900,
         lineHeight: 1.1,
         whiteSpace: "nowrap",
+        color: SIDEBAR_TEXT,
+        background: "transparent",
     };
 }
 function btnOrangeOutline(disabled?: boolean): React.CSSProperties {
@@ -77,15 +86,15 @@ function btnOrangeOutline(disabled?: boolean): React.CSSProperties {
         ...btnBaseSlim(disabled),
         border: `1px solid ${ORANGE}`,
         background: "transparent",
-        color: ORANGE,
+        color: SIDEBAR_TEXT,
     };
 }
 function btnPurpleOutline(active?: boolean): React.CSSProperties {
     return {
         ...btnBaseSlim(false),
         border: `1px solid ${PURPLE}`,
-        background: active ? "#f5f1fb" : "transparent",
-        color: PURPLE,
+        background: active ? SIDEBAR_CARD_BG : "transparent",
+        color: SIDEBAR_TEXT,
     };
 }
 
@@ -120,8 +129,6 @@ function normalizeOrders(input: unknown): OrderRow[] {
 
 export default function AdminSidebar() {
     const router = useRouter();
-
-    // read context safely (may be null)
     const adminOrdersCtx = useContext(AdminOrdersContext);
     const openOrder = adminOrdersCtx?.openOrder;
 
@@ -136,7 +143,7 @@ export default function AdminSidebar() {
             } else {
                 setSelected(null);
             }
-        } catch (e) {
+        } catch {
             setSelected(null);
         }
     }, []);
@@ -261,14 +268,15 @@ export default function AdminSidebar() {
 
     function cardStyle(active: boolean): React.CSSProperties {
         return {
-            border: `1px solid ${active ? PURPLE : "#eee"}`,
+            border: `1px solid ${SIDEBAR_BORDER}`,
             borderRadius: 12,
             padding: 10,
-            background: active ? "#f5f1fb" : "#fff",
+            background: active ? SIDEBAR_CARD_BG : "transparent",
             cursor: "pointer",
             textAlign: "left",
             width: "100%",
             boxSizing: "border-box",
+            color: SIDEBAR_TEXT,
         };
     }
 
@@ -298,27 +306,28 @@ export default function AdminSidebar() {
                 height: "calc(100vh - 28px)",
                 width,
                 maxWidth: width,
-                border: "1px solid #e6e6e6",
+                border: `1px solid ${SIDEBAR_BORDER}`,
                 borderRadius: 14,
                 padding: 12,
-                background: "#fff",
+                background: SIDEBAR_BG,
+                color: SIDEBAR_TEXT,
                 overflowY: "auto",
                 overflowX: "hidden",
                 boxSizing: "border-box",
                 transition: "width 180ms ease",
             }}
         >
-            {/* Header: toggle + workspace (when expanded) */}
+            {/* Header + toggle */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                {!collapsed ? <div style={{ fontWeight: 900, fontSize: 12 }}>Dashboard</div> : <div style={{ fontWeight: 900, fontSize: 12 }} aria-hidden />}
+                {!collapsed ? <div style={{ fontWeight: 900, fontSize: 12, color: SIDEBAR_TEXT }}>Dashboard</div> : <div aria-hidden />}
                 <div>
                     <button
                         onClick={() => setCollapsed((s) => !s)}
                         title={collapsed ? "Expandir painel" : "Colapsar painel"}
                         style={{
-                            border: "1px solid #ddd",
-                            background: collapsed ? "#fff" : "#f5f1fb",
-                            color: collapsed ? "#3B246B" : "#3B246B",
+                            border: `1px solid ${SIDEBAR_BORDER}`,
+                            background: collapsed ? SIDEBAR_BG : SIDEBAR_CARD_BG,
+                            color: SIDEBAR_TEXT,
                             borderRadius: 8,
                             padding: "6px",
                             cursor: "pointer",
@@ -327,69 +336,71 @@ export default function AdminSidebar() {
                     >
                         {collapsed ? (
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                                <path d="M8 5l8 7-8 7" stroke="#3B246B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M8 5l8 7-8 7" stroke={SIDEBAR_TEXT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                         ) : (
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                                <path d="M16 5l-8 7 8 7" stroke="#3B246B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M16 5l-8 7 8 7" stroke={SIDEBAR_TEXT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                         )}
                     </button>
                 </div>
             </div>
 
+            {/* Workspace switcher */}
             {!collapsed ? (
                 <div style={{ marginTop: 10 }}>
                     <WorkspaceSwitcher />
                 </div>
             ) : null}
 
-            {/* Botões principais (reutiliza MenuButtons) */}
+            {/* Botões principais */}
             <div style={{ marginTop: 12 }}>
-                <MenuButtons compact={collapsed} onNavigate={() => { }} />
+                {/* passamos textColor branco e iconColor laranja */}
+                <MenuButtons compact={collapsed} onNavigate={() => { }} textColor={SIDEBAR_TEXT} iconColor={ORANGE} />
             </div>
 
-            {/* Estatísticas (cards) — sem o título "Pedidos" e sem os botões "Estatísticas" / "Ver todos" */}
+            {/* Estatísticas / cards */}
             {!collapsed ? (
                 <>
-                    <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
+                    <div style={{ marginTop: 12, borderTop: `1px solid ${SIDEBAR_BORDER}`, paddingTop: 10 }}>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                             <div style={cardStyle(selected === "new")}>
-                                <div style={{ fontSize: 11, color: "#666" }}>Novos</div>
+                                <div style={{ fontSize: 11, color: SIDEBAR_MUTED }}>Novos</div>
                                 <div style={{ fontWeight: 900, color: statusColor("new"), fontSize: 16 }}>{stats.new}</div>
                             </div>
                             <div style={cardStyle(selected === "delivered")}>
-                                <div style={{ fontSize: 11, color: "#666" }}>Entregues</div>
+                                <div style={{ fontSize: 11, color: SIDEBAR_MUTED }}>Entregues</div>
                                 <div style={{ fontWeight: 900, color: statusColor("delivered"), fontSize: 16 }}>{stats.delivered}</div>
                             </div>
                             <div style={cardStyle(selected === "finalized")}>
-                                <div style={{ fontSize: 11, color: "#666" }}>Finalizados</div>
+                                <div style={{ fontSize: 11, color: SIDEBAR_MUTED }}>Finalizados</div>
                                 <div style={{ fontWeight: 900, color: statusColor("finalized"), fontSize: 16 }}>{stats.finalized}</div>
                             </div>
                             <div style={cardStyle(selected === "canceled")}>
-                                <div style={{ fontSize: 11, color: "#666" }}>Cancelados</div>
+                                <div style={{ fontSize: 11, color: SIDEBAR_MUTED }}>Cancelados</div>
                                 <div style={{ fontWeight: 900, color: statusColor("canceled"), fontSize: 16 }}>{stats.canceled}</div>
                             </div>
                         </div>
-                        {loading ? <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>Carregando...</div> : null}
+                        {loading ? <div style={{ marginTop: 10, fontSize: 12, color: SIDEBAR_MUTED }}>Carregando...</div> : null}
                     </div>
 
-                    {/* Chips (mantemos os botões de alternância sem o rótulo "Acompanhar") */}
-                    <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
+                    {/* Chips (Pedidos / WhatsApp) */}
+                    <div style={{ marginTop: 12, borderTop: `1px solid ${SIDEBAR_BORDER}`, paddingTop: 10 }}>
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-start", alignItems: "center" }}>
-                            <button onClick={() => setTab("orders")} style={{ ...btnPurpleOutline(tab === "orders"), padding: "6px 8px", fontSize: 11 }}>
+                            <button onClick={() => setTab("orders")} style={{ ...btnPurpleOutline(tab === "orders"), padding: "6px 8px", fontSize: 11, color: SIDEBAR_TEXT }}>
                                 Pedidos ({filtered.length})
                             </button>
-                            <button onClick={() => setTab("whatsapp")} style={{ ...btnPurpleOutline(tab === "whatsapp"), padding: "6px 8px", fontSize: 11 }}>
+                            <button onClick={() => setTab("whatsapp")} style={{ ...btnPurpleOutline(tab === "whatsapp"), padding: "6px 8px", fontSize: 11, color: SIDEBAR_TEXT }}>
                                 WhatsApp ({threads.length})
                             </button>
                         </div>
 
-                        {/* Conteúdo das abas */}
+                        {/* Aba conteúdo */}
                         {tab === "orders" ? (
                             <>
                                 {latest.length === 0 ? (
-                                    <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Nenhum pedido.</div>
+                                    <div style={{ marginTop: 8, fontSize: 12, color: SIDEBAR_MUTED }}>Nenhum pedido.</div>
                                 ) : (
                                     <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
                                         {latest.map((o) => {
@@ -403,22 +414,25 @@ export default function AdminSidebar() {
                                                     style={{
                                                         width: "100%",
                                                         textAlign: "left",
-                                                        border: "1px solid #eee",
+                                                        border: `1px solid ${SIDEBAR_BORDER}`,
                                                         borderRadius: 12,
                                                         padding: 10,
                                                         cursor: "pointer",
-                                                        background: "#fff",
+                                                        background: SIDEBAR_CARD_BG,
                                                         boxSizing: "border-box",
+                                                        color: SIDEBAR_TEXT,
                                                     }}
                                                     title="Abrir pedido"
                                                 >
                                                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
-                                                        <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{name}</div>
+                                                        <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+                                                            {name}
+                                                        </div>
                                                         <span style={{ ...statusBadgeStyle(st), fontSize: 11, padding: "3px 7px" }}>{prettyStatus(st)}</span>
                                                     </div>
                                                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 4 }}>
-                                                        <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</span>
-                                                        <span style={{ fontSize: 11, color: "#111", fontWeight: 900, whiteSpace: "nowrap" }}>R$ {formatBRL(o.total_amount)}</span>
+                                                        <span style={{ fontSize: 11, color: SIDEBAR_MUTED, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</span>
+                                                        <span style={{ fontSize: 11, color: SIDEBAR_TEXT, fontWeight: 900, whiteSpace: "nowrap" }}>R$ {formatBRL(o.total_amount)}</span>
                                                     </div>
                                                 </button>
                                             );
@@ -434,9 +448,9 @@ export default function AdminSidebar() {
                         ) : (
                             <>
                                 {loadingThreads ? (
-                                    <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Carregando conversas...</div>
+                                    <div style={{ marginTop: 8, fontSize: 12, color: SIDEBAR_MUTED }}>Carregando conversas...</div>
                                 ) : threads.length === 0 ? (
-                                    <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Nenhuma conversa.</div>
+                                    <div style={{ marginTop: 8, fontSize: 12, color: SIDEBAR_MUTED }}>Nenhuma conversa.</div>
                                 ) : (
                                     <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
                                         {latestThreads.map((t) => {
@@ -448,22 +462,23 @@ export default function AdminSidebar() {
                                                     style={{
                                                         width: "100%",
                                                         textAlign: "left",
-                                                        border: "1px solid #eee",
+                                                        border: `1px solid ${SIDEBAR_BORDER}`,
                                                         borderRadius: 12,
                                                         padding: 10,
                                                         cursor: "pointer",
-                                                        background: "#fff",
+                                                        background: SIDEBAR_CARD_BG,
                                                         boxSizing: "border-box",
+                                                        color: SIDEBAR_TEXT,
                                                     }}
                                                 >
                                                     <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                                         {t.profile_name || t.phone_e164}
                                                     </div>
-                                                    <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>{t.phone_e164}</div>
-                                                    <div style={{ fontSize: 11, color: "#666", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                    <div style={{ fontSize: 10, color: SIDEBAR_MUTED, marginTop: 2 }}>{t.phone_e164}</div>
+                                                    <div style={{ fontSize: 11, color: SIDEBAR_MUTED, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                                         {t.last_message_preview || "(sem mensagens)"}
                                                     </div>
-                                                    <div style={{ fontSize: 10, color: "#999", marginTop: 2 }}>{t.last_message_at ? formatDT(t.last_message_at) : ""}</div>
+                                                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{t.last_message_at ? formatDT(t.last_message_at) : ""}</div>
                                                 </button>
                                             );
                                         })}
