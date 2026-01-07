@@ -6,7 +6,7 @@ import Link from "next/link";
 
 type MenuButtonsProps = {
     compact?: boolean; // quando true renderiza só ícones
-    onNavigate?: () => void; // opcional: chamado após navegação (fechar menu)
+    onNavigate?: () => void;
 };
 
 function IconHome() {
@@ -42,6 +42,17 @@ function IconWhatsApp() {
         </svg>
     );
 }
+function IconReport() {
+    // ícone simples de gráfico
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M3 3v18h18" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="6.5" y="10" width="2.8" height="7" rx="0.6" fill="#3B246B" />
+            <rect x="11" y="6" width="2.8" height="11" rx="0.6" fill="#3B246B" />
+            <rect x="15.5" y="13" width="2.8" height="4" rx="0.6" fill="#3B246B" />
+        </svg>
+    );
+}
 
 export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
     const btnStyle: React.CSSProperties = {
@@ -71,11 +82,12 @@ export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
 
     // Lista de itens (mesma ordem / rotas do AdminSidebar)
     const items = [
-        { href: "/dashboard", icon: <IconHome />, label: "Dashboard", orange: false },
-        { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp", orange: false },
-        { href: "/produtos", icon: <IconProducts />, label: "Cadastrar produto", orange: true },
-        { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos", orange: false },
-        { href: "/pedidos", icon: <IconOrders />, label: "Pedidos", orange: false },
+        { href: "/dashboard", icon: <IconHome />, label: "Dashboard" },
+        { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp" },
+        { href: "/produtos", icon: <IconProducts />, label: "Cadastrar produto" },
+        { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos" },
+        { href: "/pedidos", icon: <IconOrders />, label: "Pedidos" },
+        { href: "/relatorio", icon: <IconReport />, label: "Relatório" }, // novo
     ];
 
     return (
@@ -90,6 +102,7 @@ export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
                         alignItems: "center",
                         borderRadius: 10,
                         overflow: "hidden",
+                        width: "100%",
                     }}
                     onClick={() => onNavigate?.()}
                 >

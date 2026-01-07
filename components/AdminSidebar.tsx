@@ -3,7 +3,7 @@
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AdminOrdersContext } from "./AdminOrdersContext";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
@@ -11,24 +11,9 @@ import OrdersStatsModal from "@/components/OrdersStatsModal";
 import MenuButtons from "@/components/MenuButtons";
 
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
-
 type CustomerRow = { name: string; phone: string; address: string | null };
-
-type OrderRow = {
-    id: string;
-    status: OrderStatus | string;
-    total_amount: number;
-    created_at: string;
-    customers: CustomerRow | null;
-};
-
-type Thread = {
-    id: string;
-    phone_e164: string;
-    profile_name: string | null;
-    last_message_at: string | null;
-    last_message_preview: string | null;
-};
+type OrderRow = { id: string; status: OrderStatus | string; total_amount: number; created_at: string; customers: CustomerRow | null };
+type Thread = { id: string; phone_e164: string; profile_name: string | null; last_message_at: string | null; last_message_preview: string | null };
 
 function formatBRL(n: number | null | undefined) {
     const v = typeof n === "number" ? n : 0;
@@ -104,9 +89,6 @@ function btnPurpleOutline(active?: boolean): React.CSSProperties {
     };
 }
 
-/**
- * Normaliza o retorno do Supabase (mesma lógica original)
- */
 function normalizeOrders(input: unknown): OrderRow[] {
     const arr = Array.isArray(input) ? input : [];
     return arr.map((o: any) => {
@@ -138,13 +120,27 @@ function normalizeOrders(input: unknown): OrderRow[] {
 
 export default function AdminSidebar() {
     const router = useRouter();
-    const sp = useSearchParams();
 
-    // Try to read context directly (safe if provider absent)
+    // read context safely (may be null)
     const adminOrdersCtx = useContext(AdminOrdersContext);
     const openOrder = adminOrdersCtx?.openOrder;
 
-    const [selected, setSelected] = useState<OrderStatus | null>((sp.get("status") as OrderStatus | null) ?? null);
+    const [selected, setSelected] = useState<OrderStatus | null>(null);
+
+    useEffect(() => {
+        try {
+            const sp = new URLSearchParams(window.location.search);
+            const s = sp.get("status");
+            if (s === "new" || s === "delivered" || s === "finalized" || s === "canceled") {
+                setSelected(s as OrderStatus);
+            } else {
+                setSelected(null);
+            }
+        } catch (e) {
+            setSelected(null);
+        }
+    }, []);
+
     const [orders, setOrders] = useState<OrderRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [msg, setMsg] = useState<string | null>(null);
@@ -154,8 +150,6 @@ export default function AdminSidebar() {
     const [threadsMsg, setThreadsMsg] = useState<string | null>(null);
     const [openThread, setOpenThread] = useState<Thread | null>(null);
     const [showStats, setShowStats] = useState(false);
-
-    // collapsed state
     const [collapsed, setCollapsed] = useState<boolean>(false);
 
     async function loadOrders() {
@@ -230,9 +224,7 @@ export default function AdminSidebar() {
                 loadOrders();
             }
         }
-
         ensureWorkspaceSelectedAndLoad();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -251,7 +243,6 @@ export default function AdminSidebar() {
             return () => window.clearInterval(id);
         }
         return;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab]);
 
     const stats = useMemo(() => {
@@ -297,12 +288,6 @@ export default function AdminSidebar() {
         return sorted.slice(0, 8);
     }, [threads]);
 
-    function labelSelected() {
-        if (!selected) return "Todos";
-        return String(prettyStatus(selected));
-    }
-
-    // Sidebar width depending on collapsed
     const width = collapsed ? 80 : 260;
 
     return (
@@ -325,14 +310,7 @@ export default function AdminSidebar() {
         >
             {/* Header: toggle + workspace (when expanded) */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                {!collapsed ? (
-                    <div style={{ fontWeight: 900, fontSize: 12 }}>Dashboard</div>
-                ) : (
-                    <div style={{ fontWeight: 900, fontSize: 12 }} aria-hidden>
-                        {/* small placeholder when collapsed */}
-                    </div>
-                )}
-
+                {!collapsed ? <div style={{ fontWeight: 900, fontSize: 12 }}>Dashboard</div> : <div style={{ fontWeight: 900, fontSize: 12 }} aria-hidden />}
                 <div>
                     <button
                         onClick={() => setCollapsed((s) => !s)}
@@ -360,7 +338,6 @@ export default function AdminSidebar() {
                 </div>
             </div>
 
-            {/* Workspace switcher (only when expanded) */}
             {!collapsed ? (
                 <div style={{ marginTop: 10 }}>
                     <WorkspaceSwitcher />
@@ -369,76 +346,46 @@ export default function AdminSidebar() {
 
             {/* Botões principais (reutiliza MenuButtons) */}
             <div style={{ marginTop: 12 }}>
-                <MenuButtons compact={collapsed} onNavigate={() => { /* fecha se necessário */ }} />
+                <MenuButtons compact={collapsed} onNavigate={() => { }} />
             </div>
 
-            {/* When collapsed: we hide the rest (keep minimal) */}
-            {collapsed ? (
-                <div style={{ marginTop: 10, fontSize: 11, color: "#666" }} aria-hidden>
-                    {/* compact: nothing else */}
-                </div>
-            ) : (
+            {/* Estatísticas (cards) — sem o título "Pedidos" e sem os botões "Estatísticas" / "Ver todos" */}
+            {!collapsed ? (
                 <>
                     <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
-                        <button onClick={loadOrders} style={{ ...btnOrangeOutline(false), width: "100%" }}>
-                            Recarregar
-                        </button>
-                    </div>
-
-                    {/* Cards */}
-                    <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                            <div style={{ fontWeight: 900, fontSize: 12 }}>Pedidos</div>
-                            <div style={{ display: "flex", gap: 8 }}>
-                                <button onClick={() => setShowStats(true)} style={{ ...btnPurpleOutline(false), padding: "6px 8px", fontSize: 11 }}>
-                                    Estatísticas
-                                </button>
-                                <button onClick={() => goStatus("all")} style={{ ...btnOrangeOutline(false), padding: "6px 8px", fontSize: 11 }}>
-                                    Ver todos ({stats.total})
-                                </button>
-                            </div>
-                        </div>
-                        {msg ? <div style={{ marginTop: 8, color: "crimson", fontSize: 12 }}>{msg}</div> : null}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
-                            <button onClick={() => goStatus("new")} style={cardStyle(selected === "new")} title="Filtrar: Novo">
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                            <div style={cardStyle(selected === "new")}>
                                 <div style={{ fontSize: 11, color: "#666" }}>Novos</div>
                                 <div style={{ fontWeight: 900, color: statusColor("new"), fontSize: 16 }}>{stats.new}</div>
-                            </button>
-                            <button onClick={() => goStatus("delivered")} style={cardStyle(selected === "delivered")} title="Filtrar: Entregue">
+                            </div>
+                            <div style={cardStyle(selected === "delivered")}>
                                 <div style={{ fontSize: 11, color: "#666" }}>Entregues</div>
                                 <div style={{ fontWeight: 900, color: statusColor("delivered"), fontSize: 16 }}>{stats.delivered}</div>
-                            </button>
-                            <button onClick={() => goStatus("finalized")} style={cardStyle(selected === "finalized")} title="Filtrar: Finalizado">
+                            </div>
+                            <div style={cardStyle(selected === "finalized")}>
                                 <div style={{ fontSize: 11, color: "#666" }}>Finalizados</div>
                                 <div style={{ fontWeight: 900, color: statusColor("finalized"), fontSize: 16 }}>{stats.finalized}</div>
-                            </button>
-                            <button onClick={() => goStatus("canceled")} style={cardStyle(selected === "canceled")} title="Filtrar: Cancelado">
+                            </div>
+                            <div style={cardStyle(selected === "canceled")}>
                                 <div style={{ fontSize: 11, color: "#666" }}>Cancelados</div>
                                 <div style={{ fontWeight: 900, color: statusColor("canceled"), fontSize: 16 }}>{stats.canceled}</div>
-                            </button>
+                            </div>
                         </div>
                         {loading ? <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>Carregando...</div> : null}
                     </div>
 
-                    {/* Lista inferior com toggle Pedidos/WhatsApp */}
+                    {/* Chips (mantemos os botões de alternância sem o rótulo "Acompanhar") */}
                     <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                            <div style={{ fontWeight: 900, fontSize: 12 }}>Acompanhar</div>
-                            <div style={{ display: "flex", gap: 6 }}>
-                                <button
-                                    onClick={() => setTab("orders")}
-                                    style={{ ...btnPurpleOutline(tab === "orders"), padding: "6px 8px", fontSize: 11 }}
-                                >
-                                    Pedidos ({filtered.length})
-                                </button>
-                                <button
-                                    onClick={() => setTab("whatsapp")}
-                                    style={{ ...btnPurpleOutline(tab === "whatsapp"), padding: "6px 8px", fontSize: 11 }}
-                                >
-                                    WhatsApp ({threads.length})
-                                </button>
-                            </div>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-start", alignItems: "center" }}>
+                            <button onClick={() => setTab("orders")} style={{ ...btnPurpleOutline(tab === "orders"), padding: "6px 8px", fontSize: 11 }}>
+                                Pedidos ({filtered.length})
+                            </button>
+                            <button onClick={() => setTab("whatsapp")} style={{ ...btnPurpleOutline(tab === "whatsapp"), padding: "6px 8px", fontSize: 11 }}>
+                                WhatsApp ({threads.length})
+                            </button>
                         </div>
+
+                        {/* Conteúdo das abas */}
                         {tab === "orders" ? (
                             <>
                                 {latest.length === 0 ? (
@@ -466,25 +413,12 @@ export default function AdminSidebar() {
                                                     title="Abrir pedido"
                                                 >
                                                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
-                                                        <div
-                                                            style={{
-                                                                fontWeight: 900,
-                                                                fontSize: 12,
-                                                                whiteSpace: "nowrap",
-                                                                overflow: "hidden",
-                                                                textOverflow: "ellipsis",
-                                                                minWidth: 0,
-                                                            }}
-                                                        >
-                                                            {name}
-                                                        </div>
+                                                        <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{name}</div>
                                                         <span style={{ ...statusBadgeStyle(st), fontSize: 11, padding: "3px 7px" }}>{prettyStatus(st)}</span>
                                                     </div>
                                                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 4 }}>
                                                         <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</span>
-                                                        <span style={{ fontSize: 11, color: "#111", fontWeight: 900, whiteSpace: "nowrap" }}>
-                                                            R$ {formatBRL(o.total_amount)}
-                                                        </span>
+                                                        <span style={{ fontSize: 11, color: "#111", fontWeight: 900, whiteSpace: "nowrap" }}>R$ {formatBRL(o.total_amount)}</span>
                                                     </div>
                                                 </button>
                                             );
@@ -542,7 +476,7 @@ export default function AdminSidebar() {
                     {openThread ? <QuickReplyModal thread={openThread} onClose={() => setOpenThread(null)} /> : null}
                     {showStats ? <OrdersStatsModal open={showStats} onClose={() => setShowStats(false)} /> : null}
                 </>
-            )}
+            ) : null}
         </aside>
     );
 }
