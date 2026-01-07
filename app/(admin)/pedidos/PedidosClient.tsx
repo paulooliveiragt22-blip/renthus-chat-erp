@@ -356,10 +356,10 @@ export default function PedidosPage() {
             .from("orders")
             .select(
                 `
-          id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at,
-          details,
-          customers ( name, phone, address )
-        `
+      id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at,
+      details,
+      customers ( name, phone, address )
+    `
             )
             .eq("id", orderId)
             .single();
@@ -374,10 +374,10 @@ export default function PedidosPage() {
             .from("order_items")
             .select(
                 `
-          id, order_id, product_variant_id, product_name,
-          quantity, unit_type, unit_price, line_total, created_at, qty,
-          product_variants ( case_qty )
-        `
+      id, order_id, product_variant_id, product_name,
+      quantity, unit_type, unit_price, line_total, created_at, qty,
+      product_variants ( case_qty )
+    `
             )
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
@@ -388,16 +388,32 @@ export default function PedidosPage() {
         }
 
         // compat: alguns modais esperam qty ao invés de quantity
-        const mappedItems = (Array.isArray(items) ? items : []).map((it: any) => ({
-            ...it,
-            qty: it?.qty ?? it?.quantity ?? 0,
-            quantity: it?.quantity ?? it?.qty ?? 0,
-            // trazer case_qty da relação product_variants (se existir)
-            case_qty: (it as any).product_variants?.case_qty ?? null,
-        }));
+        const mappedItems = (Array.isArray(items) ? items : []).map((it: any) => {
+            // product_variants pode vir como objeto ou array — tratamos ambos
+            const pv = it.product_variants;
+            let caseQty = null;
+            if (pv != null) {
+                if (Array.isArray(pv)) {
+                    caseQty = pv[0]?.case_qty ?? null;
+                } else {
+                    caseQty = pv.case_qty ?? null;
+                }
+            }
+
+            return {
+                ...it,
+                qty: it?.qty ?? it?.quantity ?? 0,
+                quantity: it?.quantity ?? it?.qty ?? 0,
+                // coloca case_qty direto no item para facilitar leitura no modal
+                case_qty: caseQty ?? null,
+                // mantém product_variants caso seja necessário
+                product_variants: pv,
+            };
+        });
 
         return { ...(ord as any), items: mappedItems as any };
     }
+
 
     async function openOrder(orderId: string, alsoCleanUrl?: boolean) {
         setViewLoading(true);

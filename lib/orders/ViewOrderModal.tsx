@@ -48,11 +48,21 @@ export default function ViewOrderModal({
         if (ut === "unit") {
             return `${qIt} ${qIt > 1 ? "unidades" : "unidade"}`;
         } else if (ut === "case") {
-            return `${qIt} ${qIt > 1 ? "caixas" : "caixa"}`;
+            // case_qty pode estar em it.case_qty (mapeamos) ou em it.product_variants (array ou object)
+            const pv = it.product_variants;
+            let cq = it.case_qty ?? null;
+            if (cq == null && pv != null) {
+                if (Array.isArray(pv)) cq = pv[0]?.case_qty ?? null;
+                else cq = pv.case_qty ?? null;
+            }
+
+            const cqText = cq ? `caixa com: ${cq}` : `caixa`;
+            return `${cqText} • ${qIt} ${qIt > 1 ? "caixas" : "caixa"}`;
         } else {
             return `${qIt}`;
         }
     }
+
 
     return (
         <Modal title={title} open={open} onClose={onClose}>
