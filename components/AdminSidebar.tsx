@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AdminOrdersContext } from "./AdminOrdersContext";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -59,8 +58,7 @@ const CARD_GAP = 8;
 const NAME_FONT = 12;
 const MSG_FONT = 11;
 const DATE_FONT = 10;
-const CHIP_FONT = 11;
-const STATS_FONT = 11;
+const CHIP_FONT = 12;
 
 function btnBaseSlim(disabled?: boolean): React.CSSProperties {
     return {
@@ -77,20 +75,27 @@ function btnBaseSlim(disabled?: boolean): React.CSSProperties {
         background: "transparent",
     };
 }
-function btnOrangeOutline(disabled?: boolean): React.CSSProperties {
+
+function chipOrangeStyle(active?: boolean): React.CSSProperties {
+    if (active) {
+        return {
+            borderRadius: 999,
+            padding: "6px 10px",
+            background: ORANGE,
+            color: "#fff",
+            fontWeight: 800,
+            border: `1px solid ${ORANGE}`,
+            fontSize: CHIP_FONT,
+        };
+    }
     return {
-        ...btnBaseSlim(disabled),
-        border: `1px solid ${ORANGE}`,
+        borderRadius: 999,
+        padding: "6px 10px",
         background: "transparent",
-        color: SIDEBAR_TEXT,
-    };
-}
-function btnPurpleOutline(active?: boolean): React.CSSProperties {
-    return {
-        ...btnBaseSlim(false),
-        border: `1px solid ${PURPLE}`,
-        background: active ? SIDEBAR_CARD_BG : "transparent",
-        color: SIDEBAR_TEXT,
+        color: ORANGE,
+        fontWeight: 800,
+        border: `1px solid ${ORANGE}`,
+        fontSize: CHIP_FONT,
     };
 }
 
@@ -128,7 +133,7 @@ export default function AdminSidebar() {
     const adminOrdersCtx = useContext(AdminOrdersContext);
     const openOrder = adminOrdersCtx?.openOrder;
 
-    // useWorkspace fornece a fonte única de verdade
+    // fonte única de verdade
     const { companies, currentCompanyId, currentCompany, loading: loadingWorkspace, reload: reloadWorkspace } = useWorkspace();
 
     const [selected, setSelected] = useState<OrderStatus | null>(null);
@@ -153,13 +158,11 @@ export default function AdminSidebar() {
     const [tab, setTab] = useState<"orders" | "whatsapp">("orders");
     const [threads, setThreads] = useState<Thread[]>([]);
     const [loadingThreads, setLoadingThreads] = useState(false);
-    const [threadsMsg, setThreadsMsg] = useState<string | null>(null);
     const [openThread, setOpenThread] = useState<Thread | null>(null);
     const [showStats, setShowStats] = useState(false);
     const [collapsed, setCollapsed] = useState<boolean>(false);
 
     async function loadOrders() {
-        // só tenta carregar se houver company selecionada
         if (!currentCompanyId) {
             setOrders([]);
             setLoading(false);
@@ -171,7 +174,7 @@ export default function AdminSidebar() {
         try {
             const url = new URL("/api/orders/list", window.location.origin);
             url.searchParams.set("limit", "120");
-            // o servidor lê o cookie HTTP-only para company
+            // garante envio do cookie HTTP-only
             const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -196,14 +199,12 @@ export default function AdminSidebar() {
             return;
         }
         setLoadingThreads(true);
-        setThreadsMsg(null);
         try {
             const url = new URL("/api/whatsapp/threads", window.location.origin);
             url.searchParams.set("limit", "30");
             const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setThreadsMsg(json?.error ?? "Erro ao carregar conversas");
                 setThreads([]);
                 setLoadingThreads(false);
                 return;
@@ -211,19 +212,16 @@ export default function AdminSidebar() {
             setThreads(Array.isArray(json.threads) ? json.threads : []);
         } catch (e) {
             console.error(e);
-            setThreadsMsg("Falha ao carregar conversas");
             setThreads([]);
         } finally {
             setLoadingThreads(false);
         }
     }
 
-    // quando workspace é conhecido, carregue pedidos; se houver só uma empresa, auto-select
+    // auto-select e carregamento dependente do workspace
     useEffect(() => {
-        // só agir depois que o hook terminou de carregar
         if (loadingWorkspace) return;
 
-        // auto-select se só tiver uma empresa e ainda não houver currentCompanyId
         if (!currentCompanyId && companies && companies.length === 1) {
             (async () => {
                 try {
@@ -235,18 +233,12 @@ export default function AdminSidebar() {
                     });
 
                     if (!res.ok) {
-                        const err = await res.json().catch(() => ({}));
-                        console.warn("auto-select workspace failed", err);
+                        console.warn("auto-select workspace failed");
                         return;
                     }
 
-                    // reload para atualizar currentCompanyId via /api/workspace/current
                     await reloadWorkspace();
-                    // força refresh dos server components se necessário
-                    try {
-                        router.refresh();
-                    } catch { }
-                    // agora carregamos pedidos
+                    try { router.refresh(); } catch { }
                     await loadOrders();
                 } catch (e) {
                     console.warn("auto-select workspace exception", e);
@@ -255,20 +247,17 @@ export default function AdminSidebar() {
             return;
         }
 
-        // se já existe company selecionada, carregar pedidos (evita race)
         if (currentCompanyId) {
             loadOrders();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadingWorkspace, companies, currentCompanyId]);
 
-    // atualiza pedidos periodicamente
     useEffect(() => {
         const id = window.setInterval(() => {
             if (currentCompanyId) loadOrders();
         }, 10000);
         return () => window.clearInterval(id);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentCompanyId]);
 
     useEffect(() => {
@@ -283,27 +272,12 @@ export default function AdminSidebar() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, currentCompanyId]);
 
-    const stats = useMemo(() => {
-        const by = { new: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
-        for (const o of orders) {
-            const s = String(o.status) as OrderStatus;
-            if (by[s] !== undefined) by[s] += 1;
-        }
-        return { total: orders.length, ...by };
-    }, [orders]);
+    // somente os pedidos novos
+    const newOrders = useMemo(() => orders.filter((o) => String(o.status) === "new"), [orders]);
+    const newOrdersCount = newOrders.length;
+    const newMessagesCount = threads.length; // se tiver flag de unread, trocar por threads.filter(...).length
 
-    function goStatus(s: OrderStatus | "all") {
-        if (s === "all") setSelected(null);
-        else setSelected(s);
-    }
-
-    const filtered = useMemo(() => {
-        if (!selected) return orders;
-        return orders.filter((o) => String(o.status) === selected);
-    }, [orders, selected]);
-
-    const latest = useMemo(() => filtered.slice(0, 8), [filtered]);
-
+    const latestNewOrders = useMemo(() => newOrders.slice(0, 8), [newOrders]);
     const latestThreads = useMemo(() => {
         const sorted = threads.slice().sort((a, b) => {
             const da = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
@@ -315,20 +289,12 @@ export default function AdminSidebar() {
 
     const width = collapsed ? 80 : 260;
 
-    // Visual: class to hide the scrollbar visually while keeping scroll functionality
-    // We inject local CSS so you don't need to modify globals.
+    // hide scrollbar visually while keeping scroll functionality
     return (
         <>
             <style>{`
-        /* hide scrollbar visually for the sidebar while keeping scroll functionality */
-        .renthus-sidebar {
-          -ms-overflow-style: none;  /* IE and Edge */
-          scrollbar-width: none;  /* Firefox */
-        }
-        .renthus-sidebar::-webkit-scrollbar {
-          width: 0px;
-          height: 0px;
-        }
+        .renthus-sidebar { -ms-overflow-style: none; scrollbar-width: none; }
+        .renthus-sidebar::-webkit-scrollbar { width: 0px; height: 0px; }
       `}</style>
 
             <aside
@@ -352,11 +318,7 @@ export default function AdminSidebar() {
             >
                 {/* Header + toggle */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    {!collapsed ? (
-                        <div style={{ fontWeight: 900, fontSize: 13, color: SIDEBAR_TEXT }}>Dashboard</div>
-                    ) : (
-                        <div aria-hidden />
-                    )}
+                    {!collapsed ? <div style={{ fontWeight: 900, fontSize: 13, color: SIDEBAR_TEXT }}>Dashboard</div> : <div aria-hidden />}
                     <div>
                         <button
                             onClick={() => setCollapsed((s) => !s)}
@@ -384,10 +346,20 @@ export default function AdminSidebar() {
                     </div>
                 </div>
 
-                {/* Workspace switcher */}
+                {/* Company chip (fonte única da verdade) */}
                 {!collapsed ? (
-                    <div style={{ marginTop: 8 }}>
-                        <WorkspaceSwitcher />
+                    <div style={{ marginTop: 10 }}>
+                        {loadingWorkspace ? (
+                            <div style={{ fontSize: 12, color: SIDEBAR_MUTED }}>Carregando empresa...</div>
+                        ) : currentCompany ? (
+                            <div style={{ display: "inline-block", marginBottom: 8 }}>
+                                <span style={{ borderRadius: 999, padding: "6px 10px", background: "rgba(255,255,255,0.06)", color: SIDEBAR_TEXT, fontWeight: 800 }}>
+                                    {currentCompany.name}
+                                </span>
+                            </div>
+                        ) : (
+                            <div style={{ fontSize: 12, color: SIDEBAR_MUTED }}>Nenhuma empresa disponível</div>
+                        )}
                     </div>
                 ) : null}
 
@@ -396,138 +368,122 @@ export default function AdminSidebar() {
                     <MenuButtons compact={collapsed} onNavigate={() => { }} textColor={SIDEBAR_TEXT} iconColor={ORANGE} />
                 </div>
 
-                {/* Estatísticas / cards */}
+                {/* Chips laranjas (Pedidos / WhatsApp) e conteúdo da aba */}
                 {!collapsed ? (
                     <>
                         <div style={{ marginTop: 12, borderTop: `1px solid ${SIDEBAR_BORDER}`, paddingTop: 8 }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                                <div style={{ border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS, padding: 8, background: SIDEBAR_CARD_BG }}>
-                                    <div style={{ fontSize: STATS_FONT, color: SIDEBAR_MUTED }}>Novos</div>
-                                    <div style={{ fontWeight: 900, color: statusColor("new"), fontSize: 14 }}>{stats.new}</div>
-                                </div>
-                                <div style={{ border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS, padding: 8, background: SIDEBAR_CARD_BG }}>
-                                    <div style={{ fontSize: STATS_FONT, color: SIDEBAR_MUTED }}>Entregues</div>
-                                    <div style={{ fontWeight: 900, color: statusColor("delivered"), fontSize: 14 }}>{stats.delivered}</div>
-                                </div>
-                                <div style={{ border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS, padding: 8, background: SIDEBAR_CARD_BG }}>
-                                    <div style={{ fontSize: STATS_FONT, color: SIDEBAR_MUTED }}>Finalizados</div>
-                                    <div style={{ fontWeight: 900, color: statusColor("finalized"), fontSize: 14 }}>{stats.finalized}</div>
-                                </div>
-                                <div style={{ border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS, padding: 8, background: SIDEBAR_CARD_BG }}>
-                                    <div style={{ fontSize: STATS_FONT, color: SIDEBAR_MUTED }}>Cancelados</div>
-                                    <div style={{ fontWeight: 900, color: statusColor("canceled"), fontSize: 14 }}>{stats.canceled}</div>
-                                </div>
-                            </div>
-                            {loading ? <div style={{ marginTop: 8, fontSize: 11, color: SIDEBAR_MUTED }}>Carregando...</div> : null}
-                        </div>
-
-                        {/* Chips (Pedidos / WhatsApp) */}
-                        <div style={{ marginTop: 10, borderTop: `1px solid ${SIDEBAR_BORDER}`, paddingTop: 8 }}>
-                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-start", alignItems: "center" }}>
-                                <button onClick={() => setTab("orders")} style={{ ...btnPurpleOutline(tab === "orders"), padding: "6px 8px", fontSize: CHIP_FONT }}>
-                                    Pedidos ({filtered.length})
+                            <div style={{ display: "flex", gap: 8 }}>
+                                <button
+                                    onClick={() => setTab("orders")}
+                                    style={tab === "orders" ? chipOrangeStyle(true) : chipOrangeStyle(false)}
+                                >
+                                    Pedidos ({newOrdersCount})
                                 </button>
-                                <button onClick={() => setTab("whatsapp")} style={{ ...btnPurpleOutline(tab === "whatsapp"), padding: "6px 8px", fontSize: CHIP_FONT }}>
-                                    WhatsApp ({threads.length})
+
+                                <button
+                                    onClick={() => setTab("whatsapp")}
+                                    style={tab === "whatsapp" ? chipOrangeStyle(true) : chipOrangeStyle(false)}
+                                >
+                                    WhatsApp ({newMessagesCount})
                                 </button>
                             </div>
 
-                            {/* Aba conteúdo */}
-                            {tab === "orders" ? (
-                                <>
-                                    {latest.length === 0 ? (
-                                        <div style={{ marginTop: 8, fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Nenhum pedido.</div>
-                                    ) : (
-                                        <div style={{ display: "grid", gap: CARD_GAP, marginTop: 8 }}>
-                                            {latest.map((o) => {
-                                                const name = o.customers?.name ?? "-";
-                                                const st = String(o.status);
-                                                return (
-                                                    <button
-                                                        key={o.id}
-                                                        type="button"
-                                                        onClick={() => (openOrder ? openOrder(o.id) : null)}
-                                                        style={{
-                                                            width: "100%",
-                                                            textAlign: "left",
-                                                            border: `1px solid ${SIDEBAR_BORDER}`,
-                                                            borderRadius: CARD_RADIUS,
-                                                            padding: CARD_PADDING,
-                                                            cursor: "pointer",
-                                                            background: SIDEBAR_CARD_BG,
-                                                            boxSizing: "border-box",
-                                                            color: SIDEBAR_TEXT,
-                                                            display: "block",
-                                                        }}
-                                                        title="Abrir pedido"
-                                                    >
-                                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
-                                                            <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
-                                                                {name}
-                                                            </div>
-                                                            <span style={{ fontSize: 11, padding: "3px 6px" }}>
-                                                                <span style={{ borderRadius: 999, padding: "3px 6px", fontWeight: 900, color: statusColor(st), border: `1px solid ${statusColor(st)}`, background: "rgba(255,255,255,0.02)" }}>
-                                                                    {prettyStatus(st)}
+                            <div style={{ marginTop: 10 }}>
+                                {/* Orders tab shows only new orders */}
+                                {tab === "orders" ? (
+                                    <>
+                                        {loading ? (
+                                            <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Carregando...</div>
+                                        ) : newOrdersCount === 0 ? (
+                                            <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Nenhum pedido novo.</div>
+                                        ) : (
+                                            <div style={{ display: "grid", gap: CARD_GAP }}>
+                                                {latestNewOrders.map((o) => {
+                                                    const name = o.customers?.name ?? "-";
+                                                    return (
+                                                        <button
+                                                            key={o.id}
+                                                            type="button"
+                                                            onClick={() => (openOrder ? openOrder(o.id) : null)}
+                                                            style={{
+                                                                width: "100%",
+                                                                textAlign: "left",
+                                                                border: `1px solid ${SIDEBAR_BORDER}`,
+                                                                borderRadius: CARD_RADIUS,
+                                                                padding: CARD_PADDING,
+                                                                cursor: "pointer",
+                                                                background: SIDEBAR_CARD_BG,
+                                                                boxSizing: "border-box",
+                                                                color: SIDEBAR_TEXT,
+                                                                display: "block",
+                                                            }}
+                                                            title="Abrir pedido"
+                                                        >
+                                                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
+                                                                <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{name}</div>
+                                                                <span style={{ fontSize: 11, padding: "3px 6px" }}>
+                                                                    <span style={{ borderRadius: 999, padding: "3px 6px", fontWeight: 900, color: statusColor("new"), border: `1px solid ${statusColor("new")}`, background: "rgba(255,255,255,0.02)" }}>
+                                                                        Novo
+                                                                    </span>
                                                                 </span>
-                                                            </span>
-                                                        </div>
-                                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 6 }}>
-                                                            <span style={{ fontSize: DATE_FONT, color: SIDEBAR_MUTED, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</span>
-                                                            <span style={{ fontSize: MSG_FONT, color: SIDEBAR_TEXT, fontWeight: 900 }}>R$ {formatBRL(o.total_amount)}</span>
-                                                        </div>
-                                                    </button>
-                                                );
-                                            })}
+                                                            </div>
+                                                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 6 }}>
+                                                                <span style={{ fontSize: DATE_FONT, color: SIDEBAR_MUTED, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</span>
+                                                                <span style={{ fontSize: MSG_FONT, color: SIDEBAR_TEXT, fontWeight: 900 }}>R$ {formatBRL(o.total_amount)}</span>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        <div style={{ marginTop: 8 }}>
+                                            <button onClick={() => router.push("/pedidos")} style={{ ...btnBaseSlim(false), width: "100%", fontSize: CHIP_FONT }}>
+                                                Abrir lista completa
+                                            </button>
                                         </div>
-                                    )}
-                                    <div style={{ marginTop: 8 }}>
-                                        <button onClick={() => router.push("/pedidos")} style={{ ...btnOrangeOutline(false), width: "100%", fontSize: CHIP_FONT }}>
-                                            Abrir lista completa
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    {loadingThreads ? (
-                                        <div style={{ marginTop: 8, fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Carregando conversas...</div>
-                                    ) : threads.length === 0 ? (
-                                        <div style={{ marginTop: 8, fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Nenhuma conversa.</div>
-                                    ) : (
-                                        <div style={{ display: "grid", gap: CARD_GAP, marginTop: 8 }}>
-                                            {latestThreads.map((t) => {
-                                                return (
-                                                    <button
-                                                        key={t.id}
-                                                        type="button"
-                                                        onClick={() => setOpenThread(t)}
-                                                        style={{
-                                                            width: "100%",
-                                                            textAlign: "left",
-                                                            border: `1px solid ${SIDEBAR_BORDER}`,
-                                                            borderRadius: CARD_RADIUS,
-                                                            padding: CARD_PADDING,
-                                                            cursor: "pointer",
-                                                            background: SIDEBAR_CARD_BG,
-                                                            boxSizing: "border-box",
-                                                            color: SIDEBAR_TEXT,
-                                                            display: "block",
-                                                        }}
-                                                    >
-                                                        <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                            {t.profile_name || t.phone_e164}
-                                                        </div>
-                                                        <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED, marginTop: 2 }}>{t.phone_e164}</div>
-                                                        <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                            {t.last_message_preview || "(sem mensagens)"}
-                                                        </div>
-                                                        <div style={{ fontSize: DATE_FONT, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>{t.last_message_at ? formatDT(t.last_message_at) : ""}</div>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </>
-                            )}
+                                    </>
+                                ) : (
+                                    // WhatsApp tab: threads
+                                    <>
+                                        {loadingThreads ? (
+                                            <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Carregando...</div>
+                                        ) : threads.length === 0 ? (
+                                            <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Nenhuma conversa.</div>
+                                        ) : (
+                                            <div style={{ display: "grid", gap: CARD_GAP }}>
+                                                {latestThreads.map((t) => {
+                                                    return (
+                                                        <button
+                                                            key={t.id}
+                                                            type="button"
+                                                            onClick={() => setOpenThread(t)}
+                                                            style={{
+                                                                width: "100%",
+                                                                textAlign: "left",
+                                                                border: `1px solid ${SIDEBAR_BORDER}`,
+                                                                borderRadius: CARD_RADIUS,
+                                                                padding: CARD_PADDING,
+                                                                cursor: "pointer",
+                                                                background: SIDEBAR_CARD_BG,
+                                                                boxSizing: "border-box",
+                                                                color: SIDEBAR_TEXT,
+                                                                display: "block",
+                                                            }}
+                                                        >
+                                                            <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                                {t.profile_name || t.phone_e164}
+                                                            </div>
+                                                            <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED, marginTop: 2 }}>{t.phone_e164}</div>
+                                                            <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.last_message_preview || "(sem mensagens)"}</div>
+                                                            <div style={{ fontSize: DATE_FONT, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>{t.last_message_at ? formatDT(t.last_message_at) : ""}</div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
                         </div>
 
                         {openThread ? <QuickReplyModal thread={openThread} onClose={() => setOpenThread(null)} /> : null}
