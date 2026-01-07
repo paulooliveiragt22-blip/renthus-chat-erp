@@ -1,5 +1,7 @@
+// app/layout.tsx
 import "@/styles/globals.css";
-import AdminSidebar from "@/components/AdminSidebar";
+import React, { Suspense } from "react";
+import AdminShell from "@/components/AdminShell";
 
 export const metadata = {
   title: "Disk Bebidas - Admin",
@@ -29,7 +31,11 @@ export default function RootLayout({
             <a href="/login">Sair</a>
           </nav>
         </header>
-        {children}
+
+        {/* Suspense aqui evita o erro "useSearchParams() should be wrapped in a suspense boundary" */}
+        <Suspense fallback={<div />}>
+          <AdminShell>{children}</AdminShell>
+        </Suspense>
       </body>
     </html>
   );
