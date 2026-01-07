@@ -102,23 +102,22 @@ export default function HeaderClient() {
         >
             {/* esquerda: retângulo para logo Renthus */}
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <div
-                    style={{
-                        width: 220,
-                        height: 56,
-                        backgroundColor: "#fff",
-                        borderRadius: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#3B246B",
-                        fontWeight: 700,
-                        boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
-                        overflow: "hidden",
-                    }}
-                >
-                    Renthus Logo
+                {/* esquerda: logo Renthus */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <a href="/" aria-label="Renthus" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                        <img
+                            src="/assets/renthus-logo.svg"
+                            alt="Renthus"
+                            style={{
+                                height: 40,        // ajuste a altura desejada
+                                width: "auto",
+                                display: "block",
+                                objectFit: "contain",
+                            }}
+                        />
+                    </a>
                 </div>
+
             </div>
 
             {/* direita: perfil da empresa + menu */}
