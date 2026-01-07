@@ -1,3 +1,4 @@
+// components/AdminOrdersContext.tsx
 "use client";
 
 import React, { createContext, useContext } from "react";
@@ -6,7 +7,7 @@ type Ctx = {
   openOrder: (orderId: string) => void;
 };
 
-const AdminOrdersContext = createContext<Ctx | null>(null);
+export const AdminOrdersContext = createContext<Ctx | null>(null);
 
 export function AdminOrdersProvider({
   openOrder,

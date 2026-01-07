@@ -1,0 +1,113 @@
+// components/MenuButtons.tsx
+"use client";
+
+import React from "react";
+import Link from "next/link";
+
+type MenuButtonsProps = {
+    compact?: boolean; // quando true renderiza só ícones
+    onNavigate?: () => void; // opcional: chamado após navegação (fechar menu)
+};
+
+function IconHome() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M3 10.5L12 4l9 6.5" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M5 20V11h14v9" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+function IconProducts() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <rect x="3" y="3" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
+            <rect x="14" y="3" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
+            <rect x="3" y="14" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
+            <rect x="14" y="14" width="7" height="7" stroke="#FF6600" strokeWidth="1.4" rx="1" />
+        </svg>
+    );
+}
+function IconOrders() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M3 7h18" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M6 7v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7" stroke="#3B246B" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+    );
+}
+function IconWhatsApp() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M21 12a9 9 0 1 0-2.7 6.1L21 21l-2.9-1" stroke="#0DAA00" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
+export default function MenuButtons({ compact, onNavigate }: MenuButtonsProps) {
+    const btnStyle: React.CSSProperties = {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        width: "100%",
+        textDecoration: "none",
+        border: "none",
+        background: "transparent",
+        cursor: "pointer",
+        padding: compact ? "8px 6px" : "10px 12px",
+        borderRadius: compact ? 12 : 10,
+        color: "#111",
+        fontWeight: 700,
+        fontSize: 13,
+        boxSizing: "border-box",
+    };
+
+    const iconWrapper: React.CSSProperties = {
+        width: 36,
+        height: 36,
+        display: "grid",
+        placeItems: "center",
+        borderRadius: 10,
+    };
+
+    // Lista de itens (mesma ordem / rotas do AdminSidebar)
+    const items = [
+        { href: "/dashboard", icon: <IconHome />, label: "Dashboard", orange: false },
+        { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp", orange: false },
+        { href: "/produtos", icon: <IconProducts />, label: "Cadastrar produto", orange: true },
+        { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos", orange: false },
+        { href: "/pedidos", icon: <IconOrders />, label: "Pedidos", orange: false },
+    ];
+
+    return (
+        <div style={{ display: "grid", gap: compact ? 6 : 8 }}>
+            {items.map((it) => (
+                <Link
+                    key={it.href}
+                    href={it.href}
+                    style={{
+                        textDecoration: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        borderRadius: 10,
+                        overflow: "hidden",
+                    }}
+                    onClick={() => onNavigate?.()}
+                >
+                    <button
+                        style={{
+                            ...btnStyle,
+                            justifyContent: compact ? "center" : "flex-start",
+                            background: "transparent",
+                            border: "none",
+                        }}
+                        aria-label={it.label}
+                        type="button"
+                    >
+                        <span style={iconWrapper as React.CSSProperties}>{it.icon}</span>
+                        {!compact ? <span style={{ marginLeft: 2 }}>{it.label}</span> : null}
+                    </button>
+                </Link>
+            ))}
+        </div>
+    );
+}
