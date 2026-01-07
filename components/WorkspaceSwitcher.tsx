@@ -1,3 +1,4 @@
+// components/WorkspaceSwitcher.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
@@ -15,6 +16,7 @@ export function WorkspaceSwitcher() {
         const res = await fetch("/api/workspace/select", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include", // <<-- importante
             body: JSON.stringify({ company_id: companyId }),
         });
 
@@ -26,9 +28,19 @@ export function WorkspaceSwitcher() {
             return;
         }
 
-        // Atualiza server components (App Router) e refaz queries
-        router.refresh();
-        await reload();
+        // reload the client hook first so currentCompanyId updates
+        // then refresh server components so they read the new cookie.
+        try {
+            await reload();
+        } catch (e) {
+            console.warn("reload workspace after select failed", e);
+        }
+
+        try {
+            router.refresh();
+        } catch (e) {
+            // router.refresh may fail in some envs; ignore
+        }
     }
 
     if (loading) {
