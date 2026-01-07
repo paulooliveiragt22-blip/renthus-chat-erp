@@ -5,11 +5,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
 import { ORANGE } from "@/lib/orders/helpers";
+import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 export default function HeaderClient() {
     const supabase = createClient();
     const router = useRouter();
     const pathname = usePathname();
+
+    const { currentCompany, loading: loadingWorkspace } = useWorkspace();
 
     const [menuOpen, setMenuOpen] = useState(false);
     const [sessionExists, setSessionExists] = useState<boolean | null>(null);
@@ -93,7 +96,7 @@ export default function HeaderClient() {
             style={{
                 backgroundColor: "#3B246B",
                 color: "#fff",
-                padding: "16px 24px",
+                padding: "10px 18px", // reduzido
                 boxShadow: "0 6px 12px rgba(0,0,0,0.16)",
                 display: "flex",
                 justifyContent: "space-between",
@@ -101,28 +104,27 @@ export default function HeaderClient() {
             }}
         >
             {/* esquerda: retângulo para logo Renthus */}
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                {/* esquerda: logo Renthus */}
-                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                    <a href="/" aria-label="Renthus" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
-                        <img
-                            src="/assets/renthus-logo.svg"
-                            alt="Renthus"
-                            style={{
-                                height: 40,        // ajuste a altura desejada
-                                width: "auto",
-                                display: "block",
-                                objectFit: "contain",
-                            }}
-                        />
-                    </a>
-                </div>
-
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <a href="/" aria-label="Renthus" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                    <img
+                        src="/assets/renthus-logo.svg"
+                        alt="Renthus"
+                        style={{
+                            height: 28,        // reduzido (antes 40)
+                            width: "auto",
+                            display: "block",
+                            objectFit: "contain",
+                        }}
+                    />
+                </a>
             </div>
 
-            {/* direita: perfil da empresa + menu */}
+            {/* direita: nome da empresa + perfil do usuário */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
-                <div style={{ fontWeight: 600, fontSize: 16 }}>Renthus Service</div>
+                {/* Nome da empresa (pega do workspace). Se ainda carregando, exibe label genérica. */}
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "Renthus Service"}
+                </div>
 
                 <button
                     aria-haspopup="true"
@@ -165,7 +167,7 @@ export default function HeaderClient() {
                     }}
                 >
                     <div style={{ padding: "8px 12px", borderBottom: "1px solid #eee" }}>
-                        <div style={{ fontWeight: 900 }}>Renthus Service</div>
+                        <div style={{ fontWeight: 900 }}>{currentCompany?.name ?? "Renthus Service"}</div>
                         <div style={{ color: "#666", fontSize: 12 }}>Empresa</div>
                     </div>
 

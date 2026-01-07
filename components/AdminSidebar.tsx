@@ -19,13 +19,6 @@ function formatBRL(n: number | null | undefined) {
     const v = typeof n === "number" ? n : 0;
     return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function formatDT(ts: string) {
-    try {
-        return new Date(ts).toLocaleString("pt-BR");
-    } catch {
-        return ts;
-    }
-}
 function prettyStatus(s: string) {
     if (s === "new") return "Novo";
     if (s === "canceled") return "Cancelado";
@@ -51,13 +44,12 @@ const SIDEBAR_MUTED = "rgba(255,255,255,0.80)";
 const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
 const SIDEBAR_CARD_BG = "rgba(255,255,255,0.06)";
 
-/* SIZE / TYPOGRAPHY (compact) - ajustado para caber no painel */
+/* SIZE / TYPOGRAPHY (ultra-compact) */
 const CARD_PADDING = 6;
-const CARD_RADIUS = 8;
+const CARD_RADIUS = 7;
 const CARD_GAP = 6;
 const NAME_FONT = 11;
 const MSG_FONT = 10;
-const DATE_FONT = 9;
 const CHIP_FONT = 11;
 
 function btnBaseSlim(disabled?: boolean): React.CSSProperties {
@@ -133,24 +125,8 @@ export default function AdminSidebar() {
     const adminOrdersCtx = useContext(AdminOrdersContext);
     const openOrder = adminOrdersCtx?.openOrder;
 
-    // fonte única de verdade
+    // fonte única de verdade (aqui só usado para eventual futuro; não exibimos nome da empresa aqui)
     const { companies, currentCompanyId, currentCompany, loading: loadingWorkspace, reload: reloadWorkspace } = useWorkspace();
-
-    const [selected, setSelected] = useState<OrderStatus | null>(null);
-
-    useEffect(() => {
-        try {
-            const sp = new URLSearchParams(window.location.search);
-            const s = sp.get("status");
-            if (s === "new" || s === "delivered" || s === "finalized" || s === "canceled") {
-                setSelected(s as OrderStatus);
-            } else {
-                setSelected(null);
-            }
-        } catch {
-            setSelected(null);
-        }
-    }, []);
 
     const [orders, setOrders] = useState<OrderRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -275,7 +251,7 @@ export default function AdminSidebar() {
     // somente os pedidos novos
     const newOrders = useMemo(() => orders.filter((o) => String(o.status) === "new"), [orders]);
     const newOrdersCount = newOrders.length;
-    const newMessagesCount = threads.length; // se tiver flag de unread, trocar por threads.filter(...).length
+    const newMessagesCount = threads.length;
 
     const latestNewOrders = useMemo(() => newOrders.slice(0, 6), [newOrders]);
     const latestThreads = useMemo(() => {
@@ -287,7 +263,7 @@ export default function AdminSidebar() {
         return sorted.slice(0, 6);
     }, [threads]);
 
-    const width = collapsed ? 80 : 240;
+    const width = collapsed ? 64 : 240;
 
     // hide scrollbar visually while keeping scroll functionality
     return (
@@ -346,22 +322,7 @@ export default function AdminSidebar() {
                     </div>
                 </div>
 
-                {/* Company chip (fonte única da verdade) */}
-                {!collapsed ? (
-                    <div style={{ marginTop: 10 }}>
-                        {loadingWorkspace ? (
-                            <div style={{ fontSize: 12, color: SIDEBAR_MUTED }}>Carregando empresa...</div>
-                        ) : currentCompany ? (
-                            <div style={{ display: "inline-block", marginBottom: 8 }}>
-                                <span style={{ borderRadius: 999, padding: "6px 10px", background: "rgba(255,255,255,0.06)", color: SIDEBAR_TEXT, fontWeight: 800 }}>
-                                    {currentCompany.name}
-                                </span>
-                            </div>
-                        ) : (
-                            <div style={{ fontSize: 12, color: SIDEBAR_MUTED }}>Nenhuma empresa disponível</div>
-                        )}
-                    </div>
-                ) : null}
+                {/* NB: removido o nome da empresa do sidebar para economizar espaço */}
 
                 {/* Botões principais */}
                 <div style={{ marginTop: 10 }}>
@@ -421,15 +382,15 @@ export default function AdminSidebar() {
                                                         >
                                                             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
                                                                 <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{name}</div>
-                                                                <span style={{ fontSize: 11, padding: "3px 6px" }}>
-                                                                    <span style={{ borderRadius: 999, padding: "3px 6px", fontWeight: 900, color: statusColor("new"), border: `1px solid ${statusColor("new")}`, background: "rgba(255,255,255,0.02)" }}>
-                                                                        Novo
+                                                                <div style={{ fontWeight: 900, fontSize: 11, color: SIDEBAR_TEXT }}>
+                                                                    <span style={{ borderRadius: 999, padding: "3px 6px", fontWeight: 900, color: statusColor(String(o.status)), border: `1px solid ${statusColor(String(o.status))}`, background: "rgba(255,255,255,0.02)", fontSize: 11 }}>
+                                                                        {prettyStatus(String(o.status))}
                                                                     </span>
-                                                                </span>
+                                                                </div>
                                                             </div>
-                                                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 6 }}>
-                                                                <span style={{ fontSize: DATE_FONT, color: SIDEBAR_MUTED, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</span>
-                                                                <span style={{ fontSize: MSG_FONT, color: SIDEBAR_TEXT, fontWeight: 900 }}>R$ {formatBRL(o.total_amount)}</span>
+
+                                                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                                                                <span style={{ fontSize: MSG_FONT, fontWeight: 900 }}>R$ {formatBRL(o.total_amount)}</span>
                                                             </div>
                                                         </button>
                                                     );
@@ -443,7 +404,7 @@ export default function AdminSidebar() {
                                         </div>
                                     </>
                                 ) : (
-                                    // WhatsApp tab: threads
+                                    // WhatsApp tab: threads (mantive compacto)
                                     <>
                                         {loadingThreads ? (
                                             <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Carregando...</div>
@@ -475,7 +436,6 @@ export default function AdminSidebar() {
                                                             </div>
                                                             <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED, marginTop: 2 }}>{t.phone_e164}</div>
                                                             <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.last_message_preview || "(sem mensagens)"}</div>
-                                                            <div style={{ fontSize: DATE_FONT, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>{t.last_message_at ? formatDT(t.last_message_at) : ""}</div>
                                                         </button>
                                                     );
                                                 })}

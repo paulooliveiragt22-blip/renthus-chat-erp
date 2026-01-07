@@ -1,3 +1,4 @@
+// app/(admin)/pedidos/PedidosClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -9,7 +10,7 @@ import ViewOrderModal from "@/lib/orders/ViewOrderModal";
 import EditOrderModal from "@/lib/orders/EditOrderModal";
 import ActionModal, { ActionKind } from "@/lib/orders/ActionModal";
 
-import OrderPaymentInfo from "@/components/OrderPaymentInfo";
+// Nota: removido OrderPaymentInfo pois pagamento/infos ficam só no modal agora.
 
 import type {
     CartItem,
@@ -66,7 +67,6 @@ function addToCartLocal(
 ) {
     const qAdd = Math.max(0, qtyToAdd || 0);
     if (qAdd <= 0) return;
-
     const price =
         mode === "case" ? Number(variant.case_price ?? 0) : Number(variant.unit_price ?? 0);
 
@@ -414,7 +414,6 @@ export default function PedidosPage() {
         return { ...(ord as any), items: mappedItems as any };
     }
 
-
     async function openOrder(orderId: string, alsoCleanUrl?: boolean) {
         setViewLoading(true);
         setMsg(null);
@@ -554,7 +553,6 @@ export default function PedidosPage() {
                 const qIt = Number(it.quantity ?? it.qty ?? 0);
                 const price = Number(it.unit_price ?? 0);
                 const total = Number(it.line_total ?? qIt * price);
-
                 return `
           <tr>
             <td>${name}</td>
@@ -774,7 +772,6 @@ export default function PedidosPage() {
         setEditQ("");
         setEditResults([]);
         setEditDraftQty({});
-
         setOpenEdit(true);
         setEditLoading(false);
     }
@@ -906,19 +903,17 @@ export default function PedidosPage() {
                 <div>
                     <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Pedidos</h1>
                     <p style={{ marginTop: 6, color: "#666", fontSize: 12, lineHeight: 1.2 }}>
-                        Acessar • Cancelar/Inativar • Entregue • Finalizado • Imprimir • Editar
+                        Acessar • Ações (Cancelar/Entregue/Finalizar/Imprimir/Editar) e Data estão disponíveis no modal do pedido.
                     </p>
                     <p style={{ marginTop: 4, color: "#777", fontSize: 12, lineHeight: 1.2 }}>
                         Obs.: para <b>cancelar/entregar/finalizar</b>, será exigida uma observação.
                     </p>
                 </div>
-
-                {/* removi bloco de botões daqui - agora eles aparecem junto aos chips (abaixo) */}
             </div>
 
             {msg && <p style={{ color: msg.startsWith("✅") ? "green" : "crimson", marginTop: 10 }}>{msg}</p>}
 
-            {/* CHIPS + BOTÕES (os botões ficam no canto direito, cor laranja) */}
+            {/* CHIPS + BOTÕES */}
             <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <button onClick={() => setStatusFilter("new")} style={chip(statusFilter === "new")}>
@@ -960,32 +955,25 @@ export default function PedidosPage() {
                     <p>Carregando...</p>
                 ) : (
                     <div style={{ width: "100%", overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
+                        {/* tabela compacta: apenas Cliente | Status | Total */}
+                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
                             <thead>
                                 <tr style={{ background: "#f7f7f7" }}>
-                                    <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Data</th>
-                                    <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Cliente</th>
-                                    <th style={{ textAlign: "left", padding: 8, fontSize: 12 }}>Pagamento</th>
-                                    <th style={{ textAlign: "center", padding: 8, fontSize: 12 }}>Status</th>
-                                    <th style={{ textAlign: "right", padding: 8, fontSize: 12 }}>Total</th>
-                                    <th style={{ textAlign: "right", padding: 8, fontSize: 12 }}>Ações</th>
+                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12 }}>Cliente</th>
+                                    <th style={{ textAlign: "center", padding: 6, fontSize: 12 }}>Status</th>
+                                    <th style={{ textAlign: "right", padding: 6, fontSize: 12 }}>Total</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredOrders.map((o) => {
                                     const st = String(o.status);
-                                    const editOk = canEdit(st);
-                                    const obsIsOrange = ["delivered", "canceled", "finalized"].includes(st);
-
                                     return (
                                         <tr
                                             key={o.id}
                                             style={{ borderTop: "1px solid #f0f0f0", cursor: "pointer" }}
                                             onClick={() => openOrder(o.id)}
                                         >
-                                            <td style={{ padding: 8, whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</td>
-
-                                            <td style={{ padding: 8, minWidth: 360 }}>
+                                            <td style={{ padding: 6, minWidth: 240 }}>
                                                 <div
                                                     style={{
                                                         fontWeight: 900,
@@ -997,73 +985,14 @@ export default function PedidosPage() {
                                                 >
                                                     {o.customers?.name ?? "-"}
                                                 </div>
-                                                <div style={{ color: "#666", fontSize: 12, whiteSpace: "nowrap" }}>
-                                                    {o.customers?.phone ?? ""}
-                                                </div>
-                                                {o.details ? (
-                                                    <div style={{ color: obsIsOrange ? ORANGE : "#111", marginTop: 6, fontSize: 13, fontWeight: 900 }}>
-                                                        OBS: {o.details}
-                                                    </div>
-                                                ) : null}
                                             </td>
 
-                                            <td style={{ padding: 8, minWidth: 220 }}>
-                                                <OrderPaymentInfo
-                                                    payment_method={o.payment_method}
-                                                    paid={!!o.paid}
-                                                    change_for={o.change_for}
-                                                    total_amount={o.total_amount}
-                                                    compact
-                                                />
-                                            </td>
-
-                                            <td style={{ padding: 8, textAlign: "center", whiteSpace: "nowrap" }}>
+                                            <td style={{ padding: 6, textAlign: "center", whiteSpace: "nowrap" }}>
                                                 <span style={statusBadgeStyle(st)}>{prettyStatus(st)}</span>
                                             </td>
 
-                                            <td style={{ padding: 8, textAlign: "right", fontWeight: 900, whiteSpace: "nowrap" }}>
+                                            <td style={{ padding: 6, textAlign: "right", fontWeight: 900, whiteSpace: "nowrap" }}>
                                                 R$ {formatBRL(o.total_amount)}
-                                            </td>
-
-                                            <td style={{ padding: 8, textAlign: "right" }}>
-                                                <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" }}>
-                                                    <button onClick={(e: React.MouseEvent) => { e.stopPropagation(); printOrder(o.id); }} style={btnPurpleOutline(false)}>
-                                                        Imprimir
-                                                    </button>
-
-                                                    <button
-                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openActionModal("cancel", o.id); }}
-                                                        disabled={!canCancel(st)}
-                                                        style={btnPurple(!canCancel(st))}
-                                                    >
-                                                        Cancelar
-                                                    </button>
-
-                                                    <button
-                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openActionModal("deliver", o.id); }}
-                                                        disabled={!canDeliver(st)}
-                                                        style={btnPurple(!canDeliver(st))}
-                                                    >
-                                                        Entregue
-                                                    </button>
-
-                                                    <button
-                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openActionModal("finalize", o.id); }}
-                                                        disabled={!canFinalize(st)}
-                                                        style={btnPurple(!canFinalize(st))}
-                                                    >
-                                                        Finalizar
-                                                    </button>
-
-                                                    <button
-                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEditOrder(o.id); }}
-                                                        disabled={!editOk}
-                                                        title={!editOk ? "Editar bloqueado após ação de status" : "Editar pedido"}
-                                                        style={{ ...btnPurpleOutline(!editOk), borderWidth: 2, fontWeight: 900 }}
-                                                    >
-                                                        EDITAR
-                                                    </button>
-                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -1071,7 +1000,7 @@ export default function PedidosPage() {
 
                                 {filteredOrders.length === 0 && (
                                     <tr>
-                                        <td colSpan={6} style={{ padding: 10, color: "#666", fontSize: 12 }}>
+                                        <td colSpan={3} style={{ padding: 10, color: "#666", fontSize: 12 }}>
                                             Nenhum pedido nesse filtro.
                                         </td>
                                     </tr>
@@ -1082,7 +1011,7 @@ export default function PedidosPage() {
                 )}
             </section>
 
-            {/* MODAIS */}
+            {/* MODAIS (mantidos; ViewOrderModal contém data, ações e forma de apagamento) */}
 
             <NewOrderModal
                 open={openNew}
