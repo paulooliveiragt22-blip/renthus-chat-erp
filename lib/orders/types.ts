@@ -22,9 +22,25 @@ export type OrderItemRow = {
     order_id: string;
     product_variant_id: string | null;
     product_name: string | null;
+
+    // quantidade inteira (legacy) / qty (numérico)
     quantity: number | null;
+
+    // qty numérico (adicionado para compatibilidade)
+    qty?: number | null;
+
+    // tipo de unidade: "unit" | "case" | null
+    unit_type?: string | null;
+
+    // preço unitário salvo no item
     unit_price: number | null;
+
+    // total da linha
     line_total: number | null;
+
+    // quando veio pelo join de product_variants
+    case_qty?: number | null;
+
     created_at: string;
 };
 
