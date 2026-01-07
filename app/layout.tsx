@@ -1,5 +1,6 @@
 // app/layout.tsx
 import "@/styles/globals.css";
+import React, { Suspense } from "react";
 import AdminShell from "@/components/AdminShell";
 
 export const metadata = {
@@ -31,8 +32,10 @@ export default function RootLayout({
           </nav>
         </header>
 
-        {/* AdminShell envolve as páginas (oculta em /login) */}
-        <AdminShell>{children}</AdminShell>
+        {/* Suspense aqui evita o erro "useSearchParams() should be wrapped in a suspense boundary" */}
+        <Suspense fallback={<div />}>
+          <AdminShell>{children}</AdminShell>
+        </Suspense>
       </body>
     </html>
   );
