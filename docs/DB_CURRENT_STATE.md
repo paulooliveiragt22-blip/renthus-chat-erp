@@ -363,3 +363,102 @@ Uso contabilizado em usage_monthly e respeitado por feature_limits antes de cham
 RLS/policies aprovadas e testadas para impedir vazamento entre companies.
 
 Envio real via Twilio/360dialog integrado e testado (quando contas estiverem prontas).
+
+atualizando 08/01/2025
+Arquivos / objetos criados ou ajustados
+Migrations (principais)
+
+2026_01_08_000000_create_companies_and_related_fixed.sql
+Migração idempotente que:
+
+cria/garante tabela public.companies com campos opcionais e flexíveis (meta/settings);
+
+cria public.company_users, public.company_integrations (se não existirem) e public.daily_company_metrics;
+
+adiciona/garante triggers de updated_at (set_updated_at_column) e usa DROP TRIGGER IF EXISTS / CREATE OR REPLACE FUNCTION para evitar erros;
+
+gera slug de forma idempotente (normaliza nome_fantasia/razao_social e resolve duplicatas com sufixo -N);
+
+cria índices idempotentes (companies_slug_idx, companies_name_idx, companies_cnpj_unique);
+
+habilita RLS e cria policies idempotentes (usa DROP POLICY IF EXISTS e recria): companies_select_for_members, companies_no_client_*, company_users_select, company_integrations_select_for_members, daily_company_metrics_select_for_members.
+
+Observação: policies usam jwt.claims.sub (padrão Supabase).
+
+20260109_add_companies_cadastro_columns.sql
+Migração idempotente para garantir as colunas explícitas de cadastro que o LoginClient.tsx e a RPC esperam:
+
+cnpj, razao_social, nome_fantasia, name, slug, email, phone, whatsapp_phone, cep, endereco, numero, bairro, cidade, uf, owner_id, plan_id, is_active, meta, settings
+
+cria triggers/índices idempotentes e company_users caso não exista.
+
+Observação: todas as migrations foram escritas para serem idempotentes (IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, DROP POLICY IF EXISTS, CREATE OR REPLACE FUNCTION, etc.), para evitar falhas ao reaplicar supabase db push.
+
+Funções / Triggers
+
+public.set_updated_at_column() — função trigger CREATE OR REPLACE FUNCTION para manter updated_at automático. Usada por várias triggers (trg_companies_set_updated_at, trg_company_integrations_set_updated_at, etc.).
+
+Triggers adicionados para companies, company_integrations, daily_company_metrics (usando DROP TRIGGER IF EXISTS antes de criar).
+
+RPC (stored procedure)
+
+public.create_company_and_owner(creator_uuid uuid, payload jsonb) — RPC atômica e SECURITY DEFINER.
+Características principais:
+
+insere a company e em seguida cria company_users registrando o creator_uuid como owner, tudo em uma única operação atômica;
+
+é robusta: detecta dinamicamente se colunas explícitas (cnpj, razao_social, nome_fantasia, meta, etc.) existem no schema e faz EXECUTE dinâmico quando necessário — assim funciona em bancos com/sem colunas explícitas;
+
+normaliza CNPJ e verifica duplicidade (verificação segura que suporta cnpj explícito ou meta->>'cnpj');
+
+retorna company_id e a linha company em JSON (RETURNS TABLE (company_id uuid, company jsonb)).
+
+Nota de segurança: SECURITY DEFINER — não exponha a RPC diretamente ao cliente; chame-a via backend com a service role.
+
+Endpoint backend
+
+app/api/companies/create/route.ts (Next.js / app router)
+
+valida token do usuário (lê Authorization: Bearer <token> e chama /auth/v1/user para obter sub);
+
+chama a RPC create_company_and_owner usando o Supabase admin client (service role key);
+
+espera no body company (payload JSON com campos como razao_social, nome_fantasia, cnpj, email, phone, address);
+
+retorna { company, company_id } com status 201 em caso de sucesso.
+
+Requisito de env: SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.
+
+2) Principais colunas/tabelas garantidas
+
+public.companies — id, timestamps, cadastro explícito:
+
+cnpj, razao_social, nome_fantasia, name, slug, email, phone, whatsapp_phone, cep, endereco, numero, bairro, cidade, uf, owner_id, plan_id, is_active, meta (jsonb), settings (jsonb).
+
+public.company_users — vínculo empresa↔usuário (company_id, user_id, role, is_active).
+
+public.company_integrations — integrações por company (provider, config jsonb).
+
+public.daily_company_metrics — agregados diários (orders_count, orders_delivered, revenue, messages_in, messages_out).
+
+3) Índices e unicidade
+
+companies_slug_idx — índice único em lower(slug) (idempotente).
+
+companies_cnpj_unique — índice único em regexp_replace(cnpj, '\D','','g') (CNPJ normalizado).
+
+companies_name_idx, companies_cidade_idx, company_users_company_user_unique (unique company_id,user_id) e índices em company_integrations.
+
+4) RLS / Policies (resumido)
+
+Policies criadas/ajustadas (idempotentes, usando DROP POLICY IF EXISTS antes de criar):
+
+companies_select_for_members — permite SELECT na companies apenas se o user_id estiver em company_users e is_active = true. Usa current_setting('jwt.claims.sub', true)::uuid.
+
+companies_no_client_insert/update/delete — bloqueia inserts/updates/deletes vindos do cliente (somente backend pode escrever). Policies separadas por operação.
+
+company_users_select — permite SELECT na company_users para o próprio user ou admins/owners da mesma company.
+
+company_integrations_select_for_members e daily_company_metrics_select_for_members — leitura restrita para membros.
+
+Claim JWT: todas as policies foram padronizadas para usar jwt.claims.sub (padrão do Supabase). Se o projeto usar outro claim, é necessário adaptar.
