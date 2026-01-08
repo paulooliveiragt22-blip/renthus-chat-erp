@@ -1,51 +1,42 @@
+// components/AdminSidebar.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useAdminOrders } from "@/components/AdminOrdersContext";
-import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
+import React, { useEffect, useMemo, useState, useContext } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { FiHome, FiShoppingCart } from "react-icons/fi";
+import { FaWhatsapp } from "react-icons/fa";
+import { AiOutlinePlusSquare } from "react-icons/ai";
+import { GiCube } from "react-icons/gi";
+import { BiBarChart } from "react-icons/bi";
+
+import { AdminOrdersContext } from "./AdminOrdersContext";
 import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
 import OrdersStatsModal from "@/components/OrdersStatsModal";
+import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
-// Possíveis status de um pedido (order)
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
-
 type CustomerRow = { name: string; phone: string; address: string | null };
+type OrderRow = { id: string; status: OrderStatus | string; total_amount: number; created_at: string; customers: CustomerRow | null };
+type Thread = { id: string; phone_e164: string; profile_name: string | null; last_message_at: string | null; last_message_preview: string | null };
 
-type OrderRow = {
-    id: string;
-    status: OrderStatus | string;
-    total_amount: number;
-    created_at: string;
-    customers: CustomerRow | null;
-};
+const ORANGE = "#FF6600";
+const PURPLE = "#3B246B";
+const SIDEBAR_BG = PURPLE;
+const SIDEBAR_TEXT = "#FFFFFF";
+const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
+const SIDEBAR_CARD_BG = "rgba(255,255,255,0.06)";
 
-// Modelo de uma conversa (thread) do WhatsApp. Inclui campos básicos
-// retornados pelo endpoint de threads.  O campo last_message_read_at não
-// é retornado pelo endpoint atual, mas poderá ser usado futuramente
-// para ordenar conversas não lidas.
-type Thread = {
-    id: string;
-    phone_e164: string;
-    profile_name: string | null;
-    last_message_at: string | null;
-    last_message_preview: string | null;
-};
+const CARD_PADDING = 6;
+const CARD_RADIUS = 7;
+const CARD_GAP = 6;
+const NAME_FONT = 11;
+const MSG_FONT = 10;
+const CHIP_FONT = 11;
 
 function formatBRL(n: number | null | undefined) {
     const v = typeof n === "number" ? n : 0;
     return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
-function formatDT(ts: string) {
-    try {
-        return new Date(ts).toLocaleString("pt-BR");
-    } catch {
-        return ts;
-    }
-}
-
 function prettyStatus(s: string) {
     if (s === "new") return "Novo";
     if (s === "canceled") return "Cancelado";
@@ -53,7 +44,6 @@ function prettyStatus(s: string) {
     if (s === "finalized") return "Finalizado";
     return s;
 }
-
 function statusColor(s: string) {
     if (s === "new") return "green";
     if (s === "canceled") return "crimson";
@@ -62,72 +52,45 @@ function statusColor(s: string) {
     return "#333";
 }
 
-function statusBadgeStyle(s: string): React.CSSProperties {
-    const c = statusColor(s);
-    return {
-        display: "inline-block",
-        padding: "4px 8px",
-        borderRadius: 999,
-        fontWeight: 900,
-        border: `1px solid ${c}`,
-        color: c,
-        background: "rgba(0,0,0,0.02)",
-        lineHeight: 1,
-        fontSize: 12,
-        whiteSpace: "nowrap",
-    };
-}
-
-const ORANGE = "#FF6600";
-const PURPLE = "#3B246B";
-
 function btnBaseSlim(disabled?: boolean): React.CSSProperties {
     return {
-        padding: "6px 9px",
+        padding: "4px 8px",
         borderRadius: 10,
-        border: "1px solid #999",
+        border: `1px solid ${SIDEBAR_BORDER}`,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.55 : 1,
-        fontSize: 12,
+        fontSize: CHIP_FONT,
         fontWeight: 900,
         lineHeight: 1.1,
         whiteSpace: "nowrap",
+        color: SIDEBAR_TEXT,
+        background: "transparent",
     };
 }
 
-function btnOrange(disabled?: boolean): React.CSSProperties {
+function chipOrangeStyle(active?: boolean): React.CSSProperties {
+    if (active) {
+        return {
+            borderRadius: 999,
+            padding: "5px 8px",
+            background: ORANGE,
+            color: "#fff",
+            fontWeight: 800,
+            border: `1px solid ${ORANGE}`,
+            fontSize: CHIP_FONT,
+        };
+    }
     return {
-        ...btnBaseSlim(disabled),
-        border: `1px solid ${ORANGE}`,
-        background: disabled ? "#fff3ea" : ORANGE,
-        color: disabled ? ORANGE : "#fff",
-    };
-}
-
-function btnOrangeOutline(disabled?: boolean): React.CSSProperties {
-    return {
-        ...btnBaseSlim(disabled),
-        border: `1px solid ${ORANGE}`,
+        borderRadius: 999,
+        padding: "5px 8px",
         background: "transparent",
         color: ORANGE,
+        fontWeight: 800,
+        border: `1px solid ${ORANGE}`,
+        fontSize: CHIP_FONT,
     };
 }
 
-function btnPurpleOutline(active?: boolean): React.CSSProperties {
-    return {
-        ...btnBaseSlim(false),
-        border: `1px solid ${PURPLE}`,
-        background: active ? "#f5f1fb" : "transparent",
-        color: PURPLE,
-    };
-}
-
-/**
- * Normaliza o retorno do Supabase:
- * - às vezes `customers` vem como array (customers: [{...}])
- * - às vezes vem como objeto (customers: {...})
- * Aqui garantimos `customers: CustomerRow | null` e tipos seguros pro build.
- */
 function normalizeOrders(input: unknown): OrderRow[] {
     const arr = Array.isArray(input) ? input : [];
     return arr.map((o: any) => {
@@ -159,409 +122,306 @@ function normalizeOrders(input: unknown): OrderRow[] {
 
 export default function AdminSidebar() {
     const router = useRouter();
-    const sp = useSearchParams();
-    const { openOrder } = useAdminOrders();
-    const [selected, setSelected] = useState<OrderStatus | null>((sp.get("status") as OrderStatus | null) ?? null);
+    const pathname = usePathname();
+    const adminOrdersCtx = useContext(AdminOrdersContext);
+    const openOrder = adminOrdersCtx?.openOrder;
+    const { companies, currentCompanyId, currentCompany, loading: loadingWorkspace, reload: reloadWorkspace } = useWorkspace();
+
     const [orders, setOrders] = useState<OrderRow[]>([]);
     const [loading, setLoading] = useState(true);
-    const [msg, setMsg] = useState<string | null>(null);
-    // Estado para alternar entre a lista de pedidos e a lista de conversas
     const [tab, setTab] = useState<"orders" | "whatsapp">("orders");
-    // Lista de conversas
     const [threads, setThreads] = useState<Thread[]>([]);
     const [loadingThreads, setLoadingThreads] = useState(false);
-    const [threadsMsg, setThreadsMsg] = useState<string | null>(null);
-    // Thread selecionada no modal de resposta rápida
     const [openThread, setOpenThread] = useState<Thread | null>(null);
-    const [showStats, setShowStats] = useState(false);
+    const [collapsed, setCollapsed] = useState<boolean>(false);
 
     async function loadOrders() {
-        setLoading(true);
-        setMsg(null);
-        const url = new URL("/api/orders/list", window.location.origin);
-        url.searchParams.set("limit", "120");
-        const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
-
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            setMsg(json?.error ?? "Erro ao carregar pedidos");
+        if (!currentCompanyId) {
             setOrders([]);
             setLoading(false);
             return;
         }
-        setOrders(normalizeOrders(json.orders));
-        setLoading(false);
+        setLoading(true);
+        try {
+            const url = new URL("/api/orders/list", window.location.origin);
+            url.searchParams.set("limit", "120");
+            const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setOrders([]);
+                setLoading(false);
+                return;
+            }
+            setOrders(normalizeOrders(json.orders));
+        } catch (e) {
+            console.error(e);
+            setOrders([]);
+        } finally {
+            setLoading(false);
+        }
     }
 
-    // Carrega conversas (threads) do WhatsApp
     async function loadThreads() {
+        if (!currentCompanyId) {
+            setThreads([]);
+            return;
+        }
         setLoadingThreads(true);
-        setThreadsMsg(null);
         try {
             const url = new URL("/api/whatsapp/threads", window.location.origin);
             url.searchParams.set("limit", "30");
             const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setThreadsMsg(json?.error ?? "Erro ao carregar conversas");
                 setThreads([]);
                 setLoadingThreads(false);
                 return;
             }
             setThreads(Array.isArray(json.threads) ? json.threads : []);
-            setLoadingThreads(false);
         } catch (e) {
             console.error(e);
-            setThreadsMsg("Falha ao carregar conversas");
             setThreads([]);
+        } finally {
             setLoadingThreads(false);
         }
     }
 
-    // Carrega pedidos ao montar — tenta auto-select da company se houver apenas 1
     useEffect(() => {
-        async function ensureWorkspaceSelectedAndLoad() {
-            try {
-                // 1) listar companies do usuário
-                const listRes = await fetch("/api/workspace/list", { credentials: "include" });
-                const listJson = await listRes.json().catch(() => ({ companies: [] }));
-                const companies = Array.isArray(listJson.companies) ? listJson.companies : [];
-
-                // 2) se houver exatamente 1 company, tentar selecionar (backend seta cookie)
-                if (companies.length === 1) {
-                    try {
-                        await fetch("/api/workspace/select", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            credentials: "include",
-                            body: JSON.stringify({ company_id: companies[0].id }),
-                        });
-                        // ignoramos o retorno; prosseguimos para carregar pedidos
-                    } catch (err) {
-                        console.warn("workspace/select failed", err);
-                    }
-                }
-            } catch (e) {
-                console.warn("auto-select workspace failed", e);
-            } finally {
-                // 3) agora carrega os pedidos, independentemente do resultado do select
-                loadOrders();
-            }
+        if (loadingWorkspace) return;
+        if (!currentCompanyId && companies && companies.length === 1) {
+            (async () => {
+                try {
+                    const res = await fetch("/api/workspace/select", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ company_id: companies[0].id }),
+                    });
+                    if (!res.ok) return;
+                    await reloadWorkspace();
+                    try { router.refresh(); } catch { }
+                    await loadOrders();
+                } catch (e) { console.warn(e); }
+            })();
+            return;
         }
-
-        ensureWorkspaceSelectedAndLoad();
-
+        if (currentCompanyId) loadOrders();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [loadingWorkspace, companies, currentCompanyId]);
 
-    // Polling leve para pedidos
     useEffect(() => {
         const id = window.setInterval(() => {
-            loadOrders();
+            if (currentCompanyId) loadOrders();
         }, 10000);
         return () => window.clearInterval(id);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [currentCompanyId]);
 
-    // Carrega conversas quando a aba muda para whatsapp
     useEffect(() => {
         if (tab === "whatsapp") {
             loadThreads();
             const id = window.setInterval(() => {
-                loadThreads();
+                if (currentCompanyId) loadThreads();
             }, 10000);
             return () => window.clearInterval(id);
         }
         return;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab]);
+    }, [tab, currentCompanyId]);
 
-    const stats = useMemo(() => {
-        const by = { new: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
-        for (const o of orders) {
-            const s = String(o.status) as OrderStatus;
-            if (by[s] !== undefined) by[s] += 1;
+    const newOrders = useMemo(() => orders.filter((o) => String(o.status) === "new"), [orders]);
+    const newOrdersCount = newOrders.length;
+    const newMessagesCount = threads.length;
+    const latestNewOrders = useMemo(() => newOrders.slice(0, 6), [newOrders]);
+    const latestThreads = useMemo(() => threads.slice().sort((a, b) => {
+        const da = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+        const db = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+        return db - da;
+    }).slice(0, 6), [threads]);
+
+    const width = collapsed ? 64 : 240;
+
+    // nav items using react-icons (Icon is the component)
+    const navItems: { key: string; label: string; Icon: any; href: string }[] = [
+        { key: "dashboard", label: "Dashboard", Icon: FiHome, href: "/" },
+        { key: "whatsapp", label: "WhatsApp", Icon: FaWhatsapp, href: "/whatsapp" },
+        { key: "cadastrar", label: "Cadastrar produto", Icon: AiOutlinePlusSquare, href: "/produtos" },
+        { key: "produtos", label: "Produtos", Icon: GiCube, href: "/produtos/lista" },
+        { key: "pedidos", label: "Pedidos", Icon: FiShoppingCart, href: "/pedidos" },
+        { key: "relatorio", label: "Relatório", Icon: BiBarChart, href: "/relatorios" },
+    ];
+
+    function isNavActive(item: { key: string; href: string }) {
+        if (!pathname) return false;
+        if (item.key === "produtos") {
+            return pathname === "/produtos/lista" || pathname.startsWith("/produtos/lista/");
         }
-        return { total: orders.length, ...by };
-    }, [orders]);
-
-    function goStatus(s: OrderStatus | "all") {
-        if (s === "all") setSelected(null);
-        else setSelected(s);
-    }
-
-    function cardStyle(active: boolean): React.CSSProperties {
-        return {
-            border: `1px solid ${active ? PURPLE : "#eee"}`,
-            borderRadius: 12,
-            padding: 10,
-            background: active ? "#f5f1fb" : "#fff",
-            cursor: "pointer",
-            textAlign: "left",
-            width: "100%",
-            boxSizing: "border-box",
-        };
-    }
-
-    const filtered = useMemo(() => {
-        if (!selected) return orders;
-        return orders.filter((o) => String(o.status) === selected);
-    }, [orders, selected]);
-
-    const latest = useMemo(() => filtered.slice(0, 8), [filtered]);
-
-    // Ordena conversas por data da última mensagem (desc). Mostra apenas as 8 mais recentes
-    const latestThreads = useMemo(() => {
-        const sorted = threads.slice().sort((a, b) => {
-            const da = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
-            const db = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
-            return db - da;
-        });
-        return sorted.slice(0, 8);
-    }, [threads]);
-
-    function labelSelected() {
-        if (!selected) return "Todos";
-        return String(prettyStatus(selected));
+        if (item.key === "cadastrar") {
+            if (pathname === "/produtos") return true;
+            if (pathname.startsWith("/produtos/") && !pathname.startsWith("/produtos/lista")) return true;
+            return false;
+        }
+        if (item.href === "/") return pathname === "/";
+        return pathname === item.href || pathname.startsWith(item.href + "/");
     }
 
     return (
-        <aside
-            style={{
-                position: "sticky",
-                top: 14,
-                height: "calc(100vh - 28px)",
-                width: 260,
-                maxWidth: 260,
-                border: "1px solid #e6e6e6",
-                borderRadius: 14,
-                padding: 12,
-                background: "#fff",
-                overflowY: "auto",
-                overflowX: "hidden",
-                boxSizing: "border-box",
-            }}
-        >
-            {/* Workspace */}
-            <div style={{ marginBottom: 10 }}>
-                <WorkspaceSwitcher />
-            </div>
+        <>
+            <style>{`.renthus-sidebar { -ms-overflow-style: none; scrollbar-width: none; } .renthus-sidebar::-webkit-scrollbar { width: 0px; height: 0px; }`}</style>
 
-            <div style={{ borderTop: "1px solid #eee", paddingTop: 10, marginBottom: 10 }}>
-                <div style={{ fontWeight: 900, fontSize: 12, color: "#111" }}>Dashboard</div>
-            </div>
-
-            {/* Botões principais */}
-            <Link href="/whatsapp" style={{ textDecoration: "none" }}>
-                <button style={{ /* estilo do WhatsApp */ width: "100%", marginTop: 8 }}>
-                    WhatsApp
-                </button>
-            </Link>
-
-            <Link href="/produtos" style={{ textDecoration: "none" }}>
-                <button style={{ ...btnOrange(false), width: "100%", padding: "10px 10px", borderRadius: 12, fontSize: 12 }}>
-                    Cadastrar produto
-                </button>
-            </Link>
-
-            <Link href="/produtos/lista" style={{ textDecoration: "none" }}>
-                <button
-                    style={{
-                        ...btnOrangeOutline(false),
-                        width: "100%",
-                        marginTop: 8,
-                        padding: "10px 10px",
-                        borderRadius: 12,
-                        fontSize: 12,
-                    }}
-                >
-                    Produtos
-                </button>
-            </Link>
-
-            <Link href="/pedidos" style={{ textDecoration: "none" }}>
-                <button
-                    style={{
-                        ...btnOrangeOutline(false),
-                        width: "100%",
-                        marginTop: 8,
-                        padding: "10px 10px",
-                        borderRadius: 12,
-                        fontSize: 12,
-                    }}
-                >
-                    Pedidos
-                </button>
-            </Link>
-
-            <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
-                <button onClick={loadOrders} style={{ ...btnOrangeOutline(false), width: "100%" }}>
-                    Recarregar
-                </button>
-            </div>
-
-            {/* Cards */}
-            <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
+            <aside
+                className="renthus-sidebar"
+                style={{
+                    position: "sticky",
+                    top: 14,
+                    height: "calc(100vh - 28px)",
+                    width,
+                    maxWidth: width,
+                    border: `1px solid ${SIDEBAR_BORDER}`,
+                    borderRadius: 14,
+                    padding: 12,
+                    background: SIDEBAR_BG,
+                    color: SIDEBAR_TEXT,
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    boxSizing: "border-box",
+                    transition: "width 180ms ease",
+                }}
+            >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <div style={{ fontWeight: 900, fontSize: 12 }}>Pedidos</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => setShowStats(true)} style={{ ...btnPurpleOutline(false), padding: "6px 8px", fontSize: 11 }}>
-                            Estatísticas
-                        </button>
-                        <button onClick={() => goStatus("all")} style={{ ...btnOrangeOutline(false), padding: "6px 8px", fontSize: 11 }}>
-                            Ver todos ({stats.total})
+                    {!collapsed ? <div style={{ fontWeight: 900, fontSize: 13, color: SIDEBAR_TEXT }}>Dashboard</div> : <div aria-hidden />}
+                    <div>
+                        <button
+                            onClick={() => setCollapsed((s) => !s)}
+                            title={collapsed ? "Expandir painel" : "Colapsar painel"}
+                            style={{
+                                border: `1px solid ${SIDEBAR_BORDER}`,
+                                background: collapsed ? SIDEBAR_BG : SIDEBAR_CARD_BG,
+                                color: SIDEBAR_TEXT,
+                                borderRadius: 8,
+                                padding: "6px",
+                                cursor: "pointer",
+                            }}
+                            type="button"
+                        >
+                            {collapsed ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                                    <path d="M8 5l8 7-8 7" stroke={SIDEBAR_TEXT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            ) : (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                                    <path d="M16 5l-8 7 8 7" stroke={SIDEBAR_TEXT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            )}
                         </button>
                     </div>
                 </div>
-                {msg ? <div style={{ marginTop: 8, color: "crimson", fontSize: 12 }}>{msg}</div> : null}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
-                    <button onClick={() => goStatus("new")} style={cardStyle(selected === "new")} title="Filtrar: Novo">
-                        <div style={{ fontSize: 11, color: "#666" }}>Novos</div>
-                        <div style={{ fontWeight: 900, color: statusColor("new"), fontSize: 16 }}>{stats.new}</div>
-                    </button>
-                    <button onClick={() => goStatus("delivered")} style={cardStyle(selected === "delivered")} title="Filtrar: Entregue">
-                        <div style={{ fontSize: 11, color: "#666" }}>Entregues</div>
-                        <div style={{ fontWeight: 900, color: statusColor("delivered"), fontSize: 16 }}>{stats.delivered}</div>
-                    </button>
-                    <button onClick={() => goStatus("finalized")} style={cardStyle(selected === "finalized")} title="Filtrar: Finalizado">
-                        <div style={{ fontSize: 11, color: "#666" }}>Finalizados</div>
-                        <div style={{ fontWeight: 900, color: statusColor("finalized"), fontSize: 16 }}>{stats.finalized}</div>
-                    </button>
-                    <button onClick={() => goStatus("canceled")} style={cardStyle(selected === "canceled")} title="Filtrar: Cancelado">
-                        <div style={{ fontSize: 11, color: "#666" }}>Cancelados</div>
-                        <div style={{ fontWeight: 900, color: statusColor("canceled"), fontSize: 16 }}>{stats.canceled}</div>
-                    </button>
-                </div>
-                {loading ? <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>Carregando...</div> : null}
-            </div>
 
-            {/* Lista inferior com toggle Pedidos/WhatsApp */}
-            <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <div style={{ fontWeight: 900, fontSize: 12 }}>Acompanhar</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                        <button
-                            onClick={() => setTab("orders")}
-                            style={{ ...btnPurpleOutline(tab === "orders"), padding: "6px 8px", fontSize: 11 }}
-                        >
-                            Pedidos ({filtered.length})
-                        </button>
-                        <button
-                            onClick={() => setTab("whatsapp")}
-                            style={{ ...btnPurpleOutline(tab === "whatsapp"), padding: "6px 8px", fontSize: 11 }}
-                        >
-                            WhatsApp ({threads.length})
-                        </button>
-                    </div>
-                </div>
-                {tab === "orders" ? (
+                {/* menu */}
+                <nav style={{ marginTop: 12 }}>
+                    <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                        {navItems.map((it) => {
+                            const active = isNavActive(it);
+                            const baseStyle: React.CSSProperties = {
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                width: "100%",
+                                textAlign: "left",
+                                padding: "10px 12px",
+                                borderRadius: 10,
+                                border: "none",
+                                background: active ? "rgba(0,0,0,0.12)" : "transparent",
+                                color: SIDEBAR_TEXT,
+                                cursor: "pointer",
+                                fontWeight: active ? 900 : 700,
+                                position: "relative",
+                                overflow: "hidden",
+                                transition: "background 120ms ease",
+                            };
+                            const activeAccent: React.CSSProperties = active ? { borderLeft: `4px solid ${ORANGE}`, paddingLeft: 8 } : {};
+                            const iconWrapperStyle: React.CSSProperties = collapsed ? {
+                                width: 44, height: 44, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                                background: active ? "rgba(255,102,0,0.12)" : "transparent", margin: "0 auto"
+                            } : { width: 20, display: "inline-flex", justifyContent: "center", alignItems: "center", color: ORANGE };
+
+                            const Icon = it.Icon;
+                            return (
+                                <li key={it.key}>
+                                    <button aria-current={active ? "page" : undefined} onClick={() => router.push(it.href)} style={{ ...baseStyle, ...activeAccent }}>
+                                        <span style={iconWrapperStyle}>
+                                            <Icon size={18} color={active ? ORANGE : ORANGE} aria-hidden="true" />
+                                        </span>
+                                        {!collapsed ? <span style={{ fontSize: 14 }}>{it.label}</span> : null}
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </nav>
+
+                {!collapsed ? (
                     <>
-                        {latest.length === 0 ? (
-                            <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Nenhum pedido.</div>
-                        ) : (
-                            <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                                {latest.map((o) => {
-                                    const name = o.customers?.name ?? "-";
-                                    const st = String(o.status);
-                                    return (
-                                        <button
-                                            key={o.id}
-                                            type="button"
-                                            onClick={() => openOrder(o.id)}
-                                            style={{
-                                                width: "100%",
-                                                textAlign: "left",
-                                                border: "1px solid #eee",
-                                                borderRadius: 12,
-                                                padding: 10,
-                                                cursor: "pointer",
-                                                background: "#fff",
-                                                boxSizing: "border-box",
-                                            }}
-                                            title="Abrir pedido"
-                                        >
-                                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
-                                                <div
-                                                    style={{
-                                                        fontWeight: 900,
-                                                        fontSize: 12,
-                                                        whiteSpace: "nowrap",
-                                                        overflow: "hidden",
-                                                        textOverflow: "ellipsis",
-                                                        minWidth: 0,
-                                                    }}
-                                                >
-                                                    {name}
-                                                </div>
-                                                <span style={{ ...statusBadgeStyle(st), fontSize: 11, padding: "3px 7px" }}>{prettyStatus(st)}</span>
-                                            </div>
-                                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 4 }}>
-                                                <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{formatDT(o.created_at)}</span>
-                                                <span style={{ fontSize: 11, color: "#111", fontWeight: 900, whiteSpace: "nowrap" }}>
-                                                    R$ {formatBRL(o.total_amount)}
-                                                </span>
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                        <div style={{ marginTop: 12, borderTop: `1px solid ${SIDEBAR_BORDER}`, paddingTop: 8 }}>
+                            <div style={{ display: "flex", gap: 8 }}>
+                                <button onClick={() => setTab("orders")} style={tab === "orders" ? chipOrangeStyle(true) : chipOrangeStyle(false)}>Pedidos ({newOrdersCount})</button>
+                                <button onClick={() => setTab("whatsapp")} style={tab === "whatsapp" ? chipOrangeStyle(true) : chipOrangeStyle(false)}>WhatsApp ({newMessagesCount})</button>
                             </div>
-                        )}
-                        <div style={{ marginTop: 10 }}>
-                            <button onClick={() => router.push("/pedidos")} style={{ ...btnOrangeOutline(false), width: "100%" }}>
-                                Abrir lista completa
-                            </button>
+
+                            <div style={{ marginTop: 10 }}>
+                                {tab === "orders" ? (
+                                    <>
+                                        {loading ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Carregando...</div> :
+                                            newOrdersCount === 0 ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Nenhum pedido novo.</div> :
+                                                <div style={{ display: "grid", gap: CARD_GAP }}>
+                                                    {latestNewOrders.map((o) => {
+                                                        const name = o.customers?.name ?? "-";
+                                                        return (
+                                                            <button key={o.id} type="button" onClick={() => openOrder ? openOrder(o.id) : null} style={{
+                                                                width: "100%", textAlign: "left", border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS,
+                                                                padding: CARD_PADDING, cursor: "pointer", background: SIDEBAR_CARD_BG, boxSizing: "border-box", color: SIDEBAR_TEXT, display: "block"
+                                                            }} title="Abrir pedido">
+                                                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
+                                                                    <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{name}</div>
+                                                                    <div style={{ fontWeight: 900, fontSize: 11 }}>
+                                                                        <span style={{ borderRadius: 999, padding: "3px 6px", fontWeight: 900, color: statusColor(String(o.status)), border: `1px solid ${statusColor(String(o.status))}`, background: "rgba(255,255,255,0.02)", fontSize: 11 }}>{prettyStatus(String(o.status))}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                                                                    <span style={{ fontSize: MSG_FONT, fontWeight: 900 }}>R$ {formatBRL(o.total_amount)}</span>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                        }
+                                        <div style={{ marginTop: 8 }}>
+                                            <button onClick={() => router.push("/pedidos")} style={{ ...btnBaseSlim(false), width: "100%", fontSize: CHIP_FONT }}>Abrir lista completa</button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        {loadingThreads ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Carregando...</div> :
+                                            threads.length === 0 ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Nenhuma conversa.</div> :
+                                                <div style={{ display: "grid", gap: CARD_GAP }}>
+                                                    {latestThreads.map((t) => (
+                                                        <button key={t.id} type="button" onClick={() => setOpenThread(t)} style={{
+                                                            width: "100%", textAlign: "left", border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS,
+                                                            padding: CARD_PADDING, cursor: "pointer", background: SIDEBAR_CARD_BG, boxSizing: "border-box", color: SIDEBAR_TEXT, display: "block"
+                                                        }}>
+                                                            <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.profile_name || t.phone_e164}</div>
+                                                            <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)", marginTop: 2 }}>{t.phone_e164}</div>
+                                                            <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.last_message_preview || "(sem mensagens)"}</div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                        }
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </>
-                ) : (
-                    <>
-                        {loadingThreads ? (
-                            <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Carregando conversas...</div>
-                        ) : threads.length === 0 ? (
-                            <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Nenhuma conversa.</div>
-                        ) : (
-                            <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                                {latestThreads.map((t) => {
-                                    return (
-                                        <button
-                                            key={t.id}
-                                            type="button"
-                                            onClick={() => setOpenThread(t)}
-                                            style={{
-                                                width: "100%",
-                                                textAlign: "left",
-                                                border: "1px solid #eee",
-                                                borderRadius: 12,
-                                                padding: 10,
-                                                cursor: "pointer",
-                                                background: "#fff",
-                                                boxSizing: "border-box",
-                                            }}
-                                        >
-                                            <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                {t.profile_name || t.phone_e164}
-                                            </div>
-                                            <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>
-                                                {t.phone_e164}
-                                            </div>
-                                            <div style={{ fontSize: 11, color: "#666", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                {t.last_message_preview || "(sem mensagens)"}
-                                            </div>
-                                            <div style={{ fontSize: 10, color: "#999", marginTop: 2 }}>
-                                                {t.last_message_at ? formatDT(t.last_message_at) : ""}
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
-                        {/* Não há botão de lista completa para WhatsApp na sidebar */}
-                    </>
-                )}
-            </div>
-
-            {/* Modal de resposta rápida */}
-            {openThread ? <QuickReplyModal thread={openThread} onClose={() => setOpenThread(null)} /> : null}
-            {showStats ? <OrdersStatsModal open={showStats} onClose={() => setShowStats(false)} /> : null}
-        </aside>
+                ) : null}
+            </aside>
+        </>
     );
 }
