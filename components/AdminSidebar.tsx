@@ -2,12 +2,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { AdminOrdersContext } from "./AdminOrdersContext";
-import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import QuickReplyModal from "@/components/whatsapp/QuickReplyModal";
 import OrdersStatsModal from "@/components/OrdersStatsModal";
-import MenuButtons from "@/components/MenuButtons";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
@@ -120,12 +118,36 @@ function normalizeOrders(input: unknown): OrderRow[] {
     });
 }
 
+/* --- SVG helpers (Produtos = cubo, WhatsApp = balão) --- */
+
+function IconCube({ color = ORANGE }: { color?: string }) {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M12 2l7 4v8l-7 4-7-4V6l7-4z" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M12 2v18" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M19 6l-7 4-7-4" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
+function IconWhatsApp({ color = ORANGE }: { color?: string }) {
+    // stylized chat bubble with small phone-like mark
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M21 12.3a9 9 0 1 0-3.1 6.6L21 21l-1.1-3.7A9.1 9.1 0 0 0 21 12.3z" stroke={color} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M15.6 13.2c-.2-.1-.9-.4-1.1-.4-.3 0-.5.1-.8.3-.3.2-.6.6-.8.8-.2.3-.5.3-.9.1-.4-.2-1.6-.6-3-1.8-1.1-.9-1.9-2-2.1-2.4-.2-.4 0-.6.2-.8.2-.2.4-.5.6-.8.2-.2.3-.4.5-.6.2-.2.1-.4 0-.6-.1-.2-1.1-2.4-1.5-2.9-.4-.5-1-.6-1.4-.6-.4 0-.9 0-1.4.1-.4.1-.9.4-1.1.9-.2.5-.2 1.1.1 1.8.4.9 1 1.7 1.7 2.6 1.1 1.5 2.6 3.7 5.2 5.3 2.1 1.3 3.3 1.3 3.7 1.2.4-.1 1.4-.6 1.6-1.2.2-.6.2-1.2.1-1.4-.1-.2-.3-.4-.5-.5z" fill={color} />
+        </svg>
+    );
+}
+
+/* --- Main component --- */
+
 export default function AdminSidebar() {
     const router = useRouter();
+    const pathname = usePathname();
     const adminOrdersCtx = useContext(AdminOrdersContext);
     const openOrder = adminOrdersCtx?.openOrder;
 
-    // fonte única de verdade (aqui só usado para eventual futuro; não exibimos nome da empresa aqui)
     const { companies, currentCompanyId, currentCompany, loading: loadingWorkspace, reload: reloadWorkspace } = useWorkspace();
 
     const [orders, setOrders] = useState<OrderRow[]>([]);
@@ -144,13 +166,11 @@ export default function AdminSidebar() {
             setLoading(false);
             return;
         }
-
         setLoading(true);
         setMsg(null);
         try {
             const url = new URL("/api/orders/list", window.location.origin);
             url.searchParams.set("limit", "120");
-            // garante envio do cookie HTTP-only
             const res = await fetch(url.toString(), { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -194,7 +214,6 @@ export default function AdminSidebar() {
         }
     }
 
-    // auto-select e carregamento dependente do workspace
     useEffect(() => {
         if (loadingWorkspace) return;
 
@@ -207,12 +226,10 @@ export default function AdminSidebar() {
                         credentials: "include",
                         body: JSON.stringify({ company_id: companies[0].id }),
                     });
-
                     if (!res.ok) {
                         console.warn("auto-select workspace failed");
                         return;
                     }
-
                     await reloadWorkspace();
                     try { router.refresh(); } catch { }
                     await loadOrders();
@@ -264,6 +281,69 @@ export default function AdminSidebar() {
     }, [threads]);
 
     const width = collapsed ? 64 : 240;
+
+    // local nav items (com hrefs corretas)
+    const navItems = [
+        {
+            key: "dashboard", label: "Dashboard", icon: (color: string) => (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M3 13h8V3H3v10zM13 21h8V11h-8v10zM13 3v6h8V3h-8zM3 21h8v-6H3v6z" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+            ), href: "/"
+        },
+
+        // WhatsApp → usa novo ícone
+        { key: "whatsapp", label: "WhatsApp", icon: (color: string) => <IconWhatsApp color={color} />, href: "/whatsapp" },
+
+        // Cadastrar produto -> app/(admin)/produtos  => /produtos
+        {
+            key: "cadastrar", label: "Cadastrar produto", icon: (color: string) => (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M12 2v20" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M3 7h18M3 17h18" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+            ), href: "/produtos"
+        },
+
+        // Produtos (lista) -> app/(admin)/produtos/lista => /produtos/lista
+        { key: "produtos", label: "Produtos", icon: (color: string) => <IconCube color={color} />, href: "/produtos/lista" },
+
+        {
+            key: "pedidos", label: "Pedidos", icon: (color: string) => (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M3 3h18v4H3V3zM3 11h18v10H3V11z" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+            ), href: "/pedidos"
+        },
+
+        {
+            key: "relatorio", label: "Relatório", icon: (color: string) => (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M9 17v-6M15 17V9M3 21h18" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+            ), href: "/relatorios"
+        },
+    ];
+
+    // active detection (tratando produtos / produtos/lista separadamente)
+    function isNavActive(item: { key: string; href: string }) {
+        if (!pathname) return false;
+
+        // produtos list has special path '/produtos/lista'
+        if (item.key === "produtos") {
+            return pathname === "/produtos/lista" || pathname.startsWith("/produtos/lista/");
+        }
+        if (item.key === "cadastrar") {
+            // active when on '/produtos' (cadastrar) or any /produtos/* EXCEPT /produtos/lista*
+            if (pathname === "/produtos") return true;
+            if (pathname.startsWith("/produtos/") && !pathname.startsWith("/produtos/lista")) return true;
+            return false;
+        }
+
+        // default: exact or prefix
+        if (item.href === "/") return pathname === "/";
+        return pathname === item.href || pathname.startsWith(item.href + "/");
+    }
 
     // hide scrollbar visually while keeping scroll functionality
     return (
@@ -322,14 +402,67 @@ export default function AdminSidebar() {
                     </div>
                 </div>
 
-                {/* NB: removido o nome da empresa do sidebar para economizar espaço */}
+                {/* Menu */}
+                <nav style={{ marginTop: 12 }}>
+                    <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                        {navItems.map((it) => {
+                            const active = isNavActive(it);
+                            // baseStyle
+                            const baseStyle: React.CSSProperties = {
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                width: "100%",
+                                textAlign: "left",
+                                padding: "10px 12px",
+                                borderRadius: 10,
+                                border: "none",
+                                background: active ? "rgba(0,0,0,0.12)" : "transparent",
+                                color: SIDEBAR_TEXT,
+                                cursor: "pointer",
+                                fontWeight: active ? 900 : 700,
+                                position: "relative",
+                                overflow: "hidden",
+                                transition: "background 120ms ease",
+                            };
 
-                {/* Botões principais */}
-                <div style={{ marginTop: 10 }}>
-                    <MenuButtons compact={collapsed} onNavigate={() => { }} textColor={SIDEBAR_TEXT} iconColor={ORANGE} />
-                </div>
+                            const activeAccent: React.CSSProperties = active
+                                ? { borderLeft: `4px solid ${ORANGE}`, paddingLeft: 8 }
+                                : {};
 
-                {/* Chips laranjas (Pedidos / WhatsApp) e conteúdo da aba */}
+                            // collapsed adjustments: show small orange circle behind icon when active
+                            const iconWrapperStyle: React.CSSProperties = collapsed
+                                ? {
+                                    width: 44,
+                                    height: 44,
+                                    borderRadius: 8,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    background: active ? "rgba(255,102,0,0.12)" : "transparent",
+                                    margin: "0 auto",
+                                }
+                                : { width: 20, display: "inline-flex", justifyContent: "center", alignItems: "center", color: ORANGE };
+
+                            return (
+                                <li key={it.key}>
+                                    <button
+                                        aria-current={active ? "page" : undefined}
+                                        onClick={() => router.push(it.href)}
+                                        style={{ ...baseStyle, ...activeAccent }}
+                                    >
+                                        <span style={iconWrapperStyle}>
+                                            {it.icon(active ? ORANGE : ORANGE)}
+                                        </span>
+                                        {!collapsed ? <span style={{ fontSize: 14 }}>{it.label}</span> : null}
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </nav>
+
+                {/* Chips and cards */}
                 {!collapsed ? (
                     <>
                         <div style={{ marginTop: 12, borderTop: `1px solid ${SIDEBAR_BORDER}`, paddingTop: 8 }}>
@@ -350,7 +483,6 @@ export default function AdminSidebar() {
                             </div>
 
                             <div style={{ marginTop: 10 }}>
-                                {/* Orders tab shows only new orders */}
                                 {tab === "orders" ? (
                                     <>
                                         {loading ? (
@@ -404,7 +536,6 @@ export default function AdminSidebar() {
                                         </div>
                                     </>
                                 ) : (
-                                    // WhatsApp tab: threads (mantive compacto)
                                     <>
                                         {loadingThreads ? (
                                             <div style={{ fontSize: MSG_FONT, color: SIDEBAR_MUTED }}>Carregando...</div>
