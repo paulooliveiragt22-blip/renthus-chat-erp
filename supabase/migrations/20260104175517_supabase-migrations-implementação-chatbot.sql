@@ -54,10 +54,19 @@ CREATE INDEX IF NOT EXISTS bot_logs_whatsapp_msg_idx ON bot_logs(whatsapp_messag
 CREATE INDEX IF NOT EXISTS bot_logs_company_created_idx ON bot_logs(company_id, created_at);
 
 -- :company_id e :used são parâmetros (used = número de mensagens ou tokens, conforme métrica)
-INSERT INTO usage_monthly (id, company_id, feature_key, year_month, used, created_at)
-VALUES (gen_random_uuid(), :company_id, 'chatbot', to_char(CURRENT_DATE, 'YYYY-MM'), :used, now())
-ON CONFLICT (company_id, feature_key, year_month)
-DO UPDATE SET used = usage_monthly.used + EXCLUDED.used;
+-- Inicializa (de forma idempotente) o registro monthly de 'chatbot' com used = 0
+-- para cada company que ainda não tiver um registro do mês corrente.
+INSERT INTO public.usage_monthly (id, company_id, feature_key, year_month, used, created_at)
+SELECT gen_random_uuid(), c.id, 'chatbot', to_char(CURRENT_DATE, 'YYYY-MM'), 0, now()
+FROM public.companies c
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM public.usage_monthly um
+  WHERE um.company_id = c.id
+    AND um.feature_key = 'chatbot'
+    AND um.year_month = to_char(CURRENT_DATE, 'YYYY-MM')
+);
+
 
 -- 1) verificar possíveis conflitos (phones present in multiple companies)
 SELECT phone_e164, count(DISTINCT company_id) AS companies_count
@@ -66,7 +75,10 @@ GROUP BY phone_e164
 HAVING count(DISTINCT company_id) > 1;
 
 -- 2) Se resultado vazio, podemos criar índice único composto:
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS whatsapp_threads_company_phone_uq ON whatsapp_threads(company_id, phone_e164);
+-- cria índice único (sem CONCURRENTLY — roda dentro da transação do migration)
+CREATE UNIQUE INDEX IF NOT EXISTS whatsapp_threads_company_phone_uq
+ON public.whatsapp_threads(company_id, phone_e164);
+
 
 -- 3) Após testar, remover constraint/index antigo (careful!)
 -- ALTER TABLE whatsapp_threads DROP CONSTRAINT whatsapp_threads_phone_e164_key;
