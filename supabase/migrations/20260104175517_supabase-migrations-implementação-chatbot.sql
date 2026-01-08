@@ -87,7 +87,7 @@ ON public.whatsapp_threads(company_id, phone_e164);
 -- Exemplo: permitir selects por company para usuários autenticados via claim renthus_company_id 
 -- (apenas exemplo; ajuste conforme como seu cookie/rules expõem company_id)
 ALTER TABLE chatbots ENABLE ROW LEVEL SECURITY;
-
+DROP POLICY IF EXISTS chatbots_company_access ON public.chatbots;
 CREATE POLICY chatbots_company_access ON chatbots
   USING (company_id = current_setting('renthus.company_id', true)::uuid)
   WITH CHECK (company_id = current_setting('renthus.company_id', true)::uuid);
