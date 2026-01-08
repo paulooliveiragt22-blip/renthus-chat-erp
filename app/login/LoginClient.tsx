@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -9,6 +9,10 @@ type Mode = "login" | "signup";
 
 function isValidEmail(email: string) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function onlyDigits(s: string) {
+    return String(s || "").replace(/\D/g, "");
 }
 
 export default function LoginPage() {
@@ -22,8 +26,22 @@ export default function LoginPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
 
-    // opcional pra signup (se quiser salvar nome depois em profile/customers)
-    const [name, setName] = useState("");
+    // representante / usuário
+    const [repName, setRepName] = useState("");
+
+    // company fields
+    const [cnpj, setCnpj] = useState("");
+    const [razaoSocial, setRazaoSocial] = useState("");
+    const [nomeFantasia, setNomeFantasia] = useState("");
+    const [companyPhone, setCompanyPhone] = useState("");
+
+    // endereco
+    const [cep, setCep] = useState("");
+    const [endereco, setEndereco] = useState("");
+    const [numero, setNumero] = useState("");
+    const [bairro, setBairro] = useState("");
+    const [cidade, setCidade] = useState("");
+    const [uf, setUf] = useState("");
 
     const [loading, setLoading] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
@@ -31,30 +49,57 @@ export default function LoginPage() {
 
     const redirectTo = searchParams.get("redirectTo") || "/pedidos";
 
-    // Auto-select workspace if the user has only 1 company
+    // Quando digitar o CEP (apenas números), ao alcançar 8 dígitos buscamos ViaCEP
+    useEffect(() => {
+        const d = onlyDigits(cep);
+        let mounted = true;
+        async function fetchCep() {
+            if (d.length < 8) return;
+            try {
+                const res = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+                if (!mounted) return;
+                if (!res.ok) return;
+                const j = await res.json();
+                if (j && !j.erro) {
+                    setEndereco(j.logradouro ?? "");
+                    setBairro(j.bairro ?? "");
+                    setCidade(j.localidade ?? "");
+                    setUf((j.uf ?? "").toUpperCase());
+                }
+            } catch (e) {
+                // silenciar erro — usuário pode preencher manualmente
+                console.warn("ViaCEP failure", e);
+            }
+        }
+        fetchCep();
+        return () => {
+            mounted = false;
+        };
+    }, [cep]);
+
+    // Funções de validação simples
+    function isValidCNPJ(value: string) {
+        const d = onlyDigits(value);
+        return d.length === 14;
+    }
+
     async function autoSelectCompany() {
         try {
-            // lista workspaces do usuário
-            const res = await fetch('/api/workspace/list');
+            const res = await fetch("/api/workspace/list");
             if (!res.ok) return;
             const json = await res.json();
             const companies = Array.isArray(json.companies) ? json.companies : [];
             if (companies.length === 1) {
-                // seleciona automaticamente
-                await fetch('/api/workspace/select', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                await fetch("/api/workspace/select", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ company_id: companies[0].id }),
                 });
-                // cookie renthus_company_id será setado pelo backend (HttpOnly)
             }
         } catch (e) {
-            // silenciar: se der errado, o usuário poderá selecionar manualmente
-            console.warn('autoSelectCompany failed', e);
+            console.warn("autoSelectCompany failed", e);
         }
     }
-
-
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -74,7 +119,6 @@ export default function LoginPage() {
 
         if (error) return setErr(error.message);
 
-        // tenta auto-select (se houver apenas 1 company)
         await autoSelectCompany();
 
         router.replace(redirectTo);
@@ -90,32 +134,84 @@ export default function LoginPage() {
         if (!isValidEmail(e1)) return setErr("Informe um e-mail válido.");
         if (!password || password.length < 6) return setErr("Senha deve ter no mínimo 6 caracteres.");
 
+        // validações mínimas para empresa/representante
+        if (!repName || repName.trim().length < 2) return setErr("Informe o nome do representante.");
+        if (!cnpj || !isValidCNPJ(cnpj)) return setErr("Informe um CNPJ válido (14 dígitos).");
+        if (!razaoSocial || razaoSocial.trim().length < 2) return setErr("Informe a razão social da empresa.");
+        if (!companyPhone || onlyDigits(companyPhone).length < 8) return setErr("Informe um telefone da empresa.");
+
         setLoading(true);
 
-        // Se você tiver confirmação de e-mail no Supabase, isso vai mandar e-mail.
-        // Se não tiver, ele já cria e loga (dependendo da config do projeto).
-        const { data, error } = await supabase.auth.signUp({
-            email: e1,
-            password,
-            options: {
-                data: {
-                    name: name.trim() || null,
+        try {
+            // Monta o objeto company para gravar no user_metadata (temporário)
+            const companyMeta = {
+                cnpj: onlyDigits(cnpj),
+                razao_social: razaoSocial.trim(),
+                nome_fantasia: nomeFantasia.trim() || razaoSocial.trim(),
+                phone: companyPhone.trim(),
+                address: {
+                    cep: onlyDigits(cep),
+                    endereco: endereco.trim(),
+                    numero: numero.trim(),
+                    bairro: bairro.trim(),
+                    cidade: cidade.trim(),
+                    uf: uf.trim().toUpperCase(),
                 },
-            },
-        });
+            };
 
-        setLoading(false);
+            // Criar usuário no supabase auth com user_metadata contendo os dados
+            // OBS: se preferir criar a company na tabela `companies` e associar o user
+            // (company_users), implemente um endpoint server-side que execute essas inserts
+            // com a service role. Aqui guardamos os dados no user_metadata.company.
+            const { data, error } = await supabase.auth.signUp({
+                email: e1,
+                password,
+                options: {
+                    data: {
+                        // nome do usuário/representante
+                        name: repName.trim() || null,
+                        // salva company nos user_metadata (json)
+                        company: companyMeta,
+                    },
+                },
+            });
 
-        if (error) return setErr(error.message);
+            setLoading(false);
 
-        // Se exigir confirmação de e-mail, session pode vir nula.
-        if (!data.session) {
-            setMsg("Conta criada! Confirme seu e-mail para entrar.");
-            return;
+            if (error) {
+                return setErr(error.message);
+            }
+
+            // Se quiser criar company e company_user automaticamente:
+            // 1) crie um endpoint server-side /api/companies/create (service role)
+            // 2) depois de signUp bem-sucedido (quando session existir), chame esse endpoint
+            //    passando companyMeta e o user.id. Exemplo:
+            //
+            // if (data?.user && data.user.id) {
+            //    await fetch('/api/companies/create', {
+            //      method: 'POST',
+            //      headers: {'Content-Type': 'application/json'},
+            //      body: JSON.stringify({ user_id: data.user.id, company: companyMeta })
+            //    });
+            // }
+            //
+            // Nesse endpoint você faria insert na tabela companies e company_users
+            // com a service role.
+
+            if (!data.session) {
+                // Se sua configuração exigir confirmação de e-mail, não haveremos session
+                setMsg("Conta criada! Confirme seu e-mail para entrar.");
+                return;
+            }
+
+            // logado automaticamente (se a política do supabase permitir)
+            await autoSelectCompany();
+            router.replace(redirectTo);
+            router.refresh();
+        } catch (e: any) {
+            setLoading(false);
+            setErr(e?.message ?? "Erro ao criar conta");
         }
-
-        router.replace(redirectTo);
-        router.refresh();
     }
 
     async function handleResetPassword() {
@@ -127,9 +223,7 @@ export default function LoginPage() {
 
         setLoading(true);
 
-        // IMPORTANT: essa URL precisa existir no seu app (abaixo te dou a rota)
-        const origin =
-            typeof window !== "undefined" ? window.location.origin : "";
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
         const { error } = await supabase.auth.resetPasswordForEmail(e1, {
             redirectTo: `${origin}/auth/reset`,
         });
@@ -147,7 +241,7 @@ export default function LoginPage() {
             <div
                 style={{
                     width: "100%",
-                    maxWidth: 420,
+                    maxWidth: 720,
                     border: "1px solid rgba(0,0,0,0.12)",
                     borderRadius: 14,
                     padding: 18,
@@ -206,26 +300,200 @@ export default function LoginPage() {
 
                 <form onSubmit={isLogin ? handleLogin : handleSignup}>
                     {!isLogin ? (
-                        <div style={{ marginBottom: 10 }}>
-                            <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
-                                Nome (opcional)
-                            </label>
-                            <input
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                disabled={loading}
-                                placeholder="Ex.: João"
-                                style={{
-                                    width: "100%",
-                                    padding: 10,
-                                    borderRadius: 10,
-                                    border: "1px solid rgba(0,0,0,0.15)",
-                                }}
-                            />
-                        </div>
+                        <>
+                            {/* representante / usuário */}
+                            <div style={{ marginBottom: 10 }}>
+                                <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Nome do usuário / representante</label>
+                                <input
+                                    value={repName}
+                                    onChange={(e) => setRepName(e.target.value)}
+                                    disabled={loading}
+                                    placeholder="Ex.: João Silva"
+                                    style={{
+                                        width: "100%",
+                                        padding: 10,
+                                        borderRadius: 10,
+                                        border: "1px solid rgba(0,0,0,0.15)",
+                                    }}
+                                />
+                            </div>
+
+                            {/* empresa: CNPJ / razão / fantasia / telefone */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>CNPJ</label>
+                                    <input
+                                        value={cnpj}
+                                        onChange={(e) => setCnpj(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="00.000.000/0000-00"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Telefone (empresa)</label>
+                                    <input
+                                        value={companyPhone}
+                                        onChange={(e) => setCompanyPhone(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="(99) 99999-9999"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Razão social</label>
+                                    <input
+                                        value={razaoSocial}
+                                        onChange={(e) => setRazaoSocial(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="Razão social"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Nome fantasia</label>
+                                    <input
+                                        value={nomeFantasia}
+                                        onChange={(e) => setNomeFantasia(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="Nome fantasia (opcional)"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Endereço com CEP autocomplete */}
+                            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "160px 1fr 80px", gap: 10 }}>
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>CEP</label>
+                                    <input
+                                        value={cep}
+                                        onChange={(e) => setCep(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="00000-000"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Endereço</label>
+                                    <input
+                                        value={endereco}
+                                        onChange={(e) => setEndereco(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="Logradouro / Rua"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Número</label>
+                                    <input
+                                        value={numero}
+                                        onChange={(e) => setNumero(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="Nº"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                <div>
+                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Bairro</label>
+                                    <input
+                                        value={bairro}
+                                        onChange={(e) => setBairro(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="Bairro"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
+                                </div>
+
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10 }}>
+                                    <div>
+                                        <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Cidade</label>
+                                        <input
+                                            value={cidade}
+                                            onChange={(e) => setCidade(e.target.value)}
+                                            disabled={loading}
+                                            placeholder="Cidade"
+                                            style={{
+                                                width: "100%",
+                                                padding: 10,
+                                                borderRadius: 10,
+                                                border: "1px solid rgba(0,0,0,0.15)",
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>UF</label>
+                                        <input
+                                            value={uf}
+                                            onChange={(e) => setUf(e.target.value.toUpperCase())}
+                                            disabled={loading}
+                                            placeholder="UF"
+                                            maxLength={2}
+                                            style={{
+                                                width: "100%",
+                                                padding: 10,
+                                                borderRadius: 10,
+                                                border: "1px solid rgba(0,0,0,0.15)",
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </>
                     ) : null}
 
-                    <div style={{ marginBottom: 10 }}>
+                    <div style={{ marginBottom: 10, marginTop: 10 }}>
                         <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>E-mail</label>
                         <input
                             value={email}
