@@ -6,92 +6,77 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('Missing Supabase env vars for service role.');
+    console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.');
 }
 
-// Cria cliente admin (service role)
+// Admin client (service_role) - usado somente no backend
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
 });
 
-type Body = {
-    name: string;
-    slug?: string;
-    email?: string;
-    phone?: string;
-    whatsapp_phone?: string;
-    meta?: Record<string, any>;
-    settings?: Record<string, any>;
-    user_id?: string; // uuid do usuário criador - melhor passar pelo backend/autorização
-};
-
 export async function POST(req: NextRequest) {
     try {
-        const body: Body = await req.json();
+        // 1) Autenticação: pegar token do Authorization header
+        const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+        if (!authHeader) {
+            return NextResponse.json({ error: 'Authorization header required' }, { status: 401 });
+        }
+        const parts = authHeader.split(' ');
+        if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
+            return NextResponse.json({ error: 'Invalid authorization header' }, { status: 401 });
+        }
+        const token = parts[1];
 
-        if (!body?.name) {
-            return NextResponse.json({ error: 'O campo name é obrigatório' }, { status: 400 });
+        // 2) Validar token chamando /auth/v1/user para obter o usuário (sub)
+        const userResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                apikey: SUPABASE_SERVICE_ROLE_KEY, // permite rodar a chamada de forma segura
+            },
+        });
+
+        if (!userResp.ok) {
+            return NextResponse.json({ error: 'Invalid user token' }, { status: 401 });
         }
 
-        // user_id: se estiver usando autenticação via JWT, você pode pegar do header Authorization,
-        // mas como estamos usando service role, pedimos que o front envie o user_id do criador.
-        const creatorUserId = body.user_id;
+        const userJson = await userResp.json();
+        const creatorUserId = userJson?.id;
         if (!creatorUserId) {
-            return NextResponse.json({ error: 'user_id do criador é obrigatório' }, { status: 400 });
+            return NextResponse.json({ error: 'Unable to determine user id from token' }, { status: 401 });
         }
 
-        // Inserir company
-        const { data: companyData, error: companyError } = await supabaseAdmin
-            .from('companies')
-            .insert([{
-                name: body.name,
-                slug: body.slug ?? null,
-                email: body.email ?? null,
-                phone: body.phone ?? null,
-                whatsapp_phone: body.whatsapp_phone ?? null,
-                meta: body.meta ?? {},
-                settings: body.settings ?? {},
-                is_active: true
-            }])
-            .select('*')
-            .limit(1)
-            .single();
+        // 3) Ler body (espera um objeto: { company: { name, ... } } ou apenas { name, ... })
+        const body = await req.json();
+        const companyPayload = body.company ?? body;
 
-        if (companyError) {
-            console.error('Erro criando company:', companyError);
-            return NextResponse.json({ error: 'Erro criando empresa' }, { status: 500 });
+        if (!companyPayload || typeof companyPayload !== 'object' || !companyPayload.name) {
+            return NextResponse.json({ error: 'company payload with name is required' }, { status: 400 });
         }
 
-        const company_id = companyData.id;
+        // 4) Chamar a RPC create_company_and_owner no banco usando service_role
+        // Passa o creator_uuid (do token validado) e payload (json)
+        const rpcParams = {
+            creator_uuid: creatorUserId,
+            payload: companyPayload,
+        };
 
-        // Inserir vínculo company_users (owner)
-        const { data: cuData, error: cuError } = await supabaseAdmin
-            .from('company_users')
-            .insert([{
-                company_id,
-                user_id: creatorUserId,
-                role: 'owner',
-                is_active: true
-            }])
-            .select('*')
-            .limit(1)
-            .single();
+        const { data, error } = await supabaseAdmin.rpc('create_company_and_owner', rpcParams);
 
-        if (cuError) {
-            console.error('Erro criando company_user:', cuError);
-            // opcional: remover company criada em caso de falha no vínculo
-            await supabaseAdmin.from('companies').delete().eq('id', company_id);
-            return NextResponse.json({ error: 'Erro vinculando usuário à empresa' }, { status: 500 });
+        if (error) {
+            console.error('RPC error create_company_and_owner:', error);
+            // Se for um erro de validação do RPC, devolva 400; caso contrário 500
+            // Supabase retorna codigo e details; aqui tratamos genericamente.
+            return NextResponse.json({ error: error.message || 'Error creating company' }, { status: 400 });
         }
 
-        // Retorna a company com o vínculo do owner (resposta simples)
-        return NextResponse.json({
-            company: companyData,
-            company_user: cuData
-        }, { status: 201 });
+        // data normalmente é um array com a linha retornada pela function
+        // Ex.: [{ company_id: 'uuid', company: { ... } }]
+        const result = Array.isArray(data) ? data[0] : data;
 
-    } catch (err) {
-        console.error('Erro no endpoint companies/create:', err);
-        return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+        return NextResponse.json({ company: result?.company ?? null, company_id: result?.company_id ?? null }, { status: 201 });
+    } catch (err: any) {
+        console.error('Server error in companies/create:', err);
+        return NextResponse.json({ error: err?.message ?? 'Internal error' }, { status: 500 });
     }
 }
