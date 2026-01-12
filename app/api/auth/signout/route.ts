@@ -18,9 +18,9 @@ export async function POST() {
         }
 
         // Limpa cookie de workspace
-        cookies().delete("renthus_company_id", { path: "/" });
+        // OBS: cookies().delete aceita apenas o nome (ou um objeto com name: string).
+        cookies().delete("renthus_company_id");
 
-        // Opcional: remover outros cookies relevantes (sessão) é tratado por supabase.auth.signOut()
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         console.error("Error in auth/signout:", err);
