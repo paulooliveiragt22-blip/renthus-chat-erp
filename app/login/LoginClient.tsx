@@ -178,6 +178,8 @@ export default function LoginPage() {
                 // Adicionado `name` exigido por app/api/companies/create/route.ts
                 // Preferimos nomeFantasia quando preenchido, senão razaoSocial
                 name: (nomeFantasia.trim() || razaoSocial.trim()),
+                // incluir email do usuário para popular companies.email
+                email: e1,
                 cnpj: onlyDigits(cnpj),
                 razao_social: razaoSocial.trim(),
                 nome_fantasia: nomeFantasia.trim() || razaoSocial.trim(),
