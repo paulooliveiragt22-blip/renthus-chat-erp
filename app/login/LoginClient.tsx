@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
 type Mode = "login" | "signup";
@@ -85,6 +86,8 @@ export default function LoginPage() {
 
     async function autoSelectCompany() {
         try {
+            // Esta versão usa cookies server-side: o servidor deve conhecer a sessão
+            // (sincronizada via /api/auth/sync-session). Mantemos comportamento igual.
             const res = await fetch("/api/workspace/list");
             if (!res.ok) return;
             const json = await res.json();
@@ -101,6 +104,30 @@ export default function LoginPage() {
         }
     }
 
+    async function syncServerSession(session: Session | null) {
+        if (!session) return false;
+        try {
+            const response = await fetch("/api/auth/sync-session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    access_token: session.access_token,
+                    refresh_token: session.refresh_token,
+                }),
+            });
+            if (!response.ok) {
+                console.warn("syncServerSession failed", await response.text());
+                return false;
+            }
+            return true;
+        } catch (err) {
+            console.warn("syncServerSession failed", err);
+            return false;
+        }
+    }
+
+
+
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
         setMsg(null);
@@ -111,13 +138,17 @@ export default function LoginPage() {
         if (!password || password.length < 6) return setErr("Senha deve ter no mínimo 6 caracteres.");
 
         setLoading(true);
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
             email: e1,
             password,
         });
         setLoading(false);
 
         if (error) return setErr(error.message);
+
+        if (data?.session) {
+            await syncServerSession(data.session);
+        }
 
         await autoSelectCompany();
 
@@ -205,6 +236,28 @@ export default function LoginPage() {
             }
 
             // logado automaticamente (se a política do supabase permitir)
+            if (data?.session) {
+                await syncServerSession(data.session);
+
+                // Criar company automaticamente via endpoint server-side (RPC with service role)
+                try {
+                    const token = data.session.access_token;
+                    const createResp = await fetch('/api/companies/create', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ company: companyMeta })
+                    });
+                    if (!createResp.ok) {
+                        console.warn('companies/create failed', await createResp.text());
+                    }
+                } catch (e) {
+                    console.warn('companies/create error', e);
+                }
+            }
+
             await autoSelectCompany();
             router.replace(redirectTo);
             router.refresh();
