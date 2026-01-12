@@ -1,3 +1,4 @@
+// app/login/LoginClient.tsx
 "use client";
 
 import React, { useMemo, useState, useEffect } from "react";
@@ -126,8 +127,6 @@ export default function LoginPage() {
         }
     }
 
-
-
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
         setMsg(null);
@@ -176,6 +175,9 @@ export default function LoginPage() {
         try {
             // Monta o objeto company para gravar no user_metadata (temporário)
             const companyMeta = {
+                // Adicionado `name` exigido por app/api/companies/create/route.ts
+                // Preferimos nomeFantasia quando preenchido, senão razaoSocial
+                name: (nomeFantasia.trim() || razaoSocial.trim()),
                 cnpj: onlyDigits(cnpj),
                 razao_social: razaoSocial.trim(),
                 nome_fantasia: nomeFantasia.trim() || razaoSocial.trim(),
@@ -213,48 +215,40 @@ export default function LoginPage() {
                 return setErr(error.message);
             }
 
-            // Se quiser criar company e company_user automaticamente:
-            // 1) crie um endpoint server-side /api/companies/create (service role)
-            // 2) depois de signUp bem-sucedido (quando session existir), chame esse endpoint
-            //    passando companyMeta e o user.id. Exemplo:
-            //
-            // if (data?.user && data.user.id) {
-            //    await fetch('/api/companies/create', {
-            //      method: 'POST',
-            //      headers: {'Content-Type': 'application/json'},
-            //      body: JSON.stringify({ user_id: data.user.id, company: companyMeta })
-            //    });
-            // }
-            //
-            // Nesse endpoint você faria insert na tabela companies e company_users
-            // com a service role.
-
+            // Se não há session (ex.: confirmação de e-mail ativa), saímos
             if (!data.session) {
-                // Se sua configuração exigir confirmação de e-mail, não haveremos session
                 setMsg("Conta criada! Confirme seu e-mail para entrar.");
                 return;
             }
 
             // logado automaticamente (se a política do supabase permitir)
             if (data?.session) {
+                // 1) sincroniza sessão no servidor (grava cookie)
                 await syncServerSession(data.session);
 
-                // Criar company automaticamente via endpoint server-side (RPC with service role)
+                // 2) cria a company via endpoint server-side (RPC com service role)
                 try {
                     const token = data.session.access_token;
-                    const createResp = await fetch('/api/companies/create', {
-                        method: 'POST',
+                    const createResp = await fetch("/api/companies/create", {
+                        method: "POST",
                         headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
                         },
-                        body: JSON.stringify({ company: companyMeta })
+                        body: JSON.stringify({ company: companyMeta }),
                     });
+
                     if (!createResp.ok) {
-                        console.warn('companies/create failed', await createResp.text());
+                        const txt = await createResp.text();
+                        console.warn("companies/create failed", txt || createResp.statusText);
+                        setErr("Não foi possível criar a empresa: " + (txt || createResp.statusText));
+                    } else {
+                        const j = await createResp.json();
+                        console.log("company created:", j);
                     }
-                } catch (e) {
-                    console.warn('companies/create error', e);
+                } catch (e: any) {
+                    console.warn("companies/create error", e);
+                    setErr("Erro ao criar empresa: " + (e?.message ?? String(e)));
                 }
             }
 
@@ -335,21 +329,10 @@ export default function LoginPage() {
                     </button>
                 </div>
 
-                <h1 style={{ fontSize: 20, margin: "4px 0 10px 0" }}>
-                    {isLogin ? "Acessar sua conta" : "Criar uma nova conta"}
-                </h1>
+                <h1 style={{ fontSize: 20, margin: "4px 0 10px 0" }}>{isLogin ? "Acessar sua conta" : "Criar uma nova conta"}</h1>
 
-                {msg ? (
-                    <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(13,170,0,0.12)" }}>
-                        {msg}
-                    </div>
-                ) : null}
-
-                {err ? (
-                    <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(255,0,0,0.10)" }}>
-                        {err}
-                    </div>
-                ) : null}
+                {msg ? <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(13,170,0,0.12)" }}>{msg}</div> : null}
+                {err ? <div style={{ marginBottom: 10, padding: 10, borderRadius: 10, background: "rgba(255,0,0,0.10)" }}>{err}</div> : null}
 
                 <form onSubmit={isLogin ? handleLogin : handleSignup}>
                     {!isLogin ? (
@@ -440,15 +423,14 @@ export default function LoginPage() {
                                 </div>
                             </div>
 
-                            {/* Endereço com CEP autocomplete */}
-                            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "160px 1fr 80px", gap: 10 }}>
-                                <div>
-                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>CEP</label>
+                            <div style={{ marginTop: 10 }}>
+                                <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Endereço (CEP)</label>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: 10 }}>
                                     <input
                                         value={cep}
                                         onChange={(e) => setCep(e.target.value)}
                                         disabled={loading}
-                                        placeholder="00000-000"
+                                        placeholder="CEP"
                                         style={{
                                             width: "100%",
                                             padding: 10,
@@ -456,15 +438,11 @@ export default function LoginPage() {
                                             border: "1px solid rgba(0,0,0,0.15)",
                                         }}
                                     />
-                                </div>
-
-                                <div>
-                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Endereço</label>
                                     <input
                                         value={endereco}
                                         onChange={(e) => setEndereco(e.target.value)}
                                         disabled={loading}
-                                        placeholder="Logradouro / Rua"
+                                        placeholder="Endereço"
                                         style={{
                                             width: "100%",
                                             padding: 10,
@@ -472,10 +450,6 @@ export default function LoginPage() {
                                             border: "1px solid rgba(0,0,0,0.15)",
                                         }}
                                     />
-                                </div>
-
-                                <div>
-                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Número</label>
                                     <input
                                         value={numero}
                                         onChange={(e) => setNumero(e.target.value)}
@@ -489,11 +463,8 @@ export default function LoginPage() {
                                         }}
                                     />
                                 </div>
-                            </div>
 
-                            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                                <div>
-                                    <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Bairro</label>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
                                     <input
                                         value={bairro}
                                         onChange={(e) => setBairro(e.target.value)}
@@ -506,55 +477,46 @@ export default function LoginPage() {
                                             border: "1px solid rgba(0,0,0,0.15)",
                                         }}
                                     />
+                                    <input
+                                        value={cidade}
+                                        onChange={(e) => setCidade(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="Cidade"
+                                        style={{
+                                            width: "100%",
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10 }}>
-                                    <div>
-                                        <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Cidade</label>
-                                        <input
-                                            value={cidade}
-                                            onChange={(e) => setCidade(e.target.value)}
-                                            disabled={loading}
-                                            placeholder="Cidade"
-                                            style={{
-                                                width: "100%",
-                                                padding: 10,
-                                                borderRadius: 10,
-                                                border: "1px solid rgba(0,0,0,0.15)",
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>UF</label>
-                                        <input
-                                            value={uf}
-                                            onChange={(e) => setUf(e.target.value.toUpperCase())}
-                                            disabled={loading}
-                                            placeholder="UF"
-                                            maxLength={2}
-                                            style={{
-                                                width: "100%",
-                                                padding: 10,
-                                                borderRadius: 10,
-                                                border: "1px solid rgba(0,0,0,0.15)",
-                                            }}
-                                        />
-                                    </div>
+                                <div style={{ marginTop: 8 }}>
+                                    <input
+                                        value={uf}
+                                        onChange={(e) => setUf(e.target.value)}
+                                        disabled={loading}
+                                        placeholder="UF"
+                                        style={{
+                                            width: 120,
+                                            padding: 10,
+                                            borderRadius: 10,
+                                            border: "1px solid rgba(0,0,0,0.15)",
+                                        }}
+                                    />
                                 </div>
                             </div>
                         </>
                     ) : null}
 
-                    <div style={{ marginBottom: 10, marginTop: 10 }}>
+                    {/* E-mail / senha (comum a login e signup) */}
+                    <div style={{ marginTop: 12 }}>
                         <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>E-mail</label>
                         <input
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             disabled={loading}
-                            inputMode="email"
-                            autoComplete="email"
-                            placeholder="seuemail@exemplo.com"
+                            placeholder="seu@exemplo.com"
                             style={{
                                 width: "100%",
                                 padding: 10,
@@ -564,15 +526,14 @@ export default function LoginPage() {
                         />
                     </div>
 
-                    <div style={{ marginBottom: 10 }}>
+                    <div style={{ marginTop: 10 }}>
                         <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>Senha</label>
                         <input
+                            type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             disabled={loading}
-                            type="password"
-                            autoComplete={isLogin ? "current-password" : "new-password"}
-                            placeholder="••••••••"
+                            placeholder="Senha"
                             style={{
                                 width: "100%",
                                 padding: 10,
@@ -582,46 +543,61 @@ export default function LoginPage() {
                         />
                     </div>
 
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        style={{
-                            width: "100%",
-                            padding: "11px 12px",
-                            borderRadius: 12,
-                            border: "none",
-                            background: isLogin ? "#3B246B" : "#FF6600",
-                            color: "#fff",
-                            cursor: "pointer",
-                            fontWeight: 700,
-                            marginTop: 6,
-                        }}
-                    >
-                        {loading ? "Aguarde..." : isLogin ? "Entrar" : "Criar conta"}
-                    </button>
-
-                    {isLogin ? (
+                    <div style={{ marginTop: 14, display: "flex", gap: 8, alignItems: "center" }}>
                         <button
-                            type="button"
-                            onClick={handleResetPassword}
+                            type="submit"
                             disabled={loading}
                             style={{
-                                width: "100%",
-                                padding: "10px 12px",
-                                borderRadius: 12,
-                                border: "1px solid rgba(0,0,0,0.12)",
-                                background: "transparent",
+                                padding: "10px 14px",
+                                borderRadius: 10,
+                                border: "none",
+                                background: "#3B246B",
+                                color: "#fff",
                                 cursor: "pointer",
-                                marginTop: 10,
+                                fontWeight: 700,
                             }}
                         >
-                            Esqueci minha senha
+                            {isLogin ? "Entrar" : "Criar conta"}
                         </button>
-                    ) : null}
+
+                        {isLogin ? (
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={() => handleResetPassword()}
+                                style={{
+                                    padding: "10px 14px",
+                                    borderRadius: 10,
+                                    border: "1px solid rgba(0,0,0,0.08)",
+                                    background: "transparent",
+                                    cursor: "pointer",
+                                }}
+                            >
+                                Esqueci minha senha
+                            </button>
+                        ) : null}
+                    </div>
                 </form>
 
-                <div style={{ marginTop: 14, fontSize: 12, opacity: 0.8 }}>
-                    <Link href="/">Voltar</Link>
+                <div style={{ marginTop: 12, fontSize: 13 }}>
+                    {isLogin ? (
+                        <div>
+                            Não tem conta?{" "}
+                            <a
+                                onClick={() => setMode("signup")}
+                                style={{ color: "#FF6600", cursor: "pointer", textDecoration: "underline" }}
+                            >
+                                Criar conta
+                            </a>
+                        </div>
+                    ) : (
+                        <div>
+                            Já tem conta?{" "}
+                            <a onClick={() => setMode("login")} style={{ color: "#3B246B", cursor: "pointer", textDecoration: "underline" }}>
+                                Entrar
+                            </a>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
