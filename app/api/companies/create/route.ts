@@ -1,101 +1,82 @@
 // app/api/companies/create/route.ts
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient as createServerClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export const runtime = "nodejs";
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-type AddressPayload = {
-    cep?: string;
-    endereco?: string;
-    numero?: string;
-    bairro?: string;
-    cidade?: string;
-    uf?: string;
-};
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.");
+}
 
-type CompanyPayload = {
-    cnpj?: string;
-    razao_social?: string;
-    nome_fantasia?: string;
-    phone?: string;
-    address?: AddressPayload;
-    city?: string;
-};
+// Admin client (service_role) - usado somente no backend
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+});
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
     try {
-        const body = (await req.json()) as { company?: CompanyPayload; user_id?: string };
-        if (!body?.company) return NextResponse.json({ error: "company required" }, { status: 400 });
-
-        const supabase = await createServerClient();
-        const { data: userData, error: userErr } = await supabase.auth.getUser();
-        if (userErr || !userData?.user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        // 1) Autenticação: pegar token do Authorization header
+        const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+        if (!authHeader) {
+            return NextResponse.json({ error: "Authorization header required" }, { status: 401 });
         }
-        const userId = userData.user.id;
-
-        // If caller passed user_id, ensure it matches the authenticated user
-        if (body.user_id && body.user_id !== userId) {
-            return NextResponse.json({ error: "user_id mismatch" }, { status: 403 });
+        const parts = authHeader.split(" ");
+        if (parts.length !== 2 || parts[0].toLowerCase() !== "bearer") {
+            return NextResponse.json({ error: "Invalid authorization header" }, { status: 401 });
         }
+        const token = parts[1];
 
-        const company = body.company;
-        // minimal validation
-        const name = (company.nome_fantasia || company.razao_social || "").trim();
-        if (!name) return NextResponse.json({ error: "company name required" }, { status: 400 });
-
-        const city = (company.address?.cidade || company.city || null) as string | null;
-        const phone = (company.phone || null) as string | null;
-
-        const admin = createAdminClient();
-
-        // create company row - companies table (schema: name, city, phone, ...)
-        const { data: compData, error: compErr } = await admin
-            .from("companies")
-            .insert([{ name, city, phone }])
-            .select("id")
-            .single();
-
-        if (compErr || !compData?.id) {
-            return NextResponse.json({ error: compErr?.message || "Failed to create company" }, { status: 500 });
-        }
-
-        const companyId = compData.id as string;
-
-        // create company_users mapping (user becomes owner)
-        const { data: cuData, error: cuErr } = await admin
-            .from("company_users")
-            .insert([{ company_id: companyId, user_id: userId, role: "owner", is_active: true }])
-            .select("id")
-            .single();
-
-        if (cuErr) {
-            // rollback company if mapping failed
-            try {
-                await admin.from("companies").delete().eq("id", companyId);
-            } catch (e) {
-                // no-op
-            }
-            return NextResponse.json({ error: cuErr?.message || "Failed to associate user to company" }, { status: 500 });
-        }
-
-        // optionally: store more company metadata somewhere — currently schema doesn't have cnpj/razao columns.
-        // If you want to persist the extra fields (cnpj, razao_social, address), create a company_meta table or add columns to companies.
-
-        // set workspace cookie (same behavior as /api/workspace/select)
-        cookies().set("renthus_company_id", companyId, {
-            httpOnly: true,
-            sameSite: "lax",
-            secure: process.env.NODE_ENV === "production",
-            path: "/",
-            maxAge: 60 * 60 * 24 * 30, // 30 dias
+        // 2) Validar token chamando /auth/v1/user para obter o usuário (sub)
+        const userResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+            method: "GET",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                apikey: SUPABASE_SERVICE_ROLE_KEY, // permite rodar a chamada de forma segura
+            },
         });
 
-        return NextResponse.json({ ok: true, company_id: companyId });
+        if (!userResp.ok) {
+            return NextResponse.json({ error: "Invalid user token" }, { status: 401 });
+        }
+
+        const userJson = await userResp.json();
+        const creatorUserId = userJson?.id;
+        if (!creatorUserId) {
+            return NextResponse.json({ error: "Unable to determine user id from token" }, { status: 401 });
+        }
+
+        // 3) Ler body (espera um objeto: { company: { name, ... } } ou apenas { name, ... })
+        const body = await req.json();
+        const companyPayload = body.company ?? body;
+
+        if (!companyPayload || typeof companyPayload !== "object" || !companyPayload.name) {
+            return NextResponse.json({ error: "company payload with name is required" }, { status: 400 });
+        }
+
+        // 4) Chamar a RPC create_company_and_owner no banco usando service_role
+        // Passa o creator_uuid (do token validado) e payload (json)
+        const rpcParams = {
+            creator_uuid: creatorUserId,
+            payload: companyPayload,
+        };
+
+        const { data, error } = await supabaseAdmin.rpc("create_company_and_owner", rpcParams);
+
+        if (error) {
+            console.error("RPC error create_company_and_owner:", error);
+            // Se for um erro de validação do RPC, devolva 400; caso contrário 500
+            // Supabase retorna codigo e details; aqui tratamos genericamente.
+            return NextResponse.json({ error: error.message || "Error creating company" }, { status: 400 });
+        }
+
+        // data normalmente é um array com a linha retornada pela function
+        // Ex.: [{ company_id: 'uuid', company: { ... } }]
+        const result = Array.isArray(data) ? data[0] : data;
+
+        return NextResponse.json({ company: result?.company ?? null, company_id: result?.company_id ?? null }, { status: 201 });
     } catch (err: any) {
-        console.error("companies/create error:", err);
-        return NextResponse.json({ error: err?.message ?? "Unexpected error" }, { status: 500 });
+        console.error("Server error in companies/create:", err);
+        return NextResponse.json({ error: err?.message ?? "Internal error" }, { status: 500 });
     }
 }

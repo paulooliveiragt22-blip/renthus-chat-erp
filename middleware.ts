@@ -1,3 +1,4 @@
+// middleware.ts
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
@@ -20,32 +21,22 @@ export async function middleware(
 ) {
     const pathname = request.nextUrl.pathname;
 
-    // ✅ Libera webhooks (Twilio/WhatsApp) e endpoints técnicos
-    // (Twilio precisa acessar sem autenticação)
-    if (pathname.startsWith("/api/whatsapp/")) {
-        return NextResponse.next();
-    }
+    // Libera webhooks e endpoints técnicos sem autenticação
+    if (pathname.startsWith("/api/whatsapp/")) return NextResponse.next();
+    if (pathname.startsWith("/api/print/")) return NextResponse.next();
 
-    // ✅ (Opcional) Libera fila de impressão / agentes
-    // Se você criar endpoints como /api/print/pull etc., evita bloqueio pelo middleware
-    if (pathname.startsWith("/api/print/")) {
-        return NextResponse.next();
-    }
-
-    // ✅ Rotas públicas (não exigem login)
+    // Rotas públicas (não exigem login)
     const isPublic =
         pathname.startsWith("/login") ||
         pathname.startsWith("/auth") ||
         pathname.startsWith("/_next") ||
         pathname === "/favicon.ico";
 
-    // Para rotas públicas, não precisa bater no Supabase (economiza e evita latência)
-    if (isPublic) {
-        return NextResponse.next();
-    }
+    if (isPublic) return NextResponse.next();
 
     const response = NextResponse.next();
 
+    // cria client server-side usando cookies do request -> response (para setar cookies)
     const supabase = (options?.createClient ?? createServerClient)(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

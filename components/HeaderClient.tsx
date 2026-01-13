@@ -66,7 +66,20 @@ export default function HeaderClient() {
 
     async function handleSignOut() {
         try {
-            await supabase.auth.signOut();
+            // Primeiro, limpa sessão cookies server-side e cookie workspace
+            try {
+                await fetch("/api/auth/signout", { method: "POST", credentials: "include" });
+            } catch (e) {
+                // não bloquear logout client se o server falhar
+                console.warn("Server signout failed", e);
+            }
+
+            // Depois, limpa sessão client-side no Supabase
+            try {
+                await supabase.auth.signOut();
+            } catch (e) {
+                console.warn("Client signOut failed", e);
+            }
         } finally {
             setMenuOpen(false);
             router.push("/login");
