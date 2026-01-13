@@ -66,168 +66,161 @@ async function getOrCreateThread(params: {
     return created.id;
 }
 
+// imports mantidos...
 export async function POST(req: Request) {
     try {
         const payload = (await req.json()) as Body;
-
         const toPhone = normalizeE164(payload.to_phone_e164);
         const text = (payload.text ?? "").trim();
         if (!text) return NextResponse.json({ error: "text is required" }, { status: 400 });
 
-        // Workspace + auth + membership (cookie)
         const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
         const { admin, companyId } = ctx;
 
-        // ✅ Entitlements: precisa ter WhatsApp habilitado
         try {
             await requireFeature(admin, companyId, "whatsapp_messages");
         } catch (e: any) {
-            const msg = e?.message ?? "Feature not enabled";
-            return NextResponse.json({ error: msg }, { status: 403 });
+            return NextResponse.json({ error: e?.message ?? "Feature not enabled" }, { status: 403 });
         }
 
-        // ✅ Limite: se estourou e NÃO aceitou overage/upgrade, BLOQUEIA
-        const usage = await checkLimit(admin, companyId, "whatsapp_messages", 1);
-        if (!usage.allowed) {
-            return NextResponse.json(
-                {
-                    error: "message_limit_reached",
-                    upgrade_required: true,
-                    usage,
-                },
-                { status: 402 } // Payment Required
-            );
+        // 1) Atomic check & reserve (RPC)
+        const { data: rpcData, error: rpcErr } = await admin
+            .rpc('check_and_increment_usage', { p_company: companyId, p_feature: 'whatsapp_messages', p_amount: 1 });
+
+        if (rpcErr) {
+            console.error("RPC error", rpcErr);
+            return NextResponse.json({ error: "rpc_error" }, { status: 500 });
+        }
+        const usage = rpcData as any;
+        if (!usage?.allowed) {
+            return NextResponse.json({ error: "message_limit_reached", usage }, { status: 402 });
         }
 
-        // Canal ativo da company
+        // 2) Channel & thread
         const { data: channel, error: chErr } = await admin
             .from("whatsapp_channels")
             .select("id, provider, from_identifier, provider_metadata")
             .eq("company_id", companyId)
             .eq("status", "active")
             .maybeSingle();
-
         if (chErr || !channel) {
+            // release reservation
+            await admin.rpc('decrement_monthly_usage', { p_company: companyId, p_feature: 'whatsapp_messages', p_amount: 1 });
             return NextResponse.json({ error: "No active whatsapp channel for this company" }, { status: 400 });
         }
+        const threadId = await getOrCreateThread({ admin, companyId, channelId: channel.id, phoneE164: toPhone });
 
-        // Thread (company + phone)
-        const threadId = await getOrCreateThread({
-            admin,
-            companyId,
-            channelId: channel.id,
-            phoneE164: toPhone,
-        });
+        // 3) Insert a pending whatsapp_messages row with provider = null (so trigger won't increment)
+        const { data: created, error: insErr } = await admin
+            .from("whatsapp_messages")
+            .insert({
+                thread_id: threadId,
+                direction: "out",
+                channel: "whatsapp",
+                provider: null,                // IMPORTANT: leave null to avoid trigger counting
+                provider_message_id: null,
+                from_addr: null,
+                to_addr: toPhone,
+                body: text,
+                num_media: 0,
+                status: "pending",
+                raw_payload: null
+            })
+            .select("id")
+            .single();
 
-        // Envio por provedor
+        if (insErr || !created?.id) {
+            // rollback reservation
+            await admin.rpc('decrement_monthly_usage', { p_company: companyId, p_feature: 'whatsapp_messages', p_amount: 1 });
+            return NextResponse.json({ error: "failed_to_create_message_record" }, { status: 500 });
+        }
+
+        const messageId = created.id;
+
+        // 4) Send via provider
         let providerMessageId: string | null = null;
         let fromAddr = "";
         let toAddr = "";
         let provider: "twilio" | "360dialog" = channel.provider;
 
-        if (channel.provider === "twilio") {
-            const accountSid = process.env.TWILIO_ACCOUNT_SID;
-            const authToken = process.env.TWILIO_AUTH_TOKEN;
-            const from = process.env.TWILIO_WHATSAPP_FROM; // whatsapp:+...
-            if (!accountSid || !authToken || !from) {
-                return NextResponse.json({ error: "Missing Twilio env vars" }, { status: 500 });
-            }
-
-            const client = twilio(accountSid, authToken);
-            const msg = await client.messages.create({
-                from,
-                to: `whatsapp:${toPhone}`,
-                body: text,
-            });
-
-            providerMessageId = msg.sid;
-            fromAddr = from;
-            toAddr = `whatsapp:${toPhone}`;
-            provider = "twilio";
-        } else {
-            const token = process.env.DIALOG_TOKEN;
-            const phoneNumberId = process.env.DIALOG_PHONE_NUMBER_ID;
-            const baseUrl = process.env.DIALOG_BASE_URL || "https://graph.facebook.com/v20.0";
-            if (!token || !phoneNumberId) {
-                return NextResponse.json({ error: "Missing 360dialog env vars" }, { status: 500 });
-            }
-
-            const url = `${baseUrl}/${phoneNumberId}/messages`;
-            const res = await fetch(url, {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    messaging_product: "whatsapp",
-                    to: toPhone.replace("+", ""),
-                    type: "text",
-                    text: { body: text },
-                }),
-            });
-
-            const json = await res.json().catch(() => ({}));
-
-            if (!res.ok) {
-                // grava falha
-                await admin.from("whatsapp_messages").insert({
-                    thread_id: threadId,
-                    direction: "out",
-                    channel: "whatsapp",
-                    provider: "360dialog",
-                    provider_message_id: null,
-                    from_addr: "360dialog",
-                    to_addr: toPhone,
+        try {
+            if (channel.provider === "twilio") {
+                const accountSid = process.env.TWILIO_ACCOUNT_SID!;
+                const authToken = process.env.TWILIO_AUTH_TOKEN!;
+                const from = process.env.TWILIO_WHATSAPP_FROM!;
+                const client = twilio(accountSid, authToken);
+                const msg = await client.messages.create({
+                    from,
+                    to: `whatsapp:${toPhone}`,
                     body: text,
-                    num_media: 0,
-                    status: "failed",
-                    error: JSON.stringify(json),
-                    raw_payload: json,
                 });
-
-                return NextResponse.json({ error: "360dialog send failed", details: json }, { status: 502 });
+                providerMessageId = msg.sid;
+                fromAddr = from;
+                toAddr = `whatsapp:${toPhone}`;
+                provider = "twilio";
+            } else {
+                // 360dialog send (same logic as before)...
+                const token = process.env.DIALOG_TOKEN!;
+                const phoneNumberId = process.env.DIALOG_PHONE_NUMBER_ID!;
+                const baseUrl = process.env.DIALOG_BASE_URL || "https://graph.facebook.com/v20.0";
+                const url = `${baseUrl}/${phoneNumberId}/messages`;
+                const res = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        messaging_product: "whatsapp",
+                        to: toPhone.replace("+", ""),
+                        type: "text",
+                        text: { body: text },
+                    }),
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error("360dialog failed: " + JSON.stringify(json));
+                providerMessageId = json?.messages?.[0]?.id ?? null;
+                fromAddr = "360dialog";
+                toAddr = toPhone;
+                provider = "360dialog";
             }
 
-            providerMessageId = json?.messages?.[0]?.id ?? null;
-            fromAddr = "360dialog";
-            toAddr = toPhone;
-            provider = "360dialog";
+            // 5) Update message record with provider metadata (no trigger increment because update)
+            await admin.from("whatsapp_messages").update({
+                provider,
+                provider_message_id: providerMessageId,
+                from_addr: fromAddr,
+                to_addr: toAddr,
+                status: "sent",
+                raw_payload: { provider, provider_message_id: providerMessageId, sent_at: new Date().toISOString() }
+            }).eq("id", messageId);
+
+            // 6) Update thread preview
+            await admin.from("whatsapp_threads").update({
+                last_message_at: new Date().toISOString(),
+                last_message_preview: text.slice(0, 120)
+            }).eq("id", threadId);
+
+            return NextResponse.json({ ok: true, provider, provider_message_id: providerMessageId, usage });
+
+        } catch (sendErr: any) {
+            // On send error: mark message failed and decrement usage reservation
+            await admin.from("whatsapp_messages").update({
+                status: "failed",
+                error: String(sendErr?.message ?? sendErr),
+                raw_payload: { error: String(sendErr?.message ?? sendErr) }
+            }).eq("id", messageId);
+
+            // release reserved usage
+            await admin.rpc('decrement_monthly_usage', { p_company: companyId, p_feature: 'whatsapp_messages', p_amount: 1 });
+
+            return NextResponse.json({ error: "send_failed", details: String(sendErr?.message ?? sendErr) }, { status: 502 });
         }
 
-        // Grava outbound
-        await admin.from("whatsapp_messages").insert({
-            thread_id: threadId,
-            direction: "out",
-            channel: "whatsapp",
-            provider,
-            provider_message_id: providerMessageId,
-            from_addr: fromAddr,
-            to_addr: toAddr,
-            body: text,
-            num_media: 0,
-            status: "sent",
-            raw_payload: { provider, provider_message_id: providerMessageId },
-        });
-
-        // ✅ Atualiza preview + last_message_at da thread (BUGFIX: era thread.id)
-        await admin
-            .from("whatsapp_threads")
-            .update({
-                last_message_at: new Date().toISOString(),
-                last_message_preview: text.slice(0, 120),
-            })
-            .eq("id", threadId);
-
-        return NextResponse.json({
-            ok: true,
-            provider,
-            provider_message_id: providerMessageId,
-            usage,
-        });
     } catch (e: any) {
         return NextResponse.json({ error: e?.message ?? "Unexpected error" }, { status: 500 });
     }
 }
+
