@@ -47,7 +47,7 @@ export default function Modal({
                 display: "grid",
                 placeItems: "center",
                 padding: 12,
-                zIndex: 999999,
+                zIndex: 9999,
             }}
         >
             <div
