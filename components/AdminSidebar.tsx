@@ -340,12 +340,8 @@ export default function AdminSidebar() {
                                     <button
                                         type="button"
                                         onClick={() => {
-                                            try {
-                                                router.push(it.href);
-                                            } catch (e) {
-                                                // fallback: recarregar a rota
-                                                window.location.href = it.href;
-                                            }
+                                            try { router.push(it.href); }
+                                            catch { window.location.href = it.href; }
                                         }}
                                         style={baseStyle}
                                         aria-current={active ? "page" : undefined}
@@ -354,6 +350,7 @@ export default function AdminSidebar() {
                                         {!collapsed && <span style={{ fontSize: 14, fontWeight: 700 }}>{it.label}</span>}
                                     </button>
                                 </li>
+
                             );
                         })}
                     </ul>
