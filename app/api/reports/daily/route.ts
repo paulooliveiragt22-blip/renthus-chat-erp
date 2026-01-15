@@ -10,7 +10,6 @@ function isoStartOfDay(d: Date) {
 function isoEndOfDay(d: Date) {
     return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59)).toISOString();
 }
-
 function formatIsoDateOnly(d: Date) {
     return d.toISOString().slice(0, 10);
 }
@@ -40,181 +39,179 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Datas inválidas" }, { status: 400 });
         }
 
-        // cap max days to avoid queries gigantes (ex: 365)
+        // limita para evitar intervalos gigantes no servidor (segurança)
+        const maxDays = 366;
         const msPerDay = 24 * 60 * 60 * 1000;
         const daysDiff = Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1;
-        if (daysDiff <= 0) {
-            return NextResponse.json({ error: "Intervalo inválido" }, { status: 400 });
-        }
-        if (daysDiff > 366) {
-            return NextResponse.json({ error: "Intervalo muito grande (máx: 366 dias)" }, { status: 400 });
-        }
+        if (daysDiff <= 0) return NextResponse.json({ error: "Intervalo inválido" }, { status: 400 });
+        if (daysDiff > 3650) return NextResponse.json({ error: "Intervalo muito grande" }, { status: 400 }); // fail safe
 
-        // Para cada dia, vamos buscar agregados por created_at
-        const results: { date: string; faturamento: number; orders: number; messages: number }[] = [];
-
-        // Estratégia: fazer 3 queries por tabela para cada dia (pode ser otimizada por SUM/GROUP BY no DB)
-        // Preferível: usar SUM / GROUP BY no banco. Aqui faço SUM/GROUP BY para orders; para messages e count também.
-        // 1) Fetch faturamento + orders por dia usando uma query com group by no banco:
         const startIso = isoStartOfDay(start);
         const endIso = isoEndOfDay(end);
 
-        // Supabase / Postgres: agrupar por day
-        // Usamos SQL bruto via rpc (se admin.from().rpc não existir, fazemos select simples)
-        // Simples: criar um SQL com to_char(created_at, 'YYYY-MM-DD') or date_trunc
-        const ordersDailyRes = await admin.rpc("renthus_reports_orders_daily", {
+        // Chama as RPCs (que retornam série com todos os dias)
+        const ordersRes = await admin.rpc("renthus_reports_orders_daily", {
             p_company_id: companyId,
             p_start: startIso,
             p_end: endIso,
         });
-
-        // Caso a função RPC não exista no banco, fazemos fallback para consultas JS (menos eficiente)
-        if (ordersDailyRes.error) {
-            // fallback: fetch all orders in range and aggregate in JS
+        if (ordersRes.error) {
+            console.error("orders rpc error", ordersRes.error);
+            // fallback: buscar orders diretamente e agregar por dia (menos eficiente)
             const ordRes = await admin
                 .from("orders")
                 .select("created_at,total_amount", { count: undefined })
                 .eq("company_id", companyId)
                 .gte("created_at", startIso)
                 .lte("created_at", endIso)
-                .limit(100000);
+                .limit(200000);
 
             if (ordRes.error) {
-                console.error("orders fetch error", ordRes.error);
+                console.error("orders fallback error", ordRes.error);
                 return NextResponse.json({ error: ordRes.error.message }, { status: 500 });
             }
-
-            // build map date -> { faturamento, orders }
-            const map = new Map<string, { faturamento: number; orders: number }>();
-            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                map.set(formatIsoDateOnly(new Date(d)), { faturamento: 0, orders: 0 });
-            }
-
+            // montar map de orders
+            const ordersMap = new Map<string, { faturamento: number; orders: number }>();
             (ordRes.data ?? []).forEach((r: any) => {
                 const dt = new Date(r.created_at);
                 const key = formatIsoDateOnly(new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate())));
-                const cur = map.get(key) ?? { faturamento: 0, orders: 0 };
+                const cur = ordersMap.get(key) ?? { faturamento: 0, orders: 0 };
                 const v = Number(r.total_amount ?? 0);
                 cur.faturamento += isNaN(v) ? 0 : v;
                 cur.orders += 1;
-                map.set(key, cur);
+                ordersMap.set(key, cur);
             });
 
-            // messages
+            // messages fallback
             const msgRes = await admin
                 .from("whatsapp_messages")
-                .select("created_at", { count: undefined })
-                .eq("company_id", companyId)
+                .select("created_at,thread_id", { count: undefined })
                 .gte("created_at", startIso)
                 .lte("created_at", endIso)
                 .limit(200000);
 
             if (msgRes.error) {
-                console.error("messages fetch error", msgRes.error);
+                console.error("messages fallback error", msgRes.error);
                 return NextResponse.json({ error: msgRes.error.message }, { status: 500 });
             }
 
-            (msgRes.data ?? []).forEach((m: any) => {
-                const dt = new Date(m.created_at);
-                const key = formatIsoDateOnly(new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate())));
-                const cur = map.get(key) ?? { faturamento: 0, orders: 0 };
-                // we'll store messages in separate map later; to keep simple, attach messages using a separate map
-                map.set(key, cur);
-            });
+            // precisamos contar apenas as mensagens cujo thread pertence à company
+            const threadIds = Array.from(new Set((msgRes.data ?? []).map((m: any) => m.thread_id).filter(Boolean)));
+            const threadsRes = await admin.from("whatsapp_threads").select("id,company_id").in("id", threadIds).limit(200000);
+            const threadCompanyMap = new Map<string, string>();
+            (threadsRes.data ?? []).forEach((t: any) => threadCompanyMap.set(t.id, t.company_id));
 
-            // build messages map
             const messagesMap = new Map<string, number>();
             (msgRes.data ?? []).forEach((m: any) => {
+                const tid = m.thread_id;
+                if (!tid) return;
+                if (threadCompanyMap.get(tid) !== companyId) return;
                 const dt = new Date(m.created_at);
                 const key = formatIsoDateOnly(new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate())));
                 messagesMap.set(key, (messagesMap.get(key) ?? 0) + 1);
             });
 
-            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                const key = formatIsoDateOnly(new Date(d));
-                const o = map.get(key) ?? { faturamento: 0, orders: 0 };
-                results.push({
-                    date: key,
-                    faturamento: Number((o.faturamento || 0).toFixed(2)),
-                    orders: o.orders || 0,
-                    messages: messagesMap.get(key) ?? 0,
-                });
-            }
+            // montar resultados apenas para dias com lançamentos (omit zeros)
+            const results: { date: string; faturamento: number; orders: number; messages: number }[] = [];
+            ordersMap.forEach((o, k) => {
+                const msgs = messagesMap.get(k) ?? 0;
+                if ((o.faturamento || 0) !== 0 || (o.orders || 0) !== 0 || msgs !== 0) {
+                    results.push({ date: k, faturamento: Number(o.faturamento.toFixed(2)), orders: o.orders, messages: msgs });
+                }
+            });
+            // incluir dias com mensagens que não tem orders
+            messagesMap.forEach((cnt, k) => {
+                if (!ordersMap.has(k)) {
+                    if (cnt !== 0) results.push({ date: k, faturamento: 0, orders: 0, messages: cnt });
+                }
+            });
 
+            // ordenar por data
+            results.sort((a, b) => a.date.localeCompare(b.date));
             return NextResponse.json({ ok: true, data: results });
         }
 
-        // Se chegamos aqui e RPC existiu, assumimos que ordersDailyRes.data tem rows: [{date, faturamento, orders}]
-        // Precisamos juntar messages diários também. Tentar fazer group by messages:
-        const messagesDailyRes = await admin.rpc("renthus_reports_messages_daily", {
+        // ordersRes.data and messagesRes.data expected
+        const ordersData = (ordersRes.data ?? []) as any[];
+        // chama messages
+        const msgsRes = await admin.rpc("renthus_reports_messages_daily", {
             p_company_id: companyId,
             p_start: startIso,
             p_end: endIso,
         });
-
-        if (messagesDailyRes.error) {
-            // fallback a consulta simples similar ao acima (mas aqui assumiremos que ordersDailyRes possui os dados)
-            const ordersMap = new Map<string, { faturamento: number; orders: number }>();
-            (ordersDailyRes.data ?? []).forEach((r: any) => {
-                ordersMap.set(r.date, { faturamento: Number(r.faturamento ?? 0), orders: Number(r.orders ?? 0) });
-            });
-
-            // fetch messages and aggregate
+        if (msgsRes.error) {
+            console.error("messages rpc error", msgsRes.error);
+            // fallback similar to above: aggregate messages by join thread->company
             const msgRes = await admin
                 .from("whatsapp_messages")
-                .select("created_at", { count: undefined })
-                .eq("company_id", companyId)
+                .select("created_at,thread_id", { count: undefined })
                 .gte("created_at", startIso)
                 .lte("created_at", endIso)
                 .limit(200000);
 
             if (msgRes.error) {
-                console.error("messages fetch error", msgRes.error);
+                console.error("messages fallback error", msgRes.error);
                 return NextResponse.json({ error: msgRes.error.message }, { status: 500 });
             }
 
+            const threadIds = Array.from(new Set((msgRes.data ?? []).map((m: any) => m.thread_id).filter(Boolean)));
+            const threadsRes = await admin.from("whatsapp_threads").select("id,company_id").in("id", threadIds).limit(200000);
+            const threadCompanyMap = new Map<string, string>();
+            (threadsRes.data ?? []).forEach((t: any) => threadCompanyMap.set(t.id, t.company_id));
+
             const messagesMap = new Map<string, number>();
             (msgRes.data ?? []).forEach((m: any) => {
+                const tid = m.thread_id;
+                if (!tid) return;
+                if (threadCompanyMap.get(tid) !== companyId) return;
                 const dt = new Date(m.created_at);
                 const key = formatIsoDateOnly(new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate())));
                 messagesMap.set(key, (messagesMap.get(key) ?? 0) + 1);
             });
 
-            // build results for each day in range
-            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                const key = formatIsoDateOnly(new Date(d));
-                const o = ordersMap.get(key) ?? { faturamento: 0, orders: 0 };
-                results.push({
-                    date: key,
-                    faturamento: Number((o.faturamento || 0).toFixed(2)),
-                    orders: o.orders || 0,
-                    messages: messagesMap.get(key) ?? 0,
-                });
-            }
+            // combine with ordersData
+            const oMap = new Map<string, { faturamento: number; orders: number }>();
+            ordersData.forEach((o) => oMap.set(o.date, { faturamento: Number(o.faturamento ?? 0), orders: Number(o.orders ?? 0) }));
 
+            const results: { date: string; faturamento: number; orders: number; messages: number }[] = [];
+            oMap.forEach((o, k) => {
+                const m = messagesMap.get(k) ?? 0;
+                if ((o.faturamento || 0) !== 0 || (o.orders || 0) !== 0 || m !== 0) {
+                    results.push({ date: k, faturamento: Number(o.faturamento.toFixed(2)), orders: o.orders, messages: m });
+                }
+            });
+            messagesMap.forEach((cnt, k) => {
+                if (!oMap.has(k) && cnt !== 0) results.push({ date: k, faturamento: 0, orders: 0, messages: cnt });
+            });
+            results.sort((a, b) => a.date.localeCompare(b.date));
             return NextResponse.json({ ok: true, data: results });
         }
 
-        // Se as RPCs existirem, combinar os dois resultados
-        const ordersData = (ordersDailyRes.data ?? []) as any[];
-        const messagesData = (messagesDailyRes.data ?? []) as any[];
-
-        const messagesMap = new Map<string, number>();
-        messagesData.forEach((m) => messagesMap.set(m.date, Number(m.count ?? 0)));
+        const msgsData = (msgsRes.data ?? []) as any[];
 
         const ordersMap = new Map<string, { faturamento: number; orders: number }>();
         ordersData.forEach((o) => ordersMap.set(o.date, { faturamento: Number(o.faturamento ?? 0), orders: Number(o.orders ?? 0) }));
 
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const key = formatIsoDateOnly(new Date(d));
-            const o = ordersMap.get(key) ?? { faturamento: 0, orders: 0 };
-            results.push({
-                date: key,
-                faturamento: Number((o.faturamento || 0).toFixed(2)),
-                orders: o.orders || 0,
-                messages: messagesMap.get(key) ?? 0,
+        const messagesMap = new Map<string, number>();
+        msgsData.forEach((m) => messagesMap.set(m.date, Number(m.count ?? 0)));
+
+        // Monta resultados apenas com dias que têm qualquer lançamento (omit zeros)
+        const results: { date: string; faturamento: number; orders: number; messages: number }[] = [];
+
+        // iterar sobre chaves dos maps (união)
+        const keys = new Set<string>();
+        ordersMap.forEach((_v, k) => keys.add(k));
+        messagesMap.forEach((_v, k) => keys.add(k));
+
+        Array.from(keys)
+            .sort()
+            .forEach((k) => {
+                const o = ordersMap.get(k) ?? { faturamento: 0, orders: 0 };
+                const m = messagesMap.get(k) ?? 0;
+                if ((o.faturamento || 0) !== 0 || (o.orders || 0) !== 0 || m !== 0) {
+                    results.push({ date: k, faturamento: Number((o.faturamento || 0).toFixed(2)), orders: o.orders || 0, messages: m });
+                }
             });
-        }
 
         return NextResponse.json({ ok: true, data: results });
     } catch (err: any) {
