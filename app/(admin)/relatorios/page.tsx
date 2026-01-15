@@ -1,4 +1,4 @@
-// app/(admin)/relatorios/page.tsx
+// app/(admin)/relatorios/page.tsx  (trecho principal atualizado)
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -6,12 +6,10 @@ import React, { useEffect, useMemo, useState } from "react";
 function formatBRL(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
-
 function todayIsoDate() {
     const d = new Date();
     return d.toISOString().slice(0, 10);
 }
-
 function isoDateNDaysAgo(n: number) {
     const d = new Date();
     d.setDate(d.getDate() - n);
@@ -24,6 +22,7 @@ export default function RelatoriosPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<{ faturamento: number; total_orders: number; total_messages: number } | null>(null);
+    const [daily, setDaily] = useState<{ date: string; faturamento: number; orders: number; messages: number }[] | null>(null);
 
     const fetchSummary = async (s?: string, e?: string) => {
         setLoading(true);
@@ -53,9 +52,38 @@ export default function RelatoriosPage() {
         }
     };
 
+    const fetchDaily = async (s?: string, e?: string) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch("/api/reports/daily", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ start: s ?? start, end: e ?? end }),
+                credentials: "same-origin",
+            });
+            const j = await res.json();
+            if (!res.ok) {
+                setError(j?.error ?? "Erro ao carregar daily");
+                setDaily(null);
+            } else if (!j?.ok) {
+                setError(j?.error ?? "Resposta inesperada daily");
+                setDaily(null);
+            } else {
+                setDaily(j.data);
+            }
+        } catch (err: any) {
+            setError(err?.message ?? "Falha na requisição daily");
+            setDaily(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        // carregamento inicial
+        // carregamento inicial: summary + daily
         fetchSummary();
+        fetchDaily();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -64,6 +92,11 @@ export default function RelatoriosPage() {
         const de = new Date(end);
         return isNaN(ds.getTime()) || isNaN(de.getTime()) || ds.getTime() > de.getTime();
     }, [start, end]);
+
+    const applyFilter = () => {
+        fetchSummary(start, end);
+        fetchDaily(start, end);
+    };
 
     return (
         <div style={{ padding: 18 }}>
@@ -81,7 +114,7 @@ export default function RelatoriosPage() {
                     <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
 
                     <button
-                        onClick={() => fetchSummary(start, end)}
+                        onClick={applyFilter}
                         disabled={disabledApply || loading}
                         style={{
                             padding: "8px 12px",
@@ -127,6 +160,38 @@ export default function RelatoriosPage() {
                         </div>
                         <div style={{ marginTop: 6, color: "#888", fontSize: 12 }}>Mensagens Whatsapp no período</div>
                     </div>
+                </div>
+
+                {/* Dados diários */}
+                <div style={{ marginTop: 18 }}>
+                    <h2 style={{ fontSize: 16, marginBottom: 8 }}>Dados diários</h2>
+
+                    {daily === null ? (
+                        <div style={{ color: "#666" }}>Sem dados</div>
+                    ) : (
+                        <div style={{ overflowX: "auto", border: "1px solid #eee", borderRadius: 8, background: "#fff" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                                <thead>
+                                    <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
+                                        <th style={{ padding: 10, fontSize: 12, color: "#666" }}>Data</th>
+                                        <th style={{ padding: 10, fontSize: 12, color: "#666" }}>Faturamento</th>
+                                        <th style={{ padding: 10, fontSize: 12, color: "#666" }}>Pedidos</th>
+                                        <th style={{ padding: 10, fontSize: 12, color: "#666" }}>Mensagens</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {daily.map((d) => (
+                                        <tr key={d.date} style={{ borderBottom: "1px solid #fafafa" }}>
+                                            <td style={{ padding: 10 }}>{d.date}</td>
+                                            <td style={{ padding: 10 }}>{formatBRL(d.faturamento)}</td>
+                                            <td style={{ padding: 10 }}>{d.orders}</td>
+                                            <td style={{ padding: 10 }}>{d.messages}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
