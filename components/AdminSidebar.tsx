@@ -83,6 +83,9 @@ export default function AdminSidebar() {
     const [openThread, setOpenThread] = useState<Thread | null>(null);
     const [collapsed, setCollapsed] = useState<boolean>(false);
 
+    // novo estado para o OrdersStatsModal
+    const [ordersStatsOpen, setOrdersStatsOpen] = useState<boolean>(false);
+
     async function loadOrders() {
         if (!currentCompanyId) {
             setOrders([]);
@@ -346,17 +349,36 @@ export default function AdminSidebar() {
                     )}
                 </div>
 
+                {/* botão que abre o modal de estatísticas */}
                 <div style={{ marginTop: 14 }}>
-                    <OrdersStatsModal />
+                    <button
+                        onClick={() => setOrdersStatsOpen(true)}
+                        style={{
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            background: SIDEBAR_CARD_BG,
+                            color: "#fff",
+                            border: "none",
+                            cursor: "pointer",
+                            width: "100%",
+                            textAlign: "left",
+                        }}
+                    >
+                        Estatísticas
+                    </button>
                 </div>
             </aside>
 
-            {/* Renderiza o modal somente quando há um thread selecionado */}
+            {/* Modais usados no sidebar */}
             {openThread ? (
                 <QuickReplyModal
                     thread={openThread}
                     onClose={() => setOpenThread(null)}
                 />
+            ) : null}
+
+            {ordersStatsOpen ? (
+                <OrdersStatsModal open={ordersStatsOpen} onClose={() => setOrdersStatsOpen(false)} />
             ) : null}
         </>
     );
