@@ -177,6 +177,8 @@ export default function RelatoriosPage() {
     // -------------------------
     // Export PDF (dynamic import, try/catch)
     // -------------------------
+    // dentro do componente RelatoriosPage, substitua exportPDF por:
+
     const exportPDF = async () => {
         try {
             const days = dateDiffDays(start, end);
@@ -190,12 +192,21 @@ export default function RelatoriosPage() {
                 return;
             }
 
-            // dynamic import para evitar problemas com bundler/SSR e garantir plugin anexado
+            // dynamic imports - evita problemas do bundler / SSR
             const jsPDFModule = await import("jspdf");
-            // alguns bundlers exportam o jsPDF como default e outros como named; tratar ambos
+            // obter a função autoTable diretamente
+            const autoTableModule = await import("jspdf-autotable");
             const jsPDF = (jsPDFModule && (jsPDFModule.jsPDF || jsPDFModule.default || jsPDFModule)) as any;
-            // importa plugin autotable — o plugin registra autoTable no prototype do jsPDF quando importado
-            await import("jspdf-autotable");
+            const autoTable = (autoTableModule && (autoTableModule.default || autoTableModule)) as any;
+
+            if (!jsPDF) {
+                alert("Erro ao carregar jsPDF. Verifique se 'jspdf' está instalado.");
+                return;
+            }
+            if (!autoTable) {
+                alert("Erro ao carregar jspdf-autotable. Verifique se 'jspdf-autotable' está instalado.");
+                return;
+            }
 
             const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
 
@@ -215,8 +226,8 @@ export default function RelatoriosPage() {
             doc.setFontSize(14);
             doc.text(`Relatório diário: ${start} → ${end}`, 40, 40);
 
-            // @ts-ignore safe: autoTable is provided by jspdf-autotable import
-            doc.autoTable({
+            // Usar a função autoTable diretamente (compatível com ESM/CJS)
+            autoTable(doc, {
                 head: [head],
                 body,
                 startY: 60,
@@ -227,11 +238,11 @@ export default function RelatoriosPage() {
 
             doc.save(`relatorio_${start}_${end}.pdf`);
         } catch (err: any) {
-            // IMPORTANT: capturamos o erro para evitar o overlay do Next (TypeError etc.)
             console.error("exportPDF error", err);
-            alert("Erro ao gerar PDF: " + (err?.message ?? String(err)) + ". Verifique se instalou 'jspdf' e 'jspdf-autotable' e reinicie o dev server.");
+            alert("Erro ao gerar PDF: " + (err?.message ?? String(err)) + ". Verifique se instalou 'jspdf' e 'jspdf-autotable'.");
         }
     };
+
 
     return (
         <div style={{ padding: 18 }}>
