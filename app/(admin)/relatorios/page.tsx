@@ -180,9 +180,10 @@ export default function RelatoriosPage() {
     // dentro do componente RelatoriosPage, substitua exportPDF por:
 
     // função exportPDF (cole dentro do component RelatoriosPage)
+    // dentro do RelatoriosPage: substitua a função exportPDF por esta versão robusta
     const exportPDF = async () => {
         try {
-            // valida limite de 90 dias
+            // limite 90 dias
             const days = (() => {
                 const a = new Date(start);
                 const b = new Date(end);
@@ -198,25 +199,16 @@ export default function RelatoriosPage() {
                 return;
             }
 
-            // dynamic import para lidar com CJS/ESM e bundler
-            const jsPDFModule = await import("jspdf");
-            // jspdf-autotable normalmente registra autoTable, mas a forma mais compatível
-            // é importar o módulo e obter a função 'default' ou 'autoTable' exportada.
-            const autoTableModule = await import("jspdf-autotable");
+            // dynamic imports
+            const jspdfMod = await import("jspdf");
+            // jspdf-autotable pode exportar default ou named; capturamos ambos
+            const autoTableMod = await import("jspdf-autotable");
 
-            // obter o construtor jsPDF (tratando named/default)
-            const jsPDF = (jsPDFModule && (jsPDFModule.jsPDF || jsPDFModule.default || jsPDFModule)) as any;
-            if (!jsPDF) {
-                alert("Não foi possível carregar 'jspdf'. Verifique a instalação.");
-                return;
-            }
+            const jsPDF = (jspdfMod && (jspdfMod.jsPDF || jspdfMod.default || jspdfMod)) as any;
+            const autoTable = (autoTableMod && (autoTableMod.default || autoTableMod)) as any;
 
-            // obter autoTable: alguns bundlers exportam como default, outros como named
-            const autoTable = (autoTableModule && (autoTableModule.default || autoTableModule)) as any;
-            if (!autoTable) {
-                alert("Não foi possível carregar 'jspdf-autotable'. Verifique a instalação.");
-                return;
-            }
+            if (!jsPDF) throw new Error("Não foi possível carregar jsPDF");
+            if (!autoTable) throw new Error("Não foi possível carregar jspdf-autotable");
 
             const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
 
@@ -236,7 +228,7 @@ export default function RelatoriosPage() {
             doc.setFontSize(14);
             doc.text(`Relatório diário: ${start} → ${end}`, 40, 40);
 
-            // CHAVE: chamar a função autoTable com o doc como primeiro argumento
+            // CHAVE: chamar autoTable(doc, opts) — compatível com ESM/CJS
             autoTable(doc, {
                 head: [head],
                 body,
@@ -248,10 +240,12 @@ export default function RelatoriosPage() {
 
             doc.save(`relatorio_${start}_${end}.pdf`);
         } catch (err: any) {
-            console.error("exportPDF error", err);
-            alert("Erro ao gerar PDF: " + (err?.message ?? String(err)) + ". Certifique-se de ter instalado 'jspdf' e 'jspdf-autotable' e reinicie o dev server.");
+            console.error("exportPDF error:", err);
+            // não permita que uma exceção não tratada abra o overlay do Next
+            alert("Erro ao gerar PDF: " + (err?.message ?? String(err)) + ". Certifique-se de instalar 'jspdf' e 'jspdf-autotable' e reiniciar o dev server.");
         }
     };
+
 
 
 

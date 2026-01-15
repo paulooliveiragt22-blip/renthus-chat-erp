@@ -188,7 +188,7 @@ export default function RelatoriosPage() {
         doc.text(`Relatório diário: ${start} → ${end}`, 40, 40);
 
         // @ts-ignore - autoTable typings sometimes conflict
-        doc.autoTable({
+        autoTable(doc, {
             head: [head],
             body,
             startY: 60,
