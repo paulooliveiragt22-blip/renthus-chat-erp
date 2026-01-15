@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { FiHome, FiShoppingCart } from "react-icons/fi";
 import { FaWhatsapp } from "react-icons/fa";
@@ -26,13 +27,6 @@ const SIDEBAR_TEXT = "#FFFFFF";
 const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
 const SIDEBAR_CARD_BG = "rgba(255,255,255,0.06)";
 
-const CARD_PADDING = 6;
-const CARD_RADIUS = 7;
-const CARD_GAP = 6;
-const NAME_FONT = 11;
-const MSG_FONT = 10;
-const CHIP_FONT = 11;
-
 function formatBRL(n: number | null | undefined) {
     const v = typeof n === "number" ? n : 0;
     return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -43,52 +37,6 @@ function prettyStatus(s: string) {
     if (s === "delivered") return "Entregue";
     if (s === "finalized") return "Finalizado";
     return s;
-}
-function statusColor(s: string) {
-    if (s === "new") return "green";
-    if (s === "canceled") return "crimson";
-    if (s === "finalized") return "dodgerblue";
-    if (s === "delivered") return "#666";
-    return "#333";
-}
-
-function btnBaseSlim(disabled?: boolean): React.CSSProperties {
-    return {
-        padding: "4px 8px",
-        borderRadius: 10,
-        border: `1px solid ${SIDEBAR_BORDER}`,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.55 : 1,
-        fontSize: CHIP_FONT,
-        fontWeight: 900,
-        lineHeight: 1.1,
-        whiteSpace: "nowrap",
-        color: SIDEBAR_TEXT,
-        background: "transparent",
-    };
-}
-
-function chipOrangeStyle(active?: boolean): React.CSSProperties {
-    if (active) {
-        return {
-            borderRadius: 999,
-            padding: "5px 8px",
-            background: ORANGE,
-            color: "#fff",
-            fontWeight: 800,
-            border: `1px solid ${ORANGE}`,
-            fontSize: CHIP_FONT,
-        };
-    }
-    return {
-        borderRadius: 999,
-        padding: "5px 8px",
-        background: "transparent",
-        color: ORANGE,
-        fontWeight: 800,
-        border: `1px solid ${ORANGE}`,
-        fontSize: CHIP_FONT,
-    };
 }
 
 function normalizeOrders(input: unknown): OrderRow[] {
@@ -240,14 +188,13 @@ export default function AdminSidebar() {
 
     const width = collapsed ? 64 : 240;
 
-    // nav items using react-icons (Icon is the component)
     const navItems: { key: string; label: string; Icon: any; href: string }[] = [
         { key: "dashboard", label: "Dashboard", Icon: FiHome, href: "/" },
         { key: "whatsapp", label: "WhatsApp", Icon: FaWhatsapp, href: "/whatsapp" },
         { key: "cadastrar", label: "Cadastrar produto", Icon: AiOutlinePlusSquare, href: "/produtos" },
         { key: "produtos", label: "Produtos", Icon: GiCube, href: "/produtos/lista" },
         { key: "pedidos", label: "Pedidos", Icon: FiShoppingCart, href: "/pedidos" },
-        { key: "relatorio", label: "Relatório", Icon: BiBarChart, href: "/relatorios" },
+        { key: "relatorio", label: "Relatórios", Icon: BiBarChart, href: "/relatorios" },
     ];
 
     function isNavActive(item: { key: string; href: string }) {
@@ -316,109 +263,101 @@ export default function AdminSidebar() {
                     </div>
                 </div>
 
-                {/* menu */}
                 <nav style={{ marginTop: 12 }}>
                     <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
                         {navItems.map((it) => {
                             const active = isNavActive(it);
-                            const baseStyle: React.CSSProperties = {
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 12,
-                                width: "100%",
-                                textAlign: "left",
-                                padding: "10px 12px",
-                                borderRadius: 10,
-                                border: "none",
-                                background: active ? "rgba(0,0,0,0.12)" : "transparent",
-                                cursor: "pointer",
-                                color: SIDEBAR_TEXT,
-                            };
-
                             return (
                                 <li key={it.key}>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            try { router.push(it.href); }
-                                            catch { window.location.href = it.href; }
+                                    <Link
+                                        href={it.href}
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 12,
+                                            width: "100%",
+                                            textDecoration: "none",
+                                            padding: "10px 12px",
+                                            borderRadius: 8,
+                                            color: SIDEBAR_TEXT,
+                                            background: active ? SIDEBAR_CARD_BG : "transparent",
+                                            fontWeight: active ? 800 : 600,
                                         }}
-                                        style={baseStyle}
-                                        aria-current={active ? "page" : undefined}
                                     >
-                                        <it.Icon size={16} />
-                                        {!collapsed && <span style={{ fontSize: 14, fontWeight: 700 }}>{it.label}</span>}
-                                    </button>
+                                        <it.Icon size={18} />
+                                        {!collapsed ? <span style={{ fontSize: 14 }}>{it.label}</span> : null}
+                                    </Link>
                                 </li>
-
                             );
                         })}
                     </ul>
                 </nav>
 
-                {!collapsed ? (
-                    <>
-                        <div style={{ marginTop: 12, borderTop: `1px solid ${SIDEBAR_BORDER}`, paddingTop: 8 }}>
-                            <div style={{ display: "flex", gap: 8 }}>
-                                <button onClick={() => setTab("orders")} style={tab === "orders" ? chipOrangeStyle(true) : chipOrangeStyle(false)}>Pedidos ({newOrdersCount})</button>
-                                <button onClick={() => setTab("whatsapp")} style={tab === "whatsapp" ? chipOrangeStyle(true) : chipOrangeStyle(false)}>WhatsApp ({newMessagesCount})</button>
-                            </div>
+                <div style={{ marginTop: 14 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                        <button onClick={() => setTab("orders")} style={{ padding: 6, borderRadius: 8, ...(tab === "orders" ? { background: SIDEBAR_CARD_BG } : {}) }}>
+                            Pedidos ({newOrdersCount})
+                        </button>
+                        <button onClick={() => setTab("whatsapp")} style={{ padding: 6, borderRadius: 8, ...(tab === "whatsapp" ? { background: SIDEBAR_CARD_BG } : {}) }}>
+                            WhatsApp ({newMessagesCount})
+                        </button>
+                    </div>
 
-                            <div style={{ marginTop: 10 }}>
-                                {tab === "orders" ? (
-                                    <>
-                                        {loading ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Carregando...</div> :
-                                            newOrdersCount === 0 ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Nenhum pedido novo.</div> :
-                                                <div style={{ display: "grid", gap: CARD_GAP }}>
-                                                    {latestNewOrders.map((o) => {
-                                                        const name = o.customers?.name ?? "-";
-                                                        return (
-                                                            <button key={o.id} type="button" onClick={() => openOrder ? openOrder(o.id) : null} style={{
-                                                                width: "100%", textAlign: "left", border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS,
-                                                                padding: CARD_PADDING, cursor: "pointer", background: SIDEBAR_CARD_BG, boxSizing: "border-box", color: SIDEBAR_TEXT, display: "block"
-                                                            }} title="Abrir pedido">
-                                                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", minWidth: 0 }}>
-                                                                    <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{name}</div>
-                                                                    <div style={{ fontWeight: 900, fontSize: 11 }}>
-                                                                        <span style={{ borderRadius: 999, padding: "3px 6px", fontWeight: 900, color: statusColor(String(o.status)), border: `1px solid ${statusColor(String(o.status))}`, background: "rgba(255,255,255,0.02)", fontSize: 11 }}>{prettyStatus(String(o.status))}</span>
-                                                                    </div>
-                                                                </div>
-                                                                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-                                                                    <span style={{ fontSize: MSG_FONT, fontWeight: 900 }}>R$ {formatBRL(o.total_amount)}</span>
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                        }
-                                        <div style={{ marginTop: 8 }}>
-                                            <button onClick={() => router.push("/pedidos")} style={{ ...btnBaseSlim(false), width: "100%", fontSize: CHIP_FONT }}>Abrir lista completa</button>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        {loadingThreads ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Carregando...</div> :
-                                            threads.length === 0 ? <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)" }}>Nenhuma conversa.</div> :
-                                                <div style={{ display: "grid", gap: CARD_GAP }}>
-                                                    {latestThreads.map((t) => (
-                                                        <button key={t.id} type="button" onClick={() => setOpenThread(t)} style={{
-                                                            width: "100%", textAlign: "left", border: `1px solid ${SIDEBAR_BORDER}`, borderRadius: CARD_RADIUS,
-                                                            padding: CARD_PADDING, cursor: "pointer", background: SIDEBAR_CARD_BG, boxSizing: "border-box", color: SIDEBAR_TEXT, display: "block"
-                                                        }}>
-                                                            <div style={{ fontWeight: 900, fontSize: NAME_FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.profile_name || t.phone_e164}</div>
-                                                            <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)", marginTop: 2 }}>{t.phone_e164}</div>
-                                                            <div style={{ fontSize: MSG_FONT, color: "rgba(255,255,255,0.8)", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.last_message_preview || "(sem mensagens)"}</div>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                        }
-                                    </>
-                                )}
+                    {tab === "orders" ? (
+                        <div>
+                            {loading ? <div>Carregando...</div> : null}
+                            {latestNewOrders.map((o) => (
+                                <div key={o.id} style={{ padding: 8, borderRadius: 8, background: SIDEBAR_CARD_BG, marginBottom: 6 }}>
+                                    <div style={{ fontWeight: 800 }}>{o.customers?.name ?? "Cliente"}</div>
+                                    <div style={{ color: "#ddd", fontSize: 12 }}>{prettyStatus(o.status)}</div>
+                                    <div style={{ color: "#fff", fontSize: 12 }}>{formatBRL(o.total_amount)}</div>
+                                </div>
+                            ))}
+                            <div style={{ marginTop: 8 }}>
+                                <Link href="/pedidos" style={{ color: "#fff", textDecoration: "underline" }}>Ver todos os pedidos</Link>
                             </div>
                         </div>
-                    </>
-                ) : null}
+                    ) : (
+                        <div>
+                            {loadingThreads ? <div>Carregando...</div> : null}
+                            {latestThreads.map((t) => (
+                                <div
+                                    key={t.id}
+                                    onClick={() => setOpenThread(t)}
+                                    role="button"
+                                    tabIndex={0}
+                                    onKeyDown={(e) => { if (e.key === "Enter") setOpenThread(t); }}
+                                    style={{
+                                        padding: 8,
+                                        borderRadius: 8,
+                                        background: SIDEBAR_CARD_BG,
+                                        marginBottom: 6,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    <div style={{ fontWeight: 700 }}>{t.profile_name ?? t.phone_e164}</div>
+                                    <div style={{ color: "#ddd", fontSize: 12 }}>{t.last_message_preview ?? ""}</div>
+                                </div>
+                            ))}
+                            <div style={{ marginTop: 8 }}>
+                                <Link href="/whatsapp" style={{ color: "#fff", textDecoration: "underline" }}>Ir ao WhatsApp</Link>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ marginTop: 14 }}>
+                    <OrdersStatsModal />
+                </div>
             </aside>
+
+            {/* Renderiza o modal somente quando há um thread selecionado */}
+            {openThread ? (
+                <QuickReplyModal
+                    thread={openThread}
+                    onClose={() => setOpenThread(null)}
+                />
+            ) : null}
         </>
     );
 }
