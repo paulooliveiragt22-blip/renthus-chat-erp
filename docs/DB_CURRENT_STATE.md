@@ -462,3 +462,190 @@ company_users_select — permite SELECT na company_users para o próprio user ou
 company_integrations_select_for_members e daily_company_metrics_select_for_members — leitura restrita para membros.
 
 Claim JWT: todas as policies foram padronizadas para usar jwt.claims.sub (padrão do Supabase). Se o projeto usar outro claim, é necessário adaptar.
+
+O que já foi implementado / validado
+Arquitetura & DB
+
+print_jobs design e filas já existiam na base/doc — confirmação no schema/arquitetura do ERP. 
+
+schema
+
+Nova migration proposta criada (SQL entregue) que adiciona:
+
+print_agents (registro de agentes com api_key_hash, prefix, last_seen),
+
+company_printers (vínculo company ⇄ printer),
+
+ajustes em print_jobs (processed_by, attempts, reserved_at, processed_at) e índice print_jobs_pending_company_idx.
+
+RPC atômica reserve_print_job(p_company, p_agent) implementada (PL/pgSQL com FOR UPDATE SKIP LOCKED) para reservar jobs sem race. (migration/RPC entregue).
+
+Backend (renthus-chat-erp)
+
+Middleware já permite tráfego para /api/print/* (roteamento correto). 
+
+middleware
+
+Helpers: lib/supabase/admin.ts (service-role client) e lib/workspace/requireCompanyAccess.ts existem e são usados nas rotas. 
+
+PROJECT_SPEC +1
+
+Novos endpoints implementados (arquivos prontos / exemplos entregues):
+
+POST /api/print/agents — criar/registrar agente (gera api_key e retorna a chave apenas uma vez).
+
+GET /api/print/jobs/poll — agente autentica com Authorization: Bearer <AGENT_KEY> e reserva job via reserve_print_job RPC.
+
+POST /api/print/jobs/:id/status — agente reporta done/failed.
+
+GET /api/print/companies/:companyId/printers e GET /api/print/printers/:id — para o agente obter config de impressora.
+
+Lib de verificação de agente: lib/print/agents.ts com verifyAgentByApiKey e updateAgentLastSeen (usa service role + bcrypt para hash check). (Código entregue).
+
+Diretrizes de RLS/policies: recomendado manter backend como gatekeeper (service role); não expor escrita direta ao agente via RLS. (Documentação de políticas fornecida).
+
+Agent (renthus-print-agent)
+
+printAgent.advanced.js — versão atualizada e entregue:
+
+Não usa SUPABASE_SERVICE_ROLE_KEY (correção de segurança). Em vez disso usa AGENT_KEY e chama endpoints do ERP (/jobs/poll, /jobs/:id/status) para operar. 
+
+printAgent.advanced
+
+Suporta impressão: ESC/POS receipt builder, PDF A4 (PDFKit + pdf-to-printer), ZPL, e envios a impressoras via TCP (raw 9100), USB (escpos/escpos-usb) e Bluetooth SPP. Fallback para leitura de printers.json local se DB não responder.
+
+Loop de polling com backoff, queue/processing por company, reportJobStatus, logs e health endpoint (/health).
+
+tools/print-agent/package.json entregue e corrigido; dependências instaladas (incluindo escpos/escpos-usb opcional). 
+
+package
+
+Testes / validação já feitos
+
+Agent executa e reporta mensagens de inicialização; instalamos dependências e fizemos validações iniciais (logs, warnings sobre libs Bluetooth/USB se ausentes).
+
+Foi validado que o agent exige AGENT_KEY para operar (mensagem informativa quando não setado).
+
+O que ainda falta (checklist detalhado — prioridade alta → baixa)
+
+Prioridade alta (produção / segurança)
+
+Gerar / entregar instaladores / pacotes para cliente
+
+Build do agente em executáveis por plataforma (Windows .exe, Linux ELF, macOS) — recomendação: pkg para criar binários standalone.
+
+Criar ZIPs pré-configurados por agente (binário + config.json com API_BASE e AGENT_KEY + install scripts).
+
+Endpoint seguro GET /api/print/agents/:id/download?platform=... para gerar/entregar ZIP (one-time token or ephemeral key). Risco: não armazenar AGENT_KEY em texto puro; usar token/one-time download approach. (Not implemented).
+
+Gerenciar api_key com segurança
+
+Mostrar o api_key apenas uma vez no momento de criação (já definido) e não persistir plain.
+
+Implementar armazenamento com hash (bcrypt) — já na migration. Implementar processo para download one-time: gravar token temporário que permite a rota de download retornar o plain AGENT_KEY apenas naquele download e depois removê-lo. (Implementar.)
+
+Instalador / Serviço (Windows/ Linux)
+
+Criar install.ps1 (com NSSM fallback) e install.sh (systemd unit que roda como usuário dedicado).
+
+Publicar instruções e testar instalação automática como serviço. (Aguardando).
+
+Revogação / lifecycle
+
+Endpoint UI/Backend para revogar agentes (is_active=false).
+
+Agent deve checar periodicamente se is_active (ou backend notificá-lo) para parar se revogado. (Agent currently updates last_seen but doesn’t poll for active flag).
+
+Auto-update / code signing
+
+Implementar versãoing & auto-update (agent check endpoint) and code signing for Windows binaries. (Important for trust).
+
+End-to-end tests & CI
+
+E2E tests: create agent → download → install (virtual) → create print_job → agent prints → update db status = done.
+
+CI pipeline to build dist binaries and run unit tests.
+
+Prioridade medium (robustness & ops)
+
+Driver / OS instructions (drivers/udev/Zadig)
+
+Provide documented steps for Windows (Zadig / driver), Linux (udev rule example), macOS notes.
+
+Provide udev rules snippets and sample printers.json example. (Docs partially provided.)
+
+Observability / logging / metrics
+
+Add structured logging to agent, push metrics (job processed, attempts, errors) to central logs (or expose endpoint).
+
+Admin UI showing agents list, last_seen, queued jobs, recent errors.
+
+Retries / dead-letter Handling
+
+Backend worker/cron to handle failed → retry policy (based on attempts column) and to mark permanently failed after N attempts, alert admin.
+
+Rate limiting / abuse protection
+
+Rate-limit GET /jobs/poll per agent to avoid over-polling. Also throttle backend endpoints.
+
+Prioridade low (enhancements & billing)
+
+Billing / entitlements enforcement
+
+Ensure printing feature printing_auto is enforced (backend check when enqueueing print_jobs or when creating jobs). Docs already mention entitlements; ensure enforcement for paid plans. 
+
+20260103000100_seed_entitlement…
+
+Admin console improvements
+
+Download buttons, agent revoke/regenerate key, agent logs view, usage/billing by prints.
+
+Secure distribution / audit trail
+
+Log agent download events (who downloaded, when) and ensure auditability.
+
+Operacional / Segurança — pontos críticos a tratar agora
+
+Never ship SUPABASE_SERVICE_ROLE_KEY in any agent package. Backend must be sole holder of service_role. (Already handled.) 
+
+admin
+
+API Key handling: store only hashed key; plain key transient and delivered once (or via one-time download token). If key is leaked, admin must be able to revoke and create new agent.
+
+Service user: install agent as non-root service user (Linux) and ensure minimal privileges; document required permissions for USB access (udev rules) and driver installation on Windows.
+
+Code signing: for Windows executables sign to avoid security prompts.
+
+Network constraints: document API_BASE host/ports (HTTPS mandatory), firewall rules for PDV to reach ERP.
+
+Artefatos / arquivos já entregues (para documentação/revisão)
+
+supabase/migrations/20260115_..._create_print_agents_...sql — migration + RPC reserve_print_job (text delivered).
+
+lib/print/agents.ts — verifyAgentByApiKey, updateAgentLastSeen.
+
+app/api/print/* routes (POST agents, GET jobs/poll, POST jobs/:id/status, GET companies/:companyId/printers, GET printers/:id) — arquivos e exemplos entregues.
+
+printAgent.advanced.js — agent updated (no service role, uses AGENT_KEY, supports ESC/POS/PDF/TCP/USB/BT, health endpoint). 
+
+printAgent.advanced
+
+tools/print-agent/package.json — validated and fixed. 
+
+package
+
+(Use estes para anexar à documentação como “implementado” e referenciar o código.)
+
+Recomendações de próximos passos (ordem sugerida — ação imediata)
+
+Implementar rota / processo de download one-time (secure generator of ZIP with agent + config) — alta prioridade. (Backend change + small storage for ephemeral token)
+
+Build de binários com pkg para cada plataforma e colocar em print-agent-dist/ no servidor.
+
+Escrever/commitar install.ps1 e install.sh (com NSSM/systemd patterns) e testar fluxo de instalação como serviço.
+
+Implementar revogação e agent-check for is_active (agent polls endpoint or backend pushes) e a UI para admins.
+
+Testes E2E (pipeline): criar agent → download → install → create job → agent prints → status done. Automatizar com VM/container.
+
+Documentação final: instruções PDV (Windows/ Linux), driver/Zadig, udev rules, troubleshooting.
