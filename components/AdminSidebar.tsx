@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { FiHome, FiShoppingCart } from "react-icons/fi";
 import { FaWhatsapp } from "react-icons/fa";
 import { AiOutlinePlusSquare } from "react-icons/ai";
@@ -134,6 +135,9 @@ export default function AdminSidebar() {
     const [loadingThreads, setLoadingThreads] = useState(false);
     const [openThread, setOpenThread] = useState<Thread | null>(null);
     const [collapsed, setCollapsed] = useState<boolean>(false);
+
+    // nova state para o OrdersStatsModal (última correção)
+    const [ordersStatsOpen, setOrdersStatsOpen] = useState<boolean>(false);
 
     async function loadOrders() {
         if (!currentCompanyId) {
@@ -331,27 +335,27 @@ export default function AdminSidebar() {
                                 borderRadius: 10,
                                 border: "none",
                                 background: active ? "rgba(0,0,0,0.12)" : "transparent",
-                                color: SIDEBAR_TEXT,
                                 cursor: "pointer",
-                                fontWeight: active ? 900 : 700,
-                                position: "relative",
-                                overflow: "hidden",
-                                transition: "background 120ms ease",
+                                color: SIDEBAR_TEXT,
                             };
-                            const activeAccent: React.CSSProperties = active ? { borderLeft: `4px solid ${ORANGE}`, paddingLeft: 8 } : {};
-                            const iconWrapperStyle: React.CSSProperties = collapsed ? {
-                                width: 44, height: 44, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
-                                background: active ? "rgba(255,102,0,0.12)" : "transparent", margin: "0 auto"
-                            } : { width: 20, display: "inline-flex", justifyContent: "center", alignItems: "center", color: ORANGE };
 
-                            const Icon = it.Icon;
                             return (
                                 <li key={it.key}>
-                                    <button aria-current={active ? "page" : undefined} onClick={() => router.push(it.href)} style={{ ...baseStyle, ...activeAccent }}>
-                                        <span style={iconWrapperStyle}>
-                                            <Icon size={18} color={active ? ORANGE : ORANGE} aria-hidden="true" />
-                                        </span>
-                                        {!collapsed ? <span style={{ fontSize: 14 }}>{it.label}</span> : null}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            try {
+                                                router.push(it.href);
+                                            } catch (e) {
+                                                // fallback: recarregar a rota
+                                                window.location.href = it.href;
+                                            }
+                                        }}
+                                        style={baseStyle}
+                                        aria-current={active ? "page" : undefined}
+                                    >
+                                        <it.Icon size={16} />
+                                        {!collapsed && <span style={{ fontSize: 14, fontWeight: 700 }}>{it.label}</span>}
                                     </button>
                                 </li>
                             );
@@ -419,9 +423,43 @@ export default function AdminSidebar() {
                                 )}
                             </div>
                         </div>
+
+                        {/* area de botões (adicionada para abrir o modal de estatísticas e manter cadastro) */}
+                        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                            <button
+                                onClick={() => setOrdersStatsOpen(true)}
+                                style={{
+                                    padding: "8px 10px",
+                                    borderRadius: 8,
+                                    background: SIDEBAR_CARD_BG,
+                                    color: "#fff",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    width: "100%",
+                                    textAlign: "left",
+                                }}
+                            >
+                                Estatísticas
+                            </button>
+
+                            <Link href="/produtos" style={{ textDecoration: "none" }}>
+                                <div style={{ padding: "8px 10px", borderRadius: 8, background: "transparent", color: "#fff", border: `1px solid ${SIDEBAR_BORDER}`, cursor: "pointer" }}>
+                                    Cadastrar produto
+                                </div>
+                            </Link>
+                        </div>
                     </>
                 ) : null}
             </aside>
+
+            {/* Modais - renderizados fora do aside */}
+            {openThread ? (
+                <QuickReplyModal thread={openThread} onClose={() => setOpenThread(null)} />
+            ) : null}
+
+            {ordersStatsOpen ? (
+                <OrdersStatsModal open={ordersStatsOpen} onClose={() => setOrdersStatsOpen(false)} />
+            ) : null}
         </>
     );
 }

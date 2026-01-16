@@ -83,7 +83,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         <AdminOrdersProvider openOrder={openOrder}>
             <div style={{ display: "flex", gap: 12, padding: 14, alignItems: "flex-start" }}>
                 <AdminSidebar />
-                <main style={{ flex: 1, minWidth: 0 }}>{children}</main>
+                <main style={{ flex: 1, minWidth: 0, position: "relative", zIndex: 1 }}>{children}</main>
             </div>
 
             {/* Modal (idêntico ao que estava no layout admin) */}
