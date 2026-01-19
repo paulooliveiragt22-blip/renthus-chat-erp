@@ -1,0 +1,14 @@
+[
+  {
+    "company_id": "EXEMPLO-COMPANY-ID",
+    "id": "printer-1",
+    "name": "Impressora da Cozinha",
+    "type": "network",
+    "format": "receipt",
+    "config": {
+      "host": "192.168.0.50",
+      "port": 9100,
+      "autoPrint": true
+    }
+  }
+]
