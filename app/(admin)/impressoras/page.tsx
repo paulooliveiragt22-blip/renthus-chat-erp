@@ -5,6 +5,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import DownloadAgentButton from "@/components/DownloadAgentButton";
+
 
 type PrinterRow = {
     id: string;
@@ -284,10 +286,16 @@ export default function PrintersAdminPage() {
                     </div>
                 </div>
 
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <button onClick={() => reload().then(loadPrinters)} style={simpleBtn({ background: "#666" })}>Atualizar</button>
                     <button onClick={openNewForm} style={simpleBtn()}>Nova impressora</button>
+
+                    {/* Botão que gera a chave e baixa o agente via ERP (abre em nova aba) */}
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                        <DownloadAgentButton />
+                    </div>
                 </div>
+
             </div>
 
             <div style={{ marginTop: 16 }}>
