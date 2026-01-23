@@ -5,8 +5,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
-import DownloadAgentButton from "@/components/DownloadAgentButton";
 
+// se você colocou o componente na mesma pasta de components com alias @
+import DownloadAgentButton from "@/components/DownloadAgentButton";
 
 type PrinterRow = {
     id: string;
@@ -56,6 +57,12 @@ export default function PrintersAdminPage() {
 
     const [openForm, setOpenForm] = useState(false);
     const [editing, setEditing] = useState<PrinterRow | null>(null);
+
+    // local printers modal state
+    const [localPrinters, setLocalPrinters] = useState<{ id: string; name: string }[]>([]);
+    const [loadingLocalPrinters, setLoadingLocalPrinters] = useState(false);
+    const [showLocalModal, setShowLocalModal] = useState(false);
+    const [localError, setLocalError] = useState<string | null>(null);
 
     // form fields
     const emptyForm = {
@@ -124,7 +131,6 @@ export default function PrintersAdminPage() {
 
     function openEditForm(p: PrinterRow) {
         setEditing(p);
-        // normalize config
         setForm({
             name: p.name ?? "",
             type: p.type ?? "network",
@@ -231,7 +237,6 @@ export default function PrintersAdminPage() {
         setLoading(true);
         setMsg(null);
         try {
-            // create order
             const { data: ord, error: ordErr } = await supabase
                 .from("orders")
                 .insert([
@@ -254,7 +259,6 @@ export default function PrintersAdminPage() {
                 return;
             }
             const orderId = ord.id;
-            // insert a simple item
             await supabase.from("order_items").insert([
                 {
                     order_id: orderId,
@@ -266,7 +270,6 @@ export default function PrintersAdminPage() {
             ]);
 
             setMsg("Pedido de teste criado (id: " + orderId + "). O agent deve imprimir automaticamente.");
-            // reload jobs after small delay
             setTimeout(() => loadJobs(), 1500);
         } catch (e: any) {
             setMsg("Erro ao gerar teste: " + e.message);
@@ -275,7 +278,69 @@ export default function PrintersAdminPage() {
         }
     }
 
-    // small helper render
+    // ----------------- LOCAL PRINTERS (agent) integration -----------------
+    async function fetchLocalPrinters() {
+        setLoadingLocalPrinters(true);
+        setLocalError(null);
+        setLocalPrinters([]);
+        try {
+            // call agent local API
+            const res = await fetch("http://localhost:4001/local/printers", { method: "GET" });
+            if (!res.ok) {
+                const txt = await res.text();
+                throw new Error(txt || `Status ${res.status}`);
+            }
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "No printers");
+            setLocalPrinters(json.printers || []);
+            setShowLocalModal(true);
+        } catch (e: any) {
+            setLocalPrinters([]);
+            setLocalError(e.message || String(e));
+            setShowLocalModal(true);
+        } finally {
+            setLoadingLocalPrinters(false);
+        }
+    }
+
+    async function addLocalPrinterAsCompanyPrinter(printerName: string) {
+        if (!currentCompanyId) {
+            setMsg("Selecione a empresa primeiro.");
+            return;
+        }
+        setLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from("printers")
+                .insert([
+                    {
+                        company_id: currentCompanyId,
+                        name: `Impressora local - ${printerName}`,
+                        type: "a4",
+                        format: "a4",
+                        auto_print: false,
+                        interval_seconds: 0,
+                        is_active: true,
+                        config: { printerName },
+                    },
+                ])
+                .select("*")
+                .single();
+            if (error) {
+                setMsg("Erro ao registrar impressora local: " + error.message);
+            } else {
+                setMsg("Impressora local adicionada com sucesso.");
+                loadPrinters();
+                setShowLocalModal(false);
+            }
+        } catch (e: any) {
+            setMsg("Erro inesperado: " + e.message);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // ----------------- render -----------------
     return (
         <div style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -290,12 +355,14 @@ export default function PrintersAdminPage() {
                     <button onClick={() => reload().then(loadPrinters)} style={simpleBtn({ background: "#666" })}>Atualizar</button>
                     <button onClick={openNewForm} style={simpleBtn()}>Nova impressora</button>
 
-                    {/* Botão que gera a chave e baixa o agente via ERP (abre em nova aba) */}
-                    <div style={{ display: "flex", alignItems: "center" }}>
-                        <DownloadAgentButton />
-                    </div>
-                </div>
+                    {/* Botão que busca impressoras locais via agent */}
+                    <button onClick={() => fetchLocalPrinters()} style={simpleBtn({ background: "#5a2" })}>
+                        {loadingLocalPrinters ? "Buscando..." : "Buscar impressoras do PC"}
+                    </button>
 
+                    {/* Download agent button */}
+                    <DownloadAgentButton />
+                </div>
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -315,6 +382,7 @@ export default function PrintersAdminPage() {
                                             <div style={{ fontWeight: 800 }}>{p.name}</div>
                                             <div style={{ color: "#666", fontSize: 13 }}>{p.type} • {p.format} • {p.is_active ? "Ativa" : "Inativa"}</div>
                                             <div style={{ color: "#666", fontSize: 12, marginTop: 6 }}>Intervalo: {p.interval_seconds}s • Auto: {p.auto_print ? "Sim" : "Não"}</div>
+                                            {p.config && p.config.printerName ? <div style={{ color: "#444", fontSize: 12, marginTop: 6 }}>Impressora local: {p.config.printerName}</div> : null}
                                         </div>
                                         <div style={{ display: "flex", gap: 8 }}>
                                             <button onClick={() => openEditForm(p)} style={simpleBtn({ background: "#0b74de" })}>Editar</button>
@@ -355,105 +423,95 @@ export default function PrintersAdminPage() {
                 </div>
             </div>
 
-            {/* Modal/Form */}
+            {/* Modal/Form for creating/editing printers */}
             {openForm ? (
-                <div style={{
-                    position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                    background: "rgba(0,0,0,0.4)", zIndex: 9999
-                }}>
-                    <div style={{ width: 840, maxWidth: "96%", background: "#fff", borderRadius: 10, padding: 18 }}>
-                        <h2 style={{ marginTop: 0 }}>{editing ? "Editar impressora" : "Nova impressora"}</h2>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 260px", gap: 12 }}>
+                <div style={{ position: "fixed", left: 0, top: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{ width: 740, background: "#fff", padding: 16, borderRadius: 8 }}>
+                        <h3>{editing ? "Editar impressora" : "Nova impressora"}</h3>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                             <div>
-                                <label style={{ display: "block", marginBottom: 6 }}>Nome</label>
-                                <input value={form.name} onChange={(e) => updateFormField("name", e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #ddd" }} />
-
-                                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{ display: "block", marginBottom: 6 }}>Tipo</label>
-                                        <select value={form.type} onChange={(e) => updateFormField("type", e.target.value)} style={{ width: "100%", padding: 8 }}>
-                                            <option value="network">Network (IP)</option>
-                                            <option value="usb">USB</option>
-                                            <option value="bluetooth">Bluetooth</option>
-                                            <option value="system">Sistema (A4)</option>
-                                        </select>
-                                    </div>
-
-                                    <div style={{ width: 160 }}>
-                                        <label style={{ display: "block", marginBottom: 6 }}>Formato</label>
-                                        <select value={form.format} onChange={(e) => updateFormField("format", e.target.value)} style={{ width: "100%", padding: 8 }}>
-                                            <option value="receipt">Receipt / Cupom</option>
-                                            <option value="a4">A4 (PDF)</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                        <input type="checkbox" checked={!!form.auto_print} onChange={(e) => updateFormField("auto_print", e.target.checked)} />
-                                        Imprimir automaticamente
-                                    </label>
-
-                                    <div>
-                                        <label style={{ display: "block", marginBottom: 6 }}>Intervalo (segundos)</label>
-                                        <select value={Number(form.interval_seconds || 0)} onChange={(e) => updateFormField("interval_seconds", Number(e.target.value))} style={{ padding: 8 }}>
-                                            <option value={0}>0 (imediato)</option>
-                                            <option value={10}>10</option>
-                                            <option value={15}>15</option>
-                                            <option value={30}>30</option>
-                                            <option value={60}>60</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div style={{ marginTop: 12 }}>
-                                    <label style={{ display: "block", marginBottom: 6 }}>Config (JSON) — campos conforme tipo</label>
-                                    <textarea value={JSON.stringify(form.config || {}, null, 2)} onChange={(e) => {
-                                        try {
-                                            const json = JSON.parse(e.target.value);
-                                            updateFormField("config", json);
-                                            setMsg(null);
-                                        } catch (err: any) {
-                                            // keep raw string in config until saved; we keep form.config as raw
-                                            updateFormField("config", {});
-                                            setMsg("JSON inválido no campo Config. Corrija antes de salvar.");
-                                        }
-                                    }} rows={8} style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #ddd", fontFamily: "monospace" }} />
-                                    <div style={{ color: "#666", marginTop: 6, fontSize: 13 }}>
-                                        Exemplos para <strong>network</strong>: {"{ \"host\": \"192.168.0.100\", \"port\": 9100 }"}<br />
-                                        Para <strong>usb</strong>: {"{ \"usbVendorId\": 1155, \"usbProductId\": 22336 }"}<br />
-                                        Para <strong>bluetooth</strong>: {"{ \"btAddress\": \"00:11:22:33:44:55\" }"}<br />
-                                        Para <strong>system</strong> (A4): {"{ \"printerName\": \"HP_Laser_Office\" }"}
-                                    </div>
-                                </div>
+                                <label>Nome</label>
+                                <input value={form.name} onChange={(e) => updateFormField("name", e.target.value)} style={{ width: "100%", padding: 8, marginTop: 6 }} />
+                            </div>
+                            <div>
+                                <label>Tipo</label>
+                                <select value={form.type} onChange={(e) => updateFormField("type", e.target.value)} style={{ width: "100%", padding: 8, marginTop: 6 }}>
+                                    <option value="network">Network</option>
+                                    <option value="usb">USB</option>
+                                    <option value="bluetooth">Bluetooth</option>
+                                    <option value="a4">A4 / PDF</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Formato</label>
+                                <select value={form.format} onChange={(e) => updateFormField("format", e.target.value)} style={{ width: "100%", padding: 8, marginTop: 6 }}>
+                                    <option value="receipt">Receipt</option>
+                                    <option value="a4">A4 / PDF</option>
+                                    <option value="zpl">ZPL</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Intervalo (s)</label>
+                                <input type="number" value={form.interval_seconds} onChange={(e) => updateFormField("interval_seconds", Number(e.target.value || 0))} style={{ width: "100%", padding: 8, marginTop: 6 }} />
+                            </div>
+                            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <input type="checkbox" checked={!!form.auto_print} onChange={(e) => updateFormField("auto_print", !!e.target.checked)} /> Impressão automática
+                                </label>
+                                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <input type="checkbox" checked={!!form.is_active} onChange={(e) => updateFormField("is_active", !!e.target.checked)} /> Ativa
+                                </label>
                             </div>
 
-                            <div>
-                                <label style={{ display: "block", marginBottom: 6 }}>Ativar</label>
-                                <div style={{ marginBottom: 12 }}>
-                                    <label><input type="checkbox" checked={!!form.is_active} onChange={(e) => updateFormField("is_active", e.target.checked)} /> Ativa</label>
-                                </div>
-
-                                <div style={{ marginTop: 20 }}>
-                                    <div style={{ marginBottom: 8, color: "#666" }}>Ações</div>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                                        <button onClick={savePrinter} style={simpleBtn()}>Salvar</button>
-                                        <button onClick={() => { setOpenForm(false); setEditing(null); }} style={simpleBtn({ background: "#999" })}>Cancelar</button>
-                                    </div>
-                                </div>
-
-                                <div style={{ marginTop: 24 }}>
-                                    <div style={{ marginBottom: 8, color: "#666" }}>Ajuda</div>
-                                    <div style={{ color: "#333", fontSize: 13 }}>
-                                        - Informe as configurações corretas no campo <em>Config (JSON)</em> conforme o tipo.<br />
-                                        - Salve e use o botão <strong>Criar pedido de teste</strong> na página principal para disparar uma impressão de teste.
-                                    </div>
-                                </div>
+                            {/* config editor (JSON) */}
+                            <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                                <label>Config (JSON)</label>
+                                <textarea value={JSON.stringify(form.config || {}, null, 2)} onChange={(e) => {
+                                    try {
+                                        const v = JSON.parse(e.target.value);
+                                        updateFormField("config", v);
+                                    } catch {
+                                        // ignore parse errors until save
+                                        updateFormField("config", form.config);
+                                    }
+                                }} style={{ width: "100%", minHeight: 120, marginTop: 6 }} />
+                                <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>Ex.: {"{ \"host\":\"192.168.0.20\",\"port\":9100 }"} ou {"{ \"printerName\":\"Microsoft Print to PDF\" }"}</div>
                             </div>
+                        </div>
+
+                        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                            <button onClick={() => { setOpenForm(false); }} style={simpleBtn({ background: "#666" })}>Fechar</button>
+                            <button onClick={() => savePrinter()} style={simpleBtn({ background: "#0b74de" })}>Salvar</button>
                         </div>
                     </div>
                 </div>
             ) : null}
+
+            {/* Local printers modal */}
+            {showLocalModal && (
+                <div style={{ position: "fixed", left: 0, top: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{ width: 640, background: "#fff", padding: 16, borderRadius: 8 }}>
+                        <h3>Impressoras no computador</h3>
+                        {loadingLocalPrinters ? <div>Buscando impressoras locais...</div> : null}
+                        {localError ? <div style={{ color: "red" }}>Erro: {localError}</div> : null}
+                        <div style={{ maxHeight: 340, overflow: "auto", marginTop: 8 }}>
+                            {localPrinters.length === 0 && !loadingLocalPrinters ? <div style={{ color: "#666" }}>Nenhuma impressora encontrada.</div> : null}
+                            {localPrinters.map((lp) => (
+                                <div key={lp.id} style={{ display: "flex", justifyContent: "space-between", padding: 8, borderBottom: "1px solid #eee" }}>
+                                    <div>{lp.name}</div>
+                                    <div>
+                                        <button onClick={() => addLocalPrinterAsCompanyPrinter(lp.name)} style={simpleBtn({ background: "#0b74de" })}>Usar esta impressora</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ marginTop: 12, textAlign: "right" }}>
+                            <button onClick={() => setShowLocalModal(false)} style={simpleBtn({ background: "#666" })}>Fechar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -8,9 +8,8 @@ export default function DownloadAgentButton() {
 
     const handleClick = () => {
         setLoading(true);
-        // abrir em nova aba para manter a página, o browser fará o download do zip
+        // abre em nova aba para manter a página, o browser fará o download do zip
         window.open("/api/print/download-agent", "_blank");
-        // pequena espera para voltar estado (UX)
         setTimeout(() => setLoading(false), 1500);
     };
 
