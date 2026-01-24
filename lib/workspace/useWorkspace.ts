@@ -1,3 +1,4 @@
+// lib/workspace/useWorkspace.ts
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -15,12 +16,12 @@ export function useWorkspace() {
     async function load() {
         setLoading(true);
 
-        // 1) workspace atual (cookie)
-        const cur = await fetch("/api/workspace/current", { cache: "no-store" }).then((r) => r.json());
+        // 1) workspace atual (cookie) - explicit credentials to ensure cookie is sent/received
+        const cur = await fetch("/api/workspace/current", { cache: "no-store", credentials: "include" }).then((r) => r.json());
         setCurrentCompanyId(cur.company_id ?? null);
 
-        // 2) lista de companies do usuário (backend seguro)
-        const list = await fetch("/api/workspace/list", { cache: "no-store" }).then((r) => r.json());
+        // 2) lista de companies do usuário (backend seguro) - explicit credentials too
+        const list = await fetch("/api/workspace/list", { cache: "no-store", credentials: "include" }).then((r) => r.json());
         setCompanies(list.companies ?? []);
 
         setLoading(false);

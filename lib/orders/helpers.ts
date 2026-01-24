@@ -1,6 +1,7 @@
 import type { CartItem, UnitType, Variant } from "./types";
 
 export const PURPLE = "#3B246B";
+export const ORANGE = "#FF6600";
 
 export function formatBRL(n: number | null | undefined) {
     const v = typeof n === "number" ? n : 0;
@@ -88,6 +89,25 @@ export function btnPurpleOutline(disabled?: boolean): React.CSSProperties {
         color: PURPLE,
     };
 }
+
+/* botões laranja */
+export function btnOrange(disabled?: boolean): React.CSSProperties {
+    return {
+        ...btnBaseSlim(disabled),
+        border: `1px solid ${ORANGE}`,
+        background: disabled ? "#fff4ee" : ORANGE,
+        color: disabled ? ORANGE : "#fff",
+    };
+}
+export function btnOrangeOutline(disabled?: boolean): React.CSSProperties {
+    return {
+        ...btnBaseSlim(disabled),
+        border: `1px solid ${ORANGE}`,
+        background: "transparent",
+        color: ORANGE,
+    };
+}
+
 export function chip(active: boolean): React.CSSProperties {
     return {
         ...btnBaseSlim(false),
@@ -155,6 +175,8 @@ export type InsertOrderItem = {
     product_name: string | null;
     quantity: number;
     unit_price: number;
+    unit_type?: string | null;
+    qty?: number;
 };
 export function buildItemsPayload(orderId: string, list: CartItem[]): InsertOrderItem[] {
     return list.map((item) => {
@@ -168,6 +190,8 @@ export function buildItemsPayload(orderId: string, list: CartItem[]): InsertOrde
             product_name: name,
             quantity: qItem,
             unit_price: price,
+            unit_type: item.mode === "unit" ? "unit" : item.mode === "case" ? "case" : null,
+            qty: qItem,
         };
     });
 }
