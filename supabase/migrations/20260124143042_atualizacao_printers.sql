@@ -175,3 +175,36 @@ BEGIN
 END;
 $$;
 ALTER FUNCTION public.enqueue_print_job_for_order() OWNER TO postgres;
+
+-- função RPC que o backend pode chamar internamente (opcional)
+CREATE OR REPLACE FUNCTION public.reserve_print_job_for_agent(p_agent uuid)
+RETURNS TABLE (
+  job_id uuid,
+  company_id uuid,
+  printer_id uuid,
+  payload jsonb
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_job public.print_jobs%ROWTYPE;
+BEGIN
+  -- Seleciona e bloqueia o próximo job pendente para printers do agent
+  -- Ajuste a condição para atendar sua lógica (p.ex. por agent.printer_id)
+  SELECT * INTO v_job
+  FROM public.print_jobs
+  WHERE status = 'pending'
+  ORDER BY priority DESC, created_at
+  FOR UPDATE SKIP LOCKED
+  LIMIT 1;
+
+  IF NOT FOUND THEN RETURN; END IF;
+
+  UPDATE public.print_jobs
+  SET status = 'processing',
+      agent_id = p_agent,
+      reserved_at = now()
+  WHERE id = v_job.id;
+
+  RETURN QUERY SELECT v_job.id, v_job.company_id, v_job.printer_id, v_job.payload;
+END;
+$$;
+ALTER FUNCTION public.reserve_print_job_for_agent(uuid) OWNER TO postgres;
