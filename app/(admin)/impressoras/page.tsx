@@ -147,6 +147,31 @@ export default function PrintersAdminPage() {
         setForm((prev: any) => ({ ...prev, [k]: v }));
     }
 
+    async function createPrinter(payload: {
+        name: string;
+        type: string;
+        format: string;
+        auto_print: boolean;
+        interval_seconds: number;
+        is_active: boolean;
+        config: Record<string, any>;
+    }) {
+        if (!currentCompanyId) {
+            throw new Error("Company não selecionada.");
+        }
+        const res = await fetch(`/api/print/companies/${currentCompanyId}/printers`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+            throw new Error(json?.error || "Erro ao criar impressora.");
+        }
+        return json?.printer ?? null;
+    }
+
     async function savePrinter() {
         if (!currentCompanyId) {
             setMsg("Company não selecionada.");
@@ -180,29 +205,18 @@ export default function PrintersAdminPage() {
                     loadPrinters();
                 }
             } else {
-                const { data, error } = await supabase
-                    .from("printers")
-                    .insert([
-                        {
-                            company_id: currentCompanyId,
-                            name: form.name,
-                            type: form.type,
-                            format: form.format,
-                            auto_print: !!form.auto_print,
-                            interval_seconds: Number(form.interval_seconds || 0),
-                            is_active: !!form.is_active,
-                            config: form.config || {},
-                        },
-                    ])
-                    .select("*")
-                    .single();
-                if (error) {
-                    setMsg("Erro ao criar: " + error.message);
-                } else {
-                    setMsg("Criado com sucesso.");
-                    setOpenForm(false);
-                    loadPrinters();
-                }
+                await createPrinter({
+                    name: form.name,
+                    type: form.type,
+                    format: form.format,
+                    auto_print: !!form.auto_print,
+                    interval_seconds: Number(form.interval_seconds || 0),
+                    is_active: !!form.is_active,
+                    config: form.config || {},
+                });
+                setMsg("Criado com sucesso.");
+                setOpenForm(false);
+                loadPrinters();
             }
         } catch (e: any) {
             setMsg("Erro inesperado: " + e.message);
@@ -311,31 +325,20 @@ export default function PrintersAdminPage() {
         }
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from("printers")
-                .insert([
-                    {
-                        company_id: currentCompanyId,
-                        name: `Impressora local - ${printerName}`,
-                        type: "a4",
-                        format: "a4",
-                        auto_print: false,
-                        interval_seconds: 0,
-                        is_active: true,
-                        config: { printerName },
-                    },
-                ])
-                .select("*")
-                .single();
-            if (error) {
-                setMsg("Erro ao registrar impressora local: " + error.message);
-            } else {
-                setMsg("Impressora local adicionada com sucesso.");
-                loadPrinters();
-                setShowLocalModal(false);
-            }
+            await createPrinter({
+                name: `Impressora local - ${printerName}`,
+                type: "a4",
+                format: "a4",
+                auto_print: false,
+                interval_seconds: 0,
+                is_active: true,
+                config: { printerName },
+            });
+            setMsg("Impressora local adicionada com sucesso.");
+            loadPrinters();
+            setShowLocalModal(false);
         } catch (e: any) {
-            setMsg("Erro inesperado: " + e.message);
+            setMsg("Erro ao registrar impressora local: " + e.message);
         } finally {
             setLoading(false);
         }
