@@ -180,24 +180,22 @@ export default function PrintersAdminPage() {
                     loadPrinters();
                 }
             } else {
-                const { data, error } = await supabase
-                    .from("printers")
-                    .insert([
-                        {
-                            company_id: currentCompanyId,
-                            name: form.name,
-                            type: form.type,
-                            format: form.format,
-                            auto_print: !!form.auto_print,
-                            interval_seconds: Number(form.interval_seconds || 0),
-                            is_active: !!form.is_active,
-                            config: form.config || {},
-                        },
-                    ])
-                    .select("*")
-                    .single();
-                if (error) {
-                    setMsg("Erro ao criar: " + error.message);
+                const res = await fetch(`/api/print/companies/${currentCompanyId}/printers`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        name: form.name,
+                        type: form.type,
+                        format: form.format,
+                        auto_print: !!form.auto_print,
+                        interval_seconds: Number(form.interval_seconds || 0),
+                        is_active: !!form.is_active,
+                        config: form.config || {},
+                    }),
+                });
+                const json = await res.json();
+                if (!res.ok) {
+                    setMsg("Erro ao criar: " + (json?.error || res.statusText));
                 } else {
                     setMsg("Criado com sucesso.");
                     setOpenForm(false);
@@ -311,24 +309,22 @@ export default function PrintersAdminPage() {
         }
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from("printers")
-                .insert([
-                    {
-                        company_id: currentCompanyId,
-                        name: `Impressora local - ${printerName}`,
-                        type: "a4",
-                        format: "a4",
-                        auto_print: false,
-                        interval_seconds: 0,
-                        is_active: true,
-                        config: { printerName },
-                    },
-                ])
-                .select("*")
-                .single();
-            if (error) {
-                setMsg("Erro ao registrar impressora local: " + error.message);
+            const res = await fetch(`/api/print/companies/${currentCompanyId}/printers`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: `Impressora local - ${printerName}`,
+                    type: "a4",
+                    format: "a4",
+                    auto_print: false,
+                    interval_seconds: 0,
+                    is_active: true,
+                    config: { printerName },
+                }),
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                setMsg("Erro ao registrar impressora local: " + (json?.error || res.statusText));
             } else {
                 setMsg("Impressora local adicionada com sucesso.");
                 loadPrinters();
