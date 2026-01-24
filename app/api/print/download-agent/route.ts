@@ -1,3 +1,5 @@
+export const runtime = "nodejs";
+
 // app/api/print/download-agent/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -9,8 +11,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import stream from "stream";
 
-// IMPORTAR seu helper que valida company / acesso
-// Ajuste o caminho se o arquivo estiver em outro lugar
+// IMPORTAR seu helper que valida / retorna companyId do request (ajuste o caminho se necessário)
 import { requireCompanyAccess } from "lib/workspace/requireCompanyAccess";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -26,12 +27,19 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 export async function GET(req: Request) {
     try {
         // 1) valida se o usuário tem acesso à company (seu helper deve checar cookies/sessão)
-        const access = await requireCompanyAccess(req);
+        const access = await requireCompanyAccess(); // seu helper não recebe Request
         if (!access || !access.companyId) {
             return new NextResponse("Unauthorized", { status: 401 });
         }
         const companyId = access.companyId;
-        const companyName = access.companyName || `company-${companyId}`;
+
+        // 1.a) busca o nome da company no banco (para usar no nome do agente)
+        const { data: company, error: companyErr } = await supabase
+            .from("companies")
+            .select("name")
+            .eq("id", companyId)
+            .maybeSingle();
+        const companyName = (company && (company as any).name) || `company-${companyId}`;
 
         // 2) gera AGENT_KEY e hash (bcrypt)
         const agentKey = crypto.randomBytes(32).toString("hex");
@@ -85,10 +93,10 @@ export async function GET(req: Request) {
         await archive.finalize();
 
         // 6) converte stream Node -> Web ReadableStream e retorna resposta
-        const webStream = stream.Readable.toWeb(passthrough);
+        const webStream: any = stream.Readable.toWeb(passthrough);
         const filename = `renthus-print-agent-${companyId}.zip`;
 
-        return new Response(webStream, {
+        return new Response(webStream as any, {
             status: 200,
             headers: {
                 "Content-Type": "application/zip",

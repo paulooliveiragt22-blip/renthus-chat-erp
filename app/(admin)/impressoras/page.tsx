@@ -264,10 +264,11 @@ export default function PrintersAdminPage() {
                     order_id: orderId,
                     product_name: "Teste Cupom",
                     quantity: 1,
-                    unit_price: 0,
-                    line_total: 0,
+                    unit_price: 0
+                    // NÃO incluir line_total — é gerado pelo banco
                 },
             ]);
+
 
             setMsg("Pedido de teste criado (id: " + orderId + "). O agent deve imprimir automaticamente.");
             setTimeout(() => loadJobs(), 1500);
