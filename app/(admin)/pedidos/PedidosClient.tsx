@@ -547,20 +547,48 @@ export default function PedidosPage() {
         const full = await fetchOrderFull(orderId);
         if (!full) return;
 
-        const rows = full.items
+        const pm = (full as any).payment_method as string;
+        const paidFlag = !!(full as any).paid;
+
+        const pmLabel =
+            pm === "pix" ? "Pix" : pm === "card" ? "Cartão" : pm === "cash" ? "Dinheiro" : String(pm);
+
+        const total = Number((full as any).total_amount ?? 0);
+        const customerPays = Number((full as any).change_for ?? 0);
+        const troco = calcTroco(total, customerPays);
+
+        // Qtd: unidade vs caixa (com quantidade por caixa)
+        const qtyDisplay = (it: any) => {
+            const qIt = Number(it.quantity ?? it.qty ?? 0);
+            const unitType = String(it.unit_type ?? "unit");
+
+            if (unitType === "case") {
+                const caseQty = Number(it.case_qty ?? it?.product_variants?.case_qty ?? 0);
+                // texto no padrão do modal: "caixa com: X • N caixas"
+                return caseQty > 0
+                    ? `caixa com: ${caseQty} • ${qIt} caixas`
+                    : `caixa • ${qIt} caixas`;
+            }
+
+            // unit
+            return `${qIt} unidades`;
+        };
+
+        const rows = (full.items ?? [])
             .map((it: any) => {
                 const name = escapeHtml(it.product_name ?? "Item");
                 const qIt = Number(it.quantity ?? it.qty ?? 0);
                 const price = Number(it.unit_price ?? 0);
-                const total = Number(it.line_total ?? qIt * price);
+                const totalLine = Number(it.line_total ?? qIt * price);
+
                 return `
-          <tr>
-            <td>${name}</td>
-            <td style="text-align:right;">${qIt}</td>
-            <td style="text-align:right;">R$ ${formatBRL(price)}</td>
-            <td style="text-align:right;">R$ ${formatBRL(total)}</td>
-          </tr>
-        `;
+        <tr>
+          <td>${name}</td>
+          <td style="text-align:right;">${escapeHtml(qtyDisplay(it))}</td>
+          <td style="text-align:right;">R$ ${formatBRL(price)}</td>
+          <td style="text-align:right;">R$ ${formatBRL(totalLine)}</td>
+        </tr>
+      `;
             })
             .join("");
 
@@ -573,94 +601,98 @@ export default function PedidosPage() {
         const cust = (full as any).customers;
         const title = `Pedido • ${new Date(full.created_at).toLocaleString("pt-BR")}`;
 
-        const pm = (full as any).payment_method;
-        const total = Number((full as any).total_amount ?? 0);
-        const customerPays = Number((full as any).change_for ?? 0);
-        const troco = calcTroco(total, customerPays);
-
+        // Pagamento: maquininha (cartão/pix) | troco (dinheiro)
         let payExtra = "";
-        if (pm === "card") {
-            payExtra = `<div><b>Levar maquininha</b></div>`;
+        if (pm === "card" || pm === "pix") {
+            payExtra = `<div class="strong">Levar maquininha</div>`;
         } else if (pm === "cash") {
             payExtra = `
-        <div><b>Cliente paga com:</b> R$ ${formatBRL(customerPays)}</div>
-        <div><b>Levar de troco:</b> R$ ${formatBRL(troco)}</div>
-      `;
+    <div class="strong">${customerPays > 0 ? `Troco para: R$ ${formatBRL(customerPays)}` : `Troco para: -`
+                }</div>
+    <div class="strong">Levar de troco: R$ ${formatBRL(troco)}</div>
+  `;
         }
+
+
 
         w.document.open();
         w.document.write(`
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${escapeHtml(title)}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 12px; font-size: 12px; }
-            h1 { margin: 0 0 8px; font-size: 16px; }
-            .muted { color: #555; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border-bottom: 1px solid #ddd; padding: 6px; }
-            th { text-align: left; background: #f5f5f5; }
-            .totals { margin-top: 10px; display: grid; gap: 6px; }
-            .row { display:flex; justify-content: space-between; }
-            .strong { font-weight: 900; }
-            .box { border: 1px solid #ddd; border-radius: 10px; padding: 8px; margin-top: 10px; }
-            .obsTitle { font-weight: 900; font-size: 14px; }
-            .obsText { font-weight: 900; font-size: 14px; color: ${ORANGE}; }
-            @media print { button { display:none; } }
-          </style>
-        </head>
-        <body>
-          <button onclick="window.print()" style="padding:6px 8px; border:1px solid #999; border-radius:10px; cursor:pointer; font-size:12px;">
-            Imprimir
-          </button>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(title)}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 12px; font-size: 12px; }
+          h1 { margin: 0 0 8px; font-size: 16px; }
+          .strong { font-weight: 900; color: #000; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border-bottom: 1px solid #ddd; padding: 6px; }
+          th { text-align: left; background: #f5f5f5; }
+          .totals { margin-top: 10px; display: grid; gap: 6px; }
+          .row { display:flex; justify-content: space-between; }
+          .strong { font-weight: 900; }
+          .box { border: 1px solid #ddd; border-radius: 10px; padding: 8px; margin-top: 10px; }
+          .obsTitle { font-weight: 900; font-size: 14px; }
+          .obsText { font-weight: 900; font-size: 14px; color: ${ORANGE}; }
+          @media print { button { display:none; } }
+        </style>
+      </head>
+      <body>
+        <button onclick="window.print()" style="padding:6px 8px; border:1px solid #999; border-radius:10px; cursor:pointer; font-size:12px;">
+          Imprimir
+        </button>
 
-          <h1>${escapeHtml(title)}</h1>
+        <h1>${escapeHtml(title)}</h1>
 
-          <div class="muted">
-            <div><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div>
-            <div><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} • ${escapeHtml(cust?.phone ?? "")}</div>
-            <div><b>Endereço:</b> ${escapeHtml(cust?.address ?? "-")}</div>
+        <div class="muted">
+          <div><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div>
 
-            <div style="margin-top:6px;">
-              <div><b>Pagamento:</b> ${escapeHtml(String((full as any).payment_method))} ${(full as any).paid ? "(pago)" : ""
+          <!-- Cliente: tudo em negrito -->
+          <div><b>Cliente:</b> <b>${escapeHtml(cust?.name ?? "-")}</b> • <b>${escapeHtml(
+            cust?.phone ?? ""
+        )}</b></div>
+          <div><b>Endereço:</b> <b>${escapeHtml(cust?.address ?? "-")}</b></div>
+
+          <div style="margin-top:6px;">
+            <div><b>Pagamento:</b> <b>${escapeHtml(pmLabel)}</b> ${paidFlag ? "<b>(pago)</b>" : ""
             }</div>
-              ${payExtra}
-            </div>
+            ${payExtra}
           </div>
+        </div>
 
-          ${(full as any).details
+        ${(full as any).details
                 ? `<div class="box"><div class="obsTitle">Observações:</div><div class="obsText">${escapeHtml(
                     String((full as any).details)
                 )}</div></div>`
                 : ""
             }
 
-          <table>
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th style="text-align:right;">Qtd</th>
-                <th style="text-align:right;">Preço</th>
-                <th style="text-align:right;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows || `<tr><td colspan="4">Sem itens</td></tr>`}
-            </tbody>
-          </table>
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th style="text-align:right;">Qtd</th>
+              <th style="text-align:right;">Preço</th>
+              <th style="text-align:right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || `<tr><td colspan="4">Sem itens</td></tr>`}
+          </tbody>
+        </table>
 
-          <div class="totals">
-            <div class="row"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div>
-            <div class="row strong"><span>Total</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div>
-          </div>
+        <div class="totals">
+          <div class="row"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div>
+          <div class="row strong"><span>Total</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div>
+        </div>
 
-          <script>setTimeout(() => window.print(), 200);</script>
-        </body>
-      </html>
-    `);
+        <script>setTimeout(() => window.print(), 200);</script>
+      </body>
+    </html>
+  `);
         w.document.close();
     }
+
 
     async function createOrder() {
         if (cart.length === 0) {
