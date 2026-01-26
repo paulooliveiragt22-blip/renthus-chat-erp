@@ -94,7 +94,7 @@ export async function createDownloadToken({
 export async function validateAndConsumeToken(agentId: string, tokenPlain: string) {
     const admin = createAdminClient();
     const prefix = tokenPlain.slice(0, 8);
-    const { data: rows, error } = await admin.from("agent_download_tokens").select("*").eq("agent_id", agentId).eq("token_prefix", prefix).eq("used", false).lte("expires_at", new Date().toISOString()).order("created_at", { ascending: false }).limit(10);
+    const { data: rows, error } = await admin.from("agent_download_tokens").select("*").eq("agent_id", agentId).eq("token_prefix", prefix).eq("used", false).gte("expires_at", new Date().toISOString()).order("created_at", { ascending: false }).limit(10);
     if (error) throw error;
     if (!rows || rows.length === 0) return null;
 
