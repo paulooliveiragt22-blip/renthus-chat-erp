@@ -261,7 +261,7 @@ export async function POST(req: Request) {
         // Insere mensagem; índice único (provider, provider_message_id) evita duplicação
         const { error: insErr } = await admin.from("whatsapp_messages").insert({
             thread_id:           threadId,
-            direction:           "in",
+            direction:           "inbound",
             channel:             "whatsapp",
             provider:            "meta",
             provider_message_id: messageId,
