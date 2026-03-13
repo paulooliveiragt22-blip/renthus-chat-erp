@@ -117,7 +117,7 @@ export async function POST(req: Request) {
             .from("whatsapp_messages")
             .insert({
                 thread_id: threadId,
-                direction: "out",
+                direction: "outbound",
                 channel: "whatsapp",
                 provider: null,                // IMPORTANT: leave null to avoid trigger counting
                 provider_message_id: null,

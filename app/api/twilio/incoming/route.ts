@@ -180,7 +180,7 @@ export async function POST(req: Request) {
     // Insert inbound (dedup via índice unique provider+provider_message_id se você tiver)
     const { error: insErr } = await admin.from("whatsapp_messages").insert({
         thread_id: threadId,
-        direction: "in",
+        direction: "inbound",
         channel: "whatsapp",
         provider: "twilio",
         provider_message_id: MessageSid,
