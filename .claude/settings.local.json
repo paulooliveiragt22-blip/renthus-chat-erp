@@ -39,7 +39,10 @@
       "Read(//e/renthus-chat-erp/$USERPROFILE/.supabase/**)",
       "Read(//c/Users/Usuario/.supabase/**)",
       "Read(//c/Users/Usuario/**)",
-      "Bash(rm \"E:/renthus-chat-erp/supabase/migrations/20260313120001_temp_inspect_constraints.sql\"\ncd \"E:/renthus-chat-erp\" && npx supabase migration repair --status reverted 20260313120001 2>&1)"
+      "Bash(rm \"E:/renthus-chat-erp/supabase/migrations/20260313120001_temp_inspect_constraints.sql\"\ncd \"E:/renthus-chat-erp\" && npx supabase migration repair --status reverted 20260313120001 2>&1)",
+      "Bash(cd \"E:/renthus-chat-erp\" && npx ts-node test-send.ts 2>&1)",
+      "Bash(cd \"E:/renthus-chat-erp\" && npx ts-node --esm test-send.ts 2>&1)",
+      "Bash(cd \"E:/renthus-chat-erp\" && npx ts-node --compiler-options '{\"module\":\"commonjs\"}' test-send.ts 2>&1)"
     ]
   }
 }
