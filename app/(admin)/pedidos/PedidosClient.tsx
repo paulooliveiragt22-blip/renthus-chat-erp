@@ -81,6 +81,21 @@ function addToCartLocal(
     });
 }
 
+function paymentLabel(pm: string) {
+    return pm === "pix" ? "Pix" : pm === "card" ? "Cartão" : pm === "cash" ? "Dinheiro" : String(pm || "-");
+}
+
+/**
+ * Número "humano" do pedido (somente UI):
+ * últimos 6 caracteres do UUID em maiúsculo.
+ * (Se você quiser sequencial real, precisa virar campo no banco.)
+ */
+function orderNumberFromId(id: string) {
+    const raw = String(id || "");
+    if (!raw) return "-";
+    return raw.slice(-6).toUpperCase();
+}
+
 export default function PedidosPage() {
     const supabase = useMemo(() => createClient(), []);
     const searchParams = useSearchParams();
@@ -613,8 +628,6 @@ export default function PedidosPage() {
   `;
         }
 
-
-
         w.document.open();
         w.document.write(`
     <html>
@@ -692,7 +705,6 @@ export default function PedidosPage() {
   `);
         w.document.close();
     }
-
 
     async function createOrder() {
         if (cart.length === 0) {
@@ -987,25 +999,45 @@ export default function PedidosPage() {
                     <p>Carregando...</p>
                 ) : (
                     <div style={{ width: "100%", overflowX: "auto" }}>
-                        {/* tabela compacta: apenas Cliente | Status | Total */}
-                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                        {/* tabela: Nº | Cliente (com data/telefone) | Observações | Pagamento | Endereço | Status | Total */}
+                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
                             <thead>
                                 <tr style={{ background: "#f7f7f7" }}>
-                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12 }}>Cliente</th>
-                                    <th style={{ textAlign: "center", padding: 6, fontSize: 12 }}>Status</th>
-                                    <th style={{ textAlign: "right", padding: 6, fontSize: 12 }}>Total</th>
+                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, width: 80 }}>Nº</th>
+                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 260 }}>Cliente</th>
+                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 220 }}>Observações</th>
+                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 160 }}>Pagamento</th>
+                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 280 }}>Endereço</th>
+                                    <th style={{ textAlign: "center", padding: 6, fontSize: 12, width: 120 }}>Status</th>
+                                    <th style={{ textAlign: "right", padding: 6, fontSize: 12, width: 120 }}>Total</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredOrders.map((o) => {
                                     const st = String(o.status);
+                                    const num = orderNumberFromId(o.id);
+                                    const name = o.customers?.name ?? "-";
+                                    const phone = o.customers?.phone ?? "-";
+                                    const created = formatDT(o.created_at);
+                                    const obs = (o.details ?? "").trim();
+                                    const addr = o.customers?.address ?? "-";
+
+                                    const pm = paymentLabel(String((o as any).payment_method ?? ""));
+                                    const changeForNow = (o as any).change_for;
+
                                     return (
                                         <tr
                                             key={o.id}
                                             style={{ borderTop: "1px solid #f0f0f0", cursor: "pointer" }}
                                             onClick={() => openOrder(o.id)}
                                         >
-                                            <td style={{ padding: 6, minWidth: 240 }}>
+                                            {/* Nº */}
+                                            <td style={{ padding: 6, whiteSpace: "nowrap", fontWeight: 900 }}>
+                                                #{num}
+                                            </td>
+
+                                            {/* Cliente + (data/hora + telefone) */}
+                                            <td style={{ padding: 6, minWidth: 260 }}>
                                                 <div
                                                     style={{
                                                         fontWeight: 900,
@@ -1014,15 +1046,73 @@ export default function PedidosPage() {
                                                         overflow: "hidden",
                                                         textOverflow: "ellipsis",
                                                     }}
+                                                    title={name}
                                                 >
-                                                    {o.customers?.name ?? "-"}
+                                                    {name}
+                                                </div>
+
+                                                <div style={{ marginTop: 2, fontSize: 11, color: "#555", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                                    <span style={{ whiteSpace: "nowrap" }}>{created}</span>
+                                                    <span style={{ whiteSpace: "nowrap" }}>{phone}</span>
                                                 </div>
                                             </td>
 
+                                            {/* Observações */}
+                                            <td style={{ padding: 6, minWidth: 220, maxWidth: 320 }}>
+                                                <div
+                                                    style={{
+                                                        fontSize: 12,
+                                                        color: obs ? "#111" : "#777",
+                                                        whiteSpace: "nowrap",
+                                                        overflow: "hidden",
+                                                        textOverflow: "ellipsis",
+                                                        maxWidth: 320,
+                                                    }}
+                                                    title={obs || ""}
+                                                >
+                                                    {obs || "-"}
+                                                </div>
+                                            </td>
+
+                                            {/* Pagamento */}
+                                            <td style={{ padding: 6, minWidth: 160 }}>
+                                                <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>
+                                                    {pm}
+                                                    {o.paid ? " (pago)" : ""}
+                                                </div>
+
+                                                {/* extra leve p/ dinheiro */}
+                                                {String((o as any).payment_method) === "cash" && (
+                                                    <div style={{ marginTop: 2, fontSize: 11, color: "#555", whiteSpace: "nowrap" }}>
+                                                        Troco p/:{" "}
+                                                        {typeof changeForNow === "number" && changeForNow > 0 ? `R$ ${formatBRL(changeForNow)}` : "-"}
+                                                    </div>
+                                                )}
+                                            </td>
+
+                                            {/* Endereço */}
+                                            <td style={{ padding: 6, minWidth: 280, maxWidth: 420 }}>
+                                                <div
+                                                    style={{
+                                                        fontSize: 12,
+                                                        color: addr ? "#111" : "#777",
+                                                        whiteSpace: "nowrap",
+                                                        overflow: "hidden",
+                                                        textOverflow: "ellipsis",
+                                                        maxWidth: 420,
+                                                    }}
+                                                    title={addr || ""}
+                                                >
+                                                    {addr || "-"}
+                                                </div>
+                                            </td>
+
+                                            {/* Status */}
                                             <td style={{ padding: 6, textAlign: "center", whiteSpace: "nowrap" }}>
                                                 <span style={statusBadgeStyle(st)}>{prettyStatus(st)}</span>
                                             </td>
 
+                                            {/* Total */}
                                             <td style={{ padding: 6, textAlign: "right", fontWeight: 900, whiteSpace: "nowrap" }}>
                                                 R$ {formatBRL(o.total_amount)}
                                             </td>
@@ -1032,7 +1122,7 @@ export default function PedidosPage() {
 
                                 {filteredOrders.length === 0 && (
                                     <tr>
-                                        <td colSpan={3} style={{ padding: 10, color: "#666", fontSize: 12 }}>
+                                        <td colSpan={7} style={{ padding: 10, color: "#666", fontSize: 12 }}>
                                             Nenhum pedido nesse filtro.
                                         </td>
                                     </tr>
