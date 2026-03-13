@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { processInboundMessage } from "@/lib/chatbot/processMessage";
 
 // Twilio inbound webhook for WhatsApp.
 //
@@ -223,7 +224,7 @@ export async function POST(req: Request) {
         raw_payload: safeJson(Object.fromEntries(form.entries())),
     });
 
-    // If inserted (no duplication), update the thread preview and timestamp
+    // If inserted (no duplication), update the thread preview and trigger chatbot
     if (!insErr) {
         await admin
             .from("whatsapp_threads")
@@ -232,6 +233,26 @@ export async function POST(req: Request) {
                 last_message_preview: (bodyText ?? "").slice(0, 120) || null,
             })
             .eq("id", threadId);
+
+        // Verifica se o bot está ativo para esta thread antes de disparar
+        const { data: threadRow } = await admin
+            .from("whatsapp_threads")
+            .select("bot_active")
+            .eq("id", threadId)
+            .maybeSingle();
+
+        if (threadRow?.bot_active !== false && bodyText) {
+            // Dispara chatbot de forma assíncrona (não bloqueia resposta ao Twilio)
+            processInboundMessage({
+                admin,
+                companyId: channel.company_id,
+                threadId,
+                messageId: MessageSid || "",
+                phoneE164: fromPhoneE164,
+                text: bodyText,
+                profileName: ProfileName || null,
+            }).catch((err) => console.error("[chatbot] processInboundMessage error:", err));
+        }
     }
 
     // Return an empty TwiML response so Twilio does not retry

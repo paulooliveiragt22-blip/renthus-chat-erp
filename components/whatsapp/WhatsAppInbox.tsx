@@ -14,6 +14,8 @@ type Thread = {
     last_message_at: string | null;
     last_message_preview: string | null;
     created_at: string;
+    bot_active: boolean | null;
+    handover_at: string | null;
 };
 
 type Message = {
@@ -99,6 +101,7 @@ export default function WhatsAppInbox() {
     const [limitUsage, setLimitUsage] = useState<Usage | null>(null);
     const [pendingText, setPendingText] = useState<string | null>(null);
     const [billingBusy, setBillingBusy] = useState(false);
+    const [botToggling, setBotToggling] = useState(false);
 
     async function loadThreads(nextSelectedId?: string | null) {
         setLoadingThreads(true);
@@ -269,6 +272,36 @@ export default function WhatsAppInbox() {
         }
     }
 
+    async function toggleBot(threadId: string, newValue: boolean) {
+        setBotToggling(true);
+        setErr(null);
+        try {
+            const res = await fetch(`/api/whatsapp/threads/${threadId}/bot-toggle`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ bot_active: newValue }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setErr(json?.error ?? `Falha ao alterar bot (HTTP ${res.status})`);
+            } else {
+                // Atualiza estado local imediatamente
+                setThreads((prev) =>
+                    prev.map((t) =>
+                        t.id === threadId
+                            ? { ...t, bot_active: newValue, handover_at: newValue ? null : t.handover_at }
+                            : t
+                    )
+                );
+            }
+        } catch (e: any) {
+            setErr("Falha ao alterar bot");
+        } finally {
+            setBotToggling(false);
+        }
+    }
+
     async function createThread() {
         const name = newName.trim();
         const phoneParsed = normalizeBrazilToE164(newPhoneBR);
@@ -426,7 +459,12 @@ export default function WhatsAppInbox() {
                                         </span>
                                         <span style={{ fontWeight: 700, fontSize: 11, color: "#666" }}>{formatDT(t.last_message_at)}</span>
                                     </div>
-                                    <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{t.phone_e164}</div>
+                                    <div style={{ marginTop: 4, fontSize: 12, color: "#666", display: "flex", gap: 6, alignItems: "center" }}>
+                                        <span>{t.phone_e164}</span>
+                                        {t.bot_active === false && (
+                                            <span style={{ fontSize: 10, color: "#e65100", fontWeight: 700 }}>🤝</span>
+                                        )}
+                                    </div>
                                     {t.last_message_preview ? (
                                         <div
                                             style={{
@@ -461,10 +499,74 @@ export default function WhatsAppInbox() {
                 }}
             >
                 <div style={{ padding: 12, borderBottom: "1px solid #eee" }}>
-                    <div style={{ fontWeight: 900, color: PURPLE }}>
-                        {selectedThread ? selectedThread.profile_name || selectedThread.phone_e164 : "Selecione uma conversa"}
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                        <div>
+                            <div style={{ fontWeight: 900, color: PURPLE }}>
+                                {selectedThread ? selectedThread.profile_name || selectedThread.phone_e164 : "Selecione uma conversa"}
+                            </div>
+                            {selectedThread ? <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div> : null}
+                        </div>
+
+                        {selectedThread ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                                {/* Badge de status do bot */}
+                                {selectedThread.bot_active === false ? (
+                                    <span
+                                        style={{
+                                            fontSize: 11,
+                                            padding: "3px 8px",
+                                            borderRadius: 8,
+                                            background: "#fff3e0",
+                                            color: "#e65100",
+                                            border: "1px solid #ffcc80",
+                                            fontWeight: 700,
+                                        }}
+                                    >
+                                        🤝 Atendimento humano
+                                    </span>
+                                ) : (
+                                    <span
+                                        style={{
+                                            fontSize: 11,
+                                            padding: "3px 8px",
+                                            borderRadius: 8,
+                                            background: "#e8f5e9",
+                                            color: "#2e7d32",
+                                            border: "1px solid #a5d6a7",
+                                            fontWeight: 700,
+                                        }}
+                                    >
+                                        🤖 Bot ativo
+                                    </span>
+                                )}
+
+                                {/* Botão de toggle */}
+                                <button
+                                    onClick={() => toggleBot(selectedThread.id, selectedThread.bot_active === false)}
+                                    disabled={botToggling}
+                                    style={{
+                                        padding: "6px 10px",
+                                        borderRadius: 8,
+                                        border: `1px solid ${selectedThread.bot_active === false ? "#2e7d32" : "#e65100"}`,
+                                        cursor: botToggling ? "not-allowed" : "pointer",
+                                        opacity: botToggling ? 0.6 : 1,
+                                        background: "#fff",
+                                        color: selectedThread.bot_active === false ? "#2e7d32" : "#e65100",
+                                        fontWeight: 700,
+                                        fontSize: 12,
+                                        whiteSpace: "nowrap",
+                                    }}
+                                    title={selectedThread.bot_active === false ? "Reativar bot para esta conversa" : "Pausar bot e assumir atendimento"}
+                                >
+                                    {botToggling
+                                        ? "..."
+                                        : selectedThread.bot_active === false
+                                        ? "Retomar bot"
+                                        : "Pausar bot"}
+                                </button>
+                            </div>
+                        ) : null}
                     </div>
-                    {selectedThread ? <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div> : null}
                 </div>
 
                 <div style={{ padding: 12, overflowY: "auto", minHeight: 0, background: "#fafafa" }}>
