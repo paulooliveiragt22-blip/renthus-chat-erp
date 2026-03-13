@@ -17,7 +17,7 @@
  *   WHATSAPP_PHONE_NUMBER_ID      — phone_number_id do número cadastrado
  */
 
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 
@@ -170,8 +170,8 @@ async function getOrCreateThread(params: {
 
 // ─── GET — verificação do webhook ─────────────────────────────────────────────
 
-export async function GET(req: Request) {
-    const { searchParams } = new URL(req.url);
+export async function GET(request: NextRequest) {
+    const searchParams = request.nextUrl.searchParams;
 
     const mode      = searchParams.get("hub.mode");
     const token     = searchParams.get("hub.verify_token");
@@ -181,7 +181,7 @@ export async function GET(req: Request) {
 
     if (mode === "subscribe" && token === verifyToken) {
         console.log("[webhook] GET verificação OK");
-        return new Response(challenge ?? "", { status: 200 });
+        return new Response(challenge, { status: 200 });
     }
 
     console.warn("[webhook] GET verificação FALHOU", { mode, token });
