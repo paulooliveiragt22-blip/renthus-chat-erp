@@ -10,6 +10,29 @@
 
 const GRAPH_API_BASE = "https://graph.facebook.com/v20.0";
 
+/**
+ * Garante que números brasileiros tenham o nono dígito.
+ *
+ * Números móveis BR chegam sem '+' e às vezes sem o 9:
+ *   556692285005  (12 dígitos) → 5566992285005  (13 dígitos)
+ *   5566992285005 (13 dígitos) → inalterado
+ *
+ * Regra: 55 + DDD (2) + 8 dígitos → inserir '9' após o DDD.
+ * Qualquer outro formato passa sem alteração.
+ */
+function normalizeBrazilianNumber(raw: string): string {
+    const digits = raw.replace(/^\+/, "").trim();
+
+    // Número BR sem nono dígito: 55 + 2 DDD + 8 número = 12 dígitos
+    if (/^55\d{10}$/.test(digits)) {
+        const ddd    = digits.slice(2, 4);  // ex: "66"
+        const number = digits.slice(4);     // ex: "92285005"
+        return `55${ddd}9${number}`;        // ex: "5566992285005"
+    }
+
+    return digits;
+}
+
 export async function sendWhatsAppMessage(
     to: string,
     text: string
@@ -24,9 +47,12 @@ export async function sendWhatsAppMessage(
 
     const url = `${GRAPH_API_BASE}/${phoneNumberId}/messages`;
 
+    const toNormalized = normalizeBrazilianNumber(to);
+    console.log("[send] enviando para:", toNormalized, "| phoneNumberId:", phoneNumberId);
+
     const body = {
         messaging_product: "whatsapp",
-        to:                to.replace(/^\+/, ""), // Meta espera sem o '+'
+        to:                toNormalized,
         type:              "text",
         text:              { body: text },
     };

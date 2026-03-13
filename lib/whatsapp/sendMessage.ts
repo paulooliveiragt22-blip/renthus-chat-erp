@@ -64,7 +64,7 @@ export async function sendWhatsAppMessage(
         .from("whatsapp_messages")
         .insert({
             thread_id: resolvedThreadId,
-            direction: "out",
+            direction: "outbound",
             channel: "whatsapp",
             provider: null,               // preenchido após envio
             provider_message_id: null,

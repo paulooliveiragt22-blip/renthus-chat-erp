@@ -210,7 +210,7 @@ export async function POST(req: Request) {
     // Insert inbound message; deduplication is enforced via unique index on provider+provider_message_id
     const { error: insErr } = await admin.from("whatsapp_messages").insert({
         thread_id: threadId,
-        direction: "in",
+        direction: "inbound",
         channel: "whatsapp",
         provider: "twilio",
         provider_message_id: MessageSid || null,
