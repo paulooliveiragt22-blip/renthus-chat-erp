@@ -210,9 +210,11 @@ export async function POST(req: Request) {
     }
 
     const phoneNumberId: string | null = value?.metadata?.phone_number_id ?? null;
+    console.log("[webhook] phone_number_id:", phoneNumberId);
 
     // Resolve o canal da empresa pelo phone_number_id
     const channel = await resolveChannel(admin, phoneNumberId);
+    console.log("[webhook] channel resolvido:", channel ? `id=${channel.id} company=${channel.company_id}` : "NENHUM");
 
     if (!channel) {
         console.warn("[webhook] Nenhum canal ativo encontrado para phone_number_id:", phoneNumberId);
@@ -221,11 +223,14 @@ export async function POST(req: Request) {
 
     // ── 1. Mensagens inbound ──────────────────────────────────────────────────
     const messages: any[] = Array.isArray(value?.messages) ? value.messages : [];
+    console.log("[webhook] mensagens no payload:", messages.length);
 
     for (const m of messages) {
         const messageId  = m?.id ? String(m.id) : null;
         const fromWaId   = m?.from ? String(m.from) : null;
         const phoneE164  = fromWaId ? normalizeE164(fromWaId) : null;
+
+        console.log("[webhook] processando mensagem:", { messageId, fromWaId, phoneE164, type: m?.type });
 
         if (!phoneE164) {
             console.warn("[webhook] from inválido, ignorando mensagem:", m);
@@ -234,6 +239,7 @@ export async function POST(req: Request) {
 
         const profileName: string | null = value?.contacts?.[0]?.profile?.name ?? null;
         const bodyText = extractBodyText(m);
+        console.log("[webhook] bodyText extraído:", bodyText, "| tipo:", m?.type);
 
         let threadId: string;
         try {
@@ -244,6 +250,7 @@ export async function POST(req: Request) {
                 phoneE164,
                 profileName,
             });
+            console.log("[webhook] threadId:", threadId);
         } catch (err) {
             console.error("[webhook] getOrCreateThread error:", err);
             continue;
@@ -265,11 +272,13 @@ export async function POST(req: Request) {
         });
 
         if (insErr) {
-            // Erro de violação de unicidade = mensagem duplicada → ignora silenciosamente
-            if (insErr.code !== "23505") {
-                console.error("[webhook] insert whatsapp_messages error:", insErr.message);
+            if (insErr.code === "23505") {
+                // Mensagem duplicada — chatbot já processou, pode chamar de novo para retomar sessão
+                console.warn("[webhook] mensagem duplicada (23505), continuando para chatbot:", messageId);
+            } else {
+                console.error("[webhook] insert whatsapp_messages error:", insErr.code, insErr.message);
+                continue; // erro real → pula essa mensagem
             }
-            continue;
         }
 
         // Atualiza preview da thread
@@ -279,25 +288,35 @@ export async function POST(req: Request) {
         }).eq("id", threadId);
 
         // Aciona o chatbot apenas se bot_active != false e houver texto
-        if (bodyText) {
-            const { data: threadRow } = await admin
-                .from("whatsapp_threads")
-                .select("bot_active")
-                .eq("id", threadId)
-                .maybeSingle();
-
-            if (threadRow?.bot_active !== false) {
-                processInboundMessage({
-                    admin,
-                    companyId:   channel.company_id,
-                    threadId,
-                    messageId:   messageId ?? "",
-                    phoneE164,
-                    text:        bodyText,
-                    profileName,
-                }).catch((err) => console.error("[chatbot] processInboundMessage error:", err));
-            }
+        if (!bodyText) {
+            console.log("[webhook] bodyText vazio ou tipo não suportado, chatbot não acionado. tipo:", m?.type);
+            continue;
         }
+
+        const { data: threadRow } = await admin
+            .from("whatsapp_threads")
+            .select("bot_active")
+            .eq("id", threadId)
+            .maybeSingle();
+
+        console.log("[webhook] bot_active na thread:", threadRow?.bot_active);
+
+        if (threadRow?.bot_active === false) {
+            console.log("[webhook] bot inativo (handover), chatbot não acionado");
+            continue;
+        }
+
+        console.log("[webhook] → chamando processInboundMessage para thread:", threadId, "company:", channel.company_id);
+
+        processInboundMessage({
+            admin,
+            companyId:   channel.company_id,
+            threadId,
+            messageId:   messageId ?? "",
+            phoneE164,
+            text:        bodyText,
+            profileName,
+        }).catch((err) => console.error("[chatbot] processInboundMessage ERRO:", err));
     }
 
     // ── 2. Status updates (sent/delivered/read/failed) ────────────────────────
