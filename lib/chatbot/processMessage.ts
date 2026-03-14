@@ -190,7 +190,8 @@ interface ProductOption {
     idx: number;
     productId: string;
     variantId: string;
-    name: string;   // "Heineken 600ml" ou "Heineken 600ml (cx 12)"
+    name: string;        // nome completo (armazenado no carrinho)
+    displayName: string; // nome base sem sufixo de caixa (para exibição na lista)
     price: number;
     isCase?: boolean;  // true = entrada de caixa
     caseQty?: number;  // unidades por caixa
@@ -232,32 +233,34 @@ async function getProductsByCategory(
             : [];
 
         if (!variants.length) {
-            options.push({ idx: idx++, productId: p.id, variantId: p.id, name: p.name, price: 0 });
+            options.push({ idx: idx++, productId: p.id, variantId: p.id, name: p.name, displayName: p.name, price: 0 });
         } else {
             for (const v of variants) {
-                const vol      = v.volume_value ? `${v.volume_value}${v.unit ?? "ml"}` : null;
+                const vol       = v.volume_value ? `${v.volume_value}${v.unit ?? "ml"}` : null;
                 const baseLabel = vol ? `${p.name} ${vol}` : p.name;
 
                 // Opção unitária
                 options.push({
-                    idx:       idx++,
-                    productId: p.id,
-                    variantId: v.id,
-                    name:      baseLabel,
-                    price:     Number(v.unit_price ?? 0),
+                    idx:         idx++,
+                    productId:   p.id,
+                    variantId:   v.id,
+                    name:        baseLabel,
+                    displayName: baseLabel,
+                    price:       Number(v.unit_price ?? 0),
                 });
                 if (idx > 10) break;
 
                 // Opção caixa (se disponível)
                 if (v.has_case && v.case_qty && v.case_price && idx <= 10) {
                     options.push({
-                        idx:       idx++,
-                        productId: p.id,
-                        variantId: v.id,
-                        name:      `${baseLabel} (cx ${v.case_qty}un)`,
-                        price:     Number(v.case_price),
-                        isCase:    true,
-                        caseQty:   Number(v.case_qty),
+                        idx:         idx++,
+                        productId:   p.id,
+                        variantId:   v.id,
+                        name:        `${baseLabel} (Caixa com ${v.case_qty})`,
+                        displayName: baseLabel,
+                        price:       Number(v.case_price),
+                        isCase:      true,
+                        caseQty:     Number(v.case_qty),
                     });
                 }
                 if (idx > 10) break;
@@ -314,7 +317,8 @@ async function getOrCreateCustomer(
 
 /**
  * payment_method aceita: "pix" | "cash" | "card"
- * orders não tem delivery_address — endereço fica em `details`
+ * delivery_address é coluna real em orders.
+ * details é reservado para observações do dashboard (ex: "recolher cascos").
  */
 async function createOrder(
     admin: SupabaseClient,
@@ -348,7 +352,7 @@ async function createOrder(
         total_amount:     total,
         change_for:       changeFor ?? null,
         delivery_address: deliveryAddress,
-        details:          `Endereço: ${deliveryAddress}`,
+        // details: reservado para observações do dashboard — não poluir com dados do pedido
     };
 
     console.log("[createOrder] inserindo order...");
@@ -421,6 +425,14 @@ function isWithinBusinessHours(settings: Record<string, unknown>): boolean {
     const nowMin           = now.getHours() * 60 + now.getMinutes();
 
     return nowMin >= openH * 60 + openM && nowMin < closeH * 60 + closeM;
+}
+
+// ─── Helpers de exibição ──────────────────────────────────────────────────────
+
+/** Trunca para o limite de 24 chars do title em list_message do WhatsApp. */
+function truncateTitle(text: string, maxLen = 24): string {
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen - 1) + "…";
 }
 
 // ─── Envio ────────────────────────────────────────────────────────────────────
@@ -715,11 +727,16 @@ async function sendProductsList(
         phoneE164,
         `*${categoryName}* 🍺\n_Toque no produto para adicionar ao carrinho._`,
         "Ver produtos",
-        products.map((p) => ({
-            id:          p.isCase ? `${p.variantId}_case` : p.variantId,
-            title:       `${p.idx}. ${p.name}`,
-            description: formatCurrency(p.price),
-        })),
+        products.map((p) => {
+            const baseName = p.displayName ?? p.name;
+            const caseInfo = p.isCase ? ` Caixa com ${p.caseQty}` : "";
+            const rawTitle = `${p.idx}. ${baseName}${caseInfo}`;
+            return {
+                id:          p.isCase ? `${p.variantId}_case` : p.variantId,
+                title:       truncateTitle(rawTitle),
+                description: formatCurrency(p.price),
+            };
+        }),
         categoryName
     );
 }
@@ -799,7 +816,7 @@ async function handleCatalogProducts(
             await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
             return;
         }
-        await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
         return;
     }
 
@@ -853,7 +870,7 @@ async function handleCart(
             await reply(phoneE164, "Seu carrinho está vazio. Digite *1* para ver o cardápio.");
             return;
         }
-        await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
         return;
     }
 
@@ -897,13 +914,39 @@ async function goToCart(
     }
 
     await saveSession(admin, threadId, companyId, { step: "cart" });
+
+    const hasCheckoutData = !!(session.context.delivery_address && session.context.payment_method);
     await reply(
         phoneE164,
         `🛒 *Seu carrinho:*\n\n${formatCart(session.cart)}\n\n` +
-        `Digite *finalizar* para fechar o pedido\n` +
+        `Digite *finalizar* para ${hasCheckoutData ? "confirmar o pedido" : "fechar o pedido"}\n` +
         `Digite *remover N* para tirar o item N\n` +
         `Digite *menu* para continuar comprando`
     );
+}
+
+/**
+ * Se o contexto já tem endereço e pagamento (cliente voltou para adicionar produtos),
+ * vai direto para checkout_confirm; caso contrário começa o fluxo de endereço.
+ */
+async function goToCheckoutFromCart(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    session: Session
+): Promise<void> {
+    const address = session.context.delivery_address as string | undefined;
+    const payment = session.context.payment_method   as string | undefined;
+
+    if (address && payment) {
+        const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
+        const changeFor = (session.context.change_for as number | null) ?? null;
+        await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
+        await sendOrderSummary(phoneE164, session.cart, address, pmLabels[payment] ?? payment, changeFor);
+    } else {
+        await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
+    }
 }
 
 // ─── CHECKOUT_ADDRESS ─────────────────────────────────────────────────────────
@@ -1042,8 +1085,9 @@ async function sendOrderSummary(
         phoneE164,
         "Confirmar o pedido?",
         [
-            { id: "confirmar", title: "Confirmar pedido" },
-            { id: "cancelar",  title: "Cancelar" },
+            { id: "confirmar",          title: "Confirmar pedido" },
+            { id: "adicionar_produtos", title: "Adicionar produtos" },
+            { id: "cancelar",           title: "Cancelar" },
         ]
     );
 }
@@ -1136,6 +1180,28 @@ async function handleCheckoutConfirm(
     console.log("[checkout_confirm] input:", input, "| customer_id:", session.customer_id,
         "| cart:", session.cart.length, "| address:", address,
         "| paymentMethod:", paymentMethod, "| changeFor:", changeFor);
+
+    // "Adicionar produtos" → volta ao catálogo preservando carrinho, endereço e pagamento
+    if (matchesAny(input, ["adicionar_produtos", "adicionar produtos"])) {
+        const categories = await getCategories(admin);
+        if (!categories.length) {
+            await reply(phoneE164, "Nenhuma categoria disponível. Tente novamente.");
+            return;
+        }
+        await saveSession(admin, threadId, companyId, {
+            step:    "catalog_categories",
+            context: { ...session.context, categories },
+            // cart não é alterado — produtos preservados
+        });
+        await sendListMessage(
+            phoneE164,
+            "🍺 Escolha uma categoria para adicionar mais produtos:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
+        );
+        return;
+    }
 
     // Input não reconhecido → reenviar resumo SEM cancelar o pedido
     if (!matchesAny(input, ["confirmar", "confirmar pedido", "confirmo", "sim", "ok", "s", "1"])) {
