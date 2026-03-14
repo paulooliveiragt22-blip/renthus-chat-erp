@@ -82,7 +82,8 @@
       "Bash(claude mcp:*)",
       "Bash(cat:*)",
       "mcp__postgres__query",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(TOKEN=\"EAF3F1KCsZAk4BQypJrI7LF0qhlOpXRZBQzElMy15GZBEuaUYsEWZCapCWB5JqZApo4KDnO74wiIwtDTZCc1cZCLrML4u1tDvSrbnMm97WzgPkCAy22elTZAZBdyqeXtX5b6yWq3YLGRAhDoiAeVAc8kiveKxjZBJ5L2NWresLFL8Pe4LQKVED3XOtVRD2dVKbzDwZDZD\"\nPHONE_ID=\"1043863512143674\"\ncurl -s \"https://graph.facebook.com/v20.0/${PHONE_ID}\" \\\\\n  -H \"Authorization: Bearer ${TOKEN}\" | node -e \"\nconst d=[];process.stdin.on\\('data',c=>d.push\\(c\\)\\);\nprocess.stdin.on\\('end',\\(\\)=>{\n  const r=JSON.parse\\(Buffer.concat\\(d\\).toString\\(\\)\\);\n  if\\(r.error\\) console.log\\('ERRO:', r.error.message, '| code:', r.error.code\\);\n  else console.log\\('TOKEN OK | phone:', r.display_phone_number, '| status:', r.verified_name || r.id\\);\n}\\)\")"
     ]
   },
   "enabledMcpjsonServers": [
