@@ -78,7 +78,16 @@
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(supabase:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(claude mcp:*)",
+      "Bash(cat:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "postgres",
+    "filesystem",
+    "fetch",
+    "context7",
+    "sequential-thinking"
+  ]
 }
