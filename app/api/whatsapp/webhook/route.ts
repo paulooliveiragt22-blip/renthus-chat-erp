@@ -63,8 +63,8 @@ function extractBodyText(m: any): string | null {
                 return String(interactive.button_reply?.title ?? interactive.button_reply?.id ?? "").trim() || null;
             }
             if (subType === "list_reply") {
-                // Seleção de lista interativa
-                return String(interactive.list_reply?.title ?? interactive.list_reply?.id ?? "").trim() || null;
+                // Seleção de lista interativa — retorna o id para permitir lookup por variantId/_case
+                return String(interactive.list_reply?.id ?? interactive.list_reply?.title ?? "").trim() || null;
             }
             // Outros sub-tipos: serializa para debug
             return JSON.stringify(interactive);
