@@ -296,9 +296,14 @@ async function createOrder(
 ): Promise<string> {
     const total = cartTotal(cart);
 
-    console.log("[createOrder] START | companyId:", companyId, "| customerId:", customerId,
-        "| paymentMethod:", paymentMethod, "| total:", total,
-        "| items:", cart.length, "| address:", deliveryAddress, "| changeFor:", changeFor ?? null);
+    console.log("[createOrder] dados:", JSON.stringify({
+        company_id:     companyId,
+        customer_id:    customerId,
+        cart,
+        address:        deliveryAddress,
+        payment_method: paymentMethod,
+        change_for:     changeFor ?? null,
+    }, null, 2));
 
     const orderPayload = {
         company_id:     companyId,
@@ -309,15 +314,18 @@ async function createOrder(
         paid:           false,
         delivery_fee:   0,
         total_amount:   total,
-        details:        `Endereço: ${deliveryAddress}${changeFor ? ` | Troco: R$ ${changeFor.toFixed(2)}` : ""}`,
+        change_for:     changeFor ?? null,
+        details:        `Endereço: ${deliveryAddress}`,
     };
-    console.log("[createOrder] payload:", JSON.stringify(orderPayload));
 
+    console.log("[createOrder] inserindo order...");
     const { data: order, error: orderErr } = await admin
         .from("orders")
         .insert(orderPayload)
-        .select("id")
+        .select()
         .single();
+
+    console.log("[createOrder] order result:", order, orderErr);
 
     if (orderErr || !order?.id) {
         console.error("[createOrder] FALHA ao inserir order:", {
@@ -329,8 +337,6 @@ async function createOrder(
         throw new Error(orderErr?.message ?? "Falha ao criar pedido");
     }
 
-    console.log("[createOrder] Order criada | id:", order.id);
-
     const items = cart.map((item) => ({
         order_id:           order.id,
         product_variant_id: item.variantId,
@@ -341,20 +347,24 @@ async function createOrder(
         line_total:         item.price * item.qty,
     }));
 
-    console.log("[createOrder] Inserindo order_items:", JSON.stringify(items));
+    console.log("[createOrder] inserindo", items.length, "itens...");
 
-    const { error: itemsErr } = await admin.from("order_items").insert(items);
-    if (itemsErr) {
-        console.error("[createOrder] FALHA ao inserir order_items:", {
-            code:    itemsErr.code,
-            message: itemsErr.message,
-            details: itemsErr.details,
-            hint:    itemsErr.hint,
-        });
-    } else {
-        console.log("[createOrder] order_items inseridos com sucesso:", items.length);
+    for (const item of items) {
+        console.log("[createOrder] item:", JSON.stringify(item));
+        const { error: itemErr } = await admin.from("order_items").insert(item);
+        console.log("[createOrder] item error:", itemErr);
+        if (itemErr) {
+            console.error("[createOrder] FALHA item:", {
+                code:    itemErr.code,
+                message: itemErr.message,
+                details: itemErr.details,
+                hint:    itemErr.hint,
+                item,
+            });
+        }
     }
 
+    console.log("[createOrder] concluído | orderId:", order.id);
     return order.id as string;
 }
 
