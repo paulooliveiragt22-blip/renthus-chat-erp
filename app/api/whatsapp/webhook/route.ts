@@ -316,15 +316,20 @@ export async function POST(req: Request) {
 
         console.log("[webhook] → chamando processInboundMessage para thread:", threadId, "company:", channel.company_id);
 
-        processInboundMessage({
-            admin,
-            companyId:   channel.company_id,
-            threadId,
-            messageId:   messageId ?? "",
-            phoneE164,
-            text:        bodyText,
-            profileName,
-        }).catch((err) => console.error("[chatbot] processInboundMessage ERRO:", err));
+        try {
+            await processInboundMessage({
+                admin,
+                companyId:   channel.company_id,
+                threadId,
+                messageId:   messageId ?? "",
+                phoneE164,
+                text:        bodyText,
+                profileName,
+            });
+            console.log("[webhook] processInboundMessage concluído");
+        } catch (err) {
+            console.error("[chatbot] processInboundMessage ERRO:", err);
+        }
     }
 
     // ── 2. Status updates (sent/delivered/read/failed) ────────────────────────
