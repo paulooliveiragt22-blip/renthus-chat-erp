@@ -65,7 +65,11 @@
       "Bash(npx supabase:*)",
       "Read(//tmp/**)",
       "Bash(find /c/Users/Usuario -name \"access-token\" -o -name \"*.token\" 2>/dev/null | head -5\nls /c/Users/Usuario/.supabase/ 2>/dev/null || echo \"não existe\")",
-      "Bash(grep -ril \"order_items\" \"E:/renthus-chat-erp/\" --include=\"*.sql\" --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | grep -v node_modules | grep -v \".next\" | head -20)"
+      "Bash(grep -ril \"order_items\" \"E:/renthus-chat-erp/\" --include=\"*.sql\" --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | grep -v node_modules | grep -v \".next\" | head -20)",
+      "Bash(psql:*)",
+      "Bash(node:*)",
+      "Bash(curl:*)",
+      "Bash(npx:*)"
     ]
   }
 }
