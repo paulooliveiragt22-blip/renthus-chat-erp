@@ -335,16 +335,18 @@ async function createOrder(
     }, null, 2));
 
     const orderPayload = {
-        company_id:     companyId,
-        customer_id:    customerId,
-        status:         "new",
-        channel:        "whatsapp",
-        payment_method: paymentMethod,
-        paid:           false,
-        delivery_fee:   0,
-        total_amount:   total,
-        change_for:     changeFor ?? null,
-        details:        `Endereço: ${deliveryAddress}`,
+        company_id:       companyId,
+        customer_id:      customerId,
+        status:           "new",
+        channel:          "whatsapp",
+        payment_method:   paymentMethod,
+        paid:             false,
+        delivery_fee:     0,
+        total:            total,
+        total_amount:     total,
+        change_for:       changeFor ?? null,
+        delivery_address: deliveryAddress,
+        details:          `Endereço: ${deliveryAddress}`,
     };
 
     console.log("[createOrder] inserindo order...");
@@ -368,6 +370,8 @@ async function createOrder(
 
     const items = cart.map((item) => ({
         order_id:           order.id,
+        company_id:         companyId,
+        product_id:         item.productId,
         product_variant_id: item.variantId,
         product_name:       item.name,
         quantity:           item.qty,
