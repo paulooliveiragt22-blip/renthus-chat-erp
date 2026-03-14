@@ -51,7 +51,20 @@
       "Bash(grep -rn \"select\\(\" E:/renthus-chat-erp/app/\\\\\\(admin\\\\\\)/produtos/lista/ListaClient.tsx | head -5\nsed -n '215,240p' E:/renthus-chat-erp/app/\\\\\\(admin\\\\\\)/produtos/lista/ListaClient.tsx)",
       "Bash(cat E:/renthus-chat-erp/app/api/orders/\\\\[id\\\\]/route.ts)",
       "Bash(cat E:/renthus-chat-erp/lib/whatsapp/send.ts\ncat E:/renthus-chat-erp/lib/supabase/admin.ts 2>/dev/null || find E:/renthus-chat-erp/lib/supabase/ -name \"*.ts\" | head -5)",
-      "Bash(grep -n \"from_addr\\\\|to_addr\\\\|delivery_address\\\\|product_name\\\\|product_id\\\\|unit_type\\\\|qty\\\\b\\\\|quantity\" E:/renthus-chat-erp/app/api/orders/\\\\[id\\\\]/route.ts | head -20)"
+      "Bash(grep -n \"from_addr\\\\|to_addr\\\\|delivery_address\\\\|product_name\\\\|product_id\\\\|unit_type\\\\|qty\\\\b\\\\|quantity\" E:/renthus-chat-erp/app/api/orders/\\\\[id\\\\]/route.ts | head -20)",
+      "Bash(cd E:/renthus-chat-erp && npx supabase db query \"SELECT c.id, c.name, c.nome_fantasia, c.whatsapp_phone, c.is_active FROM companies c WHERE c.id IN \\(SELECT DISTINCT company_id FROM products WHERE company_id IS NOT NULL\\) OR c.name ILIKE '%disk%' OR c.name ILIKE '%bebida%' OR c.name ILIKE '%loja%' ORDER BY c.name;\" 2>&1)",
+      "Bash(cd E:/renthus-chat-erp && npx supabase db query \"SELECT wc.id, wc.company_id, wc.provider, wc.status, wc.from_identifier, wc.provider_metadata, c.name as company_name FROM whatsapp_channels wc JOIN companies c ON c.id = wc.company_id;\" 2>&1)",
+      "Bash(cd E:/renthus-chat-erp && grep -v \"^#\" .env.local | grep -v \"^$\" | grep -v \"SECRET\\\\|PASSWORD\\\\|TOKEN\\\\|KEY\" | head -20)",
+      "Bash(cd E:/renthus-chat-erp && node --version && node -e \"\nconst { createClient } = require\\('./node_modules/@supabase/supabase-js/dist/main/index.js'\\);\nconsole.log\\('supabase-js ok'\\);\n\" 2>&1 | head -5)",
+      "Bash(cd E:/renthus-chat-erp && cat .env.local | grep -v \"^#\" | grep -v \"^$\")",
+      "Bash(cd E:/renthus-chat-erp && npx supabase --version && cat supabase/config.toml | grep \"project_id\\\\|ref\" | head -5)",
+      "Bash(cd E:/renthus-chat-erp && npx supabase inspect db db-stats --project-ref zwcfuvohxmvlxhdfbgxo 2>&1 | head -20)",
+      "Bash(cd E:/renthus-chat-erp && npx supabase inspect db db-stats --linked 2>&1 | head -15)",
+      "Bash(cd E:/renthus-chat-erp && npx supabase db dump --data-only -t companies --linked 2>&1 | grep -v \"^--\\\\|^SET\\\\|^SELECT pg\\\\|^$\\\\|^INSERT INTO\\\\|^\\\\\\\\\\\\.\" | head -40)",
+      "Bash(cd E:/renthus-chat-erp && npx supabase db dump --data-only --linked 2>&1 | grep -E \"^COPY companies|^[0-9a-f-]{36}\" | head -20)",
+      "Bash(npx supabase:*)",
+      "Read(//tmp/**)",
+      "Bash(find /c/Users/Usuario -name \"access-token\" -o -name \"*.token\" 2>/dev/null | head -5\nls /c/Users/Usuario/.supabase/ 2>/dev/null || echo \"não existe\")"
     ]
   }
 }
