@@ -697,19 +697,25 @@ async function handleCatalogCategories(
         context: { ...session.context, products, category_name: selected.name },
     });
 
-    await reply(phoneE164, buildProductsMessage(products, selected.name));
+    await sendProductsList(phoneE164, products, selected.name);
 }
 
-function buildProductsMessage(products: ProductOption[], title: string): string {
-    const lines = [`*${title}* 🍺\n`];
-    for (const p of products) {
-        lines.push(`${p.idx}. ${p.name} — ${formatCurrency(p.price)}`);
-    }
-    lines.push(
-        "\n_Digite o *número* do item para adicionar ao carrinho._\n" +
-        "_Digite *carrinho* para ver o carrinho ou *menu* para voltar._"
+async function sendProductsList(
+    phoneE164: string,
+    products: ProductOption[],
+    categoryName: string
+): Promise<void> {
+    await sendListMessage(
+        phoneE164,
+        `*${categoryName}* 🍺\n_Toque no produto para adicionar ao carrinho._`,
+        "Ver produtos",
+        products.map((p) => ({
+            id:          p.isCase ? `${p.variantId}_case` : p.variantId,
+            title:       `${p.idx}. ${p.name}`,
+            description: formatCurrency(p.price),
+        })),
+        categoryName
     );
-    return lines.join("\n");
 }
 
 // ─── CATALOG_PRODUCTS ─────────────────────────────────────────────────────────
@@ -727,7 +733,7 @@ async function handleCatalogProducts(
     // ── Botão "Mais produtos" ─────────────────────────────────────────────────
     if (matchesAny(input, ["mais produtos"])) {
         const catName = (session.context.category_name as string) ?? "Produtos";
-        await reply(phoneE164, buildProductsMessage(products, catName));
+        await sendProductsList(phoneE164, products, catName);
         return;
     }
 
@@ -791,17 +797,28 @@ async function handleCatalogProducts(
         return;
     }
 
-    // ── Seleção de produto por número ─────────────────────────────────────────
-    const num = parseInt(input, 10);
-    if (isNaN(num) || num < 1 || num > products.length) {
-        await reply(
-            phoneE164,
-            `Digite o *número* do produto para adicionar.\nOu *menu* para voltar ao início.`
-        );
-        return;
+    // ── Seleção de produto por ID (list_reply) ou número digitado ────────────
+    const isCase   = input.endsWith("_case");
+    const lookupId = isCase ? input.slice(0, -5) : input;
+
+    // Busca pelo variantId enviado pelo list_reply
+    let selected = products.find(
+        (p) => p.variantId === lookupId && Boolean(p.isCase) === isCase
+    ) ?? products.find((p) => p.variantId === lookupId);
+
+    // Fallback: seleção por número digitado manualmente
+    if (!selected) {
+        const num = parseInt(input, 10);
+        if (!isNaN(num) && num >= 1 && num <= products.length) {
+            selected = products[num - 1];
+        }
     }
 
-    const selected = products[num - 1];
+    if (!selected) {
+        const catName = (session.context.category_name as string) ?? "Produtos";
+        await sendProductsList(phoneE164, products, catName);
+        return;
+    }
 
     await saveSession(admin, threadId, companyId, {
         context: { ...session.context, pending_product: selected },
