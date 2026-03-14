@@ -80,7 +80,9 @@
       "Bash(supabase:*)",
       "Bash(find:*)",
       "Bash(claude mcp:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "mcp__postgres__query",
+      "Bash(cd:*)"
     ]
   },
   "enabledMcpjsonServers": [
