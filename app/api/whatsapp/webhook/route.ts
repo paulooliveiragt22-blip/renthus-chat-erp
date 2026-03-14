@@ -86,18 +86,23 @@ async function resolveChannel(
     phoneNumberId: string | null
 ) {
     if (phoneNumberId) {
-        // Busca canal pelo phone_number_id salvo em provider_metadata
-        const { data } = await admin
+        // Busca pelo phone_number_id dentro de provider_metadata (JSONB ->> text)
+        // Equivale a: WHERE provider_metadata->>'phone_number_id' = $1
+        const { data, error } = await admin
             .from("whatsapp_channels")
             .select("id, company_id, from_identifier, provider_metadata")
             .eq("provider", "meta")
             .eq("status", "active")
-            .contains("provider_metadata", { phone_number_id: phoneNumberId })
+            .filter("provider_metadata->>phone_number_id", "eq", phoneNumberId)
             .maybeSingle();
 
-        if (data) return data;
+        if (error) {
+            console.warn("[webhook] resolveChannel JSONB filter error:", error.message);
+        } else if (data) {
+            return data;
+        }
 
-        // Fallback: qualquer canal meta ativo (single-tenant ou primeiro match)
+        // Fallback: qualquer canal meta ativo (single-tenant)
         const { data: fallback } = await admin
             .from("whatsapp_channels")
             .select("id, company_id, from_identifier, provider_metadata")
@@ -106,18 +111,21 @@ async function resolveChannel(
             .limit(1)
             .maybeSingle();
 
-        if (fallback) return fallback;
+        if (fallback) {
+            console.log("[webhook] resolveChannel: usando fallback meta ativo");
+            return fallback;
+        }
     }
 
-    // Sem phone_number_id → pega primeiro canal ativo de qualquer provider meta
-    const { data: any } = await admin
+    // Sem phone_number_id → primeiro canal ativo de qualquer provider
+    const { data: first } = await admin
         .from("whatsapp_channels")
         .select("id, company_id, from_identifier, provider_metadata")
         .eq("status", "active")
         .limit(1)
         .maybeSingle();
 
-    return any ?? null;
+    return first ?? null;
 }
 
 // ─── Thread ───────────────────────────────────────────────────────────────────
