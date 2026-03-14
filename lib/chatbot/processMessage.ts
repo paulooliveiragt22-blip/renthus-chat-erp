@@ -27,9 +27,11 @@ export interface ProcessMessageParams {
 interface CartItem {
     variantId: string;
     productId: string;
-    name: string;   // ex: "Heineken 600ml"
+    name: string;     // ex: "Heineken 600ml" ou "Heineken 600ml (cx 12un)"
     price: number;
     qty: number;
+    isCase?: boolean; // true = compra por caixa
+    caseQty?: number; // unidades por caixa (para cálculo de unid. totais)
 }
 
 interface Session {
@@ -188,8 +190,10 @@ interface ProductOption {
     idx: number;
     productId: string;
     variantId: string;
-    name: string;   // "Heineken 600ml"
+    name: string;   // "Heineken 600ml" ou "Heineken 600ml (cx 12)"
     price: number;
+    isCase?: boolean;  // true = entrada de caixa
+    caseQty?: number;  // unidades por caixa
 }
 
 async function getProductsByCategory(
@@ -206,6 +210,9 @@ async function getProductsByCategory(
                 volume_value,
                 unit,
                 unit_price,
+                has_case,
+                case_qty,
+                case_price,
                 is_active
             )
         `)
@@ -228,9 +235,31 @@ async function getProductsByCategory(
             options.push({ idx: idx++, productId: p.id, variantId: p.id, name: p.name, price: 0 });
         } else {
             for (const v of variants) {
-                const vol   = v.volume_value ? `${v.volume_value}${v.unit ?? "ml"}` : null;
-                const label = vol ? `${p.name} ${vol}` : p.name;
-                options.push({ idx: idx++, productId: p.id, variantId: v.id, name: label, price: Number(v.unit_price ?? 0) });
+                const vol      = v.volume_value ? `${v.volume_value}${v.unit ?? "ml"}` : null;
+                const baseLabel = vol ? `${p.name} ${vol}` : p.name;
+
+                // Opção unitária
+                options.push({
+                    idx:       idx++,
+                    productId: p.id,
+                    variantId: v.id,
+                    name:      baseLabel,
+                    price:     Number(v.unit_price ?? 0),
+                });
+                if (idx > 10) break;
+
+                // Opção caixa (se disponível)
+                if (v.has_case && v.case_qty && v.case_price && idx <= 10) {
+                    options.push({
+                        idx:       idx++,
+                        productId: p.id,
+                        variantId: v.id,
+                        name:      `${baseLabel} (cx ${v.case_qty}un)`,
+                        price:     Number(v.case_price),
+                        isCase:    true,
+                        caseQty:   Number(v.case_qty),
+                    });
+                }
                 if (idx > 10) break;
             }
         }
@@ -344,6 +373,7 @@ async function createOrder(
         quantity:           item.qty,
         qty:                item.qty,
         unit_price:         item.price,
+        unit_type:          item.isCase ? "case" : "unit",
         line_total:         item.price * item.qty,
     }));
 
@@ -723,6 +753,8 @@ async function handleCatalogProducts(
                 name:      pending.name,
                 price:     pending.price,
                 qty,
+                isCase:    pending.isCase,
+                caseQty:   pending.caseQty,
             });
         }
 
