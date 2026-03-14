@@ -39,7 +39,19 @@
       "Read(//e/renthus-chat-erp/$USERPROFILE/.supabase/**)",
       "Read(//c/Users/Usuario/.supabase/**)",
       "Read(//c/Users/Usuario/**)",
-      "Bash(rm \"E:/renthus-chat-erp/supabase/migrations/20260313120001_temp_inspect_constraints.sql\"\ncd \"E:/renthus-chat-erp\" && npx supabase migration repair --status reverted 20260313120001 2>&1)"
+      "Bash(rm \"E:/renthus-chat-erp/supabase/migrations/20260313120001_temp_inspect_constraints.sql\"\ncd \"E:/renthus-chat-erp\" && npx supabase migration repair --status reverted 20260313120001 2>&1)",
+      "Bash(cd \"E:/renthus-chat-erp\" && npx ts-node test-send.ts 2>&1)",
+      "Bash(cd \"E:/renthus-chat-erp\" && npx ts-node --esm test-send.ts 2>&1)",
+      "Bash(cd \"E:/renthus-chat-erp\" && npx ts-node --compiler-options '{\"module\":\"commonjs\"}' test-send.ts 2>&1)",
+      "Bash(grep -rn \"CREATE TABLE IF NOT EXISTS\" E:/renthus-chat-erp/supabase/migrations/ 2>/dev/null | grep -v \"^Binary\" | sed 's/.*CREATE TABLE IF NOT EXISTS //' | sed 's/[[:space:]].*//' | sort -u)",
+      "Bash(grep -rn \"create table\\\\b\" E:/renthus-chat-erp/supabase/migrations/ 2>/dev/null -i | grep -v \"IF NOT EXISTS\" | grep -v \"^Binary\" | sed 's/.*create table[[:space:]]*//' | sed 's/[[:space:]].*//' | sort -u)",
+      "Bash(grep -rhin \"create table\" E:/renthus-chat-erp/supabase/migrations/ 2>/dev/null | grep -oE \"create table \\(if not exists \\)?\\(public\\\\.\\)?[a-z_]+\" | sed \"s/create table //i\" | sed \"s/if not exists //i\" | sed \"s/public\\\\.//\" | sort -u)",
+      "Bash(ls E:/renthus-chat-erp/app/\\\\\\(admin\\\\\\)/)",
+      "Bash(cat E:/renthus-chat-erp/app/\\\\\\(admin\\\\\\)/pedidos/PedidosClient.tsx | head -80)",
+      "Bash(grep -rn \"select\\(\" E:/renthus-chat-erp/app/\\\\\\(admin\\\\\\)/produtos/lista/ListaClient.tsx | head -5\nsed -n '215,240p' E:/renthus-chat-erp/app/\\\\\\(admin\\\\\\)/produtos/lista/ListaClient.tsx)",
+      "Bash(cat E:/renthus-chat-erp/app/api/orders/\\\\[id\\\\]/route.ts)",
+      "Bash(cat E:/renthus-chat-erp/lib/whatsapp/send.ts\ncat E:/renthus-chat-erp/lib/supabase/admin.ts 2>/dev/null || find E:/renthus-chat-erp/lib/supabase/ -name \"*.ts\" | head -5)",
+      "Bash(grep -n \"from_addr\\\\|to_addr\\\\|delivery_address\\\\|product_name\\\\|product_id\\\\|unit_type\\\\|qty\\\\b\\\\|quantity\" E:/renthus-chat-erp/app/api/orders/\\\\[id\\\\]/route.ts | head -20)"
     ]
   }
 }
