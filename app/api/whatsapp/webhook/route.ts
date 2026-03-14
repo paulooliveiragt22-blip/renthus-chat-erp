@@ -20,7 +20,6 @@
 import { NextResponse, NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 
 export const runtime = "nodejs";
 
@@ -235,14 +234,6 @@ export async function POST(req: Request) {
 
         const profileName: string | null = value?.contacts?.[0]?.profile?.name ?? null;
         const bodyText = extractBodyText(m);
-
-        // ── TESTE: eco automático para validar o fluxo de resposta ──────────
-        if (bodyText) {
-            sendWhatsAppMessage(phoneE164, `Recebi sua mensagem: ${bodyText}`)
-                .then((r) => console.log("[webhook] eco enviado:", r))
-                .catch((err) => console.error("[webhook] erro ao enviar eco:", err));
-        }
-        // ────────────────────────────────────────────────────────────────────
 
         let threadId: string;
         try {
