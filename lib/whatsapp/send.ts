@@ -214,3 +214,73 @@ export async function sendListMessage(
         return { ok: false, error: String(err?.message ?? err) };
     }
 }
+
+/**
+ * Envia mensagem interativa de lista com múltiplas seções.
+ * Até 10 seções; cada seção até 10 linhas; title da linha: máx 24 chars.
+ */
+export async function sendListMessageSections(
+    to: string,
+    bodyText: string,
+    buttonLabel: string,
+    sections: Array<{
+        title: string;
+        rows: Array<{ id: string; title: string; description?: string }>;
+    }>
+): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+    const token         = process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (!token || !phoneNumberId) {
+        console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
+        return { ok: false, error: "missing_env_vars" };
+    }
+
+    const toNormalized = normalizeBrazilianNumber(to);
+    const url          = `${GRAPH_API_BASE}/${phoneNumberId}/messages`;
+
+    const body = {
+        messaging_product: "whatsapp",
+        to:                toNormalized,
+        type:              "interactive",
+        interactive: {
+            type: "list",
+            body: { text: bodyText.slice(0, 1024) },
+            action: {
+                button:   buttonLabel.slice(0, 20),
+                sections: sections.slice(0, 10).map((s) => ({
+                    title: s.title.slice(0, 24),
+                    rows:  s.rows.slice(0, 10).map((r) => ({
+                        id:    r.id.slice(0, 200),
+                        title: r.title.slice(0, 24),
+                        ...(r.description ? { description: r.description.slice(0, 72) } : {}),
+                    })),
+                })),
+            },
+        },
+    };
+
+    try {
+        const res = await fetch(url, {
+            method:  "POST",
+            headers: {
+                Authorization:  `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+        });
+
+        const json = await res.json().catch(() => ({})) as any;
+
+        if (!res.ok) {
+            console.error("[send] Meta API error (list-sections):", JSON.stringify(json));
+            return { ok: false, error: json?.error?.message ?? `HTTP ${res.status}` };
+        }
+
+        return { ok: true, messageId: json?.messages?.[0]?.id };
+
+    } catch (err: any) {
+        console.error("[send] fetch error (list-sections):", err?.message ?? err);
+        return { ok: false, error: String(err?.message ?? err) };
+    }
+}
