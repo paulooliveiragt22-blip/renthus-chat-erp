@@ -10,7 +10,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "@/lib/whatsapp/send";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -291,7 +291,8 @@ async function createOrder(
     customerId: string,
     cart: CartItem[],
     paymentMethod: string,
-    deliveryAddress: string
+    deliveryAddress: string,
+    changeFor?: number | null
 ): Promise<string> {
     const total = cartTotal(cart);
 
@@ -306,7 +307,7 @@ async function createOrder(
             paid:           false,
             delivery_fee:   0,
             total_amount:   total,
-            details:        `Endereço: ${deliveryAddress}`,
+            details:        `Endereço: ${deliveryAddress}${changeFor ? ` | Troco: R$ ${changeFor.toFixed(2)}` : ""}`,
         })
         .select("id")
         .single();
@@ -508,17 +509,17 @@ async function handleMainMenu(
             return;
         }
 
-        const list = categories.map((c, i) => `${i + 1}️⃣  ${c.name}`).join("\n");
-
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_categories",
             context: { categories },
         });
 
-        await reply(
+        await sendListMessage(
             phoneE164,
-            `🍺 *Categorias disponíveis:*\n\n${list}\n\n` +
-            `_Digite o número da categoria._`
+            "🍺 Escolha uma categoria:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
         );
         return;
     }
@@ -606,8 +607,13 @@ async function handleCatalogCategories(
     }
 
     if (!selected) {
-        const list = categories.map((c, i) => `${i + 1}️⃣  ${c.name}`).join("\n");
-        await reply(phoneE164, `Não entendi. Escolha uma categoria:\n\n${list}`);
+        await sendListMessage(
+            phoneE164,
+            "Não entendi. Escolha uma categoria:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
+        );
         return;
     }
 
@@ -654,6 +660,13 @@ async function handleCatalogProducts(
 ): Promise<void> {
     const products = (session.context.products as ProductOption[]) ?? [];
 
+    // ── Botão "Mais produtos" ─────────────────────────────────────────────────
+    if (matchesAny(input, ["mais produtos"])) {
+        const catName = (session.context.category_name as string) ?? "Produtos";
+        await reply(phoneE164, buildProductsMessage(products, catName));
+        return;
+    }
+
     // ── Se há produto pendente aguardando quantidade ──────────────────────────
     if (session.context.pending_product) {
         const qty = parseInt(input, 10);
@@ -685,13 +698,14 @@ async function handleCatalogProducts(
             // mantém step catalog_products para continuar comprando
         });
 
-        await reply(
+        await sendInteractiveButtons(
             phoneE164,
-            `✅ *${qty}x ${pending.name}* adicionado!\n\n` +
-            `${formatCart(newCart)}\n\n` +
-            `Digite um *número* para adicionar mais produtos,\n` +
-            `*carrinho* para ver o resumo ou\n` +
-            `*finalizar* para fechar o pedido.`
+            `✅ *${qty}x ${pending.name}* adicionado!\n\n${formatCart(newCart)}`,
+            [
+                { id: "mais_produtos", title: "Mais produtos" },
+                { id: "ver_carrinho",  title: "Ver carrinho" },
+                { id: "finalizar",     title: "Finalizar pedido" },
+            ]
         );
         return;
     }
@@ -861,7 +875,7 @@ async function handleCheckoutAddress(
                 step:    "checkout_payment",
                 context: { ...session.context, delivery_address: savedAddress },
             });
-            await sendPaymentOptions(phoneE164);
+            await sendPaymentButtons(phoneE164);
             return;
         }
         if (input === "2") {
@@ -901,18 +915,44 @@ async function handleCheckoutAddress(
         },
     });
 
-    await sendPaymentOptions(phoneE164);
+    await sendPaymentButtons(phoneE164);
 }
 
 // ─── CHECKOUT_PAYMENT ─────────────────────────────────────────────────────────
 
-async function sendPaymentOptions(phoneE164: string): Promise<void> {
+async function sendPaymentButtons(phoneE164: string): Promise<void> {
+    await sendInteractiveButtons(
+        phoneE164,
+        "💳 Como deseja pagar?",
+        [
+            { id: "cash", title: "Dinheiro" },
+            { id: "card", title: "Cartão na entrega" },
+        ]
+    );
+}
+
+async function sendOrderSummary(
+    phoneE164: string,
+    cart: CartItem[],
+    address: string,
+    paymentLabel: string,
+    changeFor: number | null
+): Promise<void> {
+    const changeText = changeFor ? `\n💵 Troco: ${formatCurrency(changeFor)}` : "";
     await reply(
         phoneE164,
-        `💳 *Forma de pagamento:*\n\n` +
-        `1️⃣  Pix\n` +
-        `2️⃣  Dinheiro\n` +
-        `3️⃣  Cartão na entrega`
+        `📋 *Resumo do pedido:*\n\n` +
+        `${formatCart(cart)}\n\n` +
+        `📍 Entrega: ${address}\n` +
+        `💳 Pagamento: ${paymentLabel}${changeText}`
+    );
+    await sendInteractiveButtons(
+        phoneE164,
+        "Confirmar o pedido?",
+        [
+            { id: "confirmar", title: "Confirmar pedido" },
+            { id: "cancelar",  title: "Cancelar" },
+        ]
     );
 }
 
@@ -924,49 +964,65 @@ async function handleCheckoutPayment(
     input: string,
     session: Session
 ): Promise<void> {
-    // Valores aceitos pelo DB: "pix" | "cash" | "card"
+    const address = (session.context.delivery_address as string) ?? "—";
+
+    // ── Sub-step: aguardando valor do troco ───────────────────────────────────
+    if (session.context.awaiting_change_for) {
+        let changeFor: number | null = null;
+
+        if (!matchesAny(input, ["nao", "não", "n", "sem troco"])) {
+            const parsed = parseFloat(input.replace(",", ".").replace(/[^0-9.]/g, ""));
+            if (isNaN(parsed) || parsed <= 0) {
+                await reply(phoneE164, "Digite o valor do troco (ex: *50*) ou *não* se não precisar.");
+                return;
+            }
+            changeFor = parsed;
+        }
+
+        await saveSession(admin, threadId, companyId, {
+            step:    "checkout_confirm",
+            context: { ...session.context, change_for: changeFor, awaiting_change_for: false },
+        });
+        await sendOrderSummary(phoneE164, session.cart, address, "Dinheiro", changeFor);
+        return;
+    }
+
+    // ── Seleção de forma de pagamento ─────────────────────────────────────────
+    // Valores aceitos pelo DB: "cash" | "card"
     const paymentMap: Record<string, string> = {
-        "1":      "pix",
-        "2":      "cash",
-        "3":      "card",
-        "pix":    "pix",
-        "dinheiro":"cash",
-        "cash":   "cash",
-        "cartao": "card",
-        "cartão": "card",
-        "card":   "card",
-        "credito":"card",
-        "debito": "card",
+        "1":                 "cash",
+        "2":                 "card",
+        "dinheiro":          "cash",
+        "cash":              "cash",
+        "cartao":            "card",
+        "cartão":            "card",
+        "card":              "card",
+        "cartao na entrega": "card",
+        "cartão na entrega": "card",
+        "credito":           "card",
+        "debito":            "card",
     };
 
     const method = paymentMap[normalize(input)];
     if (!method) {
-        await sendPaymentOptions(phoneE164);
+        await sendPaymentButtons(phoneE164);
         return;
     }
 
-    const paymentLabels: Record<string, string> = {
-        pix:  "Pix",
-        cash: "Dinheiro",
-        card: "Cartão na entrega",
-    };
+    if (method === "cash") {
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, payment_method: "cash", awaiting_change_for: true },
+        });
+        await reply(phoneE164, "💵 Troco para quanto?\n\nDigite o valor (ex: *50*) ou *não* se não precisar de troco.");
+        return;
+    }
 
-    const address = (session.context.delivery_address as string) ?? "—";
-
+    // card
     await saveSession(admin, threadId, companyId, {
         step:    "checkout_confirm",
-        context: { ...session.context, payment_method: method },
+        context: { ...session.context, payment_method: "card" },
     });
-
-    await reply(
-        phoneE164,
-        `📋 *Resumo do pedido:*\n\n` +
-        `${formatCart(session.cart)}\n\n` +
-        `📍 Entrega: ${address}\n` +
-        `💳 Pagamento: ${paymentLabels[method]}\n\n` +
-        `✅ Digite *confirmar* para finalizar\n` +
-        `❌ Digite *cancelar* para voltar`
-    );
+    await sendOrderSummary(phoneE164, session.cart, address, "Cartão na entrega", null);
 }
 
 // ─── CHECKOUT_CONFIRM ─────────────────────────────────────────────────────────
@@ -995,8 +1051,9 @@ async function handleCheckoutConfirm(
     try {
         const address       = (session.context.delivery_address as string) ?? "";
         const paymentMethod = (session.context.payment_method   as string) ?? "cash";
+        const changeFor     = (session.context.change_for       as number | null) ?? null;
 
-        const orderId    = await createOrder(admin, companyId, session.customer_id, session.cart, paymentMethod, address);
+        const orderId    = await createOrder(admin, companyId, session.customer_id, session.cart, paymentMethod, address, changeFor);
         const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
 
         // Snapshot do carrinho antes de limpar
@@ -1008,11 +1065,16 @@ async function handleCheckoutConfirm(
             context: { last_order_id: orderId },
         });
 
+        const paymentLine = paymentMethod === "cash"
+            ? `💳 Pagamento: Dinheiro${changeFor ? ` (troco para ${formatCurrency(changeFor)})` : ""}`
+            : `💳 Pagamento: Cartão na entrega`;
+
         await reply(
             phoneE164,
             `✅ *Pedido confirmado!* 🍺\n\n` +
             `${formatCart(cartSnapshot)}\n\n` +
             `📍 Endereço: ${address}\n` +
+            `${paymentLine}\n` +
             `🔖 Pedido: #${orderShort}\n\n` +
             `📦 Recebemos seu pedido e já estamos preparando!\n` +
             `_Obrigado por pedir no ${companyName}!_`
