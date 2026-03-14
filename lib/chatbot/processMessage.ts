@@ -186,21 +186,34 @@ async function getCategories(admin: SupabaseClient): Promise<Category[]> {
     return (data as Category[]) ?? [];
 }
 
-interface ProductOption {
-    idx: number;
-    productId: string;
-    variantId: string;
-    name: string;        // nome completo (armazenado no carrinho)
-    displayName: string; // nome base sem sufixo de caixa (para exibição na lista)
-    price: number;
-    isCase?: boolean;  // true = entrada de caixa
-    caseQty?: number;  // unidades por caixa
+/**
+ * Um item na lista de produtos (etapa 1 da seleção).
+ * Um entry por produto+variante; unitário vs caixa é escolhido na etapa seguinte.
+ */
+interface ProductListItem {
+    idx:         number;
+    productId:   string;
+    variantId:   string;
+    displayName: string;  // marca + volume sem prefixo da categoria, ex: "Original 300ml"
+    unitPrice:   number;
+    hasCase:     boolean;
+    caseQty?:    number;
+    casePrice?:  number;
+}
+
+/** Remove o prefixo da categoria do nome do produto (case-insensitive). */
+function stripCategoryPrefix(productName: string, categoryName: string): string {
+    const lower = normalize(productName);
+    const cat   = normalize(categoryName);
+    if (lower.startsWith(cat + " ")) return productName.slice(categoryName.length).trim();
+    return productName;
 }
 
 async function getProductsByCategory(
     admin: SupabaseClient,
-    categoryId: string
-): Promise<ProductOption[]> {
+    categoryId: string,
+    categoryName: string
+): Promise<ProductListItem[]> {
     const { data } = await admin
         .from("products")
         .select(`
@@ -224,7 +237,7 @@ async function getProductsByCategory(
 
     if (!data?.length) return [];
 
-    const options: ProductOption[] = [];
+    const options: ProductListItem[] = [];
     let idx = 1;
 
     for (const p of data as any[]) {
@@ -232,37 +245,33 @@ async function getProductsByCategory(
             ? p.product_variants.filter((v: any) => v.is_active !== false)
             : [];
 
+        // Nome base sem prefixo da categoria (ex: "cerveja Original" → "Original")
+        const shortName = stripCategoryPrefix(p.name, categoryName);
+
         if (!variants.length) {
-            options.push({ idx: idx++, productId: p.id, variantId: p.id, name: p.name, displayName: p.name, price: 0 });
+            options.push({
+                idx:         idx++,
+                productId:   p.id,
+                variantId:   p.id,
+                displayName: shortName,
+                unitPrice:   0,
+                hasCase:     false,
+            });
         } else {
             for (const v of variants) {
-                const vol       = v.volume_value ? `${v.volume_value}${v.unit ?? "ml"}` : null;
-                const baseLabel = vol ? `${p.name} ${vol}` : p.name;
+                const vol         = v.volume_value ? `${v.volume_value}${v.unit ?? "ml"}` : null;
+                const displayName = vol ? `${shortName} ${vol}` : shortName;
 
-                // Opção unitária
                 options.push({
                     idx:         idx++,
                     productId:   p.id,
                     variantId:   v.id,
-                    name:        baseLabel,
-                    displayName: baseLabel,
-                    price:       Number(v.unit_price ?? 0),
+                    displayName,
+                    unitPrice:   Number(v.unit_price ?? 0),
+                    hasCase:     Boolean(v.has_case),
+                    caseQty:     v.case_qty  ? Number(v.case_qty)  : undefined,
+                    casePrice:   v.case_price ? Number(v.case_price) : undefined,
                 });
-                if (idx > 10) break;
-
-                // Opção caixa (se disponível)
-                if (v.has_case && v.case_qty && v.case_price && idx <= 10) {
-                    options.push({
-                        idx:         idx++,
-                        productId:   p.id,
-                        variantId:   v.id,
-                        name:        `${baseLabel} (Caixa com ${v.case_qty})`,
-                        displayName: baseLabel,
-                        price:       Number(v.case_price),
-                        isCase:      true,
-                        caseQty:     Number(v.case_qty),
-                    });
-                }
                 if (idx > 10) break;
             }
         }
@@ -513,6 +522,10 @@ export async function processInboundMessage(
             await handleCatalogProducts(admin, companyId, threadId, phoneE164, input, session);
             break;
 
+        case "catalog_variant":
+            await handleCatalogVariant(admin, companyId, threadId, phoneE164, input, session);
+            break;
+
         case "cart":
             await handleCart(admin, companyId, threadId, phoneE164, companyName, input, session);
             break;
@@ -699,7 +712,7 @@ async function handleCatalogCategories(
         return;
     }
 
-    const products = await getProductsByCategory(admin, selected.id);
+    const products = await getProductsByCategory(admin, selected.id, selected.name);
 
     if (!products.length) {
         await reply(
@@ -720,24 +733,35 @@ async function handleCatalogCategories(
 
 async function sendProductsList(
     phoneE164: string,
-    products: ProductOption[],
+    products: ProductListItem[],
     categoryName: string
 ): Promise<void> {
     await sendListMessage(
         phoneE164,
-        `*${categoryName}* 🍺\n_Toque no produto para adicionar ao carrinho._`,
+        `*${categoryName}* 🍺\n_Escolha um produto:_`,
         "Ver produtos",
-        products.map((p) => {
-            const baseName = p.displayName ?? p.name;
-            const caseInfo = p.isCase ? ` Caixa com ${p.caseQty}` : "";
-            const rawTitle = `${p.idx}. ${baseName}${caseInfo}`;
-            return {
-                id:          p.isCase ? `${p.variantId}_case` : p.variantId,
-                title:       truncateTitle(rawTitle),
-                description: formatCurrency(p.price),
-            };
-        }),
+        products.map((p) => ({
+            id:          p.variantId,
+            title:       truncateTitle(`${p.idx}. ${p.displayName}`),
+            description: formatCurrency(p.unitPrice),
+        })),
         categoryName
+    );
+}
+
+async function sendVariantButtons(phoneE164: string, item: ProductListItem): Promise<void> {
+    const unitTitle = truncateTitle(`Unitário — ${formatCurrency(item.unitPrice)}`, 20);
+    const buttons   = [{ id: "variant_unit", title: unitTitle }];
+
+    if (item.hasCase && item.caseQty && item.casePrice) {
+        const caseTitle = truncateTitle(`Caixa com ${item.caseQty} — ${formatCurrency(item.casePrice)}`, 20);
+        buttons.push({ id: "variant_case", title: caseTitle });
+    }
+
+    await sendInteractiveButtons(
+        phoneE164,
+        `*${item.displayName}*\nComo deseja comprar?`,
+        buttons
     );
 }
 
@@ -751,27 +775,118 @@ async function handleCatalogProducts(
     input: string,
     session: Session
 ): Promise<void> {
-    const products = (session.context.products as ProductOption[]) ?? [];
+    const products = (session.context.products as ProductListItem[]) ?? [];
+    const catName  = (session.context.category_name as string) ?? "Produtos";
 
-    // ── Botão "Mais produtos" ─────────────────────────────────────────────────
-    if (matchesAny(input, ["mais produtos"])) {
-        const catName = (session.context.category_name as string) ?? "Produtos";
+    // ── "Mais produtos" (ID do botão ou texto digitado) ───────────────────────
+    if (input === "mais_produtos" || matchesAny(input, ["mais produtos"])) {
         await sendProductsList(phoneE164, products, catName);
         return;
     }
 
-    // ── Se há produto pendente aguardando quantidade ──────────────────────────
-    if (session.context.pending_product) {
-        const qty = parseInt(input, 10);
+    // ── Navegar para carrinho ou finalizar ────────────────────────────────────
+    if (input === "ver_carrinho" || matchesAny(input, ["carrinho", "ver carrinho"])) {
+        await goToCart(admin, companyId, threadId, phoneE164, session);
+        return;
+    }
 
+    if (input === "finalizar" || matchesAny(input, ["finalizar", "fechar", "checkout"])) {
+        if (!session.cart.length) {
+            await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
+            return;
+        }
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
+        return;
+    }
+
+    // ── Seleção de produto por variantId (list_reply) ou número digitado ─────
+    let selected: ProductListItem | undefined =
+        products.find((p) => p.variantId === input);
+
+    if (!selected) {
+        const num = parseInt(input, 10);
+        if (!isNaN(num) && num >= 1 && num <= products.length) {
+            selected = products[num - 1];
+        }
+    }
+
+    if (!selected) {
+        await sendProductsList(phoneE164, products, catName);
+        return;
+    }
+
+    // Produto selecionado → salva e vai para catalog_variant (etapa 2)
+    await saveSession(admin, threadId, companyId, {
+        step:    "catalog_variant",
+        context: { ...session.context, pending_variant: selected },
+    });
+
+    await sendVariantButtons(phoneE164, selected);
+}
+
+// ─── CATALOG_VARIANT ──────────────────────────────────────────────────────────
+
+async function handleCatalogVariant(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const pending  = session.context.pending_variant as ProductListItem | undefined;
+    const catName  = (session.context.category_name  as string) ?? "Produtos";
+    const products = (session.context.products        as ProductListItem[]) ?? [];
+
+    if (!pending) {
+        // Sem produto pendente → volta ao catálogo
+        await saveSession(admin, threadId, companyId, { step: "catalog_products" });
+        await sendProductsList(phoneE164, products, catName);
+        return;
+    }
+
+    // ── Atalhos de navegação ──────────────────────────────────────────────────
+    if (input === "mais_produtos" || matchesAny(input, ["mais produtos"])) {
+        await saveSession(admin, threadId, companyId, {
+            step:    "catalog_products",
+            context: { ...session.context, pending_variant: null, pending_unit_choice: null },
+        });
+        await sendProductsList(phoneE164, products, catName);
+        return;
+    }
+
+    if (input === "ver_carrinho" || matchesAny(input, ["carrinho", "ver carrinho"])) {
+        await goToCart(admin, companyId, threadId, phoneE164, session);
+        return;
+    }
+
+    if (input === "finalizar" || matchesAny(input, ["finalizar", "fechar", "checkout"])) {
+        if (!session.cart.length) {
+            await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
+            return;
+        }
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
+        return;
+    }
+
+    // ── Aguardando quantidade (unit_choice já salvo) ──────────────────────────
+    if (session.context.pending_unit_choice) {
+        const qty = parseInt(input, 10);
         if (isNaN(qty) || qty < 1 || qty > 99) {
             await reply(phoneE164, "Digite uma quantidade válida (1 a 99).");
             return;
         }
 
-        const pending = session.context.pending_product as ProductOption;
-        const newCart = [...session.cart];
-        const existingIdx = newCart.findIndex((i) => i.variantId === pending.variantId);
+        const isCase  = session.context.pending_unit_choice === "case";
+        const price   = isCase ? (pending.casePrice ?? pending.unitPrice) : pending.unitPrice;
+        const name    = isCase
+            ? `${pending.displayName} (Caixa com ${pending.caseQty})`
+            : pending.displayName;
+
+        const newCart     = [...session.cart];
+        const existingIdx = newCart.findIndex(
+            (i) => i.variantId === pending.variantId && Boolean(i.isCase) === isCase
+        );
 
         if (existingIdx >= 0) {
             newCart[existingIdx] = { ...newCart[existingIdx], qty: newCart[existingIdx].qty + qty };
@@ -779,23 +894,23 @@ async function handleCatalogProducts(
             newCart.push({
                 variantId: pending.variantId,
                 productId: pending.productId,
-                name:      pending.name,
-                price:     pending.price,
+                name,
+                price,
                 qty,
-                isCase:    pending.isCase,
-                caseQty:   pending.caseQty,
+                isCase,
+                caseQty: isCase ? pending.caseQty : undefined,
             });
         }
 
         await saveSession(admin, threadId, companyId, {
+            step:    "catalog_products",
             cart:    newCart,
-            context: { ...session.context, pending_product: null },
-            // mantém step catalog_products para continuar comprando
+            context: { ...session.context, pending_variant: null, pending_unit_choice: null },
         });
 
         await sendInteractiveButtons(
             phoneE164,
-            `✅ *${qty}x ${pending.name}* adicionado!\n\n${formatCart(newCart)}`,
+            `✅ *${qty}x ${name}* adicionado!\n\n${formatCart(newCart)}`,
             [
                 { id: "mais_produtos", title: "Mais produtos" },
                 { id: "ver_carrinho",  title: "Ver carrinho" },
@@ -805,53 +920,22 @@ async function handleCatalogProducts(
         return;
     }
 
-    // ── Navegar para carrinho ou finalizar ────────────────────────────────────
-    if (matchesAny(input, ["carrinho", "ver carrinho"])) {
-        await goToCart(admin, companyId, threadId, phoneE164, session);
+    // ── Seleção unitário / caixa ──────────────────────────────────────────────
+    const isUnitClick = input === "variant_unit" || matchesAny(input, ["unitario", "unitário", "unidade"]);
+    const isCaseClick = input === "variant_case" || matchesAny(input, ["caixa"]);
+
+    if (!isUnitClick && !isCaseClick) {
+        await sendVariantButtons(phoneE164, pending);
         return;
     }
 
-    if (matchesAny(input, ["finalizar", "fechar", "checkout"])) {
-        if (!session.cart.length) {
-            await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
-            return;
-        }
-        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
-        return;
-    }
-
-    // ── Seleção de produto por ID (list_reply) ou número digitado ────────────
-    const isCase   = input.endsWith("_case");
-    const lookupId = isCase ? input.slice(0, -5) : input;
-
-    // Busca pelo variantId enviado pelo list_reply
-    let selected = products.find(
-        (p) => p.variantId === lookupId && Boolean(p.isCase) === isCase
-    ) ?? products.find((p) => p.variantId === lookupId);
-
-    // Fallback: seleção por número digitado manualmente
-    if (!selected) {
-        const num = parseInt(input, 10);
-        if (!isNaN(num) && num >= 1 && num <= products.length) {
-            selected = products[num - 1];
-        }
-    }
-
-    if (!selected) {
-        const catName = (session.context.category_name as string) ?? "Produtos";
-        await sendProductsList(phoneE164, products, catName);
-        return;
-    }
+    const choice: "unit" | "case" = isUnitClick ? "unit" : "case";
 
     await saveSession(admin, threadId, companyId, {
-        context: { ...session.context, pending_product: selected },
+        context: { ...session.context, pending_unit_choice: choice },
     });
 
-    await reply(
-        phoneE164,
-        `Ótima escolha! *${selected.name}* — ${formatCurrency(selected.price)}\n\n` +
-        `Quantas unidades?`
-    );
+    await reply(phoneE164, "Quantas unidades?");
 }
 
 // ─── CART ─────────────────────────────────────────────────────────────────────
@@ -871,6 +955,28 @@ async function handleCart(
             return;
         }
         await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
+        return;
+    }
+
+    // "Mais produtos" → volta ao catálogo sem limpar o carrinho
+    if (input === "mais_produtos" || matchesAny(input, ["mais produtos", "adicionar", "continuar"])) {
+        const categories = (session.context.categories as Category[]) ?? await getCategories(admin);
+        if (!categories.length) {
+            await reply(phoneE164, "Nenhuma categoria disponível. Tente novamente.");
+            return;
+        }
+        await saveSession(admin, threadId, companyId, {
+            step:    "catalog_categories",
+            context: { ...session.context, categories },
+            // cart preservado
+        });
+        await sendListMessage(
+            phoneE164,
+            "🍺 Escolha uma categoria:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
+        );
         return;
     }
 
@@ -920,8 +1026,8 @@ async function goToCart(
         phoneE164,
         `🛒 *Seu carrinho:*\n\n${formatCart(session.cart)}\n\n` +
         `Digite *finalizar* para ${hasCheckoutData ? "confirmar o pedido" : "fechar o pedido"}\n` +
-        `Digite *remover N* para tirar o item N\n` +
-        `Digite *menu* para continuar comprando`
+        `Digite *mais produtos* para continuar comprando\n` +
+        `Digite *remover N* para tirar o item N`
     );
 }
 
