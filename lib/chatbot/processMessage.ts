@@ -280,6 +280,7 @@ interface Customer {
 
 async function getOrCreateCustomer(
     admin: SupabaseClient,
+    companyId: string,
     phoneE164: string,
     name?: string | null
 ): Promise<Customer | null> {
@@ -288,6 +289,7 @@ async function getOrCreateCustomer(
     const { data: existing } = await admin
         .from("customers")
         .select("id, name, phone, address")
+        .eq("company_id", companyId)
         .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
         .limit(1)
         .maybeSingle();
@@ -296,12 +298,12 @@ async function getOrCreateCustomer(
 
     const { data: created, error } = await admin
         .from("customers")
-        .insert({ name: name ?? "Cliente WhatsApp", phone: phoneE164 })
+        .insert({ company_id: companyId, name: name ?? "Cliente WhatsApp", phone: phoneE164 })
         .select("id, name, phone, address")
         .single();
 
     if (error) {
-        console.error("[chatbot] Erro ao criar customer:", error.message);
+        console.error("[chatbot] Erro ao criar customer:", error.message, "| company:", companyId, "| phone:", phoneE164);
         return null;
     }
 
@@ -594,7 +596,7 @@ async function handleMainMenu(
 
     // Opção 2: Status do pedido
     if (input === "2" || matchesAny(input, ["status", "pedido", "onde", "acompanhar"])) {
-        const customer = await getOrCreateCustomer(admin, phoneE164, profileName);
+        const customer = await getOrCreateCustomer(admin, companyId, phoneE164, profileName);
 
         if (!customer) {
             await reply(phoneE164, "Não encontrei cadastro para o seu número. 😅");
@@ -913,7 +915,7 @@ async function goToCheckoutAddress(
     phoneE164: string,
     session: Session
 ): Promise<void> {
-    const customer   = await getOrCreateCustomer(admin, phoneE164);
+    const customer   = await getOrCreateCustomer(admin, companyId, phoneE164);
     const customerId = customer?.id ?? null;
     const saved      = customer?.address ?? null;
 
@@ -1147,7 +1149,7 @@ async function handleCheckoutConfirm(
     let customerId = session.customer_id;
     if (!customerId) {
         console.warn("[checkout_confirm] customer_id ausente — tentando recuperar | threadId:", threadId);
-        const recovered = await getOrCreateCustomer(admin, phoneE164);
+        const recovered = await getOrCreateCustomer(admin, companyId, phoneE164);
         if (!recovered) {
             console.error("[checkout_confirm] Falha ao recuperar customer | threadId:", threadId);
             await reply(phoneE164, "Houve um erro interno. Por favor, tente novamente. 😞");
