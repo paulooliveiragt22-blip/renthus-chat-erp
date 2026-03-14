@@ -4,13 +4,13 @@
  * Motor completo do chatbot de disk bebidas via WhatsApp + Meta Cloud API.
  *
  * Fluxo:
- *   welcome → main_menu → catalog_categories → catalog_products
+ *   welcome → main_menu → catalog_categories → catalog_brands → catalog_products
  *   → cart → checkout_address → checkout_payment → checkout_confirm → done
  *                                                                     ↘ handover
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "@/lib/whatsapp/send";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -175,6 +175,25 @@ interface Category {
     name: string;
 }
 
+interface Brand {
+    id: string;
+    name: string;
+}
+
+/** Variante de produto para exibição no catálogo (após seleção de marca). */
+interface VariantRow {
+    id:          string;
+    productId:   string;
+    productName: string;
+    details:     string | null;
+    volumeValue: number;
+    unit:        string;
+    unitPrice:   number;
+    hasCase:     boolean;
+    caseQty:     number | null;
+    casePrice:   number | null;
+}
+
 async function getCategories(admin: SupabaseClient): Promise<Category[]> {
     // categories não tem company_id — são globais ao banco
     const { data } = await admin
@@ -279,6 +298,73 @@ async function getProductsByCategory(
     }
 
     return options;
+}
+
+async function getBrandsByCategory(
+    admin: SupabaseClient,
+    categoryId: string
+): Promise<Brand[]> {
+    const { data } = await admin
+        .from("products")
+        .select("brand_id, brands(id, name)")
+        .eq("category_id", categoryId)
+        .eq("is_active", true)
+        .not("brand_id", "is", null);
+
+    if (!data?.length) return [];
+
+    const seen = new Set<string>();
+    const brands: Brand[] = [];
+    for (const row of data as any[]) {
+        const b = row.brands;
+        if (b && !seen.has(b.id)) {
+            seen.add(b.id);
+            brands.push({ id: b.id, name: b.name });
+        }
+    }
+    return brands.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function getVariantsByBrandAndCategory(
+    admin: SupabaseClient,
+    brandId: string,
+    categoryId: string
+): Promise<VariantRow[]> {
+    // Etapa 1: produtos da marca + categoria
+    const { data: prods } = await admin
+        .from("products")
+        .select("id, name")
+        .eq("brand_id", brandId)
+        .eq("category_id", categoryId)
+        .eq("is_active", true);
+
+    if (!prods?.length) return [];
+
+    const productIds = prods.map((p: any) => p.id);
+    const prodMap = Object.fromEntries(prods.map((p: any) => [p.id, p.name]));
+
+    // Etapa 2: variantes ativas desses produtos
+    const { data: vars } = await admin
+        .from("product_variants")
+        .select("id, product_id, details, volume_value, unit, unit_price, has_case, case_qty, case_price")
+        .in("product_id", productIds)
+        .eq("is_active", true)
+        .order("volume_value", { ascending: true });
+
+    if (!vars?.length) return [];
+
+    return (vars as any[]).map((v) => ({
+        id:          v.id,
+        productId:   v.product_id,
+        productName: prodMap[v.product_id] ?? "",
+        details:     v.details ?? null,
+        volumeValue: Number(v.volume_value ?? 0),
+        unit:        v.unit ?? "ml",
+        unitPrice:   Number(v.unit_price ?? 0),
+        hasCase:     Boolean(v.has_case),
+        caseQty:     v.case_qty  ? Number(v.case_qty)  : null,
+        casePrice:   v.case_price ? Number(v.case_price) : null,
+    }));
 }
 
 // ─── DB: Cliente ──────────────────────────────────────────────────────────────
@@ -518,12 +604,17 @@ export async function processInboundMessage(
             await handleCatalogCategories(admin, companyId, threadId, phoneE164, input, session);
             break;
 
+        case "catalog_brands":
+            await handleCatalogBrands(admin, companyId, threadId, phoneE164, input, session);
+            break;
+
         case "catalog_products":
             await handleCatalogProducts(admin, companyId, threadId, phoneE164, input, session);
             break;
 
         case "catalog_variant":
-            await handleCatalogVariant(admin, companyId, threadId, phoneE164, input, session);
+            // Legado: redireciona para catalog_products
+            await handleCatalogProducts(admin, companyId, threadId, phoneE164, input, session);
             break;
 
         case "cart":
@@ -712,9 +803,9 @@ async function handleCatalogCategories(
         return;
     }
 
-    const products = await getProductsByCategory(admin, selected.id, selected.name);
+    const brands = await getBrandsByCategory(admin, selected.id);
 
-    if (!products.length) {
+    if (!brands.length) {
         await reply(
             phoneE164,
             `Nenhum produto disponível em *${selected.name}* no momento.\n` +
@@ -724,45 +815,127 @@ async function handleCatalogCategories(
     }
 
     await saveSession(admin, threadId, companyId, {
-        step:    "catalog_products",
-        context: { ...session.context, products, category_name: selected.name },
+        step:    "catalog_brands",
+        context: { ...session.context, brands, category_id: selected.id, category_name: selected.name },
     });
 
-    await sendProductsList(phoneE164, products, selected.name);
+    await sendBrandsList(phoneE164, brands, selected.name);
 }
 
-async function sendProductsList(
+async function sendBrandsList(
     phoneE164: string,
-    products: ProductListItem[],
+    brands: Brand[],
     categoryName: string
 ): Promise<void> {
     await sendListMessage(
         phoneE164,
-        `*${categoryName}* 🍺\n_Escolha um produto:_`,
-        "Ver produtos",
-        products.map((p) => ({
-            id:          p.variantId,
-            title:       truncateTitle(`${p.idx}. ${p.displayName}`),
-            description: formatCurrency(p.unitPrice),
-        })),
-        categoryName
+        `*${categoryName}* 🍺\n_Escolha uma marca:_`,
+        "Ver marcas",
+        brands.map((b, i) => ({ id: String(i + 1), title: truncateTitle(b.name) })),
+        "Marcas"
     );
 }
 
-async function sendVariantButtons(phoneE164: string, item: ProductListItem): Promise<void> {
-    const unitTitle = truncateTitle(`Unitário — ${formatCurrency(item.unitPrice)}`, 20);
-    const buttons   = [{ id: "variant_unit", title: unitTitle }];
+async function sendVariantsList(
+    phoneE164: string,
+    variants: VariantRow[],
+    catName: string,
+    brandName: string
+): Promise<void> {
+    const unitRows = variants.map((v) => ({
+        id:          v.id,
+        title:       truncateTitle(`${v.volumeValue}${v.unit} - ${formatCurrency(v.unitPrice)}`),
+        description: v.details ?? undefined,
+    }));
 
-    if (item.hasCase && item.caseQty && item.casePrice) {
-        const caseTitle = truncateTitle(`Caixa com ${item.caseQty} — ${formatCurrency(item.casePrice)}`, 20);
-        buttons.push({ id: "variant_case", title: caseTitle });
+    const caseVariants = variants.filter((v) => v.hasCase && v.casePrice);
+
+    const sections: Array<{ title: string; rows: typeof unitRows }> = [
+        { title: "Unitário", rows: unitRows },
+    ];
+
+    if (caseVariants.length > 0) {
+        sections.push({
+            title: "Caixa com:",
+            rows:  caseVariants.map((v) => ({
+                id:          `${v.id}_case`,
+                title:       truncateTitle(`${v.caseQty}un - ${v.volumeValue}${v.unit}`),
+                description: `${v.details ? v.details + " - " : ""}${formatCurrency(v.casePrice ?? 0)}`,
+            })),
+        });
     }
 
-    await sendInteractiveButtons(
+    await sendListMessageSections(
         phoneE164,
-        `*${item.displayName}*\nComo deseja comprar?`,
-        buttons
+        `*${brandName}* — ${catName} 🍺\n_Escolha um produto:_`,
+        "Ver produtos",
+        sections
     );
+}
+
+// ─── CATALOG_BRANDS ────────────────────────────────────────────────────────────
+
+async function handleCatalogBrands(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const brands     = (session.context.brands      as Brand[])  ?? [];
+    const catName    = (session.context.category_name as string) ?? "Produtos";
+    const categoryId = (session.context.category_id  as string)  ?? "";
+
+    // Mais produtos → volta ao início do catálogo
+    if (input === "mais_produtos" || matchesAny(input, ["mais produtos"])) {
+        const categories = (session.context.categories as Category[]) ?? await getCategories(admin);
+        await saveSession(admin, threadId, companyId, {
+            step:    "catalog_categories",
+            context: { ...session.context, categories },
+        });
+        await sendListMessage(
+            phoneE164,
+            "🍺 Escolha uma categoria:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
+        );
+        return;
+    }
+
+    const num = parseInt(input, 10);
+    let selected: Brand | null = null;
+
+    if (!isNaN(num) && num >= 1 && num <= brands.length) {
+        selected = brands[num - 1];
+    } else {
+        const lower = normalize(input);
+        selected = brands.find((b) => normalize(b.name).includes(lower)) ?? null;
+    }
+
+    if (!selected) {
+        await sendBrandsList(phoneE164, brands, catName);
+        return;
+    }
+
+    const variants = await getVariantsByBrandAndCategory(admin, selected.id, categoryId);
+
+    if (!variants.length) {
+        await reply(
+            phoneE164,
+            `Nenhum produto disponível para *${selected.name}* no momento.\n` +
+            `Digite *menu* para voltar.`
+        );
+        return;
+    }
+
+    await saveSession(admin, threadId, companyId, {
+        step:    "catalog_products",
+        context: { ...session.context, variants, brand_name: selected.name },
+    });
+
+    await sendVariantsList(phoneE164, variants, catName, selected.name);
 }
 
 // ─── CATALOG_PRODUCTS ─────────────────────────────────────────────────────────
@@ -775,12 +948,24 @@ async function handleCatalogProducts(
     input: string,
     session: Session
 ): Promise<void> {
-    const products = (session.context.products as ProductListItem[]) ?? [];
-    const catName  = (session.context.category_name as string) ?? "Produtos";
+    const variants   = (session.context.variants    as VariantRow[]) ?? [];
+    const catName    = (session.context.category_name as string)     ?? "Produtos";
+    const brandName  = (session.context.brand_name   as string)      ?? "";
 
-    // ── "Mais produtos" (ID do botão ou texto digitado) ───────────────────────
+    // ── Mais produtos → volta ao início do catálogo ───────────────────────────
     if (input === "mais_produtos" || matchesAny(input, ["mais produtos"])) {
-        await sendProductsList(phoneE164, products, catName);
+        const categories = (session.context.categories as Category[]) ?? await getCategories(admin);
+        await saveSession(admin, threadId, companyId, {
+            step:    "catalog_categories",
+            context: { ...session.context, categories },
+        });
+        await sendListMessage(
+            phoneE164,
+            "🍺 Escolha uma categoria:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
+        );
         return;
     }
 
@@ -799,113 +984,47 @@ async function handleCatalogProducts(
         return;
     }
 
-    // ── Seleção de produto por variantId (list_reply) ou número digitado ─────
-    let selected: ProductListItem | undefined =
-        products.find((p) => p.variantId === input);
+    // ── Aguardando quantidade ─────────────────────────────────────────────────
+    const pendingVariant = session.context.pending_variant as VariantRow | undefined;
+    const pendingIsCase  = session.context.pending_is_case as boolean   | undefined;
 
-    if (!selected) {
-        const num = parseInt(input, 10);
-        if (!isNaN(num) && num >= 1 && num <= products.length) {
-            selected = products[num - 1];
-        }
-    }
-
-    if (!selected) {
-        await sendProductsList(phoneE164, products, catName);
-        return;
-    }
-
-    // Produto selecionado → salva e vai para catalog_variant (etapa 2)
-    await saveSession(admin, threadId, companyId, {
-        step:    "catalog_variant",
-        context: { ...session.context, pending_variant: selected },
-    });
-
-    await sendVariantButtons(phoneE164, selected);
-}
-
-// ─── CATALOG_VARIANT ──────────────────────────────────────────────────────────
-
-async function handleCatalogVariant(
-    admin: SupabaseClient,
-    companyId: string,
-    threadId: string,
-    phoneE164: string,
-    input: string,
-    session: Session
-): Promise<void> {
-    const pending  = session.context.pending_variant as ProductListItem | undefined;
-    const catName  = (session.context.category_name  as string) ?? "Produtos";
-    const products = (session.context.products        as ProductListItem[]) ?? [];
-
-    if (!pending) {
-        // Sem produto pendente → volta ao catálogo
-        await saveSession(admin, threadId, companyId, { step: "catalog_products" });
-        await sendProductsList(phoneE164, products, catName);
-        return;
-    }
-
-    // ── Atalhos de navegação ──────────────────────────────────────────────────
-    if (input === "mais_produtos" || matchesAny(input, ["mais produtos"])) {
-        await saveSession(admin, threadId, companyId, {
-            step:    "catalog_products",
-            context: { ...session.context, pending_variant: null, pending_unit_choice: null },
-        });
-        await sendProductsList(phoneE164, products, catName);
-        return;
-    }
-
-    if (input === "ver_carrinho" || matchesAny(input, ["carrinho", "ver carrinho"])) {
-        await goToCart(admin, companyId, threadId, phoneE164, session);
-        return;
-    }
-
-    if (input === "finalizar" || matchesAny(input, ["finalizar", "fechar", "checkout"])) {
-        if (!session.cart.length) {
-            await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
-            return;
-        }
-        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
-        return;
-    }
-
-    // ── Aguardando quantidade (unit_choice já salvo) ──────────────────────────
-    if (session.context.pending_unit_choice) {
+    if (pendingVariant) {
         const qty = parseInt(input, 10);
         if (isNaN(qty) || qty < 1 || qty > 99) {
             await reply(phoneE164, "Digite uma quantidade válida (1 a 99).");
             return;
         }
 
-        const isCase  = session.context.pending_unit_choice === "case";
-        const price   = isCase ? (pending.casePrice ?? pending.unitPrice) : pending.unitPrice;
-        const name    = isCase
-            ? `${pending.displayName} (Caixa com ${pending.caseQty})`
-            : pending.displayName;
+        const isCase   = Boolean(pendingIsCase);
+        const price    = isCase ? (pendingVariant.casePrice ?? pendingVariant.unitPrice) : pendingVariant.unitPrice;
+        const volLabel = `${pendingVariant.volumeValue}${pendingVariant.unit}`;
+        const name     = isCase
+            ? `${pendingVariant.productName} ${volLabel} (cx ${pendingVariant.caseQty}un)`
+            : `${pendingVariant.productName} ${volLabel}`;
 
         const newCart     = [...session.cart];
         const existingIdx = newCart.findIndex(
-            (i) => i.variantId === pending.variantId && Boolean(i.isCase) === isCase
+            (i) => i.variantId === pendingVariant.id && Boolean(i.isCase) === isCase
         );
 
         if (existingIdx >= 0) {
             newCart[existingIdx] = { ...newCart[existingIdx], qty: newCart[existingIdx].qty + qty };
         } else {
             newCart.push({
-                variantId: pending.variantId,
-                productId: pending.productId,
+                variantId: pendingVariant.id,
+                productId: pendingVariant.productId,
                 name,
                 price,
                 qty,
                 isCase,
-                caseQty: isCase ? pending.caseQty : undefined,
+                caseQty: isCase ? (pendingVariant.caseQty ?? undefined) : undefined,
             });
         }
 
         await saveSession(admin, threadId, companyId, {
-            step:    "catalog_products",
-            cart:    newCart,
-            context: { ...session.context, pending_variant: null, pending_unit_choice: null },
+            step: "catalog_products",
+            cart: newCart,
+            context: { ...session.context, pending_variant: null, pending_is_case: null },
         });
 
         await sendInteractiveButtons(
@@ -920,22 +1039,34 @@ async function handleCatalogVariant(
         return;
     }
 
-    // ── Seleção unitário / caixa ──────────────────────────────────────────────
-    const isUnitClick = input === "variant_unit" || matchesAny(input, ["unitario", "unitário", "unidade"]);
-    const isCaseClick = input === "variant_case" || matchesAny(input, ["caixa"]);
+    // ── Seleção de item (unitário ou caixa) ───────────────────────────────────
+    let selectedVariant: VariantRow | undefined;
+    let isCase = false;
 
-    if (!isUnitClick && !isCaseClick) {
-        await sendVariantButtons(phoneE164, pending);
+    if (input.endsWith("_case")) {
+        const varId = input.slice(0, -5);
+        selectedVariant = variants.find((v) => v.id === varId);
+        isCase = true;
+    } else {
+        selectedVariant = variants.find((v) => v.id === input);
+        isCase = false;
+    }
+
+    if (!selectedVariant) {
+        await sendVariantsList(phoneE164, variants, catName, brandName);
         return;
     }
 
-    const choice: "unit" | "case" = isUnitClick ? "unit" : "case";
-
     await saveSession(admin, threadId, companyId, {
-        context: { ...session.context, pending_unit_choice: choice },
+        context: { ...session.context, pending_variant: selectedVariant, pending_is_case: isCase },
     });
 
-    await reply(phoneE164, "Quantas unidades?");
+    const volLabel = `${selectedVariant.volumeValue}${selectedVariant.unit}`;
+    const label    = isCase
+        ? `*${selectedVariant.productName} ${volLabel} — Caixa com ${selectedVariant.caseQty}un* (${formatCurrency(selectedVariant.casePrice ?? 0)})`
+        : `*${selectedVariant.productName} ${volLabel}* (${formatCurrency(selectedVariant.unitPrice)})`;
+
+    await reply(phoneE164, `${label}\n\nQuantas unidades?`);
 }
 
 // ─── CART ─────────────────────────────────────────────────────────────────────
