@@ -296,25 +296,40 @@ async function createOrder(
 ): Promise<string> {
     const total = cartTotal(cart);
 
+    console.log("[createOrder] START | companyId:", companyId, "| customerId:", customerId,
+        "| paymentMethod:", paymentMethod, "| total:", total,
+        "| items:", cart.length, "| address:", deliveryAddress, "| changeFor:", changeFor ?? null);
+
+    const orderPayload = {
+        company_id:     companyId,
+        customer_id:    customerId,
+        status:         "new",
+        channel:        "whatsapp",
+        payment_method: paymentMethod,
+        paid:           false,
+        delivery_fee:   0,
+        total_amount:   total,
+        details:        `Endereço: ${deliveryAddress}${changeFor ? ` | Troco: R$ ${changeFor.toFixed(2)}` : ""}`,
+    };
+    console.log("[createOrder] payload:", JSON.stringify(orderPayload));
+
     const { data: order, error: orderErr } = await admin
         .from("orders")
-        .insert({
-            company_id:     companyId,
-            customer_id:    customerId,
-            status:         "new",
-            channel:        "whatsapp",
-            payment_method: paymentMethod,
-            paid:           false,
-            delivery_fee:   0,
-            total_amount:   total,
-            details:        `Endereço: ${deliveryAddress}${changeFor ? ` | Troco: R$ ${changeFor.toFixed(2)}` : ""}`,
-        })
+        .insert(orderPayload)
         .select("id")
         .single();
 
     if (orderErr || !order?.id) {
+        console.error("[createOrder] FALHA ao inserir order:", {
+            code:    orderErr?.code,
+            message: orderErr?.message,
+            details: orderErr?.details,
+            hint:    orderErr?.hint,
+        });
         throw new Error(orderErr?.message ?? "Falha ao criar pedido");
     }
+
+    console.log("[createOrder] Order criada | id:", order.id);
 
     const items = cart.map((item) => ({
         order_id:           order.id,
@@ -326,9 +341,18 @@ async function createOrder(
         line_total:         item.price * item.qty,
     }));
 
+    console.log("[createOrder] Inserindo order_items:", JSON.stringify(items));
+
     const { error: itemsErr } = await admin.from("order_items").insert(items);
     if (itemsErr) {
-        console.error("[chatbot] Erro ao inserir order_items:", itemsErr.message);
+        console.error("[createOrder] FALHA ao inserir order_items:", {
+            code:    itemsErr.code,
+            message: itemsErr.message,
+            details: itemsErr.details,
+            hint:    itemsErr.hint,
+        });
+    } else {
+        console.log("[createOrder] order_items inseridos com sucesso:", items.length);
     }
 
     return order.id as string;
@@ -925,8 +949,9 @@ async function sendPaymentButtons(phoneE164: string): Promise<void> {
         phoneE164,
         "💳 Como deseja pagar?",
         [
+            { id: "card", title: "Cartão" },
+            { id: "pix",  title: "PIX" },
             { id: "cash", title: "Dinheiro" },
-            { id: "card", title: "Cartão na entrega" },
         ]
     );
 }
@@ -988,19 +1013,19 @@ async function handleCheckoutPayment(
     }
 
     // ── Seleção de forma de pagamento ─────────────────────────────────────────
-    // Valores aceitos pelo DB: "cash" | "card"
+    // Valores aceitos pelo DB: "pix" | "cash" | "card"
     const paymentMap: Record<string, string> = {
-        "1":                 "cash",
-        "2":                 "card",
-        "dinheiro":          "cash",
-        "cash":              "cash",
-        "cartao":            "card",
-        "cartão":            "card",
-        "card":              "card",
-        "cartao na entrega": "card",
-        "cartão na entrega": "card",
-        "credito":           "card",
-        "debito":            "card",
+        "1":       "card",
+        "2":       "pix",
+        "3":       "cash",
+        "cartao":  "card",
+        "cartão":  "card",
+        "card":    "card",
+        "credito": "card",
+        "debito":  "card",
+        "pix":     "pix",
+        "dinheiro":"cash",
+        "cash":    "cash",
     };
 
     const method = paymentMap[normalize(input)];
@@ -1017,12 +1042,13 @@ async function handleCheckoutPayment(
         return;
     }
 
-    // card
+    // pix ou card → vai direto para confirmação
+    const paymentLabel = method === "pix" ? "PIX" : "Cartão";
     await saveSession(admin, threadId, companyId, {
         step:    "checkout_confirm",
-        context: { ...session.context, payment_method: "card" },
+        context: { ...session.context, payment_method: method },
     });
-    await sendOrderSummary(phoneE164, session.cart, address, "Cartão na entrega", null);
+    await sendOrderSummary(phoneE164, session.cart, address, paymentLabel, null);
 }
 
 // ─── CHECKOUT_CONFIRM ─────────────────────────────────────────────────────────
@@ -1036,25 +1062,34 @@ async function handleCheckoutConfirm(
     input: string,
     session: Session
 ): Promise<void> {
-    if (!matchesAny(input, ["confirmar", "confirmo", "sim", "ok", "s", "1"])) {
-        await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-        await reply(phoneE164, `Pedido cancelado. 😊\n\n` + buildMainMenu(companyName));
+    const address       = (session.context.delivery_address as string) ?? "";
+    const paymentMethod = (session.context.payment_method   as string) ?? "cash";
+    const changeFor     = (session.context.change_for       as number | null) ?? null;
+
+    console.log("[checkout_confirm] input:", input, "| customer_id:", session.customer_id,
+        "| cart:", session.cart.length, "| address:", address,
+        "| paymentMethod:", paymentMethod, "| changeFor:", changeFor);
+
+    // Input não reconhecido → reenviar resumo SEM cancelar o pedido
+    if (!matchesAny(input, ["confirmar", "confirmar pedido", "confirmo", "sim", "ok", "s", "1"])) {
+        const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
+        const pmLabel = pmLabels[paymentMethod] ?? paymentMethod;
+        await reply(phoneE164, "⚠️ Por favor, use os botões para confirmar ou cancelar o pedido:");
+        await sendOrderSummary(phoneE164, session.cart, address, pmLabel, changeFor);
         return;
     }
 
     if (!session.customer_id) {
-        console.error("[chatbot] checkout_confirm: customer_id ausente na sessão");
+        console.error("[checkout_confirm] customer_id ausente na sessão | threadId:", threadId);
         await reply(phoneE164, "Houve um erro interno. Por favor, tente novamente. 😞");
         return;
     }
 
     try {
-        const address       = (session.context.delivery_address as string) ?? "";
-        const paymentMethod = (session.context.payment_method   as string) ?? "cash";
-        const changeFor     = (session.context.change_for       as number | null) ?? null;
-
         const orderId    = await createOrder(admin, companyId, session.customer_id, session.cart, paymentMethod, address, changeFor);
         const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
+
+        console.log("[checkout_confirm] Pedido criado com sucesso | orderId:", orderId);
 
         // Snapshot do carrinho antes de limpar
         const cartSnapshot = [...session.cart];
@@ -1065,9 +1100,10 @@ async function handleCheckoutConfirm(
             context: { last_order_id: orderId },
         });
 
+        const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
         const paymentLine = paymentMethod === "cash"
             ? `💳 Pagamento: Dinheiro${changeFor ? ` (troco para ${formatCurrency(changeFor)})` : ""}`
-            : `💳 Pagamento: Cartão na entrega`;
+            : `💳 Pagamento: ${pmLabels[paymentMethod] ?? paymentMethod}`;
 
         await reply(
             phoneE164,
@@ -1081,7 +1117,7 @@ async function handleCheckoutConfirm(
         );
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("[chatbot] Erro ao criar pedido:", msg);
+        console.error("[checkout_confirm] ERRO ao criar pedido:", msg);
         await reply(
             phoneE164,
             `Desculpe, houve um erro ao registrar seu pedido. Por favor, fale com um atendente. 😞`
