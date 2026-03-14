@@ -368,18 +368,28 @@ export async function processInboundMessage(
 ): Promise<void> {
     const { admin, companyId, threadId, phoneE164, text, profileName } = params;
 
+    console.log("[chatbot] processInboundMessage START | thread:", threadId, "company:", companyId, "text:", text);
+
     const input = text.trim();
-    if (!input) return;
+    if (!input) {
+        console.log("[chatbot] input vazio, ignorando");
+        return;
+    }
 
     // Verifica se existe bot ativo para esta empresa
-    const { data: botRows } = await admin
+    const { data: botRows, error: botErr } = await admin
         .from("chatbots")
         .select("id")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .limit(1);
 
-    if (!botRows?.length) return;
+    console.log("[chatbot] chatbots ativos:", botRows?.length ?? 0, botErr ? `| erro: ${botErr.message}` : "");
+
+    if (!botRows?.length) {
+        console.warn("[chatbot] Nenhum chatbot ativo para company:", companyId, "— verifique tabela chatbots");
+        return;
+    }
 
     const [company, session] = await Promise.all([
         getCompanyInfo(admin, companyId),
@@ -388,6 +398,8 @@ export async function processInboundMessage(
 
     const companyName = company?.name ?? "nossa loja";
     const settings    = company?.settings ?? {};
+
+    console.log("[chatbot] session step:", session.step, "| cartItems:", session.cart.length, "| input:", input);
 
     // ── Comandos globais (funcionam em qualquer etapa) ────────────────────────
 
