@@ -64,7 +64,8 @@
       "Bash(cd E:/renthus-chat-erp && npx supabase db dump --data-only --linked 2>&1 | grep -E \"^COPY companies|^[0-9a-f-]{36}\" | head -20)",
       "Bash(npx supabase:*)",
       "Read(//tmp/**)",
-      "Bash(find /c/Users/Usuario -name \"access-token\" -o -name \"*.token\" 2>/dev/null | head -5\nls /c/Users/Usuario/.supabase/ 2>/dev/null || echo \"não existe\")"
+      "Bash(find /c/Users/Usuario -name \"access-token\" -o -name \"*.token\" 2>/dev/null | head -5\nls /c/Users/Usuario/.supabase/ 2>/dev/null || echo \"não existe\")",
+      "Bash(grep -ril \"order_items\" \"E:/renthus-chat-erp/\" --include=\"*.sql\" --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | grep -v node_modules | grep -v \".next\" | head -20)"
     ]
   }
 }
