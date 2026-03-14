@@ -938,8 +938,9 @@ async function handleCheckoutAddress(
     if (savedAddress && !awaitingAddress) {
         if (input === "1") {
             await saveSession(admin, threadId, companyId, {
-                step:    "checkout_payment",
-                context: { ...session.context, delivery_address: savedAddress },
+                step:        "checkout_payment",
+                customer_id: session.customer_id,
+                context:     { ...session.context, delivery_address: savedAddress },
             });
             await sendPaymentButtons(phoneE164);
             return;
@@ -972,8 +973,9 @@ async function handleCheckoutAddress(
     }
 
     await saveSession(admin, threadId, companyId, {
-        step:    "checkout_payment",
-        context: {
+        step:        "checkout_payment",
+        customer_id: session.customer_id,
+        context:     {
             ...session.context,
             delivery_address: input,
             saved_address:    null,
@@ -1121,14 +1123,21 @@ async function handleCheckoutConfirm(
         return;
     }
 
-    if (!session.customer_id) {
-        console.error("[checkout_confirm] customer_id ausente na sessão | threadId:", threadId);
-        await reply(phoneE164, "Houve um erro interno. Por favor, tente novamente. 😞");
-        return;
+    let customerId = session.customer_id;
+    if (!customerId) {
+        console.warn("[checkout_confirm] customer_id ausente — tentando recuperar | threadId:", threadId);
+        const recovered = await getOrCreateCustomer(admin, phoneE164);
+        if (!recovered) {
+            console.error("[checkout_confirm] Falha ao recuperar customer | threadId:", threadId);
+            await reply(phoneE164, "Houve um erro interno. Por favor, tente novamente. 😞");
+            return;
+        }
+        customerId = recovered.id;
+        await saveSession(admin, threadId, companyId, { customer_id: customerId });
     }
 
     try {
-        const orderId    = await createOrder(admin, companyId, session.customer_id, session.cart, paymentMethod, address, changeFor);
+        const orderId    = await createOrder(admin, companyId, customerId, session.cart, paymentMethod, address, changeFor);
         const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
 
         console.log("[checkout_confirm] Pedido criado com sucesso | orderId:", orderId);
