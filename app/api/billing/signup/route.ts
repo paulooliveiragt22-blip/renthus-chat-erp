@@ -31,11 +31,6 @@ import {
 
 export const runtime = "nodejs";
 
-const SUCCESS_URL =
-    process.env.NEXT_PUBLIC_APP_URL
-        ? `${process.env.NEXT_PUBLIC_APP_URL}/billing/checkout-success`
-        : "https://app.renthus.com.br/billing/checkout-success";
-
 export async function POST(req: Request) {
     try {
         console.log("[signup] variáveis de ambiente:", {
@@ -148,6 +143,12 @@ export async function POST(req: Request) {
 
         console.log("[signup] subscription existente:", JSON.stringify(existingSub));
 
+        // URLs de retorno — montadas após ter o onboardingToken
+        const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? "https://renthus-chat-erp.vercel.app";
+        const successUrl = `${appUrl}/signup/complete?token=${onboardingToken}`;
+        const cancelUrl  = `${appUrl}/signup`;
+        console.log("[signup] successUrl:", successUrl);
+
         // 4. Calcula valor do checkout
         let amountCents: number;
         let orderDescription: string;
@@ -184,7 +185,8 @@ export async function POST(req: Request) {
                 document: cnpjDigits,
                 phone:    whatsapp.replace(/\D/g, ""),
             },
-            successUrl: SUCCESS_URL,
+            successUrl,
+            cancelUrl,
             metadata: {
                 type:       "setup",
                 company_id: companyId,

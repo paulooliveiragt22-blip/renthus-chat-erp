@@ -346,6 +346,7 @@ export async function createCheckoutOrder(params: {
         phone?:    string;
     };
     successUrl:  string;
+    cancelUrl?:  string;
     metadata?:   Record<string, string>;
 }): Promise<PagarmeOrder> {
     const acceptedMethods: string[] = [];
@@ -367,6 +368,7 @@ export async function createCheckoutOrder(params: {
             customer_editable:        false,
             accepted_payment_methods: acceptedMethods,
             success_url:              params.successUrl,
+            ...(params.cancelUrl ? { cancel_url: params.cancelUrl } : {}),
             credit_card: {
                 capture:              true,
                 statement_descriptor: "RENTHUS",
