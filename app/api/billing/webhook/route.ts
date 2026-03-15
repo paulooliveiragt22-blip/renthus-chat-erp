@@ -15,7 +15,7 @@
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhookSignature } from "@/lib/billing/pagarme";
-import { activateTrial }          from "@/app/api/billing/signup/route";
+import { activateTrial }          from "@/lib/billing/activateTrial";
 
 export const runtime = "nodejs";
 
