@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 import NewOrderModal from "@/lib/orders/NewOrderModal";
 import ViewOrderModal from "@/lib/orders/ViewOrderModal";
@@ -101,6 +102,8 @@ export default function PedidosPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
+    const { currentCompanyId: companyId } = useWorkspace();
+
     const [orders, setOrders] = useState<OrderRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [msg, setMsg] = useState<string | null>(null);
@@ -196,21 +199,11 @@ export default function PedidosPage() {
         editOrderIdRef.current = openEdit ? editOrder?.id ?? null : null;
     }, [openEdit, editOrder?.id]);
 
-    async function loadCompanySettings() {
-        const { data: cu, error: cuErr } = await supabase
-            .from("company_users")
-            .select("company_id")
-            .eq("is_active", true)
-            .order("created_at", { ascending: true })
-            .limit(1)
-            .maybeSingle();
-
-        if (cuErr || !cu?.company_id) return;
-
+    async function loadCompanySettings(cid: string) {
         const { data: comp } = await supabase
             .from("companies")
             .select("delivery_fee_enabled, default_delivery_fee")
-            .eq("id", cu.company_id)
+            .eq("id", cid)
             .maybeSingle();
 
         if (comp) {
@@ -354,7 +347,7 @@ export default function PedidosPage() {
 
         const { data: created, error: insErr } = await supabase
             .from("customers")
-            .insert({ name, phone, address: address || null })
+            .insert({ name, phone, address: address || null, company_id: companyId })
             .select("id")
             .single();
 
@@ -444,10 +437,10 @@ export default function PedidosPage() {
 
     // INIT: company settings + orders
     useEffect(() => {
-        loadCompanySettings();
+        if (companyId) loadCompanySettings(companyId);
         loadOrders();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [companyId]);
 
     // ?open
     useEffect(() => {
@@ -729,6 +722,7 @@ export default function PedidosPage() {
         const { data: ord, error: ordErr } = await supabase
             .from("orders")
             .insert({
+                company_id: companyId,
                 customer_id: customerId,
                 channel: "admin",
                 status: "new",
