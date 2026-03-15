@@ -313,6 +313,16 @@ export function getMonthlyPriceCents(plan: "bot" | "complete"): number {
     return parseInt(process.env.MONTHLY_PRICE_COMPLETE_CENTS ?? "49700", 10);
 }
 
+/** Preço anual em centavos (taxa única paga upfront, setup incluso) */
+export function getYearlyPriceCents(plan: "bot" | "complete"): number {
+    if (plan === "bot") {
+        // R$ 237/mês × 12 = R$ 2.844,00
+        return parseInt(process.env.YEARLY_PRICE_BOT_CENTS ?? "284400", 10);
+    }
+    // R$ 317/mês × 12 = R$ 3.804,00
+    return parseInt(process.env.YEARLY_PRICE_COMPLETE_CENTS ?? "380400", 10);
+}
+
 export function centsToBRL(cents: number): number {
     return cents / 100;
 }
