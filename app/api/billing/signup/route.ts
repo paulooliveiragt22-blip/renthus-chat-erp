@@ -38,6 +38,13 @@ const SUCCESS_URL =
 
 export async function POST(req: Request) {
     try {
+        console.log("[signup] variáveis de ambiente:", {
+            hasPagarmeKey:   !!process.env.PAGARME_API_KEY,
+            hasSupabaseUrl:  !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+            hasServiceRole:  !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+            nodeEnv:         process.env.NODE_ENV,
+        });
+
         const body = (await req.json()) as {
             company_name?:   string;
             cnpj?:           string;
@@ -48,6 +55,8 @@ export async function POST(req: Request) {
             payment_method?: string;
             installments?:   number;
         };
+
+        console.log("[signup] body recebido:", JSON.stringify(body));
 
         const { company_name, cnpj, whatsapp, email, plan } = body;
         const interval      = body.interval === "yearly" ? "yearly" : "monthly";
@@ -76,7 +85,9 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "CNPJ inválido" }, { status: 400 });
         }
 
+        console.log("[signup] validações ok — criando admin client...");
         const admin = createAdminClient();
+        console.log("[signup] admin client criado");
 
         // 1. Verifica se já existe empresa com esse CNPJ
         const { data: existing } = await admin
@@ -88,9 +99,12 @@ export async function POST(req: Request) {
         let companyId: string;
         let onboardingToken: string;
 
+        console.log("[signup] busca CNPJ result:", JSON.stringify(existing));
+
         if (existing) {
             companyId       = existing.id;
             onboardingToken = existing.onboarding_token;
+            console.log("[signup] empresa existente:", companyId);
         } else {
             // 2. Cria empresa (sem usuário vinculado — será vinculado no onboarding pós-pagamento)
             const { data: newCompany, error: compErr } = await admin
@@ -106,15 +120,16 @@ export async function POST(req: Request) {
                 .single();
 
             if (compErr || !newCompany) {
-                console.error("[signup] Erro ao criar empresa:", compErr?.message);
+                console.error("[signup] Erro ao criar empresa:", compErr?.message, compErr?.code, compErr?.details);
                 return NextResponse.json(
-                    { error: "Erro ao criar empresa" },
+                    { error: `Erro ao criar empresa: ${compErr?.message ?? "desconhecido"}` },
                     { status: 500 }
                 );
             }
 
             companyId       = newCompany.id;
             onboardingToken = newCompany.onboarding_token;
+            console.log("[signup] empresa criada:", companyId, "| token:", onboardingToken);
         }
 
         // 3. Verifica se já tem subscription ativa
@@ -130,6 +145,8 @@ export async function POST(req: Request) {
                 { status: 409 }
             );
         }
+
+        console.log("[signup] subscription existente:", JSON.stringify(existingSub));
 
         // 4. Calcula valor do checkout
         let amountCents: number;
@@ -152,6 +169,8 @@ export async function POST(req: Request) {
             orderCode         = `setup_${plan}`;
         }
 
+        console.log("[signup] chamando Pagar.me — amountCents:", amountCents, "| interval:", interval, "| method:", paymentMethod);
+
         const order = await createCheckoutOrder({
             amountCents,
             description:     orderDescription,
@@ -173,6 +192,7 @@ export async function POST(req: Request) {
             },
         });
 
+        console.log("[signup] Pagar.me order criado:", order?.id, "| status:", order?.status);
         const checkoutUrl = extractCheckoutUrl(order);
 
         if (!checkoutUrl) {
@@ -215,9 +235,14 @@ export async function POST(req: Request) {
         });
 
     } catch (err: any) {
-        console.error("[signup] Erro:", err?.message ?? err);
+        console.error("[signup] ERRO COMPLETO:", err);
         return NextResponse.json(
-            { error: err?.message ?? "Erro interno" },
+            {
+                error: err instanceof Error ? err.message : String(err),
+                stack: process.env.NODE_ENV !== "production"
+                    ? (err instanceof Error ? err.stack : undefined)
+                    : undefined,
+            },
             { status: 500 }
         );
     }
