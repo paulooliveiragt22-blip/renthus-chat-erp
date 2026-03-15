@@ -61,10 +61,17 @@ export type PagarmeCharge = {
     };
 };
 
+export type PagarmeCheckout = {
+    id: string;
+    status: string;
+    payment_url: string;
+};
+
 export type PagarmeOrder = {
     id: string;
     status: string;
     charges?: PagarmeCharge[];
+    checkouts?: PagarmeCheckout[];
 };
 
 // ---------------------------------------------------------------------------
@@ -308,4 +315,99 @@ export function getMonthlyPriceCents(plan: "bot" | "complete"): number {
 
 export function centsToBRL(cents: number): number {
     return cents / 100;
+}
+
+// ---------------------------------------------------------------------------
+// Orders — Checkout Hosted (cartão + PIX, abre página hospedada do Pagar.me)
+// ---------------------------------------------------------------------------
+
+export async function createCheckoutOrder(params: {
+    amountCents:     number;
+    description:     string;
+    code:            string;       // ex: "setup_bot", "mensalidade"
+    maxInstallments: number;       // 1–10 (opções disponíveis no checkout)
+    acceptPix?:      boolean;      // padrão true
+    customerId?:     string;
+    customer?: {
+        name:      string;
+        email:     string;
+        document?: string;
+        phone?:    string;
+    };
+    successUrl:  string;
+    metadata?:   Record<string, string>;
+}): Promise<PagarmeOrder> {
+    const acceptedMethods: string[] = ["credit_card"];
+    if (params.acceptPix !== false) acceptedMethods.push("pix");
+
+    // Gera opções de parcelamento (1x até maxInstallments)
+    const installments = Array.from({ length: params.maxInstallments }, (_, i) => ({
+        number: i + 1,
+        total:  params.amountCents,
+    }));
+
+    const checkoutPayment: Record<string, unknown> = {
+        payment_method: "checkout",
+        checkout: {
+            expires_in:               120,   // minutos
+            billing_address_editable: false,
+            customer_editable:        false,
+            accepted_payment_methods: acceptedMethods,
+            success_url:              params.successUrl,
+            credit_card: {
+                capture:              true,
+                statement_descriptor: "RENTHUS",
+                installments,
+            },
+            ...(params.acceptPix !== false && {
+                pix: { expires_in: 86400 * 5 }, // 5 dias
+            }),
+        },
+    };
+
+    const body: Record<string, unknown> = {
+        items: [{
+            amount:      params.amountCents,
+            description: params.description,
+            quantity:    1,
+            code:        params.code,
+        }],
+        payments: [checkoutPayment],
+        metadata: params.metadata ?? {},
+    };
+
+    if (params.customerId) {
+        body.customer_id = params.customerId;
+    } else if (params.customer) {
+        const c = params.customer;
+        const cBody: Record<string, unknown> = {
+            name:  c.name,
+            email: c.email,
+            type:  "company",
+        };
+        if (c.document) {
+            cBody.document      = c.document;
+            cBody.document_type = c.document.replace(/\D/g, "").length === 11 ? "CPF" : "CNPJ";
+        }
+        if (c.phone) {
+            const digits = c.phone.replace(/\D/g, "");
+            if (digits.length >= 12) {
+                cBody.phones = {
+                    mobile_phone: {
+                        country_code: digits.slice(0, 2),
+                        area_code:    digits.slice(2, 4),
+                        number:       digits.slice(4),
+                    },
+                };
+            }
+        }
+        body.customer = cBody;
+    }
+
+    return pagarmeRequest<PagarmeOrder>("/orders", "POST", body);
+}
+
+/** Extrai a URL do checkout hosted (página hospedada pelo Pagar.me) */
+export function extractCheckoutUrl(order: PagarmeOrder): string | null {
+    return order.checkouts?.[0]?.payment_url ?? null;
 }
