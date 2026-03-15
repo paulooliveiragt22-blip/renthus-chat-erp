@@ -101,7 +101,8 @@ export default function HeaderClient() {
         pathname === "/login" ||
         pathname === "/register" ||
         pathname === "/billing/blocked" ||
-        pathname.startsWith("/signup")
+        pathname.startsWith("/signup") ||
+        pathname.startsWith("/onboarding")
     ) return null;
     if (sessionExists === false) return null;
     if (sessionExists === null) {
