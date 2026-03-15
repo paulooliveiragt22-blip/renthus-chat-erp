@@ -8,8 +8,8 @@ import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
 
-const SUPABASE_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const SUPABASE_URL          = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function POST(req: Request) {
   try {
@@ -80,8 +80,8 @@ export async function POST(req: Request) {
       agent_name:       matchedAgent.name,
       company_id:       matchedAgent.company_id,
       company_name:     (company as any)?.name ?? "",
-      supabase_url:     SUPABASE_URL,
-      supabase_anon_key: SUPABASE_ANON,
+      supabase_url:          SUPABASE_URL,
+      supabase_service_role_key: SUPABASE_SERVICE_ROLE,
     });
 
   } catch (err: any) {
