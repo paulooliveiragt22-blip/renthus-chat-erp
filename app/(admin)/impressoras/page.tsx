@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 // se você colocou o componente na mesma pasta de components com alias @
-import DownloadAgentButton from "@/components/DownloadAgentButton";
 
 type PrinterRow = {
     id: string;
@@ -180,10 +179,10 @@ export default function PrintersAdminPage() {
                     loadPrinters();
                 }
             } else {
-                const res = await fetch(`/api/print/companies/${currentCompanyId}/printers`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
+                const { error: insertErr } = await supabase
+                    .from("printers")
+                    .insert([{
+                        company_id: currentCompanyId,
                         name: form.name,
                         type: form.type,
                         format: form.format,
@@ -191,11 +190,9 @@ export default function PrintersAdminPage() {
                         interval_seconds: Number(form.interval_seconds || 0),
                         is_active: !!form.is_active,
                         config: form.config || {},
-                    }),
-                });
-                const json = await res.json();
-                if (!res.ok) {
-                    setMsg("Erro ao criar: " + (json?.error || res.statusText));
+                    }]);
+                if (insertErr) {
+                    setMsg("Erro ao criar: " + insertErr.message);
                 } else {
                     setMsg("Criado com sucesso.");
                     setOpenForm(false);
@@ -309,10 +306,10 @@ export default function PrintersAdminPage() {
         }
         setLoading(true);
         try {
-            const res = await fetch(`/api/print/companies/${currentCompanyId}/printers`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+            const { error: insertErr } = await supabase
+                .from("printers")
+                .insert([{
+                    company_id: currentCompanyId,
                     name: `Impressora local - ${printerName}`,
                     type: "a4",
                     format: "a4",
@@ -320,11 +317,9 @@ export default function PrintersAdminPage() {
                     interval_seconds: 0,
                     is_active: true,
                     config: { printerName },
-                }),
-            });
-            const json = await res.json();
-            if (!res.ok) {
-                setMsg("Erro ao registrar impressora local: " + (json?.error || res.statusText));
+                }]);
+            if (insertErr) {
+                setMsg("Erro ao registrar impressora local: " + insertErr.message);
             } else {
                 setMsg("Impressora local adicionada com sucesso.");
                 loadPrinters();
@@ -352,13 +347,10 @@ export default function PrintersAdminPage() {
                     <button onClick={() => reload().then(loadPrinters)} style={simpleBtn({ background: "#666" })}>Atualizar</button>
                     <button onClick={openNewForm} style={simpleBtn()}>Nova impressora</button>
 
-                    {/* Botão que busca impressoras locais via agent */}
+                    {/* Botão que busca impressoras locais via Renthus Print Agent */}
                     <button onClick={() => fetchLocalPrinters()} style={simpleBtn({ background: "#5a2" })}>
                         {loadingLocalPrinters ? "Buscando..." : "Buscar impressoras do PC"}
                     </button>
-
-                    {/* Download agent button */}
-                    <DownloadAgentButton />
                 </div>
             </div>
 
