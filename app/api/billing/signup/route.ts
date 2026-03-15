@@ -5,13 +5,16 @@
  * e retorna a URL do checkout para abrir no modal.
  *
  * Body: {
- *   company_name: string
- *   cnpj:         string  (somente dígitos)
- *   whatsapp:     string  (somente dígitos, ex: 5566992071285)
- *   email:        string
- *   plan:         'bot' | 'complete'
- *   installments: number  (1–10, padrão 1)
+ *   company_name:   string
+ *   cnpj:           string  (somente dígitos)
+ *   whatsapp:       string  (somente dígitos, ex: 5566992071285)
+ *   email:          string
+ *   plan:           'bot' | 'complete'
+ *   payment_method: 'pix' | 'credit_card'  (padrão: 'pix')
+ *   installments:   number  (1–10, padrão 1; ignorado para PIX)
  * }
+ *
+ * Desconto PIX: 5% sobre o valor do setup (SETUP_PIX_DISCOUNT_PCT env var, padrão 5)
  *
  * Retorna: { checkout_url, company_id }
  */
@@ -35,16 +38,20 @@ const SUCCESS_URL =
 export async function POST(req: Request) {
     try {
         const body = (await req.json()) as {
-            company_name?: string;
-            cnpj?:         string;
-            whatsapp?:     string;
-            email?:        string;
-            plan?:         string;
-            installments?: number;
+            company_name?:   string;
+            cnpj?:           string;
+            whatsapp?:       string;
+            email?:          string;
+            plan?:           string;
+            payment_method?: string;
+            installments?:   number;
         };
 
         const { company_name, cnpj, whatsapp, email, plan } = body;
-        const installments = Math.min(10, Math.max(1, body.installments ?? 1));
+        const paymentMethod = body.payment_method === "credit_card" ? "credit_card" : "pix";
+        const installments  = paymentMethod === "credit_card"
+            ? Math.min(10, Math.max(1, body.installments ?? 1))
+            : 1;
 
         if (!company_name || !cnpj || !whatsapp || !email || !plan) {
             return NextResponse.json(
@@ -118,14 +125,19 @@ export async function POST(req: Request) {
         }
 
         // 4. Cria checkout order no Pagar.me
-        const amountCents = getSetupPriceCents(plan as "bot" | "complete");
+        const baseAmountCents = getSetupPriceCents(plan as "bot" | "complete");
+        const pixDiscount     = parseFloat(process.env.SETUP_PIX_DISCOUNT_PCT ?? "5") / 100;
+        const amountCents     = paymentMethod === "pix"
+            ? Math.round(baseAmountCents * (1 - pixDiscount))
+            : baseAmountCents;
 
         const order = await createCheckoutOrder({
             amountCents,
             description:     `Setup Plano ${plan === "bot" ? "Bot" : "Completo"} — Renthus`,
             code:            `setup_${plan}`,
             maxInstallments: installments,
-            acceptPix:       true,
+            acceptPix:       paymentMethod === "pix",
+            acceptCard:      paymentMethod === "credit_card",
             customer: {
                 name:     company_name.trim(),
                 email:    email.trim().toLowerCase(),
