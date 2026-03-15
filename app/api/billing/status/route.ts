@@ -1,28 +1,57 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getActiveSubscription, getEnabledFeatures, checkLimit } from "@/lib/billing/entitlements";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
+        // Suporta ?company_id=xxx (chamada interna/painel) além do cookie de workspace
+        const url       = new URL(req.url);
+        const qCompanyId = url.searchParams.get("company_id");
+
         // Página admin: só owner/admin
         const ctx = await requireCompanyAccess(["owner", "admin"]);
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-        const { admin, companyId } = ctx;
+        const { admin, companyId: cookieCompanyId } = ctx;
+        const companyId = qCompanyId ?? cookieCompanyId;
 
-        const sub = await getActiveSubscription(admin, companyId);
-        const features = await getEnabledFeatures(admin, companyId);
+        const [sub, features, whatsappUsage, pagarmeSubRaw] = await Promise.all([
+            getActiveSubscription(admin, companyId),
+            getEnabledFeatures(admin, companyId),
+            checkLimit(admin, companyId, "whatsapp_messages", 0),
+            // Status da assinatura Pagar.me
+            admin
+                .from("pagarme_subscriptions")
+                .select("id, plan, status, trial_ends_at, next_billing_at, last_paid_at, activated_at")
+                .eq("company_id", companyId)
+                .maybeSingle()
+                .then(({ data }) => data),
+        ]);
 
-        // Uso atual do mês (sem "incrementar" nada)
-        // Se não existir subscription/limite, isso ainda retorna used=0 e limit=null.
-        const whatsappUsage = await checkLimit(admin, companyId, "whatsapp_messages", 0);
+        // Última invoice pendente (para link de pagamento)
+        let pendingInvoice: { pagarme_payment_url: string | null; pix_qr_code: string | null; amount: number; due_at: string } | null = null;
+        if (pagarmeSubRaw?.status === "overdue" || pagarmeSubRaw?.status === "blocked") {
+            const { data: inv } = await admin
+                .from("invoices")
+                .select("pagarme_payment_url, pix_qr_code, amount, due_at")
+                .eq("company_id", companyId)
+                .eq("status", "pending")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            pendingInvoice = inv ?? null;
+        }
 
         return NextResponse.json({
             ok: true,
             company_id: companyId,
-            subscription: sub, // null se não existir
+            subscription: sub,
+            pagarme_subscription: pagarmeSubRaw ?? null,
+            pending_invoice: pendingInvoice,
+            is_blocked: pagarmeSubRaw?.status === "blocked",
             enabled_features: Array.from(features.values()),
             enabled_features_count: features.size,
             usage: {
