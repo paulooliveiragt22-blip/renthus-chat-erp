@@ -25,6 +25,7 @@ export async function middleware(
     if (pathname.startsWith("/api/whatsapp/")) return NextResponse.next();
     if (pathname.startsWith("/api/print/")) return NextResponse.next();
     if (pathname.startsWith("/api/billing/webhook")) return NextResponse.next();
+    if (pathname === "/api/billing/signup") return NextResponse.next();
     // Auth do print agent — chamado pelo Electron sem cookies de sessão
     if (pathname === "/api/agent/auth") return NextResponse.next();
 
