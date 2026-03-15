@@ -2,11 +2,18 @@
 -- MIGRATION: Limpar schema de companies (colunas duplicadas/mortas)
 -- ============================================================
 
--- 1. Consolidar city → cidade
---    (cidade tem index, é a coluna canônica PT-BR)
-UPDATE public.companies
-SET cidade = city
-WHERE city IS NOT NULL AND cidade IS NULL;
+-- 1. Consolidar city → cidade (somente se a coluna city existir)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'companies' AND column_name = 'city'
+  ) THEN
+    UPDATE public.companies
+    SET cidade = city
+    WHERE city IS NOT NULL AND cidade IS NULL;
+  END IF;
+END $$;
 
 -- 2. Dropar city (redundante com cidade)
 ALTER TABLE public.companies DROP COLUMN IF EXISTS city;

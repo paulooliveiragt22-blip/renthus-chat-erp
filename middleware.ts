@@ -24,6 +24,7 @@ export async function middleware(
     // Libera webhooks e endpoints técnicos sem autenticação
     if (pathname.startsWith("/api/whatsapp/")) return NextResponse.next();
     if (pathname.startsWith("/api/print/")) return NextResponse.next();
+    if (pathname.startsWith("/api/billing/webhook")) return NextResponse.next();
     // Auth do print agent — chamado pelo Electron sem cookies de sessão
     if (pathname === "/api/agent/auth") return NextResponse.next();
 
@@ -31,6 +32,7 @@ export async function middleware(
     const isPublic =
         pathname.startsWith("/login") ||
         pathname.startsWith("/auth") ||
+        pathname.startsWith("/billing/blocked") ||
         pathname.startsWith("/_next") ||
         pathname === "/favicon.ico";
 
@@ -61,6 +63,41 @@ export async function middleware(
         const url = request.nextUrl.clone();
         url.pathname = "/login";
         return NextResponse.redirect(url);
+    }
+
+    // Verifica se a empresa está bloqueada por inadimplência
+    // Aplica apenas em rotas de painel (não em API calls)
+    if (!pathname.startsWith("/api/")) {
+        const companyId = request.cookies.get("renthus_company_id")?.value;
+
+        if (companyId) {
+            const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+            const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+            try {
+                const subRes = await fetch(
+                    `${supabaseUrl}/rest/v1/pagarme_subscriptions` +
+                    `?company_id=eq.${encodeURIComponent(companyId)}&select=status&limit=1`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${serviceKey}`,
+                            apikey:        serviceKey,
+                        },
+                    }
+                );
+
+                if (subRes.ok) {
+                    const [sub] = (await subRes.json()) as Array<{ status: string }>;
+                    if (sub?.status === "blocked") {
+                        const blockedUrl = request.nextUrl.clone();
+                        blockedUrl.pathname = "/billing/blocked";
+                        return NextResponse.redirect(blockedUrl);
+                    }
+                }
+            } catch {
+                // Falha silenciosa — não bloqueia acesso em caso de erro de rede
+            }
+        }
     }
 
     return response;

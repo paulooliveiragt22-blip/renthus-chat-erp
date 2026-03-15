@@ -94,7 +94,12 @@
       "Bash(powershell.exe -NoProfile -NonInteractive -Command \"Get-PrinterPort | Select-Object Name, PortType | ConvertTo-Json -Compress\" 2>&1)",
       "Bash(powershell.exe -NoProfile -NonInteractive -Command \"\n\\\\$ports = @\\('USB001','USB005','USB006','USB009','USB010','USB011','USB015'\\)\nforeach \\(\\\\$p in \\\\$ports\\) {\n  \\\\$reg = 'HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Control\\\\Print\\\\Monitors\\\\USB Monitor\\\\Ports\\\\' + \\\\$p\n  if \\(Test-Path \\\\$reg\\) {\n    \\\\$v = Get-ItemProperty \\\\$reg -ErrorAction SilentlyContinue\n    Write-Output \\(\\\\$p + ' => ' + \\\\$v.DevicePath + ' | ' + \\\\$v.Manufacturer + ' | ' + \\\\$v.ModelName\\)\n  }\n}\" 2>&1)",
       "Bash(powershell.exe -NoProfile -NonInteractive -Command \"\n\\\\$ports = @\\('USB001','USB005','USB006','USB009','USB010','USB011','USB015'\\)\nforeach \\(\\\\$p in \\\\$ports\\) {\n  \\\\$reg = 'HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Control\\\\Print\\\\Monitors\\\\USB Monitor\\\\Ports\\\\' + \\\\$p\n  if \\(Test-Path \\\\$reg\\) {\n    Get-Item \\\\$reg | Select-Object -ExpandProperty Property | ForEach-Object {\n      \\\\$val = \\(Get-ItemProperty \\\\$reg\\).\\\\$_\n      Write-Output \\(\\\\$p + ' | ' + \\\\$_ + ' = ' + \\\\$val\\)\n    }\n  }\n}\" 2>&1)",
-      "Bash(powershell.exe -NoProfile -NonInteractive -Command \"Get-PrinterDriver | Select-Object Name | ConvertTo-Json -Compress\" 2>&1)"
+      "Bash(powershell.exe -NoProfile -NonInteractive -Command \"Get-PrinterDriver | Select-Object Name | ConvertTo-Json -Compress\" 2>&1)",
+      "Bash(which magick:*)",
+      "Bash(file:*)",
+      "Bash(tasklist:*)",
+      "Bash(taskkill:*)",
+      "mcp__filesystem__read_text_file"
     ]
   },
   "enabledMcpjsonServers": [
