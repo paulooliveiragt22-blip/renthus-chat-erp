@@ -66,8 +66,9 @@ export default function SignupPage() {
     const [selectedPlan,  setSelectedPlan] = useState<PlanKey | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
     const [installments,  setInstallments] = useState(1);
-    const [checkoutUrl,   setCheckoutUrl]  = useState<string | null>(null);
-    const [success,       setSuccess]      = useState(false);
+    const [checkoutUrl,      setCheckoutUrl]      = useState<string | null>(null);
+    const [onboardingToken,  setOnboardingToken]  = useState<string | null>(null);
+    const [success,          setSuccess]          = useState(false);
     const [loading,       setLoading]      = useState(false);
     const [error,         setError]        = useState<string | null>(null);
     const [form, setForm] = useState({ company_name: "", cnpj: "", whatsapp: "", email: "" });
@@ -144,6 +145,7 @@ export default function SignupPage() {
                 setError(data.error ?? "Erro ao gerar link de pagamento.");
                 return;
             }
+            if (data.onboarding_token) setOnboardingToken(data.onboarding_token);
             setCheckoutUrl(data.checkout_url);
         } catch {
             setError("Erro de conexão. Tente novamente.");
@@ -453,7 +455,14 @@ export default function SignupPage() {
                 <CheckoutModal
                     url={checkoutUrl}
                     onClose={() => setCheckoutUrl(null)}
-                    onSuccess={() => { setCheckoutUrl(null); setSuccess(true); }}
+                    onSuccess={() => {
+                        setCheckoutUrl(null);
+                        if (onboardingToken) {
+                            window.location.href = `/signup/complete?token=${onboardingToken}`;
+                        } else {
+                            setSuccess(true);
+                        }
+                    }}
                 />
             )}
 

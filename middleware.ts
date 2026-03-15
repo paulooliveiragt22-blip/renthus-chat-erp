@@ -27,15 +27,17 @@ export async function middleware(
     if (pathname.startsWith("/api/billing/webhook")) return NextResponse.next();
     if (pathname === "/api/billing/signup") return NextResponse.next();
     if (pathname === "/api/billing/create-invoice-checkout") return NextResponse.next();
-    // Auth do print agent — chamado pelo Electron sem cookies de sessão
     if (pathname === "/api/agent/auth") return NextResponse.next();
+    // API pública de onboarding (GET por token — sem session)
+    if (pathname === "/api/signup/complete") return NextResponse.next();
 
     // Rotas públicas (não exigem login)
     const isPublic =
         pathname.startsWith("/login") ||
         pathname.startsWith("/auth") ||
         pathname.startsWith("/billing/blocked") ||
-        pathname.startsWith("/signup") ||
+        pathname.startsWith("/signup") ||    // inclui /signup, /signup/complete
+        pathname.startsWith("/onboarding") ||
         pathname.startsWith("/_next") ||
         pathname === "/favicon.ico";
 
@@ -43,7 +45,7 @@ export async function middleware(
 
     const response = NextResponse.next();
 
-    // cria client server-side usando cookies do request -> response (para setar cookies)
+    // Cria client server-side
     const supabase = (options?.createClient ?? createServerClient)(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -51,8 +53,8 @@ export async function middleware(
             cookies: {
                 getAll: () => request.cookies.getAll(),
                 setAll: (cookiesToSet) => {
-                    cookiesToSet.forEach(({ name, value, options }) => {
-                        response.cookies.set(name, value, options);
+                    cookiesToSet.forEach(({ name, value, options: o }) => {
+                        response.cookies.set(name, value, o);
                     });
                 },
             },
@@ -68,33 +70,61 @@ export async function middleware(
         return NextResponse.redirect(url);
     }
 
-    // Verifica se a empresa está bloqueada por inadimplência
-    // Aplica apenas em rotas de painel (não em API calls)
+    // ── Checks para usuários logados (somente rotas de painel, não API) ──
     if (!pathname.startsWith("/api/")) {
-        const companyId = request.cookies.get("renthus_company_id")?.value;
+        const companyId    = request.cookies.get("renthus_company_id")?.value;
+        const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
         if (companyId) {
-            const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-            const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
             try {
-                const subRes = await fetch(
-                    `${supabaseUrl}/rest/v1/pagarme_subscriptions` +
-                    `?company_id=eq.${encodeURIComponent(companyId)}&select=status&limit=1`,
-                    {
-                        headers: {
-                            Authorization: `Bearer ${serviceKey}`,
-                            apikey:        serviceKey,
-                        },
-                    }
-                );
+                // Busca status da subscription + dados de onboarding de uma vez
+                const [subRes, compRes] = await Promise.all([
+                    fetch(
+                        `${supabaseUrl}/rest/v1/pagarme_subscriptions` +
+                        `?company_id=eq.${encodeURIComponent(companyId)}&select=status&limit=1`,
+                        { headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } }
+                    ),
+                    fetch(
+                        `${supabaseUrl}/rest/v1/companies` +
+                        `?id=eq.${encodeURIComponent(companyId)}` +
+                        `&select=senha_definida,onboarding_completed_at,onboarding_token&limit=1`,
+                        { headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } }
+                    ),
+                ]);
 
+                // 1. Empresa bloqueada por inadimplência
                 if (subRes.ok) {
                     const [sub] = (await subRes.json()) as Array<{ status: string }>;
                     if (sub?.status === "blocked") {
                         const blockedUrl = request.nextUrl.clone();
                         blockedUrl.pathname = "/billing/blocked";
                         return NextResponse.redirect(blockedUrl);
+                    }
+                }
+
+                // 2. Senha ainda não definida → completar cadastro
+                if (compRes.ok) {
+                    const [comp] = (await compRes.json()) as Array<{
+                        senha_definida:          boolean;
+                        onboarding_completed_at: string | null;
+                        onboarding_token:        string | null;
+                    }>;
+
+                    if (comp && comp.senha_definida === false && comp.onboarding_token) {
+                        const completeUrl = request.nextUrl.clone();
+                        completeUrl.pathname = "/signup/complete";
+                        completeUrl.search   = `?token=${comp.onboarding_token}`;
+                        return NextResponse.redirect(completeUrl);
+                    }
+
+                    // 3. Onboarding ainda não concluído → redireciona para /onboarding
+                    if (comp && comp.onboarding_completed_at === null &&
+                        pathname !== "/onboarding") {
+                        const onboardUrl = request.nextUrl.clone();
+                        onboardUrl.pathname = "/onboarding";
+                        onboardUrl.search   = "";
+                        return NextResponse.redirect(onboardUrl);
                     }
                 }
             } catch {
