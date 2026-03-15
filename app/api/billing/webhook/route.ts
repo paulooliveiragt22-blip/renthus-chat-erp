@@ -14,8 +14,9 @@
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyWebhookSignature } from "@/lib/billing/pagarme";
-import { activateTrial }          from "@/lib/billing/activateTrial";
+import { verifyWebhookSignature }    from "@/lib/billing/pagarme";
+import { activateTrial }             from "@/lib/billing/activateTrial";
+import { sendBillingNotification }   from "@/lib/billing/sendBillingNotification";
 
 export const runtime = "nodejs";
 
@@ -112,12 +113,13 @@ async function handleOrderPaid(
             .maybeSingle();
 
         if (!existingSub || existingSub.status === "cancelled") {
-            // Obtém pagarme_customer_id do order
             const pagarmeCustomerId: string = order?.customer?.id ?? "";
-
             await activateTrial(admin, companyId, sp.plan as "bot" | "complete", pagarmeCustomerId);
             console.log(`[webhook/pagarme] Trial ativado para empresa ${companyId}`);
         }
+
+        // Cria usuário no Supabase Auth e envia notificações de boas-vindas
+        await provisionUserAfterPayment(admin, companyId, sp.plan as string);
 
     } else if (type === "invoice") {
         // ── Invoice paga: atualiza subscription ─────────────────────────
@@ -198,6 +200,72 @@ async function handleOrderFailed(
         .eq("status", "pending");
 
     console.log(`[webhook/pagarme] Pagamento falhou para order: ${orderId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Provisiona usuário no Supabase Auth após pagamento do setup
+// ---------------------------------------------------------------------------
+
+async function provisionUserAfterPayment(
+    admin: ReturnType<typeof createAdminClient>,
+    companyId: string,
+    plan: string
+) {
+    // Lê dados da empresa
+    const { data: company } = await admin
+        .from("companies")
+        .select("email, name, onboarding_token, whatsapp_phone")
+        .eq("id", companyId)
+        .maybeSingle();
+
+    if (!company?.email) {
+        console.warn("[webhook/pagarme] Empresa sem email, pulando provisionamento:", companyId);
+        return;
+    }
+
+    // Senha temporária aleatória (será trocada no /signup/complete)
+    const tempPassword =
+        Math.random().toString(36).slice(-8) +
+        Math.random().toString(36).slice(-4).toUpperCase() +
+        "1!";
+
+    // Cria usuário no Auth (ignora se já existir)
+    const { data: authData, error: authErr } = await admin.auth.admin.createUser({
+        email:         company.email,
+        password:      tempPassword,
+        email_confirm: false,
+        user_metadata: { company_id: companyId, company_name: company.name },
+    });
+
+    if (authErr) {
+        // Usuário já existe — não é um erro crítico
+        console.warn("[webhook/pagarme] createUser:", authErr.message);
+    } else if (authData?.user?.id) {
+        // Vincula usuário à empresa como owner
+        await admin
+            .from("company_users")
+            .upsert(
+                { company_id: companyId, user_id: authData.user.id, role: "owner" },
+                { onConflict: "company_id,user_id" }
+            );
+        console.log(`[webhook/pagarme] Auth user criado para ${company.email}`);
+    }
+
+    // URL de onboarding para o cliente completar o cadastro
+    const appUrl      = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
+    const onboardUrl  = `${appUrl}/signup/complete?token=${company.onboarding_token}`;
+
+    // Notifica Renthus via WhatsApp
+    const renthusNumber = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";
+    await sendBillingNotification(
+        renthusNumber,
+        `🎉 *Novo cliente!*\n\n` +
+        `Empresa: ${company.name}\n` +
+        `Email: ${company.email}\n` +
+        `Plano: ${plan}\n` +
+        `WhatsApp: ${company.whatsapp_phone ?? "-"}\n\n` +
+        `Link onboarding: ${onboardUrl}`
+    );
 }
 
 // ---------------------------------------------------------------------------

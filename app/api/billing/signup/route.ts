@@ -81,26 +81,28 @@ export async function POST(req: Request) {
         // 1. Verifica se já existe empresa com esse CNPJ
         const { data: existing } = await admin
             .from("companies")
-            .select("id")
+            .select("id, onboarding_token")
             .eq("meta->cnpj", cnpjDigits)
             .maybeSingle();
 
         let companyId: string;
+        let onboardingToken: string;
 
         if (existing) {
-            companyId = existing.id;
+            companyId       = existing.id;
+            onboardingToken = existing.onboarding_token;
         } else {
             // 2. Cria empresa (sem usuário vinculado — será vinculado no onboarding pós-pagamento)
             const { data: newCompany, error: compErr } = await admin
                 .from("companies")
                 .insert({
-                    name:          company_name.trim(),
-                    email:         email.trim().toLowerCase(),
+                    name:           company_name.trim(),
+                    email:          email.trim().toLowerCase(),
                     whatsapp_phone: whatsapp.replace(/\D/g, ""),
-                    meta:          { cnpj: cnpjDigits },
-                    is_active:     false, // ativa somente após pagamento
+                    meta:           { cnpj: cnpjDigits },
+                    is_active:      false, // ativa somente após pagamento
                 })
-                .select("id")
+                .select("id, onboarding_token")
                 .single();
 
             if (compErr || !newCompany) {
@@ -111,7 +113,8 @@ export async function POST(req: Request) {
                 );
             }
 
-            companyId = newCompany.id;
+            companyId       = newCompany.id;
+            onboardingToken = newCompany.onboarding_token;
         }
 
         // 3. Verifica se já tem subscription ativa
@@ -205,9 +208,10 @@ export async function POST(req: Request) {
         );
 
         return NextResponse.json({
-            ok:           true,
-            checkout_url: checkoutUrl,
-            company_id:   companyId,
+            ok:               true,
+            checkout_url:     checkoutUrl,
+            company_id:       companyId,
+            onboarding_token: onboardingToken,
         });
 
     } catch (err: any) {
