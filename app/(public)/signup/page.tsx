@@ -2,27 +2,24 @@
 
 /**
  * app/(public)/signup/page.tsx  →  rota: /signup
- *
- * Página pública de contratação.
- * Sem sidebar, sem header (AdminShell e HeaderClient ignoram /signup).
  */
 
 import Image from "next/image";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import CheckoutModal from "@/components/billing/CheckoutModal";
 
 // ---------------------------------------------------------------------------
-// Planos
+// Dados de planos
 // ---------------------------------------------------------------------------
 const PLANS = [
     {
         key:         "bot" as const,
         name:        "Bot",
-        monthly:     297,
-        setup:       497,
-        highlight:   false,
+        popular:     false,
         description: "Chatbot de pedidos via WhatsApp automatizado",
-        features:    [
+        monthly:     { price: 297, annual: 0, setup: 497 },
+        yearly:      { price: 237, annual: 2844, setup: 0 },
+        features: [
             "Bot de pedidos 24h",
             "Cardápio digital",
             "Integração WhatsApp",
@@ -32,11 +29,11 @@ const PLANS = [
     {
         key:         "complete" as const,
         name:        "Completo",
-        monthly:     397,
-        setup:       797,
-        highlight:   true,
+        popular:     true,
         description: "Bot + ERP completo para gestão do negócio",
-        features:    [
+        monthly:     { price: 397, annual: 0, setup: 797 },
+        yearly:      { price: 317, annual: 3804, setup: 0 },
+        features: [
             "Tudo do plano Bot",
             "ERP completo",
             "Gestão de estoque",
@@ -47,93 +44,88 @@ const PLANS = [
     },
 ] as const;
 
-type PlanKey        = "bot" | "complete";
-type PaymentMethod  = "pix" | "credit_card";
+type PlanKey       = "bot" | "complete";
+type Interval      = "monthly" | "yearly";
+type PaymentMethod = "pix" | "credit_card";
 
-const PIX_DISCOUNT = 0.05; // 5% de desconto no setup
+const PIX_DISCOUNT = 0.05;
 
-function fmt(value: number) {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function fmt(v: number) {
+    return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 export default function SignupPage() {
-    const [selectedPlan,    setSelectedPlan]    = useState<PlanKey | null>(null);
-    const [paymentMethod,   setPaymentMethod]   = useState<PaymentMethod>("pix");
-    const [installments,    setInstallments]    = useState(1);
-    const [checkoutUrl,     setCheckoutUrl]     = useState<string | null>(null);
-    const [successMsg,      setSuccessMsg]      = useState(false);
-    const [loading,         setLoading]         = useState(false);
-    const [error,           setError]           = useState<string | null>(null);
+    const [interval,       setInterval]       = useState<Interval>("monthly");
+    const [selectedPlan,   setSelectedPlan]   = useState<PlanKey | null>(null);
+    const [paymentMethod,  setPaymentMethod]  = useState<PaymentMethod>("pix");
+    const [installments,   setInstallments]   = useState(1);
+    const [checkoutUrl,    setCheckoutUrl]    = useState<string | null>(null);
+    const [success,        setSuccess]        = useState(false);
+    const [loading,        setLoading]        = useState(false);
+    const [error,          setError]          = useState<string | null>(null);
+    const [form, setForm] = useState({ company_name: "", cnpj: "", whatsapp: "", email: "" });
 
-    const [form, setForm] = useState({
-        company_name: "",
-        cnpj:         "",
-        whatsapp:     "",
-        email:        "",
-    });
+    const formRef = useRef<HTMLFormElement>(null);
 
     const plan = selectedPlan ? PLANS.find((p) => p.key === selectedPlan)! : null;
 
-    // Preço do setup considerando desconto PIX
-    const setupPrice = useMemo(() => {
-        if (!plan) return 0;
-        return paymentMethod === "pix"
-            ? Math.round(plan.setup * (1 - PIX_DISCOUNT) * 100) / 100
-            : plan.setup;
-    }, [plan, paymentMethod]);
+    const pricing = useMemo(() => {
+        if (!plan) return null;
+        const tier = interval === "yearly" ? plan.yearly : plan.monthly;
+        const setupBase = tier.setup;
+        const setupFinal = paymentMethod === "pix" && setupBase > 0
+            ? Math.round(setupBase * (1 - PIX_DISCOUNT) * 100) / 100
+            : setupBase;
+        const installmentValue = setupFinal > 0 && paymentMethod === "credit_card"
+            ? setupFinal / installments
+            : setupFinal;
 
-    const installmentValue = useMemo(
-        () => (plan ? setupPrice / installments : 0),
-        [setupPrice, installments, plan]
-    );
-
-    const resumoText = useMemo(() => {
-        if (!plan) return "";
-        if (paymentMethod === "pix") {
-            return `Setup: ${fmt(setupPrice)} à vista no PIX + ${fmt(plan.monthly)}/mês após 30 dias grátis`;
-        }
-        return `Setup: ${installments}x de ${fmt(installmentValue)} + ${fmt(plan.monthly)}/mês após 30 dias grátis`;
-    }, [plan, paymentMethod, setupPrice, installments, installmentValue]);
-
-    function handleField(key: keyof typeof form, value: string) {
-        setForm((f) => ({ ...f, [key]: value }));
-        setError(null);
-    }
+        return { tier, setupBase, setupFinal, installmentValue };
+    }, [plan, interval, paymentMethod, installments]);
 
     function selectPlan(key: PlanKey) {
         setSelectedPlan(key);
         setInstallments(1);
         setError(null);
+        setTimeout(() => {
+            formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 60);
+    }
+
+    function handleField(k: keyof typeof form, v: string) {
+        setForm((f) => ({ ...f, [k]: v }));
+        setError(null);
     }
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        if (!selectedPlan) return;
+        if (!selectedPlan || !pricing) return;
         setError(null);
         setLoading(true);
-
         try {
             const res = await fetch("/api/billing/signup", {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({
+                body: JSON.stringify({
                     ...form,
                     plan:           selectedPlan,
+                    interval,
                     payment_method: paymentMethod,
                     installments:   paymentMethod === "credit_card" ? installments : 1,
+                    setup_cents:    Math.round(pricing.setupFinal * 100),
+                    monthly_cents:  interval === "yearly"
+                        ? Math.round(pricing.tier.annual * 100)
+                        : Math.round(pricing.tier.price * 100),
                 }),
             });
-
             const data = await res.json();
-
             if (!res.ok || !data.checkout_url) {
                 setError(data.error ?? "Erro ao gerar link de pagamento.");
                 return;
             }
-
             setCheckoutUrl(data.checkout_url);
         } catch {
             setError("Erro de conexão. Tente novamente.");
@@ -151,139 +143,159 @@ export default function SignupPage() {
             {/* Logo */}
             <div style={{ marginBottom: 36 }}>
                 <Image
-                    src="/assets/renthus-logo-white.svg"
+                    src="/renthus_logo.png"
                     alt="Renthus"
-                    width={140}
-                    height={40}
+                    width={148}
+                    height={44}
                     style={{ objectFit: "contain" }}
                     priority
                 />
             </div>
 
-            {/* Cabeçalho */}
-            <div style={{ textAlign: "center", marginBottom: 40 }}>
+            {/* Título */}
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
                 <h1 style={S.title}>Escolha seu plano</h1>
-                <p style={S.subtitle}>
-                    30 dias grátis após a ativação · Cancele quando quiser
-                </p>
+                <p style={S.subtitle}>30 dias grátis após a ativação · Cancele quando quiser</p>
             </div>
 
-            {/* Cards de plano */}
+            {/* Toggle Mensal / Anual */}
+            <div style={S.toggleWrap}>
+                <span style={{ ...S.toggleLabel, opacity: interval === "monthly" ? 1 : 0.5 }}>
+                    Mensal
+                </span>
+
+                <button
+                    type="button"
+                    onClick={() => setInterval((i) => i === "monthly" ? "yearly" : "monthly")}
+                    style={S.toggleTrack}
+                    aria-label="Alternar período"
+                >
+                    <div style={{
+                        ...S.toggleThumb,
+                        transform: interval === "yearly" ? "translateX(22px)" : "translateX(2px)",
+                    }} />
+                </button>
+
+                <span style={{ ...S.toggleLabel, opacity: interval === "yearly" ? 1 : 0.5 }}>
+                    Anual
+                </span>
+                <span style={S.toggleBadge}>20% OFF</span>
+            </div>
+
+            {/* Cards */}
             <div style={S.plansRow}>
                 {PLANS.map((p) => {
                     const active = selectedPlan === p.key;
+                    const tier   = interval === "yearly" ? p.yearly : p.monthly;
+
                     return (
-                        <button
+                        <div
                             key={p.key}
-                            onClick={() => selectPlan(p.key)}
                             style={{
                                 ...S.planCard,
                                 ...(active ? S.planCardActive : S.planCardInactive),
                             }}
                         >
-                            {p.highlight && (
-                                <div style={{
-                                    ...S.badge,
-                                    background: active ? "#fff" : "#FF6B00",
-                                    color:      active ? "#FF6B00" : "#fff",
-                                }}>
-                                    Mais popular
+                            {/* Badge popular */}
+                            {p.popular && (
+                                <div style={S.popularBadge}>MAIS POPULAR</div>
+                            )}
+
+                            <div style={{ ...S.planName, color: active ? "#111827" : "#111827" }}>
+                                {p.name}
+                            </div>
+                            <div style={S.planDesc}>{p.description}</div>
+
+                            {/* Preço — fade ao trocar intervalo */}
+                            <div style={{ ...S.priceRow, opacity: 1, transition: "opacity 0.25s" }}>
+                                <span style={S.priceValue}>{fmt(tier.price)}</span>
+                                <span style={S.pricePer}>/mês</span>
+                                {interval === "yearly" && (
+                                    <span style={S.offBadge}>20% OFF</span>
+                                )}
+                            </div>
+
+                            {interval === "yearly" ? (
+                                <div style={S.setupLine}>
+                                    {fmt(tier.annual)}/ano · <span style={S.setupFree}>Setup GRÁTIS</span>
+                                </div>
+                            ) : (
+                                <div style={S.setupLine}>
+                                    Setup: {fmt(tier.setup)}
                                 </div>
                             )}
 
-                            <div style={{ ...S.planName, color: active ? "#fff" : "#111827" }}>
-                                {p.name}
-                            </div>
-                            <div style={{ ...S.planDesc, color: active ? "rgba(255,255,255,0.80)" : "#6b7280" }}>
-                                {p.description}
-                            </div>
-
-                            <div style={S.planPriceRow}>
-                                <span style={{ ...S.planPriceValue, color: active ? "#fff" : "#111827" }}>
-                                    {fmt(p.monthly)}
-                                </span>
-                                <span style={{ ...S.planPricePer, color: active ? "rgba(255,255,255,0.70)" : "#6b7280" }}>
-                                    /mês
-                                </span>
-                            </div>
-
-                            <div style={{ ...S.planSetup, color: active ? "rgba(255,255,255,0.65)" : "#9ca3af" }}>
-                                Setup: {fmt(p.setup)}
-                            </div>
-
+                            {/* Features */}
                             <ul style={S.featureList}>
                                 {p.features.map((f) => (
-                                    <li key={f} style={{ ...S.featureItem, color: active ? "#fff" : "#374151" }}>
-                                        <svg
-                                            width="14" height="14"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke={active ? "#fff" : "#22c55e"}
-                                            strokeWidth="2.5"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            style={{ flexShrink: 0 }}
-                                        >
+                                    <li key={f} style={S.featureItem}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="#FF6B00" strokeWidth="2.5"
+                                            strokeLinecap="round" strokeLinejoin="round"
+                                            style={{ flexShrink: 0 }}>
                                             <polyline points="20 6 9 17 4 12" />
                                         </svg>
                                         {f}
                                     </li>
                                 ))}
                             </ul>
-                        </button>
+
+                            {/* Botão "Quero este plano" */}
+                            <button
+                                type="button"
+                                onClick={() => selectPlan(p.key)}
+                                style={{
+                                    ...S.planBtn,
+                                    ...(active ? S.planBtnActive : S.planBtnInactive),
+                                }}
+                            >
+                                {active ? "Plano selecionado ✓" : "Quero este plano"}
+                            </button>
+                        </div>
                     );
                 })}
             </div>
 
             {/* Formulário */}
-            {plan && (
-                <form onSubmit={handleSubmit} style={S.form}>
+            {plan && pricing && (
+                <form ref={formRef} onSubmit={handleSubmit} style={S.form}>
                     <h2 style={S.formTitle}>Complete sua contratação</h2>
 
                     {/* Forma de pagamento */}
                     <div style={S.field}>
                         <label style={S.label}>Forma de pagamento do setup</label>
-                        <div style={S.payMethodRow}>
-                            <button
-                                type="button"
-                                onClick={() => { setPaymentMethod("pix"); setInstallments(1); }}
-                                style={{
-                                    ...S.payMethodBtn,
-                                    ...(paymentMethod === "pix" ? S.payMethodBtnActive : {}),
-                                }}
-                            >
-                                <span style={{ fontSize: 20 }}>⚡</span>
-                                <div>
-                                    <div style={{ fontWeight: 700, fontSize: 14 }}>PIX</div>
-                                    <div style={{ fontSize: 11, color: paymentMethod === "pix" ? "#fff" : "#6b7280" }}>
-                                        5% de desconto
+                        {pricing.setupFinal === 0 ? (
+                            <div style={S.setupGratisNote}>
+                                Setup incluído no plano anual 🎉
+                            </div>
+                        ) : (
+                            <div style={S.payRow}>
+                                <button type="button"
+                                    onClick={() => { setPaymentMethod("pix"); setInstallments(1); }}
+                                    style={{ ...S.payBtn, ...(paymentMethod === "pix" ? S.payBtnActive : {}) }}>
+                                    <span style={{ fontSize: 18 }}>⚡</span>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: 14 }}>PIX</div>
+                                        <div style={{ fontSize: 11, opacity: 0.8 }}>5% de desconto</div>
                                     </div>
-                                </div>
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => setPaymentMethod("credit_card")}
-                                style={{
-                                    ...S.payMethodBtn,
-                                    ...(paymentMethod === "credit_card" ? S.payMethodBtnActive : {}),
-                                }}
-                            >
-                                <span style={{ fontSize: 20 }}>💳</span>
-                                <div>
-                                    <div style={{ fontWeight: 700, fontSize: 14 }}>Cartão</div>
-                                    <div style={{ fontSize: 11, color: paymentMethod === "credit_card" ? "#fff" : "#6b7280" }}>
-                                        em até 10x
+                                </button>
+                                <button type="button"
+                                    onClick={() => setPaymentMethod("credit_card")}
+                                    style={{ ...S.payBtn, ...(paymentMethod === "credit_card" ? S.payBtnActive : {}) }}>
+                                    <span style={{ fontSize: 18 }}>💳</span>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: 14 }}>Cartão</div>
+                                        <div style={{ fontSize: 11, opacity: 0.8 }}>em até 10x</div>
                                     </div>
-                                </div>
-                            </button>
-                        </div>
+                                </button>
+                            </div>
+                        )}
                     </div>
 
-                    {/* Parcelamento — só aparece para cartão */}
-                    {paymentMethod === "credit_card" && (
+                    {/* Parcelamento — só cartão com setup > 0 */}
+                    {paymentMethod === "credit_card" && pricing.setupFinal > 0 && (
                         <div style={S.field}>
-                            <label style={S.label}>Parcelamento do setup ({fmt(plan.setup)})</label>
+                            <label style={S.label}>Parcelamento do setup ({fmt(pricing.setupBase)})</label>
                             <select
                                 value={installments}
                                 onChange={(e) => setInstallments(Number(e.target.value))}
@@ -291,113 +303,98 @@ export default function SignupPage() {
                             >
                                 {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                                     <option key={n} value={n}>
-                                        {n}x de {fmt(plan.setup / n)}
-                                        {n === 1 ? " (à vista)" : ""}
+                                        {n}x de {fmt(pricing.setupBase / n)}{n === 1 ? " (à vista)" : ""}
                                     </option>
                                 ))}
                             </select>
                         </div>
                     )}
 
-                    {/* Resumo do pedido */}
+                    {/* Resumo limpo */}
                     <div style={S.resumoBox}>
-                        <div style={S.resumoLabel}>Resumo</div>
-                        <div style={S.resumoText}>{resumoText}</div>
-                        {paymentMethod === "pix" && (
+                        {pricing.setupFinal > 0 ? (
+                            <div style={S.resumoLine}>
+                                <span style={S.resumoIcon}>💰</span>
+                                <span>
+                                    <b>Setup:</b>{" "}
+                                    {paymentMethod === "credit_card" && installments > 1
+                                        ? `${installments}x de ${fmt(pricing.installmentValue)} no cartão`
+                                        : `${fmt(pricing.setupFinal)} à vista${paymentMethod === "pix" ? " no PIX" : ""}`}
+                                </span>
+                            </div>
+                        ) : (
+                            <div style={S.resumoLine}>
+                                <span style={S.resumoIcon}>🎁</span>
+                                <span><b>Setup:</b> Grátis no plano anual</span>
+                            </div>
+                        )}
+                        <div style={{ ...S.resumoLine, marginTop: 8 }}>
+                            <span style={S.resumoIcon}>📅</span>
+                            <span>
+                                <b>Mensalidade:</b>{" "}
+                                {interval === "yearly"
+                                    ? `${fmt(pricing.tier.price)}/mês (${fmt(pricing.tier.annual)}/ano)`
+                                    : `${fmt(pricing.tier.price)}/mês`}
+                                {" "}a partir de 30 dias
+                            </span>
+                        </div>
+                        {paymentMethod === "pix" && pricing.setupBase > 0 && (
                             <div style={S.descontoBadge}>
-                                Você economiza {fmt(plan.setup * PIX_DISCOUNT)} com PIX
+                                Você economiza {fmt(pricing.setupBase * PIX_DISCOUNT)} com PIX
                             </div>
                         )}
                     </div>
 
                     {/* Dados da empresa */}
-                    <div style={S.fieldSection}>Dados da empresa</div>
+                    <div style={S.sectionLabel}>Dados da empresa</div>
 
                     <div style={S.field}>
                         <label style={S.label}>Nome da empresa *</label>
-                        <input
-                            style={S.input}
-                            type="text"
-                            placeholder="Ex: Disk Bebidas Central"
-                            value={form.company_name}
-                            onChange={(e) => handleField("company_name", e.target.value)}
-                            required
-                        />
+                        <input style={S.input} type="text" placeholder="Ex: Disk Bebidas Central"
+                            value={form.company_name} onChange={(e) => handleField("company_name", e.target.value)} required />
                     </div>
-
                     <div style={S.field}>
                         <label style={S.label}>CNPJ *</label>
-                        <input
-                            style={S.input}
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="00.000.000/0000-00"
-                            value={form.cnpj}
-                            onChange={(e) => handleField("cnpj", e.target.value)}
-                            required
-                        />
+                        <input style={S.input} type="text" inputMode="numeric" placeholder="00.000.000/0000-00"
+                            value={form.cnpj} onChange={(e) => handleField("cnpj", e.target.value)} required />
                     </div>
-
                     <div style={{ display: "flex", gap: 14 }}>
                         <div style={{ ...S.field, flex: 1 }}>
                             <label style={S.label}>WhatsApp *</label>
-                            <input
-                                style={S.input}
-                                type="tel"
-                                placeholder="(66) 9 9207-1285"
-                                value={form.whatsapp}
-                                onChange={(e) => handleField("whatsapp", e.target.value)}
-                                required
-                            />
+                            <input style={S.input} type="tel" placeholder="(66) 9 9207-1285"
+                                value={form.whatsapp} onChange={(e) => handleField("whatsapp", e.target.value)} required />
                         </div>
                         <div style={{ ...S.field, flex: 1 }}>
                             <label style={S.label}>E-mail *</label>
-                            <input
-                                style={S.input}
-                                type="email"
-                                placeholder="contato@empresa.com"
-                                value={form.email}
-                                onChange={(e) => handleField("email", e.target.value)}
-                                required
-                            />
+                            <input style={S.input} type="email" placeholder="contato@empresa.com"
+                                value={form.email} onChange={(e) => handleField("email", e.target.value)} required />
                         </div>
                     </div>
 
                     {error && <div style={S.errorBox}>{error}</div>}
 
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        style={{ ...S.submitBtn, opacity: loading ? 0.7 : 1 }}
-                    >
+                    <button type="submit" disabled={loading}
+                        style={{ ...S.submitBtn, opacity: loading ? 0.7 : 1 }}>
                         {loading ? "Gerando link..." : "Contratar agora →"}
                     </button>
-
-                    <p style={S.secureNote}>
-                        🔒 Pagamento processado com segurança pelo Pagar.me
-                    </p>
+                    <p style={S.secureNote}>🔒 Pagamento processado com segurança pelo Pagar.me</p>
                 </form>
             )}
 
-            <p style={S.footer}>
-                © {new Date().getFullYear()} Renthus · Todos os direitos reservados
-            </p>
+            <p style={S.footer}>© {new Date().getFullYear()} Renthus · Todos os direitos reservados</p>
 
-            {/* Checkout Modal */}
-            {checkoutUrl && !successMsg && (
+            {/* Modal checkout */}
+            {checkoutUrl && !success && (
                 <CheckoutModal
                     url={checkoutUrl}
                     onClose={() => setCheckoutUrl(null)}
-                    onSuccess={() => {
-                        setCheckoutUrl(null);
-                        setSuccessMsg(true);
-                    }}
+                    onSuccess={() => { setCheckoutUrl(null); setSuccess(true); }}
                 />
             )}
 
-            {/* Sucesso pós-checkout */}
-            {successMsg && (
-                <div style={S.successOverlay}>
+            {/* Sucesso */}
+            {success && (
+                <div style={S.overlay}>
                     <div style={S.successCard}>
                         <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
                         <h2 style={{ margin: "0 0 12px", fontSize: 22, fontWeight: 800, color: "#111827" }}>
@@ -405,12 +402,9 @@ export default function SignupPage() {
                         </h2>
                         <p style={{ margin: "0 0 24px", fontSize: 15, color: "#6b7280", lineHeight: 1.7 }}>
                             Pagamento confirmado! Seu trial de 30 dias está ativo.
-                            <br />
-                            Nossa equipe entrará em contato para configurar seu sistema.
+                            <br />Nossa equipe entrará em contato para configurar seu sistema.
                         </p>
-                        <a href="/login" style={S.successBtn}>
-                            Acessar o sistema
-                        </a>
+                        <a href="/login" style={S.successBtn}>Acessar o sistema</a>
                     </div>
                 </div>
             )}
@@ -424,7 +418,7 @@ export default function SignupPage() {
 const S = {
     page: {
         minHeight:     "100vh",
-        background:    "linear-gradient(160deg, #1a0030 0%, #2d1060 50%, #0d0018 100%)",
+        background:    "#1A123D",
         display:       "flex",
         flexDirection: "column" as const,
         alignItems:    "center",
@@ -432,17 +426,60 @@ const S = {
         fontFamily:    "'Inter', 'Segoe UI', system-ui, sans-serif",
     },
     title: {
-        margin:        "0 0 10px",
-        fontSize:      34,
-        fontWeight:    800,
-        color:         "#ffffff",
+        margin: "0 0 10px",
+        fontSize: 34,
+        fontWeight: 800,
+        color: "#ffffff",
         letterSpacing: "-0.5px",
     },
     subtitle: {
-        margin:   0,
+        margin: 0,
         fontSize: 15,
-        color:    "rgba(255,255,255,0.60)",
+        color: "rgba(255,255,255,0.55)",
     },
+    // Toggle
+    toggleWrap: {
+        display:     "flex",
+        alignItems:  "center",
+        gap:         10,
+        marginBottom: 36,
+    },
+    toggleLabel: {
+        fontSize:   15,
+        fontWeight: 600,
+        color:      "#fff",
+        transition: "opacity 0.2s",
+    },
+    toggleTrack: {
+        width:        48,
+        height:       26,
+        borderRadius: 999,
+        background:   "#FF6B00",
+        border:       "none",
+        cursor:       "pointer",
+        position:     "relative" as const,
+        padding:      0,
+        flexShrink:   0,
+    },
+    toggleThumb: {
+        width:        22,
+        height:       22,
+        borderRadius: "50%",
+        background:   "#fff",
+        position:     "absolute" as const,
+        top:          2,
+        transition:   "transform 0.2s",
+    },
+    toggleBadge: {
+        background:   "#22c55e",
+        color:        "#fff",
+        fontSize:     11,
+        fontWeight:   700,
+        padding:      "3px 8px",
+        borderRadius: 999,
+        letterSpacing: "0.3px",
+    },
+    // Cards
     plansRow: {
         display:        "flex",
         gap:            24,
@@ -455,93 +492,132 @@ const S = {
     planCard: {
         position:      "relative" as const,
         borderRadius:  18,
-        padding:       "32px 28px",
+        padding:       "28px 24px 20px",
         width:         360,
-        textAlign:     "left" as const,
-        cursor:        "pointer",
-        transition:    "transform 0.15s, box-shadow 0.15s",
-        border:        "2px solid transparent",
+        display:       "flex",
+        flexDirection: "column" as const,
+        background:    "#fff",
     },
     planCardActive: {
-        background:  "#FF6B00",
-        boxShadow:   "0 16px 48px rgba(255,107,0,0.45)",
-        transform:   "translateY(-4px)",
-        border:      "2px solid #FF6B00",
+        border:     "2.5px solid #FF6B00",
+        boxShadow:  "0 8px 32px rgba(255,107,0,0.25)",
     },
     planCardInactive: {
-        background:  "#ffffff",
-        border:      "2px solid rgba(255,107,0,0.25)",
-        boxShadow:   "0 4px 24px rgba(0,0,0,0.18)",
+        border:     "2px solid rgba(255,255,255,0.12)",
+        boxShadow:  "0 4px 20px rgba(0,0,0,0.25)",
     },
-    badge: {
+    popularBadge: {
         position:      "absolute" as const,
         top:           -13,
         left:          "50%",
         transform:     "translateX(-50%)",
-        fontSize:      11,
-        fontWeight:    700,
+        background:    "#FF6B00",
+        color:         "#fff",
+        fontSize:      10,
+        fontWeight:    800,
         padding:       "4px 14px",
         borderRadius:  999,
+        letterSpacing: "1px",
         whiteSpace:    "nowrap" as const,
-        letterSpacing: "0.5px",
-        textTransform: "uppercase" as const,
     },
     planName: {
-        fontSize:     22,
+        fontSize:     20,
         fontWeight:   800,
+        color:        "#111827",
         marginBottom: 4,
     },
     planDesc: {
         fontSize:     13,
-        marginBottom: 20,
+        color:        "#6b7280",
+        marginBottom: 18,
         lineHeight:   1.5,
     },
-    planPriceRow: {
-        display:     "flex",
-        alignItems:  "baseline",
-        gap:         4,
+    priceRow: {
+        display:      "flex",
+        alignItems:   "baseline",
+        gap:          4,
         marginBottom: 4,
     },
-    planPriceValue: {
-        fontSize:   32,
+    priceValue: {
+        fontSize:   30,
         fontWeight: 800,
+        color:      "#111827",
     },
-    planPricePer: {
+    pricePer: {
         fontSize: 14,
+        color:    "#6b7280",
     },
-    planSetup: {
+    offBadge: {
+        background:   "#FF6B00",
+        color:        "#fff",
+        fontSize:     10,
+        fontWeight:   700,
+        padding:      "2px 8px",
+        borderRadius: 999,
+        marginLeft:   4,
+        alignSelf:    "center" as const,
+    },
+    setupLine: {
         fontSize:     12,
-        marginBottom: 20,
+        color:        "#9ca3af",
+        marginBottom: 18,
+    },
+    setupFree: {
+        color:      "#22c55e",
+        fontWeight: 700,
     },
     featureList: {
         listStyle:     "none",
-        margin:        0,
+        margin:        "0 0 20px",
         padding:       0,
         display:       "flex",
         flexDirection: "column" as const,
-        gap:           10,
+        gap:           9,
+        flex:          1,
     },
     featureItem: {
         display:    "flex",
         alignItems: "center",
         gap:        8,
         fontSize:   13,
+        color:      "#374151",
         fontWeight: 500,
+    },
+    planBtn: {
+        width:        "100%",
+        padding:      "12px 0",
+        border:       "none",
+        borderRadius: 10,
+        fontSize:     14,
+        fontWeight:   700,
+        cursor:       "pointer",
+        marginTop:    "auto",
+        transition:   "all 0.15s",
+    },
+    planBtnInactive: {
+        background: "#FF6B00",
+        color:      "#fff",
+        boxShadow:  "0 3px 10px rgba(255,107,0,0.30)",
+    },
+    planBtnActive: {
+        background: "#c75200",
+        color:      "#fff",
     },
     // Formulário
     form: {
-        background:   "#ffffff",
+        background:   "#fff",
         borderRadius: 20,
         padding:      "32px 28px",
         width:        "100%",
         maxWidth:     560,
-        boxShadow:    "0 16px 48px rgba(0,0,0,0.30)",
+        boxShadow:    "0 16px 48px rgba(0,0,0,0.35)",
+        scrollMarginTop: 32,
     },
     formTitle: {
-        margin:       "0 0 24px",
-        fontSize:     18,
-        fontWeight:   800,
-        color:        "#111827",
+        margin:   "0 0 24px",
+        fontSize: 18,
+        fontWeight: 800,
+        color:    "#111827",
     },
     field: {
         display:       "flex",
@@ -574,32 +650,39 @@ const S = {
         cursor:       "pointer",
         width:        "100%",
     },
-    // Forma de pagamento
-    payMethodRow: {
+    setupGratisNote: {
+        background:   "#f0fdf4",
+        border:       "1px solid #bbf7d0",
+        borderRadius: 10,
+        padding:      "10px 14px",
+        fontSize:     14,
+        fontWeight:   600,
+        color:        "#15803d",
+    },
+    payRow: {
         display: "flex",
         gap:     12,
     },
-    payMethodBtn: {
+    payBtn: {
         flex:          1,
         display:       "flex",
         alignItems:    "center",
         gap:           10,
-        padding:       "12px 16px",
+        padding:       "12px 14px",
         border:        "1.5px solid #d1d5db",
         borderRadius:  12,
         background:    "#f9fafb",
         cursor:        "pointer",
         textAlign:     "left" as const,
-        transition:    "all 0.15s",
         color:         "#111827",
+        transition:    "all 0.15s",
     },
-    payMethodBtnActive: {
-        background:  "#FF6B00",
-        border:      "1.5px solid #FF6B00",
-        color:       "#fff",
-        boxShadow:   "0 4px 14px rgba(255,107,0,0.30)",
+    payBtnActive: {
+        background: "#FF6B00",
+        border:     "1.5px solid #FF6B00",
+        color:      "#fff",
+        boxShadow:  "0 3px 12px rgba(255,107,0,0.30)",
     },
-    // Resumo
     resumoBox: {
         background:   "#fff7ed",
         border:       "1px solid #fed7aa",
@@ -607,21 +690,20 @@ const S = {
         padding:      "14px 16px",
         marginBottom: 20,
     },
-    resumoLabel: {
-        fontSize:      11,
-        fontWeight:    700,
-        color:         "#9a3412",
-        textTransform: "uppercase" as const,
-        letterSpacing: "0.5px",
-        marginBottom:  4,
-    },
-    resumoText: {
-        fontSize:   14,
-        fontWeight: 600,
+    resumoLine: {
+        display:    "flex",
+        alignItems: "flex-start",
+        gap:        8,
+        fontSize:   13,
         color:      "#7c2d12",
+        lineHeight: 1.5,
+    },
+    resumoIcon: {
+        flexShrink: 0,
+        fontSize:   14,
     },
     descontoBadge: {
-        marginTop:    8,
+        marginTop:    10,
         display:      "inline-block",
         background:   "#22c55e",
         color:        "#fff",
@@ -630,16 +712,15 @@ const S = {
         padding:      "3px 10px",
         borderRadius: 999,
     },
-    fieldSection: {
-        fontSize:      12,
+    sectionLabel: {
+        fontSize:      11,
         fontWeight:    700,
         color:         "#9ca3af",
         textTransform: "uppercase" as const,
         letterSpacing: "0.8px",
         marginBottom:  12,
-        paddingTop:    4,
+        paddingTop:    16,
         borderTop:     "1px solid #f3f4f6",
-        paddingTop2:   4,
     },
     errorBox: {
         background:   "#fef2f2",
@@ -674,7 +755,7 @@ const S = {
         fontSize:  12,
         color:     "rgba(255,255,255,0.30)",
     },
-    successOverlay: {
+    overlay: {
         position:       "fixed" as const,
         inset:          0,
         background:     "rgba(0,0,0,0.75)",
