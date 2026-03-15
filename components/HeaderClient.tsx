@@ -96,8 +96,8 @@ export default function HeaderClient() {
         router.push("/billing/upgrade");
     }
 
-    // Não renderiza o header na tela de login (ou enquanto não sabemos a sessão)
-    if (pathname === "/login" || pathname === "/register") return null;
+    // Não renderiza o header em páginas standalone
+    if (pathname === "/login" || pathname === "/register" || pathname === "/billing/blocked") return null;
     if (sessionExists === false) return null;
     if (sessionExists === null) {
         // ainda checando: evitar flash indesejado
