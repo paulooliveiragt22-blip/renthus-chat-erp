@@ -26,6 +26,7 @@ export async function middleware(
     if (pathname.startsWith("/api/print/")) return NextResponse.next();
     if (pathname.startsWith("/api/billing/webhook")) return NextResponse.next();
     if (pathname === "/api/billing/signup") return NextResponse.next();
+    if (pathname === "/api/billing/create-invoice-checkout") return NextResponse.next();
     // Auth do print agent — chamado pelo Electron sem cookies de sessão
     if (pathname === "/api/agent/auth") return NextResponse.next();
 
@@ -34,6 +35,7 @@ export async function middleware(
         pathname.startsWith("/login") ||
         pathname.startsWith("/auth") ||
         pathname.startsWith("/billing/blocked") ||
+        pathname.startsWith("/signup") ||
         pathname.startsWith("/_next") ||
         pathname === "/favicon.ico";
 
