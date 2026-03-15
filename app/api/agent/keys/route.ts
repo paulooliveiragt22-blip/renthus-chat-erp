@@ -32,7 +32,9 @@ export async function POST(req: Request) {
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
   const body = await req.json().catch(() => ({}));
-  const agentName: string = body?.name?.trim() || `Agente - ${new Date().toLocaleDateString("pt-BR")}`;
+  const now = new Date();
+  const defaultName = `Agente - ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+  const agentName: string = body?.name?.trim() || defaultName;
 
   const admin = createAdminClient();
 

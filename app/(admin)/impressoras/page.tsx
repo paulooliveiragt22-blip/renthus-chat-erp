@@ -68,6 +68,7 @@ export default function PrintersAdminPage() {
     const [agents, setAgents] = useState<AgentRow[]>([]);
     const [generatingKey, setGeneratingKey] = useState(false);
     const [newApiKey, setNewApiKey] = useState<string | null>(null);
+    const [agentError, setAgentError] = useState<string | null>(null);
 
     // form fields
     const emptyForm = {
@@ -102,14 +103,25 @@ export default function PrintersAdminPage() {
     async function generateAgentKey() {
         setGeneratingKey(true);
         setNewApiKey(null);
+        setAgentError(null);
         try {
-            const res = await fetch("/api/agent/keys", { method: "POST" });
-            const json = await res.json();
-            if (!res.ok) { setMsg("Erro: " + (json?.error ?? res.statusText)); return; }
+            const res = await fetch("/api/agent/keys", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+            });
+            const json = await res.json().catch(() => null);
+            if (!res.ok || !json) {
+                const errMsg = json?.error ?? `HTTP ${res.status}: ${res.statusText}`;
+                setAgentError("Erro ao gerar chave: " + errMsg);
+                console.error("[generateAgentKey]", res.status, json);
+                return;
+            }
             setNewApiKey(json.api_key);
             loadAgents();
         } catch (e: any) {
-            setMsg("Erro ao gerar chave: " + e.message);
+            setAgentError("Erro de rede: " + e.message);
+            console.error("[generateAgentKey] catch:", e);
         } finally {
             setGeneratingKey(false);
         }
@@ -300,10 +312,10 @@ export default function PrintersAdminPage() {
             await supabase.from("order_items").insert([
                 {
                     order_id: orderId,
+                    company_id: currentCompanyId,
                     product_name: "Teste Cupom",
                     quantity: 1,
-                    unit_price: 0
-                    // NÃO incluir line_total — é gerado pelo banco
+                    unit_price: 0,
                 },
             ]);
 
@@ -532,6 +544,14 @@ export default function PrintersAdminPage() {
                         {generatingKey ? "Gerando..." : "+ Gerar nova chave"}
                     </button>
                 </div>
+
+                {/* Erro inline */}
+                {agentError && (
+                    <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: 10, marginBottom: 12, color: "#991b1b", fontSize: 13 }}>
+                        {agentError}
+                        <button onClick={() => setAgentError(null)} style={{ marginLeft: 12, background: "none", border: "none", cursor: "pointer", color: "#991b1b", fontWeight: 700 }}>✕</button>
+                    </div>
+                )}
 
                 {/* Chave gerada — exibida uma única vez */}
                 {newApiKey && (
