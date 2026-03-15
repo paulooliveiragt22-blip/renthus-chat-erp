@@ -25,6 +25,7 @@ import {
     createCheckoutOrder,
     extractCheckoutUrl,
     getSetupPriceCents,
+    getYearlyPriceCents,
     centsToBRL,
 } from "@/lib/billing/pagarme";
 
@@ -43,13 +44,16 @@ export async function POST(req: Request) {
             whatsapp?:       string;
             email?:          string;
             plan?:           string;
+            interval?:       string;
             payment_method?: string;
             installments?:   number;
         };
 
         const { company_name, cnpj, whatsapp, email, plan } = body;
+        const interval      = body.interval === "yearly" ? "yearly" : "monthly";
         const paymentMethod = body.payment_method === "credit_card" ? "credit_card" : "pix";
-        const installments  = paymentMethod === "credit_card"
+        // Plano anual: sempre à vista (sem parcelamento), sem desconto PIX
+        const installments  = interval === "monthly" && paymentMethod === "credit_card"
             ? Math.min(10, Math.max(1, body.installments ?? 1))
             : 1;
 
@@ -124,19 +128,33 @@ export async function POST(req: Request) {
             );
         }
 
-        // 4. Cria checkout order no Pagar.me
-        const baseAmountCents = getSetupPriceCents(plan as "bot" | "complete");
-        const pixDiscount     = parseFloat(process.env.SETUP_PIX_DISCOUNT_PCT ?? "5") / 100;
-        const amountCents     = paymentMethod === "pix"
-            ? Math.round(baseAmountCents * (1 - pixDiscount))
-            : baseAmountCents;
+        // 4. Calcula valor do checkout
+        let amountCents: number;
+        let orderDescription: string;
+        let orderCode: string;
+
+        if (interval === "yearly") {
+            // Plano anual: cobra o valor total do ano (setup incluído, sem desconto PIX)
+            amountCents      = getYearlyPriceCents(plan as "bot" | "complete");
+            orderDescription = `Plano Anual ${plan === "bot" ? "Bot" : "Completo"} — Renthus`;
+            orderCode        = `annual_${plan}`;
+        } else {
+            // Plano mensal: cobra somente o setup fee (com desconto PIX opcional)
+            const baseSetup   = getSetupPriceCents(plan as "bot" | "complete");
+            const pixDiscount = parseFloat(process.env.SETUP_PIX_DISCOUNT_PCT ?? "5") / 100;
+            amountCents       = paymentMethod === "pix"
+                ? Math.round(baseSetup * (1 - pixDiscount))
+                : baseSetup;
+            orderDescription  = `Setup Plano ${plan === "bot" ? "Bot" : "Completo"} — Renthus`;
+            orderCode         = `setup_${plan}`;
+        }
 
         const order = await createCheckoutOrder({
             amountCents,
-            description:     `Setup Plano ${plan === "bot" ? "Bot" : "Completo"} — Renthus`,
-            code:            `setup_${plan}`,
+            description:     orderDescription,
+            code:            orderCode,
             maxInstallments: installments,
-            acceptPix:       paymentMethod === "pix",
+            acceptPix:       true,
             acceptCard:      paymentMethod === "credit_card",
             customer: {
                 name:     company_name.trim(),
@@ -164,13 +182,15 @@ export async function POST(req: Request) {
 
         // 5. Registra setup_payment como pending
         await admin.from("setup_payments").insert({
-            company_id:       companyId,
+            company_id:          companyId,
             plan,
-            amount:           centsToBRL(amountCents),
+            amount:              centsToBRL(amountCents),
             installments,
-            status:           "pending",
-            pagarme_order_id: order.id,
+            status:              "pending",
+            pagarme_order_id:    order.id,
             pagarme_payment_url: checkoutUrl,
+            // guarda interval para o webhook saber se é anual ou mensal
+            ...(interval === "yearly" ? { interval: "yearly" } : {}),
         });
 
         // 6. Cria/atualiza subscription com status pending_setup
