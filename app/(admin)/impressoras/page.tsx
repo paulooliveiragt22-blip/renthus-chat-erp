@@ -2,101 +2,44 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
-// se você colocou o componente na mesma pasta de components com alias @
+const PURPLE = "#3B246B";
 
-type PrinterRow = {
-    id: string;
-    company_id: string;
-    name: string;
-    type: string;
-    format: string;
-    auto_print: boolean;
-    interval_seconds: number;
-    is_active: boolean;
-    config?: any;
-    created_at?: string;
-};
-
-type PrintJobRow = {
-    id: string;
-    company_id: string;
-    order_id: string | null;
-    status: string;
-    error?: string | null;
-    payload?: any;
-    created_at?: string;
-    processed_at?: string | null;
-};
-
-function simpleBtn(style: React.CSSProperties = {}) {
-    return {
-        padding: "8px 10px",
-        borderRadius: 8,
-        border: "1px solid rgba(0,0,0,0.08)",
-        background: "#3B246B",
-        color: "#fff",
-        cursor: "pointer",
-        ...style,
-    } as React.CSSProperties;
+function btn(extra: React.CSSProperties = {}): React.CSSProperties {
+    return { padding: "8px 14px", borderRadius: 8, border: "none", background: PURPLE, color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: 13, ...extra };
 }
 
-export default function PrintersAdminPage() {
+type AgentRow = { id: string; name: string; api_key_prefix: string; is_active: boolean; last_seen: string | null; created_at: string };
+type PrintedOrder = { id: string; customer_name: string | null; total_amount: number; printed_at: string; status: string };
+
+export default function ImpressorasPage() {
     const supabase = useMemo(() => createClient(), []);
-    const { currentCompanyId, currentCompany, loading: loadingWorkspace, reload } = useWorkspace();
-    const router = useRouter();
+    const { currentCompanyId } = useWorkspace();
 
-    const [loading, setLoading] = useState(false);
-    const [printers, setPrinters] = useState<PrinterRow[]>([]);
-    const [jobs, setJobs] = useState<PrintJobRow[]>([]);
-    const [msg, setMsg] = useState<string | null>(null);
-
-    const [openForm, setOpenForm] = useState(false);
-    const [editing, setEditing] = useState<PrinterRow | null>(null);
-
-    // local printers modal state
-    const [localPrinters, setLocalPrinters] = useState<{ id: string; name: string }[]>([]);
-    const [loadingLocalPrinters, setLoadingLocalPrinters] = useState(false);
-    const [showLocalModal, setShowLocalModal] = useState(false);
-    const [localError, setLocalError] = useState<string | null>(null);
-
-    // agent key state
-    type AgentRow = { id: string; name: string; api_key_prefix: string; is_active: boolean; last_seen: string | null; created_at: string };
     const [agents, setAgents] = useState<AgentRow[]>([]);
     const [generatingKey, setGeneratingKey] = useState(false);
     const [newApiKey, setNewApiKey] = useState<string | null>(null);
     const [agentError, setAgentError] = useState<string | null>(null);
 
-    // form fields
-    const emptyForm = {
-        name: "",
-        type: "network",
-        format: "receipt",
-        auto_print: true,
-        interval_seconds: 0,
-        is_active: true,
-        config: {},
-    };
-    const [form, setForm] = useState<any>(emptyForm);
+    const [printedOrders, setPrintedOrders] = useState<PrintedOrder[]>([]);
+    const [loadingPrinted, setLoadingPrinted] = useState(true);
+
+    const [testMsg, setTestMsg] = useState<string | null>(null);
+    const [testLoading, setTestLoading] = useState(false);
 
     useEffect(() => {
         if (!currentCompanyId) return;
-        loadPrinters();
-        loadJobs();
         loadAgents();
+        loadPrintedOrders();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentCompanyId]);
 
     async function loadAgents() {
         try {
             const res = await fetch("/api/agent/keys");
-            if (res.ok) {
-                const json = await res.json();
-                setAgents(json.agents ?? []);
-            }
+            if (res.ok) setAgents((await res.json()).agents ?? []);
         } catch (_) {}
     }
 
@@ -111,17 +54,11 @@ export default function PrintersAdminPage() {
                 body: JSON.stringify({}),
             });
             const json = await res.json().catch(() => null);
-            if (!res.ok || !json) {
-                const errMsg = json?.error ?? `HTTP ${res.status}: ${res.statusText}`;
-                setAgentError("Erro ao gerar chave: " + errMsg);
-                console.error("[generateAgentKey]", res.status, json);
-                return;
-            }
+            if (!res.ok) { setAgentError("Erro ao gerar chave: " + (json?.error ?? res.statusText)); return; }
             setNewApiKey(json.api_key);
             loadAgents();
         } catch (e: any) {
             setAgentError("Erro de rede: " + e.message);
-            console.error("[generateAgentKey] catch:", e);
         } finally {
             setGeneratingKey(false);
         }
@@ -137,496 +74,167 @@ export default function PrintersAdminPage() {
         if (res.ok) loadAgents();
     }
 
-    async function loadPrinters() {
+    async function loadPrintedOrders() {
         if (!currentCompanyId) return;
-        setLoading(true);
-        setMsg(null);
+        setLoadingPrinted(true);
         try {
-            const { data, error } = await supabase
-                .from("printers")
-                .select("*")
+            const { data } = await supabase
+                .from("orders")
+                .select("id, customer_name, total_amount, printed_at, status")
                 .eq("company_id", currentCompanyId)
-                .order("created_at", { ascending: false });
-            if (error) {
-                setMsg("Erro ao carregar impressoras: " + error.message);
-                setPrinters([]);
-            } else {
-                setPrinters(Array.isArray(data) ? (data as PrinterRow[]) : []);
-            }
-        } catch (e: any) {
-            setMsg("Erro inesperado: " + e.message);
-        } finally {
-            setLoading(false);
-        }
+                .not("printed_at", "is", null)
+                .order("printed_at", { ascending: false })
+                .limit(30);
+            setPrintedOrders((data as PrintedOrder[]) ?? []);
+        } catch (_) {}
+        finally { setLoadingPrinted(false); }
     }
 
-    async function loadJobs() {
+    async function testPrint() {
         if (!currentCompanyId) return;
-        try {
-            const { data, error } = await supabase
-                .from("print_jobs")
-                .select("*")
-                .eq("company_id", currentCompanyId)
-                .order("created_at", { ascending: false })
-                .limit(50);
-            if (!error) {
-                setJobs(Array.isArray(data) ? (data as PrintJobRow[]) : []);
-            }
-        } catch (e) {
-            // ignore
-        }
-    }
-
-    function openNewForm() {
-        setEditing(null);
-        setForm({ ...emptyForm, config: {} });
-        setOpenForm(true);
-    }
-
-    function openEditForm(p: PrinterRow) {
-        setEditing(p);
-        setForm({
-            name: p.name ?? "",
-            type: p.type ?? "network",
-            format: p.format ?? "receipt",
-            auto_print: !!p.auto_print,
-            interval_seconds: p.interval_seconds ?? 0,
-            is_active: p.is_active ?? true,
-            config: p.config ?? {},
-        });
-        setOpenForm(true);
-    }
-
-    function updateFormField<K extends string>(k: K, v: any) {
-        setForm((prev: any) => ({ ...prev, [k]: v }));
-    }
-
-    async function savePrinter() {
-        if (!currentCompanyId) {
-            setMsg("Company não selecionada.");
-            return;
-        }
-        if (!form.name || !form.type || !form.format) {
-            setMsg("Preencha nome, tipo e formato.");
-            return;
-        }
-        setLoading(true);
-        setMsg(null);
-        try {
-            if (editing) {
-                const { error } = await supabase
-                    .from("printers")
-                    .update({
-                        name: form.name,
-                        type: form.type,
-                        format: form.format,
-                        auto_print: !!form.auto_print,
-                        interval_seconds: Number(form.interval_seconds || 0),
-                        is_active: !!form.is_active,
-                        config: form.config || {},
-                    })
-                    .eq("id", editing.id);
-                if (error) {
-                    setMsg("Erro ao atualizar: " + error.message);
-                } else {
-                    setMsg("Atualizado com sucesso.");
-                    setOpenForm(false);
-                    loadPrinters();
-                }
-            } else {
-                const { error: insertErr } = await supabase
-                    .from("printers")
-                    .insert([{
-                        company_id: currentCompanyId,
-                        name: form.name,
-                        type: form.type,
-                        format: form.format,
-                        auto_print: !!form.auto_print,
-                        interval_seconds: Number(form.interval_seconds || 0),
-                        is_active: !!form.is_active,
-                        config: form.config || {},
-                    }]);
-                if (insertErr) {
-                    setMsg("Erro ao criar: " + insertErr.message);
-                } else {
-                    setMsg("Criado com sucesso.");
-                    setOpenForm(false);
-                    loadPrinters();
-                }
-            }
-        } catch (e: any) {
-            setMsg("Erro inesperado: " + e.message);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    async function deletePrinter(id: string) {
-        if (!confirm("Confirmar exclusão da impressora?")) return;
-        setLoading(true);
-        try {
-            const { error } = await supabase.from("printers").delete().eq("id", id);
-            if (error) setMsg("Erro ao excluir: " + error.message);
-            else {
-                setMsg("Excluído.");
-                loadPrinters();
-            }
-        } catch (e: any) {
-            setMsg("Erro inesperado: " + e.message);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    // Create a test order so the agent prints it
-    async function testPrint(printerId?: string) {
-        if (!currentCompanyId) {
-            setMsg("Selecione a empresa (workspace) primeiro.");
-            return;
-        }
-        setLoading(true);
-        setMsg(null);
+        setTestLoading(true);
+        setTestMsg(null);
         try {
             const { data: ord, error: ordErr } = await supabase
                 .from("orders")
-                .insert([
-                    {
-                        company_id: currentCompanyId,
-                        channel: "admin",
-                        customer_name: "Teste Impressão",
-                        customer_phone: "000000000",
-                        delivery_address: null,
-                        total_amount: 0,
-                        status: "new",
-                        notes: "Pedido de teste gerado pela UI de impressoras",
-                    },
-                ])
-                .select("id")
-                .single();
-            if (ordErr) {
-                setMsg("Erro ao criar pedido de teste: " + ordErr.message);
-                setLoading(false);
-                return;
-            }
-            const orderId = ord.id;
-            await supabase.from("order_items").insert([
-                {
-                    order_id: orderId,
-                    company_id: currentCompanyId,
-                    product_name: "Teste Cupom",
-                    quantity: 1,
-                    unit_price: 0,
-                },
-            ]);
-
-
-            setMsg("Pedido de teste criado (id: " + orderId + "). O agent deve imprimir automaticamente.");
-            setTimeout(() => loadJobs(), 1500);
-        } catch (e: any) {
-            setMsg("Erro ao gerar teste: " + e.message);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    // ----------------- LOCAL PRINTERS (agent) integration -----------------
-    async function fetchLocalPrinters() {
-        setLoadingLocalPrinters(true);
-        setLocalError(null);
-        setLocalPrinters([]);
-        try {
-            // call agent local API
-            const res = await fetch("http://localhost:4001/local/printers", { method: "GET" });
-            if (!res.ok) {
-                const txt = await res.text();
-                throw new Error(txt || `Status ${res.status}`);
-            }
-            const json = await res.json();
-            if (!json.ok) throw new Error(json.error || "No printers");
-            setLocalPrinters(json.printers || []);
-            setShowLocalModal(true);
-        } catch (e: any) {
-            setLocalPrinters([]);
-            setLocalError(e.message || String(e));
-            setShowLocalModal(true);
-        } finally {
-            setLoadingLocalPrinters(false);
-        }
-    }
-
-    async function addLocalPrinterAsCompanyPrinter(printerName: string) {
-        if (!currentCompanyId) {
-            setMsg("Selecione a empresa primeiro.");
-            return;
-        }
-        setLoading(true);
-        try {
-            const { error: insertErr } = await supabase
-                .from("printers")
                 .insert([{
                     company_id: currentCompanyId,
-                    name: `Impressora local - ${printerName}`,
-                    type: "a4",
-                    format: "a4",
-                    auto_print: false,
-                    interval_seconds: 0,
-                    is_active: true,
-                    config: { printerName },
-                }]);
-            if (insertErr) {
-                setMsg("Erro ao registrar impressora local: " + insertErr.message);
-            } else {
-                setMsg("Impressora local adicionada com sucesso.");
-                loadPrinters();
-                setShowLocalModal(false);
-            }
+                    channel: "admin",
+                    customer_name: "Teste Impressão",
+                    customer_phone: "000000000",
+                    total_amount: 0,
+                    status: "new",
+                }])
+                .select("id")
+                .single();
+            if (ordErr) { setTestMsg("Erro: " + ordErr.message); return; }
+            await supabase.from("order_items").insert([{
+                order_id: ord.id,
+                company_id: currentCompanyId,
+                product_name: "Teste Cupom",
+                quantity: 1,
+                unit_price: 0,
+            }]);
+            setTestMsg("Pedido de teste criado — o agente deve imprimir automaticamente.");
+            setTimeout(() => loadPrintedOrders(), 4000);
         } catch (e: any) {
-            setMsg("Erro inesperado: " + e.message);
+            setTestMsg("Erro: " + e.message);
         } finally {
-            setLoading(false);
+            setTestLoading(false);
         }
     }
 
-    // ----------------- render -----------------
+    const card: React.CSSProperties = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 };
+
     return (
-        <div style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                    <h1 style={{ margin: 0, fontSize: 22 }}>Impressoras</h1>
-                    <div style={{ marginTop: 6, color: "#666" }}>
-                        Gerencie as impressoras da sua empresa. Adicione impressoras (network, USB, Bluetooth ou A4), escolha o formato e se a impressão é automática.
-                    </div>
-                </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <h1 style={{ margin: 0, fontSize: 22 }}>Impressão</h1>
 
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <button onClick={() => reload().then(loadPrinters)} style={simpleBtn({ background: "#666" })}>Atualizar</button>
-                    <button onClick={openNewForm} style={simpleBtn()}>Nova impressora</button>
-
-                    {/* Botão que busca impressoras locais via Renthus Print Agent */}
-                    <button onClick={() => fetchLocalPrinters()} style={simpleBtn({ background: "#5a2" })}>
-                        {loadingLocalPrinters ? "Buscando..." : "Buscar impressoras do PC"}
-                    </button>
-                </div>
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-                {msg ? <div style={{ padding: 10, borderRadius: 8, background: "#fff3", marginBottom: 12 }}>{msg}</div> : null}
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 18 }}>
-                    {/* Left: printers list */}
-                    <div>
-                        <h3>Impressoras configuradas</h3>
-                        {loading ? <div>Carregando...</div> : null}
-                        {printers.length === 0 && !loading ? <div style={{ color: "#666" }}>Nenhuma impressora configurada.</div> : null}
-                        <div style={{ marginTop: 8 }}>
-                            {printers.map((p) => (
-                                <div key={p.id} style={{ padding: 12, borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)", marginBottom: 8, background: "#fff" }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <div>
-                                            <div style={{ fontWeight: 800 }}>{p.name}</div>
-                                            <div style={{ color: "#666", fontSize: 13 }}>{p.type} • {p.format} • {p.is_active ? "Ativa" : "Inativa"}</div>
-                                            <div style={{ color: "#666", fontSize: 12, marginTop: 6 }}>Intervalo: {p.interval_seconds}s • Auto: {p.auto_print ? "Sim" : "Não"}</div>
-                                            {p.config && p.config.printerName ? <div style={{ color: "#444", fontSize: 12, marginTop: 6 }}>Impressora local: {p.config.printerName}</div> : null}
-                                        </div>
-                                        <div style={{ display: "flex", gap: 8 }}>
-                                            <button onClick={() => openEditForm(p)} style={simpleBtn({ background: "#0b74de" })}>Editar</button>
-                                            <button onClick={() => deletePrinter(p.id)} style={simpleBtn({ background: "#de1f1f" })}>Excluir</button>
-                                            <button onClick={() => testPrint(p.id)} style={simpleBtn({ background: "#2e7d32" })}>Testar</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                {/* ── Agente de impressão ── */}
+                <div style={card}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                        <div>
+                            <div style={{ fontWeight: 800, fontSize: 15 }}>Agente de impressão</div>
+                            <div style={{ color: "#888", fontSize: 12, marginTop: 2 }}>
+                                Gere uma chave e insira no Renthus Print Agent instalado no PC da impressora.
+                            </div>
                         </div>
+                        <button onClick={generateAgentKey} disabled={generatingKey} style={btn({ background: "#5a2d82" })}>
+                            {generatingKey ? "Gerando..." : "+ Nova chave"}
+                        </button>
                     </div>
 
-                    {/* Right: print jobs / form */}
-                    <div>
-                        <div style={{ marginBottom: 12 }}>
-                            <h3>Histórico (print_jobs)</h3>
-                            <div style={{ color: "#666", fontSize: 13, marginBottom: 8 }}>Últimos 50 jobs</div>
-                            <div style={{ maxHeight: 420, overflow: "auto" }}>
-                                {jobs.length === 0 ? <div style={{ color: "#666" }}>Nenhum job.</div> : null}
-                                {jobs.map((j) => (
-                                    <div key={j.id} style={{ padding: 10, borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)", marginBottom: 8, background: "#fff" }}>
-                                        <div style={{ fontWeight: 800 }}>{j.status.toUpperCase()} {j.order_id ? `• ${j.order_id}` : ""}</div>
-                                        <div style={{ color: "#666", fontSize: 13, marginTop: 6 }}>{j.error ? String(j.error).slice(0, 180) : (j.payload ? JSON.stringify(j.payload) : "")}</div>
-                                        <div style={{ marginTop: 6, color: "#999", fontSize: 12 }}>{j.created_at} {j.processed_at ? ` • processed: ${j.processed_at}` : ""}</div>
-                                    </div>
-                                ))}
+                    {agentError && (
+                        <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: 10, marginBottom: 12, color: "#991b1b", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+                            {agentError}
+                            <button onClick={() => setAgentError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#991b1b", fontWeight: 700 }}>✕</button>
+                        </div>
+                    )}
+
+                    {newApiKey && (
+                        <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: 12, marginBottom: 14 }}>
+                            <div style={{ fontWeight: 700, color: "#166534", marginBottom: 6, fontSize: 13 }}>
+                                ✓ Copie agora — não será exibida novamente:
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <code style={{ background: "#dcfce7", padding: "6px 10px", borderRadius: 4, fontSize: 12, flex: 1, wordBreak: "break-all", fontFamily: "monospace" }}>
+                                    {newApiKey}
+                                </code>
+                                <button onClick={() => navigator.clipboard.writeText(newApiKey)} style={btn({ background: "#166534", padding: "6px 10px", fontSize: 12 })}>Copiar</button>
+                                <button onClick={() => setNewApiKey(null)} style={btn({ background: "#666", padding: "6px 10px", fontSize: 12 })}>OK</button>
+                            </div>
+                            <div style={{ marginTop: 8, color: "#555", fontSize: 11 }}>
+                                URL: <strong>{typeof window !== "undefined" ? window.location.origin : ""}</strong>
                             </div>
                         </div>
+                    )}
 
-                        <div style={{ marginTop: 8 }}>
-                            <h3>Ações</h3>
-                            <div style={{ display: "flex", gap: 8 }}>
-                                <button onClick={() => testPrint()} style={simpleBtn({ background: "#2e7d32" })}>Criar pedido de teste</button>
-                                <button onClick={() => loadJobs()} style={simpleBtn({ background: "#666" })}>Atualizar histórico</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Modal/Form for creating/editing printers */}
-            {openForm ? (
-                <div style={{ position: "fixed", left: 0, top: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div style={{ width: 740, background: "#fff", padding: 16, borderRadius: 8 }}>
-                        <h3>{editing ? "Editar impressora" : "Nova impressora"}</h3>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                            <div>
-                                <label>Nome</label>
-                                <input value={form.name} onChange={(e) => updateFormField("name", e.target.value)} style={{ width: "100%", padding: 8, marginTop: 6 }} />
-                            </div>
-                            <div>
-                                <label>Tipo</label>
-                                <select value={form.type} onChange={(e) => updateFormField("type", e.target.value)} style={{ width: "100%", padding: 8, marginTop: 6 }}>
-                                    <option value="network">Network</option>
-                                    <option value="usb">USB</option>
-                                    <option value="bluetooth">Bluetooth</option>
-                                    <option value="a4">A4 / PDF</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label>Formato</label>
-                                <select value={form.format} onChange={(e) => updateFormField("format", e.target.value)} style={{ width: "100%", padding: 8, marginTop: 6 }}>
-                                    <option value="receipt">Receipt</option>
-                                    <option value="a4">A4 / PDF</option>
-                                    <option value="zpl">ZPL</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label>Intervalo (s)</label>
-                                <input type="number" value={form.interval_seconds} onChange={(e) => updateFormField("interval_seconds", Number(e.target.value || 0))} style={{ width: "100%", padding: 8, marginTop: 6 }} />
-                            </div>
-                            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-                                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <input type="checkbox" checked={!!form.auto_print} onChange={(e) => updateFormField("auto_print", !!e.target.checked)} /> Impressão automática
-                                </label>
-                                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <input type="checkbox" checked={!!form.is_active} onChange={(e) => updateFormField("is_active", !!e.target.checked)} /> Ativa
-                                </label>
-                            </div>
-
-                            {/* config editor (JSON) */}
-                            <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
-                                <label>Config (JSON)</label>
-                                <textarea value={JSON.stringify(form.config || {}, null, 2)} onChange={(e) => {
-                                    try {
-                                        const v = JSON.parse(e.target.value);
-                                        updateFormField("config", v);
-                                    } catch {
-                                        // ignore parse errors until save
-                                        updateFormField("config", form.config);
-                                    }
-                                }} style={{ width: "100%", minHeight: 120, marginTop: 6 }} />
-                                <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>Ex.: {"{ \"host\":\"192.168.0.20\",\"port\":9100 }"} ou {"{ \"printerName\":\"Microsoft Print to PDF\" }"}</div>
-                            </div>
-                        </div>
-
-                        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                            <button onClick={() => { setOpenForm(false); }} style={simpleBtn({ background: "#666" })}>Fechar</button>
-                            <button onClick={() => savePrinter()} style={simpleBtn({ background: "#0b74de" })}>Salvar</button>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
-
-            {/* ── Print Agent Keys ─────────────────────────────────────── */}
-            <div style={{ marginTop: 24, background: "#fff", borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", padding: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div>
-                        <h3 style={{ margin: 0 }}>Print Agent — Chaves de Acesso</h3>
-                        <div style={{ color: "#666", fontSize: 12, marginTop: 4 }}>
-                            Gere uma API key, insira no Renthus Print Agent instalado no PC da impressora.
-                        </div>
-                    </div>
-                    <button onClick={generateAgentKey} disabled={generatingKey} style={simpleBtn({ background: "#5a2d82" })}>
-                        {generatingKey ? "Gerando..." : "+ Gerar nova chave"}
-                    </button>
-                </div>
-
-                {/* Erro inline */}
-                {agentError && (
-                    <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: 10, marginBottom: 12, color: "#991b1b", fontSize: 13 }}>
-                        {agentError}
-                        <button onClick={() => setAgentError(null)} style={{ marginLeft: 12, background: "none", border: "none", cursor: "pointer", color: "#991b1b", fontWeight: 700 }}>✕</button>
-                    </div>
-                )}
-
-                {/* Chave gerada — exibida uma única vez */}
-                {newApiKey && (
-                    <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: 12, marginBottom: 12 }}>
-                        <div style={{ fontWeight: 700, color: "#166534", marginBottom: 6 }}>✓ Chave gerada — copie agora, não será exibida novamente:</div>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <code style={{ background: "#dcfce7", padding: "6px 10px", borderRadius: 4, fontFamily: "monospace", fontSize: 13, flex: 1, wordBreak: "break-all" }}>
-                                {newApiKey}
-                            </code>
-                            <button onClick={() => { navigator.clipboard.writeText(newApiKey); }} style={simpleBtn({ background: "#166534", padding: "6px 12px", fontSize: 12 })}>
-                                Copiar
-                            </button>
-                            <button onClick={() => setNewApiKey(null)} style={simpleBtn({ background: "#666", padding: "6px 12px", fontSize: 12 })}>
-                                OK
-                            </button>
-                        </div>
-                        <div style={{ marginTop: 8, color: "#555", fontSize: 12 }}>
-                            No Print Agent: informe a URL <strong>{typeof window !== "undefined" ? window.location.origin : "https://renthus-chat-erp.vercel.app"}</strong> e essa chave.
-                        </div>
-                    </div>
-                )}
-
-                {/* Lista de agentes */}
-                {agents.length === 0 ? (
-                    <div style={{ color: "#999", fontSize: 13 }}>Nenhum agente configurado.</div>
-                ) : (
-                    agents.map(a => (
-                        <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
-                            <div>
-                                <span style={{ fontWeight: 600 }}>{a.name}</span>
-                                <span style={{ marginLeft: 10, fontSize: 12, color: a.is_active ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
-                                    {a.is_active ? "● Ativo" : "● Inativo"}
-                                </span>
-                                <span style={{ marginLeft: 10, fontSize: 12, color: "#888", fontFamily: "monospace" }}>rpa_{a.api_key_prefix}…</span>
-                                {a.last_seen && (
-                                    <span style={{ marginLeft: 10, fontSize: 11, color: "#aaa" }}>
-                                        Último acesso: {new Date(a.last_seen).toLocaleString("pt-BR")}
-                                    </span>
-                                )}
-                            </div>
-                            {a.is_active && (
-                                <button onClick={() => revokeAgent(a.id)} style={simpleBtn({ background: "#dc2626", fontSize: 11, padding: "4px 10px" })}>
-                                    Revogar
-                                </button>
-                            )}
-                        </div>
-                    ))
-                )}
-            </div>
-
-            {/* Local printers modal */}
-            {showLocalModal && (
-                <div style={{ position: "fixed", left: 0, top: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div style={{ width: 640, background: "#fff", padding: 16, borderRadius: 8 }}>
-                        <h3>Impressoras no computador</h3>
-                        {loadingLocalPrinters ? <div>Buscando impressoras locais...</div> : null}
-                        {localError ? <div style={{ color: "red" }}>Erro: {localError}</div> : null}
-                        <div style={{ maxHeight: 340, overflow: "auto", marginTop: 8 }}>
-                            {localPrinters.length === 0 && !loadingLocalPrinters ? <div style={{ color: "#666" }}>Nenhuma impressora encontrada.</div> : null}
-                            {localPrinters.map((lp) => (
-                                <div key={lp.id} style={{ display: "flex", justifyContent: "space-between", padding: 8, borderBottom: "1px solid #eee" }}>
-                                    <div>{lp.name}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {agents.length === 0
+                            ? <div style={{ color: "#aaa", fontSize: 13 }}>Nenhum agente configurado.</div>
+                            : agents.map(a => (
+                                <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f0f0f0" }}>
                                     <div>
-                                        <button onClick={() => addLocalPrinterAsCompanyPrinter(lp.name)} style={simpleBtn({ background: "#0b74de" })}>Usar esta impressora</button>
+                                        <span style={{ fontWeight: 700, fontSize: 13 }}>{a.name}</span>
+                                        <span style={{ marginLeft: 8, fontSize: 12, color: a.is_active ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
+                                            {a.is_active ? "● Ativo" : "● Inativo"}
+                                        </span>
+                                        <div style={{ fontSize: 11, color: "#aaa", fontFamily: "monospace", marginTop: 2 }}>rpa_{a.api_key_prefix}…</div>
+                                        {a.last_seen && (
+                                            <div style={{ fontSize: 11, color: "#bbb", marginTop: 1 }}>
+                                                Último acesso: {new Date(a.last_seen).toLocaleString("pt-BR")}
+                                            </div>
+                                        )}
                                     </div>
+                                    {a.is_active && (
+                                        <button onClick={() => revokeAgent(a.id)} style={btn({ background: "#dc2626", fontSize: 11, padding: "4px 10px" })}>
+                                            Revogar
+                                        </button>
+                                    )}
                                 </div>
-                            ))}
-                        </div>
+                            ))
+                        }
+                    </div>
 
-                        <div style={{ marginTop: 12, textAlign: "right" }}>
-                            <button onClick={() => setShowLocalModal(false)} style={simpleBtn({ background: "#666" })}>Fechar</button>
+                    <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #f0f0f0" }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <button onClick={testPrint} disabled={testLoading} style={btn({ background: "#2e7d32" })}>
+                                {testLoading ? "Criando..." : "Criar pedido de teste"}
+                            </button>
                         </div>
+                        {testMsg && <div style={{ marginTop: 8, fontSize: 12, color: "#555" }}>{testMsg}</div>}
                     </div>
                 </div>
-            )}
+
+                {/* ── Pedidos impressos ── */}
+                <div style={card}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                        <div style={{ fontWeight: 800, fontSize: 15 }}>Impressos pelo agente</div>
+                        <button onClick={loadPrintedOrders} style={btn({ background: "#666", padding: "6px 10px", fontSize: 12 })}>↻ Atualizar</button>
+                    </div>
+                    <div style={{ maxHeight: 480, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                        {loadingPrinted
+                            ? <div style={{ color: "#aaa", fontSize: 13 }}>Carregando...</div>
+                            : printedOrders.length === 0
+                                ? <div style={{ color: "#aaa", fontSize: 13 }}>Nenhum pedido impresso ainda.</div>
+                                : printedOrders.map(o => (
+                                    <div key={o.id} style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #eee", background: "#fafafa" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                            <div style={{ fontWeight: 700, fontSize: 13 }}>{o.customer_name || "—"}</div>
+                                            <div style={{ fontWeight: 800, color: PURPLE, fontSize: 13 }}>
+                                                R$ {Number(o.total_amount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                        <div style={{ color: "#aaa", fontSize: 11, marginTop: 3 }}>
+                                            {new Date(o.printed_at).toLocaleString("pt-BR")} · {o.id.slice(0, 8).toUpperCase()}
+                                        </div>
+                                    </div>
+                                ))
+                        }
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
