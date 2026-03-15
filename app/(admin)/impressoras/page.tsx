@@ -63,6 +63,12 @@ export default function PrintersAdminPage() {
     const [showLocalModal, setShowLocalModal] = useState(false);
     const [localError, setLocalError] = useState<string | null>(null);
 
+    // agent key state
+    type AgentRow = { id: string; name: string; api_key_prefix: string; is_active: boolean; last_seen: string | null; created_at: string };
+    const [agents, setAgents] = useState<AgentRow[]>([]);
+    const [generatingKey, setGeneratingKey] = useState(false);
+    const [newApiKey, setNewApiKey] = useState<string | null>(null);
+
     // form fields
     const emptyForm = {
         name: "",
@@ -79,8 +85,45 @@ export default function PrintersAdminPage() {
         if (!currentCompanyId) return;
         loadPrinters();
         loadJobs();
+        loadAgents();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentCompanyId]);
+
+    async function loadAgents() {
+        try {
+            const res = await fetch("/api/agent/keys");
+            if (res.ok) {
+                const json = await res.json();
+                setAgents(json.agents ?? []);
+            }
+        } catch (_) {}
+    }
+
+    async function generateAgentKey() {
+        setGeneratingKey(true);
+        setNewApiKey(null);
+        try {
+            const res = await fetch("/api/agent/keys", { method: "POST" });
+            const json = await res.json();
+            if (!res.ok) { setMsg("Erro: " + (json?.error ?? res.statusText)); return; }
+            setNewApiKey(json.api_key);
+            loadAgents();
+        } catch (e: any) {
+            setMsg("Erro ao gerar chave: " + e.message);
+        } finally {
+            setGeneratingKey(false);
+        }
+    }
+
+    async function revokeAgent(agentId: string) {
+        if (!confirm("Desativar este agente? A chave deixará de funcionar.")) return;
+        const res = await fetch("/api/agent/keys", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agent_id: agentId }),
+        });
+        if (res.ok) loadAgents();
+    }
 
     async function loadPrinters() {
         if (!currentCompanyId) return;
@@ -475,6 +518,69 @@ export default function PrintersAdminPage() {
                     </div>
                 </div>
             ) : null}
+
+            {/* ── Print Agent Keys ─────────────────────────────────────── */}
+            <div style={{ marginTop: 24, background: "#fff", borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div>
+                        <h3 style={{ margin: 0 }}>Print Agent — Chaves de Acesso</h3>
+                        <div style={{ color: "#666", fontSize: 12, marginTop: 4 }}>
+                            Gere uma API key, insira no Renthus Print Agent instalado no PC da impressora.
+                        </div>
+                    </div>
+                    <button onClick={generateAgentKey} disabled={generatingKey} style={simpleBtn({ background: "#5a2d82" })}>
+                        {generatingKey ? "Gerando..." : "+ Gerar nova chave"}
+                    </button>
+                </div>
+
+                {/* Chave gerada — exibida uma única vez */}
+                {newApiKey && (
+                    <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 6, padding: 12, marginBottom: 12 }}>
+                        <div style={{ fontWeight: 700, color: "#166534", marginBottom: 6 }}>✓ Chave gerada — copie agora, não será exibida novamente:</div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <code style={{ background: "#dcfce7", padding: "6px 10px", borderRadius: 4, fontFamily: "monospace", fontSize: 13, flex: 1, wordBreak: "break-all" }}>
+                                {newApiKey}
+                            </code>
+                            <button onClick={() => { navigator.clipboard.writeText(newApiKey); }} style={simpleBtn({ background: "#166534", padding: "6px 12px", fontSize: 12 })}>
+                                Copiar
+                            </button>
+                            <button onClick={() => setNewApiKey(null)} style={simpleBtn({ background: "#666", padding: "6px 12px", fontSize: 12 })}>
+                                OK
+                            </button>
+                        </div>
+                        <div style={{ marginTop: 8, color: "#555", fontSize: 12 }}>
+                            No Print Agent: informe a URL <strong>{typeof window !== "undefined" ? window.location.origin : "https://renthus-chat-erp.vercel.app"}</strong> e essa chave.
+                        </div>
+                    </div>
+                )}
+
+                {/* Lista de agentes */}
+                {agents.length === 0 ? (
+                    <div style={{ color: "#999", fontSize: 13 }}>Nenhum agente configurado.</div>
+                ) : (
+                    agents.map(a => (
+                        <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+                            <div>
+                                <span style={{ fontWeight: 600 }}>{a.name}</span>
+                                <span style={{ marginLeft: 10, fontSize: 12, color: a.is_active ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
+                                    {a.is_active ? "● Ativo" : "● Inativo"}
+                                </span>
+                                <span style={{ marginLeft: 10, fontSize: 12, color: "#888", fontFamily: "monospace" }}>rpa_{a.api_key_prefix}…</span>
+                                {a.last_seen && (
+                                    <span style={{ marginLeft: 10, fontSize: 11, color: "#aaa" }}>
+                                        Último acesso: {new Date(a.last_seen).toLocaleString("pt-BR")}
+                                    </span>
+                                )}
+                            </div>
+                            {a.is_active && (
+                                <button onClick={() => revokeAgent(a.id)} style={simpleBtn({ background: "#dc2626", fontSize: 11, padding: "4px 10px" })}>
+                                    Revogar
+                                </button>
+                            )}
+                        </div>
+                    ))
+                )}
+            </div>
 
             {/* Local printers modal */}
             {showLocalModal && (
