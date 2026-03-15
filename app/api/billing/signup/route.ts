@@ -143,11 +143,15 @@ export async function POST(req: Request) {
 
         console.log("[signup] subscription existente:", JSON.stringify(existingSub));
 
+        // Token confirmado no banco ANTES de criar o checkout
+        console.log("[signup] onboarding_token:", onboardingToken);
+
         // URLs de retorno — montadas após ter o onboardingToken
         const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? "https://renthus-chat-erp.vercel.app";
         const successUrl = `${appUrl}/signup/complete?token=${onboardingToken}`;
         const cancelUrl  = `${appUrl}/signup`;
         console.log("[signup] successUrl:", successUrl);
+        console.log("[signup] cancelUrl:", cancelUrl);
 
         // 4. Calcula valor do checkout
         let amountCents: number;
