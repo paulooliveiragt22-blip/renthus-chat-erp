@@ -24,6 +24,8 @@ export async function middleware(
     // Libera webhooks e endpoints técnicos sem autenticação
     if (pathname.startsWith("/api/whatsapp/")) return NextResponse.next();
     if (pathname.startsWith("/api/print/")) return NextResponse.next();
+    // Auth do print agent — chamado pelo Electron sem cookies de sessão
+    if (pathname === "/api/agent/auth") return NextResponse.next();
 
     // Rotas públicas (não exigem login)
     const isPublic =
