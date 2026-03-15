@@ -21,8 +21,8 @@ type OrderFull = any; // mantemos any para compatibilidade
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
-    // esconder o shell no login
-    if (pathname === "/login") return <>{children}</>;
+    // esconder o shell no login e em páginas standalone (sem sidebar)
+    if (pathname === "/login" || pathname === "/billing/blocked") return <>{children}</>;
 
     const supabase = useMemo(() => createClient(), []);
 

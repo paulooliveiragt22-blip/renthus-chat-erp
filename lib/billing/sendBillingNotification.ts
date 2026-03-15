@@ -5,8 +5,8 @@
  * (não o número do disk bebidas cliente).
  *
  * Variáveis de ambiente necessárias:
- *   WHATSAPP_TOKEN                    — Bearer token da Meta (mesmo do sistema)
- *   RENTHUS_WHATSAPP_PHONE_NUMBER_ID  — Phone Number ID da Renthus no Meta Business
+ *   WHATSAPP_TOKEN          — Bearer token da Meta (mesmo do sistema)
+ *   WHATSAPP_PHONE_NUMBER_ID — Phone Number ID cadastrado no Meta Business (Renthus)
  */
 
 import "server-only";
@@ -28,11 +28,11 @@ export async function sendBillingNotification(
     text: string
 ): Promise<{ ok: boolean; error?: string }> {
     const token         = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId = process.env.RENTHUS_WHATSAPP_PHONE_NUMBER_ID;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!token || !phoneNumberId) {
         console.error(
-            "[billing-notify] WHATSAPP_TOKEN ou RENTHUS_WHATSAPP_PHONE_NUMBER_ID não configurados"
+            "[billing-notify] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados"
         );
         return { ok: false, error: "missing_env_vars" };
     }
