@@ -1,48 +1,54 @@
 /**
  * POST /api/billing/signup
  *
- * Processa o pagamento do setup e cria a assinatura trial.
+ * Rota pública — cria empresa, order de setup no Pagar.me (checkout hosted)
+ * e retorna a URL do checkout para abrir no modal.
  *
  * Body: {
- *   company_id: string
- *   plan: 'bot' | 'complete'
- *   installments: number (1–10)
- *   card_token: string  — token do cartão gerado pelo Pagar.me.js
+ *   company_name: string
+ *   cnpj:         string  (somente dígitos)
+ *   whatsapp:     string  (somente dígitos, ex: 5566992071285)
+ *   email:        string
+ *   plan:         'bot' | 'complete'
+ *   installments: number  (1–10, padrão 1)
  * }
  *
- * Retorna: { success, subscription_id?, pagarme_order_id, order_status }
- *
- * Se o pagamento for aprovado imediatamente, a subscription já é criada
- * com status='trial'. Caso contrário, aguarda o webhook order.paid.
+ * Retorna: { checkout_url, company_id }
  */
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-    createCustomer,
-    createSetupOrder,
+    createCheckoutOrder,
+    extractCheckoutUrl,
     getSetupPriceCents,
     centsToBRL,
 } from "@/lib/billing/pagarme";
-import { activateTrial } from "@/lib/billing/activateTrial";
 
 export const runtime = "nodejs";
+
+const SUCCESS_URL =
+    process.env.NEXT_PUBLIC_APP_URL
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/billing/checkout-success`
+        : "https://app.renthus.com.br/billing/checkout-success";
 
 export async function POST(req: Request) {
     try {
         const body = (await req.json()) as {
-            company_id?:   string;
+            company_name?: string;
+            cnpj?:         string;
+            whatsapp?:     string;
+            email?:        string;
             plan?:         string;
             installments?: number;
-            card_token?:   string;
         };
 
-        const { company_id, plan, card_token } = body;
+        const { company_name, cnpj, whatsapp, email, plan } = body;
         const installments = Math.min(10, Math.max(1, body.installments ?? 1));
 
-        if (!company_id || !plan || !card_token) {
+        if (!company_name || !cnpj || !whatsapp || !email || !plan) {
             return NextResponse.json(
-                { error: "company_id, plan e card_token são obrigatórios" },
+                { error: "Campos obrigatórios: company_name, cnpj, whatsapp, email, plan" },
                 { status: 400 }
             );
         }
@@ -54,111 +60,124 @@ export async function POST(req: Request) {
             );
         }
 
+        const cnpjDigits = cnpj.replace(/\D/g, "");
+        if (cnpjDigits.length !== 14) {
+            return NextResponse.json({ error: "CNPJ inválido" }, { status: 400 });
+        }
+
         const admin = createAdminClient();
 
-        // 1. Verifica se a empresa já tem assinatura ativa
+        // 1. Verifica se já existe empresa com esse CNPJ
         const { data: existing } = await admin
-            .from("pagarme_subscriptions")
-            .select("id, status")
-            .eq("company_id", company_id)
+            .from("companies")
+            .select("id")
+            .eq("meta->cnpj", cnpjDigits)
             .maybeSingle();
 
-        if (existing && ["trial", "active", "overdue"].includes(existing.status)) {
+        let companyId: string;
+
+        if (existing) {
+            companyId = existing.id;
+        } else {
+            // 2. Cria empresa (sem usuário vinculado — será vinculado no onboarding pós-pagamento)
+            const { data: newCompany, error: compErr } = await admin
+                .from("companies")
+                .insert({
+                    name:          company_name.trim(),
+                    email:         email.trim().toLowerCase(),
+                    whatsapp_phone: whatsapp.replace(/\D/g, ""),
+                    meta:          { cnpj: cnpjDigits },
+                    is_active:     false, // ativa somente após pagamento
+                })
+                .select("id")
+                .single();
+
+            if (compErr || !newCompany) {
+                console.error("[signup] Erro ao criar empresa:", compErr?.message);
+                return NextResponse.json(
+                    { error: "Erro ao criar empresa" },
+                    { status: 500 }
+                );
+            }
+
+            companyId = newCompany.id;
+        }
+
+        // 3. Verifica se já tem subscription ativa
+        const { data: existingSub } = await admin
+            .from("pagarme_subscriptions")
+            .select("id, status, pagarme_customer_id")
+            .eq("company_id", companyId)
+            .maybeSingle();
+
+        if (existingSub && ["trial", "active", "overdue"].includes(existingSub.status)) {
             return NextResponse.json(
                 { error: "Empresa já possui assinatura ativa" },
                 { status: 409 }
             );
         }
 
-        // 2. Busca dados da empresa
-        const { data: company, error: compErr } = await admin
-            .from("companies")
-            .select("id, name, email, whatsapp_phone, meta")
-            .eq("id", company_id)
-            .maybeSingle();
-
-        if (compErr || !company) {
-            return NextResponse.json({ error: "Empresa não encontrada" }, { status: 404 });
-        }
-
-        const cnpj: string | undefined = (company.meta as any)?.cnpj?.replace(/\D/g, "");
-
-        // 3. Cria ou reutiliza customer no Pagar.me
-        let pagarmeCustomerId: string | undefined;
-
-        const { data: existingSub } = await admin
-            .from("pagarme_subscriptions")
-            .select("pagarme_customer_id")
-            .eq("company_id", company_id)
-            .maybeSingle();
-
-        if (existingSub?.pagarme_customer_id) {
-            pagarmeCustomerId = existingSub.pagarme_customer_id;
-        } else {
-            const customer = await createCustomer({
-                name:     company.name,
-                email:    company.email ?? `${company_id}@renthus.com.br`,
-                document: cnpj,
-                phone:    company.whatsapp_phone ?? undefined,
-            });
-            pagarmeCustomerId = customer.id;
-        }
-
-        // 4. Cria order de setup no Pagar.me
+        // 4. Cria checkout order no Pagar.me
         const amountCents = getSetupPriceCents(plan as "bot" | "complete");
 
-        const order = await createSetupOrder({
+        const order = await createCheckoutOrder({
             amountCents,
-            description: `Setup Plano ${plan.charAt(0).toUpperCase() + plan.slice(1)} — Renthus`,
-            installments,
-            cardToken:   card_token,
-            customerId:  pagarmeCustomerId,
+            description:     `Setup Plano ${plan === "bot" ? "Bot" : "Completo"} — Renthus`,
+            code:            `setup_${plan}`,
+            maxInstallments: installments,
+            acceptPix:       true,
+            customer: {
+                name:     company_name.trim(),
+                email:    email.trim().toLowerCase(),
+                document: cnpjDigits,
+                phone:    whatsapp.replace(/\D/g, ""),
+            },
+            successUrl: SUCCESS_URL,
             metadata: {
                 type:       "setup",
-                company_id,
+                company_id: companyId,
                 plan,
             },
         });
 
-        // 5. Registra setup_payment no banco
-        const { error: spErr } = await admin
-            .from("setup_payments")
-            .insert({
-                company_id,
-                plan,
-                amount:           centsToBRL(amountCents),
-                installments,
-                status:           order.status === "paid" ? "paid" : "pending",
-                paid_at:          order.status === "paid" ? new Date().toISOString() : null,
-                pagarme_order_id: order.id,
-            });
+        const checkoutUrl = extractCheckoutUrl(order);
 
-        if (spErr) {
-            console.error("[signup] Erro ao salvar setup_payment:", spErr.message);
-        }
-
-        // 6. Se aprovado imediatamente, ativa o trial
-        let subscriptionId: string | undefined;
-
-        if (order.status === "paid") {
-            subscriptionId = await activateTrial(
-                admin,
-                company_id,
-                plan as "bot" | "complete",
-                pagarmeCustomerId ?? ""
+        if (!checkoutUrl) {
+            console.error("[signup] Pagar.me não retornou checkout_url. Order:", order.id);
+            return NextResponse.json(
+                { error: "Erro ao gerar link de pagamento" },
+                { status: 500 }
             );
         }
 
-        return NextResponse.json({
-            success:          order.status === "paid",
-            order_status:     order.status,
+        // 5. Registra setup_payment como pending
+        await admin.from("setup_payments").insert({
+            company_id:       companyId,
+            plan,
+            amount:           centsToBRL(amountCents),
+            installments,
+            status:           "pending",
             pagarme_order_id: order.id,
-            subscription_id:  subscriptionId,
-            message:
-                order.status === "paid"
-                    ? "Pagamento aprovado! Trial de 30 dias ativado."
-                    : "Pagamento em processamento. Aguarde a confirmação.",
+            pagarme_payment_url: checkoutUrl,
         });
+
+        // 6. Cria/atualiza subscription com status pending_setup
+        await admin.from("pagarme_subscriptions").upsert(
+            {
+                company_id:    companyId,
+                plan,
+                status:        "pending_setup",
+                trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            },
+            { onConflict: "company_id" }
+        );
+
+        return NextResponse.json({
+            ok:           true,
+            checkout_url: checkoutUrl,
+            company_id:   companyId,
+        });
+
     } catch (err: any) {
         console.error("[signup] Erro:", err?.message ?? err);
         return NextResponse.json(

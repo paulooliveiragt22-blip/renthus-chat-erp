@@ -97,7 +97,12 @@ export default function HeaderClient() {
     }
 
     // Não renderiza o header em páginas standalone
-    if (pathname === "/login" || pathname === "/register" || pathname === "/billing/blocked") return null;
+    if (
+        pathname === "/login" ||
+        pathname === "/register" ||
+        pathname === "/billing/blocked" ||
+        pathname.startsWith("/signup")
+    ) return null;
     if (sessionExists === false) return null;
     if (sessionExists === null) {
         // ainda checando: evitar flash indesejado
