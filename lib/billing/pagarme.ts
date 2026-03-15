@@ -327,6 +327,7 @@ export async function createCheckoutOrder(params: {
     code:            string;       // ex: "setup_bot", "mensalidade"
     maxInstallments: number;       // 1–10 (opções disponíveis no checkout)
     acceptPix?:      boolean;      // padrão true
+    acceptCard?:     boolean;      // padrão true
     customerId?:     string;
     customer?: {
         name:      string;
@@ -337,8 +338,10 @@ export async function createCheckoutOrder(params: {
     successUrl:  string;
     metadata?:   Record<string, string>;
 }): Promise<PagarmeOrder> {
-    const acceptedMethods: string[] = ["credit_card"];
-    if (params.acceptPix !== false) acceptedMethods.push("pix");
+    const acceptedMethods: string[] = [];
+    if (params.acceptCard !== false) acceptedMethods.push("credit_card");
+    if (params.acceptPix  !== false) acceptedMethods.push("pix");
+    if (acceptedMethods.length === 0) acceptedMethods.push("credit_card", "pix"); // fallback
 
     // Gera opções de parcelamento (1x até maxInstallments)
     const installments = Array.from({ length: params.maxInstallments }, (_, i) => ({
