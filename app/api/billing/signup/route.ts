@@ -24,16 +24,17 @@ import {
     getSetupPriceCents,
     centsToBRL,
 } from "@/lib/billing/pagarme";
+import { activateTrial } from "@/lib/billing/activateTrial";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
     try {
         const body = (await req.json()) as {
-            company_id?:  string;
-            plan?:        string;
+            company_id?:   string;
+            plan?:         string;
             installments?: number;
-            card_token?:  string;
+            card_token?:   string;
         };
 
         const { company_id, plan, card_token } = body;
@@ -120,7 +121,7 @@ export async function POST(req: Request) {
         });
 
         // 5. Registra setup_payment no banco
-        const { data: setupPayment, error: spErr } = await admin
+        const { error: spErr } = await admin
             .from("setup_payments")
             .insert({
                 company_id,
@@ -130,9 +131,7 @@ export async function POST(req: Request) {
                 status:           order.status === "paid" ? "paid" : "pending",
                 paid_at:          order.status === "paid" ? new Date().toISOString() : null,
                 pagarme_order_id: order.id,
-            })
-            .select("id")
-            .single();
+            });
 
         if (spErr) {
             console.error("[signup] Erro ao salvar setup_payment:", spErr.message);
@@ -142,7 +141,12 @@ export async function POST(req: Request) {
         let subscriptionId: string | undefined;
 
         if (order.status === "paid") {
-            subscriptionId = await activateTrial(admin, company_id, plan as "bot" | "complete", pagarmeCustomerId ?? "");
+            subscriptionId = await activateTrial(
+                admin,
+                company_id,
+                plan as "bot" | "complete",
+                pagarmeCustomerId ?? ""
+            );
         }
 
         return NextResponse.json({
@@ -162,47 +166,4 @@ export async function POST(req: Request) {
             { status: 500 }
         );
     }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: ativa trial de 30 dias
-// ---------------------------------------------------------------------------
-
-export async function activateTrial(
-    admin: ReturnType<typeof createAdminClient>,
-    companyId: string,
-    plan: "bot" | "complete",
-    pagarmeCustomerId: string
-): Promise<string | undefined> {
-    const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + 30);
-
-    const { data, error } = await admin
-        .from("pagarme_subscriptions")
-        .upsert(
-            {
-                company_id:          companyId,
-                plan,
-                status:              "trial",
-                trial_ends_at:       trialEndsAt.toISOString(),
-                activated_at:        new Date().toISOString(),
-                pagarme_customer_id: pagarmeCustomerId,
-            },
-            { onConflict: "company_id" }
-        )
-        .select("id")
-        .single();
-
-    if (error) {
-        console.error("[signup] Erro ao criar subscription:", error.message);
-        return undefined;
-    }
-
-    // Reativa a empresa (caso estivesse bloqueada)
-    await admin
-        .from("companies")
-        .update({ is_active: true })
-        .eq("id", companyId);
-
-    return data.id;
 }
