@@ -6,7 +6,6 @@
 
 import Image from "next/image";
 import { useState, useMemo, useRef } from "react";
-import CheckoutModal from "@/components/billing/CheckoutModal";
 
 // ---------------------------------------------------------------------------
 // Dados de planos
@@ -66,9 +65,7 @@ export default function SignupPage() {
     const [selectedPlan,  setSelectedPlan] = useState<PlanKey | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
     const [installments,  setInstallments] = useState(1);
-    const [checkoutUrl,      setCheckoutUrl]      = useState<string | null>(null);
-    const [onboardingToken,  setOnboardingToken]  = useState<string | null>(null);
-    const [success,          setSuccess]          = useState(false);
+    const [success, setSuccess] = useState(false);
     const [loading,       setLoading]      = useState(false);
     const [error,         setError]        = useState<string | null>(null);
     const [form, setForm] = useState({ company_name: "", cnpj: "", whatsapp: "", email: "" });
@@ -145,8 +142,9 @@ export default function SignupPage() {
                 setError(data.error ?? "Erro ao gerar link de pagamento.");
                 return;
             }
-            if (data.onboarding_token) setOnboardingToken(data.onboarding_token);
-            setCheckoutUrl(data.checkout_url);
+            // Redireciona para o checkout do Pagar.me em página inteira
+            // O Pagar.me redireciona para success_url (já com o token) após o pagamento
+            window.location.href = data.checkout_url;
         } catch {
             setError("Erro de conexão. Tente novamente.");
         } finally {
@@ -450,38 +448,6 @@ export default function SignupPage() {
 
             <p style={S.footer}>© {new Date().getFullYear()} Renthus · Todos os direitos reservados</p>
 
-            {/* Modal checkout */}
-            {checkoutUrl && !success && (
-                <CheckoutModal
-                    url={checkoutUrl}
-                    onClose={() => setCheckoutUrl(null)}
-                    onSuccess={() => {
-                        setCheckoutUrl(null);
-                        if (onboardingToken) {
-                            window.location.href = `/signup/complete?token=${onboardingToken}`;
-                        } else {
-                            setSuccess(true);
-                        }
-                    }}
-                />
-            )}
-
-            {/* Sucesso */}
-            {success && (
-                <div style={S.overlay}>
-                    <div style={S.successCard}>
-                        <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
-                        <h2 style={{ margin: "0 0 12px", fontSize: 22, fontWeight: 800, color: "#111827" }}>
-                            Bem-vindo à Renthus!
-                        </h2>
-                        <p style={{ margin: "0 0 24px", fontSize: 15, color: "#6b7280", lineHeight: 1.7 }}>
-                            Pagamento confirmado! Seu trial de 30 dias está ativo.
-                            <br />Nossa equipe entrará em contato para configurar seu sistema.
-                        </p>
-                        <a href="/login" style={S.successBtn}>Acessar o sistema</a>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
