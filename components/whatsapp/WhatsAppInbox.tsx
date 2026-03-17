@@ -196,7 +196,7 @@ export default function WhatsAppInbox() {
         const supabase = supabaseRef.current;
         if (!supabase) return;
 
-        const channels = [];
+        const channels: any[] = [];
 
         // Threads da empresa (atualizadas em tempo real)
         const threadsChannel = supabase
