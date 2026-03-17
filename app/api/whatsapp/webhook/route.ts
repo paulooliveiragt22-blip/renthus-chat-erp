@@ -91,47 +91,32 @@ async function resolveChannel(
     admin: ReturnType<typeof createAdminClient>,
     phoneNumberId: string | null
 ) {
-    if (phoneNumberId) {
-        // Busca pelo phone_number_id dentro de provider_metadata (JSONB ->> text)
-        // Equivale a: WHERE provider_metadata->>'phone_number_id' = $1
-        const { data, error } = await admin
-            .from("whatsapp_channels")
-            .select("id, company_id, from_identifier, provider_metadata")
-            .eq("provider", "meta")
-            .eq("status", "active")
-            .filter("provider_metadata->>phone_number_id", "eq", phoneNumberId)
-            .maybeSingle();
-
-        if (error) {
-            console.warn("[webhook] resolveChannel JSONB filter error:", error.message);
-        } else if (data) {
-            return data;
-        }
-
-        // Fallback: qualquer canal meta ativo (single-tenant)
-        const { data: fallback } = await admin
-            .from("whatsapp_channels")
-            .select("id, company_id, from_identifier, provider_metadata")
-            .eq("provider", "meta")
-            .eq("status", "active")
-            .limit(1)
-            .maybeSingle();
-
-        if (fallback) {
-            console.log("[webhook] resolveChannel: usando fallback meta ativo");
-            return fallback;
-        }
+    if (!phoneNumberId) {
+        console.warn("[webhook] resolveChannel: payload sem phone_number_id");
+        return null;
     }
 
-    // Sem phone_number_id → primeiro canal ativo de qualquer provider
-    const { data: first } = await admin
+    // Busca estrita pelo phone_number_id dentro de provider_metadata (JSONB ->> text)
+    // Equivale a: WHERE provider_metadata->>'phone_number_id' = $1
+    const { data, error } = await admin
         .from("whatsapp_channels")
         .select("id, company_id, from_identifier, provider_metadata")
+        .eq("provider", "meta")
         .eq("status", "active")
-        .limit(1)
+        .filter("provider_metadata->>phone_number_id", "eq", phoneNumberId)
         .maybeSingle();
 
-    return first ?? null;
+    if (error) {
+        console.warn("[webhook] resolveChannel JSONB filter error:", error.message);
+        return null;
+    }
+
+    if (!data) {
+        console.warn("[webhook] resolveChannel: nenhum canal meta ativo com phone_number_id:", phoneNumberId);
+        return null;
+    }
+
+    return data;
 }
 
 // ─── Thread ───────────────────────────────────────────────────────────────────
