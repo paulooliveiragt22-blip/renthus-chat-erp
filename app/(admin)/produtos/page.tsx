@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 type Category = { id: string; name: string };
 type Brand = { id: string; name: string };
@@ -145,6 +146,7 @@ function Modal({
 
 export default function ProdutosPage() {
     const supabase = useMemo(() => createClient(), []);
+    const { currentCompanyId: companyId } = useWorkspace();
 
     // dados
     const [categories, setCategories] = useState<Category[]>([]);
@@ -280,7 +282,16 @@ export default function ProdutosPage() {
             return null;
         }
 
-        const { data, error } = await supabase.from("categories").insert({ name: n, is_active: true }).select("id").single();
+        if (!companyId) {
+            setMsg("Nenhuma empresa ativa selecionada. Recarregue o painel e escolha uma empresa.");
+            return null;
+        }
+
+        const { data, error } = await supabase
+            .from("categories")
+            .insert({ name: n, is_active: true, company_id: companyId })
+            .select("id")
+            .single();
         if (error) {
             setMsg(`Erro ao adicionar categoria: ${error.message}`);
             return null;
@@ -297,7 +308,16 @@ export default function ProdutosPage() {
             return null;
         }
 
-        const { data, error } = await supabase.from("brands").insert({ name: n, is_active: true }).select("id").single();
+        if (!companyId) {
+            setMsg("Nenhuma empresa ativa selecionada. Recarregue o painel e escolha uma empresa.");
+            return null;
+        }
+
+        const { data, error } = await supabase
+            .from("brands")
+            .insert({ name: n, is_active: true, company_id: companyId })
+            .select("id")
+            .single();
         if (error) {
             setMsg(`Erro ao adicionar marca: ${error.message}`);
             return null;
@@ -310,6 +330,12 @@ export default function ProdutosPage() {
     async function saveAll() {
         setSaving(true);
         setMsg(null);
+
+        if (!companyId) {
+            setMsg("Nenhuma empresa ativa selecionada. Recarregue o painel e escolha uma empresa.");
+            setSaving(false);
+            return;
+        }
 
         if (!categoryId) {
             setMsg("Categoria: selecione uma existente ou adicione uma nova.");
@@ -330,6 +356,7 @@ export default function ProdutosPage() {
             .from("products")
             .insert({
                 name: baseName,
+                company_id: companyId,
                 category_id: categoryId,
                 brand_id: brandId,
                 is_active: true,
