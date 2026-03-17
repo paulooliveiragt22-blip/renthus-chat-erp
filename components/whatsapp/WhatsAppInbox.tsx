@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 // Primary colour palette for the WhatsApp inbox.  Orange is used for primary
 // actions (create conversation) and purple for secondary actions (send).
@@ -11,6 +12,7 @@ type Thread = {
     id: string;
     phone_e164: string;
     profile_name: string | null;
+    avatar_url?: string | null;
     last_message_at: string | null;
     last_message_preview: string | null;
     created_at: string;
@@ -27,6 +29,8 @@ type Message = {
     body: string | null;
     status: string | null;
     created_at: string;
+    num_media?: number | null;
+    raw_payload?: any;
 };
 
 type Usage = {
@@ -103,6 +107,11 @@ export default function WhatsAppInbox() {
     const [billingBusy, setBillingBusy] = useState(false);
     const [botToggling, setBotToggling] = useState(false);
 
+    // refs para auto-scroll
+    const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+    const autoScrollRef = useRef(true);
+    const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+
     async function loadThreads(nextSelectedId?: string | null) {
         setLoadingThreads(true);
         setErr(null);
@@ -165,6 +174,11 @@ export default function WhatsAppInbox() {
 
     useEffect(() => {
         loadThreads();
+        // inicializa supabase client para realtime
+        supabaseRef.current = createClient();
+        return () => {
+            supabaseRef.current?.removeAllChannels();
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -177,16 +191,67 @@ export default function WhatsAppInbox() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
 
+    // Realtime: threads e mensagens
     useEffect(() => {
-        const id = window.setInterval(() => {
-            loadThreads();
-            if (selectedThreadId) loadMessages(selectedThreadId);
-        }, 8000);
-        return () => window.clearInterval(id);
+        const supabase = supabaseRef.current;
+        if (!supabase) return;
+
+        const channels = [];
+
+        // Threads da empresa (atualizadas em tempo real)
+        const threadsChannel = supabase
+            .channel("whatsapp_threads_realtime")
+            .on(
+                "postgres_changes",
+                { event: "*", schema: "public", table: "whatsapp_threads" },
+                () => {
+                    // recarrega lista mantendo seleção
+                    loadThreads(selectedThreadId);
+                }
+            )
+            .subscribe();
+        channels.push(threadsChannel);
+
+        // Mensagens da thread selecionada
+        if (selectedThreadId) {
+            const msgsChannel = supabase
+                .channel(`whatsapp_messages_realtime_${selectedThreadId}`)
+                .on(
+                    "postgres_changes",
+                    {
+                        event: "*",
+                        schema: "public",
+                        table: "whatsapp_messages",
+                        filter: `thread_id=eq.${selectedThreadId}`,
+                    },
+                    () => {
+                        loadMessages(selectedThreadId);
+                    }
+                )
+                .subscribe();
+            channels.push(msgsChannel);
+        }
+
+        return () => {
+            channels.forEach((ch) => {
+                supabase.removeChannel(ch);
+            });
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId, q]);
 
-    const selectedThread = useMemo(() => threads.find((t) => t.id === selectedThreadId) ?? null, [threads, selectedThreadId]);
+    const selectedThread = useMemo(
+        () => threads.find((t) => t.id === selectedThreadId) ?? null,
+        [threads, selectedThreadId]
+    );
+
+    // Auto-scroll sempre que mensagens mudarem, se usuário estiver no final
+    useEffect(() => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        if (!autoScrollRef.current) return;
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }, [messages.length, selectedThreadId]);
 
     async function sendMessage(text: string) {
         if (!selectedThread) return;
@@ -439,6 +504,15 @@ export default function WhatsAppInbox() {
                     ) : (
                         threads.map((t) => {
                             const active = t.id === selectedThreadId;
+                            const label = t.profile_name || t.phone_e164;
+                            const initials = label
+                                .replace("+", "")
+                                .split(" ")
+                                .map((p) => p.trim()[0])
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .join("")
+                                .toUpperCase();
                             return (
                                 <button
                                     key={t.id}
@@ -453,11 +527,46 @@ export default function WhatsAppInbox() {
                                         background: active ? "rgba(59,36,107,0.08)" : "#fff",
                                     }}
                                 >
-                                    <div style={{ fontWeight: 900, display: "flex", justifyContent: "space-between", gap: 8 }}>
-                                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            {t.profile_name || t.phone_e164}
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            gap: 8,
+                                            alignItems: "center",
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                                            <div
+                                                style={{
+                                                    width: 32,
+                                                    height: 32,
+                                                    borderRadius: "50%",
+                                                    background: "#f0f0f0",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    fontSize: 13,
+                                                    fontWeight: 900,
+                                                    color: "#555",
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                {initials || "?"}
+                                            </div>
+                                            <span
+                                                style={{
+                                                    overflow: "hidden",
+                                                    textOverflow: "ellipsis",
+                                                    whiteSpace: "nowrap",
+                                                    fontWeight: 900,
+                                                }}
+                                            >
+                                                {label}
+                                            </span>
+                                        </div>
+                                        <span style={{ fontWeight: 700, fontSize: 11, color: "#666", flexShrink: 0 }}>
+                                            {formatDT(t.last_message_at)}
                                         </span>
-                                        <span style={{ fontWeight: 700, fontSize: 11, color: "#666" }}>{formatDT(t.last_message_at)}</span>
                                     </div>
                                     <div style={{ marginTop: 4, fontSize: 12, color: "#666", display: "flex", gap: 6, alignItems: "center" }}>
                                         <span>{t.phone_e164}</span>
@@ -500,11 +609,43 @@ export default function WhatsAppInbox() {
             >
                 <div style={{ padding: 12, borderBottom: "1px solid #eee" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-                        <div>
-                            <div style={{ fontWeight: 900, color: PURPLE }}>
-                                {selectedThread ? selectedThread.profile_name || selectedThread.phone_e164 : "Selecione uma conversa"}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            {selectedThread ? (
+                                <div
+                                    style={{
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: "50%",
+                                        background: "#f0f0f0",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        fontSize: 16,
+                                        fontWeight: 900,
+                                        color: "#555",
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    {(selectedThread.profile_name || selectedThread.phone_e164)
+                                        .replace("+", "")
+                                        .split(" ")
+                                        .map((p) => p.trim()[0])
+                                        .filter(Boolean)
+                                        .slice(0, 2)
+                                        .join("")
+                                        .toUpperCase() || "?"}
+                                </div>
+                            ) : null}
+                            <div>
+                                <div style={{ fontWeight: 900, color: PURPLE }}>
+                                    {selectedThread
+                                        ? selectedThread.profile_name || selectedThread.phone_e164
+                                        : "Selecione uma conversa"}
+                                </div>
+                                {selectedThread ? (
+                                    <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div>
+                                ) : null}
                             </div>
-                            {selectedThread ? <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>{selectedThread.phone_e164}</div> : null}
                         </div>
 
                         {selectedThread ? (
@@ -569,7 +710,15 @@ export default function WhatsAppInbox() {
                     </div>
                 </div>
 
-                <div style={{ padding: 12, overflowY: "auto", minHeight: 0, background: "#fafafa" }}>
+                <div
+                    ref={messagesContainerRef}
+                    style={{ padding: 12, overflowY: "auto", minHeight: 0, background: "#fafafa" }}
+                    onScroll={(e) => {
+                        const el = e.currentTarget;
+                        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                        autoScrollRef.current = distanceToBottom < 80;
+                    }}
+                >
                     {!selectedThread ? (
                         <div style={{ color: "#666" }}>Selecione uma conversa à esquerda.</div>
                     ) : loadingMessages ? (
@@ -580,6 +729,11 @@ export default function WhatsAppInbox() {
                         <div style={{ display: "grid", gap: 8 }}>
                             {messages.map((m) => {
                                 const isOut = m.direction === "out";
+
+                                // Detecta mídia resumida que salvamos em raw_payload._media
+                                const media = (m.raw_payload && (m.raw_payload as any)._media) || null;
+                                const hasMedia = (m.num_media ?? 0) > 0 && media;
+
                                 return (
                                     <div key={m.id} style={{ display: "flex", justifyContent: isOut ? "flex-end" : "flex-start" }}>
                                         <div
@@ -591,7 +745,66 @@ export default function WhatsAppInbox() {
                                                 background: "#fff",
                                             }}
                                         >
-                                            <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{m.body ?? ""}</div>
+                                            {hasMedia ? (
+                                                <div style={{ marginBottom: m.body ? 8 : 0 }}>
+                                                    {media.type === "image" ? (
+                                                        <img
+                                                            src={`/api/whatsapp/media/${media.id}`}
+                                                            alt={media.caption || "Imagem recebida via WhatsApp"}
+                                                            style={{
+                                                                maxWidth: 260,
+                                                                maxHeight: 260,
+                                                                borderRadius: 12,
+                                                                display: "block",
+                                                                background: "#eee",
+                                                            }}
+                                                        />
+                                                    ) : media.type === "video" ? (
+                                                        <video
+                                                            controls
+                                                            src={`/api/whatsapp/media/${media.id}`}
+                                                            style={{
+                                                                maxWidth: 260,
+                                                                maxHeight: 220,
+                                                                borderRadius: 12,
+                                                                background: "#eee",
+                                                            }}
+                                                        />
+                                                    ) : media.type === "audio" ? (
+                                                        <audio
+                                                            controls
+                                                            src={`/api/whatsapp/media/${media.id}`}
+                                                            style={{ width: 220 }}
+                                                        />
+                                                    ) : media.type === "document" ? (
+                                                        <div
+                                                            style={{
+                                                                borderRadius: 8,
+                                                                padding: "8px 10px",
+                                                                background: "#f1f1f1",
+                                                                fontSize: 12,
+                                                                color: "#555",
+                                                            }}
+                                                        >
+                                                            <a
+                                                                href={`/api/whatsapp/media/${media.id}`}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                style={{ color: PURPLE, fontWeight: 700 }}
+                                                            >
+                                                                Abrir documento
+                                                            </a>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
+
+                                            {m.body ? (
+                                                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{m.body}</div>
+                                            ) : hasMedia ? null : (
+                                                <div style={{ fontSize: 13, color: "#999" }}>Mensagem sem texto</div>
+                                            )}
+
                                             <div style={{ marginTop: 6, fontSize: 11, color: "#666", display: "flex", gap: 8 }}>
                                                 <span>{formatDT(m.created_at)}</span>
                                                 {isOut ? <span>• {m.status ?? "sent"}</span> : null}
