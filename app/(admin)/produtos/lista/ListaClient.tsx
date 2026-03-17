@@ -3,6 +3,7 @@
 // vercel: rebuild with normalizeRows
 import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 type Unit = "none" | "ml" | "l" | "kg";
 type Category = { id: string; name: string };
@@ -164,6 +165,7 @@ function normalizeRows(input: unknown): Row[] {
 
 export default function ProdutosListaPage() {
     const supabase = useMemo(() => createClient(), []);
+    const { currentCompanyId: companyId } = useWorkspace();
 
     const [rows, setRows] = useState<Row[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -335,7 +337,16 @@ export default function ProdutosListaPage() {
             return null;
         }
 
-        const { data, error } = await supabase.from("categories").insert({ name: n, is_active: true }).select("id").single();
+        if (!companyId) {
+            setMsg("Nenhuma empresa ativa selecionada. Recarregue o painel e escolha uma empresa.");
+            return null;
+        }
+
+        const { data, error } = await supabase
+            .from("categories")
+            .insert({ name: n, is_active: true, company_id: companyId })
+            .select("id")
+            .single();
         if (error) {
             setMsg(`Erro ao criar categoria: ${error.message}`);
             return null;
@@ -352,7 +363,16 @@ export default function ProdutosListaPage() {
             return null;
         }
 
-        const { data, error } = await supabase.from("brands").insert({ name: n, is_active: true }).select("id").single();
+        if (!companyId) {
+            setMsg("Nenhuma empresa ativa selecionada. Recarregue o painel e escolha uma empresa.");
+            return null;
+        }
+
+        const { data, error } = await supabase
+            .from("brands")
+            .insert({ name: n, is_active: true, company_id: companyId })
+            .select("id")
+            .single();
         if (error) {
             setMsg(`Erro ao criar marca: ${error.message}`);
             return null;
