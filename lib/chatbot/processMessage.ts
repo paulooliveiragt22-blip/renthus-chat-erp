@@ -1482,7 +1482,7 @@ async function handleCheckoutConfirm(
 
     // "Adicionar produtos" → volta ao catálogo preservando carrinho, endereço e pagamento
     if (matchesAny(input, ["adicionar_produtos", "adicionar produtos"])) {
-        const categories = await getCategories(admin);
+        const categories = await getCategories(admin, companyId);
         if (!categories.length) {
             await reply(phoneE164, "Nenhuma categoria disponível. Tente novamente.");
             return;
