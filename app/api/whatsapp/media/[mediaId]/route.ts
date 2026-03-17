@@ -23,8 +23,32 @@ export async function GET(
     }
 
     try {
-        const url = `${baseUrl}/${encodeURIComponent(mediaId)}`;
-        const res = await fetch(url, {
+        // 1) Primeiro busca metadata da mídia para obter URL real
+        const metaRes = await fetch(
+            `${baseUrl}/${encodeURIComponent(mediaId)}?fields=url,mime_type`,
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            }
+        );
+
+        const metaJson = await metaRes.json().catch(() => ({}));
+        if (!metaRes.ok || !metaJson?.url) {
+            return NextResponse.json(
+                {
+                    error: "meta_media_meta_failed",
+                    status: metaRes.status,
+                    body: metaJson,
+                },
+                { status: 502 }
+            );
+        }
+
+        const mediaUrl: string = metaJson.url;
+
+        // 2) Baixa o binário da URL retornada
+        const res = await fetch(mediaUrl, {
             headers: {
                 Authorization: `Bearer ${token}`,
             },
@@ -42,7 +66,10 @@ export async function GET(
             );
         }
 
-        const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+        const contentType =
+            res.headers.get("content-type") ??
+            metaJson.mime_type ??
+            "application/octet-stream";
         const contentLength = res.headers.get("content-length") ?? undefined;
 
         const body = res.body;
