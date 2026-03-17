@@ -385,6 +385,7 @@ export default function ProdutosPage() {
 
             return {
                 product_id: productId,
+                company_id: companyId,
 
                 details: r.details?.trim() || null,
 
