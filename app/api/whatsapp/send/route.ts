@@ -264,12 +264,17 @@ export async function POST(req: Request) {
                 })
                 .eq("id", messageId);
 
-            // 6) Update thread preview
+            // 6) Update thread preview (texto ou caption para mídia)
+            const previewText =
+                kind === "text"
+                    ? ((payload as any).text ?? "").trim().slice(0, 120)
+                    : ((payload as any).caption ?? "").trim().slice(0, 120) ||
+                      (kind === "image" ? "[imagem]" : kind === "video" ? "[vídeo]" : kind === "audio" ? "[áudio]" : "[documento]");
             await admin
                 .from("whatsapp_threads")
                 .update({
                     last_message_at: new Date().toISOString(),
-                    last_message_preview: text.slice(0, 120),
+                    last_message_preview: previewText || null,
                 })
                 .eq("id", threadId);
 
