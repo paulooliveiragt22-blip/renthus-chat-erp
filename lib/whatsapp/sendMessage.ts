@@ -47,6 +47,8 @@ export async function sendWhatsAppMessage(
         return { ok: false, error: "no_active_channel" };
     }
 
+    const provider = channel.provider as "twilio" | "360dialog";
+
     // 2. Resolve threadId se não fornecido
     let resolvedThreadId = threadId ?? null;
     if (!resolvedThreadId) {
@@ -60,15 +62,19 @@ export async function sendWhatsAppMessage(
     }
 
     // 3. Insere registro pendente
+    const fromPlaceholder =
+        provider === "twilio"
+            ? process.env.TWILIO_WHATSAPP_FROM ?? String(channel.from_identifier ?? "")
+            : String(channel.from_identifier ?? "");
     const { data: msgRow, error: insErr } = await admin
         .from("whatsapp_messages")
         .insert({
             thread_id: resolvedThreadId,
             direction: "outbound",
             channel: "whatsapp",
-            provider: null,               // preenchido após envio
+            provider: null, // preenchido após envio
             provider_message_id: null,
-            from_addr: null,
+            from_addr: fromPlaceholder || "whatsapp",
             to_addr: toPhone,
             body: text,
             num_media: 0,
@@ -88,7 +94,6 @@ export async function sendWhatsAppMessage(
     let providerMessageId: string | null = null;
     let fromAddr = "";
     let toAddr = "";
-    const provider = channel.provider as "twilio" | "360dialog";
 
     try {
         if (provider === "twilio") {
