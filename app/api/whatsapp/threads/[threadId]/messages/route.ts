@@ -29,7 +29,7 @@ export async function GET(
     const { data, error } = await admin
         .from("whatsapp_messages")
         .select(
-            "id, direction, provider, from_addr, to_addr, body, status, created_at"
+            "id, direction, provider, from_addr, to_addr, body, status, created_at, num_media, raw_payload"
         )
         .eq("thread_id", params.threadId)
         .order("created_at", { ascending: true });
