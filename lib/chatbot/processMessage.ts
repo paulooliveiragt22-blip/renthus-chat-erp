@@ -750,7 +750,7 @@ async function handleMainMenu(
 
     // Opção 1: Ver cardápio
     if (input === "1" || matchesAny(input, ["cardapio", "produtos", "bebidas", "ver"])) {
-        const categories = await getCategories(admin);
+        const categories = await getCategories(admin, companyId);
 
         if (!categories.length) {
             await reply(phoneE164, "Ops! Nenhuma categoria cadastrada ainda. Tente mais tarde. 😅");
@@ -951,7 +951,7 @@ async function handleCatalogBrands(
 
     // Mais produtos → volta ao início do catálogo
     if (input === "mais_produtos" || matchesAny(input, ["mais produtos"])) {
-        const categories = (session.context.categories as Category[]) ?? await getCategories(admin);
+        const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_categories",
             context: { ...session.context, categories },
@@ -1016,7 +1016,7 @@ async function handleCatalogProducts(
 
     // ── Mais produtos → volta ao início do catálogo ───────────────────────────
     if (input === "mais_produtos" || matchesAny(input, ["mais produtos"])) {
-        const categories = (session.context.categories as Category[]) ?? await getCategories(admin);
+        const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_categories",
             context: { ...session.context, categories },
@@ -1153,7 +1153,7 @@ async function handleCart(
 
     // "Mais produtos" → volta ao catálogo sem limpar o carrinho
     if (input === "mais_produtos" || matchesAny(input, ["mais produtos", "adicionar", "continuar"])) {
-        const categories = (session.context.categories as Category[]) ?? await getCategories(admin);
+        const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
         if (!categories.length) {
             await reply(phoneE164, "Nenhuma categoria disponível. Tente novamente.");
             return;
