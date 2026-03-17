@@ -113,6 +113,11 @@ export async function POST(req: Request) {
         const threadId = await getOrCreateThread({ admin, companyId, channelId: channel.id, phoneE164: toPhone });
 
         // 3) Insert a pending whatsapp_messages row with provider = null (so trigger won't increment)
+        const fromPlaceholder =
+            channel.provider === "twilio"
+                ? process.env.TWILIO_WHATSAPP_FROM ?? String(channel.from_identifier ?? "")
+                : String(channel.from_identifier ?? "");
+
         const { data: created, error: insErr } = await admin
             .from("whatsapp_messages")
             .insert({
@@ -121,7 +126,7 @@ export async function POST(req: Request) {
                 channel: "whatsapp",
                 provider: null, // IMPORTANT: leave null to avoid trigger counting
                 provider_message_id: null,
-                from_addr: null,
+                from_addr: fromPlaceholder || "whatsapp",
                 to_addr: toPhone,
                 body: text,
                 num_media: 0,
