@@ -135,7 +135,22 @@ export async function POST(req: Request) {
         if (insErr || !created?.id) {
             // rollback reservation
             await admin.rpc('decrement_monthly_usage', { p_company: companyId, p_feature: 'whatsapp_messages', p_amount: 1 });
-            return NextResponse.json({ error: "failed_to_create_message_record" }, { status: 500 });
+            console.error("[whatsapp/send] failed_to_create_message_record:", {
+                code: insErr?.code,
+                message: insErr?.message,
+                details: insErr?.details,
+                hint: insErr?.hint,
+            });
+            return NextResponse.json(
+                {
+                    error: "failed_to_create_message_record",
+                    code: insErr?.code,
+                    message: insErr?.message,
+                    details: insErr?.details,
+                    hint: insErr?.hint,
+                },
+                { status: 500 }
+            );
         }
 
         const messageId = created.id;
