@@ -5,10 +5,18 @@ import { checkLimit, requireFeature } from "@/lib/billing/entitlements";
 
 export const runtime = "nodejs";
 
-type Body = {
-    to_phone_e164: string; // ex: +5565999999999
-    text: string;
-};
+type Body =
+    | {
+          to_phone_e164: string; // ex: +5565999999999
+          text: string;
+          kind?: "text";
+      }
+    | {
+          to_phone_e164: string;
+          kind: "image" | "video" | "audio" | "document";
+          media_url: string;
+          caption?: string;
+      };
 
 function normalizeE164(phone: string) {
     const p = String(phone ?? "").trim();
@@ -71,8 +79,15 @@ export async function POST(req: Request) {
     try {
         const payload = (await req.json()) as Body;
         const toPhone = normalizeE164(payload.to_phone_e164);
-        const text = (payload.text ?? "").trim();
-        if (!text) return NextResponse.json({ error: "text is required" }, { status: 400 });
+        const kind = (payload as any).kind ?? "text";
+
+        if (kind === "text") {
+            const text = ((payload as any).text ?? "").trim();
+            if (!text) return NextResponse.json({ error: "text is required" }, { status: 400 });
+        } else {
+            const mediaUrl = (payload as any).media_url;
+            if (!mediaUrl) return NextResponse.json({ error: "media_url is required for media messages" }, { status: 400 });
+        }
 
         const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
@@ -113,10 +128,7 @@ export async function POST(req: Request) {
         const threadId = await getOrCreateThread({ admin, companyId, channelId: channel.id, phoneE164: toPhone });
 
         // 3) Insert a pending whatsapp_messages row with provider = null (so trigger won't increment)
-        const fromPlaceholder =
-            channel.provider === "twilio"
-                ? process.env.TWILIO_WHATSAPP_FROM ?? String(channel.from_identifier ?? "")
-                : String(channel.from_identifier ?? "");
+        const fromPlaceholder = String(channel.from_identifier ?? "");
 
         const { data: created, error: insErr } = await admin
             .from("whatsapp_messages")
@@ -128,8 +140,8 @@ export async function POST(req: Request) {
                 provider_message_id: null,
                 from_addr: fromPlaceholder || "whatsapp",
                 to_addr: toPhone,
-                body: text,
-                num_media: 0,
+                body: kind === "text" ? (payload as any).text ?? "" : (payload as any).caption ?? null,
+                num_media: kind === "text" ? 0 : 1,
                 status: "pending",
                 raw_payload: null,
             })
@@ -172,18 +184,65 @@ export async function POST(req: Request) {
             const baseUrl = pm.base_url ?? process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
 
             const url = `${baseUrl}/${phoneNumberId}/messages`;
+            let bodyPayload: any;
+
+            if (kind === "text") {
+                const text = ((payload as any).text ?? "").trim();
+                bodyPayload = {
+                    messaging_product: "whatsapp",
+                    to: toPhone.replace("+", ""),
+                    type: "text",
+                    text: { body: text },
+                };
+            } else if (kind === "image") {
+                bodyPayload = {
+                    messaging_product: "whatsapp",
+                    to: toPhone.replace("+", ""),
+                    type: "image",
+                    image: {
+                        link: (payload as any).media_url,
+                        caption: (payload as any).caption ?? undefined,
+                    },
+                };
+            } else if (kind === "video") {
+                bodyPayload = {
+                    messaging_product: "whatsapp",
+                    to: toPhone.replace("+", ""),
+                    type: "video",
+                    video: {
+                        link: (payload as any).media_url,
+                        caption: (payload as any).caption ?? undefined,
+                    },
+                };
+            } else if (kind === "audio") {
+                bodyPayload = {
+                    messaging_product: "whatsapp",
+                    to: toPhone.replace("+", ""),
+                    type: "audio",
+                    audio: {
+                        link: (payload as any).media_url,
+                    },
+                };
+            } else {
+                // document
+                bodyPayload = {
+                    messaging_product: "whatsapp",
+                    to: toPhone.replace("+", ""),
+                    type: "document",
+                    document: {
+                        link: (payload as any).media_url,
+                        caption: (payload as any).caption ?? undefined,
+                    },
+                };
+            }
+
             const res = await fetch(url, {
                 method: "POST",
                 headers: {
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({
-                    messaging_product: "whatsapp",
-                    to: toPhone.replace("+", ""),
-                    type: "text",
-                    text: { body: text },
-                }),
+                body: JSON.stringify(bodyPayload),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error("meta_send_failed: " + JSON.stringify(json));
@@ -205,12 +264,17 @@ export async function POST(req: Request) {
                 })
                 .eq("id", messageId);
 
-            // 6) Update thread preview
+            // 6) Update thread preview (texto ou caption para mídia)
+            const previewText =
+                kind === "text"
+                    ? ((payload as any).text ?? "").trim().slice(0, 120)
+                    : ((payload as any).caption ?? "").trim().slice(0, 120) ||
+                      (kind === "image" ? "[imagem]" : kind === "video" ? "[vídeo]" : kind === "audio" ? "[áudio]" : "[documento]");
             await admin
                 .from("whatsapp_threads")
                 .update({
                     last_message_at: new Date().toISOString(),
-                    last_message_preview: text.slice(0, 120),
+                    last_message_preview: previewText || null,
                 })
                 .eq("id", threadId);
 

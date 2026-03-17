@@ -253,14 +253,31 @@ export default function WhatsAppInbox() {
         el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }, [messages.length, selectedThreadId]);
 
-    async function sendMessage(text: string) {
+    async function sendMessage(
+        text: string,
+        attachment?: { kind: "image" | "video" | "audio" | "document"; file: File }
+    ) {
         if (!selectedThread) return;
+        let body: any = { to_phone_e164: selectedThread.phone_e164, text };
+
+        if (attachment) {
+            // por enquanto, envia apenas link público (assumindo já hospedado)
+            // futuramente podemos subir para storage e usar a URL resultante.
+            // Aqui usaremos URL.createObjectURL como MVP (somente no navegador atual).
+            const objectUrl = URL.createObjectURL(attachment.file);
+            body = {
+                to_phone_e164: selectedThread.phone_e164,
+                kind: attachment.kind,
+                media_url: objectUrl,
+                caption: text || undefined,
+            };
+        }
 
         const res = await fetch("/api/whatsapp/send", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ to_phone_e164: selectedThread.phone_e164, text }),
+            body: JSON.stringify(body),
         });
 
         const json = await res.json().catch(() => ({}));
@@ -1000,30 +1017,76 @@ function MessageComposer({
     onSend,
 }: {
     disabled: boolean;
-    onSend: (text: string) => Promise<void>;
+    onSend: (text: string, attachment?: { kind: "image" | "video" | "audio" | "document"; file: File }) => Promise<void>;
 }) {
     const [text, setText] = useState("");
     const [sending, setSending] = useState(false);
+    const [file, setFile] = useState<File | null>(null);
+    const [fileKind, setFileKind] = useState<"image" | "video" | "audio" | "document" | null>(null);
 
     async function handleSend() {
         const t = text.trim();
-        if (!t || disabled) return;
+        if ((disabled || sending) || (!t && !file)) return;
         setSending(true);
         try {
-            await onSend(t);
+            if (file && fileKind) {
+                await onSend(t, { kind: fileKind, file });
+            } else {
+                await onSend(t);
+            }
             setText("");
+            setFile(null);
+            setFileKind(null);
         } finally {
             setSending(false);
         }
     }
 
+    function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+        const f = e.target.files?.[0] || null;
+        setFile(f);
+        if (!f) {
+            setFileKind(null);
+            return;
+        }
+        const type = f.type;
+        if (type.startsWith("image/")) setFileKind("image");
+        else if (type.startsWith("video/")) setFileKind("video");
+        else if (type.startsWith("audio/")) setFileKind("audio");
+        else setFileKind("document");
+    }
+
+    const placeholder = disabled ? "Selecione uma conversa..." : "Digite uma mensagem...";
+
     return (
         <div style={{ borderTop: "1px solid #eee", padding: 12, background: "#fff" }}>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <label
+                    style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 12,
+                        border: "1px solid #ddd",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: disabled || sending ? "not-allowed" : "pointer",
+                        background: "#fafafa",
+                        fontSize: 18,
+                    }}
+                >
+                    <span>📎</span>
+                    <input
+                        type="file"
+                        onChange={handleFileChange}
+                        disabled={disabled || sending}
+                        style={{ display: "none" }}
+                    />
+                </label>
                 <input
                     value={text}
                     onChange={(e) => setText(e.target.value)}
-                    placeholder={disabled ? "Selecione uma conversa..." : "Digite uma mensagem..."}
+                    placeholder={placeholder}
                     disabled={disabled || sending}
                     onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
@@ -1043,7 +1106,7 @@ function MessageComposer({
                 />
                 <button
                     onClick={handleSend}
-                    disabled={disabled || sending || !text.trim()}
+                    disabled={disabled || sending || (!text.trim() && !file)}
                     style={{
                         padding: "12px 14px",
                         borderRadius: 12,
@@ -1058,7 +1121,11 @@ function MessageComposer({
                     {sending ? "Enviando..." : "Enviar"}
                 </button>
             </div>
-            <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>Dica: Enter envia • Shift+Enter quebra linha</div>
+            <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>
+                {file
+                    ? `Anexo: ${file.name} (${fileKind ?? "arquivo"}) • Enter envia • Shift+Enter quebra linha`
+                    : "Dica: Enter envia • Shift+Enter quebra linha"}
+            </div>
         </div>
     );
 }
