@@ -116,7 +116,6 @@ export async function POST(req: Request) {
         const { data: created, error: insErr } = await admin
             .from("whatsapp_messages")
             .insert({
-                company_id: companyId,
                 thread_id: threadId,
                 direction: "outbound",
                 channel: "whatsapp",
