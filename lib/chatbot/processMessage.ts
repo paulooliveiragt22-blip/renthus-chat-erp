@@ -479,7 +479,7 @@ async function createOrder(
         qty:                item.qty,
         unit_price:         item.price,
         unit_type:          item.isCase ? "case" : "unit",
-        line_total:         item.price * item.qty,
+        // line_total é coluna gerada no banco; não deve ser enviada
     }));
 
     console.log("[createOrder] inserindo", items.length, "itens...");
