@@ -159,69 +159,60 @@ export async function POST(req: Request) {
 
         const messageId = created.id;
 
-        // 4) Send via provider
+        // 4) Send via Meta WhatsApp Cloud API (único provider)
         let providerMessageId: string | null = null;
         let fromAddr = "";
         let toAddr = "";
-        let provider: "twilio" | "360dialog" = channel.provider;
+        const provider: "meta" = "meta";
 
         try {
-            if (channel.provider === "twilio") {
-                const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-                const authToken = process.env.TWILIO_AUTH_TOKEN!;
-                const from = process.env.TWILIO_WHATSAPP_FROM!;
-                const client = twilio(accountSid, authToken);
-                const msg = await client.messages.create({
-                    from,
-                    to: `whatsapp:${toPhone}`,
-                    body: text,
-                });
-                providerMessageId = msg.sid;
-                fromAddr = from;
-                toAddr = `whatsapp:${toPhone}`;
-                provider = "twilio";
-            } else {
-                // 360dialog send (same logic as before)...
-                const token = process.env.DIALOG_TOKEN!;
-                const phoneNumberId = process.env.DIALOG_PHONE_NUMBER_ID!;
-                const baseUrl = process.env.DIALOG_BASE_URL || "https://graph.facebook.com/v20.0";
-                const url = `${baseUrl}/${phoneNumberId}/messages`;
-                const res = await fetch(url, {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        messaging_product: "whatsapp",
-                        to: toPhone.replace("+", ""),
-                        type: "text",
-                        text: { body: text },
-                    }),
-                });
-                const json = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error("360dialog failed: " + JSON.stringify(json));
-                providerMessageId = json?.messages?.[0]?.id ?? null;
-                fromAddr = "360dialog";
-                toAddr = toPhone;
-                provider = "360dialog";
-            }
+            const pm = (channel as any).provider_metadata ?? {};
+            const token = pm.access_token ?? process.env.WHATSAPP_TOKEN!;
+            const phoneNumberId = pm.phone_number_id ?? process.env.WHATSAPP_PHONE_NUMBER_ID!;
+            const baseUrl = pm.base_url ?? process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
+
+            const url = `${baseUrl}/${phoneNumberId}/messages`;
+            const res = await fetch(url, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    messaging_product: "whatsapp",
+                    to: toPhone.replace("+", ""),
+                    type: "text",
+                    text: { body: text },
+                }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error("meta_send_failed: " + JSON.stringify(json));
+
+            providerMessageId = json?.messages?.[0]?.id ?? null;
+            fromAddr = String(channel.from_identifier ?? `whatsapp:${phoneNumberId}`);
+            toAddr = toPhone;
 
             // 5) Update message record with provider metadata (no trigger increment because update)
-            await admin.from("whatsapp_messages").update({
-                provider,
-                provider_message_id: providerMessageId,
-                from_addr: fromAddr,
-                to_addr: toAddr,
-                status: "sent",
-                raw_payload: { provider, provider_message_id: providerMessageId, sent_at: new Date().toISOString() }
-            }).eq("id", messageId);
+            await admin
+                .from("whatsapp_messages")
+                .update({
+                    provider,
+                    provider_message_id: providerMessageId,
+                    from_addr: fromAddr,
+                    to_addr: toAddr,
+                    status: "sent",
+                    raw_payload: { provider, provider_message_id: providerMessageId, sent_at: new Date().toISOString() },
+                })
+                .eq("id", messageId);
 
             // 6) Update thread preview
-            await admin.from("whatsapp_threads").update({
-                last_message_at: new Date().toISOString(),
-                last_message_preview: text.slice(0, 120)
-            }).eq("id", threadId);
+            await admin
+                .from("whatsapp_threads")
+                .update({
+                    last_message_at: new Date().toISOString(),
+                    last_message_preview: text.slice(0, 120),
+                })
+                .eq("id", threadId);
 
             return NextResponse.json({ ok: true, provider, provider_message_id: providerMessageId, usage });
 
