@@ -484,19 +484,17 @@ async function createOrder(
 
     console.log("[createOrder] inserindo", items.length, "itens...");
 
-    for (const item of items) {
-        console.log("[createOrder] item:", JSON.stringify(item));
-        const { error: itemErr } = await admin.from("order_items").insert(item);
-        console.log("[createOrder] item error:", itemErr);
-        if (itemErr) {
-            console.error("[createOrder] FALHA item:", {
-                code:    itemErr.code,
-                message: itemErr.message,
-                details: itemErr.details,
-                hint:    itemErr.hint,
-                item,
-            });
-        }
+    const { error: itemsErr } = await admin.from("order_items").insert(items);
+
+    if (itemsErr) {
+        console.error("[createOrder] FALHA ao inserir itens:", {
+            code:    itemsErr.code,
+            message: itemsErr.message,
+            details: itemsErr.details,
+            hint:    itemsErr.hint,
+            items,
+        });
+        throw new Error(itemsErr.message ?? "Falha ao criar itens do pedido");
     }
 
     console.log("[createOrder] concluído | orderId:", order.id);
