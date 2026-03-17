@@ -240,6 +240,44 @@ export async function POST(req: Request) {
         const bodyText = extractBodyText(m);
         console.log("[webhook] bodyText extraído:", bodyText, "| tipo:", m?.type);
 
+        // Detecta mídia (imagem, áudio, vídeo, documento)
+        const msgType: string = String(m?.type ?? "text");
+        let numMedia = 0;
+        let mediaSummary: any = null;
+
+        if (msgType === "image" && m.image) {
+            numMedia = 1;
+            mediaSummary = {
+                type: "image",
+                id: m.image.id,
+                mime_type: m.image.mime_type,
+                caption: m.image.caption ?? null,
+            };
+        } else if (msgType === "video" && m.video) {
+            numMedia = 1;
+            mediaSummary = {
+                type: "video",
+                id: m.video.id,
+                mime_type: m.video.mime_type,
+                caption: m.video.caption ?? null,
+            };
+        } else if (msgType === "audio" && m.audio) {
+            numMedia = 1;
+            mediaSummary = {
+                type: "audio",
+                id: m.audio.id,
+                mime_type: m.audio.mime_type,
+            };
+        } else if (msgType === "document" && m.document) {
+            numMedia = 1;
+            mediaSummary = {
+                type: "document",
+                id: m.document.id,
+                mime_type: m.document.mime_type,
+                filename: m.document.filename ?? null,
+            };
+        }
+
         let threadId: string;
         try {
             threadId = await getOrCreateThread({
@@ -265,9 +303,12 @@ export async function POST(req: Request) {
             from_addr:           phoneE164,
             to_addr:             String(channel.from_identifier ?? phoneNumberId ?? ""),
             body:                bodyText,
-            num_media:           0,
+            num_media:           numMedia,
             status:              "received",
-            raw_payload:         safeJson(payload),
+            raw_payload:         safeJson({
+                ...payload,
+                _media: mediaSummary,
+            }),
         });
 
         if (insErr) {
