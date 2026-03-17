@@ -116,17 +116,18 @@ export async function POST(req: Request) {
         const { data: created, error: insErr } = await admin
             .from("whatsapp_messages")
             .insert({
+                company_id: companyId,
                 thread_id: threadId,
                 direction: "outbound",
                 channel: "whatsapp",
-                provider: null,                // IMPORTANT: leave null to avoid trigger counting
+                provider: null, // IMPORTANT: leave null to avoid trigger counting
                 provider_message_id: null,
                 from_addr: null,
                 to_addr: toPhone,
                 body: text,
                 num_media: 0,
                 status: "pending",
-                raw_payload: null
+                raw_payload: null,
             })
             .select("id")
             .single();
