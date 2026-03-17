@@ -194,11 +194,11 @@ interface VariantRow {
     casePrice:   number | null;
 }
 
-async function getCategories(admin: SupabaseClient): Promise<Category[]> {
-    // categories não tem company_id — são globais ao banco
+async function getCategories(admin: SupabaseClient, companyId: string): Promise<Category[]> {
     const { data } = await admin
         .from("categories")
         .select("id, name")
+        .eq("company_id", companyId)
         .eq("is_active", true)
         .order("name");
 
