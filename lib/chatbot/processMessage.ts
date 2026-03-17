@@ -386,7 +386,7 @@ async function getOrCreateCustomer(
 
     const { data: existing } = await admin
         .from("customers")
-        .select("id, name, phone, address")
+        .select("id, name, phone, address, is_adult")
         .eq("company_id", companyId)
         .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
         .limit(1)
@@ -397,7 +397,7 @@ async function getOrCreateCustomer(
     const { data: created, error } = await admin
         .from("customers")
         .insert({ company_id: companyId, name: name ?? "Cliente WhatsApp", phone: phoneE164 })
-        .select("id, name, phone, address")
+        .select("id, name, phone, address, is_adult")
         .single();
 
     if (error) {
@@ -649,9 +649,14 @@ export async function processInboundMessage(
 
 // ─── WELCOME / MAIN MENU ──────────────────────────────────────────────────────
 
-function buildMainMenu(companyName: string): string {
+function buildMainMenu(companyName: string, customerName?: string | null): string {
+    const hasName = !!(customerName && customerName.trim().length > 0);
+    const hello = hasName
+        ? `Olá, *${customerName.trim()}*! Seja bem-vindo(a) novamente ao *${companyName}* 🍺\n\n`
+        : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\n`;
+
     return (
-        `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\n` +
+        hello +
         `Como posso te ajudar?\n\n` +
         `1️⃣  Ver cardápio\n` +
         `2️⃣  Status do meu pedido\n` +
@@ -671,16 +676,75 @@ async function handleMainMenu(
     session: Session,
     profileName?: string | null
 ): Promise<void> {
-    // Primeira mensagem → verifica horário e envia boas-vindas
+    // Primeira mensagem → verifica horário e envia boas-vindas + captura de nome se necessário
     if (session.step === "welcome") {
+        // Se estamos aguardando nome do cliente
+        if (session.context.awaiting_name) {
+            const nameInput = input.trim();
+            if (nameInput.length < 2) {
+                await reply(phoneE164, "Por favor, me diga seu nome para continuar. 🙂");
+                return;
+            }
+
+            const phoneClean = phoneE164.replace(/\D/g, "");
+            const { data: existing } = await admin
+                .from("customers")
+                .select("id")
+                .eq("company_id", companyId)
+                .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
+                .limit(1)
+                .maybeSingle();
+
+            if (existing?.id) {
+                await admin.from("customers").update({ name: nameInput }).eq("id", existing.id);
+            } else {
+                await admin
+                    .from("customers")
+                    .insert({ company_id: companyId, phone: phoneE164, name: nameInput });
+            }
+
+            await saveSession(admin, threadId, companyId, {
+                step: "main_menu",
+                context: { ...session.context, awaiting_name: false },
+            });
+
+            await reply(phoneE164, buildMainMenu(companyName, nameInput));
+            return;
+        }
+
         if (!isWithinBusinessHours(settings)) {
             const msg = (settings?.closed_message as string) ??
                 "Olá! No momento estamos fechados. Volte em breve. 😊";
             await reply(phoneE164, msg);
             return;
         }
-        await saveSession(admin, threadId, companyId, { step: "main_menu" });
-        await reply(phoneE164, buildMainMenu(companyName));
+
+        // Tenta buscar cliente para usar nome na saudação
+        const phoneClean = phoneE164.replace(/\D/g, "");
+        const { data: customer } = await admin
+            .from("customers")
+            .select("id, name")
+            .eq("company_id", companyId)
+            .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
+            .limit(1)
+            .maybeSingle();
+
+        if (customer?.name && customer.name.trim().length > 0) {
+            await saveSession(admin, threadId, companyId, { step: "main_menu" });
+            await reply(phoneE164, buildMainMenu(companyName, customer.name));
+            return;
+        }
+
+        // Sem nome ainda → pede nome uma única vez
+        await saveSession(admin, threadId, companyId, {
+            step: "welcome",
+            context: { ...session.context, awaiting_name: true },
+        });
+        await reply(
+            phoneE164,
+            `Olá! Seja bem-vindo(a) ao *${companyName}* 🍺\n\n` +
+            `Antes de começarmos, me diga seu *nome* para eu te atender melhor. 🙂`
+        );
         return;
     }
 
@@ -1438,6 +1502,46 @@ async function handleCheckoutConfirm(
         return;
     }
 
+    // Etapa: aguardando confirmação de maioridade
+    if (session.context.awaiting_age_confirm) {
+        if (matchesAny(input, ["sim", "s", "sou maior", "maior", "confirmar", "confirmo"])) {
+            // Marca cliente como adulto
+            if (session.customer_id) {
+                await admin.from("customers").update({ is_adult: true }).eq("id", session.customer_id);
+            } else {
+                const phoneClean = phoneE164.replace(/\D/g, "");
+                const { data: existing } = await admin
+                    .from("customers")
+                    .select("id")
+                    .eq("company_id", companyId)
+                    .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
+                    .limit(1)
+                    .maybeSingle();
+                if (existing?.id) {
+                    await admin.from("customers").update({ is_adult: true }).eq("id", existing.id);
+                }
+            }
+
+            await saveSession(admin, threadId, companyId, {
+                context: { ...session.context, awaiting_age_confirm: false },
+            });
+            // Após confirmar maioridade, segue fluxo normal de confirmação abaixo
+        } else if (matchesAny(input, ["nao", "não", "n", "sou menor", "menor"])) {
+            await reply(
+                phoneE164,
+                "Para continuar, é necessário ser maior de 18 anos. Seu pedido não foi finalizado."
+            );
+            await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
+            return;
+        } else {
+            await reply(
+                phoneE164,
+                "Por favor, responda *sim* se você é maior de 18 anos, ou *não* se não for."
+            );
+            return;
+        }
+    }
+
     // Input não reconhecido → reenviar resumo SEM cancelar o pedido
     if (!matchesAny(input, ["confirmar", "confirmar pedido", "confirmo", "sim", "ok", "s", "1"])) {
         const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
@@ -1458,6 +1562,24 @@ async function handleCheckoutConfirm(
         }
         customerId = recovered.id;
         await saveSession(admin, threadId, companyId, { customer_id: customerId });
+    }
+
+    // Antes de criar o pedido, exige confirmação de maioridade (uma única vez)
+    const { data: customerRow } = await admin
+        .from("customers")
+        .select("is_adult")
+        .eq("id", customerId)
+        .maybeSingle();
+
+    if (!customerRow?.is_adult) {
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, awaiting_age_confirm: true },
+        });
+        await reply(
+            phoneE164,
+            "Para prosseguir com o pedido, confirme: você é *maior de 18 anos*? Responda *sim* ou *não*."
+        );
+        return;
     }
 
     try {
