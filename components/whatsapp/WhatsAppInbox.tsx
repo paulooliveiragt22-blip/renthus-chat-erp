@@ -261,14 +261,28 @@ export default function WhatsAppInbox() {
         let body: any = { to_phone_e164: selectedThread.phone_e164, text };
 
         if (attachment) {
-            // por enquanto, envia apenas link público (assumindo já hospedado)
-            // futuramente podemos subir para storage e usar a URL resultante.
-            // Aqui usaremos URL.createObjectURL como MVP (somente no navegador atual).
-            const objectUrl = URL.createObjectURL(attachment.file);
+            setErr(null);
+            const form = new FormData();
+            form.append("file", attachment.file);
+            const uploadRes = await fetch("/api/whatsapp/upload", {
+                method: "POST",
+                credentials: "include",
+                body: form,
+            });
+            const uploadJson = await uploadRes.json().catch(() => ({}));
+            if (!uploadRes.ok) {
+                setErr(uploadJson?.error ?? uploadJson?.details ?? "Falha ao enviar arquivo");
+                return;
+            }
+            const mediaUrl = uploadJson?.url;
+            if (!mediaUrl) {
+                setErr("Resposta do upload sem URL");
+                return;
+            }
             body = {
                 to_phone_e164: selectedThread.phone_e164,
                 kind: attachment.kind,
-                media_url: objectUrl,
+                media_url: mediaUrl,
                 caption: text || undefined,
             };
         }
