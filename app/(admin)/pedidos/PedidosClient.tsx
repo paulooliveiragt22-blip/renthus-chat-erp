@@ -382,12 +382,12 @@ export default function PedidosPage() {
             .from("order_items")
             .select(
                 `
-      id, product_variant_id, product_name,
+      id, order_id, product_variant_id, product_name,
       quantity, unit_type, unit_price, line_total, created_at, qty,
       product_variants ( case_qty )
     `
             )
-            .eq("id", orderId)
+            .eq("order_id", orderId)
             .order("created_at", { ascending: true });
 
         if (itemsErr) {
@@ -475,8 +475,8 @@ export default function PedidosPage() {
                 async (payload: any) => {
                     try {
                         await loadOrders();
-                        const orderId = (payload?.new?.id ??
-                            payload?.old?.id ??
+                        const orderId = (payload?.new?.order_id ??
+                            payload?.old?.order_id ??
                             null) as string | null;
                         if (!orderId) return;
 
@@ -861,7 +861,7 @@ export default function PedidosPage() {
         const { error: delErr } = await supabase
             .from("order_items")
             .delete()
-            .eq("id", editOrder.id);
+            .eq("order_id", editOrder.id);
 
         if (delErr) {
             setMsg(`Erro ao apagar itens antigos: ${delErr.message}`);
