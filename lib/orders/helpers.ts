@@ -171,6 +171,7 @@ export function cartTotalPreview(list: CartItem[], feeEnabled: boolean, feeStr: 
 /** ✅ INSERT PAYLOAD (sem line_total) */
 export type InsertOrderItem = {
     order_id: string;
+    company_id: string;
     product_variant_id: string | null;
     product_name: string | null;
     quantity: number;
@@ -178,7 +179,7 @@ export type InsertOrderItem = {
     unit_type?: string | null;
     qty?: number;
 };
-export function buildItemsPayload(orderId: string, list: CartItem[]): InsertOrderItem[] {
+export function buildItemsPayload(orderId: string, companyId: string, list: CartItem[]): InsertOrderItem[] {
     return list.map((item) => {
         const qItem = Math.max(1, Number(item.qty) || 0);
         const price = Number(item.price ?? 0);
@@ -186,6 +187,7 @@ export function buildItemsPayload(orderId: string, list: CartItem[]): InsertOrde
 
         return {
             order_id: orderId,
+            company_id: companyId,
             product_variant_id: item.variant.id,
             product_name: name,
             quantity: qItem,

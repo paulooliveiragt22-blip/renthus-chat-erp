@@ -744,7 +744,13 @@ export default function PedidosPage() {
 
         const orderId = ord.id as string;
 
-        const itemsPayload = buildItemsPayload(orderId, cart);
+        if (!companyId) {
+            setMsg("Nenhuma empresa ativa selecionada. Recarregue o painel e escolha uma empresa.");
+            setSaving(false);
+            return;
+        }
+
+        const itemsPayload = buildItemsPayload(orderId, companyId, cart);
         const { error: itemsErr } = await supabase.from("order_items").insert(itemsPayload);
 
         if (itemsErr) {
@@ -869,7 +875,13 @@ export default function PedidosPage() {
             return;
         }
 
-        const itemsToInsert = buildItemsPayload(editOrder.id, editCart);
+        if (!companyId) {
+            setMsg("Nenhuma empresa ativa selecionada. Recarregue o painel e escolha uma empresa.");
+            setEditSaving(false);
+            return;
+        }
+
+        const itemsToInsert = buildItemsPayload(editOrder.id, companyId, editCart);
         const { error: insErr } = await supabase.from("order_items").insert(itemsToInsert);
 
         if (insErr) {
