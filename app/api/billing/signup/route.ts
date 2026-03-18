@@ -49,11 +49,17 @@ export async function POST(req: Request) {
             interval?:       string;
             payment_method?: string;
             installments?:   number;
+            address_street?:  string;
+            address_number?:  string;
+            address_city?:    string;
+            address_state?:   string;
+            address_zip?:     string;
         };
 
         console.log("[signup] body recebido:", JSON.stringify(body));
 
         const { company_name, cnpj, whatsapp, email, plan } = body;
+        const { address_street, address_number, address_city, address_state, address_zip } = body;
         const interval      = body.interval === "yearly" ? "yearly" : "monthly";
         const paymentMethod = body.payment_method === "credit_card" ? "credit_card" : "pix";
         // Plano anual: sempre à vista (sem parcelamento), sem desconto PIX
@@ -64,6 +70,13 @@ export async function POST(req: Request) {
         if (!company_name || !cnpj || !whatsapp || !email || !plan) {
             return NextResponse.json(
                 { error: "Campos obrigatórios: company_name, cnpj, whatsapp, email, plan" },
+                { status: 400 }
+            );
+        }
+
+        if (!address_street || !address_number || !address_city || !address_state || !address_zip) {
+            return NextResponse.json(
+                { error: "Campos de endereço obrigatórios: address_street, address_number, address_city, address_state, address_zip" },
                 { status: 400 }
             );
         }
@@ -188,6 +201,13 @@ export async function POST(req: Request) {
                 email:    email.trim().toLowerCase(),
                 document: cnpjDigits,
                 phone:    whatsapp.replace(/\D/g, ""),
+                address: {
+                    street:  address_street.trim(),
+                    number:  address_number.trim(),
+                    zipCode: address_zip.trim(),
+                    city:    address_city.trim(),
+                    state:   address_state.trim().toUpperCase(),
+                },
             },
             successUrl,
             cancelUrl,
