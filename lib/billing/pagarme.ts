@@ -344,6 +344,14 @@ export async function createCheckoutOrder(params: {
         email:     string;
         document?: string;
         phone?:    string;
+        address?: {
+            street:   string;
+            number:   string;
+            zipCode:  string;
+            city:     string;
+            state:    string;
+            country?: string;
+        };
     };
     successUrl:  string;
     cancelUrl?:  string;
@@ -417,17 +425,19 @@ export async function createCheckoutOrder(params: {
                 };
             }
         }
-        // Endereço mínimo obrigatório para o checkout hosted (sandbox)
-        // Em produção, ideal coletar o endereço real do cliente.
-        cBody.addresses = [
-            {
-                line_1:   "Rua Teste 123",
-                zip_code: "78000000",
-                city:     "Cuiaba",
-                state:    "MT",
-                country:  "BR",
-            },
-        ];
+        if (c.address) {
+            const zip = c.address.zipCode.replace(/\D/g, "");
+            const line1 = `${c.address.street} ${c.address.number}`.trim();
+            cBody.addresses = [
+                {
+                    line_1:   line1,
+                    zip_code: zip,
+                    city:     c.address.city,
+                    state:    c.address.state,
+                    country:  c.address.country ?? "BR",
+                },
+            ];
+        }
         body.customer = cBody;
     }
 
