@@ -29,6 +29,7 @@ type Row = {
     volume_value: number | null;
     unit:        Unit;
     unit_price:  number;
+    cost_price:  number | null;
     has_case:    boolean;
     case_qty:    number | null;
     case_price:  number | null;
@@ -75,6 +76,7 @@ function normalizeRows(input: unknown): Row[] {
             volume_value: r?.volume_value ?? null,
             unit,
             unit_price:   Number(r?.unit_price ?? 0),
+            cost_price:   r?.cost_price != null ? Number(r.cost_price) : null,
             has_case:     Boolean(r?.has_case),
             case_qty:     r?.case_qty ?? null,
             case_price:   r?.case_price ?? null,
@@ -145,9 +147,10 @@ export default function ProdutosListaPage() {
     // edit fields — variant
     const [details,     setDetails]     = useState("");
     const [hasVolume,   setHasVolume]   = useState(false);
-    const [volumeValue, setVolumeValue] = useState("");
+        const [volumeValue, setVolumeValue] = useState("");
     const [unit,        setUnit]        = useState<Unit>("none");
     const [unitPrice,   setUnitPrice]   = useState("0,00");
+    const [costPrice,   setCostPrice]   = useState("0,00");
     const [hasCase,     setHasCase]     = useState(false);
     const [caseQty,     setCaseQty]     = useState("");
     const [casePrice,   setCasePrice]   = useState("0,00");
@@ -177,7 +180,7 @@ export default function ProdutosListaPage() {
         setLoading(true); setMsg(null);
         const [varRes, catRes, brRes] = await Promise.all([
             supabase.from("product_variants")
-                .select(`id,product_id,details,volume_value,unit,unit_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
+                .select(`id,product_id,details,volume_value,unit,unit_price,cost_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
                 .order("created_at", { ascending: false }),
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
             supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
@@ -209,9 +212,8 @@ export default function ProdutosListaPage() {
                 console.log("[Produtos Realtime] INSERT:", p);
                 const id = p?.new?.id as string;
                 if (!id) return;
-                // busca a linha completa com joins
                 const { data } = await supabase.from("product_variants")
-                    .select(`id,product_id,details,volume_value,unit,unit_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
+                    .select(`id,product_id,details,volume_value,unit,unit_price,cost_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
                     .eq("id", id).maybeSingle();
                 if (data) {
                     setRows((prev) => [normalizeRows([data])[0], ...prev]);
@@ -223,7 +225,7 @@ export default function ProdutosListaPage() {
                 const id = p?.new?.id as string;
                 if (!id) return;
                 const { data } = await supabase.from("product_variants")
-                    .select(`id,product_id,details,volume_value,unit,unit_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
+                    .select(`id,product_id,details,volume_value,unit,unit_price,cost_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
                     .eq("id", id).maybeSingle();
                 if (data) {
                     setRows((prev) => prev.map((r) => r.id === id ? normalizeRows([data])[0] : r));
@@ -252,6 +254,7 @@ export default function ProdutosListaPage() {
         const hv = r.unit !== "none" && r.volume_value !== null;
         setHasVolume(hv); setVolumeValue(hv ? String(r.volume_value ?? "") : ""); setUnit(hv ? r.unit : "none");
         setUnitPrice(brl(r.unit_price));
+        setCostPrice(brl(r.cost_price ?? 0));
         setHasCase(!!r.has_case); setCaseQty(r.case_qty ? String(r.case_qty) : ""); setCasePrice(brl(r.case_price ?? 0));
         setIsActive(!!r.is_active);
         setCategoryId(r.products?.category_id ?? r.products?.categories?.id ?? "");
@@ -271,9 +274,11 @@ export default function ProdutosListaPage() {
         await supabase.from("products").update({ category_id: categoryId, brand_id: brandId }).eq("id", selected.product_id);
 
         // Update variant
+        const cpVal = brlToNumber(costPrice);
         const patch: Record<string, unknown> = {
             details:    details.trim() || null,
             unit_price: brlToNumber(unitPrice),
+            cost_price: cpVal > 0 ? cpVal : null,
             has_case:   hasCase,
             is_active:  isActive,
         };
@@ -314,8 +319,9 @@ export default function ProdutosListaPage() {
             .some((x) => (x ?? "").toLowerCase().includes(s));
     });
 
-    const activeCount   = rows.filter((r) => r.is_active).length;
-    const inactiveCount = rows.length - activeCount;
+    const activeCount      = rows.filter((r) => r.is_active).length;
+    const inactiveCount    = rows.length - activeCount;
+    const missingCostCount = rows.filter((r) => r.cost_price == null || r.cost_price === 0).length;
 
     // ── render ────────────────────────────────────────────────────────────────
 
@@ -340,18 +346,34 @@ export default function ProdutosListaPage() {
             </div>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {[
-                    { label: "Total de variações", value: rows.length, color: "bg-violet-100 text-violet-600 dark:bg-violet-900/30" },
-                    { label: "Ativas",              value: activeCount, color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30" },
-                    { label: "Inativas",            value: inactiveCount, color: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800" },
+                    { label: "Total de variações", value: rows.length,      color: "bg-violet-100 text-violet-600 dark:bg-violet-900/30" },
+                    { label: "Ativas",              value: activeCount,      color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30" },
+                    { label: "Inativas",            value: inactiveCount,    color: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800" },
+                    { label: "Sem preço de custo",  value: missingCostCount, color: missingCostCount > 0 ? "bg-red-100 text-red-600 dark:bg-red-900/30" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800" },
                 ].map(({ label, value, color }) => (
                     <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm dark:bg-zinc-900">
-                        <span className={`flex h-10 w-10 items-center justify-center rounded-lg text-lg font-bold ${color}`}>{value}</span>
+                        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${color}`}>{value}</span>
                         <span className="text-xs text-zinc-500">{label}</span>
                     </div>
                 ))}
             </div>
+
+            {/* Cost price warning banner */}
+            {missingCostCount > 0 && (
+                <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900/50 dark:bg-red-950/30">
+                    <span className="mt-0.5 text-base">⚠️</span>
+                    <div>
+                        <p className="text-xs font-bold text-red-700 dark:text-red-400">
+                            {missingCostCount} {missingCostCount === 1 ? "produto sem" : "produtos sem"} Preço de Custo
+                        </p>
+                        <p className="text-xs text-red-600/80 dark:text-red-500/80">
+                            O Financeiro não consegue calcular o Lucro Real nesses itens. Clique no lápis para preencher.
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* Search */}
             <div className="relative">
@@ -363,9 +385,11 @@ export default function ProdutosListaPage() {
             {/* Table */}
             <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
                 {/* sticky header */}
-                <div className="grid grid-cols-[1fr_1fr_1.5fr_100px_90px_90px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
+                <div className="grid grid-cols-[1fr_1fr_1.5fr_80px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
                     <span>Categoria</span><span>Marca</span><span>Detalhes</span>
-                    <span className="text-right">Vol.</span><span className="text-right">Unit (R$)</span>
+                    <span className="text-right">Vol.</span>
+                    <span className="text-right">Venda</span>
+                    <span className="text-right text-red-500">Custo</span>
                     <span>Caixa</span><span className="text-right">Cx (R$)</span>
                     <span className="text-center">Ativo</span><span className="text-center">Ações</span>
                 </div>
@@ -382,12 +406,16 @@ export default function ProdutosListaPage() {
                                 <p className="text-sm text-zinc-400">{search ? "Nenhum resultado." : "Nenhum produto cadastrado."}</p>
                             </div>
                         )
-                        : filtered.map((r) => (
+                        : filtered.map((r) => {
+                            const missingCost = r.cost_price == null || r.cost_price === 0;
+                            return (
                             <div
                                 key={r.id}
-                                className={`grid grid-cols-[1fr_1fr_1.5fr_100px_90px_90px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
+                                className={`grid grid-cols-[1fr_1fr_1.5fr_80px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
                                     flashId === r.id
                                         ? "bg-emerald-50 dark:bg-emerald-900/15"
+                                        : missingCost && r.is_active
+                                        ? "border-l-2 border-red-400 bg-red-50/40 hover:bg-red-50/70 dark:bg-red-950/20 dark:hover:bg-red-950/30"
                                         : r.is_active
                                         ? "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                                         : "bg-zinc-50/60 opacity-60 dark:bg-zinc-800/30"
@@ -406,6 +434,17 @@ export default function ProdutosListaPage() {
                                 <span className="text-right text-xs font-semibold text-violet-700 dark:text-violet-400">
                                     R$ {brl(r.unit_price)}
                                 </span>
+                                {/* Cost price column */}
+                                <span className={`text-right text-xs font-semibold ${
+                                    missingCost
+                                        ? "text-red-500 dark:text-red-400"
+                                        : "text-emerald-600 dark:text-emerald-400"
+                                }`}>
+                                    {missingCost
+                                        ? <span className="flex items-center justify-end gap-0.5"><span>⚠</span><span>—</span></span>
+                                        : `R$ ${brl(r.cost_price!)}`
+                                    }
+                                </span>
                                 <span className="text-xs text-zinc-500">{r.has_case ? `cx ${r.case_qty ?? "?"}` : "—"}</span>
                                 <span className="text-right text-xs text-zinc-500">
                                     {r.has_case ? `R$ ${brl(r.case_price ?? 0)}` : "—"}
@@ -423,7 +462,8 @@ export default function ProdutosListaPage() {
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                 </div>
             </div>
 
@@ -485,6 +525,12 @@ export default function ProdutosListaPage() {
                         <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Valor unitário (R$)</label>
                             <input value={unitPrice} onChange={(e) => setUnitPrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
+                        </div>
+                        <div className="rounded-lg border border-red-100 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-950/20">
+                            <label className="mb-1 block text-xs font-semibold text-red-700 dark:text-red-400">
+                                Preço de Custo (R$) <span className="text-[10px] font-normal text-zinc-400">— usado no Lucro Real do Financeiro</span>
+                            </label>
+                            <input value={costPrice} onChange={(e) => setCostPrice(formatBRLInput(e.target.value))} className={`${inputCls} border-red-200 focus:border-red-400 focus:ring-red-400/30 dark:border-red-900`} inputMode="numeric" placeholder="0,00" />
                         </div>
                         <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">

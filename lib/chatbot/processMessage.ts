@@ -1164,6 +1164,22 @@ async function createOrder(
         throw new Error(itemsErr.message ?? "Falha ao criar itens do pedido");
     }
 
+    // Registrar saídas de estoque para cada item do pedido (chatbot)
+    const movements = cart
+        .filter(item => item.variantId)
+        .map(item => ({
+            company_id: companyId,
+            variant_id: item.variantId,
+            order_id:   order.id,
+            type:       "saida",
+            quantity:   item.qty,
+            note:       "Venda WhatsApp",
+        }));
+    if (movements.length > 0) {
+        const { error: movErr } = await admin.from("inventory_movements").insert(movements);
+        if (movErr) console.error("[createOrder] inventory_movements:", movErr.message);
+    }
+
     console.log("[createOrder] concluído | orderId:", order.id);
     return order.id as string;
 }
@@ -2244,7 +2260,35 @@ async function handleCheckoutAddress(
     }
 
     if (session.customer_id) {
-        await admin.from("customers").update({ address: input }).eq("id", session.customer_id);
+        // Update legacy field (keeps chatbot flow intact)
+        await admin.from("customers").update({ address: input, neighborhood: (session.context.delivery_neighborhood as string|null) ?? null }).eq("id", session.customer_id);
+
+        // Upsert in enderecos_cliente — trigger on customers.address will also fire,
+        // but we do it explicitly to set correct fields (logradouro, bairro, etc.)
+        const bairro = (session.context.delivery_neighborhood as string|null) ?? null;
+        const { data: existingAddr } = await admin
+            .from("enderecos_cliente")
+            .select("id")
+            .eq("customer_id", session.customer_id)
+            .eq("apelido", "Chatbot")
+            .maybeSingle();
+
+        if (existingAddr?.id) {
+            await admin.from("enderecos_cliente").update({
+                logradouro:   input,
+                bairro:       bairro,
+                is_principal: true,
+            }).eq("id", existingAddr.id);
+        } else {
+            await admin.from("enderecos_cliente").insert({
+                company_id:   companyId,
+                customer_id:  session.customer_id,
+                apelido:      "Chatbot",
+                logradouro:   input,
+                bairro:       bairro,
+                is_principal: true,
+            });
+        }
     }
 
     await saveSession(admin, threadId, companyId, {
