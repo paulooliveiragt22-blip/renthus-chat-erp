@@ -26,7 +26,7 @@ interface Variant {
   unit: string | null; details: string | null; tags: string | null; is_active: boolean;
 }
 interface CartItem  { variant: Variant; qty: number }
-interface PayLine   { id: string; method: "pix"|"card"|"cash"|"credit"; value: string; received: string }
+interface PayLine   { id: string; method: "pix"|"card"|"cash"|"credit"; value: string; received: string; due_date?: string }
 
 interface CustomerSummary {
   id: string; name: string|null; phone: string|null;
@@ -50,6 +50,11 @@ async function fetchCep(cep: string) {
     if (d.erro) return null;
     return { logradouro:d.logradouro, bairro:d.bairro, cidade:d.localidade, estado:d.uf };
   } catch { return null; }
+}
+
+function toYMD(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 // ─── F2 global key ─────────────────────────────────────────────────────────────
@@ -197,6 +202,9 @@ export default function PDVPage() {
 
   const cartTotal = useMemo(() => cart.reduce((s, i) => s + i.variant.unit_price * i.qty, 0), [cart]);
 
+  // Default para quando a linha "credit" (A Prazo) for selecionada
+  const creditDefaultDue = useMemo(() => toYMD(new Date(Date.now() + 30 * 86400000)), []);
+
   // ── credit availability (depends on cartTotal) ───────────────────────
   const creditAvailable = selectedCustomer
     ? Math.max(0, selectedCustomer.limite_credito - selectedCustomer.saldo_devedor)
@@ -243,10 +251,33 @@ export default function PDVPage() {
     const alreadySum = payments.reduce((s, p) => s + (parseFloat(p.value) || 0), 0);
     const autoVal    = Math.max(0, cartTotal - alreadySum).toFixed(2);
     pendingFocusId.current = newId;
-    setPayments(p => [...p, { id: newId, method: next, value: autoVal, received: "" }]);
+    setPayments(p => [
+      ...p,
+      {
+        id: newId,
+        method: next,
+        value: autoVal,
+        received: "",
+        due_date: next === "credit" ? (creditDefaultDue ?? toYMD(new Date(Date.now() + 30 * 86400000))) : undefined,
+      },
+    ]);
   };
 
   const updPay = (id: string, f: keyof PayLine, v: string) => {
+    if (f === "method") {
+      const nextMethod = v as PayLine["method"];
+      setPayments(p =>
+        p.map(x => {
+          if (x.id !== id) return x;
+          if (nextMethod === "credit") {
+            return { ...x, method: nextMethod, due_date: x.due_date ?? creditDefaultDue };
+          }
+          return { ...x, method: nextMethod, due_date: undefined };
+        })
+      );
+      return;
+    }
+
     if (f === "value") {
       manuallyEdited.current.add(id);
       // With exactly 2 lines, auto-adjust the peer if it hasn't been manually touched
@@ -358,15 +389,13 @@ export default function PDVPage() {
       // vendas_a_prazo: one record per credit payment line
       const creditLines = payments.filter(p => p.method === "credit" && selectedCustomer);
       if (creditLines.length > 0 && selectedCustomer) {
-        const vencimento = new Date();
-        vencimento.setDate(vencimento.getDate() + 30); // 30-day default
         const { error: prazoErr } = await supabase.from("vendas_a_prazo").insert(
           creditLines.map(p => ({
             company_id:      companyId,
             order_id:        oid,
             customer_id:     selectedCustomer.id,
             valor:           parseFloat(p.value) || 0,
-            data_vencimento: vencimento.toISOString(),
+            data_vencimento: new Date((p.due_date ?? creditDefaultDue) + "T12:00:00").toISOString(),
             status:          "pendente",
             notas:           `PDV${sellerName ? " — " + sellerName : ""}`,
           }))
@@ -823,6 +852,18 @@ export default function PDVPage() {
                             </button>
                           )}
                         </div>
+
+                        {pay.method === "credit" && selectedCustomer && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Vencimento</label>
+                            <input
+                              type="date"
+                              value={pay.due_date ?? creditDefaultDue}
+                              onChange={(e) => updPay(pay.id, "due_date" as any, e.target.value)}
+                              className="w-full rounded-lg bg-zinc-900/60 border border-zinc-700 px-2 py-1.5 text-xs font-medium text-zinc-200 focus:outline-none focus:border-orange-500"
+                            />
+                          </div>
+                        )}
 
                         {pay.method==="cash" && (
                           <div className="space-y-1.5">
