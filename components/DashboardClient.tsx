@@ -33,6 +33,22 @@ type OrderStats = {
 
 type StatusSummary = Record<string, { count?: number } | number> | null;
 
+type PieDatum = { name: string; value: number };
+
+function buildPieData(statusSummary: StatusSummary): PieDatum[] {
+  if (statusSummary && typeof statusSummary === "object") {
+    return Object.entries(statusSummary).map(([k, v]: any) => ({
+      name: k,
+      value: v?.count ?? v ?? 0,
+    }));
+  }
+  return [
+    { name: "A", value: 58 },
+    { name: "B", value: 20 },
+    { name: "C", value: 22 },
+  ];
+}
+
 export default function DashboardClient() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [stats, setStats] = useState<OrderStats | null>(null);
@@ -89,17 +105,7 @@ export default function DashboardClient() {
     return (n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
   }
 
-  const pieData =
-    statusSummary && typeof statusSummary === "object"
-      ? Object.entries(statusSummary).map(([k, v]: any) => ({
-          name: k,
-          value: v?.count ?? v ?? 0,
-        }))
-      : [
-          { name: "A", value: 58 },
-          { name: "B", value: 20 },
-          { name: "C", value: 22 },
-        ];
+  const pieData = buildPieData(statusSummary);
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50">
