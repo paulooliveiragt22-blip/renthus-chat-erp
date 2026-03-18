@@ -100,7 +100,7 @@ export default function DashboardClient() {
   );
 }
 
-function DashboardContent() {
+const DashboardContent: React.FC = () => {
   const { data: orders = [], isLoading: loadingOrders } = useDashboardOrders();
   const { data: stats, isLoading: loadingStats } = useDashboardStats();
   const { data: statusSummary, isLoading: loadingStatus } =
@@ -305,4 +305,4 @@ function DashboardContent() {
       </main>
     </div>
   );
-}
+};
