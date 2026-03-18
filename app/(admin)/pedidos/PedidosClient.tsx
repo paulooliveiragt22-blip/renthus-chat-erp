@@ -170,7 +170,8 @@ export default function PedidosPage() {
 
     // ── action modal ──────────────────────────────────────────────────────────
     const [openAction,    setOpenAction]    = useState(false);
-    const [actionKind,    setActionKind]    = useState<ActionKind>("cancel");
+    const [actionKind,       setActionKind]       = useState<ActionKind>("cancel");
+    const [actionPayMethod,  setActionPayMethod]  = useState<string>("");
     const [actionOrderId, setActionOrderId] = useState<string | null>(null);
     const [actionNote,    setActionNote]    = useState("");
     const [actionSaving,  setActionSaving]  = useState(false);
@@ -408,6 +409,9 @@ export default function PedidosPage() {
     }
 
     function openActionModal(kind: ActionKind, orderId: string) {
+        // Pre-fill payment method from the order if available
+        const ord = orders.find(o => o.id === orderId);
+        setActionPayMethod((ord as any)?.payment_method ?? "pix");
         setActionKind(kind); setActionOrderId(orderId); setActionNote(""); setOpenAction(true);
     }
 
@@ -415,11 +419,32 @@ export default function PedidosPage() {
         const orderId = actionOrderId;
         if (!orderId) return;
         const note = actionNote.trim();
-        if (!note) { setMsg("Informe uma observação para essa ação."); return; }
+        if (!note && actionKind === "cancel") { setMsg("Informe uma observação para essa ação."); return; }
         setActionSaving(true); setMsg(null);
         const newStatus: OrderStatus = actionKind === "cancel" ? "canceled" : actionKind === "deliver" ? "delivered" : "finalized";
-        const { error } = await supabase.from("orders").update({ status: newStatus, details: note }).eq("id", orderId);
+        const { error } = await supabase.from("orders")
+            .update({ status: newStatus, details: note || null, ...(actionPayMethod ? { payment_method: actionPayMethod } : {}) })
+            .eq("id", orderId);
         if (error) { setMsg(`Erro ao atualizar status: ${error.message}`); setActionSaving(false); return; }
+
+        // Registrar em financial_entries ao finalizar ou entregar
+        if ((actionKind === "finalize" || actionKind === "deliver") && companyId) {
+            const ord = orders.find(o => o.id === orderId);
+            const totalAmt = Number((ord as any)?.total_amount ?? 0);
+            if (totalAmt > 0) {
+                const { error: feErr } = await supabase.from("financial_entries").insert({
+                    company_id:     companyId,
+                    order_id:       orderId,
+                    type:           "income",
+                    amount:         totalAmt,
+                    payment_method: actionPayMethod || (ord as any)?.payment_method || "pix",
+                    description:    `Pedido #${orderId.slice(0,8)} — ${note || ""}`.trim().replace(/— $/, ""),
+                    reference_date: new Date().toISOString().slice(0, 10),
+                });
+                if (feErr) console.warn("[runAction] financial_entries:", feErr.message);
+            }
+        }
+
         setMsg("✅ Pedido atualizado.");
         setOpenAction(false); setActionSaving(false);
         await loadOrders();
@@ -1020,6 +1045,9 @@ export default function PedidosPage() {
                 setNote={setActionNote}
                 saving={actionSaving}
                 onConfirm={runAction}
+                orderPaymentMethod={(orders.find(o => o.id === actionOrderId) as any)?.payment_method}
+                paymentMethod={actionPayMethod}
+                setPaymentMethod={setActionPayMethod}
             />
 
             <EditOrderModal
