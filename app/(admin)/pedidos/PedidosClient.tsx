@@ -489,6 +489,14 @@ export default function PedidosPage() {
                         const orderId = (payload?.new?.id ?? payload?.old?.id ?? null) as string | null;
                         if (!orderId) return;
 
+                        // marca pedidos recém-chegados para animação de ping
+                        if (payload.eventType === "INSERT" && orderId) {
+                            setRecentOrders((prev) => ({
+                                ...prev,
+                                [orderId]: Date.now(),
+                            }));
+                        }
+
                         if (viewOrderIdRef.current === orderId) setViewOrder(await fetchOrderFull(orderId));
                         if (editOrderIdRef.current === orderId) setEditOrder(await fetchOrderFull(orderId));
                     } catch { }
@@ -948,6 +956,8 @@ export default function PedidosPage() {
         return `há ${diffD} d`;
     }
 
+    const [recentOrders, setRecentOrders] = useState<Record<string, number>>({});
+
     const filteredOrders = useMemo(() => {
         const priority: Record<string, number> = { new: 0, delivered: 1, finalized: 2, canceled: 3 };
         // salva filtro atual
@@ -1261,15 +1271,28 @@ export default function PedidosPage() {
                                     const pm = paymentLabel(String((o as any).payment_method ?? ""));
                                     const changeForNow = (o as any).change_for;
 
+                                    const recentTs = recentOrders[o.id];
+                                    const isRecent = recentTs && Date.now() - recentTs < 60000;
+
                                     return (
                                         <tr
                                             key={o.id}
-                                            className="cursor-pointer bg-white/40 hover:bg-slate-50/80 transition-colors"
+                                            className={`cursor-pointer bg-white/40 hover:bg-slate-50/80 transition-colors ${
+                                                isRecent ? "relative" : ""
+                                            }`}
                                             onClick={() => openOrder(o.id)}
                                         >
-                                            {/* Nº */}
+                                            {/* Nº + ping visual para pedidos recém-criados */}
                                             <td className="px-3 py-2 whitespace-nowrap font-semibold text-slate-900">
-                                                #{num}
+                                                <div className="flex items-center gap-2">
+                                                    {isRecent && (
+                                                        <span className="relative inline-flex h-2.5 w-2.5">
+                                                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60"></span>
+                                                            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+                                                        </span>
+                                                    )}
+                                                    <span>#{num}</span>
+                                                </div>
                                             </td>
 
                                             {/* Cliente + (data/hora + telefone) */}
