@@ -344,6 +344,14 @@ export async function createCheckoutOrder(params: {
         email:     string;
         document?: string;
         phone?:    string;
+        address?: {
+            street:   string;
+            number:   string;
+            zipCode:  string;
+            city:     string;
+            state:    string;
+            country?: string;
+        };
     };
     successUrl:  string;
     cancelUrl?:  string;
@@ -401,8 +409,9 @@ export async function createCheckoutOrder(params: {
             type:  "company",
         };
         if (c.document) {
-            cBody.document      = c.document;
-            cBody.document_type = c.document.replace(/\D/g, "").length === 11 ? "CPF" : "CNPJ";
+            const digitsDoc = c.document.replace(/\D/g, "");
+            cBody.document      = digitsDoc;
+            cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
         }
         if (c.phone) {
             const digits = c.phone.replace(/\D/g, "");
@@ -415,6 +424,19 @@ export async function createCheckoutOrder(params: {
                     },
                 };
             }
+        }
+        if (c.address) {
+            const zip = c.address.zipCode.replace(/\D/g, "");
+            const line1 = `${c.address.street} ${c.address.number}`.trim();
+            cBody.addresses = [
+                {
+                    line_1:   line1,
+                    zip_code: zip,
+                    city:     c.address.city,
+                    state:    c.address.state,
+                    country:  c.address.country ?? "BR",
+                },
+            ];
         }
         body.customer = cBody;
     }

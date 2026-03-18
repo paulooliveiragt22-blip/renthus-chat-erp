@@ -68,7 +68,17 @@ export default function SignupPage() {
     const [success, setSuccess] = useState(false);
     const [loading,       setLoading]      = useState(false);
     const [error,         setError]        = useState<string | null>(null);
-    const [form, setForm] = useState({ company_name: "", cnpj: "", whatsapp: "", email: "" });
+    const [form, setForm] = useState({
+        company_name:    "",
+        cnpj:            "",
+        whatsapp:        "",
+        email:           "",
+        address_street:  "",
+        address_number:  "",
+        address_city:    "",
+        address_state:   "",
+        address_zip:     "",
+    });
 
     const formRef = useRef<HTMLFormElement>(null);
 
@@ -433,6 +443,70 @@ export default function SignupPage() {
                             <label style={S.label}>E-mail *</label>
                             <input style={S.input} type="email" placeholder="contato@empresa.com"
                                 value={form.email} onChange={(e) => handleField("email", e.target.value)} required />
+                        </div>
+                    </div>
+
+                    {/* Endereço para faturamento */}
+                    <div style={S.sectionLabel}>Endereço de faturamento</div>
+                    <div style={S.field}>
+                        <label style={S.label}>Rua *</label>
+                        <input
+                            style={S.input}
+                            type="text"
+                            placeholder="Ex: Rua das Flores"
+                            value={form.address_street}
+                            onChange={(e) => handleField("address_street", e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div style={{ display: "flex", gap: 14 }}>
+                        <div style={{ ...S.field, flex: 1 }}>
+                            <label style={S.label}>Número *</label>
+                            <input
+                                style={S.input}
+                                type="text"
+                                placeholder="Ex: 123"
+                                value={form.address_number}
+                                onChange={(e) => handleField("address_number", e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div style={{ ...S.field, flex: 1 }}>
+                            <label style={S.label}>CEP *</label>
+                            <input
+                                style={S.input}
+                                type="text"
+                                inputMode="numeric"
+                                placeholder="78000-000"
+                                value={form.address_zip}
+                                onChange={(e) => handleField("address_zip", e.target.value)}
+                                required
+                            />
+                        </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 14 }}>
+                        <div style={{ ...S.field, flex: 2 }}>
+                            <label style={S.label}>Cidade *</label>
+                            <input
+                                style={S.input}
+                                type="text"
+                                placeholder="Ex: Cuiabá"
+                                value={form.address_city}
+                                onChange={(e) => handleField("address_city", e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div style={{ ...S.field, flex: 1 }}>
+                            <label style={S.label}>UF *</label>
+                            <input
+                                style={S.input}
+                                type="text"
+                                maxLength={2}
+                                placeholder="MT"
+                                value={form.address_state}
+                                onChange={(e) => handleField("address_state", e.target.value.toUpperCase())}
+                                required
+                            />
                         </div>
                     </div>
 
