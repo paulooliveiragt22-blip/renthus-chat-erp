@@ -9,6 +9,8 @@ import {
     AlertTriangle,
     Bike,
     CheckCircle2,
+    ChevronLeft,
+    ChevronRight,
     Eye,
     MessageCircle,
     Package,
@@ -17,6 +19,8 @@ import {
     RefreshCcw,
     Search,
 } from "lucide-react";
+
+const PAGE_SIZE = 20;
 
 import NewOrderModal from "@/lib/orders/NewOrderModal";
 import ViewOrderModal from "@/lib/orders/ViewOrderModal";
@@ -118,7 +122,10 @@ export default function PedidosPage() {
 
     const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
     const [searchText,   setSearchText]   = useState("");
+    const [page,         setPage]         = useState(1);
     const [recentOrders, setRecentOrders] = useState<Record<string, number>>({});
+    // IDs com flash ativo (ring verde por ~2s após INSERT ou UPDATE via realtime)
+    const [flashOrders,  setFlashOrders]  = useState<Set<string>>(new Set());
 
     // restore filter from URL or localStorage
     useEffect(() => {
@@ -221,7 +228,7 @@ export default function PedidosPage() {
             .from("orders")
             .select(`id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
             .order("created_at", { ascending: false })
-            .limit(80);
+            .limit(500);
         if (error) { setMsg(`Erro ao carregar pedidos: ${error.message}`); setOrders([]); setLoading(false); return; }
         setOrders((Array.isArray(data) ? data : []) as any);
         setLoading(false);
@@ -273,6 +280,28 @@ export default function PedidosPage() {
         return created.id as string;
     }
 
+    /** Acende o ring verde numa linha por 2 segundos e depois apaga */
+    function flashRow(orderId: string) {
+        setFlashOrders((prev) => new Set([...prev, orderId]));
+        setTimeout(() => {
+            setFlashOrders((prev) => {
+                const next = new Set(prev);
+                next.delete(orderId);
+                return next;
+            });
+        }, 2000);
+    }
+
+    /** Busca uma única linha de pedido (sem itens) para update cirúrgico na lista */
+    async function fetchOrderRow(orderId: string): Promise<OrderRow | null> {
+        const { data } = await supabase
+            .from("orders")
+            .select(`id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
+            .eq("id", orderId)
+            .maybeSingle();
+        return data as OrderRow | null;
+    }
+
     async function fetchOrderFull(orderId: string): Promise<OrderFull | null> {
         const { data: ord, error: ordErr } = await supabase
             .from("orders")
@@ -322,29 +351,51 @@ export default function PedidosPage() {
     // ── realtime ──────────────────────────────────────────────────────────────
     useEffect(() => {
         const ch = supabase
-            .channel("realtime-orders-admin")
+            .channel("realtime-orders-admin-v3")
+
+            // ── orders: INSERT → topo da lista | UPDATE → substituição cirúrgica
             .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async (payload: any) => {
+                console.log("Mudança detectada no Realtime [orders]:", payload);
                 try {
-                    await loadOrders();
-                    const orderId = (payload?.new?.id ?? payload?.old?.id ?? null) as string | null;
+                    const eventType = payload.eventType as string;
+                    const orderId   = (payload?.new?.id ?? payload?.old?.id ?? null) as string | null;
                     if (!orderId) return;
-                    if (payload.eventType === "INSERT") {
-                        setRecentOrders((prev) => ({ ...prev, [orderId]: Date.now() }));
+
+                    if (eventType === "INSERT") {
+                        const row = await fetchOrderRow(orderId);
+                        if (row) {
+                            setOrders((prev) => [row, ...prev]);
+                            setRecentOrders((prev) => ({ ...prev, [orderId]: Date.now() }));
+                            flashRow(orderId);
+                        }
+                    } else if (eventType === "UPDATE") {
+                        const row = await fetchOrderRow(orderId);
+                        if (row) {
+                            setOrders((prev) => prev.map((o) => o.id === orderId ? row : o));
+                            flashRow(orderId);
+                        }
+                        // Re-hidrata modais abertos para o mesmo pedido
+                        if (viewOrderIdRef.current === orderId) setViewOrder(await fetchOrderFull(orderId));
+                        if (editOrderIdRef.current === orderId) setEditOrder(await fetchOrderFull(orderId));
                     }
-                    if (viewOrderIdRef.current === orderId) setViewOrder(await fetchOrderFull(orderId));
-                    if (editOrderIdRef.current === orderId) setEditOrder(await fetchOrderFull(orderId));
-                } catch { }
+                } catch { /* ignore */ }
             })
+
+            // ── order_items: só atualiza modais abertos (não toca na lista)
             .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, async (payload: any) => {
+                console.log("Mudança detectada no Realtime [order_items]:", payload);
                 try {
-                    await loadOrders();
                     const orderId = (payload?.new?.order_id ?? payload?.old?.order_id ?? null) as string | null;
                     if (!orderId) return;
                     if (viewOrderIdRef.current === orderId) setViewOrder(await fetchOrderFull(orderId));
                     if (editOrderIdRef.current === orderId) setEditOrder(await fetchOrderFull(orderId));
-                } catch { }
+                } catch { /* ignore */ }
             })
-            .subscribe();
+
+            .subscribe((status) => {
+                console.log("[Pedidos Realtime] status do canal:", status);
+            });
+
         return () => { supabase.removeChannel(ch); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [supabase]);
@@ -536,6 +587,14 @@ export default function PedidosPage() {
         });
     }, [orders, statusFilter, searchText]);
 
+    // ── paginação ─────────────────────────────────────────────────────────────
+    const totalPages  = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+    const safePage    = Math.min(page, totalPages);
+    const pagedOrders = filteredOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+    // Reset para página 1 sempre que filtro ou busca mudar
+    useEffect(() => { setPage(1); }, [statusFilter, searchText]);
+
     const newTotalNow      = useMemo(() => cartTotalPreview(cart, deliveryFeeEnabled, deliveryFee), [cart, deliveryFeeEnabled, deliveryFee]);
     const newCustomerPays  = useMemo(() => brlToNumber(changeFor), [changeFor]);
     const newTroco         = useMemo(() => calcTroco(newTotalNow, newCustomerPays), [newTotalNow, newCustomerPays]);
@@ -585,30 +644,30 @@ export default function PedidosPage() {
                 {/* Novos */}
                 <button
                     onClick={() => setStatusFilter("new")}
-                    className={`rounded-xl border-l-4 border-orange-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${statusFilter === "new" ? "ring-2 ring-orange-300" : ""}`}
+                    className={`rounded-xl border-l-4 border-orange-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "new" ? "ring-2 ring-orange-300" : ""}`}
 >
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[11px] font-medium text-zinc-500">Novos pedidos</p>
-                            <p className="mt-1 text-2xl font-bold text-zinc-900">{summary.novosQtd}</p>
-                            <p className="mt-0.5 text-[11px] text-zinc-400">R$ {formatBRL(summary.novosTotal)}</p>
+                            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Novos pedidos</p>
+                            <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{summary.novosQtd}</p>
+                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">R$ {formatBRL(summary.novosTotal)}</p>
                         </div>
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-50">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-50 dark:bg-orange-500/10">
                             <AlertTriangle className="h-4 w-4 text-orange-500" />
                         </span>
                     </div>
                 </button>
 
                 {/* Em preparação */}
-                <div className="rounded-xl border-l-4 border-purple-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md">
+                <div className="rounded-xl border-l-4 border-purple-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[11px] font-medium text-zinc-500">Em preparação</p>
-                            <p className="mt-1 text-2xl font-bold text-zinc-900">{summary.prepQtd}</p>
-                            <p className="mt-0.5 text-[11px] text-zinc-400">Aguardando pagamento</p>
+                            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Em preparação</p>
+                            <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{summary.prepQtd}</p>
+                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Aguardando pagamento</p>
                         </div>
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50">
-                            <Package className="h-4 w-4 text-purple-600" />
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-500/10">
+                            <Package className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                         </span>
                     </div>
                 </div>
@@ -616,16 +675,16 @@ export default function PedidosPage() {
                 {/* Em entrega */}
                 <button
                     onClick={() => setStatusFilter("delivered")}
-                    className={`rounded-xl border-l-4 border-sky-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${statusFilter === "delivered" ? "ring-2 ring-sky-300" : ""}`}
+                    className={`rounded-xl border-l-4 border-sky-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "delivered" ? "ring-2 ring-sky-300" : ""}`}
 >
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[11px] font-medium text-zinc-500">Em entrega</p>
-                            <p className="mt-1 text-2xl font-bold text-zinc-900">{summary.entregaQtd}</p>
-                            <p className="mt-0.5 text-[11px] text-zinc-400">Pedidos entregues</p>
+                            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Em entrega</p>
+                            <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{summary.entregaQtd}</p>
+                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Pedidos entregues</p>
                         </div>
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-50">
-                            <Bike className="h-4 w-4 text-sky-600" />
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-50 dark:bg-sky-500/10">
+                            <Bike className="h-4 w-4 text-sky-600 dark:text-sky-400" />
                         </span>
                     </div>
                 </button>
@@ -633,16 +692,16 @@ export default function PedidosPage() {
                 {/* Finalizados hoje */}
                 <button
                     onClick={() => setStatusFilter("finalized")}
-                    className={`rounded-xl border-l-4 border-emerald-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${statusFilter === "finalized" ? "ring-2 ring-emerald-300" : ""}`}
+                    className={`rounded-xl border-l-4 border-emerald-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "finalized" ? "ring-2 ring-emerald-300" : ""}`}
 >
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[11px] font-medium text-zinc-500">Faturamento (hoje)</p>
-                            <p className="mt-1 text-2xl font-bold text-zinc-900">R$ {formatBRL(summary.finalHojeTotal)}</p>
-                            <p className="mt-0.5 text-[11px] text-zinc-400">{summary.finalHojeQtd} pedidos</p>
+                            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Faturamento (hoje)</p>
+                            <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(summary.finalHojeTotal)}</p>
+                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">{summary.finalHojeQtd} pedidos</p>
                         </div>
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                         </span>
                     </div>
                 </button>
@@ -657,7 +716,7 @@ export default function PedidosPage() {
                         placeholder="Buscar por nome, telefone ou endereço..."
                         value={searchText}
                         onChange={(e) => setSearchText(e.target.value)}
-                        className="w-full rounded-lg border border-zinc-200 bg-white py-2 pl-9 pr-3 text-xs text-zinc-900 placeholder:text-zinc-400 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
+                        className="w-full rounded-lg border border-zinc-200 bg-white py-2 pl-9 pr-3 text-xs text-zinc-900 placeholder:text-zinc-400 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:border-purple-500"
                     />
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -668,7 +727,7 @@ export default function PedidosPage() {
                             className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${
                                 statusFilter === f
                                     ? "bg-purple-800 text-white"
-                                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
                             }`}
                         >
                             {f === "all" ? `Todos (${stats.total})` : f === "new" ? `Novos (${stats.new})` : f === "delivered" ? `Entregues (${stats.delivered})` : f === "finalized" ? `Finalizados (${stats.finalized})` : `Cancelados (${stats.canceled})`}
@@ -678,30 +737,52 @@ export default function PedidosPage() {
             </div>
 
             {/* ── ORDER LIST ── */}
-            <div className="rounded-xl border border-zinc-100 bg-white shadow-sm overflow-hidden">
+            <div className="rounded-xl border border-zinc-100 bg-white shadow-sm overflow-hidden dark:border-zinc-800 dark:bg-zinc-900">
                 {loading ? (
-                    <div className="divide-y divide-zinc-100">
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                         {Array.from({ length: 6 }).map((_, i) => (
-                            <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white">
-                                <div className="h-4 w-14 animate-pulse rounded-full bg-zinc-100" />
+                            <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-zinc-900">
+                                <div className="h-4 w-14 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
                                 <div className="flex flex-1 flex-col gap-2">
-                                    <div className="h-4 w-40 animate-pulse rounded bg-zinc-100" />
-                                    <div className="h-3 w-28 animate-pulse rounded bg-zinc-50" />
+                                    <div className="h-4 w-40 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+                                    <div className="h-3 w-28 animate-pulse rounded bg-zinc-50 dark:bg-zinc-800/60" />
                                 </div>
-                                <div className="h-6 w-16 animate-pulse rounded-full bg-zinc-100" />
-                                <div className="h-6 w-20 animate-pulse rounded-full bg-zinc-100" />
-                                <div className="h-4 w-20 animate-pulse rounded bg-zinc-100" />
+                                <div className="h-6 w-16 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
+                                <div className="h-6 w-20 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
+                                <div className="h-4 w-20 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
                             </div>
                         ))}
                     </div>
                 ) : filteredOrders.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
+                    <div className="flex flex-col items-center justify-center py-16 text-zinc-400 dark:text-zinc-600">
                         <Package className="mb-3 h-8 w-8" />
                         <p className="text-sm font-medium">Nenhum pedido encontrado</p>
                     </div>
                 ) : (
-                    <div className="divide-y divide-zinc-100">
-                        {filteredOrders.map((o) => {
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                        {/* ── Sticky column header ── */}
+                        <div className="sticky top-0 z-10 flex items-center gap-4 border-b border-zinc-100 bg-zinc-50 px-5 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/95 backdrop-blur">
+                            <div className="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                                Pedido
+                            </div>
+                            <div className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                                Cliente
+                            </div>
+                            <div className="hidden shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 sm:block">
+                                Pagamento
+                            </div>
+                            <div className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                                Status
+                            </div>
+                            <div className="w-28 shrink-0 text-right text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                                Valor
+                            </div>
+                            <div className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                                Ações
+                            </div>
+                        </div>
+
+                        {pagedOrders.map((o) => {
                             const st         = String(o.status);
                             const num        = orderNum(o.id);
                             const name       = o.customers?.name ?? "-";
@@ -711,6 +792,7 @@ export default function PedidosPage() {
                             const obs        = (o.details ?? "").trim();
                             const recentTs   = recentOrders[o.id];
                             const isRecent   = !!recentTs && Date.now() - recentTs < 60000;
+                            const isFlashing = flashOrders.has(o.id);
 
                             const pmKey = String((o as any).payment_method ?? "");
 
@@ -718,7 +800,11 @@ export default function PedidosPage() {
                                 <div
                                     key={o.id}
                                     onClick={() => openOrder(o.id)}
-                                    className="group flex cursor-pointer items-center gap-4 px-5 py-4 bg-white hover:bg-zinc-50 transition-colors"
+                                    className={`group flex cursor-pointer items-center gap-4 px-5 py-4 transition-colors ${
+                                        isFlashing
+                                            ? "bg-emerald-50 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-900/20 dark:ring-emerald-700/50"
+                                            : "bg-white hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                                    }`}
                                 >
                                     {/* Ping + Nº */}
                                     <div className="flex w-20 shrink-0 items-center gap-2">
@@ -733,13 +819,13 @@ export default function PedidosPage() {
 
                                     {/* Cliente */}
                                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                        <span className="truncate text-sm font-semibold text-zinc-900">{name}</span>
+                                        <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{name}</span>
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <span className="text-xs text-zinc-500">{phone}</span>
+                                            <span className="text-xs text-zinc-500 dark:text-zinc-400">{phone}</span>
                                             <span className="text-[11px] text-sky-500 font-medium">{timeAgo(o.created_at)}</span>
                                         </div>
                                         {addr && addr !== "-" && (
-                                            <span className="truncate text-[11px] text-zinc-400">{addr}</span>
+                                            <span className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">{addr}</span>
                                         )}
                                         {obs && (
                                             <span className="text-[11px] font-medium text-amber-700 italic">{obs}</span>
@@ -765,7 +851,7 @@ export default function PedidosPage() {
 
                                     {/* Total */}
                                     <div className="w-28 shrink-0 text-right">
-                                        <span className="text-sm font-bold text-zinc-900">R$ {formatBRL(o.total_amount)}</span>
+                                        <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(o.total_amount)}</span>
                                     </div>
 
                                     {/* Ações rápidas */}
@@ -803,6 +889,77 @@ export default function PedidosPage() {
                     </div>
                 )}
             </div>
+
+            {/* ── PAGINAÇÃO ── */}
+            {!loading && filteredOrders.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+
+                    {/* Info */}
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Exibindo{" "}
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                            {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredOrders.length)}
+                        </span>{" "}
+                        de{" "}
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                            {filteredOrders.length}
+                        </span>{" "}
+                        pedidos
+                    </p>
+
+                    {/* Controles */}
+                    <div className="flex items-center gap-1">
+                        {/* Anterior */}
+                        <button
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={safePage === 1}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                        </button>
+
+                        {/* Números de página */}
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                            .filter((p) => {
+                                // Mostra sempre: 1, última, e ±2 da atual
+                                return p === 1 || p === totalPages || Math.abs(p - safePage) <= 2;
+                            })
+                            .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                                if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+                                acc.push(p);
+                                return acc;
+                            }, [])
+                            .map((p, idx) =>
+                                p === "…" ? (
+                                    <span key={`ellipsis-${idx}`} className="px-1 text-xs text-zinc-400 dark:text-zinc-600">
+                                        …
+                                    </span>
+                                ) : (
+                                    <button
+                                        key={p}
+                                        onClick={() => setPage(p as number)}
+                                        className={`flex h-8 min-w-[2rem] items-center justify-center rounded-lg border px-2 text-xs font-medium transition-colors ${
+                                            safePage === p
+                                                ? "border-purple-600 bg-purple-700 text-white shadow-sm"
+                                                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                                        }`}
+                                    >
+                                        {p}
+                                    </button>
+                                )
+                            )}
+
+                        {/* Próxima */}
+                        <button
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={safePage === totalPages}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                        >
+                            <ChevronRight className="h-4 w-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* ── MODAIS ── */}
             <NewOrderModal
