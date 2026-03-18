@@ -1,14 +1,11 @@
 /** @type {import('tailwindcss').Config} */
+// NOTE: Tailwind v4 does not use this file for content scanning.
+// Content paths are declared via @source in app/globals.css.
+// This file is kept only for IDE autocomplete compatibility.
 module.exports = {
-  content: ["./app/**/*.{js,ts,jsx,tsx}", "./components/**/*.{js,ts,jsx,tsx}"],
+  content: [],
   theme: {
-    extend: {
-      colors: {
-        prodifyPurple: "#3B246B",
-        prodifyOrange: "#FF6600",
-        prodifyGreen: "#0DAA00",
-      },
-    },
+    extend: {},
   },
   plugins: [],
 };

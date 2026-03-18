@@ -1,5 +1,5 @@
 // app/layout.tsx
-import "@/styles/globals.css";
+import "./globals.css";
 import React, { Suspense } from "react";
 import AdminShell from "@/components/AdminShell";
 import HeaderClient from "@/components/HeaderClient";

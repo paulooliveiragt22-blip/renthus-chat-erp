@@ -1,22 +1,3 @@
-/* styles/globals.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Colocar regras base dentro de @layer base para garantir que @apply funcione */
-@layer base {
-  html, body {
-    min-height: 100%;
-    /* define a cor de fundo diretamente para evitar erros de utilitário durante o build */
-    background-color: #f9fafb;
-  }
-
-  /* Ajustes globais adicionais (opcionais) */
-  body {
-    margin: 0;
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-      Arial, "Noto Sans", "Liberation Sans", sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-}
+/* This file is no longer the CSS entry point. */
+/* The real entry is app/globals.css (Tailwind v4). */
+/* Kept here to avoid import errors from any legacy references. */
