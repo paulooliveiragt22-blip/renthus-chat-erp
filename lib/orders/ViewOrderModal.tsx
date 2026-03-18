@@ -26,6 +26,10 @@ export default function ViewOrderModal({
     canDeliver,
     canFinalize,
     canEdit,
+    onOutForDelivery,
+    onDeliveredMessage,
+    sendingOutForDelivery,
+    sendingDeliveredMessage,
 }: {
     open: boolean;
     onClose: () => void;
@@ -38,6 +42,10 @@ export default function ViewOrderModal({
     canDeliver: boolean;
     canFinalize: boolean;
     canEdit: boolean;
+    onOutForDelivery: () => void;
+    onDeliveredMessage: () => void;
+    sendingOutForDelivery: boolean;
+    sendingDeliveredMessage: boolean;
 }) {
     const title = `Pedido ${order ? `• ${formatDT(order.created_at)} • ${prettyStatus(String(order.status))}` : ""}`;
 
@@ -92,6 +100,26 @@ export default function ViewOrderModal({
                         <button onClick={onEdit} disabled={!canEdit} style={btnPurpleOutline(!canEdit)}>
                             EDITAR
                         </button>
+
+                        {order?.customers?.phone && (
+                            <>
+                                <button
+                                    onClick={onOutForDelivery}
+                                    disabled={sendingOutForDelivery}
+                                    style={btnPurple(sendingOutForDelivery)}
+                                >
+                                    {sendingOutForDelivery ? "Enviando..." : "Saiu pra entrega (WhatsApp)"}
+                                </button>
+
+                                <button
+                                    onClick={onDeliveredMessage}
+                                    disabled={sendingDeliveredMessage}
+                                    style={btnPurple(sendingDeliveredMessage)}
+                                >
+                                    {sendingDeliveredMessage ? "Enviando..." : "Mensagem de agradecimento"}
+                                </button>
+                            </>
+                        )}
                     </div>
 
                     {/* Cliente + Pagamento (lado esquerdo), Status (lado direito) */}
