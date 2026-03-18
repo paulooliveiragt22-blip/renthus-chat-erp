@@ -157,6 +157,65 @@ function mergeCart(existing: CartItem[], toAdd: CartItem[]): CartItem[] {
     return cart;
 }
 
+/**
+ * Formata uma lista numerada de variantes para texto simples do WhatsApp.
+ * Ex:
+ *   1️⃣ Skol 350ml — R$ 4,50
+ *   2️⃣ Skol 600ml — R$ 8,00
+ */
+const NUMBER_EMOJIS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
+
+function formatNumberedList(variants: VariantRow[]): string {
+    return variants.map((v, i) => {
+        const vol   = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
+        const name  = `${v.productName}${vol}`.trim();
+        const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
+        return `${emoji} *${name}* — ${formatCurrency(v.unitPrice)}`;
+    }).join("\n");
+}
+
+interface AddressMatch {
+    street:      string;   // "Rua das Flores"
+    houseNumber: string;   // "86"
+    neighborhood: string | null; // "São Mateus" (se detectado)
+    full: string;          // formatted: "Rua das Flores, 86 - São Mateus"
+    rawSlice: string;      // trecho original que foi reconhecido como endereço
+}
+
+/**
+ * Extrai endereço de entrega de mensagem livre usando regex.
+ *
+ * Captura:
+ *   (rua|av|avenida|...) <nome da rua> [,] (nº|n|nro)? <número>
+ *
+ * Depois tenta capturar o bairro como bloco de palavras após o número.
+ */
+function extractAddressFromText(input: string): AddressMatch | null {
+    // Padrão principal — captura prefixo + nome + número
+    const ADDR_RE = /\b(rua|r\.|av\.?|avenida|alameda|travessa|trav\.?|estrada|rodovia|pra[cç]a|p[cç][ao]\.?|beco|viela|setor|quadra|qd\.?)\s+([\wÀ-úÀ-ÿ\s]{2,50?}?)[\s,]*(?:n[º°oa]?\.?\s*)?(\d{1,5})\b/i;
+
+    const m = input.match(ADDR_RE);
+    if (!m) return null;
+
+    const prefix      = m[1].trim();
+    const streetName  = m[2].trim().replace(/,+$/, "").trim();
+    const houseNumber = m[3];
+    const rawSlice    = m[0];
+
+    // Tenta capturar bairro: texto após o número e possível vírgula/hífen/espaço
+    const afterAddr = input.slice(input.indexOf(rawSlice) + rawSlice.length).trim();
+    // Bairro = 1ª sequência de palavras (até vírgula, ponto, ou fim)
+    const neighMatch = afterAddr.match(/^[\s,\-–]+([A-Za-zÀ-úÀ-ÿ][A-Za-zÀ-úÀ-ÿ\s]{1,40}?)(?:[,;.]|$)/i);
+    const neighborhood = neighMatch ? neighMatch[1].trim() : null;
+
+    const street = `${prefix.charAt(0).toUpperCase() + prefix.slice(1).toLowerCase()} ${streetName}`;
+    const full   = neighborhood
+        ? `${street}, ${houseNumber} - ${neighborhood}`
+        : `${street}, ${houseNumber}`;
+
+    return { street, houseNumber, neighborhood, full, rawSlice };
+}
+
 function formatCurrency(value: number): string {
     return new Intl.NumberFormat("pt-BR", {
         style: "currency",
@@ -662,6 +721,143 @@ async function handleFreeTextInput(
     rawInput: string,
     session: Session
 ): Promise<"handled" | "notfound" | "skip"> {
+    // ── 0. Detecção de endereço (+ produto combinado) na mesma mensagem ──────
+    const addrMatch = extractAddressFromText(rawInput);
+    if (addrMatch) {
+        console.log("[freetext] endereço detectado:", addrMatch.full, "| bairro:", addrMatch.neighborhood);
+
+        // Tenta encontrar produto na parte da mensagem sem o endereço
+        const textWithoutAddr = rawInput.replace(addrMatch.rawSlice, " ").trim();
+        const productTerms    = extractTerms(textWithoutAddr);
+        const { qty: pQty, terms: pTerms } = extractQuantity(productTerms);
+        const foundProducts = pTerms.length >= 1
+            ? await searchVariantsByText(admin, companyId, pTerms)
+            : [];
+        const bestProduct = foundProducts[0] ?? null;
+
+        // Busca zona de entrega pelo bairro detectado
+        let zone: DeliveryZone | null = null;
+        if (addrMatch.neighborhood) {
+            zone = await findDeliveryZone(admin, companyId, addrMatch.neighborhood);
+        }
+
+        // Salva endereço + taxa no contexto
+        const newContext: Record<string, unknown> = {
+            ...session.context,
+            delivery_address:   addrMatch.full,
+            delivery_fee:       zone?.fee ?? null,
+            delivery_zone_id:   zone?.id  ?? null,
+            awaiting_neighborhood: !zone && !addrMatch.neighborhood ? true : (!zone && !!addrMatch.neighborhood),
+            pending_neighborhood: !zone && addrMatch.neighborhood ? addrMatch.neighborhood : null,
+        };
+
+        let newCart = [...session.cart];
+
+        // Adiciona produto ao carrinho se encontrado
+        if (bestProduct) {
+            const vol  = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
+            const name = `${bestProduct.productName}${vol}`.trim();
+            const qty  = pQty >= 1 ? pQty : 1;
+            const idx  = newCart.findIndex((c) => c.variantId === bestProduct.id && !c.isCase);
+            if (idx >= 0) {
+                newCart[idx] = { ...newCart[idx], qty: newCart[idx].qty + qty };
+            } else {
+                newCart.push({ variantId: bestProduct.id, productId: bestProduct.productId, name, price: bestProduct.unitPrice, qty, isCase: false });
+            }
+        }
+
+        await saveSession(admin, threadId, companyId, {
+            step:    "catalog_products",
+            cart:    newCart,
+            context: newContext,
+        });
+
+        // ── Caso combinado: produto + endereço + zona encontrada ─────────────
+        if (bestProduct && zone) {
+            const vol       = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
+            const itemName  = `${bestProduct.productName}${vol}`.trim();
+            const itemQty   = pQty >= 1 ? pQty : 1;
+            const cartWithFee = cartTotal(newCart) + zone.fee;
+            await sendInteractiveButtons(
+                phoneE164,
+                `🍻 *Excelente escolha!*\n\n` +
+                `✅ ${itemQty}x *${itemName}* anotado.\n` +
+                `📍 Entrega na *${addrMatch.full}*\n` +
+                `🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*\n` +
+                `💰 Total c/ entrega: *${formatCurrency(cartWithFee)}*\n\n` +
+                `Algo mais ou deseja finalizar?`,
+                [
+                    { id: "mais_produtos", title: "Mais produtos"    },
+                    { id: "finalizar",     title: "Finalizar pedido" },
+                ]
+            );
+            return "handled";
+        }
+
+        // ── Endereço + produto, mas sem zona correspondente ──────────────────
+        if (bestProduct && !zone) {
+            const vol      = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
+            const itemName = `${bestProduct.productName}${vol}`.trim();
+            const itemQty  = pQty >= 1 ? pQty : 1;
+            if (addrMatch.neighborhood) {
+                // Bairro digitado mas não cadastrado → listar opções
+                const zones = await listDeliveryZones(admin, companyId);
+                const zoneList = zones.length
+                    ? zones.map((z) => `• ${z.label} — ${formatCurrency(z.fee)}`).join("\n")
+                    : "_Nenhuma zona cadastrada ainda._";
+                await reply(
+                    phoneE164,
+                    `✅ ${itemQty}x *${itemName}* anotado!\n` +
+                    `📍 Endereço: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
+                    `⚠️ Não encontrei *${addrMatch.neighborhood}* nas nossas zonas de entrega.\n` +
+                    `Atendemos estes bairros:\n\n${zoneList}\n\n` +
+                    `_Pode confirmar o seu bairro?_`
+                );
+            } else {
+                // Endereço sem bairro → pede o bairro
+                await reply(
+                    phoneE164,
+                    `✅ ${itemQty}x *${itemName}* anotado!\n` +
+                    `📍 Endereço: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
+                    `Para calcular a taxa de entrega, qual é o seu *bairro*?`
+                );
+            }
+            return "handled";
+        }
+
+        // ── Apenas endereço (sem produto identificado) ───────────────────────
+        if (zone) {
+            const cartSummary = newCart.length > 0 ? `\n\n🛒 *Pedido atual:*\n${formatCart(newCart)}` : "";
+            await sendInteractiveButtons(
+                phoneE164,
+                `📍 Entendido! Endereço anotado:\n*${addrMatch.full}*\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*${cartSummary}\n\nAlgo mais ou posso fechar?`,
+                [
+                    { id: "mais_produtos", title: "Mais produtos"    },
+                    { id: "finalizar",     title: "Finalizar pedido" },
+                ]
+            );
+        } else if (addrMatch.neighborhood) {
+            const zones    = await listDeliveryZones(admin, companyId);
+            const zoneList = zones.length
+                ? zones.map((z) => `• ${z.label} — ${formatCurrency(z.fee)}`).join("\n")
+                : "_Nenhuma zona cadastrada._";
+            await reply(
+                phoneE164,
+                `📍 Endereço: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
+                `⚠️ Não encontrei *${addrMatch.neighborhood}* nas zonas de entrega.\n` +
+                `Atendemos:\n\n${zoneList}\n\n_Confirme seu bairro:_`
+            );
+        } else {
+            await reply(
+                phoneE164,
+                `📍 Endereço anotado: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
+                `Para calcular o frete, qual é o seu *bairro*?`
+            );
+        }
+        return "handled";
+    }
+
+    // ── 1. Extração de termos ─────────────────────────────────────────────────
     const allTerms = extractTerms(rawInput);
 
     console.log(`[freetext] input: "${rawInput}" | todos os termos extraídos:`, allTerms);
@@ -764,53 +960,38 @@ async function handleFreeTextInput(
         return "handled";
     }
 
-    // ── Múltiplos resultados → lista interativa ───────────────────────────────
-    // Se houver mais de 5 opções, exibe só as 3 primeiras + botão "Ver mais"
-    // para não poluir o WhatsApp do cliente.
-    const PREVIEW_LIMIT = 3;
-    const hasMore       = found.length > 5;
-    const displayed     = hasMore ? found.slice(0, PREVIEW_LIMIT) : found;
+    // ── Múltiplos resultados → lista numerada em texto puro ──────────────────
+    // Máximo 5 opções visíveis; se houver mais avisa para refinar a busca.
+    const MAX_SHOWN = 5;
+    const displayed = found.slice(0, MAX_SHOWN);
+    const hasMore   = found.length > MAX_SHOWN;
 
-    // Salva TODOS os resultados no contexto (para o "Ver mais" depois)
+    // Salva TODOS os resultados no contexto + flag de seleção numérica
     await saveSession(admin, threadId, companyId, {
         step:    "catalog_products",
         context: {
             ...session.context,
-            variants:        found,      // lista completa preservada
+            variants:        found,   // lista completa preservada para ver_mais
             brand_name:      "Resultados",
             category_name:   "Busca",
             pending_variant: null,
             pending_is_case: null,
+            search_numbered: true,    // flag: próximo input numérico = seleção
         },
     });
 
-    if (hasMore) {
-        // Constrói lista apenas com os top 3
-        const previewRows = displayed.map((v) => ({
-            id:          v.id,
-            title:       truncateTitle(`${v.productName} ${v.volumeValue}${v.unit}`),
-            description: `${formatCurrency(v.unitPrice)}${v.details ? " · " + v.details : ""}`,
-        }));
+    const listText = formatNumberedList(displayed);
+    const moreHint = hasMore
+        ? `\n\n_Mostrando ${MAX_SHOWN} de ${found.length} opções. Digite o nome para refinar a busca._`
+        : "";
+    const multiHint = displayed.length > 1
+        ? `\n\nDigite o *número* da opção (ex: *2*) ou *vários* separados por vírgula (ex: *1,3*).`
+        : "";
 
-        const verMaisRow = [{
-            id:          "ver_mais",
-            title:       "🔍 Ver mais opções",
-            description: `${found.length - PREVIEW_LIMIT} resultados adicionais`,
-        }];
-
-        await sendListMessageSections(
-            phoneE164,
-            `🔍 *"${terms.join(" ")}"* — ${found.length} opções encontradas.\n_Veja as mais relevantes abaixo ou toque em "Ver mais":_`,
-            "Ver opções",
-            [
-                { title: `Top ${PREVIEW_LIMIT} resultados`, rows: previewRows },
-                { title: "Mais opções",                     rows: verMaisRow  },
-            ]
-        );
-    } else {
-        await sendVariantsList(phoneE164, displayed, `Encontrei ${found.length} opções para`, `"${terms.join(" ")}"`);
-    }
-
+    await reply(
+        phoneE164,
+        `🔍 Encontrei estas opções:\n\n${listText}${moreHint}${multiHint}`
+    );
     return "handled";
 }
 
@@ -907,9 +1088,10 @@ async function createOrder(
     cart: CartItem[],
     paymentMethod: string,
     deliveryAddress: string,
-    changeFor?: number | null
+    changeFor?: number | null,
+    deliveryFee = 0
 ): Promise<string> {
-    const total = cartTotal(cart);
+    const total = cartTotal(cart) + deliveryFee;
 
     console.log("[createOrder] dados:", JSON.stringify({
         company_id:     companyId,
@@ -927,7 +1109,7 @@ async function createOrder(
         channel:          "whatsapp",
         payment_method:   paymentMethod,
         paid:             false,
-        delivery_fee:     0,
+        delivery_fee:     deliveryFee,
         total:            total,
         total_amount:     total,
         change_for:       changeFor ?? null,
@@ -1467,6 +1649,49 @@ async function sendVariantsList(
     );
 }
 
+// ─── DB: Zonas de entrega ─────────────────────────────────────────────────────
+
+interface DeliveryZone { id: string; label: string; fee: number; }
+
+/**
+ * Busca zona de entrega pelo nome do bairro usando .ilike() com % (fuzzy).
+ * Ex: "São Mateus" → %sao mateus%
+ */
+async function findDeliveryZone(
+    admin: SupabaseClient,
+    companyId: string,
+    neighborhood: string
+): Promise<DeliveryZone | null> {
+    const normalized = normalize(neighborhood);
+    const { data } = await admin
+        .from("delivery_zones")
+        .select("id, label, fee")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .ilike("label", `%${normalized}%`)
+        .limit(1)
+        .maybeSingle();
+
+    if (!data) return null;
+    return { id: data.id, label: data.label, fee: Number(data.fee) };
+}
+
+/** Lista todas as zonas de entrega ativas (para fallback). */
+async function listDeliveryZones(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<DeliveryZone[]> {
+    const { data } = await admin
+        .from("delivery_zones")
+        .select("id, label, fee")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .order("fee", { ascending: true })
+        .limit(20);
+
+    return (data ?? []).map((z) => ({ id: z.id, label: z.label, fee: Number(z.fee) }));
+}
+
 // ─── CATALOG_BRANDS ────────────────────────────────────────────────────────────
 
 async function handleCatalogBrands(
@@ -1568,14 +1793,140 @@ async function handleCatalogProducts(
         return;
     }
 
-    // ── Ver mais resultados de busca ──────────────────────────────────────────
+    // ── Ver mais resultados de busca (lista numerada completa) ───────────────
     if (input === "ver_mais") {
-        // Exibe a lista completa que estava guardada no contexto
         if (variants.length > 0) {
-            await sendVariantsList(phoneE164, variants, brandName || "Resultados", catName || "Busca");
+            const listText = formatNumberedList(variants);
+            await saveSession(admin, threadId, companyId, {
+                context: { ...session.context, search_numbered: true },
+            });
+            await reply(
+                phoneE164,
+                `🔍 Todas as ${variants.length} opções encontradas:\n\n${listText}\n\nDigite o *número* da opção (ex: *2*) ou vários separados por vírgula (ex: *1,3*).`
+            );
         } else {
-            await reply(phoneE164, "Não há mais opções para mostrar. Digite o nome do produto para buscar novamente.");
+            await reply(phoneE164, "Não há mais opções. Digite o nome do produto para buscar novamente.");
         }
+        return;
+    }
+
+    // ── Aguardando confirmação do bairro (para calcular taxa de entrega) ─────
+    if (session.context.awaiting_neighborhood) {
+        const zone = await findDeliveryZone(admin, companyId, input);
+        if (zone) {
+            const address    = (session.context.delivery_address as string) ?? "";
+            const cartSum    = cartTotal(session.cart);
+            const totalFinal = cartSum + zone.fee;
+            await saveSession(admin, threadId, companyId, {
+                context: {
+                    ...session.context,
+                    awaiting_neighborhood: false,
+                    delivery_fee:          zone.fee,
+                    delivery_zone_id:      zone.id,
+                    // Append neighborhood to address if not already there
+                    delivery_address: address.includes(zone.label) ? address : `${address} - ${zone.label}`,
+                },
+            });
+            await sendInteractiveButtons(
+                phoneE164,
+                `🛵 Entrega para *${zone.label}*: *${formatCurrency(zone.fee)}*\n` +
+                `💰 Total com entrega: *${formatCurrency(totalFinal)}*\n\n` +
+                `Algo mais ou deseja finalizar?`,
+                [
+                    { id: "mais_produtos", title: "Mais produtos"    },
+                    { id: "finalizar",     title: "Finalizar pedido" },
+                ]
+            );
+        } else {
+            // Bairro não encontrado → lista as zonas disponíveis
+            const zones    = await listDeliveryZones(admin, companyId);
+            const zoneList = zones.length
+                ? zones.map((z) => `• ${z.label} — ${formatCurrency(z.fee)}`).join("\n")
+                : "_Nenhuma zona cadastrada ainda._";
+            await reply(
+                phoneE164,
+                `⚠️ Não atendemos *${input}* ainda.\nNossos bairros de entrega:\n\n${zoneList}\n\n_Qual é o seu bairro?_`
+            );
+        }
+        return;
+    }
+
+    // ── Seleção numérica (quando vem de lista numerada em texto) ──────────────
+    const isNumberedSearch = Boolean(session.context.search_numbered);
+    const looksNumeric     = /^[\d,\s]+$/.test(input.trim()) && /\d/.test(input);
+
+    if (isNumberedSearch && looksNumeric && !session.context.pending_variant) {
+        // Parse: "2" → [1]   "1,3" → [0,2]   "1 3 5" → [0,2,4]
+        const indices = input
+            .split(/[,\s]+/)
+            .map((s) => parseInt(s.trim(), 10) - 1)
+            .filter((i) => !isNaN(i) && i >= 0 && i < variants.length);
+
+        console.log("[catalog_products] seleção numérica:", input, "→ índices:", indices);
+
+        if (!indices.length) {
+            const listText = formatNumberedList(variants.slice(0, 5));
+            await reply(phoneE164, `Número inválido. Escolha entre 1 e ${Math.min(variants.length, 5)}:\n\n${listText}`);
+            return;
+        }
+
+        if (indices.length === 1) {
+            // Seleção simples → pergunta quantidade
+            const v       = variants[indices[0]];
+            const vol     = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
+            const label   = `*${v.productName}${vol}* — ${formatCurrency(v.unitPrice)}`;
+            const caseInfo = v.hasCase && v.casePrice
+                ? `\n_Também disponível em caixa com ${v.caseQty}un por ${formatCurrency(v.casePrice)}._`
+                : "";
+            await saveSession(admin, threadId, companyId, {
+                context: {
+                    ...session.context,
+                    search_numbered: false,
+                    pending_variant: v,
+                    pending_is_case: false,
+                },
+            });
+            await reply(phoneE164, `${label}${caseInfo}\n\nQuantas unidades deseja?`);
+            return;
+        }
+
+        // Seleção múltipla → adiciona todos com qty = 1 e exibe resumo
+        const newCart    = [...session.cart];
+        const addedLines: string[] = [];
+
+        for (const idx of indices) {
+            const v        = variants[idx];
+            const vol      = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
+            const itemName = `${v.productName}${vol}`.trim();
+            const existing = newCart.findIndex((c) => c.variantId === v.id && !c.isCase);
+            if (existing >= 0) {
+                newCart[existing] = { ...newCart[existing], qty: newCart[existing].qty + 1 };
+            } else {
+                newCart.push({ variantId: v.id, productId: v.productId, name: itemName, price: v.unitPrice, qty: 1, isCase: false });
+            }
+            addedLines.push(`✅ 1x *${itemName}* — ${formatCurrency(v.unitPrice)}`);
+        }
+
+        await saveSession(admin, threadId, companyId, {
+            step: "catalog_products",
+            cart: newCart,
+            context: {
+                ...session.context,
+                search_numbered: false,
+                pending_variant: null,
+                pending_is_case: null,
+            },
+        });
+
+        await sendInteractiveButtons(
+            phoneE164,
+            `${addedLines.join("\n")}\n\n${formatCart(newCart)}\n\n_Cada item adicionado com 1 unidade._`,
+            [
+                { id: "mais_produtos", title: "Mais produtos" },
+                { id: "ver_carrinho",  title: "Ver carrinho"  },
+                { id: "finalizar",     title: "Finalizar pedido" },
+            ]
+        );
         return;
     }
 
@@ -1663,7 +2014,13 @@ async function handleCatalogProducts(
     }
 
     if (!selectedVariant) {
-        await sendVariantsList(phoneE164, variants, catName, brandName);
+        // Fallback: se estava em modo numerado, reexibe a lista numerada
+        if (isNumberedSearch && variants.length > 0) {
+            const listText = formatNumberedList(variants.slice(0, 5));
+            await reply(phoneE164, `Opção inválida. Escolha um número da lista:\n\n${listText}`);
+        } else {
+            await sendVariantsList(phoneE164, variants, catName, brandName);
+        }
         return;
     }
 
@@ -1792,9 +2149,10 @@ async function goToCheckoutFromCart(
 
     if (address && payment) {
         const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
-        const changeFor = (session.context.change_for as number | null) ?? null;
+        const changeFor    = (session.context.change_for   as number | null) ?? null;
+        const deliveryFee  = (session.context.delivery_fee as number | null) ?? 0;
         await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
-        await sendOrderSummary(phoneE164, session.cart, address, pmLabels[payment] ?? payment, changeFor);
+        await sendOrderSummary(phoneE164, session.cart, address, pmLabels[payment] ?? payment, changeFor, deliveryFee);
     } else {
         await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
     }
@@ -1922,23 +2280,33 @@ async function sendOrderSummary(
     cart: CartItem[],
     address: string,
     paymentLabel: string,
-    changeFor: number | null
+    changeFor: number | null,
+    deliveryFee = 0
 ): Promise<void> {
-    const changeText = changeFor ? `\n💵 Troco: ${formatCurrency(changeFor)}` : "";
+    const changeText   = changeFor   ? `\n💵 Troco: ${formatCurrency(changeFor)}` : "";
+    const feeText      = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
+    const productsTotal = cartTotal(cart);
+    const grandTotal    = productsTotal + deliveryFee;
+    const grandText     = deliveryFee > 0
+        ? `\n\n💰 *Total final: ${formatCurrency(grandTotal)}*`
+        : "";
+
     await reply(
         phoneE164,
         `📋 *Resumo do pedido:*\n\n` +
-        `${formatCart(cart)}\n\n` +
+        `${formatCart(cart)}\n` +
+        `${feeText}\n` +
         `📍 Entrega: ${address}\n` +
-        `💳 Pagamento: ${paymentLabel}${changeText}`
+        `💳 Pagamento: ${paymentLabel}${changeText}` +
+        `${grandText}`
     );
     await sendInteractiveButtons(
         phoneE164,
         "Confirmar o pedido?",
         [
-            { id: "confirmar",          title: "Confirmar pedido" },
+            { id: "confirmar",          title: "Confirmar pedido"  },
             { id: "adicionar_produtos", title: "Adicionar produtos" },
-            { id: "cancelar",           title: "Cancelar" },
+            { id: "cancelar",           title: "Cancelar"          },
         ]
     );
 }
@@ -1970,7 +2338,8 @@ async function handleCheckoutPayment(
             step:    "checkout_confirm",
             context: { ...session.context, change_for: changeFor, awaiting_change_for: false },
         });
-        await sendOrderSummary(phoneE164, session.cart, address, "Dinheiro", changeFor);
+        const feeD = (session.context.delivery_fee as number | null) ?? 0;
+        await sendOrderSummary(phoneE164, session.cart, address, "Dinheiro", changeFor, feeD);
         return;
     }
 
@@ -2010,7 +2379,8 @@ async function handleCheckoutPayment(
         step:    "checkout_confirm",
         context: { ...session.context, payment_method: method },
     });
-    await sendOrderSummary(phoneE164, session.cart, address, paymentLabel, null);
+    const deliveryFeeP = (session.context.delivery_fee as number | null) ?? 0;
+    await sendOrderSummary(phoneE164, session.cart, address, paymentLabel, null, deliveryFeeP);
 }
 
 // ─── CHECKOUT_CONFIRM ─────────────────────────────────────────────────────────
@@ -2098,8 +2468,9 @@ async function handleCheckoutConfirm(
     if (!matchesAny(input, ["confirmar", "confirmar pedido", "confirmo", "sim", "ok", "s", "1"])) {
         const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
         const pmLabel = pmLabels[paymentMethod] ?? paymentMethod;
+        const feeC = (session.context.delivery_fee as number | null) ?? 0;
         await reply(phoneE164, "⚠️ Por favor, use os botões para confirmar ou cancelar o pedido:");
-        await sendOrderSummary(phoneE164, session.cart, address, pmLabel, changeFor);
+        await sendOrderSummary(phoneE164, session.cart, address, pmLabel, changeFor, feeC);
         return;
     }
 
@@ -2135,7 +2506,8 @@ async function handleCheckoutConfirm(
     }
 
     try {
-        const orderId    = await createOrder(admin, companyId, customerId, session.cart, paymentMethod, address, changeFor);
+        const feeForOrder = (session.context.delivery_fee as number | null) ?? 0;
+        const orderId     = await createOrder(admin, companyId, customerId, session.cart, paymentMethod, address, changeFor, feeForOrder);
         const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
 
         console.log("[checkout_confirm] Pedido criado com sucesso | orderId:", orderId);
