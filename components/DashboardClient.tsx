@@ -1,14 +1,9 @@
 "use client";
-import React, { useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQuery,
-} from "@tanstack/react-query";
+import React, { useEffect, useState } from "react";
 import ProdifySidebar from "@/components/ProdifySidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   LineChart,
   Line,
@@ -38,89 +33,73 @@ type OrderStats = {
 
 type StatusSummary = Record<string, { count?: number } | number> | null;
 
-// Hooks de dados usando TanStack Query (somente leitura)
-function useDashboardOrders() {
-  return useQuery({
-    queryKey: ["dashboard", "orders", { limit: 8 }],
-    queryFn: async () => {
-      const res = await fetch("/api/orders/list?limit=8", {
-        credentials: "include",
-      });
-      const json = await res.json().catch(() => ({}));
-      return Array.isArray(json.orders) ? (json.orders as Order[]) : [];
-    },
-  });
-}
-
-function useDashboardStats() {
-  return useQuery({
-    queryKey: ["dashboard", "stats"],
-    queryFn: async () => {
-      const res = await fetch("/api/orders/stats", {
-        credentials: "include",
-      });
-      const json = (await res.json().catch(() => null)) as OrderStats | null;
-      return json;
-    },
-  });
-}
-
-function useDashboardStatusSummary() {
-  return useQuery({
-    queryKey: ["dashboard", "statusSummary"],
-    queryFn: async () => {
-      const res = await fetch("/api/orders/status", {
-        credentials: "include",
-      });
-      const json = await res.json().catch(() => null);
-      return (json as StatusSummary) ?? null;
-    },
-  });
-}
-
 export default function DashboardClient() {
-  // QueryClient local ao dashboard para não impactar o restante da app
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 1000 * 60, // 1 min
-            refetchOnWindowFocus: true,
-            refetchOnReconnect: true,
-          },
-        },
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [stats, setStats] = useState<OrderStats | null>(null);
+  const [statusSummary, setStatusSummary] = useState<StatusSummary>(null);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoadingOrders(true);
+
+    fetch("/api/orders/list?limit=8", { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (!isMounted) return;
+        setOrders(Array.isArray(json.orders) ? json.orders : []);
       })
-  );
+      .catch(() => {
+        if (!isMounted) return;
+        setOrders([]);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoadingOrders(false);
+      });
 
-  return (
-    <QueryClientProvider client={queryClient}>
-      <DashboardContent />
-    </QueryClientProvider>
-  );
-}
+    fetch("/api/orders/stats", { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (!isMounted) return;
+        setStats(json);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setStats(null);
+      });
 
-const DashboardContent: React.FC = () => {
-  const { data: orders = [], isLoading: loadingOrders } = useDashboardOrders();
-  const { data: stats, isLoading: loadingStats } = useDashboardStats();
-  const { data: statusSummary, isLoading: loadingStatus } =
-    useDashboardStatusSummary();
+    fetch("/api/orders/status", { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (!isMounted) return;
+        setStatusSummary(json);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setStatusSummary(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   function fmtBRL(n?: number) {
     return (n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
   }
 
-  const pieData = statusSummary
-    ? Object.entries(statusSummary).map(([k, v]: any) => ({
-        name: k,
-        value: v.count ?? v,
-      }))
-    : [
-        { name: "A", value: 58 },
-        { name: "B", value: 20 },
-        { name: "C", value: 22 },
-      ];
-
+  const pieData =
+    statusSummary && typeof statusSummary === "object"
+      ? Object.entries(statusSummary).map(([k, v]: any) => ({
+          name: k,
+          value: v?.count ?? v ?? 0,
+        }))
+      : [
+          { name: "A", value: 58 },
+          { name: "B", value: 20 },
+          { name: "C", value: 22 },
+        ];
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50">
