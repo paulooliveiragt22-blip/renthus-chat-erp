@@ -121,6 +121,7 @@ function DashboardContent() {
         { name: "C", value: 22 },
       ];
 
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50">
       <ProdifySidebar />
