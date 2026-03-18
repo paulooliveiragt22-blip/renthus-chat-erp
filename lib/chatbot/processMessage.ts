@@ -57,6 +57,106 @@ function matchesAny(input: string, keywords: string[]): boolean {
     return keywords.some((k) => n.includes(normalize(k)));
 }
 
+// ─── Processamento de linguagem natural ───────────────────────────────────────
+
+/** Palavras que não carregam informação de produto e devem ser ignoradas na busca. */
+const STOPWORDS = new Set([
+    // intenção / verbos
+    "quero","quer","queria","gostaria","pode","manda","mande","traz","traga",
+    "ve","ver","preciso","quero pedir","to querendo","vou querer","quero ver",
+    "comprar","pedir","adicionar","colocar","botar","busca","buscar",
+    // pronomes / artigos / preposições
+    "me","mim","pra","para","de","do","da","dos","das","um","uma","uns","umas",
+    "o","a","os","as","eh","e","com","sem","por","no","na","nos","nas","ai","aqui",
+    "la","la","aquele","aquela","voce","vc","tu","voce","isso","esse","essa",
+    "esses","essas","desse","desta","dele","dela","este","esta","aqui","so","la",
+    // filler / cortesia
+    "mano","cara","brother","bro","pfv","pf","por favor","favor","obrigado","obg",
+    "bom","boa","dia","tarde","noite","oi","ola","alo","tudo","bem","ate",
+    "também","mais","só","somente","apenas","mesmo","mesma","tal",
+    // genéricos de produto
+    "produto","bebida","bebidas","item","itens","coisas","coisa","alguma",
+    "alguem","algo","tem","ter","disponivel","disponivel","disponivel",
+]);
+
+/**
+ * Remove stopwords e retorna os termos relevantes.
+ * Ex: "quero 3 skol lata por favor" → ["3","skol","lata"]
+ * Ex: "Quero 3 cerveja Skol" → ["3","cerveja","skol"]
+ */
+function extractTerms(input: string): string[] {
+    const words = normalize(input).split(/[\s,;:!?]+/);
+    return words.filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+}
+
+/**
+ * Extrai quantidade numérica de uma lista de termos.
+ * Returns { qty, terms } where terms has the number removed.
+ */
+function extractQuantity(terms: string[]): { qty: number; terms: string[] } {
+    let qty = 1;
+    const rest: string[] = [];
+    for (const t of terms) {
+        const n = parseInt(t, 10);
+        if (!isNaN(n) && n >= 1 && n <= 99 && /^\d+$/.test(t)) {
+            qty = n;
+        } else {
+            rest.push(t);
+        }
+    }
+    return { qty, terms: rest };
+}
+
+/**
+ * Divide a mensagem em partes por separadores comuns de pedido múltiplo.
+ * Ex: "2 skol e 1 gelo" → ["2 skol", "1 gelo"]
+ * Ex: "brahma, skol + carvao" → ["brahma", "skol", "carvao"]
+ */
+function splitMultiItems(input: string): string[] {
+    return input
+        .split(/\s+e\s+|\s*\+\s*|\s*,\s*|\s+mais\s+|\s+com\s+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+}
+
+/** Palavras que indicam bebida → ativam sugestão de gelo/carvão. */
+const DRINK_KEYWORDS = [
+    "cerveja","chopp","vodka","rum","gin","whisky","whiskey","cachaca",
+    "destilado","dose","longeck","lata","latinha","litrao","garrafa",
+    "refrigerante","energetico","gelada","gelado","skol","brahma",
+    "heineken","corona","budweiser","original","itaipava","amstel",
+];
+
+/** Retorna true se o nome do item parece uma bebida. */
+function isDrinkItem(name: string): boolean {
+    const n = normalize(name);
+    return DRINK_KEYWORDS.some((k) => n.includes(k));
+}
+
+/**
+ * Verifica se o carrinho tem pelo menos uma bebida MAS não tem gelo ou carvão.
+ * Usado para disparar o cross-selling.
+ */
+function needsCrossSell(cart: CartItem[]): boolean {
+    const hasDrink    = cart.some((i) => isDrinkItem(i.name));
+    const hasIceCoal  = cart.some((i) => {
+        const n = normalize(i.name);
+        return n.includes("gelo") || n.includes("carvao") || n.includes("carvão");
+    });
+    return hasDrink && !hasIceCoal;
+}
+
+/** Mescla um array de novos itens no carrinho existente (soma qtd se já existe). */
+function mergeCart(existing: CartItem[], toAdd: CartItem[]): CartItem[] {
+    const cart = [...existing];
+    for (const item of toAdd) {
+        const idx = cart.findIndex((c) => c.variantId === item.variantId && Boolean(c.isCase) === Boolean(item.isCase));
+        if (idx >= 0) cart[idx] = { ...cart[idx], qty: cart[idx].qty + item.qty };
+        else cart.push(item);
+    }
+    return cart;
+}
+
 function formatCurrency(value: number): string {
     return new Intl.NumberFormat("pt-BR", {
         style: "currency",
@@ -182,16 +282,37 @@ interface Brand {
 
 /** Variante de produto para exibição no catálogo (após seleção de marca). */
 interface VariantRow {
-    id:          string;
-    productId:   string;
-    productName: string;
-    details:     string | null;
-    volumeValue: number;
-    unit:        string;
-    unitPrice:   number;
-    hasCase:     boolean;
-    caseQty:     number | null;
-    casePrice:   number | null;
+    id:              string;
+    productId:       string;
+    productName:     string;
+    details:         string | null;
+    tags:            string | null;  // sinônimos separados por vírgula
+    volumeValue:     number;
+    unit:            string;
+    unitPrice:       number;
+    hasCase:         boolean;
+    caseQty:         number | null;
+    casePrice:       number | null;
+    isAccompaniment: boolean;
+}
+
+// ─── helpers de texto (normalização para busca) ───────────────────────────────
+
+/**
+ * Verifica se um termo de busca bate com o produto.
+ * Retorna 2 = match no nome/marca (prioridade alta), 1 = match nas tags/detalhes, 0 = sem match.
+ */
+function matchScore(term: string, productName: string, tags: string | null): 0 | 1 | 2 {
+    const t = normalize(term);
+    if (!t) return 0;
+    // prioridade 1: nome do produto
+    if (normalize(productName).includes(t)) return 2;
+    // prioridade 2: tags (sinônimos separados por vírgula)
+    if (tags) {
+        const synonyms = tags.split(",").map((s) => normalize(s.trim()));
+        if (synonyms.some((s) => s.includes(t) || t.includes(s))) return 1;
+    }
+    return 0;
 }
 
 async function getCategories(admin: SupabaseClient, companyId: string): Promise<Category[]> {
@@ -346,7 +467,7 @@ async function getVariantsByBrandAndCategory(
     // Etapa 2: variantes ativas desses produtos
     const { data: vars } = await admin
         .from("product_variants")
-        .select("id, product_id, details, volume_value, unit, unit_price, has_case, case_qty, case_price")
+        .select("id, product_id, details, tags, volume_value, unit, unit_price, has_case, case_qty, case_price, is_accompaniment")
         .in("product_id", productIds)
         .eq("is_active", true)
         .order("volume_value", { ascending: true });
@@ -354,17 +475,381 @@ async function getVariantsByBrandAndCategory(
     if (!vars?.length) return [];
 
     return (vars as any[]).map((v) => ({
-        id:          v.id,
-        productId:   v.product_id,
-        productName: prodMap[v.product_id] ?? "",
-        details:     v.details ?? null,
-        volumeValue: Number(v.volume_value ?? 0),
-        unit:        v.unit ?? "ml",
-        unitPrice:   Number(v.unit_price ?? 0),
-        hasCase:     Boolean(v.has_case),
-        caseQty:     v.case_qty  ? Number(v.case_qty)  : null,
-        casePrice:   v.case_price ? Number(v.case_price) : null,
+        id:              v.id,
+        productId:       v.product_id,
+        productName:     prodMap[v.product_id] ?? "",
+        details:         v.details ?? null,
+        tags:            v.tags    ?? null,
+        volumeValue:     Number(v.volume_value ?? 0),
+        unit:            v.unit ?? "ml",
+        unitPrice:       Number(v.unit_price ?? 0),
+        hasCase:         Boolean(v.has_case),
+        caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
+        casePrice:       v.case_price ? Number(v.case_price) : null,
+        isAccompaniment: Boolean(v.is_accompaniment),
     }));
+}
+
+/**
+ * Busca variantes por texto livre com OR-scoring.
+ *
+ * Lógica de pontuação por variante:
+ *   +4  → termo bate exatamente no início do nome do produto (ex: "skol" em "Skol Lata")
+ *   +2  → termo contido em qualquer parte do nome do produto
+ *   +1  → termo contido em tags ou detalhes
+ *
+ * Uma variante é incluída se QUALQUER termo bater em pelo menos um campo.
+ * Resultados são ordenados por score decrescente → mais relevantes primeiro.
+ *
+ * Se nenhum resultado for encontrado via JS, faz uma segunda passagem com
+ * queries .ilike() direto no Supabase (fallback para casos onde o cache
+ * de 300 linhas não capturou o produto).
+ */
+async function searchVariantsByText(
+    admin: SupabaseClient,
+    companyId: string,
+    searchInput: string | string[],
+    limit = 10
+): Promise<VariantRow[]> {
+    // Normaliza entrada → array de termos limpos (sem stopwords já removidas pelo caller)
+    const terms: string[] = Array.isArray(searchInput)
+        ? searchInput.map(normalize).filter((t) => t.length >= 2)
+        : normalize(searchInput).split(/\s+/).filter((t) => t.length >= 2);
+
+    if (!terms.length) return [];
+
+    console.log("[search] termos normalizados para busca:", terms);
+
+    // ── Passagem 1: busca ampla em memória ────────────────────────────────────
+    const { data, error } = await admin
+        .from("product_variants")
+        .select(`
+            id, product_id, details, tags, volume_value, unit,
+            unit_price, has_case, case_qty, case_price, is_accompaniment,
+            products!inner(id, name, is_active)
+        `)
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .limit(400);
+
+    if (error) console.error("[search] erro Supabase:", error.message);
+    console.log("[search] variantes carregadas:", data?.length ?? 0);
+
+    if (!data?.length) return [];
+
+    type Scored = { row: VariantRow; score: number };
+    const scored: Scored[] = [];
+
+    for (const v of data as any[]) {
+        const p = Array.isArray(v.products) ? v.products[0] : v.products;
+        if (!p?.is_active) continue;
+
+        const productName = normalize(String(p?.name ?? ""));
+        const tagStr      = v.tags    ? normalize(String(v.tags))    : "";
+        const detailStr   = v.details ? normalize(String(v.details)) : "";
+
+        let totalScore = 0;
+
+        for (const term of terms) {
+            // Nome exato no início → prioridade máxima
+            if (productName.startsWith(term))          totalScore += 4;
+            // Nome contém o termo em qualquer posição
+            else if (productName.includes(term))       totalScore += 2;
+
+            // Tags: cada tag separada por vírgula é comparada individualmente
+            if (tagStr) {
+                const tagTokens = tagStr.split(/[,;]+/).map((t: string) => t.trim());
+                if (tagTokens.some((t: string) => t.includes(term) || term.includes(t)))
+                    totalScore += 1;
+            }
+
+            // Detalhes: busca simples de substring
+            if (detailStr.includes(term)) totalScore += 1;
+        }
+
+        // Inclui se ao menos 1 ponto (qualquer match parcial)
+        if (totalScore <= 0) continue;
+
+        scored.push({
+            score: totalScore,
+            row: {
+                id:              String(v.id),
+                productId:       String(v.product_id),
+                productName:     String(p?.name ?? ""),
+                details:         v.details ?? null,
+                tags:            v.tags    ?? null,
+                volumeValue:     Number(v.volume_value ?? 0),
+                unit:            v.unit ?? "ml",
+                unitPrice:       Number(v.unit_price ?? 0),
+                hasCase:         Boolean(v.has_case),
+                caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
+                casePrice:       v.case_price ? Number(v.case_price) : null,
+                isAccompaniment: Boolean(v.is_accompaniment),
+            },
+        });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    const pass1 = scored.slice(0, limit).map((s) => s.row);
+
+    console.log("[search] resultados pass1:", pass1.length, "| scores:", scored.slice(0, 5).map(s => `${s.row.productName}(${s.score})`));
+
+    if (pass1.length > 0) return pass1;
+
+    // ── Passagem 2: fallback via .ilike() no Supabase ─────────────────────────
+    // Útil se o catálogo tiver mais de 400 variantes ou a variante estava inativa
+    console.log("[search] pass1 vazia → tentando ilike fallback para termos:", terms);
+
+    const ilikeFilters = terms.map((t) => `products.name.ilike.%${t}%`).join(",");
+    const { data: fallbackData } = await admin
+        .from("product_variants")
+        .select(`
+            id, product_id, details, tags, volume_value, unit,
+            unit_price, has_case, case_qty, case_price, is_accompaniment,
+            products!inner(id, name, is_active)
+        `)
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .or(ilikeFilters)
+        .limit(limit);
+
+    if (!fallbackData?.length) {
+        console.log("[search] ilike fallback também não retornou resultados");
+        return [];
+    }
+
+    console.log("[search] ilike fallback encontrou:", fallbackData.length, "variantes");
+
+    return (fallbackData as any[])
+        .filter((v) => {
+            const p = Array.isArray(v.products) ? v.products[0] : v.products;
+            return p?.is_active;
+        })
+        .map((v) => {
+            const p = Array.isArray(v.products) ? v.products[0] : v.products;
+            return {
+                id:              String(v.id),
+                productId:       String(v.product_id),
+                productName:     String(p?.name ?? ""),
+                details:         v.details ?? null,
+                tags:            v.tags    ?? null,
+                volumeValue:     Number(v.volume_value ?? 0),
+                unit:            v.unit ?? "ml",
+                unitPrice:       Number(v.unit_price ?? 0),
+                hasCase:         Boolean(v.has_case),
+                caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
+                casePrice:       v.case_price ? Number(v.case_price) : null,
+                isAccompaniment: Boolean(v.is_accompaniment),
+            };
+        })
+        .slice(0, limit);
+}
+
+/**
+ * Processador central de texto livre.
+ * Extrai stopwords → quantidade → termos → busca no Supabase (OR scoring).
+ *
+ * Retorna:
+ *   "handled"  → mensagem respondida, caller não precisa fazer nada
+ *   "notfound" → nenhum produto encontrado (caller pode exibir fallback)
+ *   "skip"     → input muito curto/só stopwords, caller trata normalmente
+ */
+async function handleFreeTextInput(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    rawInput: string,
+    session: Session
+): Promise<"handled" | "notfound" | "skip"> {
+    const allTerms = extractTerms(rawInput);
+
+    console.log(`[freetext] input: "${rawInput}" | todos os termos extraídos:`, allTerms);
+
+    if (!allTerms.length) {
+        console.log("[freetext] → skip (sem termos após remover stopwords)");
+        return "skip";
+    }
+
+    const { qty, terms } = extractQuantity(allTerms);
+
+    console.log(`[freetext] termos de busca: [${terms.join(", ")}] | quantidade detectada: ${qty}`);
+
+    if (!terms.length) {
+        console.log("[freetext] → skip (só tinha números, sem termos de produto)");
+        return "skip";
+    }
+
+    const found = await searchVariantsByText(admin, companyId, terms);
+
+    console.log(`[freetext] produtos encontrados no Supabase: ${found.length}`, found.map(v => v.productName));
+
+    // ── Nenhum resultado ──────────────────────────────────────────────────────
+    if (!found.length) {
+        console.log("[freetext] → notfound (nenhuma variante correspondeu)");
+        return "notfound";
+    }
+
+    // ── Match único → confirmação automática ou pergunta de quantidade ────────
+    if (found.length === 1) {
+        const v        = found[0];
+        const volLabel = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
+        const name     = `${v.productName}${volLabel}`.trim();
+
+        if (qty > 1) {
+            // Quantidade extraída da mensagem → adiciona direto ao carrinho
+            const newItem: CartItem = {
+                variantId: v.id,
+                productId: v.productId,
+                name,
+                price:   v.unitPrice,
+                qty,
+                isCase:  false,
+            };
+            const existingIdx = session.cart.findIndex(
+                (i) => i.variantId === v.id && !i.isCase
+            );
+            const newCart = [...session.cart];
+            if (existingIdx >= 0) {
+                newCart[existingIdx] = { ...newCart[existingIdx], qty: newCart[existingIdx].qty + qty };
+            } else {
+                newCart.push(newItem);
+            }
+
+            await saveSession(admin, threadId, companyId, {
+                step: "catalog_products",
+                cart: newCart,
+                context: {
+                    ...session.context,
+                    variants:       found,
+                    brand_name:     "Resultados",
+                    category_name:  "Busca",
+                    pending_variant: null,
+                    pending_is_case: null,
+                },
+            });
+
+            await sendInteractiveButtons(
+                phoneE164,
+                `✅ Certo! Adicionei *${qty}x ${name}* (${formatCurrency(v.unitPrice * qty)}) ao seu pedido.\n\n${formatCart(newCart)}\n\nDeseja mais alguma coisa ou podemos fechar?`,
+                [
+                    { id: "mais_produtos", title: "Mais produtos" },
+                    { id: "ver_carrinho",  title: "Ver carrinho" },
+                    { id: "finalizar",     title: "Finalizar pedido" },
+                ]
+            );
+            return "handled";
+        }
+
+        // Sem quantidade → pergunta quanto quer
+        await saveSession(admin, threadId, companyId, {
+            step:    "catalog_products",
+            context: {
+                ...session.context,
+                variants:        found,
+                brand_name:      "Resultados",
+                category_name:   "Busca",
+                pending_variant: v,
+                pending_is_case: false,
+            },
+        });
+
+        const caseInfo = v.hasCase && v.casePrice
+            ? `\n_Também disponível em caixa com ${v.caseQty}un por ${formatCurrency(v.casePrice)}._`
+            : "";
+        await reply(
+            phoneE164,
+            `Encontrei *${name}* por *${formatCurrency(v.unitPrice)}*. 🍺${caseInfo}\n\nQuantas unidades deseja?`
+        );
+        return "handled";
+    }
+
+    // ── Múltiplos resultados → lista interativa ───────────────────────────────
+    // Se houver mais de 5 opções, exibe só as 3 primeiras + botão "Ver mais"
+    // para não poluir o WhatsApp do cliente.
+    const PREVIEW_LIMIT = 3;
+    const hasMore       = found.length > 5;
+    const displayed     = hasMore ? found.slice(0, PREVIEW_LIMIT) : found;
+
+    // Salva TODOS os resultados no contexto (para o "Ver mais" depois)
+    await saveSession(admin, threadId, companyId, {
+        step:    "catalog_products",
+        context: {
+            ...session.context,
+            variants:        found,      // lista completa preservada
+            brand_name:      "Resultados",
+            category_name:   "Busca",
+            pending_variant: null,
+            pending_is_case: null,
+        },
+    });
+
+    if (hasMore) {
+        // Constrói lista apenas com os top 3
+        const previewRows = displayed.map((v) => ({
+            id:          v.id,
+            title:       truncateTitle(`${v.productName} ${v.volumeValue}${v.unit}`),
+            description: `${formatCurrency(v.unitPrice)}${v.details ? " · " + v.details : ""}`,
+        }));
+
+        const verMaisRow = [{
+            id:          "ver_mais",
+            title:       "🔍 Ver mais opções",
+            description: `${found.length - PREVIEW_LIMIT} resultados adicionais`,
+        }];
+
+        await sendListMessageSections(
+            phoneE164,
+            `🔍 *"${terms.join(" ")}"* — ${found.length} opções encontradas.\n_Veja as mais relevantes abaixo ou toque em "Ver mais":_`,
+            "Ver opções",
+            [
+                { title: `Top ${PREVIEW_LIMIT} resultados`, rows: previewRows },
+                { title: "Mais opções",                     rows: verMaisRow  },
+            ]
+        );
+    } else {
+        await sendVariantsList(phoneE164, displayed, `Encontrei ${found.length} opções para`, `"${terms.join(" ")}"`);
+    }
+
+    return "handled";
+}
+
+/** Busca itens marcados como acompanhamento para sugerir após pedido fechado. */
+async function getAccompanimentItems(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<VariantRow[]> {
+    const { data } = await admin
+        .from("product_variants")
+        .select(`
+            id, product_id, details, tags, volume_value, unit,
+            unit_price, has_case, case_qty, case_price, is_accompaniment,
+            products!inner(id, name, is_active)
+        `)
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .eq("is_accompaniment", true)
+        .limit(5);
+
+    if (!data?.length) return [];
+
+    return (data as any[]).map((v) => {
+        const p = Array.isArray(v.products) ? v.products[0] : v.products;
+        return {
+            id:              String(v.id),
+            productId:       String(v.product_id),
+            productName:     String(p?.name ?? ""),
+            details:         v.details ?? null,
+            tags:            v.tags    ?? null,
+            volumeValue:     Number(v.volume_value ?? 0),
+            unit:            v.unit ?? "ml",
+            unitPrice:       Number(v.unit_price ?? 0),
+            hasCase:         Boolean(v.has_case),
+            caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
+            casePrice:       v.case_price ? Number(v.case_price) : null,
+            isAccompaniment: true,
+        };
+    });
 }
 
 // ─── DB: Cliente ──────────────────────────────────────────────────────────────
@@ -590,6 +1075,14 @@ export async function processInboundMessage(
         return;
     }
 
+    // ── Atalho global de checkout: "fechar", "pagar", "finalizar", "acabou" ──
+    const CHECKOUT_KEYWORDS = ["fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha","bater caixa"];
+    if (matchesAny(input, CHECKOUT_KEYWORDS) && session.cart.length > 0) {
+        console.log("[chatbot] atalho de checkout detectado | cart:", session.cart.length);
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
+        return;
+    }
+
     // ── Roteamento por etapa ─────────────────────────────────────────────────
 
     switch (session.step) {
@@ -748,6 +1241,16 @@ async function handleMainMenu(
         return;
     }
 
+    // ── Busca livre antecipada: se a mensagem parece um pedido de produto, tenta buscar
+    //    antes de validar os atalhos 1/2/3 para não perder a intenção do cliente.
+    //    Critério: mais de uma palavra OU contém dígito junto com texto (ex: "3 skol")
+    const looksLikeProduct = /\s/.test(input) || /\d/.test(input);
+    if (looksLikeProduct && input.length > 2) {
+        const ftEarly = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+        if (ftEarly === "handled") return;
+        // "notfound" ou "skip" → continua o fluxo normal abaixo
+    }
+
     // Opção 1: Ver cardápio
     if (input === "1" || matchesAny(input, ["cardapio", "produtos", "bebidas", "ver"])) {
         const categories = await getCategories(admin, companyId);
@@ -828,6 +1331,19 @@ async function handleMainMenu(
         return;
     }
 
+    // Texto livre → tenta buscar produto antes de repetir menu
+    const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+    if (ftResult === "handled") return;
+
+    if (ftResult === "notfound") {
+        await reply(
+            phoneE164,
+            `Não encontrei exatamente o que você pediu por _"${input}"_, mas aqui estão as opções:\n\n` +
+            buildMainMenu(companyName)
+        );
+        return;
+    }
+
     // Input inválido → repete menu
     await reply(phoneE164, buildMainMenu(companyName));
 }
@@ -854,10 +1370,26 @@ async function handleCatalogCategories(
         selected = categories.find((c) => normalize(c.name).includes(lower)) ?? null;
     }
 
+    // ── Busca livre por texto ─────────────────────────────────────────────────
+    if (!selected && input.length >= 2) {
+        const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+        if (ftResult === "handled") return;
+        if (ftResult === "notfound") {
+            await sendListMessage(
+                phoneE164,
+                `Não encontrei _"${input}"_ 😅 Escolha uma categoria:`,
+                "Ver categorias",
+                categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+                "Categorias"
+            );
+            return;
+        }
+    }
+
     if (!selected) {
         await sendListMessage(
             phoneE164,
-            "Não entendi. Escolha uma categoria:",
+            "Não entendi. Escolha uma categoria ou *digite o nome do produto*:",
             "Ver categorias",
             categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
             "Categorias"
@@ -977,6 +1509,11 @@ async function handleCatalogBrands(
     }
 
     if (!selected) {
+        // Tenta busca livre antes de repetir lista de marcas
+        if (input.length >= 2) {
+            const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+            if (ftResult === "handled") return;
+        }
         await sendBrandsList(phoneE164, brands, catName);
         return;
     }
@@ -1028,6 +1565,17 @@ async function handleCatalogProducts(
             categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
             "Categorias"
         );
+        return;
+    }
+
+    // ── Ver mais resultados de busca ──────────────────────────────────────────
+    if (input === "ver_mais") {
+        // Exibe a lista completa que estava guardada no contexto
+        if (variants.length > 0) {
+            await sendVariantsList(phoneE164, variants, brandName || "Resultados", catName || "Busca");
+        } else {
+            await reply(phoneE164, "Não há mais opções para mostrar. Digite o nome do produto para buscar novamente.");
+        }
         return;
     }
 
@@ -1195,6 +1743,10 @@ async function handleCart(
             return;
         }
     }
+
+    // Texto livre → tenta adicionar produto diretamente
+    const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+    if (ftResult === "handled") return;
 
     await goToCart(admin, companyId, threadId, phoneE164, session);
 }
@@ -1612,6 +2164,24 @@ async function handleCheckoutConfirm(
             `📦 Recebemos seu pedido e já estamos preparando!\n` +
             `_Obrigado por pedir no ${companyName}!_`
         );
+
+        // ── Sugestão de acompanhamentos ────────────────────────────────────────
+        try {
+            const accompaniments = await getAccompanimentItems(admin, companyId);
+            if (accompaniments.length > 0) {
+                const lines = accompaniments.map((v) => {
+                    const vol  = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
+                    const name = `${v.productName}${vol}`.trim();
+                    return `• ${name} — ${formatCurrency(v.unitPrice)}`;
+                });
+                await reply(
+                    phoneE164,
+                    `🛒 *Que tal adicionar ao seu pedido?*\n\n${lines.join("\n")}\n\n` +
+                    `_Digite *1* para ver o cardápio completo ou *menu* para voltar ao início._`
+                );
+            }
+        } catch { /* não bloqueia o fluxo principal */ }
+
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[checkout_confirm] ERRO ao criar pedido:", msg);

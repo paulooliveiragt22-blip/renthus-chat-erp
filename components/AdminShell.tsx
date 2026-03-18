@@ -86,9 +86,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
     return (
         <AdminOrdersProvider openOrder={openOrder}>
-            <div className="flex min-h-screen bg-zinc-950 text-zinc-50">
+            <div className="flex h-screen overflow-hidden bg-zinc-100 text-zinc-900 transition-colors duration-300 dark:bg-zinc-950 dark:text-zinc-50">
                 <AdminSidebar />
-                <main className="flex-1 bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-900/95">
+                <main className="flex flex-1 flex-col overflow-y-auto bg-zinc-100 transition-colors duration-300 dark:bg-zinc-950">
                     <div className="mx-auto w-full max-w-6xl px-3 py-4 md:px-6 md:py-6">
                         {children}
                     </div>
