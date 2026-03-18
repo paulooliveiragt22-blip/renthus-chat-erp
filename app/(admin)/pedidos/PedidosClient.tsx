@@ -91,10 +91,16 @@ function timeAgo(iso: string) {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-    new:       "bg-blue-100 text-blue-800",
-    delivered: "bg-emerald-100 text-emerald-800",
-    finalized: "bg-violet-100 text-violet-800",
-    canceled:  "bg-zinc-100 text-zinc-600",
+    new:       "bg-blue-100 text-blue-700",
+    delivered: "bg-emerald-100 text-emerald-700",
+    finalized: "bg-violet-100 text-violet-700",
+    canceled:  "bg-zinc-100 text-zinc-500",
+};
+
+const PAYMENT_BADGE: Record<string, string> = {
+    pix:  "bg-green-100 text-green-700",
+    card: "bg-purple-100 text-purple-700",
+    cash: "bg-amber-100 text-amber-700",
 };
 
 // ─── componente principal ─────────────────────────────────────────────────────
@@ -541,8 +547,6 @@ export default function PedidosPage() {
     return (
         <div className="flex flex-col gap-4 min-h-full">
 
-            <div className="bg-red-500 text-white p-10">TESTE TAILWIND</div>
-
             {/* ── HEADER ── */}
             <header className="flex items-center justify-between rounded-xl bg-purple-900 px-5 py-4 shadow-md">
                 <div>
@@ -581,8 +585,8 @@ export default function PedidosPage() {
                 {/* Novos */}
                 <button
                     onClick={() => setStatusFilter("new")}
-                    className={`rounded-xl border-l-4 border-orange-400 bg-white p-4 text-left shadow-sm transition hover:shadow-md ${statusFilter === "new" ? "ring-2 ring-orange-300" : ""}`}
-                >
+                    className={`rounded-xl border-l-4 border-orange-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${statusFilter === "new" ? "ring-2 ring-orange-300" : ""}`}
+>
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-[11px] font-medium text-zinc-500">Novos pedidos</p>
@@ -596,7 +600,7 @@ export default function PedidosPage() {
                 </button>
 
                 {/* Em preparação */}
-                <div className="rounded-xl border-l-4 border-purple-500 bg-white p-4 text-left shadow-sm">
+                <div className="rounded-xl border-l-4 border-purple-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md">
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-[11px] font-medium text-zinc-500">Em preparação</p>
@@ -612,8 +616,8 @@ export default function PedidosPage() {
                 {/* Em entrega */}
                 <button
                     onClick={() => setStatusFilter("delivered")}
-                    className={`rounded-xl border-l-4 border-sky-400 bg-white p-4 text-left shadow-sm transition hover:shadow-md ${statusFilter === "delivered" ? "ring-2 ring-sky-300" : ""}`}
-                >
+                    className={`rounded-xl border-l-4 border-sky-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${statusFilter === "delivered" ? "ring-2 ring-sky-300" : ""}`}
+>
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-[11px] font-medium text-zinc-500">Em entrega</p>
@@ -629,8 +633,8 @@ export default function PedidosPage() {
                 {/* Finalizados hoje */}
                 <button
                     onClick={() => setStatusFilter("finalized")}
-                    className={`rounded-xl border-l-4 border-emerald-500 bg-white p-4 text-left shadow-sm transition hover:shadow-md ${statusFilter === "finalized" ? "ring-2 ring-emerald-300" : ""}`}
-                >
+                    className={`rounded-xl border-l-4 border-emerald-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${statusFilter === "finalized" ? "ring-2 ring-emerald-300" : ""}`}
+>
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-[11px] font-medium text-zinc-500">Faturamento (hoje)</p>
@@ -678,10 +682,15 @@ export default function PedidosPage() {
                 {loading ? (
                     <div className="divide-y divide-zinc-100">
                         {Array.from({ length: 6 }).map((_, i) => (
-                            <div key={i} className="flex items-center gap-4 px-5 py-4">
-                                <div className="h-4 w-16 animate-pulse rounded bg-zinc-100" />
-                                <div className="h-4 w-40 animate-pulse rounded bg-zinc-100" />
-                                <div className="ml-auto h-4 w-24 animate-pulse rounded bg-zinc-100" />
+                            <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white">
+                                <div className="h-4 w-14 animate-pulse rounded-full bg-zinc-100" />
+                                <div className="flex flex-1 flex-col gap-2">
+                                    <div className="h-4 w-40 animate-pulse rounded bg-zinc-100" />
+                                    <div className="h-3 w-28 animate-pulse rounded bg-zinc-50" />
+                                </div>
+                                <div className="h-6 w-16 animate-pulse rounded-full bg-zinc-100" />
+                                <div className="h-6 w-20 animate-pulse rounded-full bg-zinc-100" />
+                                <div className="h-4 w-20 animate-pulse rounded bg-zinc-100" />
                             </div>
                         ))}
                     </div>
@@ -703,21 +712,23 @@ export default function PedidosPage() {
                             const recentTs   = recentOrders[o.id];
                             const isRecent   = !!recentTs && Date.now() - recentTs < 60000;
 
+                            const pmKey = String((o as any).payment_method ?? "");
+
                             return (
                                 <div
                                     key={o.id}
                                     onClick={() => openOrder(o.id)}
-                                    className="group flex cursor-pointer items-start gap-4 px-5 py-4 hover:bg-zinc-50 transition-colors"
+                                    className="group flex cursor-pointer items-center gap-4 px-5 py-4 bg-white hover:bg-zinc-50 transition-colors"
                                 >
                                     {/* Ping + Nº */}
-                                    <div className="flex w-20 shrink-0 items-center gap-2 pt-0.5">
+                                    <div className="flex w-20 shrink-0 items-center gap-2">
                                         {isRecent && (
                                             <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
                                                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                                                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
                                             </span>
                                         )}
-                                        <span className="text-xs font-bold text-zinc-900">#{num}</span>
+                                        <span className="text-xs font-bold text-zinc-400">#{num}</span>
                                     </div>
 
                                     {/* Cliente */}
@@ -725,27 +736,35 @@ export default function PedidosPage() {
                                         <span className="truncate text-sm font-semibold text-zinc-900">{name}</span>
                                         <div className="flex flex-wrap items-center gap-2">
                                             <span className="text-xs text-zinc-500">{phone}</span>
-                                            <span className="text-[11px] text-sky-600">{timeAgo(o.created_at)}</span>
+                                            <span className="text-[11px] text-sky-500 font-medium">{timeAgo(o.created_at)}</span>
                                         </div>
-                                        {addr && addr !== "-" && <span className="mt-0.5 truncate text-[11px] text-zinc-400">{addr}</span>}
-                                        {obs && <span className="mt-0.5 text-[11px] font-medium text-amber-700">{obs}</span>}
+                                        {addr && addr !== "-" && (
+                                            <span className="truncate text-[11px] text-zinc-400">{addr}</span>
+                                        )}
+                                        {obs && (
+                                            <span className="text-[11px] font-medium text-amber-700 italic">{obs}</span>
+                                        )}
                                     </div>
 
-                                    {/* Pagamento */}
-                                    <div className="hidden shrink-0 flex-col items-end gap-0.5 sm:flex">
-                                        <span className="text-xs font-medium text-zinc-700">{pmStr}</span>
-                                        {(o as any).paid && <span className="text-[10px] text-emerald-600 font-semibold">pago</span>}
+                                    {/* Pagamento badge */}
+                                    <div className="hidden shrink-0 flex-col items-end gap-1 sm:flex">
+                                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${PAYMENT_BADGE[pmKey] ?? "bg-zinc-100 text-zinc-500"}`}>
+                                            {pmStr}
+                                        </span>
+                                        {(o as any).paid && (
+                                            <span className="text-[10px] font-bold text-emerald-600">✓ pago</span>
+                                        )}
                                     </div>
 
-                                    {/* Status */}
+                                    {/* Status badge */}
                                     <div className="shrink-0">
-                                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_BADGE[st] ?? "bg-zinc-100 text-zinc-600"}`}>
+                                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${STATUS_BADGE[st] ?? "bg-zinc-100 text-zinc-500"}`}>
                                             {prettyStatus(st)}
                                         </span>
                                     </div>
 
                                     {/* Total */}
-                                    <div className="w-24 shrink-0 text-right">
+                                    <div className="w-28 shrink-0 text-right">
                                         <span className="text-sm font-bold text-zinc-900">R$ {formatBRL(o.total_amount)}</span>
                                     </div>
 
@@ -757,22 +776,22 @@ export default function PedidosPage() {
                                         <button
                                             title="Ver pedido"
                                             onClick={() => openOrder(o.id)}
-                                            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
+                                            className="rounded-lg p-2 text-zinc-400 hover:bg-violet-50 hover:text-violet-600 transition-colors"
                                         >
                                             <Eye className="h-4 w-4" />
                                         </button>
                                         <button
                                             title="Imprimir"
                                             onClick={() => printOrder(o.id)}
-                                            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
+                                            className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
                                         >
                                             <Printer className="h-4 w-4" />
                                         </button>
                                         {phone && (
                                             <button
-                                                title="Abrir WhatsApp"
+                                                title="WhatsApp"
                                                 onClick={() => router.push(`/whatsapp?phone=${encodeURIComponent(phone)}`)}
-                                                className="rounded-lg p-1.5 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                                                className="rounded-lg p-2 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
                                             >
                                                 <MessageCircle className="h-4 w-4" />
                                             </button>
