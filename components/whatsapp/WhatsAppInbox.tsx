@@ -1037,6 +1037,56 @@ function MessageComposer({
     const [sending, setSending] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [fileKind, setFileKind] = useState<"image" | "video" | "audio" | "document" | null>(null);
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordError, setRecordError] = useState<string | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const chunksRef = useRef<Blob[]>([]);
+    const streamRef = useRef<MediaStream | null>(null);
+
+    async function startRecording() {
+        if (disabled || sending || isRecording) return;
+        setRecordError(null);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+            chunksRef.current = [];
+            const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+                ? "audio/webm;codecs=opus"
+                : "audio/webm";
+            const recorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = recorder;
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunksRef.current.push(e.data);
+            };
+            recorder.onstop = async () => {
+                streamRef.current?.getTracks().forEach((t) => t.stop());
+                streamRef.current = null;
+                const blob = new Blob(chunksRef.current, { type: mime });
+                if (blob.size < 100) {
+                    setIsRecording(false);
+                    return;
+                }
+                const voiceFile = new File([blob], "voice.webm", { type: blob.type });
+                setIsRecording(false);
+                setSending(true);
+                try {
+                    await onSend("", { kind: "audio", file: voiceFile });
+                } finally {
+                    setSending(false);
+                }
+            };
+            recorder.start();
+            setIsRecording(true);
+        } catch (e: any) {
+            setRecordError(e?.message ?? "Não foi possível acessar o microfone.");
+        }
+    }
+
+    function stopRecordingAndSend() {
+        if (!isRecording || !mediaRecorderRef.current) return;
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
+    }
 
     async function handleSend() {
         const t = text.trim();
@@ -1084,7 +1134,7 @@ function MessageComposer({
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        cursor: disabled || sending ? "not-allowed" : "pointer",
+                        cursor: disabled || sending || isRecording ? "not-allowed" : "pointer",
                         background: "#fafafa",
                         fontSize: 18,
                     }}
@@ -1093,10 +1143,54 @@ function MessageComposer({
                     <input
                         type="file"
                         onChange={handleFileChange}
-                        disabled={disabled || sending}
+                        disabled={disabled || sending || isRecording}
                         style={{ display: "none" }}
                     />
                 </label>
+                {!isRecording ? (
+                    <button
+                        type="button"
+                        onClick={startRecording}
+                        disabled={disabled || sending}
+                        title="Gravar áudio"
+                        style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 12,
+                            border: "1px solid #ddd",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: disabled || sending ? "not-allowed" : "pointer",
+                            background: "#fafafa",
+                            fontSize: 18,
+                        }}
+                    >
+                        🎤
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={stopRecordingAndSend}
+                        title="Parar e enviar"
+                        style={{
+                            padding: "8px 12px",
+                            borderRadius: 12,
+                            border: "1px solid #c62828",
+                            background: "#ffebee",
+                            color: "#c62828",
+                            cursor: "pointer",
+                            fontWeight: 700,
+                            fontSize: 12,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                        }}
+                    >
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#c62828" }} />
+                        Parar e enviar
+                    </button>
+                )}
                 <input
                     value={text}
                     onChange={(e) => setText(e.target.value)}
@@ -1136,9 +1230,15 @@ function MessageComposer({
                 </button>
             </div>
             <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>
-                {file
-                    ? `Anexo: ${file.name} (${fileKind ?? "arquivo"}) • Enter envia • Shift+Enter quebra linha`
-                    : "Dica: Enter envia • Shift+Enter quebra linha"}
+                {recordError ? (
+                    <span style={{ color: "#c62828" }}>{recordError}</span>
+                ) : file ? (
+                    `Anexo: ${file.name} (${fileKind ?? "arquivo"}) • Enter envia • Shift+Enter quebra linha`
+                ) : isRecording ? (
+                    "Gravando... Clique em «Parar e enviar» para enviar o áudio."
+                ) : (
+                    "Dica: Enter envia • Shift+Enter quebra linha • 🎤 Gravar áudio"
+                )}
             </div>
         </div>
     );
