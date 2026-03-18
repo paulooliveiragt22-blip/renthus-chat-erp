@@ -99,97 +99,104 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             {open ? (
                 <div
                     onClick={() => setOpen(false)}
-                    style={{
-                        position: "fixed",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.35)",
-                        display: "grid",
-                        placeItems: "center",
-                        padding: 12,
-                        zIndex: 9999,
-                    }}
+                    className="fixed inset-0 z-[9999] grid place-items-center bg-black/40 p-3"
                 >
                     <div
                         onClick={(e) => e.stopPropagation()}
-                        style={{
-                            width: "min(980px, 100%)",
-                            background: "#fff",
-                            borderRadius: 12,
-                            border: "1px solid #ddd",
-                            padding: 12,
-                            maxHeight: "90vh",
-                            overflow: "auto",
-                        }}
+                        className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-zinc-200 bg-white p-4 text-[13px] shadow-lg"
                     >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900 }}>
-                                {order ? `Pedido • ${new Date(order.created_at).toLocaleString("pt-BR")} • ${String(order?.status ?? "")}` : "Pedido"}
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                            <h3 className="text-sm font-semibold">
+                                {order
+                                    ? `Pedido • ${new Date(order.created_at).toLocaleString("pt-BR")} • ${String(
+                                          order?.status ?? ""
+                                      )}`
+                                    : "Pedido"}
                             </h3>
                             <button
                                 onClick={() => setOpen(false)}
-                                style={{ border: "1px solid #ccc", borderRadius: 10, padding: "6px 10px", cursor: "pointer", fontSize: 12 }}
+                                className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
                             >
                                 Fechar
                             </button>
                         </div>
 
-                        <div style={{ marginTop: 10 }}>
-                            {msg ? <p style={{ color: "crimson", marginTop: 0 }}>{msg}</p> : null}
+                        <div className="space-y-3">
+                            {msg && <p className="text-xs font-medium text-rose-600">{msg}</p>}
 
                             {loading ? (
-                                <p>Carregando...</p>
+                                <p className="text-xs text-zinc-500">Carregando...</p>
                             ) : !order ? (
-                                <p>Nenhum pedido.</p>
+                                <p className="text-xs text-zinc-500">Nenhum pedido.</p>
                             ) : (
-                                <div style={{ display: "grid", gap: 10, fontSize: 12 }}>
-                                    <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                <div className="space-y-3 text-[12px]">
+                                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                                        <div className="flex items-start justify-between gap-4">
                                             <div>
-                                                <div style={{ fontWeight: 900 }}>{order.customers?.name ?? "-"}</div>
-                                                <div style={{ color: "#666" }}>{order.customers?.phone ?? ""}</div>
-                                                <div style={{ color: "#666" }}>{order.customers?.address ?? "-"}</div>
+                                                <div className="text-sm font-semibold">
+                                                    {order.customers?.name ?? "-"}
+                                                </div>
+                                                <div className="text-[11px] text-zinc-500">
+                                                    {order.customers?.phone ?? ""}
+                                                </div>
+                                                <div className="text-[11px] text-zinc-500">
+                                                    {order.customers?.address ?? "-"}
+                                                </div>
                                             </div>
                                         </div>
-
-                                        {order.details ? (
-                                            <div style={{ marginTop: 10, fontWeight: 900, fontSize: 14 }}>
-                                                OBS: <span style={{ fontWeight: 900 }}>{order.details}</span>
+                                        {order.details && (
+                                            <div className="mt-2 text-[11px] font-semibold text-zinc-700">
+                                                OBS: <span>{order.details}</span>
                                             </div>
-                                        ) : null}
+                                        )}
                                     </div>
 
-                                    <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                                        <div style={{ fontWeight: 900, marginBottom: 6 }}>Pagamento</div>
-                                        <div>
-                                            <div style={{ fontWeight: 900 }}>{order.payment_method}</div>
+                                    <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                        <div className="mb-1 text-xs font-semibold text-zinc-600">
+                                            Pagamento
+                                        </div>
+                                        <div className="text-sm font-semibold text-zinc-900">
+                                            {order.payment_method}
                                         </div>
                                     </div>
 
-                                    <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                                        <div style={{ fontWeight: 900, marginBottom: 6 }}>Itens</div>
+                                    <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                        <div className="mb-1 text-xs font-semibold text-zinc-600">
+                                            Itens
+                                        </div>
                                         {order.items?.length === 0 ? (
-                                            <p style={{ color: "#666" }}>Sem itens.</p>
+                                            <p className="text-xs text-zinc-500">Sem itens.</p>
                                         ) : (
-                                            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                            <table className="w-full border-collapse text-[11px]">
                                                 <thead>
-                                                    <tr style={{ background: "#f7f7f7" }}>
-                                                        <th style={{ textAlign: "left", padding: 6 }}>Item</th>
-                                                        <th style={{ textAlign: "right", padding: 6 }}>Qtd</th>
-                                                        <th style={{ textAlign: "right", padding: 6 }}>Preço</th>
-                                                        <th style={{ textAlign: "right", padding: 6 }}>Total</th>
+                                                    <tr className="border-b border-zinc-100 bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-500">
+                                                        <th className="px-2 py-1 text-left">Item</th>
+                                                        <th className="px-2 py-1 text-right">Qtd</th>
+                                                        <th className="px-2 py-1 text-right">Preço</th>
+                                                        <th className="px-2 py-1 text-right">Total</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody>
+                                                <tbody className="divide-y divide-zinc-100">
                                                     {order.items.map((it: any) => {
                                                         const q = Number(it.quantity ?? 0);
                                                         const p = Number(it.unit_price ?? 0);
                                                         const t = Number(it.line_total ?? q * p);
                                                         return (
-                                                            <tr key={it.id} style={{ borderTop: "1px solid #eee" }}>
-                                                                <td style={{ padding: 6 }}>{it.product_name ?? "Item"}</td>
-                                                                <td style={{ padding: 6, textAlign: "right" }}>{q}</td>
-                                                                <td style={{ padding: 6, textAlign: "right" }}>R$ {p.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
-                                                                <td style={{ padding: 6, textAlign: "right" }}>R$ {t.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
+                                                            <tr key={it.id} className="bg-white">
+                                                                <td className="px-2 py-1">{it.product_name ?? "Item"}</td>
+                                                                <td className="px-2 py-1 text-right">{q}</td>
+                                                                <td className="px-2 py-1 text-right">
+                                                                    R${" "}
+                                                                    {p.toLocaleString("pt-BR", {
+                                                                        minimumFractionDigits: 2,
+                                                                    })}
+                                                                </td>
+                                                                <td className="px-2 py-1 text-right">
+                                                                    R${" "}
+                                                                    {t.toLocaleString("pt-BR", {
+                                                                        minimumFractionDigits: 2,
+                                                                    })}
+                                                                </td>
                                                             </tr>
                                                         );
                                                     })}
@@ -197,14 +204,24 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                                             </table>
                                         )}
 
-                                        <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                        <div className="mt-2 space-y-1 text-[11px]">
+                                            <div className="flex items-center justify-between">
                                                 <span>Taxa de entrega</span>
-                                                <b>R$ {Number(order.delivery_fee ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</b>
+                                                <b>
+                                                    R{" "}
+                                                    {Number(order.delivery_fee ?? 0).toLocaleString("pt-BR", {
+                                                        minimumFractionDigits: 2,
+                                                    })}
+                                                </b>
                                             </div>
-                                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                                            <div className="flex items-center justify-between text-[12px]">
                                                 <span>Total</span>
-                                                <b>R$ {Number(order.total_amount ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</b>
+                                                <b>
+                                                    R{" "}
+                                                    {Number(order.total_amount ?? 0).toLocaleString("pt-BR", {
+                                                        minimumFractionDigits: 2,
+                                                    })}
+                                                </b>
                                             </div>
                                         </div>
                                     </div>

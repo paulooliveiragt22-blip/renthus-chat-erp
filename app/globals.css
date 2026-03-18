@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Tailwind v4: explicit source scanning (v4 does not read tailwind.config.js content[]) */
+@source "../app";
+@source "../components";
+@source "../lib";
+
 :root {
   --background: #020617; /* zinc-950 */
   --foreground: #e5e7eb; /* zinc-200 */
@@ -10,6 +15,9 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* custom brand colors as Tailwind utilities */
+  --color-prodify-purple: #4c1d95;
+  --color-prodify-orange: #f97316;
 }
 
 body {
@@ -18,4 +26,6 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
