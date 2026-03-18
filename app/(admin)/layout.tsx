@@ -1,6 +1,15 @@
 // app/(admin)/layout.tsx
+import AdminSidebar from "@/components/AdminSidebar";
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-    // O AdminSidebar e o AdminOrdersProvider estão no AdminShell (root),
-    // então aqui deixamos apenas o contêiner dos conteúdos da área admin.
-    return <div style={{ padding: 14 }}>{children}</div>;
+    return (
+        <div className="flex min-h-screen bg-zinc-950 text-zinc-50">
+            <AdminSidebar />
+            <main className="flex-1 bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-900/95">
+                <div className="mx-auto w-full max-w-6xl px-3 py-4 md:px-6 md:py-6">
+                    {children}
+                </div>
+            </main>
+        </div>
+    );
 }
