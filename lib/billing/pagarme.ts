@@ -401,8 +401,9 @@ export async function createCheckoutOrder(params: {
             type:  "company",
         };
         if (c.document) {
-            cBody.document      = c.document;
-            cBody.document_type = c.document.replace(/\D/g, "").length === 11 ? "CPF" : "CNPJ";
+            const digitsDoc = c.document.replace(/\D/g, "");
+            cBody.document      = digitsDoc;
+            cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
         }
         if (c.phone) {
             const digits = c.phone.replace(/\D/g, "");
@@ -416,6 +417,17 @@ export async function createCheckoutOrder(params: {
                 };
             }
         }
+        // Endereço mínimo obrigatório para o checkout hosted (sandbox)
+        // Em produção, ideal coletar o endereço real do cliente.
+        cBody.addresses = [
+            {
+                line_1:   "Rua Teste 123",
+                zip_code: "78000000",
+                city:     "Cuiaba",
+                state:    "MT",
+                country:  "BR",
+            },
+        ];
         body.customer = cBody;
     }
 
