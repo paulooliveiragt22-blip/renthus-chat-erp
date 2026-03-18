@@ -5,6 +5,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { MessageCircle, Printer, Eye, Plus, RefreshCcw, Search } from "lucide-react";
 
 import NewOrderModal from "@/lib/orders/NewOrderModal";
 import ViewOrderModal from "@/lib/orders/ViewOrderModal";
@@ -1035,100 +1039,168 @@ export default function PedidosPage() {
     }
 
     return (
-        <div style={{ fontSize: 13 }}>
-            <div
-                style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    gap: 12,
-                    flexWrap: "wrap",
-                }}
-            >
+        <div className="space-y-4 text-[13px] text-slate-900">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Pedidos</h1>
-                    <p style={{ marginTop: 6, color: "#666", fontSize: 12, lineHeight: 1.2 }}>
-                        Acessar • Ações (Cancelar/Entregue/Finalizar/Imprimir/Editar) e Data estão disponíveis no modal do pedido.
-                    </p>
-                    <p style={{ marginTop: 4, color: "#777", fontSize: 12, lineHeight: 1.2 }}>
-                        Obs.: para <b>cancelar/entregar/finalizar</b>, será exigida uma observação.
+                    <h1 className="text-xl font-semibold tracking-tight">Pedidos</h1>
+                    <p className="mt-1 text-xs text-slate-500">
+                        Gerencie pedidos em tempo real, com ações rápidas e integração ao WhatsApp.
                     </p>
                 </div>
-            </div>
-
-            {msg && <p style={{ color: msg.startsWith("✅") ? "green" : "crimson", marginTop: 10 }}>{msg}</p>}
-
-            {/* CHIPS + BOTÕES */}
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <button onClick={() => setStatusFilter("new")} style={chip(statusFilter === "new")}>
-                        Novo ({stats.new})
-                    </button>
-                    <button onClick={() => setStatusFilter("delivered")} style={chip(statusFilter === "delivered")}>
-                        Entregue ({stats.delivered})
-                    </button>
-                    <button onClick={() => setStatusFilter("finalized")} style={chip(statusFilter === "finalized")}>
-                        Finalizado ({stats.finalized})
-                    </button>
-                    <button onClick={() => setStatusFilter("canceled")} style={chip(statusFilter === "canceled")}>
-                        Cancelado ({stats.canceled})
-                    </button>
-                    <button onClick={() => setStatusFilter("all")} style={chip(statusFilter === "all")}>
-                        Ver todos ({stats.total})
-                    </button>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input
-                        type="text"
-                        placeholder="Buscar por nome, telefone ou endereço..."
-                        value={searchText}
-                        onChange={(e) => setSearchText(e.target.value)}
-                        style={{
-                            fontSize: 12,
-                            padding: "6px 8px",
-                            borderRadius: 10,
-                            border: "1px solid #ccc",
-                            minWidth: 220,
-                        }}
-                    />
-
-                    <button onClick={loadOrders} style={btnOrangeOutline(false)}>
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={loadOrders}
+                        className="gap-1"
+                    >
+                        <RefreshCcw className="h-3 w-3" />
                         Recarregar
-                    </button>
-
-                    <button
+                    </Button>
+                    <Button
+                        size="sm"
                         onClick={() => {
                             resetNewOrder();
                             setOpenNew(true);
                         }}
-                        style={btnOrange(false)}
+                        className="gap-1 shadow-sm"
                     >
-                        + Novo pedido
-                    </button>
+                        <Plus className="h-3 w-3" />
+                        Novo pedido
+                    </Button>
                 </div>
             </div>
 
-            <section style={{ marginTop: 12, padding: 12, border: "1px solid #e6e6e6", borderRadius: 14 }}>
+            {msg && (
+                <div
+                    className={`rounded-md border px-3 py-2 text-xs ${
+                        msg.startsWith("✅")
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-rose-200 bg-rose-50 text-rose-800"
+                    }`}
+                >
+                    {msg}
+                </div>
+            )}
+
+            {/* CARDS DE STATUS */}
+            <div className="grid gap-3 md:grid-cols-4">
+                <Card
+                    className={`cursor-pointer bg-gradient-to-br from-sky-50 to-slate-50 transition hover:shadow-md ${
+                        statusFilter === "new" ? "ring-2 ring-sky-300" : ""
+                    }`}
+                    onClick={() => setStatusFilter("new")}
+                >
+                    <CardHeader className="flex flex-row items-center justify-between border-b border-sky-100/70 pb-2">
+                        <span className="text-xs font-medium text-sky-700">Novos</span>
+                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">
+                            Ativos
+                        </span>
+                    </CardHeader>
+                    <CardContent className="space-y-1 pt-3">
+                        <div className="text-lg font-semibold text-slate-900">{stats.new}</div>
+                        <div className="text-[11px] text-slate-500">
+                            Pedidos aguardando separação/entrega
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card
+                    className={`cursor-pointer bg-gradient-to-br from-emerald-50 to-slate-50 transition hover:shadow-md ${
+                        statusFilter === "delivered" ? "ring-2 ring-emerald-300" : ""
+                    }`}
+                    onClick={() => setStatusFilter("delivered")}
+                >
+                    <CardHeader className="flex flex-row items-center justify-between border-b border-emerald-100/70 pb-2">
+                        <span className="text-xs font-medium text-emerald-700">Entregues</span>
+                    </CardHeader>
+                    <CardContent className="space-y-1 pt-3">
+                        <div className="text-lg font-semibold text-slate-900">{stats.delivered}</div>
+                        <div className="text-[11px] text-slate-500">
+                            Já foram confirmados como entregues
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card
+                    className={`cursor-pointer bg-gradient-to-br from-violet-50 to-slate-50 transition hover:shadow-md ${
+                        statusFilter === "finalized" ? "ring-2 ring-violet-300" : ""
+                    }`}
+                    onClick={() => setStatusFilter("finalized")}
+                >
+                    <CardHeader className="flex flex-row items-center justify-between border-b border-violet-100/70 pb-2">
+                        <span className="text-xs font-medium text-violet-700">Finalizados</span>
+                    </CardHeader>
+                    <CardContent className="space-y-1 pt-3">
+                        <div className="text-lg font-semibold text-slate-900">{stats.finalized}</div>
+                        <div className="text-[11px] text-slate-500">
+                            Fechados e contabilizados no caixa
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card
+                    className={`cursor-pointer bg-gradient-to-br from-slate-50 to-slate-50 transition hover:shadow-md ${
+                        statusFilter === "all" ? "ring-2 ring-slate-300" : ""
+                    }`}
+                    onClick={() => setStatusFilter("all")}
+                >
+                    <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 pb-2">
+                        <span className="text-xs font-medium text-slate-700">Todos</span>
+                    </CardHeader>
+                    <CardContent className="space-y-1 pt-3">
+                        <div className="text-lg font-semibold text-slate-900">{stats.total}</div>
+                        <div className="text-[11px] text-slate-500">
+                            Soma de todos os pedidos listados
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* BUSCA */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                    <div className="relative w-full sm:w-72">
+                        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                        <Input
+                            placeholder="Buscar por nome, telefone ou endereço..."
+                            value={searchText}
+                            onChange={(e) => setSearchText(e.target.value)}
+                            className="pl-7 text-xs"
+                        />
+                    </div>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                    Clique em um pedido para ver detalhes ou use as ações rápidas.
+                </div>
+            </div>
+
+            <section className="mt-2 rounded-xl border border-slate-100 bg-white/70 p-3 shadow-sm backdrop-blur-sm">
                 {loading ? (
-                    <p>Carregando...</p>
+                    <div className="space-y-2">
+                        {Array.from({ length: 5 }).map((_, idx) => (
+                            <div
+                                key={idx}
+                                className="h-10 w-full animate-pulse rounded-lg bg-slate-100/70"
+                            />
+                        ))}
+                    </div>
                 ) : (
-                    <div style={{ width: "100%", overflowX: "auto" }}>
-                        {/* tabela: Nº | Cliente (com data/telefone) | Observações | Pagamento | Endereço | Status | Total | Ações */}
-                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+                    <div className="w-full overflow-x-auto">
+                        <table className="min-w-[1100px] w-full border-collapse text-xs">
                             <thead>
-                                <tr style={{ background: "#f7f7f7" }}>
-                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, width: 80 }}>Nº</th>
-                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 260 }}>Cliente</th>
-                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 220 }}>Observações</th>
-                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 160 }}>Pagamento</th>
-                                    <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 280 }}>Endereço</th>
-                                    <th style={{ textAlign: "center", padding: 6, fontSize: 12, width: 120 }}>Status</th>
-                                    <th style={{ textAlign: "right", padding: 6, fontSize: 12, width: 120 }}>Total</th>
-                                    <th style={{ textAlign: "center", padding: 6, fontSize: 12, width: 200 }}>Ações</th>
+                                <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] uppercase tracking-wide text-slate-500">
+                                    <th className="px-3 py-2 text-left w-20">Nº</th>
+                                    <th className="px-3 py-2 text-left min-w-[260px]">Cliente</th>
+                                    <th className="px-3 py-2 text-left min-w-[220px]">Observações</th>
+                                    <th className="px-3 py-2 text-left min-w-[160px]">Pagamento</th>
+                                    <th className="px-3 py-2 text-left min-w-[260px]">Endereço</th>
+                                    <th className="px-3 py-2 text-center w-28">Status</th>
+                                    <th className="px-3 py-2 text-right w-24">Total</th>
+                                    <th className="px-3 py-2 text-center w-56">Ações</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-slate-100">
                                 {filteredOrders.map((o) => {
                                     const st = String(o.status);
                                     const num = orderNumberFromId(o.id);
@@ -1144,47 +1216,38 @@ export default function PedidosPage() {
                                     return (
                                         <tr
                                             key={o.id}
-                                            style={{ borderTop: "1px solid #f0f0f0", cursor: "pointer" }}
+                                            className="cursor-pointer bg-white/40 hover:bg-slate-50/80 transition-colors"
                                             onClick={() => openOrder(o.id)}
                                         >
                                             {/* Nº */}
-                                            <td style={{ padding: 6, whiteSpace: "nowrap", fontWeight: 900 }}>
+                                            <td className="px-3 py-2 whitespace-nowrap font-semibold text-slate-900">
                                                 #{num}
                                             </td>
 
                                             {/* Cliente + (data/hora + telefone) */}
-                                            <td style={{ padding: 6, minWidth: 260 }}>
+                                            <td className="px-3 py-2 min-w-[260px]">
                                                 <div
-                                                    style={{
-                                                        fontWeight: 900,
-                                                        fontSize: 13,
-                                                        whiteSpace: "nowrap",
-                                                        overflow: "hidden",
-                                                        textOverflow: "ellipsis",
-                                                    }}
+                                                    className="max-w-xs truncate text-[13px] font-semibold text-slate-900"
                                                     title={name}
                                                 >
                                                     {name}
                                                 </div>
 
-                                                <div style={{ marginTop: 2, fontSize: 11, color: "#555", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                                    <span style={{ whiteSpace: "nowrap" }}>{created}</span>
-                                                    <span style={{ whiteSpace: "nowrap" }}>{timeAgoIso(o.created_at)}</span>
-                                                    <span style={{ whiteSpace: "nowrap" }}>{phone}</span>
+                                                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                                    <span className="whitespace-nowrap">{created}</span>
+                                                    <span className="whitespace-nowrap text-sky-700">
+                                                        {timeAgoIso(o.created_at)}
+                                                    </span>
+                                                    <span className="whitespace-nowrap">{phone}</span>
                                                 </div>
                                             </td>
 
                                             {/* Observações */}
-                                            <td style={{ padding: 6, minWidth: 220, maxWidth: 320 }}>
+                                            <td className="px-3 py-2 min-w-[220px] max-w-[320px]">
                                                 <div
-                                                    style={{
-                                                        fontSize: 12,
-                                                        color: obs ? "#111" : "#777",
-                                                        whiteSpace: "nowrap",
-                                                        overflow: "hidden",
-                                                        textOverflow: "ellipsis",
-                                                        maxWidth: 320,
-                                                    }}
+                                                    className={`max-w-xs truncate text-[12px] ${
+                                                        obs ? "text-slate-900" : "text-slate-400"
+                                                    }`}
                                                     title={obs || ""}
                                                 >
                                                     {obs || "-"}
@@ -1192,32 +1255,28 @@ export default function PedidosPage() {
                                             </td>
 
                                             {/* Pagamento */}
-                                            <td style={{ padding: 6, minWidth: 160 }}>
-                                                <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>
+                                            <td className="px-3 py-2 min-w-[160px]">
+                                                <div className="whitespace-nowrap text-[12px] font-semibold text-slate-900">
                                                     {pm}
                                                     {o.paid ? " (pago)" : ""}
                                                 </div>
 
-                                                {/* extra leve p/ dinheiro */}
                                                 {String((o as any).payment_method) === "cash" && (
-                                                    <div style={{ marginTop: 2, fontSize: 11, color: "#555", whiteSpace: "nowrap" }}>
+                                                    <div className="mt-1 whitespace-nowrap text-[11px] text-slate-500">
                                                         Troco p/:{" "}
-                                                        {typeof changeForNow === "number" && changeForNow > 0 ? `R$ ${formatBRL(changeForNow)}` : "-"}
+                                                        {typeof changeForNow === "number" && changeForNow > 0
+                                                            ? `R$ ${formatBRL(changeForNow)}`
+                                                            : "-"}
                                                     </div>
                                                 )}
                                             </td>
 
                                             {/* Endereço */}
-                                            <td style={{ padding: 6, minWidth: 280, maxWidth: 420 }}>
+                                            <td className="px-3 py-2 min-w-[260px] max-w-[420px]">
                                                 <div
-                                                    style={{
-                                                        fontSize: 12,
-                                                        color: addr ? "#111" : "#777",
-                                                        whiteSpace: "nowrap",
-                                                        overflow: "hidden",
-                                                        textOverflow: "ellipsis",
-                                                        maxWidth: 420,
-                                                    }}
+                                                    className={`max-w-xs truncate text-[12px] ${
+                                                        addr ? "text-slate-900" : "text-slate-400"
+                                                    }`}
                                                     title={addr || ""}
                                                 >
                                                     {addr || "-"}
@@ -1225,49 +1284,57 @@ export default function PedidosPage() {
                                             </td>
 
                                             {/* Status */}
-                                            <td style={{ padding: 6, textAlign: "center", whiteSpace: "nowrap" }}>
-                                                <span style={statusBadgeStyle(st)}>{prettyStatus(st)}</span>
+                                            <td className="px-3 py-2 text-center whitespace-nowrap">
+                                                <span
+                                                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                                                        st === "new"
+                                                            ? "bg-sky-50 text-sky-800 ring-1 ring-sky-100"
+                                                            : st === "delivered"
+                                                            ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
+                                                            : st === "finalized"
+                                                            ? "bg-violet-50 text-violet-800 ring-1 ring-violet-100"
+                                                            : "bg-slate-50 text-slate-700 ring-1 ring-slate-100"
+                                                    }`}
+                                                >
+                                                    {prettyStatus(st)}
+                                                </span>
                                             </td>
 
                                             {/* Total */}
-                                            <td style={{ padding: 6, textAlign: "right", fontWeight: 900, whiteSpace: "nowrap" }}>
+                                            <td className="px-3 py-2 whitespace-nowrap text-right font-semibold text-slate-900">
                                                 R$ {formatBRL(o.total_amount)}
                                             </td>
 
                                             {/* Ações rápidas */}
                                             <td
-                                                style={{ padding: 6, textAlign: "center", whiteSpace: "nowrap" }}
+                                                className="px-3 py-2 whitespace-nowrap text-center"
                                                 onClick={(e) => e.stopPropagation()}
                                             >
-                                                <div style={{ display: "flex", gap: 4, justifyContent: "center", flexWrap: "wrap" }}>
-                                                    <button
+                                                <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 px-1.5 text-[11px] text-slate-600 hover:text-slate-900"
                                                         onClick={() => openOrder(o.id)}
-                                                        style={{
-                                                            padding: "2px 6px",
-                                                            fontSize: 11,
-                                                            borderRadius: 8,
-                                                            border: "1px solid #ccc",
-                                                            background: "#fff",
-                                                            cursor: "pointer",
-                                                        }}
                                                     >
+                                                        <Eye className="mr-1 h-3.5 w-3.5" />
                                                         Ver
-                                                    </button>
-                                                    <button
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 px-1.5 text-[11px] text-slate-600 hover:text-slate-900"
                                                         onClick={() => printOrder(o.id)}
-                                                        style={{
-                                                            padding: "2px 6px",
-                                                            fontSize: 11,
-                                                            borderRadius: 8,
-                                                            border: "1px solid #ccc",
-                                                            background: "#fff",
-                                                            cursor: "pointer",
-                                                        }}
                                                     >
+                                                        <Printer className="mr-1 h-3.5 w-3.5" />
                                                         Imprimir
-                                                    </button>
+                                                    </Button>
                                                     {o.customers?.phone && (
-                                                        <button
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 px-1.5 text-[11px] border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                                                            title="Abrir conversa no WhatsApp"
                                                             onClick={() => {
                                                                 const p = String(o.customers?.phone ?? "").trim();
                                                                 if (!p) return;
@@ -1277,19 +1344,10 @@ export default function PedidosPage() {
                                                                     // ignora
                                                                 }
                                                             }}
-                                                            title="Abrir conversa no WhatsApp"
-                                                            style={{
-                                                                padding: "2px 6px",
-                                                                fontSize: 11,
-                                                                borderRadius: 8,
-                                                                border: "1px solid #25d366",
-                                                                background: "#eafff2",
-                                                                cursor: "pointer",
-                                                                color: "#075e54",
-                                                            }}
                                                         >
+                                                            <MessageCircle className="mr-1 h-3.5 w-3.5" />
                                                             WhatsApp
-                                                        </button>
+                                                        </Button>
                                                     )}
                                                 </div>
                                             </td>
