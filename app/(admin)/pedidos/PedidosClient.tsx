@@ -109,13 +109,23 @@ export default function PedidosPage() {
     const [msg, setMsg] = useState<string | null>(null);
 
     const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
+    const [searchText, setSearchText] = useState("");
     useEffect(() => {
+        // tenta ler da URL
         const s = searchParams.get("status");
+        let initial: "all" | OrderStatus = "all";
         if (s === "new" || s === "delivered" || s === "finalized" || s === "canceled") {
-            setStatusFilter(s);
+            initial = s;
         } else {
-            setStatusFilter("all");
+            // se não tiver na URL, tenta do localStorage
+            if (typeof window !== "undefined") {
+                const saved = window.localStorage.getItem("orders_status_filter");
+                if (saved === "new" || saved === "delivered" || saved === "finalized" || saved === "canceled" || saved === "all") {
+                    initial = saved;
+                }
+            }
         }
+        setStatusFilter(initial);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 
@@ -908,9 +918,39 @@ export default function PedidosPage() {
         return { total: orders.length, ...by };
     }, [orders]);
 
+    function timeAgoIso(iso: string): string {
+        if (!iso) return "";
+        const created = new Date(iso).getTime();
+        const now = Date.now();
+        const diffMs = now - created;
+        if (Number.isNaN(diffMs) || diffMs < 0) return "";
+        const diffMin = Math.floor(diffMs / 60000);
+        if (diffMin < 1) return "agora";
+        if (diffMin < 60) return `há ${diffMin} min`;
+        const diffH = Math.floor(diffMin / 60);
+        if (diffH < 24) return `há ${diffH} h`;
+        const diffD = Math.floor(diffH / 24);
+        return `há ${diffD} d`;
+    }
+
     const filteredOrders = useMemo(() => {
         const priority: Record<string, number> = { new: 0, delivered: 1, finalized: 2, canceled: 3 };
-        const base = statusFilter === "all" ? orders : orders.filter((o) => String(o.status) === statusFilter);
+        // salva filtro atual
+        if (typeof window !== "undefined") {
+            window.localStorage.setItem("orders_status_filter", statusFilter);
+        }
+
+        const baseStatus = statusFilter === "all" ? orders : orders.filter((o) => String(o.status) === statusFilter);
+
+        const q = searchText.trim().toLowerCase();
+        const base = !q
+            ? baseStatus
+            : baseStatus.filter((o) => {
+                  const name = (o.customers?.name ?? "").toLowerCase();
+                  const phone = (o.customers?.phone ?? "").toLowerCase();
+                  const addr = (o.customers?.address ?? "").toLowerCase();
+                  return name.includes(q) || phone.includes(q) || addr.includes(q);
+              });
 
         return [...base].sort((a, b) => {
             const pa = priority[String(a.status)] ?? 99;
@@ -918,7 +958,7 @@ export default function PedidosPage() {
             if (pa !== pb) return pa - pb;
             return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         });
-    }, [orders, statusFilter]);
+    }, [orders, statusFilter, searchText]);
 
     // troco preview (novo)
     const newTotalNow = useMemo(
@@ -1039,6 +1079,20 @@ export default function PedidosPage() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                        type="text"
+                        placeholder="Buscar por nome, telefone ou endereço..."
+                        value={searchText}
+                        onChange={(e) => setSearchText(e.target.value)}
+                        style={{
+                            fontSize: 12,
+                            padding: "6px 8px",
+                            borderRadius: 10,
+                            border: "1px solid #ccc",
+                            minWidth: 220,
+                        }}
+                    />
+
                     <button onClick={loadOrders} style={btnOrangeOutline(false)}>
                         Recarregar
                     </button>
@@ -1060,7 +1114,7 @@ export default function PedidosPage() {
                     <p>Carregando...</p>
                 ) : (
                     <div style={{ width: "100%", overflowX: "auto" }}>
-                        {/* tabela: Nº | Cliente (com data/telefone) | Observações | Pagamento | Endereço | Status | Total */}
+                        {/* tabela: Nº | Cliente (com data/telefone) | Observações | Pagamento | Endereço | Status | Total | Ações */}
                         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
                             <thead>
                                 <tr style={{ background: "#f7f7f7" }}>
@@ -1071,6 +1125,7 @@ export default function PedidosPage() {
                                     <th style={{ textAlign: "left", padding: 6, fontSize: 12, minWidth: 280 }}>Endereço</th>
                                     <th style={{ textAlign: "center", padding: 6, fontSize: 12, width: 120 }}>Status</th>
                                     <th style={{ textAlign: "right", padding: 6, fontSize: 12, width: 120 }}>Total</th>
+                                    <th style={{ textAlign: "center", padding: 6, fontSize: 12, width: 200 }}>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1114,6 +1169,7 @@ export default function PedidosPage() {
 
                                                 <div style={{ marginTop: 2, fontSize: 11, color: "#555", display: "flex", gap: 8, flexWrap: "wrap" }}>
                                                     <span style={{ whiteSpace: "nowrap" }}>{created}</span>
+                                                    <span style={{ whiteSpace: "nowrap" }}>{timeAgoIso(o.created_at)}</span>
                                                     <span style={{ whiteSpace: "nowrap" }}>{phone}</span>
                                                 </div>
                                             </td>
@@ -1176,6 +1232,66 @@ export default function PedidosPage() {
                                             {/* Total */}
                                             <td style={{ padding: 6, textAlign: "right", fontWeight: 900, whiteSpace: "nowrap" }}>
                                                 R$ {formatBRL(o.total_amount)}
+                                            </td>
+
+                                            {/* Ações rápidas */}
+                                            <td
+                                                style={{ padding: 6, textAlign: "center", whiteSpace: "nowrap" }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <div style={{ display: "flex", gap: 4, justifyContent: "center", flexWrap: "wrap" }}>
+                                                    <button
+                                                        onClick={() => openOrder(o.id)}
+                                                        style={{
+                                                            padding: "2px 6px",
+                                                            fontSize: 11,
+                                                            borderRadius: 8,
+                                                            border: "1px solid #ccc",
+                                                            background: "#fff",
+                                                            cursor: "pointer",
+                                                        }}
+                                                    >
+                                                        Ver
+                                                    </button>
+                                                    <button
+                                                        onClick={() => printOrder(o.id)}
+                                                        style={{
+                                                            padding: "2px 6px",
+                                                            fontSize: 11,
+                                                            borderRadius: 8,
+                                                            border: "1px solid #ccc",
+                                                            background: "#fff",
+                                                            cursor: "pointer",
+                                                        }}
+                                                    >
+                                                        Imprimir
+                                                    </button>
+                                                    {o.customers?.phone && (
+                                                        <button
+                                                            onClick={() => {
+                                                                const p = String(o.customers?.phone ?? "").trim();
+                                                                if (!p) return;
+                                                                try {
+                                                                    router.push(`/whatsapp?phone=${encodeURIComponent(p)}`);
+                                                                } catch {
+                                                                    // ignora
+                                                                }
+                                                            }}
+                                                            title="Abrir conversa no WhatsApp"
+                                                            style={{
+                                                                padding: "2px 6px",
+                                                                fontSize: 11,
+                                                                borderRadius: 8,
+                                                                border: "1px solid #25d366",
+                                                                background: "#eafff2",
+                                                                cursor: "pointer",
+                                                                color: "#075e54",
+                                                            }}
+                                                        >
+                                                            WhatsApp
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
