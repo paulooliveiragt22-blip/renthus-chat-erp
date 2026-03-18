@@ -5,19 +5,54 @@
 @source "../components";
 @source "../lib";
 
+/* ── Dark mode via classe .dark no <html> (next-themes) ──────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Design Tokens — Light Mode (padrão) ────────────────────────────────── */
 :root {
-  --background: #020617; /* zinc-950 */
-  --foreground: #e5e7eb; /* zinc-200 */
+  --background:      #f4f4f5;  /* zinc-100 — fundo base (cards bg-white saltam) */
+  --background-card: #ffffff;  /* branco puro para cards                        */
+  --foreground:      #18181b;  /* zinc-900 — texto principal                    */
+  --foreground-muted:#71717a;  /* zinc-500 — texto secundário                   */
+  --border:          #e4e4e7;  /* zinc-200 — bordas suaves                      */
+}
+
+/* ── Design Tokens — Dark Mode ───────────────────────────────────────────── */
+.dark {
+  --background:      #09090b;  /* zinc-950 — fundo escuro                       */
+  --background-card: #18181b;  /* zinc-900 — cards escuros                      */
+  --foreground:      #fafafa;  /* zinc-50  — texto claro                        */
+  --foreground-muted:#a1a1aa;  /* zinc-400 — texto secundário                   */
+  --border:          #27272a;  /* zinc-800 — bordas escuras                     */
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background:       var(--background);
+  --color-background-card:  var(--background-card);
+  --color-foreground:       var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border:           var(--border);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  /* custom brand colors as Tailwind utilities */
+
+  /* ── Paleta Renthus ─────────────────────────────────────────────────── */
+  --color-primary:        #4c1d95;
+  --color-primary-light:  #6d28d9;
+  --color-primary-dark:   #3b1570;
+  --color-accent:         #f97316;
+  --color-accent-dark:    #ea580c;
+
+  /* aliases retrocompatíveis */
   --color-prodify-purple: #4c1d95;
   --color-prodify-orange: #f97316;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -28,4 +63,10 @@ body {
     "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+#__next,
+[data-nextjs-scroll-focus-boundary] {
+  background-color: var(--background);
 }
