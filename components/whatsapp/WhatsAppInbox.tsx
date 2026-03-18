@@ -1070,7 +1070,8 @@ function MessageComposer({
                 setIsRecording(false);
                 setSending(true);
                 try {
-                    await onSend("", { kind: "audio", file: voiceFile });
+                    // Envia como documento para garantir compatibilidade com a Meta
+                    await onSend("", { kind: "document", file: voiceFile });
                 } finally {
                     setSending(false);
                 }
