@@ -5,7 +5,6 @@ import React, { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
-import AdminSidebar from "@/components/AdminSidebar";
 
 /**
  * AdminShell engloba:
@@ -86,12 +85,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
     return (
         <AdminOrdersProvider openOrder={openOrder}>
-            <div style={{ display: "flex", gap: 12, padding: 14, alignItems: "flex-start" }}>
-                <AdminSidebar />
-                <main style={{ flex: 1, minWidth: 0, position: "relative", zIndex: 1 }}>{children}</main>
-            </div>
+            {children}
 
-            {/* Modal (idêntico ao que estava no layout admin) */}
+            {/* Modal de pedido (mantido, porém sem layout externo próprio) */}
             {open ? (
                 <div
                     onClick={() => setOpen(false)}
