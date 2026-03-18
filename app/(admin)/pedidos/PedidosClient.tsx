@@ -8,7 +8,18 @@ import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { MessageCircle, Printer, Eye, Plus, RefreshCcw, Search } from "lucide-react";
+import {
+    MessageCircle,
+    Printer,
+    Eye,
+    Plus,
+    RefreshCcw,
+    Search,
+    AlertTriangle,
+    Package,
+    Bike,
+    CheckCircle2,
+} from "lucide-react";
 
 import NewOrderModal from "@/lib/orders/NewOrderModal";
 import ViewOrderModal from "@/lib/orders/ViewOrderModal";
@@ -983,6 +994,42 @@ export default function PedidosPage() {
         [editTotalNow, editCustomerPays]
     );
 
+    // Resumo para cards
+    const summary = useMemo(() => {
+        let novosQtd = 0;
+        let novosTotal = 0;
+        let prepQtd = 0;
+        let entregaQtd = 0;
+        let finalHojeQtd = 0;
+        let finalHojeTotal = 0;
+
+        const today = new Date();
+        const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+        const endOfDay = startOfDay + 24 * 60 * 60 * 1000;
+
+        for (const o of orders) {
+            const status = String(o.status);
+            const total = Number((o as any).total_amount ?? 0);
+            const paidFlag = !!(o as any).paid;
+            const createdTs = new Date(o.created_at).getTime();
+
+            if (status === "new") {
+                novosQtd += 1;
+                novosTotal += total;
+                if (!paidFlag) prepQtd += 1;
+            }
+            if (status === "delivered") {
+                entregaQtd += 1;
+            }
+            if (status === "finalized" && createdTs >= startOfDay && createdTs < endOfDay) {
+                finalHojeQtd += 1;
+                finalHojeTotal += total;
+            }
+        }
+
+        return { novosQtd, novosTotal, prepQtd, entregaQtd, finalHojeQtd, finalHojeTotal };
+    }, [orders]);
+
     const [sendingOutForDelivery, setSendingOutForDelivery] = useState(false);
     const [sendingDeliveredMessage, setSendingDeliveredMessage] = useState(false);
 
@@ -1088,76 +1135,72 @@ export default function PedidosPage() {
                 </div>
             )}
 
-            {/* CARDS DE STATUS */}
+            {/* CARDS DE RESUMO */}
             <div className="grid gap-3 md:grid-cols-4">
-                <Card
-                    className={`cursor-pointer bg-gradient-to-br from-sky-50 to-slate-50 transition hover:shadow-md ${
-                        statusFilter === "new" ? "ring-2 ring-sky-300" : ""
-                    }`}
+                <Card className="flex cursor-pointer flex-col border-l-4 border-l-[#f97316] bg-white shadow-sm"
                     onClick={() => setStatusFilter("new")}
                 >
-                    <CardHeader className="flex flex-row items-center justify-between border-b border-sky-100/70 pb-2">
-                        <span className="text-xs font-medium text-sky-700">Novos</span>
-                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">
-                            Ativos
+                    <CardHeader className="flex flex-row items-center justify-between pb-1">
+                        <div className="space-y-0.5">
+                            <p className="text-[11px] font-medium text-zinc-500">Novos pedidos</p>
+                            <p className="text-2xl font-bold text-zinc-900">{summary.novosQtd}</p>
+                        </div>
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+                            <AlertTriangle className="h-4 w-4" />
+                        </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 text-[11px] text-zinc-500">
+                        Valor:{" "}
+                        <span className="font-semibold text-zinc-900">
+                            R$ {formatBRL(summary.novosTotal)}
                         </span>
-                    </CardHeader>
-                    <CardContent className="space-y-1 pt-3">
-                        <div className="text-lg font-semibold text-slate-900">{stats.new}</div>
-                        <div className="text-[11px] text-slate-500">
-                            Pedidos aguardando separação/entrega
-                        </div>
                     </CardContent>
                 </Card>
 
-                <Card
-                    className={`cursor-pointer bg-gradient-to-br from-emerald-50 to-slate-50 transition hover:shadow-md ${
-                        statusFilter === "delivered" ? "ring-2 ring-emerald-300" : ""
-                    }`}
-                    onClick={() => setStatusFilter("delivered")}
-                >
-                    <CardHeader className="flex flex-row items-center justify-between border-b border-emerald-100/70 pb-2">
-                        <span className="text-xs font-medium text-emerald-700">Entregues</span>
-                    </CardHeader>
-                    <CardContent className="space-y-1 pt-3">
-                        <div className="text-lg font-semibold text-slate-900">{stats.delivered}</div>
-                        <div className="text-[11px] text-slate-500">
-                            Já foram confirmados como entregues
+                <Card className="flex flex-col border-l-4 border-l-[#4c1d95] bg-white shadow-sm">
+                    <CardHeader className="flex flex-row items-center justify-between pb-1">
+                        <div className="space-y-0.5">
+                            <p className="text-[11px] font-medium text-zinc-500">Em preparação</p>
+                            <p className="text-2xl font-bold text-zinc-900">{summary.prepQtd}</p>
                         </div>
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600">
+                            <Package className="h-4 w-4" />
+                        </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 text-[11px] text-zinc-500">
+                        Pedidos aguardando finalização.
                     </CardContent>
                 </Card>
 
-                <Card
-                    className={`cursor-pointer bg-gradient-to-br from-violet-50 to-slate-50 transition hover:shadow-md ${
-                        statusFilter === "finalized" ? "ring-2 ring-violet-300" : ""
-                    }`}
-                    onClick={() => setStatusFilter("finalized")}
-                >
-                    <CardHeader className="flex flex-row items-center justify-between border-b border-violet-100/70 pb-2">
-                        <span className="text-xs font-medium text-violet-700">Finalizados</span>
-                    </CardHeader>
-                    <CardContent className="space-y-1 pt-3">
-                        <div className="text-lg font-semibold text-slate-900">{stats.finalized}</div>
-                        <div className="text-[11px] text-slate-500">
-                            Fechados e contabilizados no caixa
+                <Card className="flex flex-col border-l-4 border-l-sky-500 bg-white shadow-sm">
+                    <CardHeader className="flex flex-row items-center justify-between pb-1">
+                        <div className="space-y-0.5">
+                            <p className="text-[11px] font-medium text-zinc-500">Em entrega</p>
+                            <p className="text-2xl font-bold text-zinc-900">{summary.entregaQtd}</p>
                         </div>
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-50 text-sky-600">
+                            <Bike className="h-4 w-4" />
+                        </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 text-[11px] text-zinc-500">
+                        Pedidos já liberados para entrega.
                     </CardContent>
                 </Card>
 
-                <Card
-                    className={`cursor-pointer bg-gradient-to-br from-slate-50 to-slate-50 transition hover:shadow-md ${
-                        statusFilter === "all" ? "ring-2 ring-slate-300" : ""
-                    }`}
-                    onClick={() => setStatusFilter("all")}
-                >
-                    <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 pb-2">
-                        <span className="text-xs font-medium text-slate-700">Todos</span>
-                    </CardHeader>
-                    <CardContent className="space-y-1 pt-3">
-                        <div className="text-lg font-semibold text-slate-900">{stats.total}</div>
-                        <div className="text-[11px] text-slate-500">
-                            Soma de todos os pedidos listados
+                <Card className="flex flex-col border-l-4 border-l-emerald-500 bg-white shadow-sm">
+                    <CardHeader className="flex flex-row items-center justify-between pb-1">
+                        <div className="space-y-0.5">
+                            <p className="text-[11px] font-medium text-zinc-500">Finalizados (hoje)</p>
+                            <p className="text-2xl font-bold text-zinc-900">
+                                R$ {formatBRL(summary.finalHojeTotal)}
+                            </p>
                         </div>
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                            <CheckCircle2 className="h-4 w-4" />
+                        </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 text-[11px] text-zinc-500">
+                        {summary.finalHojeQtd} pedidos fechados hoje.
                     </CardContent>
                 </Card>
             </div>
@@ -1243,7 +1286,9 @@ export default function PedidosPage() {
                                                     <span className="whitespace-nowrap text-sky-700">
                                                         {timeAgoIso(o.created_at)}
                                                     </span>
-                                                    <span className="whitespace-nowrap">{phone}</span>
+                                                    <span className="whitespace-nowrap text-slate-500">
+                                                        {phone}
+                                                    </span>
                                                 </div>
                                             </td>
 
@@ -1319,26 +1364,26 @@ export default function PedidosPage() {
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="h-7 px-1.5 text-[11px] text-slate-600 hover:text-slate-900"
+                                                        className="h-7 w-7 px-0 text-slate-600 hover:text-slate-900"
                                                         onClick={() => openOrder(o.id)}
+                                                        title="Ver pedido"
                                                     >
-                                                        <Eye className="mr-1 h-3.5 w-3.5" />
-                                                        Ver
+                                                        <Eye className="h-3.5 w-3.5" />
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="h-7 px-1.5 text-[11px] text-slate-600 hover:text-slate-900"
+                                                        className="h-7 w-7 px-0 text-slate-600 hover:text-slate-900"
                                                         onClick={() => printOrder(o.id)}
+                                                        title="Imprimir"
                                                     >
-                                                        <Printer className="mr-1 h-3.5 w-3.5" />
-                                                        Imprimir
+                                                        <Printer className="h-3.5 w-3.5" />
                                                     </Button>
                                                     {o.customers?.phone && (
                                                         <Button
                                                             variant="outline"
                                                             size="sm"
-                                                            className="h-7 px-1.5 text-[11px] border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                                                            className="h-7 w-7 border-emerald-200 bg-emerald-50 px-0 text-emerald-800 hover:bg-emerald-100"
                                                             title="Abrir conversa no WhatsApp"
                                                             onClick={() => {
                                                                 const p = String(o.customers?.phone ?? "").trim();
@@ -1350,8 +1395,7 @@ export default function PedidosPage() {
                                                                 }
                                                             }}
                                                         >
-                                                            <MessageCircle className="mr-1 h-3.5 w-3.5" />
-                                                            WhatsApp
+                                                            <MessageCircle className="h-3.5 w-3.5" />
                                                         </Button>
                                                     )}
                                                 </div>
