@@ -541,6 +541,8 @@ export default function PedidosPage() {
     return (
         <div className="flex flex-col gap-4 min-h-full">
 
+            <div className="bg-red-500 text-white p-10">TESTE TAILWIND</div>
+
             {/* ── HEADER ── */}
             <header className="flex items-center justify-between rounded-xl bg-purple-900 px-5 py-4 shadow-md">
                 <div>
