@@ -12,11 +12,11 @@
  *   PAGARME_WEBHOOK_SECRET — segredo configurado no painel Pagar.me (opcional em dev)
  */
 
-import { NextResponse }      from "next/server";
+import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyWebhookSignature }    from "@/lib/billing/pagarme";
-import { activateTrial }             from "@/lib/billing/activateTrial";
-import { sendBillingNotification }   from "@/lib/billing/sendBillingNotification";
+import { verifyWebhookSignature } from "@/lib/billing/pagarme";
+import { activateTrial } from "@/lib/billing/activateTrial";
+import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 
 export const runtime = "nodejs";
 
@@ -114,9 +114,19 @@ async function handleOrderPaid(
 
         if (!existingSub || existingSub.status === "cancelled") {
             const pagarmeCustomerId: string = order?.customer?.id ?? "";
-            await activateTrial(admin, companyId, sp.plan as "bot" | "complete", pagarmeCustomerId);
-            console.log(`[webhook/pagarme] Trial ativado para empresa ${companyId}`);
+            await activateTrial(
+                admin,
+                companyId,
+                sp.plan as "bot" | "complete",
+                pagarmeCustomerId
+            );
+            console.log(
+                `[webhook/pagarme] Trial ativado para empresa ${companyId} (plano ${sp.plan})`
+            );
         }
+
+        // Garante subscription lógica (plans/subscriptions) alinhada com o plano bot/complete
+        await syncLogicalSubscription(admin, companyId, sp.plan as string);
 
         // Cria usuário no Supabase Auth e envia notificações de boas-vindas
         await provisionUserAfterPayment(admin, companyId, sp.plan as string);
@@ -147,7 +157,7 @@ async function handleOrderPaid(
         // Calcula próximo aniversário de cobrança
         const { data: sub } = await admin
             .from("pagarme_subscriptions")
-            .select("id, activated_at")
+            .select("id, activated_at, plan")
             .eq("id", inv.subscription_id)
             .maybeSingle();
 
@@ -170,6 +180,11 @@ async function handleOrderPaid(
             .from("companies")
             .update({ is_active: true })
             .eq("id", companyId);
+
+        // Garante subscription lógica ativa para o plano atual
+        if (sub?.plan) {
+            await syncLogicalSubscription(admin, companyId, sub.plan as string);
+        }
 
         console.log(
             `[webhook/pagarme] Invoice ${inv.id} paga. ` +
@@ -200,6 +215,47 @@ async function handleOrderFailed(
         .eq("status", "pending");
 
     console.log(`[webhook/pagarme] Pagamento falhou para order: ${orderId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Sincroniza tabela subscriptions (entitlements) com pagarme_subscriptions
+// ---------------------------------------------------------------------------
+
+async function syncLogicalSubscription(
+    admin: ReturnType<typeof createAdminClient>,
+    companyId: string,
+    planKey: string
+) {
+    if (!companyId || !planKey) return;
+
+    // Apenas nossos dois planos principais por enquanto
+    if (planKey !== "bot" && planKey !== "complete") return;
+
+    const { data: planRow, error: planErr } = await admin
+        .from("plans")
+        .select("id")
+        .eq("key", planKey)
+        .maybeSingle();
+
+    if (planErr || !planRow?.id) {
+        console.warn(
+            "[billing/webhook] syncLogicalSubscription: plano não encontrado para key=",
+            planKey,
+            "| err=",
+            planErr?.message
+        );
+        return;
+    }
+
+    await admin.from("subscriptions").upsert(
+        {
+            company_id: companyId,
+            plan_id: planRow.id,
+            status: "active",
+            started_at: new Date().toISOString(),
+        },
+        { onConflict: "company_id" }
+    );
 }
 
 // ---------------------------------------------------------------------------
