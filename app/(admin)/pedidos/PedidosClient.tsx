@@ -939,6 +939,61 @@ export default function PedidosPage() {
         [editTotalNow, editCustomerPays]
     );
 
+    const [sendingOutForDelivery, setSendingOutForDelivery] = useState(false);
+    const [sendingDeliveredMessage, setSendingDeliveredMessage] = useState(false);
+
+    async function sendWhatsAppForCurrentOrder(kind: "out_for_delivery" | "delivered_message") {
+        const ord = viewOrder;
+        if (!ord || !ord.customers?.phone) {
+            setMsg("Telefone do cliente não encontrado para este pedido.");
+            return;
+        }
+
+        const phone = String(ord.customers.phone).trim();
+        if (!phone.startsWith("+")) {
+            setMsg("Telefone do cliente precisa estar em formato internacional (+55...).");
+            return;
+        }
+
+        const customerName = (ord.customers.name || "").trim();
+        const text =
+            kind === "out_for_delivery"
+                ? `Ótima notícia${customerName ? `, ${customerName}` : ""}: seu pedido já está com nosso entregador e a caminho de você! 🛵💨 Em breve ele chegará no endereço informado`
+                : `Confirmamos aqui que seu pedido foi entregue${customerName ? `, ${customerName}` : ""}! 🎉 Esperamos que tenha chegado tudo certinho. Se precisar de qualquer coisa, é só nos chamar por este chat. Conte com a gente!`;
+
+        try {
+            if (kind === "out_for_delivery") setSendingOutForDelivery(true);
+            else setSendingDeliveredMessage(true);
+
+            setMsg(null);
+
+            const res = await fetch("/api/whatsapp/send", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    to_phone_e164: phone,
+                    kind: "text",
+                    text,
+                }),
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                setMsg(
+                    `Erro ao enviar mensagem no WhatsApp: ${data?.error || res.statusText || "erro desconhecido"}`
+                );
+                return;
+            }
+
+            setMsg("✅ Mensagem enviada no WhatsApp.");
+        } catch (err: any) {
+            setMsg(`Erro ao enviar mensagem no WhatsApp: ${String(err?.message ?? err)}`);
+        } finally {
+            if (kind === "out_for_delivery") setSendingOutForDelivery(false);
+            else setSendingDeliveredMessage(false);
+        }
+    }
+
     return (
         <div style={{ fontSize: 13 }}>
             <div
@@ -1202,6 +1257,10 @@ export default function PedidosPage() {
                 canDeliver={viewOrder ? canDeliver(String((viewOrder as any).status)) : false}
                 canFinalize={viewOrder ? canFinalize(String((viewOrder as any).status)) : false}
                 canEdit={viewOrder ? canEdit(String((viewOrder as any).status)) : false}
+                onOutForDelivery={() => sendWhatsAppForCurrentOrder("out_for_delivery")}
+                onDeliveredMessage={() => sendWhatsAppForCurrentOrder("delivered_message")}
+                sendingOutForDelivery={sendingOutForDelivery}
+                sendingDeliveredMessage={sendingDeliveredMessage}
             />
 
             <ActionModal
