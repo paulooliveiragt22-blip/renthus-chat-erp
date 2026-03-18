@@ -765,19 +765,52 @@ async function handleFreeTextInput(
     }
 
     // ── Múltiplos resultados → lista interativa ───────────────────────────────
+    // Se houver mais de 5 opções, exibe só as 3 primeiras + botão "Ver mais"
+    // para não poluir o WhatsApp do cliente.
+    const PREVIEW_LIMIT = 3;
+    const hasMore       = found.length > 5;
+    const displayed     = hasMore ? found.slice(0, PREVIEW_LIMIT) : found;
+
+    // Salva TODOS os resultados no contexto (para o "Ver mais" depois)
     await saveSession(admin, threadId, companyId, {
         step:    "catalog_products",
         context: {
             ...session.context,
-            variants:       found,
-            brand_name:     "Resultados",
-            category_name:  "Busca",
+            variants:        found,      // lista completa preservada
+            brand_name:      "Resultados",
+            category_name:   "Busca",
             pending_variant: null,
             pending_is_case: null,
         },
     });
 
-    await sendVariantsList(phoneE164, found, `Encontrei ${found.length} opções para`, `"${terms.join(" ")}"`);
+    if (hasMore) {
+        // Constrói lista apenas com os top 3
+        const previewRows = displayed.map((v) => ({
+            id:          v.id,
+            title:       truncateTitle(`${v.productName} ${v.volumeValue}${v.unit}`),
+            description: `${formatCurrency(v.unitPrice)}${v.details ? " · " + v.details : ""}`,
+        }));
+
+        const verMaisRow = [{
+            id:          "ver_mais",
+            title:       "🔍 Ver mais opções",
+            description: `${found.length - PREVIEW_LIMIT} resultados adicionais`,
+        }];
+
+        await sendListMessageSections(
+            phoneE164,
+            `🔍 *"${terms.join(" ")}"* — ${found.length} opções encontradas.\n_Veja as mais relevantes abaixo ou toque em "Ver mais":_`,
+            "Ver opções",
+            [
+                { title: `Top ${PREVIEW_LIMIT} resultados`, rows: previewRows },
+                { title: "Mais opções",                     rows: verMaisRow  },
+            ]
+        );
+    } else {
+        await sendVariantsList(phoneE164, displayed, `Encontrei ${found.length} opções para`, `"${terms.join(" ")}"`);
+    }
+
     return "handled";
 }
 
@@ -1532,6 +1565,17 @@ async function handleCatalogProducts(
             categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
             "Categorias"
         );
+        return;
+    }
+
+    // ── Ver mais resultados de busca ──────────────────────────────────────────
+    if (input === "ver_mais") {
+        // Exibe a lista completa que estava guardada no contexto
+        if (variants.length > 0) {
+            await sendVariantsList(phoneE164, variants, brandName || "Resultados", catName || "Busca");
+        } else {
+            await reply(phoneE164, "Não há mais opções para mostrar. Digite o nome do produto para buscar novamente.");
+        }
         return;
     }
 
