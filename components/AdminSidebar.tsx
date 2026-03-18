@@ -17,11 +17,13 @@ import {
   Sun,
   Users,
   Wallet,
+  ShoppingCart,
 } from "lucide-react";
 
 const adminMenu = [
   { label: "Dashboard",     href: "/dashboard",      icon: LayoutDashboard },
   { label: "Pedidos",       href: "/pedidos",         icon: Receipt },
+  { label: "PDV / Balcão",  href: "/pdv",             icon: ShoppingCart },
   { label: "WhatsApp",      href: "/whatsapp",        icon: MessageCircle },
   { label: "Produtos",      href: "/produtos",        icon: ShoppingBag },
   { label: "Clientes",      href: "/clientes",        icon: Users },
