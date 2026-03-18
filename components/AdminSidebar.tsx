@@ -22,7 +22,7 @@ export default function AdminSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden min-h-screen w-64 flex-col border-r border-zinc-800 bg-gradient-to-b from-[#1e0b3a] via-[#120623] to-[#05010b] text-zinc-50 md:flex">
+    <aside className="flex min-h-screen w-60 flex-col border-r border-zinc-800 bg-gradient-to-b from-[#4c1d95] via-[#1e0b3a] to-[#05010b] text-zinc-50">
       <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-lg font-bold shadow-[0_0_20px_rgba(234,88,12,0.25)]">
           R
