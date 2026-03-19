@@ -221,6 +221,15 @@ export default function ProdutosListaPage() {
             return;
         }
 
+        // Lookup para garantir que `name` venha sempre como texto.
+        // (O join `categories(name)`/`brands(name)` pode acabar retornando `name` como boolean em alguns cenarios.)
+        const catById = new Map<string, string>(
+            ((catRes.data ?? []) as any[]).map((c) => [String(c.id), String(typeof c.name === "string" ? c.name : (c.name ?? ""))]),
+        );
+        const brandById = new Map<string, string>(
+            ((brRes.data ?? []) as any[]).map((b) => [String(b.id), String(typeof b.name === "string" ? b.name : (b.name ?? ""))]),
+        );
+
         const mapped = (prodRes.data ?? []).map((p: any) => {
             const packs: any[] = Array.isArray(p.produto_embalagens) ? p.produto_embalagens : [];
             const unPack = packs.find((x) => String(x.sigla_comercial ?? "").toUpperCase() === "UN") ?? null;
@@ -248,19 +257,29 @@ export default function ProdutosListaPage() {
                     name: p.name ?? null,
                     category_id: p.category_id ?? null,
                     brand_id: p.brand_id ?? null,
-                    categories: Array.isArray(p.categories)
-                        ? (p.categories[0] ? { id: String(p.categories[0].id), name: String(p.categories[0].name ?? "") } : null)
-                        : (p.categories ? { id: String(p.categories.id), name: String(p.categories.name ?? "") } : null),
-                    brands: Array.isArray(p.brands)
-                        ? (p.brands[0] ? { id: String(p.brands[0].id), name: String(p.brands[0].name ?? "") } : null)
-                        : (p.brands ? { id: String(p.brands.id), name: String(p.brands.name ?? "") } : null),
+                    // Usa `category_id`/`brand_id` como fonte da verdade para o nome.
+                    // Assim evitamos o bug de renderizar `true/false` quando o join retorna `name` boolean.
+                    categories: p.category_id ? {
+                        id: String(p.category_id),
+                        name: catById.get(String(p.category_id)) ?? "",
+                    } : null,
+                    brands: p.brand_id ? {
+                        id: String(p.brand_id),
+                        name: brandById.get(String(p.brand_id)) ?? "",
+                    } : null,
                 } : null,
             } as Row;
         }).filter(Boolean) as Row[];
 
         setRows(mapped);
-        if (!catRes.error) setCategories((catRes.data as any[]).map((c) => ({ id: String(c.id), name: String(c.name) })));
-        if (!brRes.error)  setBrands((brRes.data as any[]).map((b)  => ({ id: String(b.id), name: String(b.name) })));
+        if (!catRes.error) setCategories((catRes.data as any[]).map((c) => ({
+            id: String(c.id),
+            name: typeof c.name === "string" ? c.name : "",
+        })));
+        if (!brRes.error)  setBrands((brRes.data as any[]).map((b)  => ({
+            id: String(b.id),
+            name: typeof b.name === "string" ? b.name : "",
+        })));
         setLoading(false);
     }
 
@@ -269,8 +288,14 @@ export default function ProdutosListaPage() {
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
             supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
         ]);
-        if (!cats.error) setCategories((cats.data as any[]).map((c) => ({ id: String(c.id), name: String(c.name) })));
-        if (!brs.error)  setBrands((brs.data as any[]).map((b)   => ({ id: String(b.id), name: String(b.name) })));
+        if (!cats.error) setCategories((cats.data as any[]).map((c) => ({
+            id: String(c.id),
+            name: typeof c.name === "string" ? c.name : "",
+        })));
+        if (!brs.error)  setBrands((brs.data as any[]).map((b)   => ({
+            id: String(b.id),
+            name: typeof b.name === "string" ? b.name : "",
+        })));
     }
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
