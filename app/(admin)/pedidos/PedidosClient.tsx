@@ -242,21 +242,94 @@ export default function PedidosPage() {
         if (t.length < 2) { opts.setResults([]); return; }
         opts.setSearching(true);
         const { data, error } = await supabase
-            .from("product_variants")
-            .select(`id, unit_price, has_case, case_qty, case_price, unit, volume_value, details, is_active, products ( categories ( name ), brands ( name ) )`)
-            .eq("is_active", true)
-            .order("created_at", { ascending: false })
-            .limit(200);
+            .from("produto_embalagens")
+            .select(`
+                id,
+                produto_id,
+                descricao,
+                sigla_comercial,
+                fator_conversao,
+                preco_venda,
+                tags,
+                products(
+                    id,
+                    name,
+                    codigo_interno,
+                    is_active,
+                    unit_type,
+                    details,
+                    categories(name),
+                    brands(name)
+                )
+            `)
+            .eq("products.is_active", true)
+            .limit(400);
+
         if (error) { setMsg(`Erro na busca: ${error.message}`); opts.setResults([]); opts.setSearching(false); return; }
+
         const s = t.toLowerCase();
-        const filtered = ((data as Variant[]) ?? []).filter((v) => {
+
+        // Agrupa embalagens por produto (Pai) para manter o contrato da UI (mode unit/case)
+        const byProduto = new Map<string, any>();
+        for (const r of (data ?? [] as any[])) {
+            const prod = (r as any).products as any;
+            const pid = String(r.produto_id);
+            const entry = byProduto.get(pid) ?? {
+                id: pid,
+                products: {
+                    name: prod?.name ?? "",
+                    categories: { name: Array.isArray(prod?.categories) ? (prod.categories?.[0]?.name ?? "") : (prod?.categories?.name ?? "") },
+                    brands: { name: Array.isArray(prod?.brands) ? (prod.brands?.[0]?.name ?? "") : (prod?.brands?.name ?? "") },
+                },
+                tags: [] as string[],
+                unitPack: null as any,
+                casePack: null as any,
+                unit_price: 0,
+                details: null as string | null,
+                unit: prod?.unit_type ?? null,
+                is_active: Boolean(prod?.is_active ?? true),
+                codigo_interno: prod?.codigo_interno ?? null,
+            };
+
+            if (r.tags) entry.tags.push(String(r.tags));
+
+            if (String(r.sigla_comercial ?? "").toUpperCase() === "UN") entry.unitPack = r;
+            if (String(r.sigla_comercial ?? "").toUpperCase() === "CX") entry.casePack = r;
+
+            byProduto.set(pid, entry);
+        }
+
+        const variants: Variant[] = Array.from(byProduto.values()).map((e: any) => {
+            const unitPack = e.unitPack ?? e.casePack;
+            const casePack = e.casePack;
+            return {
+                id: String(e.id),
+                unit_price: Number(unitPack?.preco_venda ?? 0),
+                has_case: Boolean(casePack),
+                case_qty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
+                case_price: casePack ? Number(casePack.preco_venda ?? 0) : null,
+                unit: e.unit ?? null,
+                volume_value: null,
+                details: unitPack?.descricao ?? e.products?.name ?? null,
+                tags: e.tags.filter(Boolean).join(","),
+                is_active: e.is_active,
+                codigo_interno: e.codigo_interno ?? null,
+                unit_embalagem_id: unitPack?.id ? String(unitPack.id) : null,
+                case_embalagem_id: casePack?.id ? String(casePack.id) : null,
+                products: e.products,
+            };
+        });
+
+        const filtered = variants.filter((v) => {
             const cat   = v.products?.categories?.name?.toLowerCase() ?? "";
             const brand = v.products?.brands?.name?.toLowerCase() ?? "";
             const det   = String(v.details ?? "").toLowerCase();
-            const vol   = v.volume_value != null ? String(v.volume_value).toLowerCase() : "";
             const unit  = String(v.unit ?? "").toLowerCase();
-            return [cat, brand, det, vol, unit].some((x) => x.includes(s));
+            const internal = (v.codigo_interno ?? "").toLowerCase();
+            const tags = (v.tags ?? "").toLowerCase();
+            return [cat, brand, det, unit, internal, tags].some((x) => x.includes(s));
         });
+
         const top = filtered.slice(0, 40);
         opts.setResults(top);
         opts.ensureDraft(top.map((x) => x.id));
@@ -312,15 +385,16 @@ export default function PedidosPage() {
         if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
         const { data: items, error: itemsErr } = await supabase
             .from("order_items")
-            .select(`id, order_id, product_variant_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty, product_variants ( case_qty )`)
+            .select(`id, order_id, produto_embalagem_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty`)
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
         if (itemsErr) { setMsg(`Erro ao carregar itens: ${itemsErr.message}`); return null; }
         const mappedItems = (Array.isArray(items) ? items : []).map((it: any) => {
-            const pv = it.product_variants;
-            let caseQty = null;
-            if (pv != null) caseQty = Array.isArray(pv) ? (pv[0]?.case_qty ?? null) : (pv.case_qty ?? null);
-            return { ...it, qty: it?.qty ?? it?.quantity ?? 0, quantity: it?.quantity ?? it?.qty ?? 0, case_qty: caseQty ?? null, product_variants: pv };
+            return {
+                ...it,
+                qty: it?.qty ?? it?.quantity ?? 0,
+                quantity: it?.quantity ?? it?.qty ?? 0,
+            };
         });
         return { ...(ord as any), items: mappedItems as any };
     }
@@ -486,7 +560,20 @@ export default function PedidosPage() {
         setEditDeliveryFeeEnabled(feeVal > 0);
         setEditDeliveryFee(formatBRL(feeVal));
         const mapped: CartItem[] = ((full as any).items ?? []).map((it: any) => ({
-            variant: { id: it.product_variant_id ?? `legacy-${it.id}`, unit_price: Number(it.unit_price ?? 0), has_case: false, case_price: null, case_qty: it.case_qty ?? null, unit: it.unit_type ?? "none", volume_value: null, details: it.product_name ?? null, is_active: true, products: { categories: { name: "" }, brands: { name: "" } } } as Variant,
+            variant: {
+                id: it.produto_embalagem_id ?? `legacy-${it.id}`,
+                unit_price: Number(it.unit_price ?? 0),
+                has_case: false,
+                case_price: null,
+                case_qty: null,
+                unit: it.unit_type ?? "none",
+                volume_value: null,
+                details: it.product_name ?? null,
+                is_active: true,
+                unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
+                case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
+                products: { categories: { name: "" }, brands: { name: "" } },
+            } as Variant,
             qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
             price: Number(it.unit_price ?? 0),
             mode: it.unit_type === "case" ? "case" : "unit",
@@ -553,8 +640,7 @@ export default function PedidosPage() {
         const qtyDisplay = (it: any) => {
             const q = Number(it.quantity ?? it.qty ?? 0);
             if (String(it.unit_type ?? "unit") === "case") {
-                const cq = Number(it.case_qty ?? it?.product_variants?.case_qty ?? 0);
-                return cq > 0 ? `caixa com: ${cq} • ${q} caixas` : `caixa • ${q} caixas`;
+                return `cx × ${q}`;
             }
             return `${q} unidades`;
         };
