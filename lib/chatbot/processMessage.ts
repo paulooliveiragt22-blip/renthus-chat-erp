@@ -429,7 +429,7 @@ async function getProductsByCategory(
     const productIds = (prods ?? []).map((p: any) => p.id);
     const { data: packs } = await admin
         .from("produto_embalagens")
-        .select("id, produto_id, descricao, sigla_comercial, fator_conversao, preco_venda, tags, is_acompanhamento")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla)")
         .in("produto_id", productIds)
         ;
 
@@ -444,7 +444,7 @@ async function getProductsByCategory(
     for (const pk of packsSafe) {
         const pid = String(pk.produto_id);
         byProd[pid] ??= { unit: null, case: null };
-        const sig = String(pk.sigla_comercial ?? "").toUpperCase();
+        const sig = String((pk as any).siglas_comerciais?.sigla ?? (pk as any).sigla_comercial ?? "").toUpperCase();
         if (sig === "UN" || sig === "UNIDADE" || sig === "UN") byProd[pid].unit = pk;
         if (sig === "CX" || sig === "CAIXA") byProd[pid].case = pk;
     }
@@ -522,7 +522,7 @@ async function getVariantsByBrandAndCategory(
     // Etapa 2: embalagens (UN/CX) desses produtos
     const { data: packs } = await admin
         .from("produto_embalagens")
-        .select("id, produto_id, descricao, sigla_comercial, fator_conversao, preco_venda, tags, is_acompanhamento")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla)")
         .in("produto_id", productIds);
 
     if (!packs?.length) return [];
@@ -531,7 +531,7 @@ async function getVariantsByBrandAndCategory(
     for (const pk of packs as any[]) {
         const pid = String(pk.produto_id);
         byProd[pid] ??= { unit: null, case: null };
-        const sig = String(pk.sigla_comercial ?? "").toUpperCase();
+        const sig = String((pk as any).siglas_comerciais?.sigla ?? (pk as any).sigla_comercial ?? "").toUpperCase();
         if (sig === "UN") byProd[pid].unit = pk;
         if (sig === "CX") byProd[pid].case = pk;
     }
@@ -746,11 +746,11 @@ async function searchVariantsByTextV2(
           id,
           produto_id,
           descricao,
-          sigla_comercial,
           fator_conversao,
           preco_venda,
           tags,
           is_acompanhamento,
+          siglas_comerciais(sigla),
           products!inner(
             id,
             name,
@@ -780,7 +780,7 @@ async function searchVariantsByTextV2(
         const pid = String(r.produto_id);
         byProd[pid] ??= { unitPack: null, casePack: null, productsRow: null, tags: [] };
         byProd[pid].productsRow = r.products ?? byProd[pid].productsRow;
-        const sig = String(r.sigla_comercial ?? "").toUpperCase();
+        const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
         if (sig === "UN") byProd[pid].unitPack = r;
         if (sig === "CX") byProd[pid].casePack = r;
         if (r.tags) byProd[pid].tags.push(String(r.tags));
@@ -1141,7 +1141,7 @@ async function getAccompanimentItems(
     // 1) Pegar quais produtos têm embalagem marcada como acompanhamento
     const { data: accompPacks } = await admin
         .from("produto_embalagens")
-        .select("id, produto_id, sigla_comercial, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, products!inner(id, name, is_active, unit_type, details)")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
         .eq("company_id", companyId)
         .eq("is_acompanhamento", true)
         .limit(50);
@@ -1152,7 +1152,7 @@ async function getAccompanimentItems(
     const produtoIds = [...new Set(safeAcc.map((p) => String(p.produto_id)))].slice(0, 20);
     const { data: packs } = await admin
         .from("produto_embalagens")
-        .select("id, produto_id, sigla_comercial, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, products!inner(id, name, is_active, unit_type, details)")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
         .in("produto_id", produtoIds)
         .eq("company_id", companyId);
 
@@ -1161,7 +1161,7 @@ async function getAccompanimentItems(
         const pid = String(r.produto_id);
         byProd[pid] ??= { unitPack: null, casePack: null, p: null, tags: [] };
         byProd[pid].p = r.products ?? byProd[pid].p;
-        const sig = String(r.sigla_comercial ?? "").toUpperCase();
+        const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
         if (r.tags) byProd[pid].tags.push(String(r.tags));
         if (sig === "UN") byProd[pid].unitPack = r;
         if (sig === "CX") byProd[pid].casePack = r;
