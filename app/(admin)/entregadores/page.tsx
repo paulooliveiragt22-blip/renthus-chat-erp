@@ -249,7 +249,7 @@ export default function EntregadoresPage() {
                     { label: "Total cadastrados", value: drivers.length, color: "bg-violet-100 text-violet-600 dark:bg-violet-900/30" },
                     { label: "Ativos",             value: activeCount,    color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30" },
                 ].map(({ label, value, color }) => (
-                    <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm dark:bg-zinc-900">
+                    <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                         <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${color}`}>
                             <Bike className="h-5 w-5" />
                         </span>
@@ -282,7 +282,7 @@ export default function EntregadoresPage() {
                     : filtered.map((d) => (
                         <div
                             key={d.id}
-                            className={`flex items-center justify-between rounded-xl border bg-white px-4 py-4 shadow-sm transition-all dark:bg-zinc-900 ${
+                            className={`flex items-center justify-between rounded-xl border bg-white px-4 py-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900 ${
                                 flashId === d.id
                                     ? "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/10"
                                     : d.is_active

@@ -278,7 +278,7 @@ export default function ConfiguracoesPage() {
                 </nav>
 
                 {/* ── CONTENT ───────────────────────────────────────────────── */}
-                <div className="flex-1 rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+                <div className="flex-1 rounded-xl bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
 
                     {loading ? (
                         <div className="flex items-center justify-center py-16">

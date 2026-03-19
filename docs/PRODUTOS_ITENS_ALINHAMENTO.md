@@ -1,6 +1,8 @@
 # Alinhamento: Produtos, Itens e Estoque
 
-Documento consolidado do que foi proposto e alinhado para implementação futura.
+Documento consolidado do que foi proposto e alinhado para implementação.
+
+> **Implementação atual:** ver [PRODUTOS_CADASTRO_IMPLEMENTACAO.md](./PRODUTOS_CADASTRO_IMPLEMENTACAO.md) para o que foi implementado no cadastro.
 
 ---
 

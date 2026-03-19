@@ -18,6 +18,12 @@ function brl(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function brlSplit(v: number) {
+  const full = v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const value = full.replace(/^R\$\s*/i, "").trim();
+  return { prefix: "R$", value };
+}
+
 // ─── types ────────────────────────────────────────────────────────────────────
 
 interface Variant {
@@ -27,6 +33,8 @@ interface Variant {
   category: string;
 
   sigla_comercial: string;
+  sigla_humanizada: string;
+  volume_formatado: string | null;
   fator_conversao: number;
   unit_price: number; // preco_venda da embalagem
 
@@ -36,6 +44,7 @@ interface Variant {
   details: string | null; // embalagem.descricao
   tags: string | null;
   is_active: boolean;
+  sales_count: number;
 }
 interface CartItem  { variant: Variant; qty: number }
 interface PayLine   { id: string; method: "pix"|"card"|"cash"|"credit"; value: string; received: string; due_date?: string }
@@ -125,7 +134,7 @@ export default function PDVPage() {
     setLoadingProd(true);
     const { data, error } = await supabase
       .from("view_pdv_produtos")
-      .select("id, produto_id, descricao, fator_conversao, preco_venda, codigo_interno, codigo_barras_ean, tags, volume_quantidade, sigla_comercial, product_name, product_unit_type, product_details, category_name")
+      .select("id, produto_id, descricao, fator_conversao, preco_venda, codigo_interno, codigo_barras_ean, tags, volume_quantidade, sigla_comercial, sigla_humanizada, volume_formatado, sales_count, product_name, product_unit_type, product_details, category_name")
       .eq("company_id", companyId);
     if (error) console.error("[pdv] loadVariants:", error.message);
 
@@ -138,6 +147,8 @@ export default function PDVPage() {
         category: r.category_name ?? "Geral",
 
         sigla_comercial: sigla,
+        sigla_humanizada: r.sigla_humanizada ?? sigla,
+        volume_formatado: r.volume_formatado ?? null,
         fator_conversao: Number(r.fator_conversao ?? 1),
         unit_price: Number(r.preco_venda ?? 0),
 
@@ -147,6 +158,7 @@ export default function PDVPage() {
         details: r.descricao ?? null,
         tags: r.tags ?? null,
         is_active: true,
+        sales_count: Number(r.sales_count ?? 0),
       };
     }));
     setLoadingProd(false);
@@ -213,7 +225,7 @@ export default function PDVPage() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return variants.filter(v => {
+    const list = variants.filter(v => {
       const mc = activeCat === "Todos" || v.category === activeCat;
       if (!q) return mc;
 
@@ -230,6 +242,7 @@ export default function PDVPage() {
 
       return mc && (internalOk || eanOk || textOk);
     });
+    return [...list].sort((a, b) => (b.sales_count ?? 0) - (a.sales_count ?? 0));
   }, [variants, search, activeCat]);
 
   const cartTotal = useMemo(() => cart.reduce((s, i) => s + i.variant.unit_price * i.qty, 0), [cart]);
@@ -458,8 +471,8 @@ export default function PDVPage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    /* Root: full viewport height, no scroll — absorbs 100vh regardless of parent */
-    <div className="fixed inset-0 left-60 flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
+    /* Root: full viewport, dark mode ativado */
+    <div className="dark fixed inset-0 left-60 flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
 
       {/* ── Top bar (compact) ─────────────────────────────────────────── */}
       <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-2">
@@ -519,9 +532,9 @@ export default function PDVPage() {
           {/* Product grid — only this area scrolls */}
           <div className="flex-1 overflow-y-auto p-3 min-h-0">
             {loadingProd ? (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                {Array.from({length:12}).map((_,i)=>(
-                  <div key={i} className="h-20 animate-pulse rounded-xl bg-zinc-800" />
+              <div className="grid grid-cols-5 gap-2">
+                {Array.from({length:15}).map((_,i)=>(
+                  <div key={i} className="h-28 animate-pulse rounded-xl bg-zinc-800" />
                 ))}
               </div>
             ) : filtered.length === 0 ? (
@@ -530,12 +543,14 @@ export default function PDVPage() {
                 <p className="text-xs">Sem resultados.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <div className="grid grid-cols-5 gap-2">
                 {filtered.map(v => {
                   const inCart = cart.find(c => c.variant.id === v.id);
+                  const isPack = ["CX","FARD","PAC"].includes(v.sigla_comercial);
+                  const qtdLabel = isPack ? `${v.fator_conversao} un` : null;
                   return (
                     <button key={v.id} onClick={()=>addToCart(v)}
-                      className={`group relative flex flex-col rounded-xl border p-2 text-left transition-all active:scale-95 ${
+                      className={`group relative flex flex-col rounded-xl border p-3 text-left transition-all duration-300 active:scale-95 hover:-translate-y-0.5 hover:shadow-lg ${
                         inCart
                           ? "border-orange-500/60 bg-orange-950/30 shadow-[0_0_12px_rgba(249,115,22,0.2)]"
                           : "border-zinc-700 bg-zinc-800/60 hover:border-zinc-600 hover:bg-zinc-800"
@@ -545,12 +560,24 @@ export default function PDVPage() {
                           {inCart.qty}
                         </span>
                       )}
-                      <p className="text-[11px] font-semibold text-zinc-200 line-clamp-2 leading-tight">
+                      <p className="text-base font-semibold text-zinc-100 line-clamp-2 leading-tight capitalize">
                         {v.product_name}
                       </p>
-                      {v.details && <p className="mt-0.5 text-[9px] text-zinc-500 leading-none truncate">{v.details}</p>}
-                      <div className="mt-auto flex items-center justify-between pt-1.5">
-                        <p className="text-xs font-bold text-orange-400">{brl(v.unit_price)}</p>
+                      {v.volume_formatado && (
+                        <p className="mt-1 text-xs font-normal text-zinc-400 opacity-90 leading-none">{v.volume_formatado}</p>
+                      )}
+                      {v.details && !v.volume_formatado && (
+                        <p className="mt-1 text-xs font-normal text-zinc-400 opacity-90 leading-none truncate">{v.details}</p>
+                      )}
+                      <div className="mt-1 flex flex-wrap gap-x-1.5 text-xs font-normal text-zinc-400 opacity-[0.7]">
+                        <span>{v.sigla_humanizada}</span>
+                        {qtdLabel && <span>• {qtdLabel}</span>}
+                      </div>
+                      <div className="mt-auto flex items-center justify-between pt-2">
+                        <span className="text-sm font-semibold">
+                          <span className="text-zinc-500 text-xs font-medium">{brlSplit(v.unit_price).prefix} </span>
+                          <span className="text-orange-400">{brlSplit(v.unit_price).value}</span>
+                        </span>
                         <div className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
                           inCart ? "bg-orange-500 text-white" : "bg-zinc-700 text-zinc-400 group-hover:bg-orange-500 group-hover:text-white"
                         }`}>
