@@ -162,9 +162,6 @@ export default function ProdutosPage() {
 
     async function saveAll() {
         setSaving(true); setMsg(null);
-        setSaving(false);
-        setMsg("Cadastro de Produtos está temporariamente desativado na fase 2 (telas precisam ser refatoradas para `produto_embalagens`).");
-        return;
         if (!companyId)  { setMsg("Nenhuma empresa ativa."); setSaving(false); return; }
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
         if (!brandId)    { setMsg("Selecione uma marca."); setSaving(false); return; }
@@ -172,12 +169,82 @@ export default function ProdutosPage() {
         const catName   = categories.find((c) => c.id === categoryId)?.name ?? "Categoria";
         const brandName = brands.find((b) => b.id === brandId)?.name        ?? "Marca";
 
-        const { data: product, error: productErr } = await supabase
-            .from("products")
-            .insert({ name: `${catName} ${brandName}`.trim(), company_id: companyId, category_id: categoryId, brand_id: brandId, is_active: true })
-            .select("id").single();
+        // Fase 2: cada volume/medida vira um `products` independente.
 
-        if (productErr) { setMsg(`Erro ao criar produto: ${productErr?.message ?? ""}`); setSaving(false); return; }
+        try {
+            for (const r of rows) {
+                const hasVol = r.hasVolume && String(r.volumeValue ?? "").trim().length > 0;
+                const volText = hasVol ? `${String(r.volumeValue).trim()}${r.unit === "none" ? "" : r.unit}` : "";
+                const productName = [catName, brandName, volText].filter(Boolean).join(" ");
+
+                const { data: nextCode, error: rpcErr } = await supabase.rpc("gerar_proximo_codigo_interno");
+                if (rpcErr) throw new Error(rpcErr.message);
+
+                const costUnit = brlToNumber(r.costPrice);
+                const unitPrice = brlToNumber(r.unitPrice);
+                const caseFator = r.hasCase ? Math.max(0, Number((r.caseQty ?? "").replace(",", "."))) : 0;
+                const casePrice = brlToNumber(r.casePrice);
+
+                const { data: prodRow, error: prodErr } = await supabase.from("products").insert({
+                    company_id:             companyId,
+                    name:                   productName,
+                    category_id:           categoryId,
+                    brand_id:              brandId,
+                    is_active:             true,
+                    codigo_interno:        String(nextCode ?? ""),
+                    preco_custo_unitario:  costUnit,
+                    estoque_atual:         0,
+                    estoque_minimo:        0,
+                }).select("id").single();
+
+                if (prodErr) throw new Error(prodErr.message);
+                const produtoId = String(prodRow?.id ?? "");
+                if (!produtoId) throw new Error("Falha ao criar produto (id ausente).");
+
+                const unDescricao = volText || "UNIDADE";
+                const { error: unErr } = await supabase.from("produto_embalagens").insert({
+                    company_id:            companyId,
+                    produto_id:            produtoId,
+                    descricao:             unDescricao,
+                    sigla_comercial:      "UN",
+                    fator_conversao:      1,
+                    codigo_barras_ean:   null,
+                    preco_venda:          unitPrice,
+                    tags:                 r.tags.trim() || null,
+                    is_acompanhamento:    r.isAccompaniment,
+                });
+                if (unErr) throw new Error(unErr.message);
+
+                if (r.hasCase && caseFator > 0) {
+                    const cxDescricao = volText ? `CX ${caseFator}un (${volText})` : `CX ${caseFator}un`;
+                    const { error: cxErr } = await supabase.from("produto_embalagens").insert({
+                        company_id:            companyId,
+                        produto_id:            produtoId,
+                        descricao:             cxDescricao,
+                        sigla_comercial:      "CX",
+                        fator_conversao:      caseFator,
+                        codigo_barras_ean:   null,
+                        preco_venda:          casePrice,
+                        tags:                 r.tags.trim() || null,
+                        is_acompanhamento:    r.isAccompaniment,
+                    });
+                    if (cxErr) throw new Error(cxErr.message);
+                }
+            }
+
+            setMsg("✓ Produtos salvos com sucesso (products + produto_embalagens).");
+            setRows([newRow("row-0")]);
+            setSaving(false);
+            return;
+        } catch (e: any) {
+            setMsg(`Erro ao salvar: ${String(e?.message ?? e)}`);
+            setSaving(false);
+            return;
+        }
+
+        // Legado (inacessível após o `return` acima). Mantido apenas para evitar reescrever UI por completo.
+        // `product` só existe para satisfazer TypeScript no bloco legado.
+        const product: any = null;
 
         const payload = rows.map((r) => ({
             product_id:       product?.id ?? "",
