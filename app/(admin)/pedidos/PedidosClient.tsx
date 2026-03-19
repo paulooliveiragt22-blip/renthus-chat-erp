@@ -258,8 +258,7 @@ export default function PedidosPage() {
                     is_active,
                     unit_type,
                     details,
-                    categories(name),
-                    brands(name)
+                    categories(name)
                 )
             `)
             .eq("products.is_active", true)
@@ -279,7 +278,6 @@ export default function PedidosPage() {
                 products: {
                     name: prod?.name ?? "",
                     categories: { name: Array.isArray(prod?.categories) ? (prod.categories?.[0]?.name ?? "") : (prod?.categories?.name ?? "") },
-                    brands: { name: Array.isArray(prod?.brands) ? (prod.brands?.[0]?.name ?? "") : (prod?.brands?.name ?? "") },
                 },
                 tags: [] as string[],
                 unitPack: null as any,
@@ -323,12 +321,11 @@ export default function PedidosPage() {
 
         const filtered = variants.filter((v) => {
             const cat   = v.products?.categories?.name?.toLowerCase() ?? "";
-            const brand = v.products?.brands?.name?.toLowerCase() ?? "";
             const det   = String(v.details ?? "").toLowerCase();
             const unit  = String(v.unit ?? "").toLowerCase();
             const internal = (v.codigo_interno ?? "").toLowerCase();
             const tags = (v.tags ?? "").toLowerCase();
-            return [cat, brand, det, unit, internal, tags].some((x) => x.includes(s));
+            return [cat, det, unit, internal, tags].some((x) => x.includes(s));
         });
 
         const top = filtered.slice(0, 40);
@@ -573,7 +570,7 @@ export default function PedidosPage() {
                 is_active: true,
                 unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
                 case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
-                products: { categories: { name: "" }, brands: { name: "" } },
+                products: { categories: { name: "" } },
             } as Variant,
             qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
             price: Number(it.unit_price ?? 0),
