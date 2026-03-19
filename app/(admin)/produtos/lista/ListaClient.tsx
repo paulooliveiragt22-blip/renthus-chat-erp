@@ -171,6 +171,8 @@ export default function ProdutosListaPage() {
     const [isAccomp,    setIsAccomp]    = useState(false);
     const [codigoInterno, setCodigoInterno] = useState<string | null>(null);
     const [codigoLoading, setCodigoLoading] = useState(false);
+    const [codigoCaixa, setCodigoCaixa] = useState<string | null>(null);
+    const [codigoCaixaLoading, setCodigoCaixaLoading] = useState(false);
 
     // edit fields — product base
     const [categoryId,       setCategoryId]       = useState("");
@@ -179,6 +181,13 @@ export default function ProdutosListaPage() {
     const [newBrandName,     setNewBrandName]     = useState("");
     const [addCategoryOpen,  setAddCategoryOpen]  = useState(false);
     const [addBrandOpen,     setAddBrandOpen]     = useState(false);
+    const [siglaUnId, setSiglaUnId] = useState<string | null>(null);
+    const [siglaCxId, setSiglaCxId] = useState<string | null>(null);
+    const [siglas, setSiglas] = useState<{ id: string; sigla: string }[]>([]);
+    const [siglaExtraId, setSiglaExtraId] = useState<string | null>(null);
+    const [addSiglaOpen, setAddSiglaOpen] = useState(false);
+    const [newSiglaValue, setNewSiglaValue] = useState("");
+    const [newSiglaDesc, setNewSiglaDesc] = useState("");
 
     // flash row
     const [flashId, setFlashId] = useState<string | null>(null);
@@ -208,7 +217,10 @@ export default function ProdutosListaPage() {
               categories(id,name),
               brands(id,name),
               produto_embalagens(
-                id, descricao, sigla_comercial, fator_conversao, preco_venda, tags, codigo_barras_ean, is_acompanhamento
+                id, descricao, fator_conversao, preco_venda, tags, codigo_barras_ean, is_acompanhamento,
+                id_sigla_comercial, id_unit_type, volume_quantidade,
+                siglas_comerciais(sigla, descricao),
+                unit_types(sigla, descricao)
               )
             `).eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
@@ -221,11 +233,21 @@ export default function ProdutosListaPage() {
             return;
         }
 
+        // Lookup para garantir que `name` venha sempre como texto.
+        // (O join `categories(name)`/`brands(name)` pode acabar retornando `name` como boolean em alguns cenarios.)
+        const catById = new Map<string, string>(
+            ((catRes.data ?? []) as any[]).map((c) => [String(c.id), String(typeof c.name === "string" ? c.name : (c.name ?? ""))]),
+        );
+        const brandById = new Map<string, string>(
+            ((brRes.data ?? []) as any[]).map((b) => [String(b.id), String(typeof b.name === "string" ? b.name : (b.name ?? ""))]),
+        );
+
         const mapped = (prodRes.data ?? []).map((p: any) => {
             const packs: any[] = Array.isArray(p.produto_embalagens) ? p.produto_embalagens : [];
-            const unPack = packs.find((x) => String(x.sigla_comercial ?? "").toUpperCase() === "UN") ?? null;
+            const sigla = (x: any) => String((x?.siglas_comerciais?.sigla ?? x?.sigla_comercial) ?? "").toUpperCase();
+            const unPack = packs.find((x) => sigla(x) === "UN") ?? null;
             if (!unPack) return null;
-            const cxPack = packs.find((x) => String(x.sigla_comercial ?? "").toUpperCase() === "CX") ?? null;
+            const cxPack = packs.find((x) => sigla(x) === "CX") ?? null;
 
             return {
                 id: String(unPack.id),
@@ -248,19 +270,48 @@ export default function ProdutosListaPage() {
                     name: p.name ?? null,
                     category_id: p.category_id ?? null,
                     brand_id: p.brand_id ?? null,
-                    categories: Array.isArray(p.categories)
-                        ? (p.categories[0] ? { id: String(p.categories[0].id), name: String(p.categories[0].name ?? "") } : null)
-                        : (p.categories ? { id: String(p.categories.id), name: String(p.categories.name ?? "") } : null),
-                    brands: Array.isArray(p.brands)
-                        ? (p.brands[0] ? { id: String(p.brands[0].id), name: String(p.brands[0].name ?? "") } : null)
-                        : (p.brands ? { id: String(p.brands.id), name: String(p.brands.name ?? "") } : null),
+                    // Usa `category_id`/`brand_id` como fonte da verdade para o nome.
+                    // Assim evitamos o bug de renderizar `true/false` quando o join retorna `name` boolean.
+                    categories: p.category_id ? {
+                        id: String(p.category_id),
+                        name: catById.get(String(p.category_id)) ?? "",
+                    } : null,
+                    brands: p.brand_id ? {
+                        id: String(p.brand_id),
+                        name: brandById.get(String(p.brand_id)) ?? "",
+                    } : null,
                 } : null,
             } as Row;
         }).filter(Boolean) as Row[];
 
         setRows(mapped);
-        if (!catRes.error) setCategories((catRes.data as any[]).map((c) => ({ id: String(c.id), name: String(c.name) })));
-        if (!brRes.error)  setBrands((brRes.data as any[]).map((b)  => ({ id: String(b.id), name: String(b.name) })));
+        if (!catRes.error) setCategories((catRes.data as any[]).map((c) => ({
+            id: String(c.id),
+            name: typeof c.name === "string" ? c.name : "",
+        })));
+        if (!brRes.error)  setBrands((brRes.data as any[]).map((b)  => ({
+            id: String(b.id),
+            name: typeof b.name === "string" ? b.name : "",
+        })));
+
+        const { data: siglasData } = await supabase
+            .from("siglas_comerciais")
+            .select("id, sigla")
+            .eq("company_id", companyId);
+        if (siglasData?.length) {
+            const mappedSiglas = (siglasData as any[]).map((s) => ({
+                id: String(s.id),
+                sigla: String(s.sigla ?? "").toUpperCase(),
+            }));
+            setSiglas(mappedSiglas);
+            const un = mappedSiglas.find((s) => s.sigla === "UN");
+            const cx = mappedSiglas.find((s) => s.sigla === "CX");
+            if (un) setSiglaUnId(un.id);
+            if (cx) {
+                setSiglaCxId(cx.id);
+                if (!siglaExtraId) setSiglaExtraId(cx.id);
+            }
+        }
         setLoading(false);
     }
 
@@ -269,8 +320,37 @@ export default function ProdutosListaPage() {
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
             supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
         ]);
-        if (!cats.error) setCategories((cats.data as any[]).map((c) => ({ id: String(c.id), name: String(c.name) })));
-        if (!brs.error)  setBrands((brs.data as any[]).map((b)   => ({ id: String(b.id), name: String(b.name) })));
+        if (!cats.error) setCategories((cats.data as any[]).map((c) => ({
+            id: String(c.id),
+            name: typeof c.name === "string" ? c.name : "",
+        })));
+        if (!brs.error)  setBrands((brs.data as any[]).map((b)   => ({
+            id: String(b.id),
+            name: typeof b.name === "string" ? b.name : "",
+        })));
+    }
+
+    async function quickCreateSigla(sigla: string, descricao: string) {
+        if (!sigla.trim() || !companyId) return null;
+        const payload: any = {
+            sigla: sigla.trim().toUpperCase(),
+            descricao: descricao.trim() || null,
+            company_id: companyId,
+        };
+        const { data, error } = await supabase
+            .from("siglas_comerciais")
+            .insert(payload)
+            .select("id, sigla")
+            .single();
+        if (error) {
+            setMsg(`Erro: ${error.message}`);
+            return null;
+        }
+        const created = { id: String((data as any).id), sigla: String((data as any).sigla ?? "").toUpperCase() };
+        setSiglas((prev) => [...prev, created]);
+        if (created.sigla === "UN") setSiglaUnId(created.id);
+        if (!siglaExtraId) setSiglaExtraId(created.id);
+        return created.id;
     }
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
@@ -375,12 +455,13 @@ export default function ProdutosListaPage() {
         const caseFator = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
         const casePV = brlToNumber(casePrice);
 
+        if (!siglaCxId) { setMsg("Sigla comercial CX não encontrada. Recarregue a página."); setSaving(false); return; }
         const { data: cxRow, error: cxFindErr } = await supabase
             .from("produto_embalagens")
             .select("id")
             .eq("produto_id", selected.product_id)
             .eq("company_id", companyId)
-            .eq("sigla_comercial", "CX")
+            .eq("id_sigla_comercial", siglaCxId)
             .maybeSingle();
 
         if (cxFindErr) { setMsg(`Erro: ${cxFindErr.message}`); setSaving(false); return; }
@@ -400,7 +481,7 @@ export default function ProdutosListaPage() {
                 const { error: cxInsErr } = await supabase.from("produto_embalagens").insert({
                     company_id: companyId,
                     produto_id: selected.product_id,
-                    sigla_comercial: "CX",
+                    id_sigla_comercial: siglaCxId,
                     descricao: `CX ${caseFator}un`,
                     fator_conversao: caseFator,
                     preco_venda: casePV,
@@ -426,13 +507,11 @@ export default function ProdutosListaPage() {
         setMsg(null);
         if (!companyId) { setMsg("Nenhuma empresa ativa."); setSaving(false); return; }
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
-        if (!brandId) { setMsg("Selecione uma marca."); setSaving(false); return; }
-        if (!details.trim()) { setMsg("Informe os detalhes (ex: 600ml / long neck)."); setSaving(false); return; }
+        if (!details.trim()) { setMsg("Informe a descrição da unidade (ex: 600ml / long neck)."); setSaving(false); return; }
         if (!codigoInterno) { setMsg("Gere ou informe o código interno."); setSaving(false); return; }
 
-        const catName = categories.find((c) => c.id === categoryId)?.name ?? "Categoria";
-        const brandName = brands.find((b) => b.id === brandId)?.name ?? "Marca";
-        const productName = [catName, brandName, details.trim()].filter(Boolean).join(" ");
+        const catName = categories.find((c) => c.id === categoryId)?.name ?? "Produto";
+        const productName = [catName, details.trim()].filter(Boolean).join(" ");
 
         try {
             let nextCode = codigoInterno;
@@ -442,14 +521,22 @@ export default function ProdutosListaPage() {
                 nextCode = String(data ?? "");
             }
 
+                const custoInformado = brlToNumber(costPrice);
+                const temCaixa = hasCase;
+                const caseFator = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
+
+                const precoCustoUnitario = temCaixa && caseFator > 0
+                    ? custoInformado / caseFator
+                    : custoInformado;
+
                 const { data: prod, error: prodErr } = await supabase.from("products").insert({
                 company_id: companyId,
                 name: productName,
                 category_id: categoryId,
-                brand_id: brandId,
+                brand_id: brandId || null,
                 is_active: isActive,
                 codigo_interno: String(nextCode ?? ""),
-                preco_custo_unitario: brlToNumber(costPrice),
+                preco_custo_unitario: precoCustoUnitario,
                 estoque_atual: 0,
                 estoque_minimo: 0,
             }).select("id").single();
@@ -458,12 +545,14 @@ export default function ProdutosListaPage() {
             const pid = String((prod as any)?.id ?? "");
             if (!pid) throw new Error("Falha ao criar produto (id ausente).");
 
+            if (!siglaUnId) throw new Error("Sigla comercial UN não encontrada. Recarregue a página.");
             const { error: unErr } = await supabase.from("produto_embalagens").insert({
                 company_id: companyId,
                 produto_id: pid,
                 descricao: details.trim(),
-                sigla_comercial: "UN",
+                id_sigla_comercial: siglaUnId,
                 fator_conversao: 1,
+                codigo_interno: codigoInterno,
                 codigo_barras_ean: ean.trim() || null,
                 preco_venda: brlToNumber(unitPrice),
                 tags: tags.trim() || null,
@@ -472,15 +561,18 @@ export default function ProdutosListaPage() {
             if (unErr) throw new Error(unErr.message);
 
             if (hasCase) {
-                const caseFator = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
-                if (!caseFator || caseFator <= 0) throw new Error("Informe 'Cx c/' válido.");
+                const siglaId = siglaExtraId || siglaCxId;
+                if (!siglaId) throw new Error("Sigla comercial da segunda embalagem não encontrada. Recarregue a página.");
+                const caseFatorCreate = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
+                if (!caseFatorCreate || caseFatorCreate <= 0) throw new Error("Informe 'Cx/Fardo c/' válido.");
                 const { error: cxErr } = await supabase.from("produto_embalagens").insert({
                     company_id: companyId,
                     produto_id: pid,
-                    descricao: `CX ${caseFator}un`,
-                    sigla_comercial: "CX",
-                    fator_conversao: caseFator,
+                    descricao: details.trim() || undefined,
+                    id_sigla_comercial: siglaId,
+                    fator_conversao: caseFatorCreate,
                     preco_venda: brlToNumber(casePrice),
+                    codigo_interno: codigoCaixa,
                     tags: tags.trim() || null,
                     is_acompanhamento: isAccomp,
                 });
@@ -507,6 +599,20 @@ export default function ProdutosListaPage() {
             setMsg(`Erro ao gerar código interno: ${String(e?.message ?? e)}`);
         } finally {
             setCodigoLoading(false);
+        }
+    }
+
+    async function gerarCodigoCaixa() {
+        setCodigoCaixaLoading(true);
+        setMsg(null);
+        try {
+            const { data, error } = await supabase.rpc("gerar_proximo_codigo_interno");
+            if (error) throw new Error(error.message);
+            setCodigoCaixa(String(data ?? ""));
+        } catch (e: any) {
+            setMsg(`Erro ao gerar código interno da embalagem: ${String(e?.message ?? e)}`);
+        } finally {
+            setCodigoCaixaLoading(false);
         }
     }
 
@@ -810,12 +916,58 @@ export default function ProdutosListaPage() {
                     </div>
                 </Modal>
 
-                {/* Sub-modal: nova marca */}
+                {/* Sub-modal: nova marca (ainda usado no editar) */}
                 <Modal title="Nova Marca" open={addBrandOpen} onClose={() => setAddBrandOpen(false)}>
                     <input value={newBrandName} onChange={(e) => setNewBrandName(e.target.value)} placeholder="Ex: Skol" className={inputCls} />
                     <div className="mt-4 flex gap-2">
                         <button onClick={async () => { const id = await quickCreateBrand(newBrandName); if (id) { setBrandId(id); setNewBrandName(""); setAddBrandOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar e selecionar</button>
                         <button onClick={() => setAddBrandOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
+                    </div>
+                </Modal>
+
+                {/* Sub-modal: nova sigla comercial */}
+                <Modal title="Nova sigla comercial" open={addSiglaOpen} onClose={() => setAddSiglaOpen(false)}>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Sigla</label>
+                            <input
+                                value={newSiglaValue}
+                                onChange={(e) => setNewSiglaValue(e.target.value.toUpperCase())}
+                                placeholder="CX, FARD, PAC…"
+                                className={inputCls}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Descrição (opcional)</label>
+                            <input
+                                value={newSiglaDesc}
+                                onChange={(e) => setNewSiglaDesc(e.target.value)}
+                                placeholder="Caixa, Fardo, Pacote…"
+                                className={inputCls}
+                            />
+                        </div>
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                        <button
+                            onClick={async () => {
+                                const id = await quickCreateSigla(newSiglaValue, newSiglaDesc);
+                                if (id) {
+                                    setSiglaExtraId(id);
+                                    setNewSiglaValue("");
+                                    setNewSiglaDesc("");
+                                    setAddSiglaOpen(false);
+                                }
+                            }}
+                            className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600"
+                        >
+                            Criar e selecionar
+                        </button>
+                        <button
+                            onClick={() => setAddSiglaOpen(false)}
+                            className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700"
+                        >
+                            Cancelar
+                        </button>
                     </div>
                 </Modal>
             </Modal>
@@ -863,27 +1015,10 @@ export default function ProdutosListaPage() {
                         </select>
                     </div>
 
-                    {/* Marca */}
-                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
-                        <div className="mb-3 flex items-center justify-between">
-                            <div>
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Marca</p>
-                                <p className="text-xs text-zinc-400">Selecione para compor o nome do produto</p>
-                            </div>
-                            <button onClick={() => setAddBrandOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
-                                <Plus className="h-3 w-3" /> Nova
-                            </button>
-                        </div>
-                        <select value={brandId} onChange={(e) => setBrandId(e.target.value)} className={selectCls}>
-                            <option value="">Selecione…</option>
-                            {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                        </select>
-                    </div>
-
                     {/* Fields */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="col-span-2">
-                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Detalhes</label>
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Descrição da unidade (UN)</label>
                             <input value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Ex: 600ml, long neck, retornável…" className={inputCls} />
                         </div>
                         <div className="col-span-2">
@@ -906,19 +1041,92 @@ export default function ProdutosListaPage() {
                         </div>
                         <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                                <input type="checkbox" checked={hasCase} onChange={(e) => { setHasCase(e.target.checked); if (!e.target.checked) { setCaseQty(""); setCasePrice("0,00"); } }} className="h-4 w-4 accent-violet-600 rounded" />
-                                Vende por caixa
+                                <input
+                                    type="checkbox"
+                                    checked={hasCase}
+                                    onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setHasCase(checked);
+                                        if (!checked) {
+                                            setCaseQty("");
+                                            setCasePrice("0,00");
+                                            setCodigoCaixa(null);
+                                        }
+                                    }}
+                                    className="h-4 w-4 accent-violet-600 rounded"
+                                />
+                                Vende em outra embalagem (CX, fardo, pacote…)
                             </label>
-                            <div className="mt-3 grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="mb-1 block text-xs font-semibold text-zinc-500">Caixa com</label>
-                                    <input disabled={!hasCase} value={caseQty} onChange={(e) => setCaseQty(e.target.value)} placeholder="12" className={inputCls} inputMode="numeric" />
+                            {hasCase && (
+                                <div className="mt-3 space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Sigla comercial</label>
+                                            <div className="flex gap-2">
+                                                <select
+                                                    value={siglaExtraId ?? ""}
+                                                    onChange={(e) => setSiglaExtraId(e.target.value || null)}
+                                                    className={selectCls}
+                                                >
+                                                    <option value="">Selecione…</option>
+                                                    {siglas.map((s) => (
+                                                        <option key={s.id} value={s.id}>{s.sigla}</option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAddSiglaOpen(true)}
+                                                    className="shrink-0 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600"
+                                                >
+                                                    Nova
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Caixa/Fardo com</label>
+                                            <input
+                                                disabled={!hasCase}
+                                                value={caseQty}
+                                                onChange={(e) => setCaseQty(e.target.value)}
+                                                placeholder="12"
+                                                className={inputCls}
+                                                inputMode="numeric"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor da embalagem (R$)</label>
+                                            <input
+                                                disabled={!hasCase}
+                                                value={casePrice}
+                                                onChange={(e) => setCasePrice(formatBRLInput(e.target.value))}
+                                                className={inputCls}
+                                                inputMode="numeric"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Código interno da embalagem</label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    value={codigoCaixa ?? ""}
+                                                    onChange={(e) => setCodigoCaixa(e.target.value)}
+                                                    placeholder="INT-1001"
+                                                    className={inputCls}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={gerarCodigoCaixa}
+                                                    disabled={codigoCaixaLoading}
+                                                    className="shrink-0 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600 disabled:opacity-60"
+                                                >
+                                                    {codigoCaixaLoading ? "Gerando…" : "Gerar"}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor da caixa (R$)</label>
-                                    <input disabled={!hasCase} value={casePrice} onChange={(e) => setCasePrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
-                                </div>
-                            </div>
+                            )}
                         </div>
                         <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>

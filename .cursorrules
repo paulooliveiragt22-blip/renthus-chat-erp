@@ -1,0 +1,99 @@
+# Renthus Chat ERP — Regras de negócio e estado da etapa atual
+
+## Stack técnico
+- **Frontend:** Next.js 14 (App Router), React, Tailwind CSS v4, shadcn/ui, Lucide, Recharts
+- **Backend:** Next.js API Routes, Supabase (PostgreSQL + Realtime + Storage)
+- **Auth:** Supabase Auth; multi-tenant por `company_id` via `company_users`
+- **Estado:** React (useState/useEffect/useMemo); TanStack Query onde aplicável
+- **Tipos:** TypeScript, Zod para validação quando necessário
+
+---
+
+## Regras de negócio (modelo atual)
+
+### Produtos e embalagens
+- **`products`** = produto pai (referência): nome, categoria, marca, custo, **estoque consolidado** (`estoque_atual`, `estoque_minimo`), `codigo_interno`. **Não tem mais coluna `price`** — preço de venda está em `produto_embalagens.preco_venda`.
+- **`produto_embalagens`** = forma de venda (o que o cliente vê e compra): UN, CX, Fardo, Pacote etc. Campos: `id_sigla_comercial` (FK → `siglas_comerciais`), `id_unit_type` (FK → `unit_types`, opcional), `volume_quantidade` (opcional), `fator_conversao`, `preco_venda`, `descricao`, `tags`, `codigo_barras_ean`, `is_acompanhamento`.
+- Relação: 1 `products` → N `produto_embalagens` (tipicamente UN + CX).
+- **Siglas e unidades por empresa:** `unit_types` (ml, L, kg, m) e `siglas_comerciais` (UN, CX, FARD, PAC) são tabelas por `company_id`; cada empresa pode ter seus próprios tipos.
+
+### Estoque
+- Estoque físico é **só em `products.estoque_atual`** (em “unidades”).
+- **Baixa automática:** trigger `trg_debitar_estoque_embalagem_order_items` em `order_items` chama `fn_debitar_estoque_embalagem()`: ao inserir/atualizar/deletar item, lê `produto_embalagens.fator_conversao` e debita/estorna `qty * fator_conversao` em `products.estoque_atual`.
+- **Ajuste manual:** módulo Estoque (`/estoque`) altera direto `products.estoque_atual` (entrada/saída/ajuste). Não existe mais tabela `inventory_movements`; histórico detalhado de movimentação não está implementado.
+
+### Pedidos e order_items
+- `order_items` usa `produto_embalagem_id` (FK → `produto_embalagens`), `product_id`, `qty`/`quantity`, `unit_price`, `unit_type` (texto "unit"/"case" para exibição). `line_total` é coluna gerada.
+- Trigger `fill_order_item_product_name` preenche `product_name` a partir de `produto_embalagens`.
+- Ao finalizar pedido (admin), pode-se abrir modal de pagamento para registrar forma de pagamento real e lançar em `financial_entries`.
+
+### Financeiro
+- Receita: pedidos com status `finalizado`/`entregue` + registros em `financial_entries` (tipo `income`).
+- Custo real: via `order_items` → `produto_embalagens` → `products.preco_custo_unitario` e `fator_conversao`.
+- Despesas em `expenses`; “Lucro real” = receita − custo − despesas.
+- Aba Extrato unifica transações de `orders`, `financial_entries` e `expenses`.
+
+### Clientes e vendas a prazo
+- `customers`: nome, telefone, `limite_credito`, `saldo_devedor`, endereço cache, etc. `enderecos_cliente` é a fonte de verdade de endereços; `customers.address` pode ser sincronizado por trigger.
+- “A Prazo” no PDV: permitido só com cliente selecionado e `saldo_devedor + total_venda <= limite_credito`; gera registro em `vendas_a_prazo` e atualiza `customers.saldo_devedor` (preferencialmente por trigger).
+- Chatbot: identifica cliente por WhatsApp; “A Prazo” não é oferecido no fluxo do bot.
+
+### PDV
+- Busca por nome, código interno (produto) ou EAN (embalagem); resultado é por **embalagem** (UN/CX etc.). `sigla_comercial` exibida vem de `siglas_comerciais.sigla`.
+- Pagamento misto: múltiplas formas; saldo restante auto-preenchido; F2 abre modal de pagamento. Opção “A Prazo” com data de vencimento quando aplicável.
+- Impressão: Electron Print Agent quando disponível; fallback web via `/api/agent/reprint`.
+
+### Chatbot (WhatsApp)
+- Fluxo de pedido usa `produto_embalagens` com join em `siglas_comerciais(sigla)` para identificar UN/CX. Débito de estoque é feito pelo trigger em `order_items` (não insere mais em `inventory_movements`).
+
+---
+
+## O que já foi feito nesta etapa
+
+- Remoção de **`products.price`** (preço de venda só em `produto_embalagens.preco_venda`).
+- Criação das tabelas **`unit_types`** e **`siglas_comerciais`** por empresa, com RLS e seed (ml, L, kg, m e UN, CX, FARD, PAC).
+- Em **`produto_embalagens`**: colunas **`id_sigla_comercial`** (FK, NOT NULL), **`id_unit_type`** (FK, opcional), **`volume_quantidade`** (opcional); coluna **`sigla_comercial`** (texto) removida.
+- Backfill de `id_sigla_comercial` a partir do antigo texto e remoção da coluna texto.
+- Frontend atualizado para usar as novas FKs e relações:
+  - **Lista de produtos** (`/produtos/lista`): load com `siglas_comerciais(sigla, descricao)` e `unit_types(sigla, descricao)`; create/edit usam `id_sigla_comercial` (IDs UN/CX carregados da empresa).
+  - **PDV**: select com `siglas_comerciais(sigla)`, `unit_types(sigla)`, `volume_quantidade`; `sigla_comercial` no Variant derivada de `siglas_comerciais.sigla`.
+  - **Pedidos** (PedidosClient): busca de variantes com `siglas_comerciais(sigla)` para UN/CX.
+  - **Chatbot** (processMessage): todos os selects em `produto_embalagens` com `siglas_comerciais(sigla)`; lógica UN/CX baseada nessa sigla.
+- Produtos: botão sidebar “Produtos” aponta para **`/produtos/lista`**; cadastro novo via modal “Cadastrar novo”; modal de edição com tags, EAN, acompanhamento, código interno (com botão “Gerar” via RPC `gerar_proximo_codigo_interno`).
+- Correção de exibição de categoria/marca nos dropdowns (evitar boolean): uso de lookup por `category_id`/`brand_id` e `typeof c.name === "string"` ao popular listas.
+
+---
+
+## O que falta finalizar nesta etapa
+
+1. **Volume na UI de produtos**
+   - Na lista e nos modais de criar/editar produto: permitir escolher **unidade de volume** (`id_unit_type`) e preencher **`volume_quantidade`** (ex.: 350 ml). Exibir volume no formato “350 ml” quando houver.
+   - Persistir `id_unit_type` e `volume_quantidade` em `produto_embalagens` no create/edit.
+
+2. **Código interno por embalagem (bipar)**
+   - Adicionar coluna **`codigo_interno`** em **`produto_embalagens`** (único por empresa ou global, conforme regra desejada).
+   - Na busca do PDV (e onde houver leitura por código): quando o usuário bipar, buscar por `produto_embalagens.codigo_interno` para retornar a **embalagem exata** (UN, CX, fardo etc.) com preço e sigla corretos.
+   - Opcional: na tela de produtos, campo “Código interno” por embalagem (UN/CX) com geração/edição.
+
+3. **Lista de produtos — colunas e edição**
+   - Exibir **EAN** e **Código interno** como colunas opcionais na tabela da lista.
+   - No modal de edição: permitir editar **EAN da CX** separadamente (quando existir embalagem CX), para casos em que caixa/fardo tem EAN diferente da unidade.
+
+4. **Cadastro de siglas e unidades por empresa (opcional nesta etapa)**
+   - Se for necessário que cada empresa cadastre suas próprias siglas (ex.: Fardo, Pacote) e unidades (ex.: m): telas ou modais em Configurações para CRUD de `siglas_comerciais` e `unit_types` filtrados por `company_id`. Hoje o seed já cria UN, CX, FARD, PAC e ml, L, kg, m.
+
+5. **Consistência e testes**
+   - Garantir que nenhum código antigo use `products.price` ou `produto_embalagens.sigla_comercial` (texto).
+   - Testar fluxo completo: criar produto com UN+CX, PDV (busca + venda), chatbot pedido, estoque baixando, financeiro (receita e custo).
+
+---
+
+## Referências rápidas
+
+- **Migration** da etapa: `supabase/migrations/20260319000001_unit_types_siglas_drop_price.sql`
+- **Produtos (lista/cadastro/edição):** `app/(admin)/produtos/lista/ListaClient.tsx`
+- **PDV:** `app/(admin)/pdv/page.tsx`
+- **Pedidos (busca variantes):** `app/(admin)/pedidos/PedidosClient.tsx`
+- **Chatbot (produto/embalagem):** `lib/chatbot/processMessage.ts`
+- **Trigger de estoque:** função `fn_debitar_estoque_embalagem()` em `order_items` (AFTER INSERT/UPDATE/DELETE)
+- **Documentação geral do banco:** `docs/DB_CURRENT_STATE.md`
