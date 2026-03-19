@@ -418,6 +418,33 @@ export default function ProdutosListaPage() {
         });
     }
 
+    function aplicarEstoqueNaUn(volId: string, itemCx: FormItem) {
+        const estoqueCx = Math.round(Number(String(itemCx.estoque).replace(",", ".")) || 0);
+        const estoqueMinCx = Math.round(Number(String(itemCx.estoque_minimo).replace(",", ".")) || 0);
+        const fator = Math.max(1, itemCx.fator_conversao);
+        const vol = formVolumes.find((v) => v.id === volId);
+        const itemUn = vol?.items.find((i) => isUnSigla(i.siglaLabel));
+        if (itemUn) {
+            updateFormItem(volId, itemUn.id, {
+                estoque: String(estoqueCx * fator),
+                estoque_minimo: String(estoqueMinCx * fator),
+            });
+        }
+    }
+
+    function aplicarEstoqueNaCx(volId: string, itemUn: FormItem) {
+        const estoqueUn = Math.round(Number(String(itemUn.estoque).replace(",", ".")) || 0);
+        const estoqueMinUn = Math.round(Number(String(itemUn.estoque_minimo).replace(",", ".")) || 0);
+        const vol = formVolumes.find((v) => v.id === volId);
+        vol?.items.filter((i) => !isUnSigla(i.siglaLabel)).forEach((itemCx) => {
+            const fator = Math.max(1, itemCx.fator_conversao);
+            updateFormItem(volId, itemCx.id, {
+                estoque: String(Math.round(estoqueUn / fator)),
+                estoque_minimo: String(Math.round(estoqueMinUn / fator)),
+            });
+        });
+    }
+
     async function gerarCodigoParaItem(itemId: string) {
         if (!companyId) return;
         setCodigoLoadingItemId(itemId);
@@ -485,30 +512,35 @@ export default function ProdutosListaPage() {
             setCategoryId(prod.category_id ?? "");
 
             const vols: FormVolume[] = (prod.volumes ?? []).map((v: any) => {
-                const volEstoque = v.estoque_atual != null ? String(v.estoque_atual) : "";
-                const volEstoqueMin = v.estoque_minimo != null ? String(v.estoque_minimo) : "";
-                const items: FormItem[] = (v.items ?? []).map((it: any) => ({
-                    id: String(it.id ?? crypto.randomUUID()),
-                    id_sigla_comercial: String(it.id_sigla_comercial ?? ""),
-                    siglaLabel: String(it.sigla ?? ""),
-                    descricao: String(it.descricao ?? ""),
-                    fator_conversao: Number(it.fator_conversao ?? 1),
-                    preco_venda: it.preco_venda != null ? formatBRLInput(String(Math.round(Number(it.preco_venda) * 100))) : "0,00",
-                    preco_custo: it.preco_custo != null ? formatBRLInput(String(Math.round(Number(it.preco_custo) * 100))) : "0,00",
-                    codigo_interno: String(it.codigo_interno ?? ""),
-                    codigo_barras_ean: String(it.codigo_barras_ean ?? ""),
-                    tags: String(it.tags ?? ""),
-                    estoque: "",
-                    estoque_minimo: "",
-                    is_acompanhamento: !!it.is_acompanhamento,
-                }));
+                const volEstoque = Number(v.estoque_atual ?? 0);
+                const volEstoqueMin = Number(v.estoque_minimo ?? 0);
+                const items: FormItem[] = (v.items ?? []).map((it: any) => {
+                    const fator = Math.max(1, Number(it.fator_conversao ?? 1));
+                    const itemEstoque = volEstoque > 0 ? Math.round(volEstoque / fator) : 0;
+                    const itemEstoqueMin = volEstoqueMin >= 0 ? Math.round(volEstoqueMin / fator) : 0;
+                    return {
+                        id: String(it.id ?? crypto.randomUUID()),
+                        id_sigla_comercial: String(it.id_sigla_comercial ?? ""),
+                        siglaLabel: String(it.sigla ?? ""),
+                        descricao: String(it.descricao ?? ""),
+                        fator_conversao: fator,
+                        preco_venda: it.preco_venda != null ? formatBRLInput(String(Math.round(Number(it.preco_venda) * 100))) : "0,00",
+                        preco_custo: it.preco_custo != null ? formatBRLInput(String(Math.round(Number(it.preco_custo) * 100))) : "0,00",
+                        codigo_interno: String(it.codigo_interno ?? ""),
+                        codigo_barras_ean: String(it.codigo_barras_ean ?? ""),
+                        tags: String(it.tags ?? ""),
+                        estoque: itemEstoque > 0 ? String(itemEstoque) : "",
+                        estoque_minimo: itemEstoqueMin >= 0 ? String(itemEstoqueMin) : "",
+                        is_acompanhamento: !!it.is_acompanhamento,
+                    };
+                });
                 return {
                     id: String(v.volume_id ?? crypto.randomUUID()),
                     volume_quantidade: v.volume_quantidade != null ? String(v.volume_quantidade) : "",
                     id_unit_type: v.id_unit_type ?? null,
                     unitLabel: String(v.unit_sigla ?? "ml"),
-                    estoque_atual: volEstoque,
-                    estoque_minimo: volEstoqueMin,
+                    estoque_atual: volEstoque > 0 ? String(volEstoque) : "",
+                    estoque_minimo: volEstoqueMin >= 0 ? String(volEstoqueMin) : "",
                     items,
                 };
             });
@@ -573,15 +605,13 @@ export default function ProdutosListaPage() {
         const volumesPayload = volumesWithItems.map((vol) => {
             const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replace(",", ".")) : null;
             const volUnitTypeId = vol.id_unit_type || null;
-            const volEstoque = vol.estoque_atual ? Number(vol.estoque_atual.replace(",", ".")) : 0;
-            const volEstoqueMin = vol.estoque_minimo ? Number(vol.estoque_minimo.replace(",", ".")) : 0;
             return {
                 volume_quantidade: volQty,
                 id_unit_type: volUnitTypeId,
                 items: vol.items.map((it) => {
                     const fator = Math.max(1, it.fator_conversao);
-                    const itemEstoque = volEstoque > 0 ? Math.round(volEstoque / fator) : null;
-                    const itemEstoqueMin = volEstoqueMin >= 0 ? Math.round(volEstoqueMin / fator) : null;
+                    const itemEstoque = it.estoque ? Math.round(Number(String(it.estoque).replace(",", ".")) || 0) : null;
+                    const itemEstoqueMin = it.estoque_minimo ? Math.round(Number(String(it.estoque_minimo).replace(",", ".")) || 0) : null;
                     return {
                         id_sigla_comercial: it.id_sigla_comercial,
                         descricao: it.descricao.trim() || null,
@@ -592,8 +622,8 @@ export default function ProdutosListaPage() {
                         codigo_barras_ean: it.codigo_barras_ean.trim() || null,
                         tags: it.tags.trim() || null,
                         is_acompanhamento: isAccomp,
-                        estoque: itemEstoque != null ? String(itemEstoque) : null,
-                        estoque_minimo: itemEstoqueMin != null ? String(itemEstoqueMin) : null,
+                        estoque: itemEstoque != null && itemEstoque > 0 ? String(itemEstoque) : null,
+                        estoque_minimo: itemEstoqueMin != null && itemEstoqueMin >= 0 ? String(itemEstoqueMin) : null,
                     };
                 }),
             };
@@ -629,15 +659,13 @@ export default function ProdutosListaPage() {
         const volumesPayload = volumesWithItems.map((vol) => {
             const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replace(",", ".")) : null;
             const volUnitTypeId = vol.id_unit_type || null;
-            const volEstoque = vol.estoque_atual ? Number(vol.estoque_atual.replace(",", ".")) : 0;
-            const volEstoqueMin = vol.estoque_minimo ? Number(vol.estoque_minimo.replace(",", ".")) : 0;
             return {
                 volume_quantidade: volQty,
                 id_unit_type: volUnitTypeId,
                 items: vol.items.map((it) => {
                     const fator = Math.max(1, it.fator_conversao);
-                    const itemEstoque = volEstoque > 0 ? Math.round(volEstoque / fator) : null;
-                    const itemEstoqueMin = volEstoqueMin >= 0 ? Math.round(volEstoqueMin / fator) : null;
+                    const itemEstoque = it.estoque ? Math.round(Number(String(it.estoque).replace(",", ".")) || 0) : null;
+                    const itemEstoqueMin = it.estoque_minimo ? Math.round(Number(String(it.estoque_minimo).replace(",", ".")) || 0) : null;
                     return {
                         id_sigla_comercial: it.id_sigla_comercial,
                         descricao: it.descricao.trim() || null,
@@ -648,8 +676,8 @@ export default function ProdutosListaPage() {
                         codigo_barras_ean: it.codigo_barras_ean.trim() || null,
                         tags: it.tags.trim() || null,
                         is_acompanhamento: isAccomp,
-                        estoque: itemEstoque != null ? String(itemEstoque) : null,
-                        estoque_minimo: itemEstoqueMin != null ? String(itemEstoqueMin) : null,
+                        estoque: itemEstoque != null && itemEstoque > 0 ? String(itemEstoque) : null,
+                        estoque_minimo: itemEstoqueMin != null && itemEstoqueMin >= 0 ? String(itemEstoqueMin) : null,
                     };
                 }),
             };
@@ -922,7 +950,7 @@ export default function ProdutosListaPage() {
                                 </button>
                             </div>
                         </div>
-                        <p className="mb-3 text-[11px] text-zinc-400">Preço custo e tags por item. Botões →UN e →CX calculam custo automaticamente.</p>
+                        <p className="mb-3 text-[11px] text-zinc-400">Preço custo, estoque e tags por item. Botões →UN e →CX aplicam fator (custo CX÷fator=UN; estoque CX×fator=UN).</p>
                         {formVolumes.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-zinc-200 py-6 text-center text-sm text-zinc-400 dark:border-zinc-700">
                                 Nenhum volume. Clique em &quot;Adicionar volume&quot;.
@@ -939,10 +967,6 @@ export default function ProdutosListaPage() {
                                                     <option value="">—</option>
                                                     {unitTypes.map((u) => <option key={u.id} value={u.id}>{u.sigla}</option>)}
                                                 </select>
-                                                <span className="text-[10px] text-zinc-500">Est.</span>
-                                                <input value={vol.estoque_atual} onChange={(e) => updateFormVolume(vol.id, { estoque_atual: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
-                                                <span className="text-[10px] text-zinc-500">Mín</span>
-                                                <input value={vol.estoque_minimo} onChange={(e) => updateFormVolume(vol.id, { estoque_minimo: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
                                             </div>
                                             <div className="flex items-center gap-1">
                                                 <button type="button" onClick={() => addFormItem(vol.id)} className="rounded-md bg-violet-600 px-2 py-1 text-xs font-bold text-white hover:bg-violet-700"><Plus className="inline h-3 w-3" /> Item</button>
@@ -983,6 +1007,19 @@ export default function ProdutosListaPage() {
                                                                     )}
                                                                     {isUnSigla(it.siglaLabel) && (
                                                                         <button type="button" onClick={() => aplicarCustoNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da CX (custo UN × fator)">→CX</button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Estoque / Est. mín.</label>
+                                                                <div className="flex gap-1">
+                                                                    <input value={it.estoque} onChange={(e) => updateFormItem(vol.id, it.id, { estoque: e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "" })} placeholder="0" className={`${inputCls} w-14 py-1.5 text-xs`} inputMode="numeric" />
+                                                                    <input value={it.estoque_minimo} onChange={(e) => updateFormItem(vol.id, it.id, { estoque_minimo: e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "" })} placeholder="mín" className={`${inputCls} w-12 py-1.5 text-xs`} inputMode="numeric" title="Est. mínimo" />
+                                                                    {(!isUnSigla(it.siglaLabel) && (it.siglaLabel?.toUpperCase() === "CX" || it.fator_conversao > 1)) && (
+                                                                        <button type="button" onClick={() => aplicarEstoqueNaUn(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular estoque UN (CX × fator)">→UN</button>
+                                                                    )}
+                                                                    {isUnSigla(it.siglaLabel) && (
+                                                                        <button type="button" onClick={() => aplicarEstoqueNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular estoque CX (UN ÷ fator)">→CX</button>
                                                                     )}
                                                                 </div>
                                                             </div>
@@ -1182,7 +1219,7 @@ export default function ProdutosListaPage() {
                                 </button>
                             </div>
                         </div>
-                        <p className="mb-3 text-[11px] text-zinc-400">Cada volume (ex: 300ml, 600ml) pode ter vários itens (UN, CX). Itens do mesmo volume compartilham estoque.</p>
+                        <p className="mb-3 text-[11px] text-zinc-400">Cada volume pode ter vários itens (UN, CX). Itens do mesmo volume compartilham estoque. Preencha por item; use →UN/→CX para aplicar o fator.</p>
                         {formVolumes.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-zinc-200 py-6 text-center text-sm text-zinc-400 dark:border-zinc-700">
                                 Nenhum volume. Clique em &quot;Adicionar volume&quot; para começar.
@@ -1214,10 +1251,6 @@ export default function ProdutosListaPage() {
                                                         <option key={u.id} value={u.id}>{u.sigla}</option>
                                                     ))}
                                                 </select>
-                                                <span className="text-[10px] text-zinc-500">Est.</span>
-                                                <input value={vol.estoque_atual} onChange={(e) => updateFormVolume(vol.id, { estoque_atual: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
-                                                <span className="text-[10px] text-zinc-500">Mín</span>
-                                                <input value={vol.estoque_minimo} onChange={(e) => updateFormVolume(vol.id, { estoque_minimo: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
                                             </div>
                                             <div className="flex items-center gap-1">
                                                 <button type="button" onClick={() => addFormItem(vol.id)} className="rounded-md bg-violet-600 px-2 py-1 text-xs font-bold text-white hover:bg-violet-700">
@@ -1268,6 +1301,19 @@ export default function ProdutosListaPage() {
                                                                         <button type="button" onClick={() => aplicarCustoNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da CX (custo UN × fator)">
                                                                             →CX
                                                                         </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Estoque / Est. mín.</label>
+                                                                <div className="flex gap-1">
+                                                                    <input value={it.estoque} onChange={(e) => updateFormItem(vol.id, it.id, { estoque: e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "" })} placeholder="0" className={`${inputCls} w-14 py-1.5 text-xs`} inputMode="numeric" />
+                                                                    <input value={it.estoque_minimo} onChange={(e) => updateFormItem(vol.id, it.id, { estoque_minimo: e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "" })} placeholder="mín" className={`${inputCls} w-12 py-1.5 text-xs`} inputMode="numeric" title="Est. mínimo" />
+                                                                    {(!isUnSigla(it.siglaLabel) && (it.siglaLabel?.toUpperCase() === "CX" || it.fator_conversao > 1)) && (
+                                                                        <button type="button" onClick={() => aplicarEstoqueNaUn(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular estoque UN (CX × fator)">→UN</button>
+                                                                    )}
+                                                                    {isUnSigla(it.siglaLabel) && (
+                                                                        <button type="button" onClick={() => aplicarEstoqueNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular estoque CX (UN ÷ fator)">→CX</button>
                                                                     )}
                                                                 </div>
                                                             </div>
