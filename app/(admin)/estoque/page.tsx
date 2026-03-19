@@ -14,7 +14,6 @@ import {
 type StockItem = {
     id:           string;     // products.id
     category:     string;
-    brand:        string;
     details:      string | null;
     codigo_interno: string | null;
     preco_custo_unitario: number;
@@ -117,8 +116,7 @@ export default function EstoquePage() {
               estoque_atual,
               estoque_minimo,
               is_active,
-              categories(name),
-              brands(name)
+              categories(name)
             `)
             .eq("company_id", companyId)
             .order("created_at", { ascending: false });
@@ -127,11 +125,9 @@ export default function EstoquePage() {
 
         const mapped: StockItem[] = (prodRes ?? []).map((p: any) => {
             const cat = Array.isArray(p?.categories) ? p.categories?.[0]?.name : p?.categories?.name;
-            const br  = Array.isArray(p?.brands) ? p.brands?.[0]?.name : p?.brands?.name;
             return {
                 id: String(p.id),
                 category: cat ?? "—",
-                brand: br ?? "—",
                 details: p.details ?? null,
                 codigo_interno: p.codigo_interno ?? null,
                 preco_custo_unitario: Number(p.preco_custo_unitario ?? 0),
@@ -207,7 +203,7 @@ export default function EstoquePage() {
     const filtered = items.filter((i) => {
         if (!search.trim()) return true;
         const s = search.toLowerCase();
-        return [i.category, i.brand, i.details ?? ""].some((x) => x.toLowerCase().includes(s));
+        return [i.category, i.details ?? ""].some((x) => x.toLowerCase().includes(s));
     });
 
     const totalItems    = items.length;
@@ -253,14 +249,14 @@ export default function EstoquePage() {
             {/* Search */}
             <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filtrar por categoria, marca ou detalhes…"
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filtrar por categoria ou detalhes…"
                     className="w-full rounded-xl border border-zinc-200 bg-white py-2.5 pl-9 pr-4 text-sm placeholder-zinc-400 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
             </div>
 
             {/* Table */}
             <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-                <div className="grid grid-cols-[1fr_1fr_1.2fr_80px_100px_80px_160px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
-                    <span>Categoria</span><span>Marca</span><span>Detalhes</span>
+                <div className="grid grid-cols-[1fr_1.2fr_80px_100px_80px_160px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
+                    <span>Categoria</span><span>Detalhes</span>
                     <span>Código Interno</span><span className="text-right">Custo (R$)</span>
                     <span className="text-center">Saldo</span><span className="text-center">Ações</span>
                 </div>
@@ -282,12 +278,11 @@ export default function EstoquePage() {
                         : filtered.map((item) => (
                             <div
                                 key={item.id}
-                                className={`grid grid-cols-[1fr_1fr_1.2fr_80px_100px_80px_160px] items-center gap-2 px-4 py-3 transition-colors ${
+                                className={`grid grid-cols-[1fr_1.2fr_80px_100px_80px_160px] items-center gap-2 px-4 py-3 transition-colors ${
                                     flashId === item.id ? "bg-emerald-50 dark:bg-emerald-900/15" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                                 }`}
                             >
                                 <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">{item.category}</span>
-                                <span className="truncate text-xs text-zinc-600 dark:text-zinc-400">{item.brand}</span>
                                 <span className="truncate text-xs text-zinc-500">{item.details ?? "—"}</span>
                                 <span className="text-xs text-zinc-400">{item.codigo_interno ?? "—"}</span>
                                 <span className="text-right text-xs font-semibold text-violet-700 dark:text-violet-400">R$ {brl(item.preco_custo_unitario)}</span>
@@ -322,7 +317,7 @@ export default function EstoquePage() {
                 {movItem && (
                     <div className="flex flex-col gap-4">
                         <div className="rounded-lg bg-violet-50 px-3 py-2 dark:bg-violet-900/20">
-                            <p className="text-xs font-bold text-violet-700 dark:text-violet-300">{movItem.category} · {movItem.brand}</p>
+                            <p className="text-xs font-bold text-violet-700 dark:text-violet-300">{movItem.category}</p>
                             <p className="text-xs text-violet-500">
                                 {movItem.details ?? ""} {movItem.codigo_interno ?? ""} — saldo atual: <strong>{movItem.estoque_atual}</strong>
                             </p>
@@ -359,7 +354,7 @@ export default function EstoquePage() {
             </Modal>
 
             {/* History Modal */}
-            <Modal title={`Histórico: ${histItem?.category ?? ""} ${histItem?.brand ?? ""}`} open={histOpen} onClose={() => setHistOpen(false)}>
+            <Modal title={`Histórico: ${histItem?.category ?? ""}`} open={histOpen} onClose={() => setHistOpen(false)}>
                 {loadingHist ? (
                     <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-violet-600" /></div>
                 ) : (
