@@ -58,7 +58,7 @@ function extractBodyText(m: any): string | null {
 
     switch (type) {
         case "text":
-            return String(m.text?.body ?? "").trim() || null;
+            return (String(m.text?.body ?? "").trim()) || null;
 
         case "interactive": {
             const interactive = m.interactive ?? {};
@@ -66,11 +66,11 @@ function extractBodyText(m: any): string | null {
 
             if (subType === "button_reply") {
                 // Botão de resposta rápida de template interativo
-                return String(interactive.button_reply?.title ?? interactive.button_reply?.id ?? "").trim() || null;
+                return (String(interactive.button_reply?.title ?? interactive.button_reply?.id ?? "").trim()) || null;
             }
             if (subType === "list_reply") {
                 // Seleção de lista interativa — retorna o id para permitir lookup por variantId/_case
-                return String(interactive.list_reply?.id ?? interactive.list_reply?.title ?? "").trim() || null;
+                return (String(interactive.list_reply?.id ?? interactive.list_reply?.title ?? "").trim()) || null;
             }
             // Outros sub-tipos: serializa para debug
             return JSON.stringify(interactive);
@@ -78,7 +78,7 @@ function extractBodyText(m: any): string | null {
 
         case "button":
             // Template quick-reply legado
-            return String(m.button?.text ?? "").trim() || null;
+            return (String(m.button?.text ?? "").trim()) || null;
 
         default:
             return null;
@@ -163,7 +163,7 @@ async function getOrCreateThread(params: {
         .select("id")
         .single();
 
-    if (createErr || !created?.id) throw new Error(createErr?.message ?? "Failed to create thread");
+    if (createErr || !created?.id) throw new Error((createErr?.message ?? "Failed to create thread"));
     return created.id;
 }
 
@@ -324,7 +324,7 @@ export async function POST(req: Request) {
         // Atualiza preview da thread
         await admin.from("whatsapp_threads").update({
             last_message_at:      new Date().toISOString(),
-            last_message_preview: (bodyText ?? "").slice(0, 120) || null,
+            last_message_preview: ((bodyText ?? "").slice(0, 120)) || null,
         }).eq("id", threadId);
 
         // Aciona o chatbot apenas se bot_active != false e houver texto
