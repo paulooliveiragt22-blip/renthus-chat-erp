@@ -242,59 +242,35 @@ export default function PedidosPage() {
         if (t.length < 2) { opts.setResults([]); return; }
         opts.setSearching(true);
         const { data, error } = await supabase
-            .from("produto_embalagens")
-            .select(`
-                id,
-                produto_id,
-                descricao,
-                fator_conversao,
-                preco_venda,
-                tags,
-                siglas_comerciais(sigla),
-                products(
-                    id,
-                    name,
-                    codigo_interno,
-                    is_active,
-                    unit_type,
-                    details,
-                    categories(name)
-                )
-            `)
-            .eq("products.is_active", true)
+            .from("view_pdv_produtos")
+            .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, codigo_interno, sigla_comercial, product_name, product_unit_type, product_details, category_name")
+            .eq("company_id", companyId)
             .limit(400);
 
         if (error) { setMsg(`Erro na busca: ${error.message}`); opts.setResults([]); opts.setSearching(false); return; }
 
         const s = t.toLowerCase();
 
-        // Agrupa embalagens por produto (Pai) para manter o contrato da UI (mode unit/case)
         const byProduto = new Map<string, any>();
-        for (const r of (data ?? [] as any[])) {
-            const prod = (r as any).products as any;
+        for (const r of (data ?? []) as any[]) {
             const pid = String(r.produto_id);
             const entry = byProduto.get(pid) ?? {
                 id: pid,
-                products: {
-                    name: prod?.name ?? "",
-                    categories: { name: Array.isArray(prod?.categories) ? (prod.categories?.[0]?.name ?? "") : (prod?.categories?.name ?? "") },
-                },
+                products: { name: r.product_name ?? "", categories: { name: r.category_name ?? "" } },
                 tags: [] as string[],
                 unitPack: null as any,
                 casePack: null as any,
                 unit_price: 0,
                 details: null as string | null,
-                unit: prod?.unit_type ?? null,
-                is_active: Boolean(prod?.is_active ?? true),
-                codigo_interno: prod?.codigo_interno ?? null,
+                unit: r.product_unit_type ?? null,
+                is_active: true,
+                codigo_interno: null as string | null,
             };
 
             if (r.tags) entry.tags.push(String(r.tags));
-
-            const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
-            if (sig === "UN") entry.unitPack = r;
+            const sig = String(r.sigla_comercial ?? "").toUpperCase();
+            if (sig === "UN") { entry.unitPack = r; entry.codigo_interno = r.codigo_interno ?? null; }
             if (sig === "CX") entry.casePack = r;
-
             byProduto.set(pid, entry);
         }
 

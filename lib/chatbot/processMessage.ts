@@ -379,7 +379,7 @@ function matchScore(term: string, productName: string, tags: string | null): 0 |
 
 async function getCategories(admin: SupabaseClient, companyId: string): Promise<Category[]> {
     const { data } = await admin
-        .from("categories")
+        .from("view_categories")
         .select("id, name")
         .eq("company_id", companyId)
         .eq("is_active", true)
@@ -413,51 +413,43 @@ function stripCategoryPrefix(productName: string, categoryName: string): string 
 
 async function getProductsByCategory(
     admin: SupabaseClient,
+    companyId: string,
     categoryId: string,
     categoryName: string
 ): Promise<ProductListItem[]> {
-    const { data: prods } = await admin
-        .from("products")
-        .select("id, name")
+    const { data: rows } = await admin
+        .from("view_chat_produtos")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, product_name, sigla_comercial")
+        .eq("company_id", companyId)
         .eq("category_id", categoryId)
-        .eq("is_active", true)
-        .order("name")
-        .limit(12);
+        .limit(500);
 
-    if (!prods?.length) return [];
+    if (!rows?.length) return [];
 
-    const productIds = (prods ?? []).map((p: any) => p.id);
-    const { data: packs } = await admin
-        .from("produto_embalagens")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla)")
-        .in("produto_id", productIds)
-        ;
-
-    // `company_id` é filtrado por RLS (dev/teste). Se sua policy exigir filtro explícito,
-    // ajuste essa função para receber `companyId` também.
-    const packsSafe = (packs ?? []) as any[];
+    const byProd: Record<string, { unit: any | null; case: any | null }> = {};
+    for (const r of rows as any[]) {
+        const pid = String(r.produto_id);
+        byProd[pid] ??= { unit: null, case: null };
+        const sig = String(r.sigla_comercial ?? "").toUpperCase();
+        if (sig === "UN" || sig === "UNIDADE") byProd[pid].unit = r;
+        if (sig === "CX" || sig === "CAIXA") byProd[pid].case = r;
+    }
 
     const options: ProductListItem[] = [];
     let idx = 1;
+    const seen = new Set<string>();
 
-    const byProd: Record<string, { unit: any | null; case: any | null }> = {};
-    for (const pk of packsSafe) {
-        const pid = String(pk.produto_id);
-        byProd[pid] ??= { unit: null, case: null };
-        const sig = String((pk as any).siglas_comerciais?.sigla ?? (pk as any).sigla_comercial ?? "").toUpperCase();
-        if (sig === "UN" || sig === "UNIDADE" || sig === "UN") byProd[pid].unit = pk;
-        if (sig === "CX" || sig === "CAIXA") byProd[pid].case = pk;
-    }
-
-    for (const p of prods as any[]) {
-        const shortName = stripCategoryPrefix(p.name, categoryName);
-        const pid = String(p.id);
+    for (const r of rows as any[]) {
+        const pid = String(r.produto_id);
+        if (seen.has(pid)) continue;
         const unitPack = byProd[pid]?.unit;
         if (!unitPack) continue;
-        const casePack = byProd[pid]?.case ?? null;
+        seen.add(pid);
 
+        const shortName = stripCategoryPrefix(r.product_name, categoryName);
         const vol = unitPack.descricao ? String(unitPack.descricao) : null;
         const displayName = vol ? `${shortName} ${vol}` : shortName;
+        const casePack = byProd[pid]?.case ?? null;
 
         options.push({
             idx:         idx++,
@@ -483,62 +475,55 @@ async function getBrandsByCategory(): Promise<Brand[]> {
 
 async function getVariantsByBrandAndCategory(
     admin: SupabaseClient,
+    companyId: string,
     _brandId: string,
     categoryId: string
 ): Promise<VariantRow[]> {
-    return getVariantsByCategory(admin, categoryId);
+    return getVariantsByCategory(admin, companyId, categoryId);
 }
 
 async function getVariantsByCategory(
     admin: SupabaseClient,
+    companyId: string,
     categoryId: string
 ): Promise<VariantRow[]> {
-    // Produtos da categoria (sem marca)
-    const { data: prods } = await admin
-        .from("products")
-        .select("id, name, unit_type, details, is_active")
+    const { data: rows } = await admin
+        .from("view_chat_produtos")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details")
+        .eq("company_id", companyId)
         .eq("category_id", categoryId)
-        .eq("is_active", true);
+        .limit(500);
 
-    if (!prods?.length) return [];
-
-    const productIds = prods.map((p: any) => p.id);
-    const prodMap = Object.fromEntries(prods.map((p: any) => [p.id, p]));
-
-    // Etapa 2: embalagens (UN/CX) desses produtos
-    const { data: packs } = await admin
-        .from("produto_embalagens")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla)")
-        .in("produto_id", productIds);
-
-    if (!packs?.length) return [];
+    if (!rows?.length) return [];
 
     const byProd: Record<string, { unit: any | null; case: any | null }> = {};
-    for (const pk of packs as any[]) {
-        const pid = String(pk.produto_id);
-        byProd[pid] ??= { unit: null, case: null };
-        const sig = String((pk as any).siglas_comerciais?.sigla ?? (pk as any).sigla_comercial ?? "").toUpperCase();
-        if (sig === "UN") byProd[pid].unit = pk;
-        if (sig === "CX") byProd[pid].case = pk;
+    const prodOrder: string[] = [];
+    for (const r of rows as any[]) {
+        const pid = String(r.produto_id);
+        if (!byProd[pid]) {
+            byProd[pid] = { unit: null, case: null };
+            prodOrder.push(pid);
+        }
+        const sig = String(r.sigla_comercial ?? "").toUpperCase();
+        if (sig === "UN") byProd[pid].unit = r;
+        if (sig === "CX") byProd[pid].case = r;
     }
 
     const variants: VariantRow[] = [];
-    for (const pid of productIds) {
-        const p = prodMap[pid];
-        if (!p) continue;
-        const unitPack = byProd[String(pid)]?.unit ?? null;
-        const casePack = byProd[String(pid)]?.case ?? null;
+    for (const pid of prodOrder) {
+        const unitPack = byProd[pid]?.unit ?? null;
+        const casePack = byProd[pid]?.case ?? null;
         if (!unitPack && !casePack) continue;
 
-        const unit = p.unit_type ?? "un";
+        const p = unitPack ?? casePack;
         variants.push({
-            id: String(unitPack?.id ?? casePack?.id ?? pid), // base para unidade
-            productId: String(pid),
-            productName: String(p.name ?? ""),
-            details: (unitPack?.descricao ?? p.details ?? null) as string | null,
+            id: String(unitPack?.id ?? casePack?.id ?? pid),
+            productId: pid,
+            productName: String(p?.product_name ?? ""),
+            details: (unitPack?.descricao ?? casePack?.descricao ?? p?.product_details ?? null) as string | null,
             tags: unitPack?.tags ?? casePack?.tags ?? null,
             volumeValue: 0,
-            unit: String(unit),
+            unit: String(p?.product_unit_type ?? "un"),
             unitPrice: Number(unitPack?.preco_venda ?? 0),
             hasCase: Boolean(casePack),
             caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
@@ -548,7 +533,6 @@ async function getVariantsByCategory(
         });
     }
 
-    // Ordena por preço de unidade
     variants.sort((a, b) => (a.unitPrice ?? 0) - (b.unitPrice ?? 0));
     return variants;
 }
@@ -727,24 +711,8 @@ async function searchVariantsByTextV2(
     if (!terms.length) return [];
 
     const { data, error } = await admin
-        .from("produto_embalagens")
-        .select(`
-          id,
-          produto_id,
-          descricao,
-          fator_conversao,
-          preco_venda,
-          tags,
-          is_acompanhamento,
-          siglas_comerciais(sigla),
-          products!inner(
-            id,
-            name,
-            is_active,
-            unit_type,
-            details
-          )
-        `)
+        .from("view_chat_produtos")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -758,15 +726,13 @@ async function searchVariantsByTextV2(
     const byProd: Record<string, {
         unitPack: any | null;
         casePack: any | null;
-        productsRow: any | null;
         tags: string[];
     }> = {};
 
     for (const r of data as any[]) {
         const pid = String(r.produto_id);
-        byProd[pid] ??= { unitPack: null, casePack: null, productsRow: null, tags: [] };
-        byProd[pid].productsRow = r.products ?? byProd[pid].productsRow;
-        const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
+        byProd[pid] ??= { unitPack: null, casePack: null, tags: [] };
+        const sig = String(r.sigla_comercial ?? "").toUpperCase();
         if (sig === "UN") byProd[pid].unitPack = r;
         if (sig === "CX") byProd[pid].casePack = r;
         if (r.tags) byProd[pid].tags.push(String(r.tags));
@@ -774,21 +740,19 @@ async function searchVariantsByTextV2(
 
     const variants: VariantRow[] = Object.entries(byProd)
         .map(([pid, grp]) => {
-            const p = grp.productsRow?.[0] ? grp.productsRow[0] : grp.productsRow;
-            if (!p || p.is_active === false) return null;
-
             const unitPack = grp.unitPack ?? grp.casePack;
             const casePack = grp.casePack;
             if (!unitPack) return null;
 
+            const p = unitPack;
             return {
-                id: String(unitPack.id), // base = embalagem UN
+                id: String(unitPack.id),
                 productId: pid,
-                productName: String(p.name ?? ""),
-                details: (unitPack.descricao ?? p.details ?? null) as string | null,
+                productName: String(p.product_name ?? ""),
+                details: (unitPack.descricao ?? p.product_details ?? null) as string | null,
                 tags: grp.tags.length ? grp.tags.join(",") : null,
                 volumeValue: 0,
-                unit: String(p.unit_type ?? "un"),
+                unit: String(p.product_unit_type ?? "un"),
                 unitPrice: Number(unitPack.preco_venda ?? 0),
                 hasCase: Boolean(casePack),
                 caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
@@ -1140,19 +1104,18 @@ async function getAccompanimentItems(
         const acompIds = [...new Set(((acRows ?? []) as any[]).map((r) => String(r.acompanhamento_produto_embalagem_id)))];
         if (acompIds.length) {
             const { data: packs } = await admin
-                .from("produto_embalagens")
-                .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, siglas_comerciais(sigla), products!inner(id, name, is_active)")
+                .from("view_chat_produtos")
+                .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, product_name")
                 .in("id", acompIds)
                 .eq("company_id", companyId);
 
             for (const r of (packs ?? []) as any[]) {
-                if (r.products?.is_active === false) continue;
                 if (seen.has(String(r.id))) continue;
                 seen.add(String(r.id));
                 out.push({
                     id: String(r.id),
                     productId: String(r.produto_id),
-                    productName: String(r.products?.name ?? ""),
+                    productName: String(r.product_name ?? ""),
                     details: (r.descricao ?? null) as string | null,
                     tags: r.tags ?? null,
                     volumeValue: 0,
@@ -1171,8 +1134,8 @@ async function getAccompanimentItems(
 
     if (out.length < 5) {
         const { data: accompPacks } = await admin
-            .from("produto_embalagens")
-            .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
+            .from("view_chat_produtos")
+            .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, sigla_comercial, product_name, product_unit_type, product_details")
             .eq("company_id", companyId)
             .eq("is_acompanhamento", true)
             .limit(50);
@@ -1181,17 +1144,16 @@ async function getAccompanimentItems(
         if (safeAcc.length) {
             const produtoIds = [...new Set(safeAcc.map((p) => String(p.produto_id)))].slice(0, 20);
             const { data: packs } = await admin
-                .from("produto_embalagens")
-                .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
+                .from("view_chat_produtos")
+                .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, sigla_comercial, product_name, product_unit_type, product_details")
                 .in("produto_id", produtoIds)
                 .eq("company_id", companyId);
 
-            const byProd: Record<string, { unitPack: any | null; casePack: any | null; p: any | null; tags: string[] }> = {};
+            const byProd: Record<string, { unitPack: any | null; casePack: any | null; tags: string[] }> = {};
             for (const r of (packs ?? []) as any[]) {
                 const pid = String(r.produto_id);
-                byProd[pid] ??= { unitPack: null, casePack: null, p: null, tags: [] };
-                byProd[pid].p = r.products ?? byProd[pid].p;
-                const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
+                byProd[pid] ??= { unitPack: null, casePack: null, tags: [] };
+                const sig = String(r.sigla_comercial ?? "").toUpperCase();
                 if (r.tags) byProd[pid].tags.push(String(r.tags));
                 if (sig === "UN") byProd[pid].unitPack = r;
                 if (sig === "CX") byProd[pid].casePack = r;
@@ -1200,7 +1162,7 @@ async function getAccompanimentItems(
             for (const pid of produtoIds) {
                 if (out.length >= 5) break;
                 const grp = byProd[pid];
-                if (!grp?.p || grp.p.is_active === false) continue;
+                if (!grp) continue;
                 const unitPack = grp.unitPack ?? grp.casePack;
                 const casePack = grp.casePack;
                 if (!unitPack || seen.has(String(unitPack.id))) continue;
@@ -1208,11 +1170,11 @@ async function getAccompanimentItems(
                 out.push({
                     id: String(unitPack.id),
                     productId: pid,
-                    productName: String(grp.p.name ?? ""),
-                    details: (unitPack.descricao ?? grp.p.details ?? null) as string | null,
+                    productName: String(unitPack.product_name ?? ""),
+                    details: (unitPack.descricao ?? unitPack.product_details ?? null) as string | null,
                     tags: grp.tags.length ? grp.tags.join(",") : null,
                     volumeValue: 0,
-                    unit: String(grp.p.unit_type ?? "un"),
+                    unit: String(unitPack.product_unit_type ?? "un"),
                     unitPrice: Number(unitPack.preco_venda ?? 0),
                     hasCase: Boolean(casePack),
                     caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
@@ -1777,7 +1739,7 @@ async function handleCatalogCategories(
         return;
     }
 
-    const variants = await getVariantsByCategory(admin, selected.id);
+    const variants = await getVariantsByCategory(admin, companyId, selected.id);
 
     if (!variants.length) {
         await reply(
@@ -1941,7 +1903,7 @@ async function handleCatalogBrands(
         return;
     }
 
-    const variants = await getVariantsByBrandAndCategory(admin, selected.id, categoryId);
+    const variants = await getVariantsByBrandAndCategory(admin, companyId, selected.id, categoryId);
 
     if (!variants.length) {
         await reply(
