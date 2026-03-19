@@ -26,10 +26,23 @@ type FormItem = {
     descricao: string;
     fator_conversao: number;
     preco_venda: string;
+    preco_custo: string;
     codigo_interno: string;
     codigo_barras_ean: string;
+    tags: string;
     estoque: string;
     estoque_minimo: string;
+    is_acompanhamento?: boolean;
+};
+
+type FormVolume = {
+    id: string;
+    volume_quantidade: string;
+    id_unit_type: string | null;
+    unitLabel: string;
+    estoque_atual: string;
+    estoque_minimo: string;
+    items: FormItem[];
 };
 
 type Row = {
@@ -168,6 +181,7 @@ export default function ProdutosListaPage() {
     const [openCreate, setOpenCreate] = useState(false);
     const [selected, setSelected] = useState<Row | null>(null);
     const [saving,   setSaving]   = useState(false);
+    const [editLoading, setEditLoading] = useState(false);
 
     // edit fields — variant
     const [details,     setDetails]     = useState("");
@@ -204,12 +218,13 @@ export default function ProdutosListaPage() {
     const [acompModalOpen, setAcompModalOpen] = useState(false);
     const [acompSelected, setAcompSelected] = useState<{ id: string; name: string }[]>([]);
 
-    // novo fluxo create: nome produto + itens
+    // novo fluxo create: nome produto + volumes + itens
     const [productName, setProductName] = useState("");
     const [productNameSearch, setProductNameSearch] = useState("");
     const [productNameOptions, setProductNameOptions] = useState<{ id: string; name: string }[]>([]);
     const [productNameDropdownOpen, setProductNameDropdownOpen] = useState(false);
-    const [formItems, setFormItems] = useState<FormItem[]>([]);
+    const [formVolumes, setFormVolumes] = useState<FormVolume[]>([]);
+    const [codigoLoadingItemId, setCodigoLoadingItemId] = useState<string | null>(null);
 
     // flash row
     const [flashId, setFlashId] = useState<string | null>(null);
@@ -324,31 +339,100 @@ export default function ProdutosListaPage() {
         return () => clearTimeout(t);
     }, [companyId, productNameSearch]);
 
-    function addFormItem() {
-        const un = siglas.find((s) => s.sigla === "UN");
-        setFormItems((prev) => [
+    function addFormVolume() {
+        setFormVolumes((prev) => [
             ...prev,
             {
                 id: crypto.randomUUID(),
-                id_sigla_comercial: un?.id ?? siglas[0]?.id ?? "",
-                siglaLabel: un?.sigla ?? siglas[0]?.sigla ?? "",
-                descricao: "",
-                fator_conversao: 1,
-                preco_venda: "0,00",
-                codigo_interno: "",
-                codigo_barras_ean: "",
-                estoque: "",
+                volume_quantidade: "",
+                id_unit_type: null,
+                unitLabel: "ml",
+                estoque_atual: "",
                 estoque_minimo: "",
+                items: [],
             },
         ]);
     }
 
-    function removeFormItem(id: string) {
-        setFormItems((prev) => prev.filter((i) => i.id !== id));
+    function removeFormVolume(volId: string) {
+        setFormVolumes((prev) => prev.filter((v) => v.id !== volId));
     }
 
-    function updateFormItem(id: string, updates: Partial<FormItem>) {
-        setFormItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
+    function updateFormVolume(volId: string, updates: Partial<FormVolume>) {
+        setFormVolumes((prev) => prev.map((v) => (v.id === volId ? { ...v, ...updates } : v)));
+    }
+
+    function addFormItem(volId: string) {
+        const un = siglas.find((s) => s.sigla === "UN");
+        const newItem: FormItem = {
+            id: crypto.randomUUID(),
+            id_sigla_comercial: un?.id ?? siglas[0]?.id ?? "",
+            siglaLabel: un?.sigla ?? siglas[0]?.sigla ?? "",
+            descricao: "",
+            fator_conversao: 1,
+            preco_venda: "0,00",
+            preco_custo: "0,00",
+            codigo_interno: "",
+            codigo_barras_ean: "",
+            tags: "",
+            estoque: "",
+            estoque_minimo: "",
+        };
+        setFormVolumes((prev) => prev.map((v) =>
+            v.id === volId ? { ...v, items: [...v.items, newItem] } : v
+        ));
+    }
+
+    function removeFormItem(volId: string, itemId: string) {
+        setFormVolumes((prev) => prev.map((v) =>
+            v.id === volId ? { ...v, items: v.items.filter((i) => i.id !== itemId) } : v
+        ));
+    }
+
+    function updateFormItem(volId: string, itemId: string, updates: Partial<FormItem>) {
+        setFormVolumes((prev) => prev.map((v) =>
+            v.id === volId ? { ...v, items: v.items.map((i) => (i.id === itemId ? { ...i, ...updates } : i)) } : v
+        ));
+    }
+
+    function aplicarCustoNaUn(volId: string, itemCx: FormItem) {
+        const custoCx = brlToNumber(itemCx.preco_custo);
+        const fator = Math.max(1, itemCx.fator_conversao);
+        const custoUn = custoCx / fator;
+        const vol = formVolumes.find((v) => v.id === volId);
+        const itemUn = vol?.items.find((i) => i.siglaLabel === "UN" || i.siglaLabel === "UNIDADE");
+        if (itemUn) {
+            updateFormItem(volId, itemUn.id, { preco_custo: formatBRLInput(String(Math.round(custoUn * 100))) });
+        }
+    }
+
+    function aplicarCustoNaCx(volId: string, itemUn: FormItem) {
+        const custoUn = brlToNumber(itemUn.preco_custo);
+        const vol = formVolumes.find((v) => v.id === volId);
+        vol?.items.filter((i) => i.siglaLabel !== "UN" && i.siglaLabel !== "UNIDADE").forEach((itemCx) => {
+            const fator = Math.max(1, itemCx.fator_conversao);
+            const custoCx = custoUn * fator;
+            updateFormItem(volId, itemCx.id, { preco_custo: formatBRLInput(String(Math.round(custoCx * 100))) });
+        });
+    }
+
+    async function gerarCodigoParaItem(itemId: string) {
+        if (!companyId) return;
+        setCodigoLoadingItemId(itemId);
+        setMsg(null);
+        try {
+            const { data, error } = await supabase.rpc("gerar_proximo_codigo_interno", { p_company_id: companyId });
+            if (error) throw new Error(error.message);
+            const codigo = String(data ?? "");
+            setFormVolumes((prev) => prev.map((v) => ({
+                ...v,
+                items: v.items.map((i) => (i.id === itemId ? { ...i, codigo_interno: codigo } : i)),
+            })));
+        } catch (e: any) {
+            setMsg(`Erro ao gerar código: ${String(e?.message ?? e)}`);
+        } finally {
+            setCodigoLoadingItemId(null);
+        }
     }
 
     // ── realtime ─────────────────────────────────────────────────────────────
@@ -380,36 +464,72 @@ export default function ProdutosListaPage() {
     // ── open edit ─────────────────────────────────────────────────────────────
 
     async function openEdit(r: Row) {
-        setSelected(r); setOpen(true); setMsg(null);
-        setDetails(r.details ?? "");
-        const hv = r.unit !== "none" && r.volume_value !== null;
-        setHasVolume(hv); setVolumeValue(hv ? String(r.volume_value ?? "") : ""); setUnit(hv ? r.unit : "none");
-        setUnitPrice(brl(r.unit_price));
-        setCostPrice(brl(r.cost_price ?? 0));
-        setHasCase(!!r.has_case); setCaseQty(r.case_qty ? String(r.case_qty) : ""); setCasePrice(brl(r.case_price ?? 0));
-        setCaseDetails(r.case_details ?? "");
-        setCodigoCaixa(r.case_codigo_interno ?? null);
-        setSiglaExtraId(r.case_sigla_id ?? siglaCxId ?? null);
-        setIsActive(!!r.is_active);
-        setTags(r.tags ?? "");
-        setEan(r.codigo_barras_ean ?? "");
-        setIsAccomp(!!r.is_acompanhamento);
-        setCodigoInterno(r.codigo_interno ?? null);
+        setSelected(r); setOpen(true); setMsg(null); setEditLoading(true);
+        setFormVolumes([]);
         setCategoryId(r.products?.category_id ?? r.products?.categories?.id ?? "");
         setNewCategoryName("");
         setAcompSelected([]);
-        const { data: ac } = await supabase
-            .from("view_produto_embalagem_acompanhamentos")
-            .select("acompanhamento_produto_embalagem_id")
-            .eq("produto_embalagem_id", r.id)
-            .order("ordem");
-        const ids = ((ac ?? []) as any[]).map((x) => String(x.acompanhamento_produto_embalagem_id));
-        const sel = ids.map((embId) => {
-            const row = rows.find((x) => x.id === embId);
-            const name = row ? [row.products?.categories?.name, row.details].filter(Boolean).join(" ") || row.products?.name || "—" : "—";
-            return { id: embId, name };
-        });
-        setAcompSelected(sel);
+        try {
+            const { data, error } = await supabase.rpc("rpc_get_product_full", {
+                p_product_id: r.product_id,
+                p_company_id: companyId,
+            });
+            if (error) throw new Error(error.message);
+            const prod = data as { id?: string; name?: string; category_id?: string; is_active?: boolean; volumes?: any[] } | null;
+            if (!prod) { setMsg("Produto não encontrado."); setEditLoading(false); return; }
+
+            setProductName(prod.name ?? "");
+            setIsActive(!!prod.is_active);
+            setCategoryId(prod.category_id ?? "");
+
+            const vols: FormVolume[] = (prod.volumes ?? []).map((v: any) => {
+                const volEstoque = v.estoque_atual != null ? String(v.estoque_atual) : "";
+                const volEstoqueMin = v.estoque_minimo != null ? String(v.estoque_minimo) : "";
+                const items: FormItem[] = (v.items ?? []).map((it: any) => ({
+                    id: String(it.id ?? crypto.randomUUID()),
+                    id_sigla_comercial: String(it.id_sigla_comercial ?? ""),
+                    siglaLabel: String(it.sigla ?? ""),
+                    descricao: String(it.descricao ?? ""),
+                    fator_conversao: Number(it.fator_conversao ?? 1),
+                    preco_venda: it.preco_venda != null ? formatBRLInput(String(Math.round(Number(it.preco_venda) * 100))) : "0,00",
+                    preco_custo: it.preco_custo != null ? formatBRLInput(String(Math.round(Number(it.preco_custo) * 100))) : "0,00",
+                    codigo_interno: String(it.codigo_interno ?? ""),
+                    codigo_barras_ean: String(it.codigo_barras_ean ?? ""),
+                    tags: String(it.tags ?? ""),
+                    estoque: "",
+                    estoque_minimo: "",
+                    is_acompanhamento: !!it.is_acompanhamento,
+                }));
+                return {
+                    id: String(v.volume_id ?? crypto.randomUUID()),
+                    volume_quantidade: v.volume_quantidade != null ? String(v.volume_quantidade) : "",
+                    id_unit_type: v.id_unit_type ?? null,
+                    unitLabel: String(v.unit_sigla ?? "ml"),
+                    estoque_atual: volEstoque,
+                    estoque_minimo: volEstoqueMin,
+                    items,
+                };
+            });
+            setFormVolumes(vols);
+            setIsAccomp(vols.some((v) => v.items.some((i) => i.is_acompanhamento)));
+
+            const { data: ac } = await supabase
+                .from("view_produto_embalagem_acompanhamentos")
+                .select("acompanhamento_produto_embalagem_id")
+                .eq("produto_embalagem_id", r.id)
+                .order("ordem");
+            const ids = ((ac ?? []) as any[]).map((x) => String(x.acompanhamento_produto_embalagem_id));
+            const sel = ids.map((embId) => {
+                const row = rows.find((x) => x.id === embId);
+                const name = row ? [row.products?.categories?.name, row.details].filter(Boolean).join(" ") || row.products?.name || "—" : "—";
+                return { id: embId, name };
+            });
+            setAcompSelected(sel);
+        } catch (e: any) {
+            setMsg(`Erro ao carregar: ${String(e?.message ?? e)}`);
+        } finally {
+            setEditLoading(false);
+        }
     }
 
     function openNew() {
@@ -435,7 +555,7 @@ export default function ProdutosListaPage() {
         setCategoryId("");
         setProductName("");
         setProductNameSearch("");
-        setFormItems([]);
+        setFormVolumes([]);
         setOpenCreate(true);
     }
 
@@ -445,32 +565,45 @@ export default function ProdutosListaPage() {
         if (!selected || !companyId) return;
         setSaving(true); setMsg(null);
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
+        const volumesWithItems = formVolumes.filter((v) => v.items.length > 0);
+        if (volumesWithItems.length === 0) { setMsg("Adicione pelo menos um volume com itens."); setSaving(false); return; }
 
-        const caseFator = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
-        const volQty = hasVolume && volumeValue ? Number(volumeValue.replace(",", ".")) : null;
-        const { error } = await supabase.rpc("rpc_update_product_edit", {
+        const volumesPayload = volumesWithItems.map((vol) => {
+            const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replace(",", ".")) : null;
+            const volUnitTypeId = vol.id_unit_type || null;
+            const volEstoque = vol.estoque_atual ? Number(vol.estoque_atual.replace(",", ".")) : 0;
+            const volEstoqueMin = vol.estoque_minimo ? Number(vol.estoque_minimo.replace(",", ".")) : 0;
+            return {
+                volume_quantidade: volQty,
+                id_unit_type: volUnitTypeId,
+                items: vol.items.map((it) => {
+                    const fator = Math.max(1, it.fator_conversao);
+                    const itemEstoque = volEstoque > 0 ? Math.round(volEstoque / fator) : null;
+                    const itemEstoqueMin = volEstoqueMin >= 0 ? Math.round(volEstoqueMin / fator) : null;
+                    return {
+                        id_sigla_comercial: it.id_sigla_comercial,
+                        descricao: it.descricao.trim() || null,
+                        fator_conversao: fator,
+                        preco_venda: brlToNumber(it.preco_venda),
+                        preco_custo: brlToNumber(it.preco_custo) || null,
+                        codigo_interno: it.codigo_interno.trim() || null,
+                        codigo_barras_ean: it.codigo_barras_ean.trim() || null,
+                        tags: it.tags.trim() || null,
+                        is_acompanhamento: isAccomp,
+                        estoque: itemEstoque != null ? String(itemEstoque) : null,
+                        estoque_minimo: itemEstoqueMin != null ? String(itemEstoqueMin) : null,
+                    };
+                }),
+            };
+        });
+
+        const { error } = await supabase.rpc("rpc_update_product_with_items", {
             p_company_id: companyId,
             p_product_id: selected.product_id,
             p_category_id: categoryId,
-            p_preco_custo: brlToNumber(costPrice),
             p_is_active: isActive,
-            p_un_embalagem_id: selected.id,
-            p_descricao: details.trim() || null,
-            p_preco_venda: brlToNumber(unitPrice),
-            p_tags: tags.trim() || null,
-            p_codigo_barras_ean: ean.trim() || null,
-            p_is_acompanhamento: isAccomp,
-            p_id_unit_type: hasVolume ? getIdUnitType(unit) : null,
-            p_volume_quantidade: volQty,
-            p_codigo_interno: codigoInterno?.trim() || null,
-            p_has_case: hasCase,
-            p_id_sigla_case: hasCase ? (siglaExtraId || siglaCxId) : null,
-            p_case_qty: hasCase ? caseFator : null,
-            p_case_price: hasCase ? brlToNumber(casePrice) : null,
-            p_case_descricao: hasCase ? (caseDetails.trim() || null) : null,
-            p_case_codigo_interno: hasCase ? (codigoCaixa?.trim() || null) : null,
-            p_case_embalagem_id: selected.case_id,
-            p_acompanhamento_ids: isAccomp ? acompSelected.map((a) => a.id) : [],
+            p_volumes: volumesPayload,
+            p_acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
         });
 
         if (error) { setMsg(`Erro: ${error.message}`); setSaving(false); return; }
@@ -488,26 +621,35 @@ export default function ProdutosListaPage() {
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
         const nameToUse = (productName || productNameSearch || "").trim();
         if (!nameToUse) { setMsg("Informe ou selecione o nome do produto."); setSaving(false); return; }
-        if (formItems.length === 0) { setMsg("Adicione pelo menos um item (ex: UN ou CX)."); setSaving(false); return; }
+        const volumesWithItems = formVolumes.filter((v) => v.items.length > 0);
+        if (volumesWithItems.length === 0) { setMsg("Adicione pelo menos um volume com itens."); setSaving(false); return; }
 
-        const volQty = hasVolume && volumeValue ? Number(volumeValue.replace(",", ".")) : null;
-        const volUnitTypeId = hasVolume ? getIdUnitType(unit) : null;
-
-        const itemsPayload = formItems.map((it) => {
-            const sigla = siglas.find((s) => s.id === it.id_sigla_comercial);
-            const isUn = sigla?.sigla === "UN" || sigla?.sigla === "UNIDADE";
+        const volumesPayload = volumesWithItems.map((vol) => {
+            const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replace(",", ".")) : null;
+            const volUnitTypeId = vol.id_unit_type || null;
+            const volEstoque = vol.estoque_atual ? Number(vol.estoque_atual.replace(",", ".")) : 0;
+            const volEstoqueMin = vol.estoque_minimo ? Number(vol.estoque_minimo.replace(",", ".")) : 0;
             return {
-                id_sigla_comercial: it.id_sigla_comercial,
-                descricao: it.descricao.trim() || null,
-                fator_conversao: Math.max(1, it.fator_conversao),
-                preco_venda: String(brlToNumber(it.preco_venda)),
-                codigo_interno: it.codigo_interno.trim() || null,
-                codigo_barras_ean: it.codigo_barras_ean.trim() || null,
-                is_acompanhamento: isAccomp,
-                volume_quantidade: isUn ? volQty : null,
-                id_unit_type: isUn ? volUnitTypeId : null,
-                estoque: it.estoque ? String(Number(it.estoque.replace(",", ".")) * Math.max(1, it.fator_conversao)) : null,
-                estoque_minimo: it.estoque_minimo ? String(Number(it.estoque_minimo.replace(",", ".")) * Math.max(1, it.fator_conversao)) : null,
+                volume_quantidade: volQty,
+                id_unit_type: volUnitTypeId,
+                items: vol.items.map((it) => {
+                    const fator = Math.max(1, it.fator_conversao);
+                    const itemEstoque = volEstoque > 0 ? Math.round(volEstoque / fator) : null;
+                    const itemEstoqueMin = volEstoqueMin >= 0 ? Math.round(volEstoqueMin / fator) : null;
+                    return {
+                        id_sigla_comercial: it.id_sigla_comercial,
+                        descricao: it.descricao.trim() || null,
+                        fator_conversao: fator,
+                        preco_venda: brlToNumber(it.preco_venda),
+                        preco_custo: brlToNumber(it.preco_custo) || null,
+                        codigo_interno: it.codigo_interno.trim() || null,
+                        codigo_barras_ean: it.codigo_barras_ean.trim() || null,
+                        tags: it.tags.trim() || null,
+                        is_acompanhamento: isAccomp,
+                        estoque: itemEstoque != null ? String(itemEstoque) : null,
+                        estoque_minimo: itemEstoqueMin != null ? String(itemEstoqueMin) : null,
+                    };
+                }),
             };
         });
 
@@ -516,10 +658,9 @@ export default function ProdutosListaPage() {
                 p_company_id: companyId,
                 p_name: nameToUse,
                 p_category_id: categoryId,
-                p_preco_custo: brlToNumber(costPrice),
                 p_is_active: isActive,
-                p_tags: tags.trim() || null,
-                p_items: itemsPayload,
+                p_volumes: volumesPayload,
+                p_acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
             });
 
             if (error) throw new Error(error.message);
@@ -737,19 +878,24 @@ export default function ProdutosListaPage() {
             </div>
 
             {/* Edit Modal */}
-            <Modal title={selected ? `Editar: ${selected.products?.categories?.name ?? ""} ${selected.details ?? ""}`.trim() : "Editar"} open={open} onClose={() => { setOpen(false); setSelected(null); setMsg(null); }} wide>
+            <Modal title={selected ? `Editar: ${productName || selected.products?.name ?? ""}`.trim() : "Editar"} open={open} onClose={() => { setOpen(false); setSelected(null); setMsg(null); }} wide>
                 <div className="flex flex-col gap-5">
-                    {/* Nome do produto (fixo, não editável) */}
+                    {editLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                            <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+                        </div>
+                    ) : (
+                        <>
+                    {/* Nome do produto (fixo) */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Produto</p>
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{selected?.products?.name ?? "—"}</p>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{productName || selected?.products?.name ?? "—"}</p>
                     </div>
                     {/* Categoria */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <div className="mb-3 flex items-center justify-between">
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Categoria</p>
-                                <p className="text-xs text-zinc-400">{selected?.products?.categories?.name ?? "—"}</p>
                             </div>
                             <button onClick={() => setAddCategoryOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
                                 <Plus className="h-3 w-3" /> Nova
@@ -761,114 +907,143 @@ export default function ProdutosListaPage() {
                         </select>
                     </div>
 
-                    {/* Variant fields */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="col-span-2">
-                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Detalhes</label>
-                            <input value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Ex: long neck, retornável…" className={inputCls} />
-                        </div>
-                        <div className="col-span-2">
-                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Tags / Sinônimos</label>
-                            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="latinha, gelada, skolzinha…" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Código interno (UN)</label>
-                            <input value={codigoInterno ?? ""} onChange={(e) => setCodigoInterno(e.target.value)} placeholder="INT-1000" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">EAN (opcional)</label>
-                            <input value={ean} onChange={(e) => setEan(e.target.value)} placeholder="789..." className={inputCls} inputMode="numeric" />
-                        </div>
-                        <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                                <input type="checkbox" checked={hasVolume} onChange={(e) => { setHasVolume(e.target.checked); if (!e.target.checked) { setVolumeValue(""); setUnit("none"); } else { setUnit("ml"); } }} className="h-4 w-4 accent-violet-600 rounded" />
-                                Volume
-                            </label>
-                            <div className="mt-3 flex gap-2">
-                                <input disabled={!hasVolume} value={volumeValue} onChange={(e) => setVolumeValue(e.target.value)} placeholder="350" className={inputCls} />
-                                <select disabled={!hasVolume} value={hasVolume ? unit : "none"} onChange={(e) => setUnit(e.target.value as Unit)} className={`${selectCls} w-24`}>
-                                    {unitTypes.length ? unitTypes.map((u) => <option key={u.id} value={u.sigla === "L" ? "l" : u.sigla.toLowerCase()}>{u.sigla}</option>) : <><option value="ml">ml</option><option value="l">L</option><option value="kg">kg</option></>}
-                                </select>
+                    {/* Volumes e itens (mesma estrutura do Create) */}
+                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
+                        <div className="mb-3 flex items-center justify-between">
+                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Volumes e itens</p>
+                            <div className="flex gap-2">
+                                <button type="button" onClick={() => setAddSiglaOpen(true)} className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">
+                                    Nova sigla
+                                </button>
+                                <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                                    <Plus className="h-3 w-3" /> Adicionar volume
+                                </button>
                             </div>
                         </div>
-                        <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Valor unitário (R$)</label>
-                            <input value={unitPrice} onChange={(e) => setUnitPrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
-                        </div>
-                        <div className="rounded-lg border border-red-100 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-950/20">
-                            <label className="mb-1 block text-xs font-semibold text-red-700 dark:text-red-400">
-                                Preço de Custo (R$) <span className="text-[10px] font-normal text-zinc-400">— usado no Lucro Real do Financeiro</span>
-                            </label>
-                            <input value={costPrice} onChange={(e) => setCostPrice(formatBRLInput(e.target.value))} className={`${inputCls} border-red-200 focus:border-red-400 focus:ring-red-400/30 dark:border-red-900`} inputMode="numeric" placeholder="0,00" />
-                        </div>
-                        <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                                <input type="checkbox" checked={hasCase} onChange={(e) => { setHasCase(e.target.checked); if (!e.target.checked) { setCaseQty(""); setCasePrice("0,00"); setCaseDetails(""); setCodigoCaixa(null); } }} className="h-4 w-4 accent-violet-600 rounded" />
-                                Vende em outra embalagem (CX, fardo, pacote…)
-                            </label>
-                            {hasCase && (
-                                <div className="mt-3 space-y-3">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Sigla comercial</label>
-                                            <select value={siglaExtraId ?? ""} onChange={(e) => setSiglaExtraId(e.target.value || null)} className={selectCls}>
-                                                <option value="">Selecione…</option>
-                                                {siglas.map((s) => <option key={s.id} value={s.id}>{s.sigla}</option>)}
-                                            </select>
+                        <p className="mb-3 text-[11px] text-zinc-400">Preço custo e tags por item. Botões →UN e →CX calculam custo automaticamente.</p>
+                        {formVolumes.length === 0 ? (
+                            <p className="rounded-lg border border-dashed border-zinc-200 py-6 text-center text-sm text-zinc-400 dark:border-zinc-700">
+                                Nenhum volume. Clique em &quot;Adicionar volume&quot;.
+                            </p>
+                        ) : (
+                            <div className="space-y-4">
+                                {formVolumes.map((vol) => (
+                                    <div key={vol.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Volume</span>
+                                                <input value={vol.volume_quantidade} onChange={(e) => updateFormVolume(vol.id, { volume_quantidade: e.target.value })} placeholder="350" className={`${inputCls} w-20 py-1.5 text-xs`} />
+                                                <select value={vol.id_unit_type ?? ""} onChange={(e) => { const val = e.target.value || null; const u = unitTypes.find((x) => x.id === val); updateFormVolume(vol.id, { id_unit_type: val, unitLabel: u?.sigla ?? "ml" }); }} className={`${selectCls} w-20 py-1.5 text-xs`}>
+                                                    <option value="">—</option>
+                                                    {unitTypes.map((u) => <option key={u.id} value={u.id}>{u.sigla}</option>)}
+                                                </select>
+                                                <span className="text-[10px] text-zinc-500">Est.</span>
+                                                <input value={vol.estoque_atual} onChange={(e) => updateFormVolume(vol.id, { estoque_atual: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
+                                                <span className="text-[10px] text-zinc-500">Mín</span>
+                                                <input value={vol.estoque_minimo} onChange={(e) => updateFormVolume(vol.id, { estoque_minimo: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <button type="button" onClick={() => addFormItem(vol.id)} className="rounded-md bg-violet-600 px-2 py-1 text-xs font-bold text-white hover:bg-violet-700"><Plus className="inline h-3 w-3" /> Item</button>
+                                                <button type="button" onClick={() => removeFormVolume(vol.id)} className="rounded-md border border-zinc-200 p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:border-zinc-700"><X className="h-4 w-4" /></button>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Quantidade</label>
-                                            <input disabled={!hasCase} value={caseQty} onChange={(e) => setCaseQty(e.target.value)} placeholder="12" className={inputCls} inputMode="numeric" />
-                                        </div>
+                                        {vol.items.length === 0 ? (
+                                            <p className="rounded border border-dashed border-zinc-200 py-3 text-center text-xs text-zinc-400 dark:border-zinc-600">Nenhum item. Clique em &quot;+ Item&quot;.</p>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {vol.items.map((it) => (
+                                                    <div key={it.id} className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-900/50">
+                                                        <div className="mb-2 flex items-center justify-between">
+                                                            <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">{it.siglaLabel}</span>
+                                                            <button type="button" onClick={() => removeFormItem(vol.id, it.id)} className="text-zinc-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Sigla</label>
+                                                                <select value={it.id_sigla_comercial} onChange={(e) => { const s = siglas.find((x) => x.id === e.target.value); updateFormItem(vol.id, it.id, { id_sigla_comercial: e.target.value, siglaLabel: s?.sigla ?? "" }); }} className={`${selectCls} py-1.5 text-xs`}>
+                                                                    {siglas.map((s) => <option key={s.id} value={s.id}>{s.sigla}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Fator</label>
+                                                                <input value={it.fator_conversao} onChange={(e) => updateFormItem(vol.id, it.id, { fator_conversao: Math.max(1, parseInt(e.target.value, 10) || 1) })} className={`${inputCls} py-1.5 text-xs`} type="number" min={1} />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Preço venda (R$)</label>
+                                                                <input value={it.preco_venda} onChange={(e) => updateFormItem(vol.id, it.id, { preco_venda: formatBRLInput(e.target.value) })} className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-red-600 dark:text-red-400">Preço custo (R$)</label>
+                                                                <div className="flex gap-1">
+                                                                    <input value={it.preco_custo} onChange={(e) => updateFormItem(vol.id, it.id, { preco_custo: formatBRLInput(e.target.value) })} className={`${inputCls} py-1.5 text-xs border-red-100`} inputMode="numeric" placeholder="0,00" />
+                                                                    {(it.siglaLabel === "CX" || (it.fator_conversao > 1 && it.siglaLabel !== "UN" && it.siglaLabel !== "UNIDADE")) && (
+                                                                        <button type="button" onClick={() => aplicarCustoNaUn(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da UN">→UN</button>
+                                                                    )}
+                                                                    {(it.siglaLabel === "UN" || it.siglaLabel === "UNIDADE") && (
+                                                                        <button type="button" onClick={() => aplicarCustoNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da CX">→CX</button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
+                                                                <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value })} placeholder="Ex: CX 15un" className={`${inputCls} py-1.5 text-xs`} />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>
+                                                                <div className="flex gap-1">
+                                                                    <input value={it.codigo_interno} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_interno: e.target.value })} placeholder="INT-1000" className={`${inputCls} py-1.5 text-xs`} />
+                                                                    <button type="button" onClick={() => gerarCodigoParaItem(it.id)} disabled={!!codigoLoadingItemId} className="shrink-0 rounded border border-violet-300 bg-violet-50 px-1.5 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-300" title="Gerar próximo código">{" "}{codigoLoadingItemId === it.id ? <Loader2 className="h-3 w-3 animate-spin inline" /> : "Gerar"}</button>
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">EAN</label>
+                                                                <input value={it.codigo_barras_ean} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_barras_ean: e.target.value })} placeholder="789..." className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Tags / Sinônimos <span className="font-normal text-zinc-400">(usado no chatbot)</span></label>
+                                                                <input value={it.tags} onChange={(e) => updateFormItem(vol.id, it.id, { tags: e.target.value })} placeholder="latinha, gelada…" className={`${inputCls} py-1.5 text-xs`} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div>
-                                        <label className="mb-1 block text-xs font-semibold text-zinc-500">Descrição da embalagem</label>
-                                        <input disabled={!hasCase} value={caseDetails} onChange={(e) => setCaseDetails(e.target.value)} placeholder="Ex: CX 12un, Fardo 6un…" className={inputCls} />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor da embalagem (R$)</label>
-                                            <input disabled={!hasCase} value={casePrice} onChange={(e) => setCasePrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
-                                        </div>
-                                        <div>
-                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Código interno da CX</label>
-                                            <input disabled={!hasCase} value={codigoCaixa ?? ""} onChange={(e) => setCodigoCaixa(e.target.value)} placeholder="INT-1001" className={inputCls} />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
                                 <p className="text-xs text-zinc-400">Desativando, o item some do chatbot e pedidos.</p>
                             </div>
                             <Toggle checked={isActive} onChange={setIsActive} />
                         </div>
-                        <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
                                 <p className="text-xs text-zinc-400">O bot sugere estes itens após o pedido (até 2).</p>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
-                                    Selecionar
-                                </button>
+                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">Selecionar</button>
                                 <Toggle checked={isAccomp} onChange={setIsAccomp} />
                             </div>
                         </div>
                         {acompSelected.length > 0 && (
-                            <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                                 <p className="mb-1 text-xs font-semibold text-zinc-500">Produtos de acompanhamento:</p>
                                 <p className="text-xs text-zinc-600">{acompSelected.map((a) => a.name).join(", ")}</p>
                             </div>
                         )}
-                    </div>
+                        </>
+                    )}
 
                     {msg && <p className={`text-xs font-semibold ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
 
                     <div className="flex gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                        <button onClick={saveEdit} disabled={saving} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
+                        <button onClick={saveEdit} disabled={saving || editLoading} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
                             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                             {saving ? "Salvando…" : "Salvar alterações"}
                         </button>
@@ -992,95 +1167,134 @@ export default function ProdutosListaPage() {
                         </select>
                     </div>
 
-                    {/* Volume + Preço custo + Tags */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
-                            <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                                <input type="checkbox" checked={hasVolume} onChange={(e) => { setHasVolume(e.target.checked); if (!e.target.checked) { setVolumeValue(""); setUnit("none"); } else { setUnit("ml"); } }} className="h-4 w-4 accent-violet-600 rounded" />
-                                Volume (UN)
-                            </label>
-                            <div className="mt-2 flex gap-2">
-                                <input disabled={!hasVolume} value={volumeValue} onChange={(e) => setVolumeValue(e.target.value)} placeholder="350" className={inputCls} />
-                                <select disabled={!hasVolume} value={hasVolume ? unit : "none"} onChange={(e) => setUnit(e.target.value as Unit)} className={`${selectCls} w-24`}>
-                                    {unitTypes.map((u) => <option key={u.id} value={u.sigla === "L" ? "l" : u.sigla.toLowerCase()}>{u.sigla}</option>)}
-                                    {unitTypes.length === 0 && <><option value="ml">ml</option><option value="l">L</option><option value="kg">kg</option></>}
-                                </select>
-                            </div>
-                        </div>
-                        <div className="rounded-lg border border-red-100 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-950/20">
-                            <label className="mb-1 block text-xs font-semibold text-red-700 dark:text-red-400">Preço de Custo (R$)</label>
-                            <input value={costPrice} onChange={(e) => setCostPrice(formatBRLInput(e.target.value))} className={`${inputCls} border-red-200`} inputMode="numeric" placeholder="0,00" />
-                        </div>
-                        <div className="col-span-2">
-                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Tags / Sinônimos</label>
-                            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="latinha, gelada…" className={inputCls} />
-                        </div>
-                    </div>
-
-                    {/* ADICIONAR ITEM */}
+                    {/* Volumes + Itens */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <div className="mb-3 flex items-center justify-between">
-                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Itens (UN, CX, FARD…)</p>
+                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Volumes e itens</p>
                             <div className="flex gap-2">
                                 <button type="button" onClick={() => setAddSiglaOpen(true)} className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">
                                     Nova sigla
                                 </button>
-                                <button type="button" onClick={addFormItem} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
-                                    <Plus className="h-3 w-3" /> Adicionar item
+                                <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                                    <Plus className="h-3 w-3" /> Adicionar volume
                                 </button>
                             </div>
                         </div>
-                        <p className="mb-3 text-[11px] text-zinc-400">UN e CX do mesmo volume compartilham o mesmo estoque.</p>
-                        {formItems.length === 0 ? (
+                        <p className="mb-3 text-[11px] text-zinc-400">Cada volume (ex: 300ml, 600ml) pode ter vários itens (UN, CX). Itens do mesmo volume compartilham estoque.</p>
+                        {formVolumes.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-zinc-200 py-6 text-center text-sm text-zinc-400 dark:border-zinc-700">
-                                Nenhum item. Clique em &quot;Adicionar item&quot; para começar.
+                                Nenhum volume. Clique em &quot;Adicionar volume&quot; para começar.
                             </p>
                         ) : (
-                            <div className="space-y-3">
-                                {formItems.map((it) => (
-                                    <div key={it.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
-                                        <div className="mb-2 flex items-center justify-between">
-                                            <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">{it.siglaLabel}</span>
-                                            <button type="button" onClick={() => removeFormItem(it.id)} className="text-zinc-400 hover:text-red-500">
-                                                <X className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Sigla</label>
-                                                <select value={it.id_sigla_comercial} onChange={(e) => { const s = siglas.find((x) => x.id === e.target.value); updateFormItem(it.id, { id_sigla_comercial: e.target.value, siglaLabel: s?.sigla ?? "" }); }} className={`${selectCls} py-1.5 text-xs`}>
-                                                    {siglas.map((s) => <option key={s.id} value={s.id}>{s.sigla}</option>)}
+                            <div className="space-y-4">
+                                {formVolumes.map((vol) => (
+                                    <div key={vol.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Volume</span>
+                                                <input
+                                                    value={vol.volume_quantidade}
+                                                    onChange={(e) => updateFormVolume(vol.id, { volume_quantidade: e.target.value })}
+                                                    placeholder="350"
+                                                    className={`${inputCls} w-20 py-1.5 text-xs`}
+                                                />
+                                                <select
+                                                    value={vol.id_unit_type ?? ""}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value || null;
+                                                        const u = unitTypes.find((x) => x.id === val);
+                                                        updateFormVolume(vol.id, { id_unit_type: val, unitLabel: u?.sigla ?? "ml" });
+                                                    }}
+                                                    className={`${selectCls} w-20 py-1.5 text-xs`}
+                                                >
+                                                    <option value="">—</option>
+                                                    {unitTypes.map((u) => (
+                                                        <option key={u.id} value={u.id}>{u.sigla}</option>
+                                                    ))}
                                                 </select>
+                                                <span className="text-[10px] text-zinc-500">Est.</span>
+                                                <input value={vol.estoque_atual} onChange={(e) => updateFormVolume(vol.id, { estoque_atual: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
+                                                <span className="text-[10px] text-zinc-500">Mín</span>
+                                                <input value={vol.estoque_minimo} onChange={(e) => updateFormVolume(vol.id, { estoque_minimo: e.target.value })} placeholder="0" className={`${inputCls} w-16 py-1.5 text-xs`} inputMode="numeric" />
                                             </div>
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Quantidade (fator)</label>
-                                                <input value={it.fator_conversao} onChange={(e) => updateFormItem(it.id, { fator_conversao: Math.max(1, parseInt(e.target.value, 10) || 1) })} className={`${inputCls} py-1.5 text-xs`} type="number" min={1} />
-                                            </div>
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Preço venda (R$)</label>
-                                                <input value={it.preco_venda} onChange={(e) => updateFormItem(it.id, { preco_venda: formatBRLInput(e.target.value) })} className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
-                                            </div>
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
-                                                <input value={it.descricao} onChange={(e) => updateFormItem(it.id, { descricao: e.target.value })} placeholder="Ex: 300ml, CX 15un" className={`${inputCls} py-1.5 text-xs`} />
-                                            </div>
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>
-                                                <input value={it.codigo_interno} onChange={(e) => updateFormItem(it.id, { codigo_interno: e.target.value })} placeholder="INT-1000" className={`${inputCls} py-1.5 text-xs`} />
-                                            </div>
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">EAN</label>
-                                                <input value={it.codigo_barras_ean} onChange={(e) => updateFormItem(it.id, { codigo_barras_ean: e.target.value })} placeholder="789..." className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
-                                            </div>
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Estoque</label>
-                                                <input value={it.estoque} onChange={(e) => updateFormItem(it.id, { estoque: e.target.value })} placeholder={it.fator_conversao === 1 ? "un" : "cx/caixas"} className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
-                                            </div>
-                                            <div>
-                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Est. mínimo</label>
-                                                <input value={it.estoque_minimo} onChange={(e) => updateFormItem(it.id, { estoque_minimo: e.target.value })} className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
+                                            <div className="flex items-center gap-1">
+                                                <button type="button" onClick={() => addFormItem(vol.id)} className="rounded-md bg-violet-600 px-2 py-1 text-xs font-bold text-white hover:bg-violet-700">
+                                                    <Plus className="inline h-3 w-3" /> Item
+                                                </button>
+                                                <button type="button" onClick={() => removeFormVolume(vol.id)} className="rounded-md border border-zinc-200 p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:border-zinc-700">
+                                                    <X className="h-4 w-4" />
+                                                </button>
                                             </div>
                                         </div>
+                                        {vol.items.length === 0 ? (
+                                            <p className="rounded border border-dashed border-zinc-200 py-3 text-center text-xs text-zinc-400 dark:border-zinc-600">Nenhum item. Clique em &quot;+ Item&quot;.</p>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {vol.items.map((it) => (
+                                                    <div key={it.id} className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-900/50">
+                                                        <div className="mb-2 flex items-center justify-between">
+                                                            <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">{it.siglaLabel}</span>
+                                                            <button type="button" onClick={() => removeFormItem(vol.id, it.id)} className="text-zinc-400 hover:text-red-500">
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Sigla</label>
+                                                                <select value={it.id_sigla_comercial} onChange={(e) => { const s = siglas.find((x) => x.id === e.target.value); updateFormItem(vol.id, it.id, { id_sigla_comercial: e.target.value, siglaLabel: s?.sigla ?? "" }); }} className={`${selectCls} py-1.5 text-xs`}>
+                                                                    {siglas.map((s) => <option key={s.id} value={s.id}>{s.sigla}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Fator</label>
+                                                                <input value={it.fator_conversao} onChange={(e) => updateFormItem(vol.id, it.id, { fator_conversao: Math.max(1, parseInt(e.target.value, 10) || 1) })} className={`${inputCls} py-1.5 text-xs`} type="number" min={1} />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Preço venda (R$)</label>
+                                                                <input value={it.preco_venda} onChange={(e) => updateFormItem(vol.id, it.id, { preco_venda: formatBRLInput(e.target.value) })} className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-red-600 dark:text-red-400">Preço custo (R$)</label>
+                                                                <div className="flex gap-1">
+                                                                    <input value={it.preco_custo} onChange={(e) => updateFormItem(vol.id, it.id, { preco_custo: formatBRLInput(e.target.value) })} className={`${inputCls} py-1.5 text-xs border-red-100`} inputMode="numeric" placeholder="0,00" />
+                                                                    {(it.siglaLabel === "CX" || (it.fator_conversao > 1 && it.siglaLabel !== "UN" && it.siglaLabel !== "UNIDADE")) && (
+                                                                        <button type="button" onClick={() => aplicarCustoNaUn(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da UN (custo CX ÷ fator)">
+                                                                            →UN
+                                                                        </button>
+                                                                    )}
+                                                                    {(it.siglaLabel === "UN" || it.siglaLabel === "UNIDADE") && (
+                                                                        <button type="button" onClick={() => aplicarCustoNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da CX (custo UN × fator)">
+                                                                            →CX
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
+                                                                <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value })} placeholder="Ex: CX 15un" className={`${inputCls} py-1.5 text-xs`} />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>
+                                                                <div className="flex gap-1">
+                                                                    <input value={it.codigo_interno} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_interno: e.target.value })} placeholder="INT-1000" className={`${inputCls} py-1.5 text-xs`} />
+                                                                    <button type="button" onClick={() => gerarCodigoParaItem(it.id)} disabled={!!codigoLoadingItemId} className="shrink-0 rounded border border-violet-300 bg-violet-50 px-1.5 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-300" title="Gerar próximo código interno">
+                                                                        {codigoLoadingItemId === it.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Gerar"}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">EAN</label>
+                                                                <input value={it.codigo_barras_ean} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_barras_ean: e.target.value })} placeholder="789..." className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Tags / Sinônimos <span className="font-normal text-zinc-400">(usado no chatbot)</span></label>
+                                                                <input value={it.tags} onChange={(e) => updateFormItem(vol.id, it.id, { tags: e.target.value })} placeholder="latinha, gelada, skolzinha…" className={`${inputCls} py-1.5 text-xs`} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
