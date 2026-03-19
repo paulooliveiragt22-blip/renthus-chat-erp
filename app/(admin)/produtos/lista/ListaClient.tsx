@@ -33,6 +33,7 @@ type Row = {
     tags:        string | null;
     codigo_barras_ean: string | null;
     is_acompanhamento: boolean;
+    codigo_interno: string | null;
     has_case:    boolean;
     case_qty:    number | null;
     case_price:  number | null;
@@ -96,6 +97,7 @@ function normalizeRows(input: unknown): Row[] {
                 categories:  c0 ? { id: String(c0.id), name: String(c0.name ?? "") } : null,
                 brands:      b0 ? { id: String(b0.id), name: String(b0.name ?? "") } : null,
             } : null,
+            codigo_interno: r?.codigo_interno ?? null,
         };
     });
 }
@@ -167,6 +169,8 @@ export default function ProdutosListaPage() {
     const [tags,        setTags]        = useState("");
     const [ean,         setEan]         = useState("");
     const [isAccomp,    setIsAccomp]    = useState(false);
+    const [codigoInterno, setCodigoInterno] = useState<string | null>(null);
+    const [codigoLoading, setCodigoLoading] = useState(false);
 
     // edit fields — product base
     const [categoryId,       setCategoryId]       = useState("");
@@ -234,6 +238,7 @@ export default function ProdutosListaPage() {
                 tags: unPack.tags ?? null,
                 codigo_barras_ean: unPack.codigo_barras_ean ?? null,
                 is_acompanhamento: Boolean(unPack.is_acompanhamento),
+            codigo_interno: p.codigo_interno ?? null,
                 has_case: Boolean(cxPack),
                 case_id: cxPack?.id ? String(cxPack.id) : null,
                 case_qty: cxPack ? Number(cxPack.fator_conversao ?? 0) : null,
@@ -310,6 +315,7 @@ export default function ProdutosListaPage() {
         setTags(r.tags ?? "");
         setEan(r.codigo_barras_ean ?? "");
         setIsAccomp(!!r.is_acompanhamento);
+        setCodigoInterno(r.codigo_interno ?? null);
         setCategoryId(r.products?.category_id ?? r.products?.categories?.id ?? "");
         setBrandId(r.products?.brand_id ?? r.products?.brands?.id ?? "");
         setNewCategoryName(""); setNewBrandName("");
@@ -331,6 +337,7 @@ export default function ProdutosListaPage() {
         setTags("");
         setEan("");
         setIsAccomp(false);
+        setCodigoInterno(null);
         setOpenCreate(true);
     }
 
@@ -421,16 +428,21 @@ export default function ProdutosListaPage() {
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
         if (!brandId) { setMsg("Selecione uma marca."); setSaving(false); return; }
         if (!details.trim()) { setMsg("Informe os detalhes (ex: 600ml / long neck)."); setSaving(false); return; }
+        if (!codigoInterno) { setMsg("Gere ou informe o código interno."); setSaving(false); return; }
 
         const catName = categories.find((c) => c.id === categoryId)?.name ?? "Categoria";
         const brandName = brands.find((b) => b.id === brandId)?.name ?? "Marca";
         const productName = [catName, brandName, details.trim()].filter(Boolean).join(" ");
 
         try {
-            const { data: nextCode, error: rpcErr } = await supabase.rpc("gerar_proximo_codigo_interno");
-            if (rpcErr) throw new Error(rpcErr.message);
+            let nextCode = codigoInterno;
+            if (!nextCode) {
+                const { data, error: rpcErr } = await supabase.rpc("gerar_proximo_codigo_interno");
+                if (rpcErr) throw new Error(rpcErr.message);
+                nextCode = String(data ?? "");
+            }
 
-            const { data: prod, error: prodErr } = await supabase.from("products").insert({
+                const { data: prod, error: prodErr } = await supabase.from("products").insert({
                 company_id: companyId,
                 name: productName,
                 category_id: categoryId,
@@ -481,6 +493,20 @@ export default function ProdutosListaPage() {
         } catch (e: any) {
             setMsg(`Erro: ${String(e?.message ?? e)}`);
             setSaving(false);
+        }
+    }
+
+    async function gerarCodigoInterno() {
+        setCodigoLoading(true);
+        setMsg(null);
+        try {
+            const { data, error } = await supabase.rpc("gerar_proximo_codigo_interno");
+            if (error) throw new Error(error.message);
+            setCodigoInterno(String(data ?? ""));
+        } catch (e: any) {
+            setMsg(`Erro ao gerar código interno: ${String(e?.message ?? e)}`);
+        } finally {
+            setCodigoLoading(false);
         }
     }
 
@@ -797,6 +823,29 @@ export default function ProdutosListaPage() {
             {/* Create Modal (mesmo layout do editar) */}
             <Modal title="Cadastrar novo produto" open={openCreate} onClose={() => { setOpenCreate(false); setMsg(null); }} wide>
                 <div className="flex flex-col gap-5">
+                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
+                        <div className="mb-3 flex items-center justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Código interno</p>
+                                <p className="text-xs text-zinc-400">Use este código para busca no PDV/ERP</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={gerarCodigoInterno}
+                                disabled={codigoLoading}
+                                className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600 disabled:opacity-60"
+                            >
+                                {codigoLoading ? "Gerando…" : "Gerar"}
+                            </button>
+                        </div>
+                        <input
+                            value={codigoInterno ?? ""}
+                            onChange={(e) => setCodigoInterno(e.target.value)}
+                            placeholder="INT-1000"
+                            className={inputCls}
+                        />
+                    </div>
+
                     {/* Categoria */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <div className="mb-3 flex items-center justify-between">
