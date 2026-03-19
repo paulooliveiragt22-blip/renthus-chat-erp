@@ -275,7 +275,7 @@ export default function OnboardingPage() {
                         </div>
 
                         <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" as const }}>
-                            <a href="/produtos" target="_blank" rel="noreferrer" style={S.btn}>
+                            <a href="/produtos/lista" target="_blank" rel="noreferrer" style={S.btn}>
                                 Ir para Produtos agora →
                             </a>
                             <button onClick={next} style={S.btnSecondary}>

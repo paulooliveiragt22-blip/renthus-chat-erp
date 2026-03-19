@@ -30,9 +30,13 @@ type Row = {
     unit:        Unit;
     unit_price:  number;
     cost_price:  number | null;
+    tags:        string | null;
+    codigo_barras_ean: string | null;
+    is_acompanhamento: boolean;
     has_case:    boolean;
     case_qty:    number | null;
     case_price:  number | null;
+    case_id:     string | null;
     is_active:   boolean;
     products:    RowProduct;
 };
@@ -77,7 +81,11 @@ function normalizeRows(input: unknown): Row[] {
             unit,
             unit_price:   Number(r?.unit_price ?? 0),
             cost_price:   r?.cost_price != null ? Number(r.cost_price) : null,
+            tags:         r?.tags ?? null,
+            codigo_barras_ean: r?.codigo_barras_ean ?? null,
+            is_acompanhamento: Boolean(r?.is_acompanhamento),
             has_case:     Boolean(r?.has_case),
+            case_id:      r?.case_id ?? null,
             case_qty:     r?.case_qty ?? null,
             case_price:   r?.case_price ?? null,
             is_active:    Boolean(r?.is_active),
@@ -141,6 +149,7 @@ export default function ProdutosListaPage() {
 
     // edit modal
     const [open,     setOpen]     = useState(false);
+    const [openCreate, setOpenCreate] = useState(false);
     const [selected, setSelected] = useState<Row | null>(null);
     const [saving,   setSaving]   = useState(false);
 
@@ -155,6 +164,9 @@ export default function ProdutosListaPage() {
     const [caseQty,     setCaseQty]     = useState("");
     const [casePrice,   setCasePrice]   = useState("0,00");
     const [isActive,    setIsActive]    = useState(true);
+    const [tags,        setTags]        = useState("");
+    const [ean,         setEan]         = useState("");
+    const [isAccomp,    setIsAccomp]    = useState(false);
 
     // edit fields — product base
     const [categoryId,       setCategoryId]       = useState("");
@@ -192,7 +204,7 @@ export default function ProdutosListaPage() {
               categories(id,name),
               brands(id,name),
               produto_embalagens(
-                id, descricao, sigla_comercial, fator_conversao, preco_venda
+                id, descricao, sigla_comercial, fator_conversao, preco_venda, tags, codigo_barras_ean, is_acompanhamento
               )
             `).eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
@@ -219,7 +231,11 @@ export default function ProdutosListaPage() {
                 unit: "none",
                 unit_price: Number(unPack.preco_venda ?? 0),
                 cost_price: Number(p.preco_custo_unitario ?? 0),
+                tags: unPack.tags ?? null,
+                codigo_barras_ean: unPack.codigo_barras_ean ?? null,
+                is_acompanhamento: Boolean(unPack.is_acompanhamento),
                 has_case: Boolean(cxPack),
+                case_id: cxPack?.id ? String(cxPack.id) : null,
                 case_qty: cxPack ? Number(cxPack.fator_conversao ?? 0) : null,
                 case_price: cxPack ? Number(cxPack.preco_venda ?? 0) : null,
                 is_active: Boolean(p.is_active),
@@ -291,9 +307,31 @@ export default function ProdutosListaPage() {
         setCostPrice(brl(r.cost_price ?? 0));
         setHasCase(!!r.has_case); setCaseQty(r.case_qty ? String(r.case_qty) : ""); setCasePrice(brl(r.case_price ?? 0));
         setIsActive(!!r.is_active);
+        setTags(r.tags ?? "");
+        setEan(r.codigo_barras_ean ?? "");
+        setIsAccomp(!!r.is_acompanhamento);
         setCategoryId(r.products?.category_id ?? r.products?.categories?.id ?? "");
         setBrandId(r.products?.brand_id ?? r.products?.brands?.id ?? "");
         setNewCategoryName(""); setNewBrandName("");
+    }
+
+    function openNew() {
+        setSelected(null);
+        setMsg(null);
+        setDetails("");
+        setHasVolume(false);
+        setVolumeValue("");
+        setUnit("none");
+        setUnitPrice("0,00");
+        setCostPrice("0,00");
+        setHasCase(false);
+        setCaseQty("");
+        setCasePrice("0,00");
+        setIsActive(true);
+        setTags("");
+        setEan("");
+        setIsAccomp(false);
+        setOpenCreate(true);
     }
 
     // ── save edit ─────────────────────────────────────────────────────────────
@@ -319,6 +357,9 @@ export default function ProdutosListaPage() {
         const { error: unErr } = await supabase.from("produto_embalagens").update({
             descricao: details.trim() || null,
             preco_venda: brlToNumber(unitPrice),
+            tags: tags.trim() || null,
+            codigo_barras_ean: ean.trim() || null,
+            is_acompanhamento: isAccomp,
         }).eq("id", selected.id).eq("company_id", companyId);
 
         if (unErr) { setMsg(`Erro: ${unErr.message}`); setSaving(false); return; }
@@ -344,6 +385,8 @@ export default function ProdutosListaPage() {
                     descricao: `CX ${caseFator}un`,
                     fator_conversao: caseFator,
                     preco_venda: casePV,
+                    tags: tags.trim() || null,
+                    is_acompanhamento: isAccomp,
                 }).eq("id", cxRow.id).eq("company_id", companyId);
                 if (cxUpErr) { setMsg(`Erro: ${cxUpErr.message}`); setSaving(false); return; }
             } else {
@@ -354,6 +397,8 @@ export default function ProdutosListaPage() {
                     descricao: `CX ${caseFator}un`,
                     fator_conversao: caseFator,
                     preco_venda: casePV,
+                    tags: tags.trim() || null,
+                    is_acompanhamento: isAccomp,
                 });
                 if (cxInsErr) { setMsg(`Erro: ${cxInsErr.message}`); setSaving(false); return; }
             }
@@ -367,6 +412,76 @@ export default function ProdutosListaPage() {
         setSaving(false);
         setOpen(false);
         setSelected(null);
+    }
+
+    async function saveCreate() {
+        setSaving(true);
+        setMsg(null);
+        if (!companyId) { setMsg("Nenhuma empresa ativa."); setSaving(false); return; }
+        if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
+        if (!brandId) { setMsg("Selecione uma marca."); setSaving(false); return; }
+        if (!details.trim()) { setMsg("Informe os detalhes (ex: 600ml / long neck)."); setSaving(false); return; }
+
+        const catName = categories.find((c) => c.id === categoryId)?.name ?? "Categoria";
+        const brandName = brands.find((b) => b.id === brandId)?.name ?? "Marca";
+        const productName = [catName, brandName, details.trim()].filter(Boolean).join(" ");
+
+        try {
+            const { data: nextCode, error: rpcErr } = await supabase.rpc("gerar_proximo_codigo_interno");
+            if (rpcErr) throw new Error(rpcErr.message);
+
+            const { data: prod, error: prodErr } = await supabase.from("products").insert({
+                company_id: companyId,
+                name: productName,
+                category_id: categoryId,
+                brand_id: brandId,
+                is_active: isActive,
+                codigo_interno: String(nextCode ?? ""),
+                preco_custo_unitario: brlToNumber(costPrice),
+                estoque_atual: 0,
+                estoque_minimo: 0,
+            }).select("id").single();
+            if (prodErr) throw new Error(prodErr.message);
+
+            const pid = String((prod as any)?.id ?? "");
+            if (!pid) throw new Error("Falha ao criar produto (id ausente).");
+
+            const { error: unErr } = await supabase.from("produto_embalagens").insert({
+                company_id: companyId,
+                produto_id: pid,
+                descricao: details.trim(),
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                codigo_barras_ean: ean.trim() || null,
+                preco_venda: brlToNumber(unitPrice),
+                tags: tags.trim() || null,
+                is_acompanhamento: isAccomp,
+            });
+            if (unErr) throw new Error(unErr.message);
+
+            if (hasCase) {
+                const caseFator = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
+                if (!caseFator || caseFator <= 0) throw new Error("Informe 'Cx c/' válido.");
+                const { error: cxErr } = await supabase.from("produto_embalagens").insert({
+                    company_id: companyId,
+                    produto_id: pid,
+                    descricao: `CX ${caseFator}un`,
+                    sigla_comercial: "CX",
+                    fator_conversao: caseFator,
+                    preco_venda: brlToNumber(casePrice),
+                    tags: tags.trim() || null,
+                    is_acompanhamento: isAccomp,
+                });
+                if (cxErr) throw new Error(cxErr.message);
+            }
+
+            setSaving(false);
+            setOpenCreate(false);
+            await load();
+        } catch (e: any) {
+            setMsg(`Erro: ${String(e?.message ?? e)}`);
+            setSaving(false);
+        }
     }
 
     // ── create cat / brand inline ─────────────────────────────────────────────
@@ -416,9 +531,9 @@ export default function ProdutosListaPage() {
                     <button onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                     </button>
-                    <a href="/produtos" className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600">
-                        <Plus className="h-3.5 w-3.5" /> Cadastrar
-                    </a>
+                    <button onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600">
+                        <Plus className="h-3.5 w-3.5" /> Cadastrar novo
+                    </button>
                 </div>
             </div>
 
@@ -587,6 +702,14 @@ export default function ProdutosListaPage() {
                             <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Detalhes</label>
                             <input value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Ex: long neck, retornável…" className={inputCls} />
                         </div>
+                        <div className="col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Tags / Sinônimos</label>
+                            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="latinha, gelada, skolzinha…" className={inputCls} />
+                        </div>
+                        <div className="col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">EAN (opcional)</label>
+                            <input value={ean} onChange={(e) => setEan(e.target.value)} placeholder="789..." className={inputCls} inputMode="numeric" />
+                        </div>
                         <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
                                 <input type="checkbox" checked={hasVolume} onChange={(e) => { setHasVolume(e.target.checked); if (!e.target.checked) { setVolumeValue(""); setUnit("none"); } else { setUnit("ml"); } }} className="h-4 w-4 accent-violet-600 rounded" />
@@ -632,6 +755,13 @@ export default function ProdutosListaPage() {
                             </div>
                             <Toggle checked={isActive} onChange={setIsActive} />
                         </div>
+                        <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
+                                <p className="text-xs text-zinc-400">Se marcado, o bot pode sugerir este item após o pedido.</p>
+                            </div>
+                            <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                        </div>
                     </div>
 
                     {msg && <p className={`text-xs font-semibold ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
@@ -642,6 +772,129 @@ export default function ProdutosListaPage() {
                             {saving ? "Salvando…" : "Salvar alterações"}
                         </button>
                         <button onClick={() => { setOpen(false); setSelected(null); }} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
+                    </div>
+                </div>
+
+                {/* Sub-modal: nova categoria */}
+                <Modal title="Nova Categoria" open={addCategoryOpen} onClose={() => setAddCategoryOpen(false)}>
+                    <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Ex: Cerveja" className={inputCls} />
+                    <div className="mt-4 flex gap-2">
+                        <button onClick={async () => { const id = await quickCreateCategory(newCategoryName); if (id) { setCategoryId(id); setNewCategoryName(""); setAddCategoryOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar e selecionar</button>
+                        <button onClick={() => setAddCategoryOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
+                    </div>
+                </Modal>
+
+                {/* Sub-modal: nova marca */}
+                <Modal title="Nova Marca" open={addBrandOpen} onClose={() => setAddBrandOpen(false)}>
+                    <input value={newBrandName} onChange={(e) => setNewBrandName(e.target.value)} placeholder="Ex: Skol" className={inputCls} />
+                    <div className="mt-4 flex gap-2">
+                        <button onClick={async () => { const id = await quickCreateBrand(newBrandName); if (id) { setBrandId(id); setNewBrandName(""); setAddBrandOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar e selecionar</button>
+                        <button onClick={() => setAddBrandOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
+                    </div>
+                </Modal>
+            </Modal>
+
+            {/* Create Modal (mesmo layout do editar) */}
+            <Modal title="Cadastrar novo produto" open={openCreate} onClose={() => { setOpenCreate(false); setMsg(null); }} wide>
+                <div className="flex flex-col gap-5">
+                    {/* Categoria */}
+                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
+                        <div className="mb-3 flex items-center justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Categoria</p>
+                                <p className="text-xs text-zinc-400">Selecione para compor o nome do produto</p>
+                            </div>
+                            <button onClick={() => setAddCategoryOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                                <Plus className="h-3 w-3" /> Nova
+                            </button>
+                        </div>
+                        <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={selectCls}>
+                            <option value="">Selecione…</option>
+                            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Marca */}
+                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
+                        <div className="mb-3 flex items-center justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Marca</p>
+                                <p className="text-xs text-zinc-400">Selecione para compor o nome do produto</p>
+                            </div>
+                            <button onClick={() => setAddBrandOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                                <Plus className="h-3 w-3" /> Nova
+                            </button>
+                        </div>
+                        <select value={brandId} onChange={(e) => setBrandId(e.target.value)} className={selectCls}>
+                            <option value="">Selecione…</option>
+                            {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Fields */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Detalhes</label>
+                            <input value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Ex: 600ml, long neck, retornável…" className={inputCls} />
+                        </div>
+                        <div className="col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Tags / Sinônimos</label>
+                            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="latinha, gelada, skolzinha…" className={inputCls} />
+                        </div>
+                        <div className="col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">EAN (opcional)</label>
+                            <input value={ean} onChange={(e) => setEan(e.target.value)} placeholder="789..." className={inputCls} inputMode="numeric" />
+                        </div>
+                        <div className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <label className="mb-1 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Valor unitário (R$)</label>
+                            <input value={unitPrice} onChange={(e) => setUnitPrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
+                        </div>
+                        <div className="rounded-lg border border-red-100 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-950/20">
+                            <label className="mb-1 block text-xs font-semibold text-red-700 dark:text-red-400">
+                                Preço de Custo (R$) <span className="text-[10px] font-normal text-zinc-400">— usado no Lucro Real</span>
+                            </label>
+                            <input value={costPrice} onChange={(e) => setCostPrice(formatBRLInput(e.target.value))} className={`${inputCls} border-red-200 focus:border-red-400 focus:ring-red-400/30 dark:border-red-900`} inputMode="numeric" placeholder="0,00" />
+                        </div>
+                        <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                                <input type="checkbox" checked={hasCase} onChange={(e) => { setHasCase(e.target.checked); if (!e.target.checked) { setCaseQty(""); setCasePrice("0,00"); } }} className="h-4 w-4 accent-violet-600 rounded" />
+                                Vende por caixa
+                            </label>
+                            <div className="mt-3 grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-zinc-500">Caixa com</label>
+                                    <input disabled={!hasCase} value={caseQty} onChange={(e) => setCaseQty(e.target.value)} placeholder="12" className={inputCls} inputMode="numeric" />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor da caixa (R$)</label>
+                                    <input disabled={!hasCase} value={casePrice} onChange={(e) => setCasePrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
+                                <p className="text-xs text-zinc-400">Se desativar, some do PDV/Chatbot.</p>
+                            </div>
+                            <Toggle checked={isActive} onChange={setIsActive} />
+                        </div>
+                        <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
+                                <p className="text-xs text-zinc-400">Se marcado, o bot pode sugerir este item.</p>
+                            </div>
+                            <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                        </div>
+                    </div>
+
+                    {msg && <p className="text-xs font-semibold text-red-600">{msg}</p>}
+
+                    <div className="flex gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                        <button onClick={saveCreate} disabled={saving} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            {saving ? "Salvando…" : "Cadastrar"}
+                        </button>
+                        <button onClick={() => setOpenCreate(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
                     </div>
                 </div>
 

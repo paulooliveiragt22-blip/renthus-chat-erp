@@ -25,7 +25,7 @@ const adminMenu = [
   { label: "Pedidos",       href: "/pedidos",         icon: Receipt },
   { label: "PDV / Balcão",  href: "/pdv",             icon: ShoppingCart },
   { label: "WhatsApp",      href: "/whatsapp",        icon: MessageCircle },
-  { label: "Produtos",      href: "/produtos",        icon: ShoppingBag },
+  { label: "Produtos",      href: "/produtos/lista",  icon: ShoppingBag },
   { label: "Clientes",      href: "/clientes",        icon: Users },
   { label: "Entregadores",  href: "/entregadores",    icon: Bike },
   { label: "Estoque",       href: "/estoque",         icon: Package },
