@@ -138,12 +138,12 @@ export default function EstoquePage() {
     useEffect(() => {
         if (!companyId) return;
         const ch = supabase
-            .channel("products_realtime")
-            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "products" }, (p: any) => {
-                const pid = p?.new?.id as string;
+            .channel("products_estoque_realtime")
+            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "product_volumes" }, (p: any) => {
+                const pvid = p?.new?.id as string;
                 const nextStock = Number(p?.new?.estoque_atual ?? 0);
-                if (!pid) return;
-                setItems(prev => prev.map(item => item.id === pid ? { ...item, estoque_atual: nextStock } : item));
+                if (!pvid) return;
+                setItems(prev => prev.map(item => item.id === pvid ? { ...item, estoque_atual: nextStock } : item));
                 flash(pid);
             })
             .subscribe((s: string) => console.log("[Estoque Realtime] status:", s));
@@ -166,8 +166,8 @@ export default function EstoquePage() {
             movType === "entrada" ? cur + qty :
             movType === "saida"   ? cur - qty :
             qty;
-        const { error } = await supabase.rpc("rpc_update_product_estoque", {
-            p_product_id: movItem.id,
+        const { error } = await supabase.rpc("rpc_update_product_volume_estoque", {
+            p_product_volume_id: movItem.id,
             p_company_id: companyId,
             p_estoque_atual: next,
         });
@@ -209,7 +209,7 @@ export default function EstoquePage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Estoque</h1>
-                    <p className="mt-0.5 text-xs text-zinc-400">Saldo consolidado em `products.estoque_atual`</p>
+                    <p className="mt-0.5 text-xs text-zinc-400">Saldo por volume (UN e CX compartilham estoque)</p>
                 </div>
                 <button onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
