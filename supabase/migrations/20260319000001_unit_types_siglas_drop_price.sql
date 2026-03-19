@@ -96,13 +96,21 @@ ALTER TABLE public.produto_embalagens
 
 COMMENT ON COLUMN public.produto_embalagens.volume_quantidade IS 'Quantidade de volume (ex: 350 para 350ml); unidade em id_unit_type';
 
--- 5. Backfill id_sigla_comercial a partir de sigla_comercial
-UPDATE public.produto_embalagens pe
-SET id_sigla_comercial = sc.id
-FROM public.siglas_comerciais sc
-WHERE sc.company_id = pe.company_id
-  AND upper(trim(sc.sigla)) = upper(trim(pe.sigla_comercial))
-  AND pe.id_sigla_comercial IS NULL;
+-- 5. Backfill id_sigla_comercial a partir de sigla_comercial (se a coluna ainda existir)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'produto_embalagens' AND column_name = 'sigla_comercial'
+  ) THEN
+    UPDATE public.produto_embalagens pe
+    SET id_sigla_comercial = sc.id
+    FROM public.siglas_comerciais sc
+    WHERE sc.company_id = pe.company_id
+      AND upper(trim(sc.sigla)) = upper(trim(pe.sigla_comercial))
+      AND pe.id_sigla_comercial IS NULL;
+  END IF;
+END $$;
 
 -- 6. Garantir que todos tenham id_sigla_comercial (fallback UN se sigla estranha)
 UPDATE public.produto_embalagens pe

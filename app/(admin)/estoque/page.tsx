@@ -106,25 +106,15 @@ export default function EstoquePage() {
         setLoading(true);
 
         const { data: prodRes, error } = await supabase
-            .from("products")
-            .select(`
-              id,
-              name,
-              codigo_interno,
-              details,
-              preco_custo_unitario,
-              estoque_atual,
-              estoque_minimo,
-              is_active,
-              categories(name)
-            `)
+            .from("view_products_estoque")
+            .select("id, name, codigo_interno, details, preco_custo_unitario, estoque_atual, estoque_minimo, is_active, category_name")
             .eq("company_id", companyId)
             .order("created_at", { ascending: false });
 
         if (error) { setLoading(false); return; }
 
         const mapped: StockItem[] = (prodRes ?? []).map((p: any) => {
-            const cat = Array.isArray(p?.categories) ? p.categories?.[0]?.name : p?.categories?.name;
+            const cat = p?.category_name;
             return {
                 id: String(p.id),
                 category: cat ?? "—",
@@ -176,11 +166,11 @@ export default function EstoquePage() {
             movType === "entrada" ? cur + qty :
             movType === "saida"   ? cur - qty :
             qty;
-        const { error } = await supabase
-            .from("products")
-            .update({ estoque_atual: next })
-            .eq("id", movItem.id)
-            .eq("company_id", companyId);
+        const { error } = await supabase.rpc("rpc_update_product_estoque", {
+            p_product_id: movItem.id,
+            p_company_id: companyId,
+            p_estoque_atual: next,
+        });
 
         if (error) { setMovMsg(`Erro: ${error.message}`); setMovSaving(false); return; }
         setItems(prev => prev.map(i => i.id === movItem.id ? { ...i, estoque_atual: next } : i));
