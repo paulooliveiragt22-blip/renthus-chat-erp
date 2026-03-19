@@ -476,41 +476,27 @@ async function getProductsByCategory(
     return options;
 }
 
-async function getBrandsByCategory(
-    admin: SupabaseClient,
-    categoryId: string
-): Promise<Brand[]> {
-    const { data } = await admin
-        .from("products")
-        .select("brand_id, brands(id, name)")
-        .eq("category_id", categoryId)
-        .eq("is_active", true)
-        .not("brand_id", "is", null);
-
-    if (!data?.length) return [];
-
-    const seen = new Set<string>();
-    const brands: Brand[] = [];
-    for (const row of data as any[]) {
-        const b = row.brands;
-        if (b && !seen.has(b.id)) {
-            seen.add(b.id);
-            brands.push({ id: b.id, name: b.name });
-        }
-    }
-    return brands.sort((a, b) => a.name.localeCompare(b.name));
+/** @deprecated Marca removida — retorna [] */
+async function getBrandsByCategory(): Promise<Brand[]> {
+    return [];
 }
 
 async function getVariantsByBrandAndCategory(
     admin: SupabaseClient,
-    brandId: string,
+    _brandId: string,
     categoryId: string
 ): Promise<VariantRow[]> {
-    // Etapa 1: produtos da marca + categoria
+    return getVariantsByCategory(admin, categoryId);
+}
+
+async function getVariantsByCategory(
+    admin: SupabaseClient,
+    categoryId: string
+): Promise<VariantRow[]> {
+    // Produtos da categoria (sem marca)
     const { data: prods } = await admin
         .from("products")
         .select("id, name, unit_type, details, is_active")
-        .eq("brand_id", brandId)
         .eq("category_id", categoryId)
         .eq("is_active", true);
 
@@ -1133,65 +1119,109 @@ async function handleFreeTextInput(
     return "handled";
 }
 
-/** Busca itens marcados como acompanhamento para sugerir após pedido fechado. */
+/** Busca itens de acompanhamento para sugerir após pedido fechado.
+ *  Se cartEmbalagemIds for informado, usa produto_embalagem_acompanhamentos (produtos vinculados ao que comprou).
+ *  Caso contrário, fallback para embalagens com is_acompanhamento=true. */
 async function getAccompanimentItems(
     admin: SupabaseClient,
-    companyId: string
+    companyId: string,
+    cartEmbalagemIds?: string[]
 ): Promise<VariantRow[]> {
-    // 1) Pegar quais produtos têm embalagem marcada como acompanhamento
-    const { data: accompPacks } = await admin
-        .from("produto_embalagens")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
-        .eq("company_id", companyId)
-        .eq("is_acompanhamento", true)
-        .limit(50);
+    const out: VariantRow[] = [];
+    const seen = new Set<string>();
 
-    const safeAcc = (accompPacks ?? []) as any[];
-    if (!safeAcc.length) return [];
+    if (cartEmbalagemIds?.length) {
+        const { data: acRows } = await admin
+            .from("produto_embalagem_acompanhamentos")
+            .select("acompanhamento_produto_embalagem_id")
+            .in("produto_embalagem_id", cartEmbalagemIds)
+            .order("ordem");
 
-    const produtoIds = [...new Set(safeAcc.map((p) => String(p.produto_id)))].slice(0, 20);
-    const { data: packs } = await admin
-        .from("produto_embalagens")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
-        .in("produto_id", produtoIds)
-        .eq("company_id", companyId);
+        const acompIds = [...new Set(((acRows ?? []) as any[]).map((r) => String(r.acompanhamento_produto_embalagem_id)))];
+        if (acompIds.length) {
+            const { data: packs } = await admin
+                .from("produto_embalagens")
+                .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, siglas_comerciais(sigla), products!inner(id, name, is_active)")
+                .in("id", acompIds)
+                .eq("company_id", companyId);
 
-    const byProd: Record<string, { unitPack: any | null; casePack: any | null; p: any | null; tags: string[] }> = {};
-    for (const r of (packs ?? []) as any[]) {
-        const pid = String(r.produto_id);
-        byProd[pid] ??= { unitPack: null, casePack: null, p: null, tags: [] };
-        byProd[pid].p = r.products ?? byProd[pid].p;
-        const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
-        if (r.tags) byProd[pid].tags.push(String(r.tags));
-        if (sig === "UN") byProd[pid].unitPack = r;
-        if (sig === "CX") byProd[pid].casePack = r;
+            for (const r of (packs ?? []) as any[]) {
+                if (r.products?.is_active === false) continue;
+                if (seen.has(String(r.id))) continue;
+                seen.add(String(r.id));
+                out.push({
+                    id: String(r.id),
+                    productId: String(r.produto_id),
+                    productName: String(r.products?.name ?? ""),
+                    details: (r.descricao ?? null) as string | null,
+                    tags: r.tags ?? null,
+                    volumeValue: 0,
+                    unit: "un",
+                    unitPrice: Number(r.preco_venda ?? 0),
+                    hasCase: false,
+                    caseQty: null,
+                    casePrice: null,
+                    caseVariantId: undefined,
+                    isAccompaniment: true,
+                });
+                if (out.length >= 5) break;
+            }
+        }
     }
 
-    const out: VariantRow[] = [];
-    for (const pid of produtoIds) {
-        const grp = byProd[pid];
-        if (!grp?.p) continue;
-        if (grp.p.is_active === false) continue;
+    if (out.length < 5) {
+        const { data: accompPacks } = await admin
+            .from("produto_embalagens")
+            .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
+            .eq("company_id", companyId)
+            .eq("is_acompanhamento", true)
+            .limit(50);
 
-        const unitPack = grp.unitPack ?? grp.casePack;
-        const casePack = grp.casePack;
-        if (!unitPack) continue;
+        const safeAcc = (accompPacks ?? []) as any[];
+        if (safeAcc.length) {
+            const produtoIds = [...new Set(safeAcc.map((p) => String(p.produto_id)))].slice(0, 20);
+            const { data: packs } = await admin
+                .from("produto_embalagens")
+                .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, siglas_comerciais(sigla), products!inner(id, name, is_active, unit_type, details)")
+                .in("produto_id", produtoIds)
+                .eq("company_id", companyId);
 
-        out.push({
-            id: String(unitPack.id),
-            productId: pid,
-            productName: String(grp.p.name ?? ""),
-            details: (unitPack.descricao ?? grp.p.details ?? null) as string | null,
-            tags: grp.tags.length ? grp.tags.join(",") : null,
-            volumeValue: 0,
-            unit: String(grp.p.unit_type ?? "un"),
-            unitPrice: Number(unitPack.preco_venda ?? 0),
-            hasCase: Boolean(casePack),
-            caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
-            casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
-            caseVariantId: casePack ? String(casePack.id) : undefined,
-            isAccompaniment: Boolean(unitPack.is_acompanhamento || casePack?.is_acompanhamento),
-        });
+            const byProd: Record<string, { unitPack: any | null; casePack: any | null; p: any | null; tags: string[] }> = {};
+            for (const r of (packs ?? []) as any[]) {
+                const pid = String(r.produto_id);
+                byProd[pid] ??= { unitPack: null, casePack: null, p: null, tags: [] };
+                byProd[pid].p = r.products ?? byProd[pid].p;
+                const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
+                if (r.tags) byProd[pid].tags.push(String(r.tags));
+                if (sig === "UN") byProd[pid].unitPack = r;
+                if (sig === "CX") byProd[pid].casePack = r;
+            }
+
+            for (const pid of produtoIds) {
+                if (out.length >= 5) break;
+                const grp = byProd[pid];
+                if (!grp?.p || grp.p.is_active === false) continue;
+                const unitPack = grp.unitPack ?? grp.casePack;
+                const casePack = grp.casePack;
+                if (!unitPack || seen.has(String(unitPack.id))) continue;
+                seen.add(String(unitPack.id));
+                out.push({
+                    id: String(unitPack.id),
+                    productId: pid,
+                    productName: String(grp.p.name ?? ""),
+                    details: (unitPack.descricao ?? grp.p.details ?? null) as string | null,
+                    tags: grp.tags.length ? grp.tags.join(",") : null,
+                    volumeValue: 0,
+                    unit: String(grp.p.unit_type ?? "un"),
+                    unitPrice: Number(unitPack.preco_venda ?? 0),
+                    hasCase: Boolean(casePack),
+                    caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
+                    casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
+                    caseVariantId: casePack ? String(casePack.id) : undefined,
+                    isAccompaniment: true,
+                });
+            }
+        }
     }
 
     return out.slice(0, 5);
@@ -1444,7 +1474,9 @@ export async function processInboundMessage(
             break;
 
         case "catalog_brands":
-            await handleCatalogBrands(admin, companyId, threadId, phoneE164, input, session);
+            // Legado: redireciona para categorias (marca removida)
+            await saveSession(admin, threadId, companyId, { step: "catalog_categories", context: {} });
+            await handleCatalogCategories(admin, companyId, threadId, phoneE164, input, session);
             break;
 
         case "catalog_products":
@@ -1745,9 +1777,9 @@ async function handleCatalogCategories(
         return;
     }
 
-    const brands = await getBrandsByCategory(admin, selected.id);
+    const variants = await getVariantsByCategory(admin, selected.id);
 
-    if (!brands.length) {
+    if (!variants.length) {
         await reply(
             phoneE164,
             `Nenhum produto disponível em *${selected.name}* no momento.\n` +
@@ -1757,11 +1789,11 @@ async function handleCatalogCategories(
     }
 
     await saveSession(admin, threadId, companyId, {
-        step:    "catalog_brands",
-        context: { ...session.context, brands, category_id: selected.id, category_name: selected.name },
+        step:    "catalog_products",
+        context: { ...session.context, variants, category_id: selected.id, category_name: selected.name, brand_name: selected.name },
     });
 
-    await sendBrandsList(phoneE164, brands, selected.name);
+    await sendVariantsList(phoneE164, variants, selected.name, selected.name);
 }
 
 async function sendBrandsList(
@@ -2731,9 +2763,10 @@ async function handleCheckoutConfirm(
             `_Obrigado por pedir no ${companyName}!_`
         );
 
-        // ── Sugestão de acompanhamentos ────────────────────────────────────────
+        // ── Sugestão de acompanhamentos (baseado no que comprou) ────────────────
         try {
-            const accompaniments = await getAccompanimentItems(admin, companyId);
+            const cartEmbalagemIds = cartSnapshot.map((c) => c.variantId);
+            const accompaniments = await getAccompanimentItems(admin, companyId, cartEmbalagemIds);
             if (accompaniments.length > 0) {
                 const lines = accompaniments.map((v) => {
                     const vol  = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";

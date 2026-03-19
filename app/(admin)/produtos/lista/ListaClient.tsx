@@ -12,14 +12,11 @@ import {
 
 type Unit     = "none" | "ml" | "l" | "kg";
 type Category = { id: string; name: string };
-type Brand    = { id: string; name: string };
 
 type RowProduct = {
     name:        string | null;
     category_id: string | null;
-    brand_id:    string | null;
     categories:  { id: string; name: string } | null;
-    brands:      { id: string; name: string } | null;
 } | null;
 
 type Row = {
@@ -38,6 +35,8 @@ type Row = {
     case_qty:    number | null;
     case_price:  number | null;
     case_id:     string | null;
+    case_details: string | null;
+    case_sigla_id: string | null;
     is_active:   boolean;
     products:    RowProduct;
 };
@@ -73,7 +72,6 @@ function normalizeRows(input: unknown): Row[] {
         const unit: Unit = ["ml","l","kg","none"].includes(rawUnit) ? rawUnit : "none";
         const p0 = firstOrNull<any>(r?.products);
         const c0 = firstOrNull<any>(p0?.categories);
-        const b0 = firstOrNull<any>(p0?.brands);
         return {
             id:           String(r?.id ?? ""),
             product_id:   String(r?.product_id ?? ""),
@@ -89,13 +87,13 @@ function normalizeRows(input: unknown): Row[] {
             case_id:      r?.case_id ?? null,
             case_qty:     r?.case_qty ?? null,
             case_price:   r?.case_price ?? null,
+            case_details: r?.case_details ?? null,
+            case_sigla_id: r?.case_sigla_id ?? null,
             is_active:    Boolean(r?.is_active),
             products: p0 ? {
                 name:        p0?.name ?? null,
                 category_id: p0?.category_id ?? null,
-                brand_id:    p0?.brand_id ?? null,
-                categories:  c0 ? { id: String(c0.id), name: String(c0.name ?? "") } : null,
-                brands:      b0 ? { id: String(b0.id), name: String(b0.name ?? "") } : null,
+                categories:  c0 ? { id: String(c0.id), name: String(typeof c0.name === "string" ? c0.name : (c0.name ?? "")) } : null,
             } : null,
             codigo_interno: r?.codigo_interno ?? null,
         };
@@ -144,7 +142,6 @@ export default function ProdutosListaPage() {
 
     const [rows,       setRows]       = useState<Row[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
-    const [brands,     setBrands]     = useState<Brand[]>([]);
     const [loading,    setLoading]    = useState(true);
     const [msg,        setMsg]        = useState<string | null>(null);
     const [search,     setSearch]     = useState("");
@@ -165,6 +162,7 @@ export default function ProdutosListaPage() {
     const [hasCase,     setHasCase]     = useState(false);
     const [caseQty,     setCaseQty]     = useState("");
     const [casePrice,   setCasePrice]   = useState("0,00");
+    const [caseDetails, setCaseDetails] = useState("");
     const [isActive,    setIsActive]    = useState(true);
     const [tags,        setTags]        = useState("");
     const [ean,         setEan]         = useState("");
@@ -176,11 +174,8 @@ export default function ProdutosListaPage() {
 
     // edit fields — product base
     const [categoryId,       setCategoryId]       = useState("");
-    const [brandId,          setBrandId]          = useState("");
     const [newCategoryName,  setNewCategoryName]  = useState("");
-    const [newBrandName,     setNewBrandName]     = useState("");
     const [addCategoryOpen,  setAddCategoryOpen]  = useState(false);
-    const [addBrandOpen,     setAddBrandOpen]     = useState(false);
     const [siglaUnId, setSiglaUnId] = useState<string | null>(null);
     const [siglaCxId, setSiglaCxId] = useState<string | null>(null);
     const [siglas, setSiglas] = useState<{ id: string; sigla: string }[]>([]);
@@ -188,6 +183,8 @@ export default function ProdutosListaPage() {
     const [addSiglaOpen, setAddSiglaOpen] = useState(false);
     const [newSiglaValue, setNewSiglaValue] = useState("");
     const [newSiglaDesc, setNewSiglaDesc] = useState("");
+    const [acompModalOpen, setAcompModalOpen] = useState(false);
+    const [acompSelected, setAcompSelected] = useState<{ id: string; name: string }[]>([]);
 
     // flash row
     const [flashId, setFlashId] = useState<string | null>(null);
@@ -202,29 +199,27 @@ export default function ProdutosListaPage() {
     // ── data loaders ────────────────────────────────────────────────────────
 
     async function load() {
+        if (!companyId) { setLoading(false); return; }
         setLoading(true); setMsg(null);
-        const [prodRes, catRes, brRes] = await Promise.all([
+        const [prodRes, catRes] = await Promise.all([
             supabase.from("products").select(`
               id,
               name,
               category_id,
-              brand_id,
               is_active,
               codigo_interno,
               preco_custo_unitario,
               estoque_atual,
               estoque_minimo,
               categories(id,name),
-              brands(id,name),
               produto_embalagens(
-                id, descricao, fator_conversao, preco_venda, tags, codigo_barras_ean, is_acompanhamento,
+                id, descricao, fator_conversao, preco_venda, tags, codigo_barras_ean, is_acompanhamento, codigo_interno,
                 id_sigla_comercial, id_unit_type, volume_quantidade,
                 siglas_comerciais(sigla, descricao),
                 unit_types(sigla, descricao)
               )
             `).eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
-            supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
-            supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
+            supabase.from("categories").select("id,name").eq("is_active", true).eq("company_id", companyId).order("name"),
         ]);
 
         if (prodRes.error) {
@@ -233,21 +228,24 @@ export default function ProdutosListaPage() {
             return;
         }
 
-        // Lookup para garantir que `name` venha sempre como texto.
-        // (O join `categories(name)`/`brands(name)` pode acabar retornando `name` como boolean em alguns cenarios.)
         const catById = new Map<string, string>(
             ((catRes.data ?? []) as any[]).map((c) => [String(c.id), String(typeof c.name === "string" ? c.name : (c.name ?? ""))]),
         );
-        const brandById = new Map<string, string>(
-            ((brRes.data ?? []) as any[]).map((b) => [String(b.id), String(typeof b.name === "string" ? b.name : (b.name ?? ""))]),
-        );
+
+        const getSigla = (x: any) => {
+            const sc = x?.siglas_comerciais;
+            const s = sc && typeof sc === "object" && !Array.isArray(sc) ? sc?.sigla : (Array.isArray(sc) ? sc[0]?.sigla : null);
+            return String(s ?? x?.sigla_comercial ?? "").toUpperCase();
+        };
 
         const mapped = (prodRes.data ?? []).map((p: any) => {
             const packs: any[] = Array.isArray(p.produto_embalagens) ? p.produto_embalagens : [];
-            const sigla = (x: any) => String((x?.siglas_comerciais?.sigla ?? x?.sigla_comercial) ?? "").toUpperCase();
-            const unPack = packs.find((x) => sigla(x) === "UN") ?? null;
+            const unPack = packs.find((x) => getSigla(x) === "UN") ?? packs[0];
             if (!unPack) return null;
-            const cxPack = packs.find((x) => sigla(x) === "CX") ?? null;
+            const secondPack = packs.find((x) => getSigla(x) !== "UN") ?? null;
+
+            const codigoFromProduct = p.codigo_interno ?? null;
+            const codigoFromUn = (unPack as any)?.codigo_interno ?? codigoFromProduct;
 
             return {
                 id: String(unPack.id),
@@ -260,25 +258,20 @@ export default function ProdutosListaPage() {
                 tags: unPack.tags ?? null,
                 codigo_barras_ean: unPack.codigo_barras_ean ?? null,
                 is_acompanhamento: Boolean(unPack.is_acompanhamento),
-            codigo_interno: p.codigo_interno ?? null,
-                has_case: Boolean(cxPack),
-                case_id: cxPack?.id ? String(cxPack.id) : null,
-                case_qty: cxPack ? Number(cxPack.fator_conversao ?? 0) : null,
-                case_price: cxPack ? Number(cxPack.preco_venda ?? 0) : null,
+                codigo_interno: codigoFromUn,
+                has_case: Boolean(secondPack),
+                case_id: secondPack?.id ? String(secondPack.id) : null,
+                case_qty: secondPack ? Number(secondPack.fator_conversao ?? 0) : null,
+                case_price: secondPack ? Number(secondPack.preco_venda ?? 0) : null,
+                case_details: secondPack?.descricao ?? null,
+                case_sigla_id: secondPack?.id_sigla_comercial ? String(secondPack.id_sigla_comercial) : null,
                 is_active: Boolean(p.is_active),
                 products: p ? {
                     name: p.name ?? null,
                     category_id: p.category_id ?? null,
-                    brand_id: p.brand_id ?? null,
-                    // Usa `category_id`/`brand_id` como fonte da verdade para o nome.
-                    // Assim evitamos o bug de renderizar `true/false` quando o join retorna `name` boolean.
                     categories: p.category_id ? {
                         id: String(p.category_id),
                         name: catById.get(String(p.category_id)) ?? "",
-                    } : null,
-                    brands: p.brand_id ? {
-                        id: String(p.brand_id),
-                        name: brandById.get(String(p.brand_id)) ?? "",
                     } : null,
                 } : null,
             } as Row;
@@ -288,10 +281,6 @@ export default function ProdutosListaPage() {
         if (!catRes.error) setCategories((catRes.data as any[]).map((c) => ({
             id: String(c.id),
             name: typeof c.name === "string" ? c.name : "",
-        })));
-        if (!brRes.error)  setBrands((brRes.data as any[]).map((b)  => ({
-            id: String(b.id),
-            name: typeof b.name === "string" ? b.name : "",
         })));
 
         const { data: siglasData } = await supabase
@@ -309,24 +298,18 @@ export default function ProdutosListaPage() {
             if (un) setSiglaUnId(un.id);
             if (cx) {
                 setSiglaCxId(cx.id);
-                if (!siglaExtraId) setSiglaExtraId(cx.id);
+                setSiglaExtraId((prev) => prev ?? cx.id);
             }
         }
         setLoading(false);
     }
 
-    async function reloadCatsAndBrands() {
-        const [cats, brs] = await Promise.all([
-            supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
-            supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
-        ]);
-        if (!cats.error) setCategories((cats.data as any[]).map((c) => ({
+    async function reloadCategories() {
+        if (!companyId) return;
+        const { data } = await supabase.from("categories").select("id,name").eq("is_active", true).eq("company_id", companyId).order("name");
+        if (data) setCategories((data as any[]).map((c) => ({
             id: String(c.id),
             name: typeof c.name === "string" ? c.name : "",
-        })));
-        if (!brs.error)  setBrands((brs.data as any[]).map((b)   => ({
-            id: String(b.id),
-            name: typeof b.name === "string" ? b.name : "",
         })));
     }
 
@@ -353,7 +336,7 @@ export default function ProdutosListaPage() {
         return created.id;
     }
 
-    useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+    useEffect(() => { load(); }, [companyId]);
 
     // ── realtime ─────────────────────────────────────────────────────────────
 
@@ -383,7 +366,7 @@ export default function ProdutosListaPage() {
 
     // ── open edit ─────────────────────────────────────────────────────────────
 
-    function openEdit(r: Row) {
+    async function openEdit(r: Row) {
         setSelected(r); setOpen(true); setMsg(null);
         setDetails(r.details ?? "");
         const hv = r.unit !== "none" && r.volume_value !== null;
@@ -391,14 +374,28 @@ export default function ProdutosListaPage() {
         setUnitPrice(brl(r.unit_price));
         setCostPrice(brl(r.cost_price ?? 0));
         setHasCase(!!r.has_case); setCaseQty(r.case_qty ? String(r.case_qty) : ""); setCasePrice(brl(r.case_price ?? 0));
+        setCaseDetails(r.case_details ?? "");
+        setSiglaExtraId(r.case_sigla_id ?? siglaCxId ?? null);
         setIsActive(!!r.is_active);
         setTags(r.tags ?? "");
         setEan(r.codigo_barras_ean ?? "");
         setIsAccomp(!!r.is_acompanhamento);
         setCodigoInterno(r.codigo_interno ?? null);
         setCategoryId(r.products?.category_id ?? r.products?.categories?.id ?? "");
-        setBrandId(r.products?.brand_id ?? r.products?.brands?.id ?? "");
-        setNewCategoryName(""); setNewBrandName("");
+        setNewCategoryName("");
+        setAcompSelected([]);
+        const { data: ac } = await supabase
+            .from("produto_embalagem_acompanhamentos")
+            .select("acompanhamento_produto_embalagem_id")
+            .eq("produto_embalagem_id", r.id)
+            .order("ordem");
+        const ids = ((ac ?? []) as any[]).map((x) => String(x.acompanhamento_produto_embalagem_id));
+        const sel = ids.map((embId) => {
+            const row = rows.find((x) => x.id === embId);
+            const name = row ? [row.products?.categories?.name, row.details].filter(Boolean).join(" ") || row.products?.name || "—" : "—";
+            return { id: embId, name };
+        });
+        setAcompSelected(sel);
     }
 
     function openNew() {
@@ -413,11 +410,15 @@ export default function ProdutosListaPage() {
         setHasCase(false);
         setCaseQty("");
         setCasePrice("0,00");
+        setCaseDetails("");
         setIsActive(true);
         setTags("");
         setEan("");
         setIsAccomp(false);
         setCodigoInterno(null);
+        setCodigoCaixa(null);
+        setAcompSelected([]);
+        setCategoryId("");
         setOpenCreate(true);
     }
 
@@ -427,20 +428,16 @@ export default function ProdutosListaPage() {
         if (!selected) return;
         setSaving(true); setMsg(null);
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
-        if (!brandId)    { setMsg("Selecione uma marca.");    setSaving(false); return; }
         const cpVal = brlToNumber(costPrice);
 
-        // Atualiza `products` (custo + ativo + categoria/marca)
         const { error: pErr } = await supabase.from("products").update({
             category_id: categoryId,
-            brand_id: brandId,
             preco_custo_unitario: cpVal,
             is_active: isActive,
         }).eq("id", selected.product_id).eq("company_id", companyId);
 
         if (pErr) { setMsg(`Erro: ${pErr.message}`); setSaving(false); return; }
 
-        // Atualiza embalagem UN (descricao + preco_venda)
         const { error: unErr } = await supabase.from("produto_embalagens").update({
             descricao: details.trim() || null,
             preco_venda: brlToNumber(unitPrice),
@@ -451,49 +448,58 @@ export default function ProdutosListaPage() {
 
         if (unErr) { setMsg(`Erro: ${unErr.message}`); setSaving(false); return; }
 
-        // Atualiza / cria / remove embalagem CX
         const caseFator = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
         const casePV = brlToNumber(casePrice);
+        const siglaId = siglaExtraId || siglaCxId;
 
-        if (!siglaCxId) { setMsg("Sigla comercial CX não encontrada. Recarregue a página."); setSaving(false); return; }
-        const { data: cxRow, error: cxFindErr } = await supabase
+        const { data: secondRow, error: findErr } = await supabase
             .from("produto_embalagens")
             .select("id")
             .eq("produto_id", selected.product_id)
             .eq("company_id", companyId)
-            .eq("id_sigla_comercial", siglaCxId)
+            .eq("id_sigla_comercial", siglaId || "")
             .maybeSingle();
 
-        if (cxFindErr) { setMsg(`Erro: ${cxFindErr.message}`); setSaving(false); return; }
-
         if (hasCase) {
-            if (!caseFator || caseFator <= 0) { setMsg("Informe 'Cx c/' válido."); setSaving(false); return; }
-            if (cxRow?.id) {
-                const { error: cxUpErr } = await supabase.from("produto_embalagens").update({
-                    descricao: `CX ${caseFator}un`,
+            if (!siglaId) { setMsg("Selecione a sigla comercial da segunda embalagem."); setSaving(false); return; }
+            if (!caseFator || caseFator <= 0) { setMsg("Informe a quantidade da caixa/fardo."); setSaving(false); return; }
+            const descSegunda = caseDetails.trim() || `Embalagem ${caseFator}un`;
+            if (secondRow?.id) {
+                const { error: upErr } = await supabase.from("produto_embalagens").update({
+                    descricao: descSegunda,
                     fator_conversao: caseFator,
                     preco_venda: casePV,
                     tags: tags.trim() || null,
                     is_acompanhamento: isAccomp,
-                }).eq("id", cxRow.id).eq("company_id", companyId);
-                if (cxUpErr) { setMsg(`Erro: ${cxUpErr.message}`); setSaving(false); return; }
+                }).eq("id", secondRow.id).eq("company_id", companyId);
+                if (upErr) { setMsg(`Erro: ${upErr.message}`); setSaving(false); return; }
             } else {
-                const { error: cxInsErr } = await supabase.from("produto_embalagens").insert({
+                const { error: insErr } = await supabase.from("produto_embalagens").insert({
                     company_id: companyId,
                     produto_id: selected.product_id,
-                    id_sigla_comercial: siglaCxId,
-                    descricao: `CX ${caseFator}un`,
+                    id_sigla_comercial: siglaId,
+                    descricao: descSegunda,
                     fator_conversao: caseFator,
                     preco_venda: casePV,
                     tags: tags.trim() || null,
                     is_acompanhamento: isAccomp,
                 });
-                if (cxInsErr) { setMsg(`Erro: ${cxInsErr.message}`); setSaving(false); return; }
+                if (insErr) { setMsg(`Erro: ${insErr.message}`); setSaving(false); return; }
             }
         } else {
-            if (cxRow?.id) {
-                const { error: cxDelErr } = await supabase.from("produto_embalagens").delete().eq("id", cxRow.id).eq("company_id", companyId);
-                if (cxDelErr) { setMsg(`Erro: ${cxDelErr.message}`); setSaving(false); return; }
+            if (selected.case_id) {
+                await supabase.from("produto_embalagens").delete().eq("id", selected.case_id).eq("company_id", companyId);
+            }
+        }
+
+        await supabase.from("produto_embalagem_acompanhamentos").delete().eq("produto_embalagem_id", selected.id);
+        if (isAccomp && acompSelected.length > 0) {
+            for (let i = 0; i < acompSelected.length; i++) {
+                await supabase.from("produto_embalagem_acompanhamentos").insert({
+                    produto_embalagem_id: selected.id,
+                    acompanhamento_produto_embalagem_id: acompSelected[i].id,
+                    ordem: i + 1,
+                });
             }
         }
 
@@ -533,7 +539,6 @@ export default function ProdutosListaPage() {
                 company_id: companyId,
                 name: productName,
                 category_id: categoryId,
-                brand_id: brandId || null,
                 is_active: isActive,
                 codigo_interno: String(nextCode ?? ""),
                 preco_custo_unitario: precoCustoUnitario,
@@ -546,7 +551,7 @@ export default function ProdutosListaPage() {
             if (!pid) throw new Error("Falha ao criar produto (id ausente).");
 
             if (!siglaUnId) throw new Error("Sigla comercial UN não encontrada. Recarregue a página.");
-            const { error: unErr } = await supabase.from("produto_embalagens").insert({
+            const { data: unPack, error: unErr } = await supabase.from("produto_embalagens").insert({
                 company_id: companyId,
                 produto_id: pid,
                 descricao: details.trim(),
@@ -557,26 +562,38 @@ export default function ProdutosListaPage() {
                 preco_venda: brlToNumber(unitPrice),
                 tags: tags.trim() || null,
                 is_acompanhamento: isAccomp,
-            });
+            }).select("id").single();
             if (unErr) throw new Error(unErr.message);
+            const unPackId = String((unPack as any)?.id ?? "");
 
             if (hasCase) {
                 const siglaId = siglaExtraId || siglaCxId;
                 if (!siglaId) throw new Error("Sigla comercial da segunda embalagem não encontrada. Recarregue a página.");
                 const caseFatorCreate = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
                 if (!caseFatorCreate || caseFatorCreate <= 0) throw new Error("Informe 'Cx/Fardo c/' válido.");
+                const descSegunda = caseDetails.trim() || `Embalagem ${caseFatorCreate}un`;
                 const { error: cxErr } = await supabase.from("produto_embalagens").insert({
                     company_id: companyId,
                     produto_id: pid,
-                    descricao: details.trim() || undefined,
+                    descricao: descSegunda,
                     id_sigla_comercial: siglaId,
                     fator_conversao: caseFatorCreate,
                     preco_venda: brlToNumber(casePrice),
-                    codigo_interno: codigoCaixa,
+                    codigo_interno: codigoCaixa || null,
                     tags: tags.trim() || null,
                     is_acompanhamento: isAccomp,
                 });
                 if (cxErr) throw new Error(cxErr.message);
+            }
+
+            if (isAccomp && acompSelected.length > 0 && unPackId) {
+                for (let i = 0; i < acompSelected.length; i++) {
+                    await supabase.from("produto_embalagem_acompanhamentos").insert({
+                        produto_embalagem_id: unPackId,
+                        acompanhamento_produto_embalagem_id: acompSelected[i].id,
+                        ordem: i + 1,
+                    });
+                }
             }
 
             setSaving(false);
@@ -622,15 +639,7 @@ export default function ProdutosListaPage() {
         if (!name.trim() || !companyId) return null;
         const { data, error } = await supabase.from("categories").insert({ name: name.trim(), is_active: true, company_id: companyId }).select("id").single();
         if (error) { setMsg(`Erro: ${error.message}`); return null; }
-        await reloadCatsAndBrands();
-        return String((data as any).id);
-    }
-
-    async function quickCreateBrand(name: string) {
-        if (!name.trim() || !companyId) return null;
-        const { data, error } = await supabase.from("brands").insert({ name: name.trim(), is_active: true, company_id: companyId }).select("id").single();
-        if (error) { setMsg(`Erro: ${error.message}`); return null; }
-        await reloadCatsAndBrands();
+        await reloadCategories();
         return String((data as any).id);
     }
 
@@ -639,8 +648,13 @@ export default function ProdutosListaPage() {
     const filtered = rows.filter((r) => {
         if (!search.trim()) return true;
         const s = search.toLowerCase();
-        return [r.products?.categories?.name, r.products?.brands?.name, r.details, r.products?.name]
+        return [r.products?.categories?.name, r.details, r.products?.name]
             .some((x) => (x ?? "").toLowerCase().includes(s));
+    });
+
+    const acompCandidates = rows.filter((r) => {
+        const pid = openCreate ? null : selected?.product_id;
+        return !pid || r.product_id !== pid;
     });
 
     const activeCount      = rows.filter((r) => r.is_active).length;
@@ -709,8 +723,8 @@ export default function ProdutosListaPage() {
             {/* Table */}
             <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
                 {/* sticky header */}
-                <div className="grid grid-cols-[1fr_1fr_1.5fr_80px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
-                    <span>Categoria</span><span>Marca</span><span>Detalhes</span>
+                <div className="grid grid-cols-[1fr_1.5fr_80px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
+                    <span>Categoria</span><span>Detalhes</span>
                     <span className="text-right">Vol.</span>
                     <span className="text-right">Venda</span>
                     <span className="text-right text-red-500">Custo</span>
@@ -735,7 +749,7 @@ export default function ProdutosListaPage() {
                             return (
                             <div
                                 key={r.id}
-                                className={`grid grid-cols-[1fr_1fr_1.5fr_80px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
+                                className={`grid grid-cols-[1fr_1.5fr_80px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
                                     flashId === r.id
                                         ? "bg-emerald-50 dark:bg-emerald-900/15"
                                         : missingCost && r.is_active
@@ -747,9 +761,6 @@ export default function ProdutosListaPage() {
                             >
                                 <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">
                                     {r.products?.categories?.name ?? <span className="text-zinc-300">—</span>}
-                                </span>
-                                <span className="truncate text-xs text-zinc-600 dark:text-zinc-400">
-                                    {r.products?.brands?.name ?? "—"}
                                 </span>
                                 <span className="truncate text-xs text-zinc-500">{r.details ?? "—"}</span>
                                 <span className="text-right text-xs text-zinc-500">
@@ -792,7 +803,7 @@ export default function ProdutosListaPage() {
             </div>
 
             {/* Edit Modal */}
-            <Modal title={selected ? `Editar: ${selected.products?.categories?.name ?? ""} ${selected.products?.brands?.name ?? ""}`.trim() : "Editar"} open={open} onClose={() => { setOpen(false); setSelected(null); setMsg(null); }} wide>
+            <Modal title={selected ? `Editar: ${selected.products?.categories?.name ?? ""} ${selected.details ?? ""}`.trim() : "Editar"} open={open} onClose={() => { setOpen(false); setSelected(null); setMsg(null); }} wide>
                 <div className="flex flex-col gap-5">
                     {/* Categoria */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
@@ -808,23 +819,6 @@ export default function ProdutosListaPage() {
                         <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={selectCls}>
                             <option value="">Selecione…</option>
                             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                    </div>
-
-                    {/* Marca */}
-                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
-                        <div className="mb-3 flex items-center justify-between">
-                            <div>
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Marca</p>
-                                <p className="text-xs text-zinc-400">{selected?.products?.brands?.name ?? "—"}</p>
-                            </div>
-                            <button onClick={() => setAddBrandOpen(true)} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
-                                <Plus className="h-3 w-3" /> Nova
-                            </button>
-                        </div>
-                        <select value={brandId} onChange={(e) => setBrandId(e.target.value)} className={selectCls}>
-                            <option value="">Selecione…</option>
-                            {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
                     </div>
 
@@ -866,19 +860,36 @@ export default function ProdutosListaPage() {
                         </div>
                         <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                                <input type="checkbox" checked={hasCase} onChange={(e) => { setHasCase(e.target.checked); if (!e.target.checked) { setCaseQty(""); setCasePrice("0,00"); } }} className="h-4 w-4 accent-violet-600 rounded" />
-                                Vende por caixa
+                                <input type="checkbox" checked={hasCase} onChange={(e) => { setHasCase(e.target.checked); if (!e.target.checked) { setCaseQty(""); setCasePrice("0,00"); setCaseDetails(""); } }} className="h-4 w-4 accent-violet-600 rounded" />
+                                Vende em outra embalagem (CX, fardo, pacote…)
                             </label>
-                            <div className="mt-3 grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="mb-1 block text-xs font-semibold text-zinc-500">Caixa com</label>
-                                    <input disabled={!hasCase} value={caseQty} onChange={(e) => setCaseQty(e.target.value)} placeholder="12" className={inputCls} inputMode="numeric" />
+                            {hasCase && (
+                                <div className="mt-3 space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Sigla comercial</label>
+                                            <select value={siglaExtraId ?? ""} onChange={(e) => setSiglaExtraId(e.target.value || null)} className={selectCls}>
+                                                <option value="">Selecione…</option>
+                                                {siglas.map((s) => <option key={s.id} value={s.id}>{s.sigla}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Quantidade</label>
+                                            <input disabled={!hasCase} value={caseQty} onChange={(e) => setCaseQty(e.target.value)} placeholder="12" className={inputCls} inputMode="numeric" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold text-zinc-500">Descrição da embalagem</label>
+                                        <input disabled={!hasCase} value={caseDetails} onChange={(e) => setCaseDetails(e.target.value)} placeholder="Ex: CX 12un, Fardo 6un…" className={inputCls} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor da embalagem (R$)</label>
+                                            <input disabled={!hasCase} value={casePrice} onChange={(e) => setCasePrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor da caixa (R$)</label>
-                                    <input disabled={!hasCase} value={casePrice} onChange={(e) => setCasePrice(formatBRLInput(e.target.value))} className={inputCls} inputMode="numeric" />
-                                </div>
-                            </div>
+                            )}
                         </div>
                         <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
@@ -890,10 +901,21 @@ export default function ProdutosListaPage() {
                         <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
-                                <p className="text-xs text-zinc-400">Se marcado, o bot pode sugerir este item após o pedido.</p>
+                                <p className="text-xs text-zinc-400">O bot sugere estes itens após o pedido (até 2).</p>
                             </div>
-                            <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                            <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => setAcompModalOpen(true)} className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
+                                    Selecionar
+                                </button>
+                                <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                            </div>
                         </div>
+                        {acompSelected.length > 0 && (
+                            <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                                <p className="mb-1 text-xs font-semibold text-zinc-500">Produtos de acompanhamento:</p>
+                                <p className="text-xs text-zinc-600">{acompSelected.map((a) => a.name).join(", ")}</p>
+                            </div>
+                        )}
                     </div>
 
                     {msg && <p className={`text-xs font-semibold ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
@@ -917,14 +939,6 @@ export default function ProdutosListaPage() {
                 </Modal>
 
                 {/* Sub-modal: nova marca (ainda usado no editar) */}
-                <Modal title="Nova Marca" open={addBrandOpen} onClose={() => setAddBrandOpen(false)}>
-                    <input value={newBrandName} onChange={(e) => setNewBrandName(e.target.value)} placeholder="Ex: Skol" className={inputCls} />
-                    <div className="mt-4 flex gap-2">
-                        <button onClick={async () => { const id = await quickCreateBrand(newBrandName); if (id) { setBrandId(id); setNewBrandName(""); setAddBrandOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar e selecionar</button>
-                        <button onClick={() => setAddBrandOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
-                    </div>
-                </Modal>
-
                 {/* Sub-modal: nova sigla comercial */}
                 <Modal title="Nova sigla comercial" open={addSiglaOpen} onClose={() => setAddSiglaOpen(false)}>
                     <div className="space-y-3">
@@ -1094,6 +1108,16 @@ export default function ProdutosListaPage() {
                                             />
                                         </div>
                                     </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold text-zinc-500">Descrição da embalagem (ex: CX 12un, Fardo 6un)</label>
+                                        <input
+                                            disabled={!hasCase}
+                                            value={caseDetails}
+                                            onChange={(e) => setCaseDetails(e.target.value)}
+                                            placeholder="Ex: CX 12un, Fardo 6un…"
+                                            className={inputCls}
+                                        />
+                                    </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor da embalagem (R$)</label>
@@ -1138,10 +1162,25 @@ export default function ProdutosListaPage() {
                         <div className="col-span-2 flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
-                                <p className="text-xs text-zinc-400">Se marcado, o bot pode sugerir este item.</p>
+                                <p className="text-xs text-zinc-400">O bot sugere estes itens após o pedido (até 2).</p>
                             </div>
-                            <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setAcompModalOpen(true)}
+                                    className="rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600"
+                                >
+                                    Selecionar
+                                </button>
+                                <Toggle checked={isAccomp} onChange={setIsAccomp} />
+                            </div>
                         </div>
+                        {acompSelected.length > 0 && (
+                            <div className="col-span-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                                <p className="mb-1 text-xs font-semibold text-zinc-500">Produtos de acompanhamento:</p>
+                                <p className="text-xs text-zinc-600">{acompSelected.map((a) => a.name).join(", ")}</p>
+                            </div>
+                        )}
                     </div>
 
                     {msg && <p className="text-xs font-semibold text-red-600">{msg}</p>}
@@ -1164,14 +1203,42 @@ export default function ProdutosListaPage() {
                     </div>
                 </Modal>
 
-                {/* Sub-modal: nova marca */}
-                <Modal title="Nova Marca" open={addBrandOpen} onClose={() => setAddBrandOpen(false)}>
-                    <input value={newBrandName} onChange={(e) => setNewBrandName(e.target.value)} placeholder="Ex: Skol" className={inputCls} />
-                    <div className="mt-4 flex gap-2">
-                        <button onClick={async () => { const id = await quickCreateBrand(newBrandName); if (id) { setBrandId(id); setNewBrandName(""); setAddBrandOpen(false); } }} className="flex-1 rounded-lg bg-orange-500 py-2 text-sm font-bold text-white hover:bg-orange-600">Criar e selecionar</button>
-                        <button onClick={() => setAddBrandOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700">Cancelar</button>
-                    </div>
-                </Modal>
+            </Modal>
+
+            {/* Modal: Selecionar produtos de acompanhamento */}
+            <Modal title="Selecionar produtos de acompanhamento (máx. 2)" open={acompModalOpen} onClose={() => setAcompModalOpen(false)} wide>
+                <p className="mb-3 text-xs text-zinc-500">O chatbot oferecerá estes itens após o pedido. Selecione até 2.</p>
+                <div className="max-h-64 space-y-1 overflow-y-auto">
+                    {acompCandidates.map((r) => {
+                        const name = [r.products?.categories?.name, r.details].filter(Boolean).join(" ") || r.products?.name || "—";
+                        const isSel = acompSelected.some((a) => a.id === r.id);
+                        const canAdd = isSel || acompSelected.length < 2;
+                        return (
+                            <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => {
+                                    if (isSel) {
+                                        setAcompSelected((prev) => prev.filter((a) => a.id !== r.id));
+                                    } else if (canAdd) {
+                                        setAcompSelected((prev) => [...prev, { id: r.id, name }].slice(0, 2));
+                                    }
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
+                                    isSel ? "border-violet-500 bg-violet-50 dark:bg-violet-950/30" : "border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                                <span className="truncate">{name}</span>
+                                {isSel && <CheckCircle2 className="h-4 w-4 shrink-0 text-violet-600" />}
+                            </button>
+                        );
+                    })}
+                </div>
+                <div className="mt-4 flex justify-end">
+                    <button onClick={() => setAcompModalOpen(false)} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700">
+                        Fechar
+                    </button>
+                </div>
             </Modal>
         </div>
     );
