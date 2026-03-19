@@ -268,7 +268,7 @@ export async function POST(req: Request) {
             const previewText =
                 kind === "text"
                     ? ((payload as any).text ?? "").trim().slice(0, 120)
-                    : ((payload as any).caption ?? "").trim().slice(0, 120) ||
+                    : (((payload as any).caption ?? "").trim().slice(0, 120)) ||
                       (kind === "image" ? "[imagem]" : kind === "video" ? "[vídeo]" : kind === "audio" ? "[áudio]" : "[documento]");
             await admin
                 .from("whatsapp_threads")

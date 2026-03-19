@@ -395,12 +395,14 @@ export default function ProdutosListaPage() {
         ));
     }
 
+    const isUnSigla = (sigla: string) => (sigla ?? "").toUpperCase() === "UN" || (sigla ?? "").toUpperCase() === "UNIDADE";
+
     function aplicarCustoNaUn(volId: string, itemCx: FormItem) {
         const custoCx = brlToNumber(itemCx.preco_custo);
         const fator = Math.max(1, itemCx.fator_conversao);
         const custoUn = custoCx / fator;
         const vol = formVolumes.find((v) => v.id === volId);
-        const itemUn = vol?.items.find((i) => i.siglaLabel === "UN" || i.siglaLabel === "UNIDADE");
+        const itemUn = vol?.items.find((i) => isUnSigla(i.siglaLabel));
         if (itemUn) {
             updateFormItem(volId, itemUn.id, { preco_custo: formatBRLInput(String(Math.round(custoUn * 100))) });
         }
@@ -409,7 +411,7 @@ export default function ProdutosListaPage() {
     function aplicarCustoNaCx(volId: string, itemUn: FormItem) {
         const custoUn = brlToNumber(itemUn.preco_custo);
         const vol = formVolumes.find((v) => v.id === volId);
-        vol?.items.filter((i) => i.siglaLabel !== "UN" && i.siglaLabel !== "UNIDADE").forEach((itemCx) => {
+        vol?.items.filter((i) => !isUnSigla(i.siglaLabel)).forEach((itemCx) => {
             const fator = Math.max(1, itemCx.fator_conversao);
             const custoCx = custoUn * fator;
             updateFormItem(volId, itemCx.id, { preco_custo: formatBRLInput(String(Math.round(custoCx * 100))) });
@@ -976,11 +978,11 @@ export default function ProdutosListaPage() {
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-red-600 dark:text-red-400">Preço custo (R$)</label>
                                                                 <div className="flex gap-1">
                                                                     <input value={it.preco_custo} onChange={(e) => updateFormItem(vol.id, it.id, { preco_custo: formatBRLInput(e.target.value) })} className={`${inputCls} py-1.5 text-xs border-red-100`} inputMode="numeric" placeholder="0,00" />
-                                                                    {(it.siglaLabel === "CX" || (it.fator_conversao > 1 && it.siglaLabel !== "UN" && it.siglaLabel !== "UNIDADE")) && (
-                                                                        <button type="button" onClick={() => aplicarCustoNaUn(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da UN">→UN</button>
+                                                                    {(!isUnSigla(it.siglaLabel) && (it.siglaLabel?.toUpperCase() === "CX" || it.fator_conversao > 1)) && (
+                                                                        <button type="button" onClick={() => aplicarCustoNaUn(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da UN (custo CX ÷ fator)">→UN</button>
                                                                     )}
-                                                                    {(it.siglaLabel === "UN" || it.siglaLabel === "UNIDADE") && (
-                                                                        <button type="button" onClick={() => aplicarCustoNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da CX">→CX</button>
+                                                                    {isUnSigla(it.siglaLabel) && (
+                                                                        <button type="button" onClick={() => aplicarCustoNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da CX (custo UN × fator)">→CX</button>
                                                                     )}
                                                                 </div>
                                                             </div>
@@ -1257,12 +1259,12 @@ export default function ProdutosListaPage() {
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-red-600 dark:text-red-400">Preço custo (R$)</label>
                                                                 <div className="flex gap-1">
                                                                     <input value={it.preco_custo} onChange={(e) => updateFormItem(vol.id, it.id, { preco_custo: formatBRLInput(e.target.value) })} className={`${inputCls} py-1.5 text-xs border-red-100`} inputMode="numeric" placeholder="0,00" />
-                                                                    {(it.siglaLabel === "CX" || (it.fator_conversao > 1 && it.siglaLabel !== "UN" && it.siglaLabel !== "UNIDADE")) && (
+                                                                    {(!isUnSigla(it.siglaLabel) && (it.siglaLabel?.toUpperCase() === "CX" || it.fator_conversao > 1)) && (
                                                                         <button type="button" onClick={() => aplicarCustoNaUn(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da UN (custo CX ÷ fator)">
                                                                             →UN
                                                                         </button>
                                                                     )}
-                                                                    {(it.siglaLabel === "UN" || it.siglaLabel === "UNIDADE") && (
+                                                                    {isUnSigla(it.siglaLabel) && (
                                                                         <button type="button" onClick={() => aplicarCustoNaCx(vol.id, it)} className="shrink-0 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400" title="Calcular custo da CX (custo UN × fator)">
                                                                             →CX
                                                                         </button>
