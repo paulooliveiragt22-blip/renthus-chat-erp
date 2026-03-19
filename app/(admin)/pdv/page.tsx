@@ -143,8 +143,7 @@ export default function PDVPage() {
           codigo_interno,
           unit_type,
           details,
-          categories(name),
-          brands(name)
+          categories(name)
         )
       `)
       .eq("company_id", companyId);

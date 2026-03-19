@@ -147,12 +147,11 @@ export function labelUnit(u?: UnitType | null) {
 
 export function buildVariantTexts(v: Variant) {
     const cat = v.products?.categories?.name ?? "";
-    const brand = v.products?.brands?.name ?? "";
     const vol = v.volume_value != null ? `${v.volume_value}${labelUnit(v.unit)}` : "";
-    const title = `${cat} • ${brand}`.trim();
+    const title = cat || "Produto";
     const sub = [v.details ?? "", vol].filter(Boolean).join(" • ");
-    const displayName = [cat, brand, v.details ?? "", vol].filter(Boolean).join(" • ").trim();
-    return { cat, brand, vol, title: title || "Produto", sub: sub || "-", displayName: displayName || "Produto" };
+    const displayName = [cat, v.details ?? "", vol].filter(Boolean).join(" • ").trim();
+    return { cat, brand: "", vol, title, sub: sub || "-", displayName: displayName || "Produto" };
 }
 
 export function toQtyInt(v: string) {
