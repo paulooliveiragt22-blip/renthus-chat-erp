@@ -889,7 +889,7 @@ export default function ProdutosListaPage() {
                     {/* Nome do produto (fixo) */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Produto</p>
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{productName || selected?.products?.name ?? "—"}</p>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{productName || selected?.products?.name || "—"}</p>
                     </div>
                     {/* Categoria */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
