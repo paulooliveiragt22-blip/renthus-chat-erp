@@ -230,7 +230,7 @@ export async function POST(req: Request) {
             .from("whatsapp_threads")
             .update({
                 last_message_at: new Date().toISOString(),
-                last_message_preview: (bodyText ?? "").slice(0, 120) || null,
+                last_message_preview: ((bodyText ?? "").slice(0, 120)) || null,
             })
             .eq("id", threadId);
 

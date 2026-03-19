@@ -119,7 +119,7 @@ export async function sendWhatsAppMessage(
         }
 
         providerMessageId = json?.messages?.[0]?.id ?? null;
-        fromAddr = fromPlaceholder || String(channel.from_identifier ?? `whatsapp:${effectivePhoneNumberId}`);
+        fromAddr = fromPlaceholder || (String(channel.from_identifier ?? `whatsapp:${effectivePhoneNumberId}`));
         toAddr = toPhone;
 
         // 5. Atualiza registro com dados do provider

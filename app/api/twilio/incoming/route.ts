@@ -187,7 +187,7 @@ export async function POST(req: Request) {
         from_addr: normWa(From) ?? phoneE164,
         to_addr: normWa(To) ?? String(channel.from_identifier ?? "twilio"),
         body: bodyText,
-        num_media: Number(payload["NumMedia"] ?? 0) || 0,
+        num_media: (Number(payload["NumMedia"] ?? 0)) || 0,
         status: "received",
         raw_payload: safeJson(payload),
     });
@@ -198,7 +198,7 @@ export async function POST(req: Request) {
             .from("whatsapp_threads")
             .update({
                 last_message_at: new Date().toISOString(),
-                last_message_preview: (bodyText ?? "").slice(0, 120) || null,
+                last_message_preview: ((bodyText ?? "").slice(0, 120)) || null,
             })
             .eq("id", threadId);
     }
