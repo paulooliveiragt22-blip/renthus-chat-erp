@@ -178,18 +178,66 @@ export default function ProdutosListaPage() {
 
     async function load() {
         setLoading(true); setMsg(null);
-        setMsg("Tela de lista de produtos está temporariamente desativada na fase 2 (precisa ser refatorada para `produto_embalagens`).");
-        setLoading(false);
-        return;
-        const [varRes, catRes, brRes] = await Promise.all([
-            supabase.from("product_variants")
-                .select(`id,product_id,details,volume_value,unit,unit_price,cost_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
-                .order("created_at", { ascending: false }),
+        const [prodRes, catRes, brRes] = await Promise.all([
+            supabase.from("products").select(`
+              id,
+              name,
+              category_id,
+              brand_id,
+              is_active,
+              codigo_interno,
+              preco_custo_unitario,
+              estoque_atual,
+              estoque_minimo,
+              categories(id,name),
+              brands(id,name),
+              produto_embalagens(
+                id, descricao, sigla_comercial, fator_conversao, preco_venda
+              )
+            `).eq("company_id", companyId).order("created_at", { ascending: false }).limit(500),
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
             supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
         ]);
-        if (varRes.error) { setMsg(`Erro: ${varRes.error?.message ?? ""}`); setLoading(false); return; }
-        setRows(normalizeRows(varRes.data));
+
+        if (prodRes.error) {
+            setMsg(`Erro: ${prodRes.error?.message ?? ""}`);
+            setLoading(false);
+            return;
+        }
+
+        const mapped = (prodRes.data ?? []).map((p: any) => {
+            const packs: any[] = Array.isArray(p.produto_embalagens) ? p.produto_embalagens : [];
+            const unPack = packs.find((x) => String(x.sigla_comercial ?? "").toUpperCase() === "UN") ?? null;
+            if (!unPack) return null;
+            const cxPack = packs.find((x) => String(x.sigla_comercial ?? "").toUpperCase() === "CX") ?? null;
+
+            return {
+                id: String(unPack.id),
+                product_id: String(p.id),
+                details: unPack.descricao ?? null,
+                volume_value: null,
+                unit: "none",
+                unit_price: Number(unPack.preco_venda ?? 0),
+                cost_price: Number(p.preco_custo_unitario ?? 0),
+                has_case: Boolean(cxPack),
+                case_qty: cxPack ? Number(cxPack.fator_conversao ?? 0) : null,
+                case_price: cxPack ? Number(cxPack.preco_venda ?? 0) : null,
+                is_active: Boolean(p.is_active),
+                products: p ? {
+                    name: p.name ?? null,
+                    category_id: p.category_id ?? null,
+                    brand_id: p.brand_id ?? null,
+                    categories: Array.isArray(p.categories)
+                        ? (p.categories[0] ? { id: String(p.categories[0].id), name: String(p.categories[0].name ?? "") } : null)
+                        : (p.categories ? { id: String(p.categories.id), name: String(p.categories.name ?? "") } : null),
+                    brands: Array.isArray(p.brands)
+                        ? (p.brands[0] ? { id: String(p.brands[0].id), name: String(p.brands[0].name ?? "") } : null)
+                        : (p.brands ? { id: String(p.brands.id), name: String(p.brands.name ?? "") } : null),
+                } : null,
+            } as Row;
+        }).filter(Boolean) as Row[];
+
+        setRows(mapped);
         if (!catRes.error) setCategories((catRes.data as any[]).map((c) => ({ id: String(c.id), name: String(c.name) })));
         if (!brRes.error)  setBrands((brRes.data as any[]).map((b)  => ({ id: String(b.id), name: String(b.name) })));
         setLoading(false);
@@ -209,43 +257,26 @@ export default function ProdutosListaPage() {
     // ── realtime ─────────────────────────────────────────────────────────────
 
     useEffect(() => {
+        if (!companyId) return;
         const ch = supabase
-            .channel("product_variants_realtime")
-            .on("postgres_changes", { event: "INSERT", schema: "public", table: "product_variants" }, async (p: any) => {
-                console.log("[Produtos Realtime] INSERT:", p);
-                const id = p?.new?.id as string;
-                if (!id) return;
-                const { data } = await supabase.from("product_variants")
-                    .select(`id,product_id,details,volume_value,unit,unit_price,cost_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
-                    .eq("id", id).maybeSingle();
-                if (data) {
-                    setRows((prev) => [normalizeRows([data])[0], ...prev]);
-                    flashRow(id);
-                }
+            .channel("products_realtime_v2")
+            .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+                load();
             })
-            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "product_variants" }, async (p: any) => {
-                console.log("[Produtos Realtime] UPDATE:", p);
-                const id = p?.new?.id as string;
-                if (!id) return;
-                const { data } = await supabase.from("product_variants")
-                    .select(`id,product_id,details,volume_value,unit,unit_price,cost_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
-                    .eq("id", id).maybeSingle();
-                if (data) {
-                    setRows((prev) => prev.map((r) => r.id === id ? normalizeRows([data])[0] : r));
-                    flashRow(id);
-                }
+            .on("postgres_changes", { event: "*", schema: "public", table: "produto_embalagens" }, () => {
+                load();
             })
-            .subscribe((s: string) => console.log("[Produtos Realtime] status:", s));
+            .subscribe();
 
         return () => { supabase.removeChannel(ch); };
-    }, [supabase]);
+    }, [supabase, companyId]);
 
     // ── toggle active ─────────────────────────────────────────────────────────
 
     async function toggleActive(row: Row) {
         const next = !row.is_active;
         setRows((prev) => prev.map((r) => r.id === row.id ? { ...r, is_active: next } : r));
-        await supabase.from("product_variants").update({ is_active: next }).eq("id", row.id);
+        await supabase.from("products").update({ is_active: next }).eq("id", row.product_id).eq("company_id", companyId);
         flashRow(row.id);
     }
 
@@ -272,27 +303,70 @@ export default function ProdutosListaPage() {
         setSaving(true); setMsg(null);
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
         if (!brandId)    { setMsg("Selecione uma marca.");    setSaving(false); return; }
-
-        // Update product base
-        await supabase.from("products").update({ category_id: categoryId, brand_id: brandId }).eq("id", selected.product_id);
-
-        // Update variant
         const cpVal = brlToNumber(costPrice);
-        const patch: Record<string, unknown> = {
-            details:    details.trim() || null,
-            unit_price: brlToNumber(unitPrice),
-            cost_price: cpVal > 0 ? cpVal : null,
-            has_case:   hasCase,
-            is_active:  isActive,
-        };
-        if (!hasVolume) { patch.volume_value = null; patch.unit = "none"; }
-        else            { patch.volume_value = Number(String(volumeValue).replace(",",".")); patch.unit = unit; }
-        if (!hasCase)   { patch.case_qty = null; patch.case_price = null; }
-        else            { patch.case_qty = Number(caseQty || 0); patch.case_price = brlToNumber(casePrice); }
 
-        const { error } = await supabase.from("product_variants").update(patch).eq("id", selected.id);
-        if (error) { setMsg(`Erro: ${error.message}`); setSaving(false); return; }
-        setSaving(false); setOpen(false); setSelected(null);
+        // Atualiza `products` (custo + ativo + categoria/marca)
+        const { error: pErr } = await supabase.from("products").update({
+            category_id: categoryId,
+            brand_id: brandId,
+            preco_custo_unitario: cpVal,
+            is_active: isActive,
+        }).eq("id", selected.product_id).eq("company_id", companyId);
+
+        if (pErr) { setMsg(`Erro: ${pErr.message}`); setSaving(false); return; }
+
+        // Atualiza embalagem UN (descricao + preco_venda)
+        const { error: unErr } = await supabase.from("produto_embalagens").update({
+            descricao: details.trim() || null,
+            preco_venda: brlToNumber(unitPrice),
+        }).eq("id", selected.id).eq("company_id", companyId);
+
+        if (unErr) { setMsg(`Erro: ${unErr.message}`); setSaving(false); return; }
+
+        // Atualiza / cria / remove embalagem CX
+        const caseFator = Math.max(0, Number((caseQty ?? "").replace(",", ".")));
+        const casePV = brlToNumber(casePrice);
+
+        const { data: cxRow, error: cxFindErr } = await supabase
+            .from("produto_embalagens")
+            .select("id")
+            .eq("produto_id", selected.product_id)
+            .eq("company_id", companyId)
+            .eq("sigla_comercial", "CX")
+            .maybeSingle();
+
+        if (cxFindErr) { setMsg(`Erro: ${cxFindErr.message}`); setSaving(false); return; }
+
+        if (hasCase) {
+            if (!caseFator || caseFator <= 0) { setMsg("Informe 'Cx c/' válido."); setSaving(false); return; }
+            if (cxRow?.id) {
+                const { error: cxUpErr } = await supabase.from("produto_embalagens").update({
+                    descricao: `CX ${caseFator}un`,
+                    fator_conversao: caseFator,
+                    preco_venda: casePV,
+                }).eq("id", cxRow.id).eq("company_id", companyId);
+                if (cxUpErr) { setMsg(`Erro: ${cxUpErr.message}`); setSaving(false); return; }
+            } else {
+                const { error: cxInsErr } = await supabase.from("produto_embalagens").insert({
+                    company_id: companyId,
+                    produto_id: selected.product_id,
+                    sigla_comercial: "CX",
+                    descricao: `CX ${caseFator}un`,
+                    fator_conversao: caseFator,
+                    preco_venda: casePV,
+                });
+                if (cxInsErr) { setMsg(`Erro: ${cxInsErr.message}`); setSaving(false); return; }
+            }
+        } else {
+            if (cxRow?.id) {
+                const { error: cxDelErr } = await supabase.from("produto_embalagens").delete().eq("id", cxRow.id).eq("company_id", companyId);
+                if (cxDelErr) { setMsg(`Erro: ${cxDelErr.message}`); setSaving(false); return; }
+            }
+        }
+
+        setSaving(false);
+        setOpen(false);
+        setSelected(null);
     }
 
     // ── create cat / brand inline ─────────────────────────────────────────────
