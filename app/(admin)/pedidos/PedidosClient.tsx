@@ -247,10 +247,10 @@ export default function PedidosPage() {
                 id,
                 produto_id,
                 descricao,
-                sigla_comercial,
                 fator_conversao,
                 preco_venda,
                 tags,
+                siglas_comerciais(sigla),
                 products(
                     id,
                     name,
@@ -293,8 +293,9 @@ export default function PedidosPage() {
 
             if (r.tags) entry.tags.push(String(r.tags));
 
-            if (String(r.sigla_comercial ?? "").toUpperCase() === "UN") entry.unitPack = r;
-            if (String(r.sigla_comercial ?? "").toUpperCase() === "CX") entry.casePack = r;
+            const sig = String((r as any).siglas_comerciais?.sigla ?? (r as any).sigla_comercial ?? "").toUpperCase();
+            if (sig === "UN") entry.unitPack = r;
+            if (sig === "CX") entry.casePack = r;
 
             byProduto.set(pid, entry);
         }

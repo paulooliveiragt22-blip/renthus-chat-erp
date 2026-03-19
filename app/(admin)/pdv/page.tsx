@@ -129,11 +129,13 @@ export default function PDVPage() {
         id,
         produto_id,
         descricao,
-        sigla_comercial,
         fator_conversao,
         preco_venda,
         codigo_barras_ean,
         tags,
+        volume_quantidade,
+        siglas_comerciais(sigla),
+        unit_types(sigla),
         products(
           id,
           name,
@@ -148,23 +150,26 @@ export default function PDVPage() {
       .eq("company_id", companyId);
     if (error) console.error("[pdv] loadVariants:", error.message);
 
-    setVariants((data ?? []).map((r: any) => ({
-      id: String(r.id),
-      produto_id: String(r.produto_id),
-      product_name: r.products?.name ?? "Produto",
-      category: r.products?.categories?.name ?? r.products?.categories?.[0]?.name ?? "Geral",
+    setVariants((data ?? []).map((r: any) => {
+      const sigla = String(r.siglas_comerciais?.sigla ?? r.sigla_comercial ?? "UN").toUpperCase();
+      return {
+        id: String(r.id),
+        produto_id: String(r.produto_id),
+        product_name: r.products?.name ?? "Produto",
+        category: r.products?.categories?.name ?? r.products?.categories?.[0]?.name ?? "Geral",
 
-      sigla_comercial: r.sigla_comercial ?? "UN",
-      fator_conversao: Number(r.fator_conversao ?? 1),
-      unit_price: Number(r.preco_venda ?? 0),
+        sigla_comercial: sigla,
+        fator_conversao: Number(r.fator_conversao ?? 1),
+        unit_price: Number(r.preco_venda ?? 0),
 
-      codigo_interno: r.products?.codigo_interno ?? null,
-      codigo_barras_ean: r.codigo_barras_ean ?? null,
+        codigo_interno: r.products?.codigo_interno ?? null,
+        codigo_barras_ean: r.codigo_barras_ean ?? null,
 
-      details: r.descricao ?? null,
-      tags: r.tags ?? null,
-      is_active: Boolean(r.products?.is_active ?? true),
-    })));
+        details: r.descricao ?? null,
+        tags: r.tags ?? null,
+        is_active: Boolean(r.products?.is_active ?? true),
+      };
+    }));
     setLoadingProd(false);
   }, [companyId, supabase]);
 
