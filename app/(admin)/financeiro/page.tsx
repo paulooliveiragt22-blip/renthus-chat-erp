@@ -164,34 +164,38 @@ export default function FinanceiroPage() {
         const safeOrders = (ordersRaw ?? []) as any[];
         console.log("[financeiro] pedidos carregados:", safeOrders.length, "| period:", dateRange);
 
-        // 2. Custo real via order_items → product_variants.cost_price
+        // 2. Custo real via order_items → produto_embalagens → products.preco_custo_unitario
         const orderIds = safeOrders.map((o) => o.id);
         const costMap: Record<string, number> = {};
 
         if (orderIds.length > 0) {
             const { data: items, error: itemErr } = await supabase
                 .from("order_items")
-                .select("order_id, quantity, qty, product_variant_id, unit_price")
+                .select("order_id, quantity, qty, produto_embalagem_id, unit_price")
                 .in("order_id", orderIds);
 
             if (itemErr) console.error("[financeiro] order_items error:", itemErr.message);
 
-            const variantIds = [...new Set((items ?? []).map((it: any) => it.product_variant_id).filter(Boolean))];
+            const embIds = [...new Set((items ?? []).map((it: any) => it.produto_embalagem_id).filter(Boolean))];
 
-            let varCostMap: Record<string, number> = {};
-            if (variantIds.length > 0) {
-                const { data: variants } = await supabase
-                    .from("product_variants")
-                    .select("id, cost_price")
-                    .in("id", variantIds);
-                (variants ?? []).forEach((v: any) => {
-                    varCostMap[v.id] = Number(v.cost_price ?? 0);
+            let embCostMap: Record<string, { baseCost: number; fator: number }> = {};
+            if (embIds.length > 0) {
+                const { data: embRows } = await supabase
+                    .from("produto_embalagens")
+                    .select("id, fator_conversao, preco_venda, products(preco_custo_unitario)")
+                    .in("id", embIds);
+                (embRows ?? []).forEach((e: any) => {
+                    embCostMap[e.id] = {
+                        baseCost: Number(e.products?.preco_custo_unitario ?? 0),
+                        fator: Number(e.fator_conversao ?? 1),
+                    };
                 });
             }
 
             (items ?? []).forEach((it: any) => {
                 const q    = Number(it.quantity ?? it.qty ?? 1);
-                const cp   = varCostMap[it.product_variant_id] ?? 0;
+                const emb  = embCostMap[it.produto_embalagem_id];
+                const cp   = emb ? emb.baseCost * emb.fator : 0;
                 costMap[it.order_id] = (costMap[it.order_id] ?? 0) + cp * q;
             });
         }

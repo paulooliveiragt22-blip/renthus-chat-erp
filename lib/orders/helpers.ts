@@ -172,7 +172,7 @@ export function cartTotalPreview(list: CartItem[], feeEnabled: boolean, feeStr: 
 export type InsertOrderItem = {
     order_id: string;
     company_id: string;
-    product_variant_id: string | null;
+    produto_embalagem_id: string | null;
     product_name: string | null;
     quantity: number;
     unit_price: number;
@@ -185,10 +185,15 @@ export function buildItemsPayload(orderId: string, companyId: string, list: Cart
         const price = Number(item.price ?? 0);
         const name = buildVariantTexts(item.variant).displayName;
 
+        const embalagemId =
+            item.mode === "unit" ? (item.variant.unit_embalagem_id ?? item.variant.id) :
+            item.mode === "case" ? (item.variant.case_embalagem_id ?? item.variant.id) :
+            (item.variant.unit_embalagem_id ?? item.variant.id);
+
         return {
             order_id: orderId,
             company_id: companyId,
-            product_variant_id: item.variant.id,
+            produto_embalagem_id: embalagemId,
             product_name: name,
             quantity: qItem,
             unit_price: price,
