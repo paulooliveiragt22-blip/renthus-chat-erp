@@ -712,7 +712,7 @@ async function searchVariantsByTextV2(
 
     const { data, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -745,14 +745,16 @@ async function searchVariantsByTextV2(
             if (!unitPack) return null;
 
             const p = unitPack;
+            const volQty = Number(unitPack.volume_quantidade ?? 0);
+            const volUnit = String(p.product_unit_type ?? "un");
             return {
                 id: String(unitPack.id),
                 productId: pid,
                 productName: String(p.product_name ?? ""),
                 details: (unitPack.descricao ?? p.product_details ?? null) as string | null,
                 tags: grp.tags.length ? grp.tags.join(",") : null,
-                volumeValue: 0,
-                unit: String(p.product_unit_type ?? "un"),
+                volumeValue: volQty,
+                unit: volUnit,
                 unitPrice: Number(unitPack.preco_venda ?? 0),
                 hasCase: Boolean(casePack),
                 caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
@@ -1030,21 +1032,30 @@ async function handleFreeTextInput(
             step:    "catalog_products",
             context: {
                 ...session.context,
-                variants:        found,
-                brand_name:      "Resultados",
-                category_name:   "Busca",
-                pending_variant: v,
-                pending_is_case: false,
+                variants:         found,
+                brand_name:       "Resultados",
+                category_name:    "Busca",
+                pending_variant:  v,
+                pending_is_case:  false,
+                unit_case_choice: Boolean(v.hasCase && v.casePrice), // UN + CX numerados
             },
         });
 
-        const caseInfo = v.hasCase && v.casePrice
-            ? `\n_Também disponível em caixa com ${v.caseQty}un por ${formatCurrency(v.casePrice)}._`
-            : "";
-        await reply(
-            phoneE164,
-            `Encontrei *${name}* por *${formatCurrency(v.unitPrice)}*. 🍺${caseInfo}\n\nQuantas unidades deseja?`
-        );
+        if (v.hasCase && v.casePrice) {
+            const cxLabel = `caixa ${v.caseQty}un`;
+            await reply(
+                phoneE164,
+                `Encontrei:\n\n` +
+                `1. *${name}* — ${formatCurrency(v.unitPrice)}\n` +
+                `2. *${v.productName}* ${cxLabel} — ${formatCurrency(v.casePrice)}\n\n` +
+                `Qual opção e quantas unidades deseja?`
+            );
+        } else {
+            await reply(
+                phoneE164,
+                `Encontrei *${name}* por *${formatCurrency(v.unitPrice)}*. 🍺\n\nQuantas unidades deseja?`
+            );
+        }
         return "handled";
     }
 
@@ -1484,20 +1495,28 @@ export async function processInboundMessage(
 
 // ─── WELCOME / MAIN MENU ──────────────────────────────────────────────────────
 
+/** Apenas as opções 1,2,3 — usado quando busca falha (sem repetir saudação) */
+function getMenuOptionsOnly(): string {
+    return `Como posso te ajudar?\n\n1️⃣  Ver cardápio\n2️⃣  Status do meu pedido\n3️⃣  Falar com atendente\n\n_Digite o número da opção._`;
+}
+
+/** Menu principal (1, 2, 3) — usado apenas quando busca por produto falha */
 function buildMainMenu(companyName: string, customerName?: string | null): string {
     const hasName = !!(customerName && customerName.trim().length > 0);
     const hello = hasName
         ? `Olá, *${customerName.trim()}*! Seja bem-vindo(a) novamente ao *${companyName}* 🍺\n\n`
         : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\n`;
 
-    return (
-        hello +
-        `Como posso te ajudar?\n\n` +
-        `1️⃣  Ver cardápio\n` +
-        `2️⃣  Status do meu pedido\n` +
-        `3️⃣  Falar com atendente\n\n` +
-        `_Digite o número da opção._`
-    );
+    return hello + getMenuOptionsOnly();
+}
+
+/** Saudação inicial — prioriza pedido direto, não pede nome no início */
+function buildWelcomeGreeting(companyName: string, customerName?: string | null): string {
+    const hasName = !!(customerName && customerName.trim().length > 0);
+    if (hasName) {
+        return `Olá, *${customerName.trim()}*! O que manda pra hoje? 🍺\n\n_Digite o que deseja ou o endereço de entrega._`;
+    }
+    return `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nO que manda pra hoje? _Digite o que deseja._`;
 }
 
 async function handleMainMenu(
@@ -1511,42 +1530,8 @@ async function handleMainMenu(
     session: Session,
     profileName?: string | null
 ): Promise<void> {
-    // Primeira mensagem → verifica horário e envia boas-vindas + captura de nome se necessário
+    // Primeira mensagem → prioriza pedido/endereço; só manda saudação se input curto ou notfound
     if (session.step === "welcome") {
-        // Se estamos aguardando nome do cliente
-        if (session.context.awaiting_name) {
-            const nameInput = input.trim();
-            if (nameInput.length < 2) {
-                await reply(phoneE164, "Por favor, me diga seu nome para continuar. 🙂");
-                return;
-            }
-
-            const phoneClean = phoneE164.replace(/\D/g, "");
-            const { data: existing } = await admin
-                .from("customers")
-                .select("id")
-                .eq("company_id", companyId)
-                .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
-                .limit(1)
-                .maybeSingle();
-
-            if (existing?.id) {
-                await admin.from("customers").update({ name: nameInput }).eq("id", existing.id);
-            } else {
-                await admin
-                    .from("customers")
-                    .insert({ company_id: companyId, phone: phoneE164, name: nameInput });
-            }
-
-            await saveSession(admin, threadId, companyId, {
-                step: "main_menu",
-                context: { ...session.context, awaiting_name: false },
-            });
-
-            await reply(phoneE164, buildMainMenu(companyName, nameInput));
-            return;
-        }
-
         if (!isWithinBusinessHours(settings)) {
             const msg = (settings?.closed_message as string) ??
                 "Olá! No momento estamos fechados. Volte em breve. 😊";
@@ -1554,7 +1539,6 @@ async function handleMainMenu(
             return;
         }
 
-        // Tenta buscar cliente para usar nome na saudação
         const phoneClean = phoneE164.replace(/\D/g, "");
         const { data: customer } = await admin
             .from("customers")
@@ -1564,22 +1548,19 @@ async function handleMainMenu(
             .limit(1)
             .maybeSingle();
 
-        if (customer?.name && customer.name.trim().length > 0) {
+        const looksLikeProduct = /\s/.test(input) || /\d/.test(input);
+        if (looksLikeProduct && input.length > 2) {
+            const ftEarly = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
             await saveSession(admin, threadId, companyId, { step: "main_menu" });
-            await reply(phoneE164, buildMainMenu(companyName, customer.name));
-            return;
+            if (ftEarly === "handled") return;
+            if (ftEarly === "notfound") {
+                await reply(phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
+                return;
+            }
         }
 
-        // Sem nome ainda → pede nome uma única vez
-        await saveSession(admin, threadId, companyId, {
-            step: "welcome",
-            context: { ...session.context, awaiting_name: true },
-        });
-        await reply(
-            phoneE164,
-            `Olá! Seja bem-vindo(a) ao *${companyName}* 🍺\n\n` +
-            `Antes de começarmos, me diga seu *nome* para eu te atender melhor. 🙂`
-        );
+        await saveSession(admin, threadId, companyId, { step: "main_menu" });
+        await reply(phoneE164, buildWelcomeGreeting(companyName, customer?.name));
         return;
     }
 
@@ -1678,11 +1659,7 @@ async function handleMainMenu(
     if (ftResult === "handled") return;
 
     if (ftResult === "notfound") {
-        await reply(
-            phoneE164,
-            `Não encontrei exatamente o que você pediu por _"${input}"_, mas aqui estão as opções:\n\n` +
-            buildMainMenu(companyName)
-        );
+        await reply(phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
         return;
     }
 
@@ -2105,18 +2082,45 @@ async function handleCatalogProducts(
         return;
     }
 
-    // ── Aguardando quantidade ─────────────────────────────────────────────────
-    const pendingVariant = session.context.pending_variant as VariantRow | undefined;
-    const pendingIsCase  = session.context.pending_is_case as boolean   | undefined;
+    // ── Aguardando quantidade (ou opção+quantidade quando unit_case_choice) ─────
+    const pendingVariant  = session.context.pending_variant as VariantRow | undefined;
+    const pendingIsCase   = session.context.pending_is_case as boolean   | undefined;
+    const unitCaseChoice  = session.context.unit_case_choice as boolean  | undefined;
 
     if (pendingVariant) {
-        const qty = parseInt(input, 10);
-        if (isNaN(qty) || qty < 1 || qty > 99) {
-            await reply(phoneE164, "Digite uma quantidade válida (1 a 99).");
-            return;
+        let opt = 1;
+        let qty = 1;
+        if (unitCaseChoice) {
+            const parts = input.trim().split(/\s+/).filter(Boolean);
+            if (parts.length >= 2) {
+                const o = parseInt(parts[0], 10);
+                const q = parseInt(parts[1], 10);
+                if (!isNaN(o) && (o === 1 || o === 2) && !isNaN(q) && q >= 1 && q <= 99) {
+                    opt = o;
+                    qty = q;
+                } else {
+                    await reply(phoneE164, "Digite a opção (1 ou 2) e a quantidade, ex: *1 3* ou *2 1*.");
+                    return;
+                }
+            } else if (parts.length === 1) {
+                qty = parseInt(parts[0], 10);
+                if (isNaN(qty) || qty < 1 || qty > 99) {
+                    await reply(phoneE164, "Digite uma quantidade válida (1 a 99) ou opção e quantidade (ex: *2 1*).");
+                    return;
+                }
+            } else {
+                await reply(phoneE164, "Digite a opção e quantidade, ex: *1 3* ou *2 1*.");
+                return;
+            }
+        } else {
+            qty = parseInt(input, 10);
+            if (isNaN(qty) || qty < 1 || qty > 99) {
+                await reply(phoneE164, "Digite uma quantidade válida (1 a 99).");
+                return;
+            }
         }
 
-        const isCase   = Boolean(pendingIsCase);
+        const isCase   = unitCaseChoice ? opt === 2 : Boolean(pendingIsCase);
         const price    = isCase ? (pendingVariant.casePrice ?? pendingVariant.unitPrice) : pendingVariant.unitPrice;
         const volLabel = pendingVariant.volumeValue ? `${pendingVariant.volumeValue}${pendingVariant.unit}` : "";
         const name     = isCase
@@ -2145,7 +2149,7 @@ async function handleCatalogProducts(
         await saveSession(admin, threadId, companyId, {
             step: "catalog_products",
             cart: newCart,
-            context: { ...session.context, pending_variant: null, pending_is_case: null },
+            context: { ...session.context, pending_variant: null, pending_is_case: null, unit_case_choice: false },
         });
 
         await sendInteractiveButtons(
@@ -2294,8 +2298,9 @@ async function goToCart(
 }
 
 /**
- * Se o contexto já tem endereço e pagamento (cliente voltou para adicionar produtos),
- * vai direto para checkout_confirm; caso contrário começa o fluxo de endereço.
+ * Se o contexto já tem endereço e pagamento → checkout_confirm.
+ * Se tem endereço mas não pagamento → checkout_payment (não pede endereço de novo).
+ * Se não tem endereço → checkout_address.
  */
 async function goToCheckoutFromCart(
     admin: SupabaseClient,
@@ -2313,6 +2318,14 @@ async function goToCheckoutFromCart(
         const deliveryFee  = (session.context.delivery_fee as number | null) ?? 0;
         await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
         await sendOrderSummary(phoneE164, session.cart, address, pmLabels[payment] ?? payment, changeFor, deliveryFee);
+    } else if (address) {
+        const customer = await getOrCreateCustomer(admin, companyId, phoneE164);
+        await saveSession(admin, threadId, companyId, {
+            step:        "checkout_payment",
+            customer_id: customer?.id ?? session.customer_id,
+            context:     session.context,
+        });
+        await sendPaymentButtons(phoneE164);
     } else {
         await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
     }
@@ -2486,15 +2499,16 @@ async function sendOrderSummary(
         `${feeText}\n` +
         `📍 Entrega: ${address}\n` +
         `💳 Pagamento: ${paymentLabel}${changeText}` +
-        `${grandText}`
+        `${grandText}\n\n` +
+        `_Digite *alterar endereço* para mudar o endereço._`
     );
     await sendInteractiveButtons(
         phoneE164,
         "Confirmar o pedido?",
         [
-            { id: "confirmar",          title: "Confirmar pedido"  },
+            { id: "confirmar",          title: "Confirmar pedido"   },
             { id: "adicionar_produtos", title: "Adicionar produtos" },
-            { id: "cancelar",           title: "Cancelar"          },
+            { id: "cancelar",           title: "Cancelar"           },
         ]
     );
 }
@@ -2590,6 +2604,20 @@ async function handleCheckoutConfirm(
         "| cart:", session.cart.length, "| address:", address,
         "| paymentMethod:", paymentMethod, "| changeFor:", changeFor);
 
+    // "Alterar endereço" → volta ao fluxo de endereço para informar novo
+    if (matchesAny(input, ["alterar_endereco", "alterar endereco", "alterar endereço", "mudar endereço", "trocar endereço"])) {
+        await saveSession(admin, threadId, companyId, {
+            step:    "checkout_address",
+            context: { ...session.context, delivery_address: undefined, saved_address: null, awaiting_address: true },
+        });
+        await reply(
+            phoneE164,
+            `📍 Qual é o seu *novo endereço de entrega*?\n\n` +
+            `_Ex: Rua das Flores, 123, Bairro Centro_`
+        );
+        return;
+    }
+
     // "Adicionar produtos" → volta ao catálogo preservando carrinho, endereço e pagamento
     if (matchesAny(input, ["adicionar_produtos", "adicionar produtos"])) {
         const categories = await getCategories(admin, companyId);
@@ -2610,6 +2638,89 @@ async function handleCheckoutConfirm(
             "Categorias"
         );
         return;
+    }
+
+    // Etapa: aguardando nome (pedido no final, antes de confirmar)
+    if (session.context.awaiting_name_confirm) {
+        const nameInput = input.trim();
+        if (nameInput.length < 2) {
+            await reply(phoneE164, "Por favor, digite seu nome completo.");
+            return;
+        }
+
+        let customerId = session.customer_id;
+        if (!customerId) {
+            const recovered = await getOrCreateCustomer(admin, companyId, phoneE164);
+            customerId = recovered?.id ?? null;
+        }
+        if (customerId) {
+            await admin.from("customers").update({ name: nameInput }).eq("id", customerId);
+        } else {
+            const phoneClean = phoneE164.replace(/\D/g, "");
+            const { data: inserted } = await admin.from("customers").insert({
+                company_id: companyId,
+                phone:      phoneE164,
+                name:       nameInput,
+            }).select("id").single();
+            customerId = (inserted as any)?.id ?? null;
+        }
+
+        await saveSession(admin, threadId, companyId, {
+            customer_id: customerId,
+            context:     { ...session.context, awaiting_name_confirm: false },
+        });
+
+        // Após salvar nome, verificar maioridade
+        const { data: custRow } = await admin
+            .from("customers")
+            .select("is_adult")
+            .eq("id", customerId)
+            .maybeSingle();
+
+        if (!custRow?.is_adult) {
+            await saveSession(admin, threadId, companyId, {
+                context: { ...session.context, awaiting_name_confirm: false, awaiting_age_confirm: true },
+            });
+            await reply(
+                phoneE164,
+                "Para prosseguir com o pedido, confirme: você é *maior de 18 anos*? Responda *sim* ou *não*."
+            );
+            return;
+        }
+        // Nome salvo e já é maior → criar pedido diretamente (pula checagem de input)
+        const feeForOrder = (session.context.delivery_fee as number | null) ?? 0;
+        try {
+            const orderId = await createOrder(admin, companyId, customerId!, session.cart, paymentMethod, address, changeFor, feeForOrder);
+            const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
+            const cartSnapshot = [...session.cart];
+            await saveSession(admin, threadId, companyId, {
+                step: "done", cart: [], context: { last_order_id: orderId },
+            });
+            const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
+            const paymentLine = paymentMethod === "cash"
+                ? `💳 Pagamento: Dinheiro${changeFor ? ` (troco para ${formatCurrency(changeFor)})` : ""}`
+                : `💳 Pagamento: ${pmLabels[paymentMethod] ?? paymentMethod}`;
+            await reply(
+                phoneE164,
+                `✅ *Pedido confirmado!* 🍺\n\n${formatCart(cartSnapshot)}\n\n📍 Endereço: ${address}\n${paymentLine}\n🔖 Pedido: #${orderShort}\n\n📦 Recebemos seu pedido e já estamos preparando!\n_Obrigado por pedir no ${companyName}!_`
+            );
+            try {
+                const accompaniments = await getAccompanimentItems(admin, companyId, cartSnapshot.map((c) => c.variantId));
+                if (accompaniments.length > 0) {
+                    const lines = accompaniments.map((v) => {
+                        const vol = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
+                        return `• ${v.productName}${vol}`.trim() + ` — ${formatCurrency(v.unitPrice)}`;
+                    });
+                    await reply(phoneE164, `🛒 *Que tal adicionar ao seu pedido?*\n\n${lines.join("\n")}\n\n_Digite *1* para ver o cardápio completo ou *menu* para voltar ao início._`);
+                }
+            } catch { /* ignore */ }
+            return;
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error("[checkout_confirm] ERRO ao criar pedido:", msg);
+            await reply(phoneE164, "Desculpe, houve um erro ao registrar seu pedido. Por favor, fale com um atendente. 😞");
+            return;
+        }
     }
 
     // Etapa: aguardando confirmação de maioridade
@@ -2675,12 +2786,21 @@ async function handleCheckoutConfirm(
         await saveSession(admin, threadId, companyId, { customer_id: customerId });
     }
 
-    // Antes de criar o pedido, exige confirmação de maioridade (uma única vez)
+    // Antes de criar o pedido: nome e maioridade (no final do fluxo)
     const { data: customerRow } = await admin
         .from("customers")
-        .select("is_adult")
+        .select("name, is_adult")
         .eq("id", customerId)
         .maybeSingle();
+
+    const hasName = !!(customerRow?.name && String(customerRow.name).trim().length >= 2);
+    if (!hasName) {
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, awaiting_name_confirm: true },
+        });
+        await reply(phoneE164, "Para finalizar, qual é o seu *nome*?");
+        return;
+    }
 
     if (!customerRow?.is_adult) {
         await saveSession(admin, threadId, companyId, {

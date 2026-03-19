@@ -529,8 +529,8 @@ export default function ProdutosListaPage() {
                         codigo_interno: String(it.codigo_interno ?? ""),
                         codigo_barras_ean: String(it.codigo_barras_ean ?? ""),
                         tags: String(it.tags ?? ""),
-                        estoque: itemEstoque > 0 ? String(itemEstoque) : "",
-                        estoque_minimo: itemEstoqueMin >= 0 ? String(itemEstoqueMin) : "",
+                        estoque: String(itemEstoque),
+                        estoque_minimo: String(itemEstoqueMin),
                         is_acompanhamento: !!it.is_acompanhamento,
                     };
                 });
@@ -539,8 +539,8 @@ export default function ProdutosListaPage() {
                     volume_quantidade: v.volume_quantidade != null ? String(v.volume_quantidade) : "",
                     id_unit_type: v.id_unit_type ?? null,
                     unitLabel: String(v.unit_sigla ?? "ml"),
-                    estoque_atual: volEstoque > 0 ? String(volEstoque) : "",
-                    estoque_minimo: volEstoqueMin >= 0 ? String(volEstoqueMin) : "",
+                    estoque_atual: String(volEstoque),
+                    estoque_minimo: String(volEstoqueMin),
                     items,
                 };
             });
@@ -601,6 +601,8 @@ export default function ProdutosListaPage() {
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
         const volumesWithItems = formVolumes.filter((v) => v.items.length > 0);
         if (volumesWithItems.length === 0) { setMsg("Adicione pelo menos um volume com itens."); setSaving(false); return; }
+        const hasInvalidFator = volumesWithItems.some((v) => v.items.some((i) => !i.fator_conversao || i.fator_conversao < 1));
+        if (hasInvalidFator) { setMsg("Campo Fator é obrigatório e deve ser maior que zero em todos os itens."); setSaving(false); return; }
 
         const volumesPayload = volumesWithItems.map((vol) => {
             const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replace(",", ".")) : null;
@@ -792,7 +794,7 @@ export default function ProdutosListaPage() {
                     { label: "Inativas",            value: inactiveCount,    color: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800" },
                     { label: "Sem preço de custo",  value: missingCostCount, color: missingCostCount > 0 ? "bg-red-100 text-red-600 dark:bg-red-900/30" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800" },
                 ].map(({ label, value, color }) => (
-                    <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm dark:bg-zinc-900">
+                    <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                         <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${color}`}>{value}</span>
                         <span className="text-xs text-zinc-500">{label}</span>
                     </div>
@@ -992,7 +994,7 @@ export default function ProdutosListaPage() {
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Fator</label>
-                                                                <input value={it.fator_conversao} onChange={(e) => updateFormItem(vol.id, it.id, { fator_conversao: Math.max(1, parseInt(e.target.value, 10) || 1) })} className={`${inputCls} py-1.5 text-xs`} type="number" min={1} />
+                                                                <input value={it.fator_conversao === 0 ? "" : it.fator_conversao} onChange={(e) => { const v = e.target.value; updateFormItem(vol.id, it.id, { fator_conversao: v === "" ? 0 : Math.max(0, parseInt(v, 10) || 0) }); }} className={`${inputCls} py-1.5 text-xs`} type="number" min={0} placeholder="1" />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Preço venda (R$)</label>
@@ -1282,7 +1284,7 @@ export default function ProdutosListaPage() {
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Fator</label>
-                                                                <input value={it.fator_conversao} onChange={(e) => updateFormItem(vol.id, it.id, { fator_conversao: Math.max(1, parseInt(e.target.value, 10) || 1) })} className={`${inputCls} py-1.5 text-xs`} type="number" min={1} />
+                                                                <input value={it.fator_conversao === 0 ? "" : it.fator_conversao} onChange={(e) => { const v = e.target.value; updateFormItem(vol.id, it.id, { fator_conversao: v === "" ? 0 : Math.max(0, parseInt(v, 10) || 0) }); }} className={`${inputCls} py-1.5 text-xs`} type="number" min={0} placeholder="1" />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Preço venda (R$)</label>
