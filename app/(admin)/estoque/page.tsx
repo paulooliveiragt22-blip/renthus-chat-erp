@@ -144,7 +144,7 @@ export default function EstoquePage() {
                 const nextStock = Number(p?.new?.estoque_atual ?? 0);
                 if (!pvid) return;
                 setItems(prev => prev.map(item => item.id === pvid ? { ...item, estoque_atual: nextStock } : item));
-                flash(pid);
+                flash(pvid);
             })
             .subscribe((s: string) => console.log("[Estoque Realtime] status:", s));
         return () => { supabase.removeChannel(ch); };
