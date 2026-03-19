@@ -124,49 +124,29 @@ export default function PDVPage() {
     if (!companyId) return;
     setLoadingProd(true);
     const { data, error } = await supabase
-      .from("produto_embalagens")
-      .select(`
-        id,
-        produto_id,
-        descricao,
-        fator_conversao,
-        preco_venda,
-        codigo_barras_ean,
-        tags,
-        volume_quantidade,
-        siglas_comerciais(sigla),
-        unit_types(sigla),
-        products(
-          id,
-          name,
-          is_active,
-          codigo_interno,
-          unit_type,
-          details,
-          categories(name)
-        )
-      `)
+      .from("view_pdv_produtos")
+      .select("id, produto_id, descricao, fator_conversao, preco_venda, codigo_interno, codigo_barras_ean, tags, volume_quantidade, sigla_comercial, product_name, product_unit_type, product_details, category_name")
       .eq("company_id", companyId);
     if (error) console.error("[pdv] loadVariants:", error.message);
 
     setVariants((data ?? []).map((r: any) => {
-      const sigla = String(r.siglas_comerciais?.sigla ?? r.sigla_comercial ?? "UN").toUpperCase();
+      const sigla = String(r.sigla_comercial ?? "UN").toUpperCase();
       return {
         id: String(r.id),
         produto_id: String(r.produto_id),
-        product_name: r.products?.name ?? "Produto",
-        category: r.products?.categories?.name ?? r.products?.categories?.[0]?.name ?? "Geral",
+        product_name: r.product_name ?? "Produto",
+        category: r.category_name ?? "Geral",
 
         sigla_comercial: sigla,
         fator_conversao: Number(r.fator_conversao ?? 1),
         unit_price: Number(r.preco_venda ?? 0),
 
-        codigo_interno: r.products?.codigo_interno ?? null,
+        codigo_interno: r.codigo_interno ?? null,
         codigo_barras_ean: r.codigo_barras_ean ?? null,
 
         details: r.descricao ?? null,
         tags: r.tags ?? null,
-        is_active: Boolean(r.products?.is_active ?? true),
+        is_active: true,
       };
     }));
     setLoadingProd(false);
