@@ -178,6 +178,9 @@ export default function ProdutosListaPage() {
 
     async function load() {
         setLoading(true); setMsg(null);
+        setMsg("Tela de lista de produtos está temporariamente desativada na fase 2 (precisa ser refatorada para `produto_embalagens`).");
+        setLoading(false);
+        return;
         const [varRes, catRes, brRes] = await Promise.all([
             supabase.from("product_variants")
                 .select(`id,product_id,details,volume_value,unit,unit_price,cost_price,has_case,case_qty,case_price,is_active,products(name,category_id,brand_id,categories(id,name),brands(id,name))`)
@@ -185,7 +188,7 @@ export default function ProdutosListaPage() {
             supabase.from("categories").select("id,name").eq("is_active", true).order("name"),
             supabase.from("brands").select("id,name").eq("is_active", true).order("name"),
         ]);
-        if (varRes.error) { setMsg(`Erro: ${varRes.error.message}`); setLoading(false); return; }
+        if (varRes.error) { setMsg(`Erro: ${varRes.error?.message ?? ""}`); setLoading(false); return; }
         setRows(normalizeRows(varRes.data));
         if (!catRes.error) setCategories((catRes.data as any[]).map((c) => ({ id: String(c.id), name: String(c.name) })));
         if (!brRes.error)  setBrands((brRes.data as any[]).map((b)  => ({ id: String(b.id), name: String(b.name) })));

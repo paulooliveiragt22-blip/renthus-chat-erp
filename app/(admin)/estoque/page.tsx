@@ -12,14 +12,15 @@ import {
 // ─── types ────────────────────────────────────────────────────────────────────
 
 type StockItem = {
-    id:           string;     // product_variant id
+    id:           string;     // products.id
     category:     string;
     brand:        string;
     details:      string | null;
-    volume:       string;
-    unit_price:   number;
+    codigo_interno: string | null;
+    preco_custo_unitario: number;
+    estoque_minimo: number;
     is_active:    boolean;
-    stock:        number;     // saldo calculado de inventory_movements
+    estoque_atual: number;
 };
 
 type Movement = {
@@ -105,43 +106,38 @@ export default function EstoquePage() {
         if (!companyId) return;
         setLoading(true);
 
-        const [varRes, movRes] = await Promise.all([
-            supabase.from("product_variants")
-                .select("id,unit_price,is_active,details,volume_value,unit,products(categories(name),brands(name))")
-                .eq("company_id", companyId)
-                .eq("is_active", true)
-                .order("created_at", { ascending: false }),
-            supabase.from("inventory_movements")
-                .select("variant_id,type,quantity")
-                .eq("company_id", companyId),
-        ]);
+        const { data: prodRes, error } = await supabase
+            .from("products")
+            .select(`
+              id,
+              name,
+              codigo_interno,
+              details,
+              preco_custo_unitario,
+              estoque_atual,
+              estoque_minimo,
+              is_active,
+              categories(name),
+              brands(name)
+            `)
+            .eq("company_id", companyId)
+            .order("created_at", { ascending: false });
 
-        if (varRes.error) { setLoading(false); return; }
+        if (error) { setLoading(false); return; }
 
-        // calcula saldo por variant_id
-        const stockMap: Record<string, number> = {};
-        (movRes.data ?? []).forEach((m: any) => {
-            if (!stockMap[m.variant_id]) stockMap[m.variant_id] = 0;
-            const q = Number(m.quantity ?? 0);
-            if (m.type === "entrada") stockMap[m.variant_id] += q;
-            else if (m.type === "saida") stockMap[m.variant_id] -= q;
-            else stockMap[m.variant_id] = q; // ajuste = set absoluto
-        });
-
-        const mapped: StockItem[] = (varRes.data ?? []).map((v: any) => {
-            const p0 = Array.isArray(v.products) ? v.products[0] : v.products;
-            const cat = Array.isArray(p0?.categories) ? p0?.categories[0]?.name : p0?.categories?.name;
-            const br  = Array.isArray(p0?.brands)     ? p0?.brands[0]?.name     : p0?.brands?.name;
-            const vol = v.volume_value != null && v.unit !== "none" ? `${v.volume_value} ${v.unit}` : "";
+        const mapped: StockItem[] = (prodRes ?? []).map((p: any) => {
+            const cat = Array.isArray(p?.categories) ? p.categories?.[0]?.name : p?.categories?.name;
+            const br  = Array.isArray(p?.brands) ? p.brands?.[0]?.name : p?.brands?.name;
             return {
-                id:         String(v.id),
-                category:   cat ?? "—",
-                brand:      br  ?? "—",
-                details:    v.details ?? null,
-                volume:     vol,
-                unit_price: Number(v.unit_price ?? 0),
-                is_active:  Boolean(v.is_active),
-                stock:      stockMap[v.id] ?? 0,
+                id: String(p.id),
+                category: cat ?? "—",
+                brand: br ?? "—",
+                details: p.details ?? null,
+                codigo_interno: p.codigo_interno ?? null,
+                preco_custo_unitario: Number(p.preco_custo_unitario ?? 0),
+                estoque_atual: Number(p.estoque_atual ?? 0),
+                estoque_minimo: Number(p.estoque_minimo ?? 0),
+                is_active: Boolean(p.is_active),
             };
         });
 
@@ -156,21 +152,13 @@ export default function EstoquePage() {
     useEffect(() => {
         if (!companyId) return;
         const ch = supabase
-            .channel("inventory_realtime")
-            .on("postgres_changes", { event: "INSERT", schema: "public", table: "inventory_movements" }, (p: any) => {
-                console.log("[Estoque Realtime] movimento:", p);
-                const variantId = p?.new?.variant_id as string;
-                const type      = p?.new?.type as string;
-                const qty       = Number(p?.new?.quantity ?? 0);
-                setItems((prev) => prev.map((item) => {
-                    if (item.id !== variantId) return item;
-                    let next = item.stock;
-                    if (type === "entrada") next += qty;
-                    else if (type === "saida") next -= qty;
-                    else next = qty;
-                    return { ...item, stock: next };
-                }));
-                if (variantId) flash(variantId);
+            .channel("products_realtime")
+            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "products" }, (p: any) => {
+                const pid = p?.new?.id as string;
+                const nextStock = Number(p?.new?.estoque_atual ?? 0);
+                if (!pid) return;
+                setItems(prev => prev.map(item => item.id === pid ? { ...item, estoque_atual: nextStock } : item));
+                flash(pid);
             })
             .subscribe((s: string) => console.log("[Estoque Realtime] status:", s));
         return () => { supabase.removeChannel(ch); };
@@ -187,29 +175,31 @@ export default function EstoquePage() {
         const qty = Number(movQty.replace(",", "."));
         if (!qty || qty <= 0) { setMovMsg("Informe uma quantidade válida."); return; }
         setMovSaving(true); setMovMsg(null);
-        const { error } = await supabase.from("inventory_movements").insert({
-            company_id: companyId,
-            variant_id: movItem.id,
-            type:       movType,
-            quantity:   qty,
-            note:       movNote.trim() || null,
-        });
+        const cur = movItem.estoque_atual;
+        const next =
+            movType === "entrada" ? cur + qty :
+            movType === "saida"   ? cur - qty :
+            qty;
+        const { error } = await supabase
+            .from("products")
+            .update({ estoque_atual: next })
+            .eq("id", movItem.id)
+            .eq("company_id", companyId);
+
         if (error) { setMovMsg(`Erro: ${error.message}`); setMovSaving(false); return; }
+        setItems(prev => prev.map(i => i.id === movItem.id ? { ...i, estoque_atual: next } : i));
         setMovSaving(false); setMovOpen(false);
     }
 
     // ── load history ──────────────────────────────────────────────────────────
 
     async function openHistory(item: StockItem) {
-        setHistItem(item); setHistOpen(true); setLoadingHist(true); setMovements([]);
-        const { data } = await supabase
-            .from("inventory_movements")
-            .select("id,type,quantity,note,created_at,variant_id")
-            .eq("variant_id", item.id)
-            .order("created_at", { ascending: false })
-            .limit(30);
-        setMovements((data as Movement[]) ?? []);
+        // No novo modelo, estoque é consolidado em `products.estoque_atual`.
+        // Para manter o UI funcionando, mostramos uma mensagem em vez do histórico detalhado.
+        setHistItem(item);
+        setHistOpen(true);
         setLoadingHist(false);
+        setMovements([]);
     }
 
     // ── filter + stats ────────────────────────────────────────────────────────
@@ -221,9 +211,9 @@ export default function EstoquePage() {
     });
 
     const totalItems    = items.length;
-    const lowStock      = items.filter((i) => i.stock > 0 && i.stock <= 5).length;
-    const outOfStock    = items.filter((i) => i.stock <= 0).length;
-    const totalValue    = items.reduce((a, b) => a + b.stock * b.unit_price, 0);
+    const lowStock      = items.filter((i) => i.estoque_atual > 0 && i.estoque_atual <= 5).length;
+    const outOfStock    = items.filter((i) => i.estoque_atual <= 0).length;
+    const totalValue    = items.reduce((a, b) => a + b.estoque_atual * b.preco_custo_unitario, 0);
 
     // ── render ────────────────────────────────────────────────────────────────
 
@@ -233,7 +223,7 @@ export default function EstoquePage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Estoque</h1>
-                    <p className="mt-0.5 text-xs text-zinc-400">Saldo calculado a partir dos movimentos de entrada e saída</p>
+                    <p className="mt-0.5 text-xs text-zinc-400">Saldo consolidado em `products.estoque_atual`</p>
                 </div>
                 <button onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -271,7 +261,7 @@ export default function EstoquePage() {
             <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
                 <div className="grid grid-cols-[1fr_1fr_1.2fr_80px_100px_80px_160px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
                     <span>Categoria</span><span>Marca</span><span>Detalhes</span>
-                    <span>Volume</span><span className="text-right">Unit (R$)</span>
+                    <span>Código Interno</span><span className="text-right">Custo (R$)</span>
                     <span className="text-center">Saldo</span><span className="text-center">Ações</span>
                 </div>
 
@@ -299,10 +289,10 @@ export default function EstoquePage() {
                                 <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">{item.category}</span>
                                 <span className="truncate text-xs text-zinc-600 dark:text-zinc-400">{item.brand}</span>
                                 <span className="truncate text-xs text-zinc-500">{item.details ?? "—"}</span>
-                                <span className="text-xs text-zinc-400">{item.volume || "—"}</span>
-                                <span className="text-right text-xs font-semibold text-violet-700 dark:text-violet-400">R$ {brl(item.unit_price)}</span>
-                                <span className={`mx-auto inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${stockColor(item.stock)}`}>
-                                    {item.stock}
+                                <span className="text-xs text-zinc-400">{item.codigo_interno ?? "—"}</span>
+                                <span className="text-right text-xs font-semibold text-violet-700 dark:text-violet-400">R$ {brl(item.preco_custo_unitario)}</span>
+                                <span className={`mx-auto inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${stockColor(item.estoque_atual)}`}>
+                                    {item.estoque_atual}
                                 </span>
                                 <div className="flex items-center justify-center gap-1">
                                     <button onClick={() => openMovement(item, "entrada")} title="Entrada" className="flex h-7 w-7 items-center justify-center rounded-md border border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-800 dark:hover:bg-emerald-900/20">
@@ -333,7 +323,9 @@ export default function EstoquePage() {
                     <div className="flex flex-col gap-4">
                         <div className="rounded-lg bg-violet-50 px-3 py-2 dark:bg-violet-900/20">
                             <p className="text-xs font-bold text-violet-700 dark:text-violet-300">{movItem.category} · {movItem.brand}</p>
-                            <p className="text-xs text-violet-500">{movItem.details ?? ""} {movItem.volume} — saldo atual: <strong>{movItem.stock}</strong></p>
+                            <p className="text-xs text-violet-500">
+                                {movItem.details ?? ""} {movItem.codigo_interno ?? ""} — saldo atual: <strong>{movItem.estoque_atual}</strong>
+                            </p>
                         </div>
 
                         <div>
@@ -370,27 +362,10 @@ export default function EstoquePage() {
             <Modal title={`Histórico: ${histItem?.category ?? ""} ${histItem?.brand ?? ""}`} open={histOpen} onClose={() => setHistOpen(false)}>
                 {loadingHist ? (
                     <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-violet-600" /></div>
-                ) : movements.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-zinc-400">Nenhum movimento registrado.</p>
                 ) : (
-                    <div className="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
-                        {movements.map((m) => (
-                            <div key={m.id} className="flex items-center justify-between py-3">
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                            m.type === "entrada" ? "bg-emerald-100 text-emerald-700" :
-                                            m.type === "saida"   ? "bg-red-100 text-red-700" :
-                                            "bg-violet-100 text-violet-700"
-                                        }`}>{m.type}</span>
-                                        <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{m.type === "ajuste" ? "→ " : m.type === "entrada" ? "+ " : "- "}{m.quantity}</span>
-                                    </div>
-                                    {m.note && <p className="mt-0.5 text-xs text-zinc-400">{m.note}</p>}
-                                </div>
-                                <span className="text-xs text-zinc-400">{new Date(m.created_at).toLocaleString("pt-BR")}</span>
-                            </div>
-                        ))}
-                    </div>
+                    <p className="py-8 text-center text-sm text-zinc-400">
+                        Sem histórico detalhado no novo modelo (estoque consolidado em <code>products.estoque_atual</code>).
+                    </p>
                 )}
             </Modal>
         </div>

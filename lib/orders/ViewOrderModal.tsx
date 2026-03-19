@@ -88,11 +88,7 @@ function qtyDisplay(it: any): string {
     const ut = String(it.unit_type ?? "").toLowerCase();
     if (ut === "unit") return `${q} ${q > 1 ? "unidades" : "unidade"}`;
     if (ut === "case") {
-        const pv = it.product_variants;
-        let cq = it.case_qty ?? null;
-        if (cq == null && pv != null) cq = Array.isArray(pv) ? (pv[0]?.case_qty ?? null) : (pv.case_qty ?? null);
-        const cqText = cq ? `cx${cq}` : "cx";
-        return `${cqText} × ${q}`;
+        return `cx × ${q}`;
     }
     return `${q}`;
 }
