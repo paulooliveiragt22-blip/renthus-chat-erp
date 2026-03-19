@@ -181,12 +181,13 @@ export default function FinanceiroPage() {
             let embCostMap: Record<string, { baseCost: number; fator: number }> = {};
             if (embIds.length > 0) {
                 const { data: embRows } = await supabase
-                    .from("produto_embalagens")
-                    .select("id, fator_conversao, preco_venda, products(preco_custo_unitario)")
+                    .from("view_pdv_produtos")
+                    .select("id, fator_conversao, product_preco_custo")
+                    .eq("company_id", companyId)
                     .in("id", embIds);
                 (embRows ?? []).forEach((e: any) => {
                     embCostMap[e.id] = {
-                        baseCost: Number(e.products?.preco_custo_unitario ?? 0),
+                        baseCost: Number(e.product_preco_custo ?? 0),
                         fator: Number(e.fator_conversao ?? 1),
                     };
                 });
