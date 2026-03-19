@@ -162,6 +162,9 @@ export default function ProdutosPage() {
 
     async function saveAll() {
         setSaving(true); setMsg(null);
+        setSaving(false);
+        setMsg("Cadastro de Produtos está temporariamente desativado na fase 2 (telas precisam ser refatoradas para `produto_embalagens`).");
+        return;
         if (!companyId)  { setMsg("Nenhuma empresa ativa."); setSaving(false); return; }
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
         if (!brandId)    { setMsg("Selecione uma marca."); setSaving(false); return; }
@@ -174,10 +177,10 @@ export default function ProdutosPage() {
             .insert({ name: `${catName} ${brandName}`.trim(), company_id: companyId, category_id: categoryId, brand_id: brandId, is_active: true })
             .select("id").single();
 
-        if (productErr) { setMsg(`Erro ao criar produto: ${productErr.message}`); setSaving(false); return; }
+        if (productErr) { setMsg(`Erro ao criar produto: ${productErr?.message ?? ""}`); setSaving(false); return; }
 
         const payload = rows.map((r) => ({
-            product_id:       product.id,
+            product_id:       product?.id ?? "",
             company_id:       companyId,
             tags:             r.tags.trim()  || null,
             volume_value:     r.hasVolume ? qtyToNumber(r.volumeValue) : null,
@@ -192,7 +195,7 @@ export default function ProdutosPage() {
         }));
 
         const { error: varErr } = await supabase.from("product_variants").insert(payload);
-        if (varErr) { setMsg(`Erro ao salvar variações: ${varErr.message}`); setSaving(false); return; }
+        if (varErr) { setMsg(`Erro ao salvar variações: ${varErr?.message ?? ""}`); setSaving(false); return; }
 
         setMsg("✓ Produto salvo com sucesso!");
         setRows([newRow("row-0")]);

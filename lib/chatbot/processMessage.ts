@@ -352,6 +352,9 @@ interface VariantRow {
     hasCase:         boolean;
     caseQty:         number | null;
     casePrice:       number | null;
+    // ID da embalagem CX (para debitar estoque) quando `isCase === true`.
+    // No novo modelo, `id` é o ID da embalagem UN (unit).
+    caseVariantId?: string;
     isAccompaniment: boolean;
 }
 
@@ -413,67 +416,60 @@ async function getProductsByCategory(
     categoryId: string,
     categoryName: string
 ): Promise<ProductListItem[]> {
-    const { data } = await admin
+    const { data: prods } = await admin
         .from("products")
-        .select(`
-            id,
-            name,
-            product_variants (
-                id,
-                volume_value,
-                unit,
-                unit_price,
-                has_case,
-                case_qty,
-                case_price,
-                is_active
-            )
-        `)
+        .select("id, name")
         .eq("category_id", categoryId)
         .eq("is_active", true)
         .order("name")
         .limit(12);
 
-    if (!data?.length) return [];
+    if (!prods?.length) return [];
+
+    const productIds = (prods ?? []).map((p: any) => p.id);
+    const { data: packs } = await admin
+        .from("produto_embalagens")
+        .select("id, produto_id, descricao, sigla_comercial, fator_conversao, preco_venda, tags, is_acompanhamento")
+        .in("produto_id", productIds)
+        ;
+
+    // `company_id` é filtrado por RLS (dev/teste). Se sua policy exigir filtro explícito,
+    // ajuste essa função para receber `companyId` também.
+    const packsSafe = (packs ?? []) as any[];
 
     const options: ProductListItem[] = [];
     let idx = 1;
 
-    for (const p of data as any[]) {
-        const variants: any[] = Array.isArray(p.product_variants)
-            ? p.product_variants.filter((v: any) => v.is_active !== false)
-            : [];
+    const byProd: Record<string, { unit: any | null; case: any | null }> = {};
+    for (const pk of packsSafe) {
+        const pid = String(pk.produto_id);
+        byProd[pid] ??= { unit: null, case: null };
+        const sig = String(pk.sigla_comercial ?? "").toUpperCase();
+        if (sig === "UN" || sig === "UNIDADE" || sig === "UN") byProd[pid].unit = pk;
+        if (sig === "CX" || sig === "CAIXA") byProd[pid].case = pk;
+    }
 
-        // Nome base sem prefixo da categoria (ex: "cerveja Original" → "Original")
+    for (const p of prods as any[]) {
         const shortName = stripCategoryPrefix(p.name, categoryName);
+        const pid = String(p.id);
+        const unitPack = byProd[pid]?.unit;
+        if (!unitPack) continue;
+        const casePack = byProd[pid]?.case ?? null;
 
-        if (!variants.length) {
-            options.push({
-                idx:         idx++,
-                productId:   p.id,
-                variantId:   p.id,
-                displayName: shortName,
-                unitPrice:   0,
-                hasCase:     false,
-            });
-        } else {
-            for (const v of variants) {
-                const vol         = v.volume_value ? `${v.volume_value}${v.unit ?? "ml"}` : null;
-                const displayName = vol ? `${shortName} ${vol}` : shortName;
+        const vol = unitPack.descricao ? String(unitPack.descricao) : null;
+        const displayName = vol ? `${shortName} ${vol}` : shortName;
 
-                options.push({
-                    idx:         idx++,
-                    productId:   p.id,
-                    variantId:   v.id,
-                    displayName,
-                    unitPrice:   Number(v.unit_price ?? 0),
-                    hasCase:     Boolean(v.has_case),
-                    caseQty:     v.case_qty  ? Number(v.case_qty)  : undefined,
-                    casePrice:   v.case_price ? Number(v.case_price) : undefined,
-                });
-                if (idx > 10) break;
-            }
-        }
+        options.push({
+            idx:         idx++,
+            productId:   pid,
+            variantId:   String(unitPack.id),
+            displayName,
+            unitPrice:   Number(unitPack.preco_venda ?? 0),
+            hasCase:     Boolean(casePack),
+            caseQty:     casePack?.fator_conversao ? Number(casePack.fator_conversao) : undefined,
+            casePrice:   casePack?.preco_venda ? Number(casePack.preco_venda) : undefined,
+        });
+
         if (idx > 10) break;
     }
 
@@ -513,7 +509,7 @@ async function getVariantsByBrandAndCategory(
     // Etapa 1: produtos da marca + categoria
     const { data: prods } = await admin
         .from("products")
-        .select("id, name")
+        .select("id, name, unit_type, details, is_active")
         .eq("brand_id", brandId)
         .eq("category_id", categoryId)
         .eq("is_active", true);
@@ -521,32 +517,54 @@ async function getVariantsByBrandAndCategory(
     if (!prods?.length) return [];
 
     const productIds = prods.map((p: any) => p.id);
-    const prodMap = Object.fromEntries(prods.map((p: any) => [p.id, p.name]));
+    const prodMap = Object.fromEntries(prods.map((p: any) => [p.id, p]));
 
-    // Etapa 2: variantes ativas desses produtos
-    const { data: vars } = await admin
-        .from("product_variants")
-        .select("id, product_id, details, tags, volume_value, unit, unit_price, has_case, case_qty, case_price, is_accompaniment")
-        .in("product_id", productIds)
-        .eq("is_active", true)
-        .order("volume_value", { ascending: true });
+    // Etapa 2: embalagens (UN/CX) desses produtos
+    const { data: packs } = await admin
+        .from("produto_embalagens")
+        .select("id, produto_id, descricao, sigla_comercial, fator_conversao, preco_venda, tags, is_acompanhamento")
+        .in("produto_id", productIds);
 
-    if (!vars?.length) return [];
+    if (!packs?.length) return [];
 
-    return (vars as any[]).map((v) => ({
-        id:              v.id,
-        productId:       v.product_id,
-        productName:     prodMap[v.product_id] ?? "",
-        details:         v.details ?? null,
-        tags:            v.tags    ?? null,
-        volumeValue:     Number(v.volume_value ?? 0),
-        unit:            v.unit ?? "ml",
-        unitPrice:       Number(v.unit_price ?? 0),
-        hasCase:         Boolean(v.has_case),
-        caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
-        casePrice:       v.case_price ? Number(v.case_price) : null,
-        isAccompaniment: Boolean(v.is_accompaniment),
-    }));
+    const byProd: Record<string, { unit: any | null; case: any | null }> = {};
+    for (const pk of packs as any[]) {
+        const pid = String(pk.produto_id);
+        byProd[pid] ??= { unit: null, case: null };
+        const sig = String(pk.sigla_comercial ?? "").toUpperCase();
+        if (sig === "UN") byProd[pid].unit = pk;
+        if (sig === "CX") byProd[pid].case = pk;
+    }
+
+    const variants: VariantRow[] = [];
+    for (const pid of productIds) {
+        const p = prodMap[pid];
+        if (!p) continue;
+        const unitPack = byProd[String(pid)]?.unit ?? null;
+        const casePack = byProd[String(pid)]?.case ?? null;
+        if (!unitPack && !casePack) continue;
+
+        const unit = p.unit_type ?? "un";
+        variants.push({
+            id: String(unitPack?.id ?? casePack?.id ?? pid), // base para unidade
+            productId: String(pid),
+            productName: String(p.name ?? ""),
+            details: (unitPack?.descricao ?? p.details ?? null) as string | null,
+            tags: unitPack?.tags ?? casePack?.tags ?? null,
+            volumeValue: 0,
+            unit: String(unit),
+            unitPrice: Number(unitPack?.preco_venda ?? 0),
+            hasCase: Boolean(casePack),
+            caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
+            casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
+            caseVariantId: casePack ? String(casePack.id) : undefined,
+            isAccompaniment: Boolean(unitPack?.is_acompanhamento || casePack?.is_acompanhamento),
+        });
+    }
+
+    // Ordena por preço de unidade
+    variants.sort((a, b) => (a.unitPrice ?? 0) - (b.unitPrice ?? 0));
+    return variants;
 }
 
 /**
@@ -570,10 +588,14 @@ async function searchVariantsByText(
     searchInput: string | string[],
     limit = 10
 ): Promise<VariantRow[]> {
+    // Novo modelo (produto_embalagens). Mantemos a implementação antiga como fallback,
+    // mas delegamos para a nova função para não depender de `product_variants`.
+    return searchVariantsByTextV2(admin, companyId, searchInput, limit);
+
     // Normaliza entrada → array de termos limpos (sem stopwords já removidas pelo caller)
     const terms: string[] = Array.isArray(searchInput)
-        ? searchInput.map(normalize).filter((t) => t.length >= 2)
-        : normalize(searchInput).split(/\s+/).filter((t) => t.length >= 2);
+        ? (searchInput as string[]).map((x: string) => normalize(x)).filter((t: string) => t.length >= 2)
+        : normalize(searchInput as string).split(/\s+/).filter((t: string) => t.length >= 2);
 
     if (!terms.length) return [];
 
@@ -591,7 +613,7 @@ async function searchVariantsByText(
         .eq("is_active", true)
         .limit(400);
 
-    if (error) console.error("[search] erro Supabase:", error.message);
+    if (error) console.error("[search] erro Supabase:", error?.message);
     console.log("[search] variantes carregadas:", data?.length ?? 0);
 
     if (!data?.length) return [];
@@ -677,9 +699,9 @@ async function searchVariantsByText(
         return [];
     }
 
-    console.log("[search] ilike fallback encontrou:", fallbackData.length, "variantes");
+    console.log("[search] ilike fallback encontrou:", (fallbackData ?? []).length, "variantes");
 
-    return (fallbackData as any[])
+    return ((fallbackData ?? []) as any[])
         .filter((v) => {
             const p = Array.isArray(v.products) ? v.products[0] : v.products;
             return p?.is_active;
@@ -702,6 +724,122 @@ async function searchVariantsByText(
             };
         })
         .slice(0, limit);
+}
+
+// Nova implementação para o modelo atual: agrupa `produto_embalagens` (UN/CX)
+// em uma estrutura do tipo `VariantRow` (que representa a "linha" de venda).
+async function searchVariantsByTextV2(
+    admin: SupabaseClient,
+    companyId: string,
+    searchInput: string | string[],
+    limit = 10
+): Promise<VariantRow[]> {
+    const terms: string[] = Array.isArray(searchInput)
+        ? searchInput.map(normalize).filter((t) => t.length >= 2)
+        : normalize(searchInput).split(/\s+/).filter((t) => t.length >= 2);
+
+    if (!terms.length) return [];
+
+    const { data, error } = await admin
+        .from("produto_embalagens")
+        .select(`
+          id,
+          produto_id,
+          descricao,
+          sigla_comercial,
+          fator_conversao,
+          preco_venda,
+          tags,
+          is_acompanhamento,
+          products!inner(
+            id,
+            name,
+            is_active,
+            unit_type,
+            details
+          )
+        `)
+        .eq("company_id", companyId)
+        .limit(800);
+
+    if (error) {
+        console.error("[searchV2] erro Supabase:", error.message);
+        return [];
+    }
+    if (!data?.length) return [];
+
+    // 1) Agrupar por produto (Pai)
+    const byProd: Record<string, {
+        unitPack: any | null;
+        casePack: any | null;
+        productsRow: any | null;
+        tags: string[];
+    }> = {};
+
+    for (const r of data as any[]) {
+        const pid = String(r.produto_id);
+        byProd[pid] ??= { unitPack: null, casePack: null, productsRow: null, tags: [] };
+        byProd[pid].productsRow = r.products ?? byProd[pid].productsRow;
+        const sig = String(r.sigla_comercial ?? "").toUpperCase();
+        if (sig === "UN") byProd[pid].unitPack = r;
+        if (sig === "CX") byProd[pid].casePack = r;
+        if (r.tags) byProd[pid].tags.push(String(r.tags));
+    }
+
+    const variants: VariantRow[] = Object.entries(byProd)
+        .map(([pid, grp]) => {
+            const p = grp.productsRow?.[0] ? grp.productsRow[0] : grp.productsRow;
+            if (!p || p.is_active === false) return null;
+
+            const unitPack = grp.unitPack ?? grp.casePack;
+            const casePack = grp.casePack;
+            if (!unitPack) return null;
+
+            return {
+                id: String(unitPack.id), // base = embalagem UN
+                productId: pid,
+                productName: String(p.name ?? ""),
+                details: (unitPack.descricao ?? p.details ?? null) as string | null,
+                tags: grp.tags.length ? grp.tags.join(",") : null,
+                volumeValue: 0,
+                unit: String(p.unit_type ?? "un"),
+                unitPrice: Number(unitPack.preco_venda ?? 0),
+                hasCase: Boolean(casePack),
+                caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
+                casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
+                caseVariantId: casePack ? String(casePack.id) : undefined,
+                isAccompaniment: Boolean(unitPack.is_acompanhamento || casePack?.is_acompanhamento),
+            };
+        })
+        .filter(Boolean) as VariantRow[];
+
+    // 2) Score JS (mesma ideia da versão antiga)
+    type Scored = { row: VariantRow; score: number };
+    const scored: Scored[] = [];
+
+    for (const v of variants as any[]) {
+        const productNameNorm = normalize(String(v.productName ?? ""));
+        const tagStr = v.tags ? normalize(String(v.tags)) : "";
+        const detailStr = v.details ? normalize(String(v.details)) : "";
+
+        let totalScore = 0;
+        for (const term of terms) {
+            if (productNameNorm.startsWith(term)) totalScore += 4;
+            else if (productNameNorm.includes(term)) totalScore += 2;
+
+            if (tagStr) {
+                const tagTokens = tagStr.split(/[,;]+/).map((t: string) => t.trim());
+                if (tagTokens.some((t: string) => (t ? t.includes(term) : false) || (term ? term.includes(t) : false))) {
+                    totalScore += 1;
+                }
+            }
+            if (detailStr.includes(term)) totalScore += 1;
+        }
+        if (totalScore > 0) scored.push({ score: totalScore, row: v });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit).map((s) => s.row);
 }
 
 /**
@@ -1000,37 +1138,63 @@ async function getAccompanimentItems(
     admin: SupabaseClient,
     companyId: string
 ): Promise<VariantRow[]> {
-    const { data } = await admin
-        .from("product_variants")
-        .select(`
-            id, product_id, details, tags, volume_value, unit,
-            unit_price, has_case, case_qty, case_price, is_accompaniment,
-            products!inner(id, name, is_active)
-        `)
+    // 1) Pegar quais produtos têm embalagem marcada como acompanhamento
+    const { data: accompPacks } = await admin
+        .from("produto_embalagens")
+        .select("id, produto_id, sigla_comercial, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, products!inner(id, name, is_active, unit_type, details)")
         .eq("company_id", companyId)
-        .eq("is_active", true)
-        .eq("is_accompaniment", true)
-        .limit(5);
+        .eq("is_acompanhamento", true)
+        .limit(50);
 
-    if (!data?.length) return [];
+    const safeAcc = (accompPacks ?? []) as any[];
+    if (!safeAcc.length) return [];
 
-    return (data as any[]).map((v) => {
-        const p = Array.isArray(v.products) ? v.products[0] : v.products;
-        return {
-            id:              String(v.id),
-            productId:       String(v.product_id),
-            productName:     String(p?.name ?? ""),
-            details:         v.details ?? null,
-            tags:            v.tags    ?? null,
-            volumeValue:     Number(v.volume_value ?? 0),
-            unit:            v.unit ?? "ml",
-            unitPrice:       Number(v.unit_price ?? 0),
-            hasCase:         Boolean(v.has_case),
-            caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
-            casePrice:       v.case_price ? Number(v.case_price) : null,
-            isAccompaniment: true,
-        };
-    });
+    const produtoIds = [...new Set(safeAcc.map((p) => String(p.produto_id)))].slice(0, 20);
+    const { data: packs } = await admin
+        .from("produto_embalagens")
+        .select("id, produto_id, sigla_comercial, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, products!inner(id, name, is_active, unit_type, details)")
+        .in("produto_id", produtoIds)
+        .eq("company_id", companyId);
+
+    const byProd: Record<string, { unitPack: any | null; casePack: any | null; p: any | null; tags: string[] }> = {};
+    for (const r of (packs ?? []) as any[]) {
+        const pid = String(r.produto_id);
+        byProd[pid] ??= { unitPack: null, casePack: null, p: null, tags: [] };
+        byProd[pid].p = r.products ?? byProd[pid].p;
+        const sig = String(r.sigla_comercial ?? "").toUpperCase();
+        if (r.tags) byProd[pid].tags.push(String(r.tags));
+        if (sig === "UN") byProd[pid].unitPack = r;
+        if (sig === "CX") byProd[pid].casePack = r;
+    }
+
+    const out: VariantRow[] = [];
+    for (const pid of produtoIds) {
+        const grp = byProd[pid];
+        if (!grp?.p) continue;
+        if (grp.p.is_active === false) continue;
+
+        const unitPack = grp.unitPack ?? grp.casePack;
+        const casePack = grp.casePack;
+        if (!unitPack) continue;
+
+        out.push({
+            id: String(unitPack.id),
+            productId: pid,
+            productName: String(grp.p.name ?? ""),
+            details: (unitPack.descricao ?? grp.p.details ?? null) as string | null,
+            tags: grp.tags.length ? grp.tags.join(",") : null,
+            volumeValue: 0,
+            unit: String(grp.p.unit_type ?? "un"),
+            unitPrice: Number(unitPack.preco_venda ?? 0),
+            hasCase: Boolean(casePack),
+            caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
+            casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
+            caseVariantId: casePack ? String(casePack.id) : undefined,
+            isAccompaniment: Boolean(unitPack.is_acompanhamento || casePack?.is_acompanhamento),
+        });
+    }
+
+    return out.slice(0, 5);
 }
 
 // ─── DB: Cliente ──────────────────────────────────────────────────────────────
@@ -1140,7 +1304,7 @@ async function createOrder(
         order_id:           order.id,
         company_id:         companyId,
         product_id:         item.productId,
-        product_variant_id: item.variantId,
+        produto_embalagem_id: item.variantId,
         product_name:       item.name,
         quantity:           item.qty,
         qty:                item.qty,
@@ -1164,21 +1328,7 @@ async function createOrder(
         throw new Error(itemsErr.message ?? "Falha ao criar itens do pedido");
     }
 
-    // Registrar saídas de estoque para cada item do pedido (chatbot)
-    const movements = cart
-        .filter(item => item.variantId)
-        .map(item => ({
-            company_id: companyId,
-            variant_id: item.variantId,
-            order_id:   order.id,
-            type:       "saida",
-            quantity:   item.qty,
-            note:       "Venda WhatsApp",
-        }));
-    if (movements.length > 0) {
-        const { error: movErr } = await admin.from("inventory_movements").insert(movements);
-        if (movErr) console.error("[createOrder] inventory_movements:", movErr.message);
-    }
+    // Débito de estoque fica a cargo do trigger em `order_items` (produto_embalagem_id → fator_conversao).
 
     console.log("[createOrder] concluído | orderId:", order.id);
     return order.id as string;
@@ -1636,7 +1786,7 @@ async function sendVariantsList(
 ): Promise<void> {
     const unitRows = variants.map((v) => ({
         id:          v.id,
-        title:       truncateTitle(`${v.volumeValue}${v.unit} - ${formatCurrency(v.unitPrice)}`),
+        title:       truncateTitle(`${v.productName}${v.volumeValue ? ` ${v.volumeValue}${v.unit}` : ""} - ${formatCurrency(v.unitPrice)}`),
         description: v.details ?? undefined,
     }));
 
@@ -1651,7 +1801,7 @@ async function sendVariantsList(
             title: "Caixa com:",
             rows:  caseVariants.map((v) => ({
                 id:          `${v.id}_case`,
-                title:       truncateTitle(`${v.caseQty}un - ${v.volumeValue}${v.unit}`),
+                title:       truncateTitle(`${v.caseQty}un - ${v.productName}${v.volumeValue ? ` ${v.volumeValue}${v.unit}` : ""}`),
                 description: `${v.details ? v.details + " - " : ""}${formatCurrency(v.casePrice ?? 0)}`,
             })),
         });
@@ -1974,10 +2124,10 @@ async function handleCatalogProducts(
 
         const isCase   = Boolean(pendingIsCase);
         const price    = isCase ? (pendingVariant.casePrice ?? pendingVariant.unitPrice) : pendingVariant.unitPrice;
-        const volLabel = `${pendingVariant.volumeValue}${pendingVariant.unit}`;
+        const volLabel = pendingVariant.volumeValue ? `${pendingVariant.volumeValue}${pendingVariant.unit}` : "";
         const name     = isCase
-            ? `${pendingVariant.productName} ${volLabel} (cx ${pendingVariant.caseQty}un)`
-            : `${pendingVariant.productName} ${volLabel}`;
+            ? (volLabel ? `${pendingVariant.productName} ${volLabel} (cx ${pendingVariant.caseQty}un)` : `${pendingVariant.productName} (cx ${pendingVariant.caseQty}un)`)
+            : (volLabel ? `${pendingVariant.productName} ${volLabel}` : pendingVariant.productName);
 
         const newCart     = [...session.cart];
         const existingIdx = newCart.findIndex(
@@ -1988,7 +2138,7 @@ async function handleCatalogProducts(
             newCart[existingIdx] = { ...newCart[existingIdx], qty: newCart[existingIdx].qty + qty };
         } else {
             newCart.push({
-                variantId: pendingVariant.id,
+                variantId: isCase ? (pendingVariant.caseVariantId ?? pendingVariant.id) : pendingVariant.id,
                 productId: pendingVariant.productId,
                 name,
                 price,
@@ -2044,10 +2194,10 @@ async function handleCatalogProducts(
         context: { ...session.context, pending_variant: selectedVariant, pending_is_case: isCase },
     });
 
-    const volLabel = `${selectedVariant.volumeValue}${selectedVariant.unit}`;
+    const volLabel = selectedVariant.volumeValue ? `${selectedVariant.volumeValue}${selectedVariant.unit}` : "";
     const label    = isCase
-        ? `*${selectedVariant.productName} ${volLabel} — Caixa com ${selectedVariant.caseQty}un* (${formatCurrency(selectedVariant.casePrice ?? 0)})`
-        : `*${selectedVariant.productName} ${volLabel}* (${formatCurrency(selectedVariant.unitPrice)})`;
+        ? `*${selectedVariant.productName}${volLabel ? " " + volLabel : ""} — Caixa com ${selectedVariant.caseQty}un* (${formatCurrency(selectedVariant.casePrice ?? 0)})`
+        : `*${selectedVariant.productName}${volLabel ? " " + volLabel : ""}* (${formatCurrency(selectedVariant.unitPrice)})`;
 
     await reply(phoneE164, `${label}\n\nQuantas unidades?`);
 }

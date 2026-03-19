@@ -21,9 +21,21 @@ function brl(v: number) {
 // ─── types ────────────────────────────────────────────────────────────────────
 
 interface Variant {
-  id: string; product_id: string; product_name: string; category: string;
-  unit_price: number; cost_price: number; volume_value: number | null;
-  unit: string | null; details: string | null; tags: string | null; is_active: boolean;
+  id: string; // produto_embalagens.id
+  produto_id: string; // products.id (pai)
+  product_name: string; // products.name
+  category: string;
+
+  sigla_comercial: string;
+  fator_conversao: number;
+  unit_price: number; // preco_venda da embalagem
+
+  codigo_interno: string | null;
+  codigo_barras_ean: string | null;
+
+  details: string | null; // embalagem.descricao
+  tags: string | null;
+  is_active: boolean;
 }
 interface CartItem  { variant: Variant; qty: number }
 interface PayLine   { id: string; method: "pix"|"card"|"cash"|"credit"; value: string; received: string; due_date?: string }
@@ -112,22 +124,46 @@ export default function PDVPage() {
     if (!companyId) return;
     setLoadingProd(true);
     const { data, error } = await supabase
-      .from("product_variants")
-      .select(`id,product_id,unit_price,cost_price,volume_value,unit,details,tags,is_active,products(name,categories(name))`)
-      .eq("company_id", companyId).eq("is_active", true)
-      .order("unit_price", { ascending: true });
-    if (error) console.error("[pdv]", error.message);
+      .from("produto_embalagens")
+      .select(`
+        id,
+        produto_id,
+        descricao,
+        sigla_comercial,
+        fator_conversao,
+        preco_venda,
+        codigo_barras_ean,
+        tags,
+        products(
+          id,
+          name,
+          is_active,
+          codigo_interno,
+          unit_type,
+          details,
+          categories(name),
+          brands(name)
+        )
+      `)
+      .eq("company_id", companyId);
+    if (error) console.error("[pdv] loadVariants:", error.message);
+
     setVariants((data ?? []).map((r: any) => ({
-      id: r.id, product_id: r.product_id,
+      id: String(r.id),
+      produto_id: String(r.produto_id),
       product_name: r.products?.name ?? "Produto",
-      category: r.products?.categories?.name ?? "Geral",
-      unit_price:   Number(r.unit_price  ?? 0),
-      cost_price:   Number(r.cost_price  ?? 0),
-      volume_value: r.volume_value ? Number(r.volume_value) : null,
-      unit:    r.unit    ?? null,
-      details: r.details ?? null,
-      tags:    r.tags    ?? null,
-      is_active: r.is_active,
+      category: r.products?.categories?.name ?? r.products?.categories?.[0]?.name ?? "Geral",
+
+      sigla_comercial: r.sigla_comercial ?? "UN",
+      fator_conversao: Number(r.fator_conversao ?? 1),
+      unit_price: Number(r.preco_venda ?? 0),
+
+      codigo_interno: r.products?.codigo_interno ?? null,
+      codigo_barras_ean: r.codigo_barras_ean ?? null,
+
+      details: r.descricao ?? null,
+      tags: r.tags ?? null,
+      is_active: Boolean(r.products?.is_active ?? true),
     })));
     setLoadingProd(false);
   }, [companyId, supabase]);
@@ -195,8 +231,20 @@ export default function PDVPage() {
     const q = search.toLowerCase().trim();
     return variants.filter(v => {
       const mc = activeCat === "Todos" || v.category === activeCat;
-      const mt = !q || v.product_name.toLowerCase().includes(q) || v.details?.toLowerCase().includes(q) || v.tags?.toLowerCase().includes(q);
-      return mc && mt;
+      if (!q) return mc;
+
+      const qDigits = q.replace(/\D/g, "");
+      const internalOk = Boolean(v.codigo_interno) && String(v.codigo_interno).toLowerCase().includes(q);
+      const eanRaw = v.codigo_barras_ean ?? "";
+      const eanDigits = String(eanRaw).replace(/\D/g, "");
+      const eanOk = qDigits.length >= 8 && eanDigits && eanDigits === qDigits;
+
+      const textOk =
+        v.product_name.toLowerCase().includes(q) ||
+        (v.details?.toLowerCase().includes(q) ?? false) ||
+        (v.tags?.toLowerCase().includes(q) ?? false);
+
+      return mc && (internalOk || eanOk || textOk);
     });
   }, [variants, search, activeCat]);
 
@@ -355,23 +403,15 @@ export default function PDVPage() {
       const { error: itemErr } = await supabase.from("order_items").insert(cart.map(i => ({
         company_id:         companyId,
         order_id:           oid,
-        product_variant_id: i.variant.id,
+        product_id:         i.variant.produto_id,
+        produto_embalagem_id: i.variant.id,
         product_name:       `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
         quantity:           i.qty,
         qty:                i.qty,
+          unit_type:          String(i.variant.sigla_comercial ?? "").toUpperCase() === "CX" ? "case" : "unit",
         unit_price:         i.variant.unit_price,
       })));
       if (itemErr) console.error("[pdv] order_items:", itemErr.message);
-
-      const { error: invErr } = await supabase.from("inventory_movements").insert(cart.map(i => ({
-        company_id: companyId,
-        variant_id: i.variant.id,
-        order_id:   oid,
-        type:       "saida",
-        quantity:   i.qty,
-        note:       "Venda PDV",
-      })));
-      if (invErr) console.error("[pdv] inventory_movements:", invErr.message);
 
       const { error: finErr } = await supabase.from("financial_entries").insert(payments.map(p => ({
         company_id:     companyId,
