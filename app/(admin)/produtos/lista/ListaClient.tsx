@@ -878,7 +878,7 @@ export default function ProdutosListaPage() {
             </div>
 
             {/* Edit Modal */}
-            <Modal title={selected ? `Editar: ${productName || selected.products?.name ?? ""}`.trim() : "Editar"} open={open} onClose={() => { setOpen(false); setSelected(null); setMsg(null); }} wide>
+            <Modal title={selected ? `Editar: ${productName || selected.products?.name || ""}`.trim() : "Editar"} open={open} onClose={() => { setOpen(false); setSelected(null); setMsg(null); }} wide>
                 <div className="flex flex-col gap-5">
                     {editLoading ? (
                         <div className="flex items-center justify-center py-12">
