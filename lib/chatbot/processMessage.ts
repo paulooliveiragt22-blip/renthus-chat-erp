@@ -71,19 +71,15 @@ function detectPaymentMethod(input: string): "pix" | "card" | "cash" | null {
     const n = normalize(input).trim();
     if (!n) return null;
 
-    // Números das opções (1=cartão, 2=pix, 3=dinheiro) – exato ou em frase
-    if (/\b1\b/.test(input.trim())) return "card";
-    if (/\b2\b/.test(input.trim())) return "pix";
-    if (/\b3\b/.test(input.trim())) return "cash";
+    // Only detect numbers as payment IF they're alone (not mixed with product text)
+    // i.e., the ENTIRE message is just "1", "2", or "3"
+    if (/^\s*1\s*$/.test(input)) return "card";
+    if (/^\s*2\s*$/.test(input)) return "pix";
+    if (/^\s*3\s*$/.test(input)) return "cash";
 
-    // PIX (prioridade: termo exato ou contido)
-    if (/\bpix\b/i.test(input) || n === "pix") return "pix";
-
-    // Cartão
-    if (/\b(cartao|cartão|card|credito|crédito|debito|débito)\b/i.test(input)) return "card";
-
-    // Dinheiro
-    if (/\b(dinheiro|cash)\b/i.test(input)) return "cash";
+    if (/\bpix\b/i.test(input)) return "pix";
+    if (/\b(cartao|cartão|card|credito|crédito|debito|débito|maquina|maquininha)\b/i.test(input)) return "card";
+    if (/\b(dinheiro|cash|especie|espécie)\b/i.test(input)) return "cash";
 
     return null;
 }
@@ -294,8 +290,11 @@ const AFFIRMATIVE = ["sim","s","yes","continuar","continue","blz","ok","pode","b
 const NEGATIVE = ["nao","n","no","nope","negativo","desistir","voltar","nao quero","nao obrigado"];
 
 function extractClientName(input: string): string | null {
-    const m = input.match(/(?:sou o?|me chamo|meu nome[eé]?|chamo|pode me chamar de)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i);
-    return m ? m[1].trim() : null;
+    const m = input.match(/(?:sou o?a?\s+|me chamo\s+|meu nome [eé]\s+|chamo\s+|pode me chamar de\s+)([A-Za-zÀ-ú][a-zà-ú]*(?:\s+[A-Za-zÀ-ú][a-zà-ú]*)*)/i);
+    if (!m) return null;
+    const name = m[1].trim();
+    // Capitalize first letter of each word
+    return name.replace(/\b([a-zà-ú])/g, (c) => c.toUpperCase());
 }
 
 function hasVolumeClue(text: string): boolean {
@@ -303,7 +302,7 @@ function hasVolumeClue(text: string): boolean {
 }
 
 function detectRemoveIntent(input: string): boolean {
-    return /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|cancela|cancelar|deleta|exclui|excluir|menos|retirar|tirar)\b/i.test(input);
+    return /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/i.test(input);
 }
 
 function detectMultipleAddresses(input: string): string[] | null {
@@ -1250,30 +1249,54 @@ async function handleFreeTextInput(
     const effective = wasFiltered ? foundFiltered : found;
 
     // ── Produto sem volume especificado → mostrar variantes ───────────────────
-    // Se o usuário não especificou volume E os resultados têm o mesmo nome de produto (múltiplas variantes)
-    if (!hasVolumeClue(cleanText) && !pkgExplicit && effective.length > 1) {
-        const productNames = new Set(effective.map((v) => normalize(v.productName)));
-        if (productNames.size === 1) {
-            // Todos do mesmo produto mas variantes diferentes (volumes)
+    // Se o usuário não especificou volume E os resultados são do mesmo produto (1 produto, possivelmente 1 variante)
+    if (!hasVolumeClue(cleanText) && !pkgExplicit && effective.length >= 1) {
+        // Group by productId (more reliable than productName)
+        const byProductId = new Map<string, VariantRow[]>();
+        for (const v of effective) {
+            const key = v.productId;
+            if (!byProductId.has(key)) byProductId.set(key, []);
+            byProductId.get(key)!.push(v);
+        }
+
+        // Only show variant selection when all results are the same product
+        if (byProductId.size === 1) {
+            const variants = [...byProductId.values()][0];
             const displayName = effective[0].productName;
-            const listLines = effective.slice(0, 9).map((v, i) => {
-                const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
-                const name = buildProductDisplayName(v, false);
-                return `${emoji} *${name}* — ${formatCurrency(v.unitPrice)}`;
-            });
-            await saveSession(admin, threadId, companyId, {
-                step: "awaiting_variant_selection",
-                context: {
-                    ...session.context,
-                    variant_options: effective.slice(0, 9),
-                    variant_qty: qty,
-                },
-            });
-            await reply(
-                phoneE164,
-                `🍺 *${displayName}* — qual opção você quer?\n\n${listLines.join("\n")}\n\n_Digite o número da opção. Para pedir vários: "1,2 3,4" (opção,qtd)_`
-            );
-            return "handled";
+            const displayVariants: VariantRow[] = [];
+            for (const v of variants) {
+                displayVariants.push(v); // UN variant
+                // Add CX variant as separate entry if exists
+                if (v.hasCase && v.caseVariantId) {
+                    displayVariants.push({
+                        ...v,
+                        id: v.caseVariantId,
+                        unitPrice: v.casePrice ?? v.unitPrice,
+                    });
+                }
+            }
+
+            if (displayVariants.length >= 1) {
+                const listLines = displayVariants.slice(0, 9).map((v, i) => {
+                    const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
+                    const isCase = variants.some(orig => orig.caseVariantId === v.id && orig.id !== v.id);
+                    const name = buildProductDisplayName(v, isCase);
+                    return `${emoji} *${name}* — ${formatCurrency(v.unitPrice)}`;
+                });
+                await saveSession(admin, threadId, companyId, {
+                    step: "awaiting_variant_selection",
+                    context: {
+                        ...session.context,
+                        variant_options: displayVariants.slice(0, 9),
+                        variant_qty: qty,
+                    },
+                });
+                await reply(
+                    phoneE164,
+                    `🍺 *${displayName}* — qual opção você quer?\n\n${listLines.join("\n")}\n\n_Digite o número da opção. Para pedir vários: "1 2 3" ou "3x1" para 3 unidades da opção 1_`
+                );
+                return "handled";
+            }
         }
     }
 
@@ -1726,77 +1749,39 @@ export async function processInboundMessage(
 
     console.log("[chatbot] session step:", session.step, "| cartItems:", session.cart.length, "| input:", input);
 
-    // ── Detecção de nome do cliente ───────────────────────────────────────────
-    const detectedName = extractClientName(input);
-    if (detectedName && session.customer_id) {
-        await admin.from("customers").update({ name: detectedName }).eq("id", session.customer_id);
-        await saveSession(admin, threadId, companyId, {
-            context: { ...session.context, client_name: detectedName },
-        });
-        session.context.client_name = detectedName;
-        await reply(phoneE164, `Olá, *${detectedName}*! 😊 Como posso te ajudar?`);
-        return;
-    }
-
-    // ── Comandos globais (funcionam em qualquer etapa) ────────────────────────
-
-    // awaiting_cancel_confirm: handle yes/no
-    if (session.step === "awaiting_cancel_confirm") {
-        const normInput = normalize(input);
-        const isAff = AFFIRMATIVE.some((a) => normInput === normalize(a) || normInput.includes(normalize(a)));
-        const isNeg = NEGATIVE.some((n) => normInput === normalize(n) || normInput.includes(normalize(n)));
-        if (isAff) {
-            await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-            await reply(phoneE164, buildMainMenu(companyName));
-            return;
-        }
-        if (isNeg) {
-            const prevStep = (session.context.cancel_return_step as string) ?? "catalog_products";
-            await saveSession(admin, threadId, companyId, { step: prevStep, context: { ...session.context, cancel_return_step: undefined } });
-            await reply(phoneE164, "Ok, pedido mantido! Pode continuar. 😊");
-            return;
-        }
-        await reply(phoneE164, "Tem certeza que quer cancelar o pedido? Responda *sim* para confirmar.");
-        return;
-    }
-
-    // cancelar: se vier com produto → remove item; se sozinho → pede confirmação
-    if (matchesAny(input, ["cancelar", "cancela"])) {
-        const normIn = normalize(input);
-        const withoutCancel = normIn.replace(/\b(cancelar|cancela)\b/g, "").trim();
-        const cancelTerms = withoutCancel.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
-        const isCancelWithProduct = cancelTerms.length > 0 && !matchesAny(withoutCancel, ["pedido"]);
-        if (!isCancelWithProduct) {
-            if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
-                await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-                await reply(phoneE164, buildMainMenu(companyName));
-                return;
-            }
-            await saveSession(admin, threadId, companyId, {
-                step: "awaiting_cancel_confirm",
-                context: { ...session.context, cancel_return_step: session.step },
-            });
-            await reply(phoneE164, "Tem certeza que quer cancelar o pedido? Responda *sim* para confirmar.");
-            return;
-        }
-        // Has product terms — fall through to remove logic below
-    }
-
+    // ── 1. Global reset (menu/oi/ola/reiniciar — WITHOUT cancelar) ───────────
     if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
         await reply(phoneE164, buildMainMenu(companyName));
         return;
     }
 
+    // ── 2. Handover ───────────────────────────────────────────────────────────
     if (matchesAny(input, ["atendente", "humano", "pessoa", "falar com alguem", "ajuda"])) {
         await doHandover(admin, companyId, threadId, phoneE164, companyName, session);
         return;
     }
 
-    // ── Global remove intent (cancelar + produto, tira X, etc.) ──────────────
+    // ── 3. Detecção de nome do cliente (must run EARLY) ───────────────────────
+    const detectedName = extractClientName(input);
+    if (detectedName) {
+        // Always save to context
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, client_name: detectedName },
+        });
+        session.context.client_name = detectedName;
+        // Only update DB if customer_id exists
+        if (session.customer_id) {
+            await admin.from("customers").update({ name: detectedName }).eq("id", session.customer_id);
+        }
+        await reply(phoneE164, `Olá, *${detectedName}*! 😊 Como posso te ajudar?`);
+        return;
+    }
+
+    // ── 4. Remove intent (retira/tira/cancela + product) — before cancelar-alone check ──
     if (detectRemoveIntent(input) && session.cart.length > 0) {
         const normIn = normalize(input);
-        const withoutVerb = normIn.replace(/\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|cancela|cancelar|deleta|exclui|excluir|menos|retirar|tirar)\b/gi, "").trim();
+        const withoutVerb = normIn.replace(/\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/gi, "").trim();
         const removeTerms = withoutVerb.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
         if (removeTerms.length > 0) {
             const idx = session.cart.findIndex((c) => removeTerms.some((t) => normalize(c.name).includes(t)));
@@ -1813,17 +1798,75 @@ export async function processInboundMessage(
         }
     }
 
-    // ── Affirmative global handling ───────────────────────────────────────────
+    // ── 5. Cancel handling (cancelar alone → awaiting_cancel_confirm; cancelar + product → remove) ──
+    const isCancelarInput = /\b(cancelar|cancela)\b/i.test(input);
+    if (isCancelarInput) {
+        const normIn = normalize(input);
+        const withoutCancel = normIn.replace(/\b(cancelar|cancela)\b/g, "").trim();
+        const cancelTerms = withoutCancel.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+
+        if (cancelTerms.length > 0) {
+            // Has product terms → try to remove from cart
+            if (session.cart.length > 0) {
+                const idx = session.cart.findIndex((c) =>
+                    cancelTerms.some((t) => normalize(c.name).includes(t))
+                );
+                if (idx >= 0) {
+                    const item = session.cart[idx];
+                    const newCart = [...session.cart];
+                    if (item.qty > 1) {
+                        newCart[idx] = { ...item, qty: item.qty - 1 };
+                        await saveSession(admin, threadId, companyId, { cart: newCart, context: session.context });
+                        await reply(phoneE164, `↩️ *${item.name}*: agora ${item.qty - 1}x no carrinho.`);
+                    } else {
+                        newCart.splice(idx, 1);
+                        await saveSession(admin, threadId, companyId, { cart: newCart, context: session.context });
+                        await reply(phoneE164, `🗑️ *${item.name}* removido do carrinho.`);
+                    }
+                    return;
+                }
+            }
+            // No match in cart → fall through to normal flow (might be a product search)
+        } else {
+            // "cancelar" alone → ask confirmation (unless already in awaiting_cancel_confirm)
+            if (session.step !== "awaiting_cancel_confirm") {
+                await saveSession(admin, threadId, companyId, {
+                    step: "awaiting_cancel_confirm",
+                    context: { ...session.context, pre_cancel_step: session.step },
+                });
+                await reply(phoneE164, "⚠️ Tem certeza que quer *cancelar o pedido*?\n\nResponda *sim* para confirmar ou *não* para continuar.");
+                return;
+            }
+        }
+    }
+
+    // ── 6. awaiting_cancel_confirm step handler ───────────────────────────────
+    if (session.step === "awaiting_cancel_confirm") {
+        const isYes = /\b(sim|s|yes|pode|confirm|cancela|cancelo)\b/i.test(normalize(input));
+        const isNo  = /\b(nao|n|no|nope|voltar|continuar|nao quero)\b/i.test(normalize(input));
+        if (isYes) {
+            await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
+            await reply(phoneE164, buildMainMenu(companyName));
+        } else if (isNo) {
+            const prevStep = (session.context.pre_cancel_step as string) ?? "main_menu";
+            await saveSession(admin, threadId, companyId, { step: prevStep, context: { ...session.context, pre_cancel_step: undefined } });
+            await reply(phoneE164, "Ok, continuando seu pedido! 😊");
+        } else {
+            await reply(phoneE164, "Responda *sim* para cancelar o pedido ou *não* para continuar.");
+        }
+        return;
+    }
+
+    // ── 7. Affirmative/negative global (checkout_confirm + other steps) ───────
     {
-        const normInput = normalize(input);
-        const isAff = AFFIRMATIVE.some((a) => normInput === normalize(a) || normInput.includes(normalize(a)));
-        if (isAff && session.step === "checkout_confirm") {
+        const isAffirmative = /\b(sim|s|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda)\b/i.test(input);
+        if (isAffirmative && session.step === "checkout_confirm") {
             await handleCheckoutConfirm(admin, companyId, threadId, phoneE164, companyName, "confirmar", session);
             return;
         }
     }
 
-    // ── Atalho global de checkout: "fechar", "pagar", "finalizar", "acabou" ──
+    // ── 8. Checkout keywords ──────────────────────────────────────────────────
     const CHECKOUT_KEYWORDS = ["fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha","bater caixa","vou pagar","quero finalizar","vou finalizar","pode fechar","fecha ai","bater o caixa","quero fechar","encerrar","terminar","quero confirmar"];
     if (matchesAny(input, CHECKOUT_KEYWORDS) && session.cart.length > 0) {
         console.log("[chatbot] atalho de checkout detectado | cart:", session.cart.length);
@@ -1831,12 +1874,9 @@ export async function processInboundMessage(
         return;
     }
 
-    // ── Prioridade checkout_payment: não chamar OrderParserService ─────────────
-    // Em checkout_payment, validar PIX/Cartão/Dinheiro antes do parser global.
-    // Parser só roda se texto for muito longo (usuário mudou de assunto).
+    // ── 9. Payment detection for payment step (any message length) ────────────
     const PAYMENT_STEP = "checkout_payment";
-    const PAYMENT_IGNORE_PARSER_LENGTH = 50;
-    if (session.step === PAYMENT_STEP && input.length <= PAYMENT_IGNORE_PARSER_LENGTH) {
+    if (session.step === PAYMENT_STEP) {
         const detectedPayment = detectPaymentMethod(input);
         if (detectedPayment) {
             await handleCheckoutPayment(admin, companyId, threadId, phoneE164, input, session);
@@ -1844,7 +1884,26 @@ export async function processInboundMessage(
         }
     }
 
-    // ── Interceptor global: OrderParserService (produtos + endereço) ───────────
+    // ── 10. Detect multiple delivery addresses in one message ─────────────────
+    const multipleAddresses = detectMultipleAddresses(input);
+    if (multipleAddresses && multipleAddresses.length >= 2 && session.step !== "awaiting_split_order") {
+        await saveSession(admin, threadId, companyId, {
+            step: "awaiting_split_order",
+            cart: session.cart,
+            context: { ...session.context, split_address_1: multipleAddresses[0], split_address_2: multipleAddresses[1] },
+        });
+        await sendInteractiveButtons(
+            phoneE164,
+            `📍 Percebi *dois endereços* na sua mensagem:\n\n• *${multipleAddresses[0]}*\n• *${multipleAddresses[1]}*\n\nSerão dois pedidos separados ou um pedido em dois endereços?`,
+            [
+                { id: "split_yes", title: "Dois pedidos" },
+                { id: "split_no",  title: "Um pedido" },
+            ]
+        );
+        return;
+    }
+
+    // ── 11. Interceptor global: OrderParserService (produtos + endereço) ──────
     // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
     if (input.length >= 3) {
         const products = await getCachedProducts(admin, companyId);
@@ -2081,9 +2140,7 @@ export async function processInboundMessage(
             break;
 
         case "awaiting_cancel_confirm":
-            // Handled above in global commands section
-            await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-            await reply(phoneE164, buildMainMenu(companyName));
+            // Handled above in global commands section (step 6)
             break;
 
         case "awaiting_variant_selection":
@@ -3772,80 +3829,80 @@ async function handleAwaitingVariantSelection(
     session: Session
 ): Promise<void> {
     const variantOptions = (session.context.variant_options as VariantRow[]) ?? [];
-    const variantQty = (session.context.variant_qty as number) ?? 1;
-
     if (!variantOptions.length) {
         await saveSession(admin, threadId, companyId, { step: "catalog_products" });
-        await reply(phoneE164, "Não encontrei as opções. Digite o nome do produto novamente.");
+        await reply(phoneE164, "Não encontrei as opções anteriores. O que você gostaria?");
         return;
     }
 
-    // Parse multi-select: "1", "1 2", "1,3 2,2", "1 e 3", "2x1"
-    const normInput = input.trim();
-    type Selection = { idx: number; qty: number };
-    const selections: Selection[] = [];
+    const defaultQty = Number(session.context.variant_qty ?? 1);
 
-    // "2x1" format → qty x option
-    const qtyxMatch = normInput.match(/^(\d+)x(\d+)$/i);
-    if (qtyxMatch) {
-        const q = parseInt(qtyxMatch[1], 10);
-        const o = parseInt(qtyxMatch[2], 10) - 1;
-        if (o >= 0 && o < variantOptions.length) selections.push({ idx: o, qty: q });
-    } else {
-        // Split by " e ", spaces, commas
-        const parts = normInput.split(/\s+e\s+|\s+/);
-        for (const part of parts) {
-            const commaMatch = part.match(/^(\d+),(\d+)$/);
-            if (commaMatch) {
-                const o = parseInt(commaMatch[1], 10) - 1;
-                const q = parseInt(commaMatch[2], 10);
-                if (o >= 0 && o < variantOptions.length) selections.push({ idx: o, qty: q });
-            } else {
-                const num = parseInt(part, 10);
-                if (!isNaN(num)) {
-                    const o = num - 1;
-                    if (o >= 0 && o < variantOptions.length) selections.push({ idx: o, qty: variantQty });
-                }
-            }
+    // Parse selections: support "3x1", "2 x 1", "1 2 3", single numbers
+    interface Sel { idx: number; qty: number }
+    const selections: Sel[] = [];
+
+    // Try "NxM" or "N x M" format first (qty x option)
+    const qxoRe = /(\d+)\s*x\s*(\d+)/gi;
+    let qxoMatch: RegExpExecArray | null;
+    let hasQxo = false;
+    const inputForParsing = input;
+    while ((qxoMatch = qxoRe.exec(inputForParsing)) !== null) {
+        const q = parseInt(qxoMatch[1], 10);
+        const opt = parseInt(qxoMatch[2], 10) - 1;
+        if (opt >= 0 && opt < variantOptions.length) {
+            selections.push({ idx: opt, qty: q });
+            hasQxo = true;
+        }
+    }
+
+    if (!hasQxo) {
+        // Fall back: each space/comma separated number = one option, qty = defaultQty
+        const nums = input.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= variantOptions.length);
+        for (const n of nums) {
+            const existing = selections.find(s => s.idx === n - 1);
+            if (existing) existing.qty += defaultQty;
+            else selections.push({ idx: n - 1, qty: defaultQty });
         }
     }
 
     if (!selections.length) {
         const listText = variantOptions.map((v, i) => {
-            const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
-            return `${emoji} *${buildProductDisplayName(v)}* — ${formatCurrency(v.unitPrice)}`;
+            const nm = buildProductDisplayName(v);
+            return `${NUMBER_EMOJIS[i] ?? `${i+1}.`} *${nm}* — ${formatCurrency(v.unitPrice)}`;
         }).join("\n");
-        await reply(phoneE164, `Número inválido. Escolha:\n\n${listText}\n\n_Digite o número da opção._`);
+        await reply(phoneE164, `Digite o número da opção:\n\n${listText}\n\n_Ex: "1" para primeira opção, "1 2" para duas opções, "3x1" para 3 unidades da opção 1_`);
         return;
     }
 
-    const newCart = [...session.cart];
-    const addedLines: string[] = [];
+    let newCart = [...session.cart];
+    const addedItems: string[] = [];
 
     for (const sel of selections) {
         const v = variantOptions[sel.idx];
-        const name = buildProductDisplayName(v, false);
-        const existing = newCart.findIndex((c) => c.variantId === v.id && !c.isCase);
-        if (existing >= 0) {
-            newCart[existing] = { ...newCart[existing], qty: newCart[existing].qty + sel.qty };
+        if (!v) continue;
+        const name = buildProductDisplayName(v);
+        const cartIdx = newCart.findIndex(c => c.variantId === v.id);
+        if (cartIdx >= 0) {
+            newCart[cartIdx] = { ...newCart[cartIdx], qty: newCart[cartIdx].qty + sel.qty };
         } else {
             newCart.push({ variantId: v.id, productId: v.productId, name, price: v.unitPrice, qty: sel.qty, isCase: false });
         }
-        addedLines.push(`✅ ${sel.qty}x *${name}* — ${formatCurrency(v.unitPrice * sel.qty)}`);
+        addedItems.push(`${sel.qty}x ${name}`);
     }
 
+    const total = newCart.reduce((s, i) => s + i.price * i.qty, 0);
     await saveSession(admin, threadId, companyId, {
         step: "catalog_products",
         cart: newCart,
-        context: { ...session.context, variant_options: null, variant_qty: null },
+        context: { ...session.context, variant_options: undefined, variant_qty: undefined },
     });
 
+    const cartText = newCart.length > 0 ? `\n\n🛒 *Pedido:*\n${formatCart(newCart)}\n\n💰 *Total: ${formatCurrency(total)}*` : "";
     await sendInteractiveButtons(
         phoneE164,
-        `${addedLines.join("\n")}\n\n${formatCart(newCart)}\n\nDeseja mais alguma coisa?`,
+        `✅ Adicionado: ${addedItems.join(", ")}!${cartText}\n\nQuer mais alguma coisa?`,
         [
             { id: "mais_produtos", title: "Mais produtos" },
-            { id: "ver_carrinho",  title: "Ver carrinho" },
             { id: "finalizar",     title: "Finalizar pedido" },
         ]
     );
