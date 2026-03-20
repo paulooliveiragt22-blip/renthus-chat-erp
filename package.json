@@ -10,6 +10,7 @@
     "test": "tsc --project tsconfig.test.json && node --test .tests-dist/**/*.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
