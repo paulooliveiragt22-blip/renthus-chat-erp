@@ -292,9 +292,9 @@ export async function validateAddressViaGoogle(
         const formatted = result.formatted_address ?? rawAddress;
 
         const getComp = (types: string[]) =>
-            comps.find((c) => types.some((t) => c.types.includes(t)))?.long_name ?? "";
+            comps.find((c) => types.some((t) => (c.types as readonly string[]).includes(t)))?.long_name ?? "";
         const getShort = (types: string[]) =>
-            comps.find((c) => types.some((t) => c.types.includes(t)))?.short_name ?? "";
+            comps.find((c) => types.some((t) => (c.types as readonly string[]).includes(t)))?.short_name ?? "";
 
         const rua = getComp(["route"]);
         const numero = getComp(["street_number"]);
@@ -401,9 +401,9 @@ export async function processAddressValidation(
         const formatted = result.formatted_address ?? rawAddress;
 
         const getComp = (types: string[]) =>
-            comps.find((c) => types.some((t) => c.types.includes(t)))?.long_name ?? "";
+            comps.find((c) => types.some((t) => (c.types as readonly string[]).includes(t)))?.long_name ?? "";
         const getShort = (types: string[]) =>
-            comps.find((c) => types.some((t) => c.types.includes(t)))?.short_name ?? "";
+            comps.find((c) => types.some((t) => (c.types as readonly string[]).includes(t)))?.short_name ?? "";
 
         const rua = getComp(["route"]);
         const numero = getComp(["street_number"]);

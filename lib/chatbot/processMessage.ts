@@ -1570,9 +1570,12 @@ export async function processInboundMessage(
                 delivery_address_structured: validation.structured ?? null,
                 delivery_fee: zone?.fee ?? null,
                 delivery_zone_id: zone?.id ?? null,
+                saved_address: null,
+                awaiting_address: false,
                 consecutive_unknown_count: 0,
             };
-            await saveSession(admin, threadId, companyId, { context: ctx });
+            const newStep = session.step === "checkout_address" ? "checkout_payment" : session.step;
+            await saveSession(admin, threadId, companyId, { step: newStep, context: ctx });
             const formatted = validation.structured?.formatted ?? rawAddr;
             const feeText = zone ? `\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*` : "";
             const cartText = session.cart.length > 0 ? `\n\n🛒 *Pedido:*\n${formatCart(session.cart)}` : "";
