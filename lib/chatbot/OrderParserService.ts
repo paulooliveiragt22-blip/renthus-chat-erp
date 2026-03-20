@@ -87,8 +87,8 @@ export type ParseIntentResult =
     | { action: "confirm_order"; items: ParsedItem[]; address: ParsedAddress; contextUpdate: Partial<Session["context"]> }
     | { action: "add_to_cart"; items: ParsedItem[]; contextUpdate: Partial<Session["context"]>; askAddress: true }
     | { action: "add_to_cart"; items: ParsedItem[]; contextUpdate: Partial<Session["context"]>; askAddress?: false }
-    | { action: "low_confidence"; message: string; confidence: number }
-    | { action: "product_not_found"; message: string }
+    | { action: "low_confidence"; message: string; confidence: number; contextUpdate?: Partial<Session["context"]> }
+    | { action: "product_not_found"; message: string; contextUpdate?: Partial<Session["context"]> }
     | { action: "invalid"; message: string };
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -103,6 +103,7 @@ const QUANTITY_WORDS: Record<string, number> = {
 const FUSE_THRESHOLD = 0.4;
 const CONFIDENCE_MIN = 0.4;
 const CONFIDENCE_LOW = 0.3;  // Abaixo disso → low_confidence (fallback inteligente)
+const QTY_SANITY_MAX = 20;   // Quantidade > isso gera confirmação ou fallback para 1
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -119,32 +120,41 @@ const LEADING_VERBS = /\b(quero|quer|manda|mande|traga|trazer|por favor|pf|me\s+
 
 /**
  * Extrai quantidade de um trecho de texto (número ou palavra).
- * Converte 'um/uma' → 1, 'dois/duas' → 2, etc.
- * Retorna { qty, remainder } onde remainder é o texto sem a quantidade.
+ * PRIORIDADE: palavras por extenso (uma, duas) > dígitos no início.
+ * NUNCA usa números que parecem ser de endereço (ex: 86 no final) ou de unidade (600ml).
  */
 function extractQuantityFromText(text: string): { qty: number; remainder: string } {
     let t = text.trim();
     if (!t) return { qty: 1, remainder: t };
 
-    // Remove verbos no início para expor quantidade (ex: "manda duas heineken" → "duas heineken")
+    // Remove verbos no início (ex: "manda duas heineken" → "duas heineken")
     t = t.replace(LEADING_VERBS, "").trim();
     if (!t) return { qty: 1, remainder: text.trim() };
 
     let qty = 1;
     let remainder = t;
 
-    // Número em qualquer posição (1-99), ex: "2 skol" ou "quero 2 skol"
-    const numMatch = t.match(/(?:^|\s)(\d{1,2})\s+(.+)$/);
-    if (numMatch) {
-        const n = parseInt(numMatch[1], 10);
-        if (n >= 1 && n <= 99) {
-            qty = n;
-            remainder = numMatch[2].trim();
+    // 1) PRIORIDADE: palavras por extenso (um, uma, dois, etc.) — convertem corretamente
+    for (const [word, value] of Object.entries(QUANTITY_WORDS)) {
+        const re = new RegExp(`^\\s*${word}\\b[\\s,;:.!?\\-]*\\s+(.+)$`, "i");
+        const m = t.match(re);
+        if (m) {
+            qty = value;
+            remainder = m[1].trim();
+            return { qty, remainder };
+        }
+    }
+    for (const [word, value] of Object.entries(QUANTITY_WORDS)) {
+        const re = new RegExp(`\\b${word}\\b[\\s,;:.!?\\-]*\\s+(.+)`, "i");
+        const m = t.match(re);
+        if (m && m[1].trim().length >= 2) {
+            qty = value;
+            remainder = m[1].trim();
             return { qty, remainder };
         }
     }
 
-    // Número no início
+    // 2) Dígitos — apenas no INÍCIO (evita pegar número de endereço no final)
     const numStart = t.match(/^\s*(\d{1,2})\s+(.+)$/);
     if (numStart) {
         const n = parseInt(numStart[1], 10);
@@ -155,24 +165,14 @@ function extractQuantityFromText(text: string): { qty: number; remainder: string
         }
     }
 
-    // Palavra por extenso (um, uma, dois, duas, etc.) — no início ou após verbos
-    for (const [word, value] of Object.entries(QUANTITY_WORDS)) {
-        const re = new RegExp(`^\\s*${word}\\s+(.+)$`, "i");
-        const m = t.match(re);
-        if (m) {
-            qty = value;
-            remainder = m[1].trim();
-            return { qty, remainder };
-        }
-    }
-
-    // Palavra por extenso em qualquer posição (ex: "manda duas heineken" já sem verbos = "duas heineken")
-    for (const [word, value] of Object.entries(QUANTITY_WORDS)) {
-        const re = new RegExp(`\\b${word}\\s+(.+)`, "i");
-        const m = t.match(re);
-        if (m && m[1].trim().length >= 2) {
-            qty = value;
-            remainder = m[1].trim();
+    // 3) Número no meio — só se NÃO estiver no final (nº de endereço) e for <= QTY_SANITY_MAX
+    const numMid = t.match(/(?:^|\s)(\d{1,2})\s+(.+)$/);
+    if (numMid && numMid[2].trim().length >= 2) {
+        const n = parseInt(numMid[1], 10);
+        // Evitar números que parecem de endereço (ex: 86 no final da frase)
+        if (n >= 1 && n <= QTY_SANITY_MAX) {
+            qty = n;
+            remainder = numMid[2].trim();
             return { qty, remainder };
         }
     }
@@ -210,8 +210,8 @@ function extractAddressFromText(input: string): AddressExtractResult | null {
         return { address: fullAddr, rawSlice };
     }
 
-    // Fallback: texto após "na rua", "no bairro", "na av", etc.
-    const afterPrep = input.match(/\b(na|no)\s+(rua|av\.?|avenida|bairro|r\.)\s+(.+?)(?:\.|$)/i);
+    // Fallback: texto após "na rua", "no beco", "na av", etc.
+    const afterPrep = input.match(/\b(na|no)\s+(rua|r\.|av\.?|avenida|bairro|beco|viela|travessa|alameda)\s+(.+?)(?:\.|$)/i);
     if (afterPrep) {
         const rawSlice = afterPrep[0];
         return { address: afterPrep[3].trim(), rawSlice };
@@ -289,22 +289,41 @@ export class OrderParserService {
     }
 
     /**
+     * Remove números que fazem parte de unidades de medida (600ml, 350g) do texto de busca.
+     * Evita que "600" seja interpretado como quantidade quando o produto é "Heineken 600ml".
+     */
+    private stripUnitMeasuresFromSearch(text: string): string {
+        return text.replace(/\d+(?:\.\d+)?\s*(?:ml|g|kg|l|lt|litro|unidade|un)\b/gi, " ").replace(/\s+/g, " ").trim();
+    }
+
+    /**
      * Extrai itens (produto + qty) de um trecho de texto.
-     * @param includeLowConfidence Se true, inclui matches com confidence baixa (para detectar low_confidence).
+     * ORDEM: primeiro busca o produto; quantidade só de palavras/dígitos antes ou adjacentes ao produto.
+     * Sanity: qty > 20 → usa 1 (provável confusão com número de endereço).
      */
     private extractItems(text: string, includeLowConfidence = false): ParsedItem[] {
         const items: ParsedItem[] = [];
         const parts = splitMultiItems(text);
 
         for (const part of parts) {
-            const { qty, remainder } = extractQuantityFromText(part);
+            const { qty: rawQty, remainder } = extractQuantityFromText(part);
             if (!remainder || remainder.length < 2) continue;
 
-            const found = this.findProduct(remainder, includeLowConfidence);
+            // Busca produto no texto (sem números de unidade como 600ml)
+            const searchText = this.stripUnitMeasuresFromSearch(remainder);
+            const found = this.findProduct(searchText || remainder, includeLowConfidence);
             if (!found) continue;
 
+            // Sanity: quantidade muito alta provavelmente é número de endereço
+            let qty = rawQty;
+            if (qty > QTY_SANITY_MAX) {
+                qty = 1;
+            }
+
             const p = found.product;
-            const volLabel = p.volumeValue ? ` ${p.volumeValue}${p.unit ?? ""}` : "";
+            const volLabel = p.volumeValue
+                ? ` ${p.volumeValue}${p.unit ? ` ${p.unit}` : ""}`.trim()
+                : "";
             const name = `${p.productName}${volLabel}`.trim();
 
             items.push({
@@ -328,11 +347,26 @@ export class OrderParserService {
     private removeAddressFromText(text: string, rawSlice: string): string {
         const lower = text.toLowerCase();
         const sliceLower = rawSlice.toLowerCase();
+
+        const stripTrailingPrepositions = (s: string): string => {
+            let out = (s ?? "").trim();
+            // Remove preposições que podem sobrar no final após recorte do endereço:
+            // "manda duas heineken na rua ... " → "manda duas heineken na"
+            // Queremos o texto final para busca ser só o nome do produto.
+            for (let i = 0; i < 3; i++) {
+                const next = out.replace(/\b(na|no|em|para)\b[\s,;:.!?-]*$/i, "").trim();
+                if (!next) return "";
+                if (next === out) break;
+                out = next;
+            }
+            return out;
+        };
+
         let idx = lower.indexOf(sliceLower);
         if (idx >= 0) {
             const before = text.slice(0, idx).trim();
             const after = text.slice(idx + rawSlice.length).trim();
-            return [before, after].filter(Boolean).join(" ").trim();
+            return stripTrailingPrepositions([before, after].filter(Boolean).join(" ").trim());
         }
         const candidates = [
             "na " + rawSlice,
@@ -346,7 +380,7 @@ export class OrderParserService {
             if (i >= 0) {
                 const before = text.slice(0, i).trim();
                 const after = text.slice(i + toRemove.length).trim();
-                return [before, after].filter(Boolean).join(" ").trim();
+                return stripTrailingPrepositions([before, after].filter(Boolean).join(" ").trim());
             }
         }
         return text;
@@ -368,7 +402,9 @@ export class OrderParserService {
                 params: {
                     address: `${text.trim()}, Brazil`,
                     key: this.googleApiKey!,
-                    components: "country:BR",
+                    // Restringe a busca geográfica para evitar sugestões fora da região (ex: SP).
+                    // Localidade: Sorriso (MT)
+                    components: "country:BR|administrative_area:MT|locality:Sorriso",
                 },
             });
 
@@ -458,14 +494,40 @@ export class OrderParserService {
             const lowConfItems = this.extractItems(textForProducts, true);
             const best = lowConfItems[0];
             if (best && best.confidence >= 0.05 && best.confidence < CONFIDENCE_LOW) {
-                return { action: "low_confidence", message: `Não tenho certeza do produto _"${textForProducts}"_.`, confidence: best.confidence };
+                return {
+                    action: "low_confidence",
+                    message: `Não tenho certeza do produto _"${textForProducts}"_.`,
+                    confidence: best.confidence,
+                    contextUpdate: parsedAddress ? {
+                        delivery_address: parsedAddress.formatted,
+                        delivery_address_place_id: parsedAddress.placeId,
+                        ...(parsedAddress.neighborhood ? { delivery_neighborhood: parsedAddress.neighborhood } : {}),
+                    } : undefined,
+                };
             }
-            return { action: "product_not_found", message: `Não consegui identificar o produto em _"${textForProducts}"_.` };
+            return {
+                action: "product_not_found",
+                message: `Não consegui identificar o produto em _"${textForProducts}"_.`,
+                contextUpdate: parsedAddress ? {
+                    delivery_address: parsedAddress.formatted,
+                    delivery_address_place_id: parsedAddress.placeId,
+                    ...(parsedAddress.neighborhood ? { delivery_neighborhood: parsedAddress.neighborhood } : {}),
+                } : undefined,
+            };
         }
 
         const minConf = Math.min(...items.map((i) => i.confidence));
         if (minConf < CONFIDENCE_LOW) {
-            return { action: "low_confidence", message: `Não tenho certeza do produto. Confirma: ${items.map((i) => i.name).join(", ")}?`, confidence: minConf };
+            return {
+                action: "low_confidence",
+                message: `Não tenho certeza do produto. Confirma: ${items.map((i) => i.name).join(", ")}?`,
+                confidence: minConf,
+                contextUpdate: parsedAddress ? {
+                    delivery_address: parsedAddress.formatted,
+                    delivery_address_place_id: parsedAddress.placeId,
+                    ...(parsedAddress.neighborhood ? { delivery_neighborhood: parsedAddress.neighborhood } : {}),
+                } : undefined,
+            };
         }
 
         // 4) Lógica de decisão

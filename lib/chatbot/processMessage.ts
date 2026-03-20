@@ -11,7 +11,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "@/lib/whatsapp/send";
-import { validateAddressViaGoogle, getCachedProducts } from "@/lib/chatbot/TextParserService";
+import { getCachedProducts } from "@/lib/chatbot/TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "@/lib/chatbot/OrderParserService";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -105,7 +105,23 @@ const STOPWORDS = new Set([
     // genéricos de produto
     "produto","bebida","bebidas","item","itens","coisas","coisa","alguma",
     "alguem","algo","tem","ter","disponivel","disponivel","disponivel",
+    // preposições comuns que costumam sobrar no fim após remover endereço
+    "em",
 ]);
+
+// Termos normalizados que podem virar quantidade (normalize() remove acentos).
+const QUANTITY_WORDS_NORM: Record<string, number> = {
+    "um": 1, "uma": 1,
+    "dois": 2, "duas": 2,
+    "tres": 3,
+    "quatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "sete": 7,
+    "oito": 8,
+    "nove": 9,
+    "dez": 10,
+};
 
 /**
  * Remove stopwords e retorna os termos relevantes.
@@ -114,7 +130,14 @@ const STOPWORDS = new Set([
  */
 function extractTerms(input: string): string[] {
     const words = normalize(input).split(/[\s,;:!?]+/);
-    return words.filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+    return words.filter((w) => {
+        if (!w) return false;
+        const isQtyToken = /^\d+$/.test(w) || Object.prototype.hasOwnProperty.call(QUANTITY_WORDS_NORM, w);
+        if (!isQtyToken && w.length < 2) return false;
+        // Quantidades (ex: "um", "tres") devem passar mesmo estando em STOPWORDS.
+        if (STOPWORDS.has(w) && !isQtyToken) return false;
+        return true;
+    });
 }
 
 /**
@@ -125,12 +148,19 @@ function extractQuantity(terms: string[]): { qty: number; terms: string[] } {
     let qty = 1;
     const rest: string[] = [];
     for (const t of terms) {
+        const wordQty = QUANTITY_WORDS_NORM[t];
+        if (typeof wordQty === "number") {
+            qty = wordQty;
+            continue;
+        }
+
         const n = parseInt(t, 10);
         if (!isNaN(n) && n >= 1 && n <= 99 && /^\d+$/.test(t)) {
             qty = n;
-        } else {
-            rest.push(t);
+            continue;
         }
+
+        rest.push(t);
     }
     return { qty, terms: rest };
 }
@@ -856,9 +886,26 @@ async function handleFreeTextInput(
     if (addrMatch) {
         console.log("[freetext] endereço detectado:", addrMatch.full, "| bairro:", addrMatch.neighborhood);
 
-        // Valida endereço via Google Geocoding API (GOOGLE_MAPS_API_KEY)
-        const validation = await validateAddressViaGoogle(addrMatch.full);
-        if (validation.needsNumber) {
+        // Valida endereço via OrderParserService (Google Geocoding + restrição Sorriso-MT)
+        const parser = getOrderParserService();
+        const parsedAddr = await parser.validateAddress(addrMatch.full);
+
+        const needsNumber = !parsedAddr?.houseNumber;
+
+        const structuredAddr = parsedAddr
+            ? {
+                rua: parsedAddr.street ?? addrMatch.street,
+                numero: parsedAddr.houseNumber ?? addrMatch.houseNumber,
+                bairro: parsedAddr.neighborhood ?? addrMatch.neighborhood ?? "",
+                cidade: "",
+                estado: "",
+                cep: "",
+                placeId: parsedAddr.placeId ?? "",
+                formatted: parsedAddr.formatted ?? addrMatch.full,
+            }
+            : null;
+
+        if (needsNumber) {
             // Endereço incompleto (ex: sem número) → pedir apenas o número
             const textWithoutAddr = rawInput.replace(addrMatch.rawSlice, " ").trim();
             const productTerms    = extractTerms(textWithoutAddr);
@@ -880,8 +927,8 @@ async function handleFreeTextInput(
                 context: {
                     ...session.context,
                     address_draft: addrMatch.full,
-                    delivery_address_structured: validation.structured ?? null,
-                    address_validation_error: validation.error ?? "Informe o número do endereço",
+                    delivery_address_structured: structuredAddr,
+                    address_validation_error: "Informe o número do endereço",
                 },
             });
             const prodMsg = bestProduct ? `✅ Anotado *${pQty >= 1 ? pQty : 1}x ${bestProduct.productName}*.\n\n` : "";
@@ -893,11 +940,9 @@ async function handleFreeTextInput(
             return "handled";
         }
 
-        // Endereço validado ou API não configurada (fallback)
-        const deliveryAddress = validation.ok && validation.structured?.formatted
-            ? validation.structured.formatted
-            : addrMatch.full;
-        const structuredAddr = validation.structured ?? null;
+        // Endereço validado (ou fallback local)
+        const deliveryAddress = parsedAddr?.formatted ?? addrMatch.full;
+        const googleOk = Boolean(parsedAddr?.formatted);
 
         // Tenta encontrar produto na parte da mensagem sem o endereço
         const textWithoutAddr = rawInput.replace(addrMatch.rawSlice, " ").trim();
@@ -955,7 +1000,7 @@ async function handleFreeTextInput(
             const itemName  = `${bestProduct.productName}${vol}`.trim();
             const itemQty   = pQty >= 1 ? pQty : 1;
             const cartWithFee = cartTotal(newCart) + zone.fee;
-            const addrLine = validation.ok
+            const addrLine = googleOk
                 ? `Entendi, vou entregar na *${deliveryAddress}*`
                 : `📍 Entrega na *${deliveryAddress}*`;
             await sendInteractiveButtons(
@@ -1006,10 +1051,10 @@ async function handleFreeTextInput(
         }
 
         // ── Apenas endereço (sem produto identificado) ───────────────────────
-        // Confirmação silenciosa quando Google retornou 100% precisão (validation.ok)
+        // Confirmação silenciosa quando Google retornou algum resultado (googleOk)
         if (zone) {
             const cartSummary = newCart.length > 0 ? `\n\n🛒 *Pedido atual:*\n${formatCart(newCart)}` : "";
-            const confirmMsg = validation.ok
+            const confirmMsg = googleOk
                 ? `Entendi, vou entregar na *${deliveryAddress}*\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*${cartSummary}\n\nAlgo mais ou posso fechar?`
                 : `📍 Endereço anotado: *${deliveryAddress}*\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*${cartSummary}\n\nAlgo mais ou posso fechar?`;
             await sendInteractiveButtons(
@@ -1587,39 +1632,51 @@ export async function processInboundMessage(
 
         if (parsed.action === "add_to_cart" && parsed.items.length === 0 && parsed.contextUpdate?.delivery_address) {
             const rawAddr = parsed.contextUpdate.delivery_address as string;
-            const validation = await validateAddressViaGoogle(rawAddr);
-            if (validation.needsNumber) {
-                await saveSession(admin, threadId, companyId, {
-                    step: "awaiting_address_number",
-                    context: {
-                        ...session.context,
-                        address_draft: rawAddr,
-                        delivery_address_structured: validation.structured ?? null,
-                        consecutive_unknown_count: 0,
-                    },
-                });
-                await reply(phoneE164, `📍 Endereço parcial: *${rawAddr}*\n\nQual é o *número* do endereço? (ex: 120)`);
-                return;
-            }
-            const neighborhood = (parsed.contextUpdate.delivery_neighborhood as string) ?? validation.structured?.bairro ?? null;
+            const neighborhood = (parsed.contextUpdate.delivery_neighborhood as string) ?? null;
             const zone = neighborhood ? await findDeliveryZone(admin, companyId, neighborhood) : null;
             const ctx: Record<string, unknown> = {
                 ...session.context,
                 ...parsed.contextUpdate,
-                delivery_address_structured: validation.structured ?? null,
                 delivery_fee: zone?.fee ?? null,
                 delivery_zone_id: zone?.id ?? null,
                 saved_address: null,
                 awaiting_address: false,
                 consecutive_unknown_count: 0,
             };
-            const newStep = session.step === "checkout_address" ? "checkout_payment" : session.step;
-            await saveSession(admin, threadId, companyId, { step: newStep, context: ctx });
-            const formatted = validation.structured?.formatted ?? rawAddr;
+            await saveSession(admin, threadId, companyId, { context: ctx });
+            const formatted = rawAddr;
             const feeText = zone ? `\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*` : "";
             const cartText = session.cart.length > 0 ? `\n\n🛒 *Pedido:*\n${formatCart(session.cart)}` : "";
             await reply(phoneE164, `📍 Endereço atualizado: *${formatted}*${feeText}${cartText}`);
-            if (session.step === "checkout_address") await sendPaymentButtons(phoneE164);
+            // Se já existe carrinho → pular para checkout (prioridade de endereço)
+            if (session.cart.length > 0) {
+                await goToCheckoutFromCart(
+                    admin,
+                    companyId,
+                    threadId,
+                    phoneE164,
+                    { ...session, context: ctx }
+                );
+                return;
+            }
+
+            // Sem carrinho: pedir para selecionar produtos (catálogo)
+            const categories = await getCategories(admin, companyId);
+            if (categories.length) {
+                await saveSession(admin, threadId, companyId, {
+                    step: "catalog_categories",
+                    context: { ...ctx, categories, consecutive_unknown_count: 0 },
+                });
+                await sendListMessage(
+                    phoneE164,
+                    "🍺 Escolha uma categoria para ver os produtos:",
+                    "Ver categorias",
+                    categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+                    "Categorias"
+                );
+                return;
+            }
+
             return;
         }
 
@@ -1638,6 +1695,57 @@ export async function processInboundMessage(
             await saveSession(admin, threadId, companyId, { cart: newCart, context: ctx });
             await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, { ...session, cart: newCart, context: ctx });
             return;
+        }
+
+        // ── Prioridade de endereço: low_confidence / product_not_found ─────────
+        // Se o OrderParserService detectou endereço, aplicamos mesmo fora do step atual.
+        // - Com carrinho: pular para checkout
+        // - Sem carrinho: remover endereço do input e deixar o chatbot buscar/selecionar produtos
+        if (
+            (parsed.action === "low_confidence" || parsed.action === "product_not_found") &&
+            parsed.contextUpdate?.delivery_address
+        ) {
+            const neighborhood = (parsed.contextUpdate.delivery_neighborhood as string) ?? null;
+            const zone = neighborhood ? await findDeliveryZone(admin, companyId, neighborhood) : null;
+
+            const addrCtx: Record<string, unknown> = {
+                ...session.context,
+                ...parsed.contextUpdate,
+                delivery_fee: zone?.fee ?? null,
+                delivery_zone_id: zone?.id ?? null,
+                consecutive_unknown_count: 0,
+            };
+
+            await saveSession(admin, threadId, companyId, { context: addrCtx });
+
+            if (session.cart.length > 0) {
+                await goToCheckoutFromCart(
+                    admin,
+                    companyId,
+                    threadId,
+                    phoneE164,
+                    { ...session, context: addrCtx }
+                );
+                return;
+            }
+
+            // Remove o endereço do texto para focar em produtos
+            const addrMatch = extractAddressFromText(input);
+            const cleanedInput = addrMatch
+                ? input.replace(addrMatch.rawSlice, " ").trim()
+                : input;
+
+            const ftResult = await handleFreeTextInput(
+                admin,
+                companyId,
+                threadId,
+                phoneE164,
+                cleanedInput,
+                { ...session, context: addrCtx }
+            );
+
+            if (ftResult === "handled") return;
+            // Se não encontrar produto, deixa o fluxo normal seguir (fallback/menu)
         }
 
         if (parsed.action === "low_confidence") {
@@ -2706,46 +2814,46 @@ async function handleAwaitingAddressNumber(
     }
 
     const combinedAddress = addressDraft.includes(number) ? addressDraft : `${addressDraft}, ${number}`.replace(/\s*,\s*,\s*/, ", ");
-    const validation = await validateAddressViaGoogle(combinedAddress);
+    const parser = getOrderParserService();
+    const parsedAddr = await parser.validateAddress(combinedAddress);
 
-    if (validation.ok && validation.structured) {
-        const zone = validation.structured.bairro
-            ? await findDeliveryZone(admin, companyId, validation.structured.bairro)
+    if (parsedAddr) {
+        const zone = parsedAddr.neighborhood
+            ? await findDeliveryZone(admin, companyId, parsedAddr.neighborhood)
             : null;
+
+        const structuredAddr = {
+            rua: parsedAddr.street ?? "",
+            numero: parsedAddr.houseNumber ?? null,
+            bairro: parsedAddr.neighborhood ?? "",
+            formatted: parsedAddr.formatted ?? combinedAddress,
+            placeId: parsedAddr.placeId ?? "",
+        };
+
         await saveSession(admin, threadId, companyId, {
             step: "catalog_products",
             context: {
                 ...session.context,
-                delivery_address: validation.structured.formatted ?? combinedAddress,
-                delivery_address_structured: validation.structured,
-                delivery_address_place_id: validation.structured.placeId ?? null,
+                delivery_address: parsedAddr.formatted ?? combinedAddress,
+                delivery_address_structured: structuredAddr,
+                delivery_address_place_id: parsedAddr.placeId ?? null,
                 delivery_fee: zone?.fee ?? null,
                 delivery_zone_id: zone?.id ?? null,
                 address_draft: undefined,
                 address_validation_error: undefined,
             },
         });
+
         const zoneLabel = zone?.label ?? "entrega";
         const feeText = zone ? `\n🛵 Taxa ${zoneLabel}: *${formatCurrency(zone.fee)}*` : "";
         const cartText = session.cart.length > 0 ? `\n\n🛒 *Pedido:*\n${formatCart(session.cart)}` : "";
         await sendInteractiveButtons(
             phoneE164,
-            `📍 Endereço confirmado!\n*${validation.structured.formatted ?? combinedAddress}*${feeText}${cartText}\n\nAlgo mais ou deseja finalizar?`,
+            `📍 Endereço confirmado!\n*${parsedAddr.formatted ?? combinedAddress}*${feeText}${cartText}\n\nAlgo mais ou deseja finalizar?`,
             [
                 { id: "mais_produtos", title: "Mais produtos" },
                 { id: "finalizar",     title: "Finalizar pedido" },
             ]
-        );
-        return;
-    }
-
-    if (validation.needsNumber) {
-        await saveSession(admin, threadId, companyId, {
-            context: { ...session.context, address_draft: combinedAddress, address_validation_error: validation.error },
-        });
-        await reply(
-            phoneE164,
-            `Ainda não consegui validar. O endereço *${combinedAddress}* está correto?\n\nDigite o número novamente ou o endereço completo.`
         );
         return;
     }
@@ -2900,8 +3008,8 @@ async function sendOrderSummary(
             `⚠️ Para confirmar, preciso do *número* do endereço. Qual é o número da casa?`
         );
         await sendInteractiveButtons(phoneE164, "Enquanto isso:", [
-            { id: "adicionar_produtos", title: "🔄 Alterar itens" },
-            { id: "alterar_endereco", title: "📍 Mudar endereço" },
+            { id: "change_items", title: "🔄 Alterar itens" },
+            { id: "change_address", title: "📍 Mudar endereço" },
         ]);
         return;
     }
@@ -2917,8 +3025,8 @@ async function sendOrderSummary(
     );
     await sendInteractiveButtons(phoneE164, "Confirmar o pedido?", [
         { id: "confirmar", title: "✅ Confirmar pedido" },
-        { id: "adicionar_produtos", title: "🔄 Alterar itens" },
-        { id: "alterar_endereco", title: "📍 Mudar endereço" },
+        { id: "change_items", title: "🔄 Alterar itens" },
+        { id: "change_address", title: "📍 Mudar endereço" },
     ]);
 }
 
@@ -3010,8 +3118,11 @@ async function handleCheckoutConfirm(
         "| cart:", session.cart.length, "| address:", address,
         "| paymentMethod:", paymentMethod, "| changeFor:", changeFor);
 
-    // "Alterar endereço" → volta ao fluxo de endereço para informar novo
-    if (matchesAny(input, ["alterar_endereco", "alterar endereco", "alterar endereço", "mudar endereço", "trocar endereço"])) {
+    // "Mudar endereço" (ID change_address ou texto) → volta ao fluxo de endereço
+    if (
+        input === "change_address" ||
+        matchesAny(input, ["alterar_endereco", "alterar endereco", "alterar endereço", "mudar endereço", "trocar endereço"])
+    ) {
         await saveSession(admin, threadId, companyId, {
             step:    "checkout_address",
             context: { ...session.context, delivery_address: undefined, saved_address: null, awaiting_address: true },
@@ -3024,24 +3135,20 @@ async function handleCheckoutConfirm(
         return;
     }
 
-    // "Adicionar produtos" → volta ao catálogo preservando carrinho, endereço e pagamento
-    if (matchesAny(input, ["adicionar_produtos", "adicionar produtos"])) {
-        const categories = await getCategories(admin, companyId);
-        if (!categories.length) {
-            await reply(phoneE164, "Nenhuma categoria disponível. Tente novamente.");
-            return;
-        }
+    // "Alterar itens" (ID change_items ou texto) → vai para cart preservando endereço/pagamento
+    if (
+        input === "change_items" ||
+        matchesAny(input, ["adicionar_produtos", "adicionar produtos"])
+    ) {
         await saveSession(admin, threadId, companyId, {
-            step:    "catalog_categories",
-            context: { ...session.context, categories },
-            // cart não é alterado — produtos preservados
+            step:  "cart",
+            context: session.context, // preserva endereço, pagamento, etc.
         });
-        await sendListMessage(
+        await reply(
             phoneE164,
-            "🍺 Escolha uma categoria para adicionar mais produtos:",
-            "Ver categorias",
-            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
-            "Categorias"
+            `Entendido! Pode digitar o que deseja *adicionar* ou *remover* do seu carrinho.\n\n` +
+            `${formatCart(session.cart)}\n\n` +
+            `_Digite o nome do produto para adicionar, *remover N* para tirar o item N, ou *finalizar* para fechar._`
         );
         return;
     }
