@@ -302,7 +302,7 @@ export default function ClientesPage() {
           { label: "Inadimplente", value: summary.inadimplente,               icon: AlertCircle,   color: "text-red-500",     bg: "bg-red-50 dark:bg-red-900/20"        },
           { label: "Total fiado",  value: brl(summary.totalDivida),           icon: TrendingDown,  color: "text-orange-500",  bg: "bg-orange-50 dark:bg-orange-900/20"  },
         ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className={`flex items-center gap-3 rounded-xl p-4 ${bg} border border-zinc-100 dark:border-zinc-800`}>
+          <div key={label} className={`flex items-center gap-3 rounded-xl p-4 ${bg} border border-zinc-100 dark:border-zinc-800 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md`}>
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white dark:bg-zinc-900 ${color}`}>
               <Icon className="h-5 w-5" />
             </div>

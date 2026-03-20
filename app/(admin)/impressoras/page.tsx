@@ -335,7 +335,7 @@ export default function ImpressorasPage() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
                 {/* ── CARD: Vínculo com Agente ─────────────────────────────── */}
-                <div className="flex flex-col gap-5 rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+                <div className="flex flex-col gap-5 rounded-xl bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30">
@@ -442,7 +442,7 @@ export default function ImpressorasPage() {
                 </div>
 
                 {/* ── CARD: Fila de Impressão ──────────────────────────────── */}
-                <div className="flex flex-col gap-4 rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+                <div className="flex flex-col gap-4 rounded-xl bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
@@ -531,7 +531,7 @@ export default function ImpressorasPage() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
                 {/* ── CARD: Preferências do Cupom ──────────────────────────── */}
-                <div className="flex flex-col gap-5 rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+                <div className="flex flex-col gap-5 rounded-xl bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="flex items-center gap-2.5">
                         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
                             <FileText className="h-4 w-4 text-blue-600" />
@@ -600,7 +600,7 @@ export default function ImpressorasPage() {
                 </div>
 
                 {/* ── CARD: Regras de Automação ────────────────────────────── */}
-                <div className="flex flex-col gap-5 rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+                <div className="flex flex-col gap-5 rounded-xl bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="flex items-center gap-2.5">
                         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
                             <Zap className="h-4 w-4 text-orange-500" />

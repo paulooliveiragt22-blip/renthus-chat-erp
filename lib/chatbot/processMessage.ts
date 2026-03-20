@@ -11,6 +11,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "@/lib/whatsapp/send";
+import { validateAddressViaGoogle, getCachedProducts } from "@/lib/chatbot/TextParserService";
+import { getOrderParserService, parsedItemsToCartItems } from "@/lib/chatbot/OrderParserService";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +57,32 @@ function normalize(s: string): string {
 function matchesAny(input: string, keywords: string[]): boolean {
     const n = normalize(input);
     return keywords.some((k) => n.includes(normalize(k)));
+}
+
+/**
+ * Detecta forma de pagamento em texto livre (case insensitive).
+ * Trata variações como "pix", "no pix", "vai ser no cartão", "1" (cartão), "2" (pix), "3" (dinheiro).
+ * Retorna "pix" | "card" | "cash" ou null.
+ */
+function detectPaymentMethod(input: string): "pix" | "card" | "cash" | null {
+    const n = normalize(input).trim();
+    if (!n) return null;
+
+    // Números das opções (1=cartão, 2=pix, 3=dinheiro) – exato ou em frase
+    if (/\b1\b/.test(input.trim())) return "card";
+    if (/\b2\b/.test(input.trim())) return "pix";
+    if (/\b3\b/.test(input.trim())) return "cash";
+
+    // PIX (prioridade: termo exato ou contido)
+    if (/\bpix\b/i.test(input) || n === "pix") return "pix";
+
+    // Cartão
+    if (/\b(cartao|cartão|card|credito|crédito|debito|débito)\b/i.test(input)) return "card";
+
+    // Dinheiro
+    if (/\b(dinheiro|cash)\b/i.test(input)) return "cash";
+
+    return null;
 }
 
 // ─── Processamento de linguagem natural ───────────────────────────────────────
@@ -214,6 +242,18 @@ function extractAddressFromText(input: string): AddressMatch | null {
         : `${street}, ${houseNumber}`;
 
     return { street, houseNumber, neighborhood, full, rawSlice };
+}
+
+/** Detecta endereço parcial (ex: "na rua X" sem número) para interceptor global */
+function detectAddressAnywhere(input: string): AddressMatch | { full: string; rawSlice: string } | null {
+    const m = extractAddressFromText(input);
+    if (m) return m;
+    const fallback = input.match(/\b(?:na|no)\s+(?:rua|r\.|av\.?|avenida)\s+([\wÀ-úÀ-ÿ\s,]{5,80}?)(?:\s*$|[.,]|$)/i);
+    if (fallback) {
+        const raw = fallback[0].trim();
+        return { full: raw.replace(/^(?:na|no)\s+/i, "").trim(), rawSlice: raw };
+    }
+    return null;
 }
 
 function formatCurrency(value: number): string {
@@ -712,7 +752,7 @@ async function searchVariantsByTextV2(
 
     const { data, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -745,14 +785,16 @@ async function searchVariantsByTextV2(
             if (!unitPack) return null;
 
             const p = unitPack;
+            const volQty = Number(unitPack.volume_quantidade ?? 0);
+            const volUnit = String(p.product_unit_type ?? "un");
             return {
                 id: String(unitPack.id),
                 productId: pid,
                 productName: String(p.product_name ?? ""),
                 details: (unitPack.descricao ?? p.product_details ?? null) as string | null,
                 tags: grp.tags.length ? grp.tags.join(",") : null,
-                volumeValue: 0,
-                unit: String(p.product_unit_type ?? "un"),
+                volumeValue: volQty,
+                unit: volUnit,
                 unitPrice: Number(unitPack.preco_venda ?? 0),
                 hasCase: Boolean(casePack),
                 caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
@@ -814,6 +856,49 @@ async function handleFreeTextInput(
     if (addrMatch) {
         console.log("[freetext] endereço detectado:", addrMatch.full, "| bairro:", addrMatch.neighborhood);
 
+        // Valida endereço via Google Geocoding API (GOOGLE_MAPS_API_KEY)
+        const validation = await validateAddressViaGoogle(addrMatch.full);
+        if (validation.needsNumber) {
+            // Endereço incompleto (ex: sem número) → pedir apenas o número
+            const textWithoutAddr = rawInput.replace(addrMatch.rawSlice, " ").trim();
+            const productTerms    = extractTerms(textWithoutAddr);
+            const { qty: pQty, terms: pTerms } = extractQuantity(productTerms);
+            const foundProducts = pTerms.length >= 1 ? await searchVariantsByText(admin, companyId, pTerms) : [];
+            const bestProduct = foundProducts[0] ?? null;
+            let newCart = [...session.cart];
+            if (bestProduct) {
+                const vol = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
+                const name = `${bestProduct.productName}${vol}`.trim();
+                const qty = (pQty >= 1 ? pQty : 1);
+                const idx = newCart.findIndex((c) => c.variantId === bestProduct.id && !c.isCase);
+                if (idx >= 0) newCart[idx] = { ...newCart[idx], qty: newCart[idx].qty + qty };
+                else newCart.push({ variantId: bestProduct.id, productId: bestProduct.productId, name, price: bestProduct.unitPrice, qty, isCase: false });
+            }
+            await saveSession(admin, threadId, companyId, {
+                step: "awaiting_address_number",
+                cart: newCart,
+                context: {
+                    ...session.context,
+                    address_draft: addrMatch.full,
+                    delivery_address_structured: validation.structured ?? null,
+                    address_validation_error: validation.error ?? "Informe o número do endereço",
+                },
+            });
+            const prodMsg = bestProduct ? `✅ Anotado *${pQty >= 1 ? pQty : 1}x ${bestProduct.productName}*.\n\n` : "";
+            await reply(
+                phoneE164,
+                `${prodMsg}📍 Endereço parcial: *${addrMatch.full}*\n\n` +
+                `Qual é o *número* do endereço? (ex: 120, 456)`
+            );
+            return "handled";
+        }
+
+        // Endereço validado ou API não configurada (fallback)
+        const deliveryAddress = validation.ok && validation.structured?.formatted
+            ? validation.structured.formatted
+            : addrMatch.full;
+        const structuredAddr = validation.structured ?? null;
+
         // Tenta encontrar produto na parte da mensagem sem o endereço
         const textWithoutAddr = rawInput.replace(addrMatch.rawSlice, " ").trim();
         const productTerms    = extractTerms(textWithoutAddr);
@@ -823,20 +908,23 @@ async function handleFreeTextInput(
             : [];
         const bestProduct = foundProducts[0] ?? null;
 
-        // Busca zona de entrega pelo bairro detectado
+        // Busca zona de entrega (bairro do regex ou do Google)
+        const neighborhoodForZone = structuredAddr?.bairro || addrMatch.neighborhood;
         let zone: DeliveryZone | null = null;
-        if (addrMatch.neighborhood) {
-            zone = await findDeliveryZone(admin, companyId, addrMatch.neighborhood);
+        if (neighborhoodForZone) {
+            zone = await findDeliveryZone(admin, companyId, neighborhoodForZone);
         }
 
-        // Salva endereço + taxa no contexto
+        // Salva endereço estruturado + taxa no contexto
         const newContext: Record<string, unknown> = {
             ...session.context,
-            delivery_address:   addrMatch.full,
+            delivery_address:   deliveryAddress,
             delivery_fee:       zone?.fee ?? null,
             delivery_zone_id:   zone?.id  ?? null,
-            awaiting_neighborhood: !zone && !addrMatch.neighborhood ? true : (!zone && !!addrMatch.neighborhood),
-            pending_neighborhood: !zone && addrMatch.neighborhood ? addrMatch.neighborhood : null,
+            delivery_address_structured: structuredAddr,
+            delivery_address_place_id:   structuredAddr?.placeId ?? null,
+            awaiting_neighborhood: !zone && !neighborhoodForZone ? true : (!zone && !!neighborhoodForZone),
+            pending_neighborhood: !zone && neighborhoodForZone ? neighborhoodForZone : null,
         };
 
         let newCart = [...session.cart];
@@ -861,16 +949,20 @@ async function handleFreeTextInput(
         });
 
         // ── Caso combinado: produto + endereço + zona encontrada ─────────────
+        // Confirmação silenciosa quando Google retornou 100% precisão
         if (bestProduct && zone) {
             const vol       = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
             const itemName  = `${bestProduct.productName}${vol}`.trim();
             const itemQty   = pQty >= 1 ? pQty : 1;
             const cartWithFee = cartTotal(newCart) + zone.fee;
+            const addrLine = validation.ok
+                ? `Entendi, vou entregar na *${deliveryAddress}*`
+                : `📍 Entrega na *${deliveryAddress}*`;
             await sendInteractiveButtons(
                 phoneE164,
                 `🍻 *Excelente escolha!*\n\n` +
                 `✅ ${itemQty}x *${itemName}* anotado.\n` +
-                `📍 Entrega na *${addrMatch.full}*\n` +
+                `${addrLine}\n` +
                 `🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*\n` +
                 `💰 Total c/ entrega: *${formatCurrency(cartWithFee)}*\n\n` +
                 `Algo mais ou deseja finalizar?`,
@@ -914,11 +1006,15 @@ async function handleFreeTextInput(
         }
 
         // ── Apenas endereço (sem produto identificado) ───────────────────────
+        // Confirmação silenciosa quando Google retornou 100% precisão (validation.ok)
         if (zone) {
             const cartSummary = newCart.length > 0 ? `\n\n🛒 *Pedido atual:*\n${formatCart(newCart)}` : "";
+            const confirmMsg = validation.ok
+                ? `Entendi, vou entregar na *${deliveryAddress}*\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*${cartSummary}\n\nAlgo mais ou posso fechar?`
+                : `📍 Endereço anotado: *${deliveryAddress}*\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*${cartSummary}\n\nAlgo mais ou posso fechar?`;
             await sendInteractiveButtons(
                 phoneE164,
-                `📍 Entendido! Endereço anotado:\n*${addrMatch.full}*\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*${cartSummary}\n\nAlgo mais ou posso fechar?`,
+                confirmMsg,
                 [
                     { id: "mais_produtos", title: "Mais produtos"    },
                     { id: "finalizar",     title: "Finalizar pedido" },
@@ -1030,21 +1126,30 @@ async function handleFreeTextInput(
             step:    "catalog_products",
             context: {
                 ...session.context,
-                variants:        found,
-                brand_name:      "Resultados",
-                category_name:   "Busca",
-                pending_variant: v,
-                pending_is_case: false,
+                variants:         found,
+                brand_name:       "Resultados",
+                category_name:    "Busca",
+                pending_variant:  v,
+                pending_is_case:  false,
+                unit_case_choice: Boolean(v.hasCase && v.casePrice), // UN + CX numerados
             },
         });
 
-        const caseInfo = v.hasCase && v.casePrice
-            ? `\n_Também disponível em caixa com ${v.caseQty}un por ${formatCurrency(v.casePrice)}._`
-            : "";
-        await reply(
-            phoneE164,
-            `Encontrei *${name}* por *${formatCurrency(v.unitPrice)}*. 🍺${caseInfo}\n\nQuantas unidades deseja?`
-        );
+        if (v.hasCase && v.casePrice) {
+            const cxLabel = `caixa ${v.caseQty}un`;
+            await reply(
+                phoneE164,
+                `Encontrei:\n\n` +
+                `1. *${name}* — ${formatCurrency(v.unitPrice)}\n` +
+                `2. *${v.productName}* ${cxLabel} — ${formatCurrency(v.casePrice)}\n\n` +
+                `Qual opção e quantas unidades deseja?`
+            );
+        } else {
+            await reply(
+                phoneE164,
+                `Encontrei *${name}* por *${formatCurrency(v.unitPrice)}*. 🍺\n\nQuantas unidades deseja?`
+            );
+        }
         return "handled";
     }
 
@@ -1404,7 +1509,7 @@ export async function processInboundMessage(
 
     // ── Comandos globais (funcionam em qualquer etapa) ────────────────────────
 
-    if (matchesAny(input, ["cancelar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi"])) {
+    if (matchesAny(input, ["cancelar", "limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
         await reply(phoneE164, buildMainMenu(companyName));
         return;
@@ -1421,6 +1526,129 @@ export async function processInboundMessage(
         console.log("[chatbot] atalho de checkout detectado | cart:", session.cart.length);
         await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
         return;
+    }
+
+    // ── Prioridade checkout_payment: não chamar OrderParserService ─────────────
+    // Em checkout_payment, validar PIX/Cartão/Dinheiro antes do parser global.
+    // Parser só roda se texto for muito longo (usuário mudou de assunto).
+    const PAYMENT_STEP = "checkout_payment";
+    const PAYMENT_IGNORE_PARSER_LENGTH = 50;
+    if (session.step === PAYMENT_STEP && input.length <= PAYMENT_IGNORE_PARSER_LENGTH) {
+        const detectedPayment = detectPaymentMethod(input);
+        if (detectedPayment) {
+            await handleCheckoutPayment(admin, companyId, threadId, phoneE164, input, session);
+            return;
+        }
+    }
+
+    // ── Interceptor global: OrderParserService (produtos + endereço) ───────────
+    // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
+    if (input.length >= 3) {
+        const products = await getCachedProducts(admin, companyId);
+        const parser = getOrderParserService();
+        const parsed = await parser.parseIntent(input, products, { validateAddressWithGoogle: true });
+
+        if (parsed.action === "add_to_cart" && parsed.items.length > 0) {
+            const toAdd = parsedItemsToCartItems(parsed.items);
+            const newCart = mergeCart(session.cart, toAdd);
+            const ctx: Record<string, unknown> = { ...session.context, consecutive_unknown_count: 0 };
+
+            if (parsed.contextUpdate?.delivery_address) {
+                const neighborhood = (parsed.contextUpdate.delivery_neighborhood as string) ?? null;
+                const zone = neighborhood ? await findDeliveryZone(admin, companyId, neighborhood) : null;
+                Object.assign(ctx, parsed.contextUpdate, {
+                    delivery_fee: zone?.fee ?? ctx.delivery_fee,
+                    delivery_zone_id: zone?.id ?? ctx.delivery_zone_id,
+                });
+            } else {
+                Object.assign(ctx, parsed.contextUpdate);
+            }
+
+            await saveSession(admin, threadId, companyId, { cart: newCart, context: ctx });
+
+            const stepLabels: Record<string, string> = {
+                main_menu: "menu",
+                catalog_categories: "categorias",
+                catalog_products: "catálogo",
+                cart: "carrinho",
+                checkout_address: "endereço",
+                checkout_payment: "pagamento",
+                checkout_confirm: "confirmação",
+            };
+            const stepLabel = stepLabels[session.step] ?? "pedido";
+            const itemList = parsed.items.map((i) => `${i.qty}x ${i.name}`).join(", ");
+            await reply(
+                phoneE164,
+                `✅ Adicionado ${itemList}!\n\nSeu pedido agora tem *${newCart.length}* itens.\n\n` +
+                `Podemos continuar com *${stepLabel}* ou quer algo mais?`
+            );
+            return;
+        }
+
+        if (parsed.action === "add_to_cart" && parsed.items.length === 0 && parsed.contextUpdate?.delivery_address) {
+            const rawAddr = parsed.contextUpdate.delivery_address as string;
+            const validation = await validateAddressViaGoogle(rawAddr);
+            if (validation.needsNumber) {
+                await saveSession(admin, threadId, companyId, {
+                    step: "awaiting_address_number",
+                    context: {
+                        ...session.context,
+                        address_draft: rawAddr,
+                        delivery_address_structured: validation.structured ?? null,
+                        consecutive_unknown_count: 0,
+                    },
+                });
+                await reply(phoneE164, `📍 Endereço parcial: *${rawAddr}*\n\nQual é o *número* do endereço? (ex: 120)`);
+                return;
+            }
+            const neighborhood = (parsed.contextUpdate.delivery_neighborhood as string) ?? validation.structured?.bairro ?? null;
+            const zone = neighborhood ? await findDeliveryZone(admin, companyId, neighborhood) : null;
+            const ctx: Record<string, unknown> = {
+                ...session.context,
+                ...parsed.contextUpdate,
+                delivery_address_structured: validation.structured ?? null,
+                delivery_fee: zone?.fee ?? null,
+                delivery_zone_id: zone?.id ?? null,
+                saved_address: null,
+                awaiting_address: false,
+                consecutive_unknown_count: 0,
+            };
+            const newStep = session.step === "checkout_address" ? "checkout_payment" : session.step;
+            await saveSession(admin, threadId, companyId, { step: newStep, context: ctx });
+            const formatted = validation.structured?.formatted ?? rawAddr;
+            const feeText = zone ? `\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*` : "";
+            const cartText = session.cart.length > 0 ? `\n\n🛒 *Pedido:*\n${formatCart(session.cart)}` : "";
+            await reply(phoneE164, `📍 Endereço atualizado: *${formatted}*${feeText}${cartText}`);
+            if (session.step === "checkout_address") await sendPaymentButtons(phoneE164);
+            return;
+        }
+
+        if (parsed.action === "confirm_order") {
+            const toAdd = parsedItemsToCartItems(parsed.items);
+            const newCart = mergeCart(session.cart, toAdd);
+            const neighborhood = parsed.address?.neighborhood ?? null;
+            const zone = neighborhood ? await findDeliveryZone(admin, companyId, neighborhood) : null;
+            const ctx: Record<string, unknown> = {
+                ...session.context,
+                ...parsed.contextUpdate,
+                delivery_fee: zone?.fee ?? null,
+                delivery_zone_id: zone?.id ?? null,
+                consecutive_unknown_count: 0,
+            };
+            await saveSession(admin, threadId, companyId, { cart: newCart, context: ctx });
+            await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, { ...session, cart: newCart, context: ctx });
+            return;
+        }
+
+        if (parsed.action === "low_confidence") {
+            const FREE_TEXT_STEPS = ["main_menu", "welcome", "catalog_products", "cart"];
+            if (!FREE_TEXT_STEPS.includes(session.step)) {
+                const didFallback = await handleLowConfidenceFallback(
+                    admin, companyId, threadId, phoneE164, companyName, session
+                );
+                if (didFallback) return;
+            }
+        }
     }
 
     // ── Roteamento por etapa ─────────────────────────────────────────────────
@@ -1458,6 +1686,10 @@ export async function processInboundMessage(
             await handleCheckoutAddress(admin, companyId, threadId, phoneE164, input, session, profileName);
             break;
 
+        case "awaiting_address_number":
+            await handleAwaitingAddressNumber(admin, companyId, threadId, phoneE164, input, session);
+            break;
+
         case "checkout_payment":
             await handleCheckoutPayment(admin, companyId, threadId, phoneE164, input, session);
             break;
@@ -1484,20 +1716,118 @@ export async function processInboundMessage(
 
 // ─── WELCOME / MAIN MENU ──────────────────────────────────────────────────────
 
+/** Apenas as opções 1,2,3 — usado quando busca falha (sem repetir saudação) */
+function getMenuOptionsOnly(): string {
+    return `Como posso te ajudar?\n\n1️⃣  Ver cardápio\n2️⃣  Status do meu pedido\n3️⃣  Falar com atendente\n\n_Digite o número da opção._`;
+}
+
+/** Envia menu como botões interativos (fallback após 2 inputs desconhecidos) */
+async function sendInteractiveMenuFallback(phoneE164: string, companyName: string): Promise<void> {
+    await sendInteractiveButtons(
+        phoneE164,
+        `Como posso te ajudar no *${companyName}*?`,
+        [
+            { id: "1", title: "Ver cardápio" },
+            { id: "2", title: "Status do pedido" },
+            { id: "3", title: "Falar com atendente" },
+        ]
+    );
+}
+
+/**
+ * Fallback inteligente: quando OrderParserService retorna confiança baixa (< 0.3)
+ * e o usuário NÃO está em step de texto livre.
+ * 1ª vez: pergunta educadamente se quer adicionar produto ou falar com atendente.
+ * 2ª vez: envia List Message com categorias do ERP.
+ */
+async function handleLowConfidenceFallback(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    companyName: string,
+    session: Session
+): Promise<boolean> {
+    const count = ((session.context.consecutive_unknown_count as number) ?? 0) + 1;
+    await saveSession(admin, threadId, companyId, {
+        context: { ...session.context, consecutive_unknown_count: count },
+    });
+
+    if (count === 1) {
+        await reply(
+            phoneE164,
+            `Não consegui entender muito bem. 😅\n\n` +
+            `Você gostaria de *adicionar um produto* ao pedido ou *falar com um atendente*?\n\n` +
+            `Digite o nome do produto ou escolha uma opção abaixo:`
+        );
+        await sendInteractiveButtons(phoneE164, "Como posso ajudar?", [
+            { id: "1", title: "Ver cardápio" },
+            { id: "2", title: "Status do pedido" },
+            { id: "3", title: "Falar com atendente" },
+        ]);
+        return true;
+    }
+
+    const categories = await getCategories(admin, companyId);
+    if (categories.length > 0) {
+        await saveSession(admin, threadId, companyId, {
+            step: "catalog_categories",
+            context: { ...session.context, categories, consecutive_unknown_count: 0 },
+        });
+        await sendListMessage(
+            phoneE164,
+            "🍺 Escolha uma categoria para ver os produtos:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
+        );
+    } else {
+        await reply(phoneE164, `Não encontrei categorias no momento. Deseja *falar com um atendente*?`);
+        await sendInteractiveButtons(phoneE164, "Opções:", [
+            { id: "1", title: "Ver cardápio" },
+            { id: "3", title: "Falar com atendente" },
+        ]);
+    }
+    return true;
+}
+
+/** Incrementa consecutive_unknown_count; se >= 2, envia menu interativo e retorna true */
+async function handleUnknownInputAndMaybeSendMenu(
+    admin: SupabaseClient,
+    threadId: string,
+    companyId: string,
+    phoneE164: string,
+    companyName: string,
+    session: Session
+): Promise<boolean> {
+    const count = ((session.context.consecutive_unknown_count as number) ?? 0) + 1;
+    await saveSession(admin, threadId, companyId, {
+        context: { ...session.context, consecutive_unknown_count: count },
+    });
+    if (count >= 2) {
+        await sendInteractiveMenuFallback(phoneE164, companyName);
+        return true;
+    }
+    return false;
+}
+
+/** Menu principal (1, 2, 3) — usado apenas quando busca por produto falha */
 function buildMainMenu(companyName: string, customerName?: string | null): string {
     const hasName = !!(customerName && customerName.trim().length > 0);
     const hello = hasName
         ? `Olá, *${customerName.trim()}*! Seja bem-vindo(a) novamente ao *${companyName}* 🍺\n\n`
         : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\n`;
 
-    return (
-        hello +
-        `Como posso te ajudar?\n\n` +
-        `1️⃣  Ver cardápio\n` +
-        `2️⃣  Status do meu pedido\n` +
-        `3️⃣  Falar com atendente\n\n` +
-        `_Digite o número da opção._`
-    );
+    return hello + getMenuOptionsOnly();
+}
+
+/** Saudação inicial — prioriza pedido direto, não pede nome no início */
+function buildWelcomeGreeting(companyName: string, customerName?: string | null): string {
+    const hasName = !!(customerName && customerName.trim().length > 0);
+    if (hasName) {
+        return `Olá, *${customerName.trim()}*! O que manda pra hoje? 🍺\n\n_Digite o que deseja ou o endereço de entrega._`;
+    }
+    return `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nO que manda pra hoje? _Digite o que deseja._`;
 }
 
 async function handleMainMenu(
@@ -1511,42 +1841,8 @@ async function handleMainMenu(
     session: Session,
     profileName?: string | null
 ): Promise<void> {
-    // Primeira mensagem → verifica horário e envia boas-vindas + captura de nome se necessário
+    // Primeira mensagem → prioriza pedido/endereço; só manda saudação se input curto ou notfound
     if (session.step === "welcome") {
-        // Se estamos aguardando nome do cliente
-        if (session.context.awaiting_name) {
-            const nameInput = input.trim();
-            if (nameInput.length < 2) {
-                await reply(phoneE164, "Por favor, me diga seu nome para continuar. 🙂");
-                return;
-            }
-
-            const phoneClean = phoneE164.replace(/\D/g, "");
-            const { data: existing } = await admin
-                .from("customers")
-                .select("id")
-                .eq("company_id", companyId)
-                .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
-                .limit(1)
-                .maybeSingle();
-
-            if (existing?.id) {
-                await admin.from("customers").update({ name: nameInput }).eq("id", existing.id);
-            } else {
-                await admin
-                    .from("customers")
-                    .insert({ company_id: companyId, phone: phoneE164, name: nameInput });
-            }
-
-            await saveSession(admin, threadId, companyId, {
-                step: "main_menu",
-                context: { ...session.context, awaiting_name: false },
-            });
-
-            await reply(phoneE164, buildMainMenu(companyName, nameInput));
-            return;
-        }
-
         if (!isWithinBusinessHours(settings)) {
             const msg = (settings?.closed_message as string) ??
                 "Olá! No momento estamos fechados. Volte em breve. 😊";
@@ -1554,7 +1850,6 @@ async function handleMainMenu(
             return;
         }
 
-        // Tenta buscar cliente para usar nome na saudação
         const phoneClean = phoneE164.replace(/\D/g, "");
         const { data: customer } = await admin
             .from("customers")
@@ -1564,22 +1859,19 @@ async function handleMainMenu(
             .limit(1)
             .maybeSingle();
 
-        if (customer?.name && customer.name.trim().length > 0) {
+        const looksLikeProduct = /\s/.test(input) || /\d/.test(input);
+        if (looksLikeProduct && input.length > 2) {
+            const ftEarly = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
             await saveSession(admin, threadId, companyId, { step: "main_menu" });
-            await reply(phoneE164, buildMainMenu(companyName, customer.name));
-            return;
+            if (ftEarly === "handled") return;
+            if (ftEarly === "notfound") {
+                await reply(phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
+                return;
+            }
         }
 
-        // Sem nome ainda → pede nome uma única vez
-        await saveSession(admin, threadId, companyId, {
-            step: "welcome",
-            context: { ...session.context, awaiting_name: true },
-        });
-        await reply(
-            phoneE164,
-            `Olá! Seja bem-vindo(a) ao *${companyName}* 🍺\n\n` +
-            `Antes de começarmos, me diga seu *nome* para eu te atender melhor. 🙂`
-        );
+        await saveSession(admin, threadId, companyId, { step: "main_menu" });
+        await reply(phoneE164, buildWelcomeGreeting(companyName, customer?.name));
         return;
     }
 
@@ -1604,7 +1896,7 @@ async function handleMainMenu(
 
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_categories",
-            context: { categories },
+            context: { ...session.context, categories, consecutive_unknown_count: 0 },
         });
 
         await sendListMessage(
@@ -1619,6 +1911,7 @@ async function handleMainMenu(
 
     // Opção 2: Status do pedido
     if (input === "2" || matchesAny(input, ["status", "pedido", "onde", "acompanhar"])) {
+        await saveSession(admin, threadId, companyId, { context: { ...session.context, consecutive_unknown_count: 0 } });
         const customer = await getOrCreateCustomer(admin, companyId, phoneE164, profileName);
 
         if (!customer) {
@@ -1677,16 +1970,16 @@ async function handleMainMenu(
     const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
     if (ftResult === "handled") return;
 
+    // Fallback: após 2 inputs desconhecidos, envia menu interativo (botões WhatsApp)
+    const sentMenu = await handleUnknownInputAndMaybeSendMenu(admin, threadId, companyId, phoneE164, companyName, session);
+    if (sentMenu) return;
+
     if (ftResult === "notfound") {
-        await reply(
-            phoneE164,
-            `Não encontrei exatamente o que você pediu por _"${input}"_, mas aqui estão as opções:\n\n` +
-            buildMainMenu(companyName)
-        );
+        await reply(phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
         return;
     }
 
-    // Input inválido → repete menu
+    // Input inválido (skip ou outro) → repete menu
     await reply(phoneE164, buildMainMenu(companyName));
 }
 
@@ -2105,18 +2398,45 @@ async function handleCatalogProducts(
         return;
     }
 
-    // ── Aguardando quantidade ─────────────────────────────────────────────────
-    const pendingVariant = session.context.pending_variant as VariantRow | undefined;
-    const pendingIsCase  = session.context.pending_is_case as boolean   | undefined;
+    // ── Aguardando quantidade (ou opção+quantidade quando unit_case_choice) ─────
+    const pendingVariant  = session.context.pending_variant as VariantRow | undefined;
+    const pendingIsCase   = session.context.pending_is_case as boolean   | undefined;
+    const unitCaseChoice  = session.context.unit_case_choice as boolean  | undefined;
 
     if (pendingVariant) {
-        const qty = parseInt(input, 10);
-        if (isNaN(qty) || qty < 1 || qty > 99) {
-            await reply(phoneE164, "Digite uma quantidade válida (1 a 99).");
-            return;
+        let opt = 1;
+        let qty = 1;
+        if (unitCaseChoice) {
+            const parts = input.trim().split(/\s+/).filter(Boolean);
+            if (parts.length >= 2) {
+                const o = parseInt(parts[0], 10);
+                const q = parseInt(parts[1], 10);
+                if (!isNaN(o) && (o === 1 || o === 2) && !isNaN(q) && q >= 1 && q <= 99) {
+                    opt = o;
+                    qty = q;
+                } else {
+                    await reply(phoneE164, "Digite a opção (1 ou 2) e a quantidade, ex: *1 3* ou *2 1*.");
+                    return;
+                }
+            } else if (parts.length === 1) {
+                qty = parseInt(parts[0], 10);
+                if (isNaN(qty) || qty < 1 || qty > 99) {
+                    await reply(phoneE164, "Digite uma quantidade válida (1 a 99) ou opção e quantidade (ex: *2 1*).");
+                    return;
+                }
+            } else {
+                await reply(phoneE164, "Digite a opção e quantidade, ex: *1 3* ou *2 1*.");
+                return;
+            }
+        } else {
+            qty = parseInt(input, 10);
+            if (isNaN(qty) || qty < 1 || qty > 99) {
+                await reply(phoneE164, "Digite uma quantidade válida (1 a 99).");
+                return;
+            }
         }
 
-        const isCase   = Boolean(pendingIsCase);
+        const isCase   = unitCaseChoice ? opt === 2 : Boolean(pendingIsCase);
         const price    = isCase ? (pendingVariant.casePrice ?? pendingVariant.unitPrice) : pendingVariant.unitPrice;
         const volLabel = pendingVariant.volumeValue ? `${pendingVariant.volumeValue}${pendingVariant.unit}` : "";
         const name     = isCase
@@ -2145,7 +2465,7 @@ async function handleCatalogProducts(
         await saveSession(admin, threadId, companyId, {
             step: "catalog_products",
             cart: newCart,
-            context: { ...session.context, pending_variant: null, pending_is_case: null },
+            context: { ...session.context, pending_variant: null, pending_is_case: null, unit_case_choice: false },
         });
 
         await sendInteractiveButtons(
@@ -2294,8 +2614,9 @@ async function goToCart(
 }
 
 /**
- * Se o contexto já tem endereço e pagamento (cliente voltou para adicionar produtos),
- * vai direto para checkout_confirm; caso contrário começa o fluxo de endereço.
+ * Se o contexto já tem endereço e pagamento → checkout_confirm.
+ * Se tem endereço mas não pagamento → checkout_payment (não pede endereço de novo).
+ * Se não tem endereço → checkout_address.
  */
 async function goToCheckoutFromCart(
     admin: SupabaseClient,
@@ -2308,11 +2629,16 @@ async function goToCheckoutFromCart(
     const payment = session.context.payment_method   as string | undefined;
 
     if (address && payment) {
-        const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
-        const changeFor    = (session.context.change_for   as number | null) ?? null;
-        const deliveryFee  = (session.context.delivery_fee as number | null) ?? 0;
         await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
-        await sendOrderSummary(phoneE164, session.cart, address, pmLabels[payment] ?? payment, changeFor, deliveryFee);
+        await sendOrderSummary(phoneE164, session);
+    } else if (address) {
+        const customer = await getOrCreateCustomer(admin, companyId, phoneE164);
+        await saveSession(admin, threadId, companyId, {
+            step:        "checkout_payment",
+            customer_id: customer?.id ?? session.customer_id,
+            context:     session.context,
+        });
+        await sendPaymentButtons(phoneE164);
     } else {
         await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
     }
@@ -2355,6 +2681,76 @@ async function goToCheckoutAddress(
             `_Ex: Rua das Flores, 123, Bairro Centro_`
         );
     }
+}
+
+async function handleAwaitingAddressNumber(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const addressDraft = (session.context.address_draft as string) ?? "";
+    if (!addressDraft) {
+        await saveSession(admin, threadId, companyId, { step: "main_menu", context: { ...session.context, address_draft: undefined } });
+        await reply(phoneE164, "Não encontrei o endereço anterior. Pode informar novamente? (Ex: Rua das Flores, 123)");
+        return;
+    }
+
+    const numMatch = input.trim().match(/(\d{1,5})/);
+    const number = numMatch ? numMatch[1] : input.trim();
+    if (!number) {
+        await reply(phoneE164, "Por favor, digite apenas o *número* do endereço (ex: 120).");
+        return;
+    }
+
+    const combinedAddress = addressDraft.includes(number) ? addressDraft : `${addressDraft}, ${number}`.replace(/\s*,\s*,\s*/, ", ");
+    const validation = await validateAddressViaGoogle(combinedAddress);
+
+    if (validation.ok && validation.structured) {
+        const zone = validation.structured.bairro
+            ? await findDeliveryZone(admin, companyId, validation.structured.bairro)
+            : null;
+        await saveSession(admin, threadId, companyId, {
+            step: "catalog_products",
+            context: {
+                ...session.context,
+                delivery_address: validation.structured.formatted ?? combinedAddress,
+                delivery_address_structured: validation.structured,
+                delivery_address_place_id: validation.structured.placeId ?? null,
+                delivery_fee: zone?.fee ?? null,
+                delivery_zone_id: zone?.id ?? null,
+                address_draft: undefined,
+                address_validation_error: undefined,
+            },
+        });
+        const zoneLabel = zone?.label ?? "entrega";
+        const feeText = zone ? `\n🛵 Taxa ${zoneLabel}: *${formatCurrency(zone.fee)}*` : "";
+        const cartText = session.cart.length > 0 ? `\n\n🛒 *Pedido:*\n${formatCart(session.cart)}` : "";
+        await sendInteractiveButtons(
+            phoneE164,
+            `📍 Endereço confirmado!\n*${validation.structured.formatted ?? combinedAddress}*${feeText}${cartText}\n\nAlgo mais ou deseja finalizar?`,
+            [
+                { id: "mais_produtos", title: "Mais produtos" },
+                { id: "finalizar",     title: "Finalizar pedido" },
+            ]
+        );
+        return;
+    }
+
+    if (validation.needsNumber) {
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, address_draft: combinedAddress, address_validation_error: validation.error },
+        });
+        await reply(
+            phoneE164,
+            `Ainda não consegui validar. O endereço *${combinedAddress}* está correto?\n\nDigite o número novamente ou o endereço completo.`
+        );
+        return;
+    }
+
+    await reply(phoneE164, "Não consegui validar o endereço. Pode enviar o endereço completo? (Ex: Rua das Flores, 123, Centro)");
 }
 
 async function handleCheckoutAddress(
@@ -2463,21 +2859,52 @@ async function sendPaymentButtons(phoneE164: string): Promise<void> {
     );
 }
 
+/** Verifica se o endereço tem número da casa; se não, botão Confirmar não deve aparecer */
+function isAddressComplete(session: Session): boolean {
+    const structured = session.context.delivery_address_structured as { numero?: string } | null;
+    if (structured?.numero && String(structured.numero).trim().length > 0) return true;
+    if (session.context.address_draft && session.context.address_validation_error) return false;
+    const addr = (session.context.delivery_address as string) ?? "";
+    return /\d{1,5}/.test(addr);
+}
+
+/**
+ * Envia resumo do pedido no WhatsApp com itens (preços ERP), endereço validado e total c/ frete.
+ * 3 botões: Confirmar Pedido, Alterar Itens, Mudar Endereço.
+ * Se faltar número do endereço, pergunta pela informação e não exibe botão Confirmar.
+ */
 async function sendOrderSummary(
     phoneE164: string,
-    cart: CartItem[],
-    address: string,
-    paymentLabel: string,
-    changeFor: number | null,
-    deliveryFee = 0
+    session: Session
 ): Promise<void> {
-    const changeText   = changeFor   ? `\n💵 Troco: ${formatCurrency(changeFor)}` : "";
-    const feeText      = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
+    const cart = session.cart;
+    const address = (session.context.delivery_address as string) ?? "—";
+    const paymentMethod = (session.context.payment_method as string) ?? "—";
+    const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
+    const paymentLabel = pmLabels[paymentMethod] ?? paymentMethod;
+    const changeFor = (session.context.change_for as number | null) ?? null;
+    const deliveryFee = (session.context.delivery_fee as number | null) ?? 0;
+
+    const changeText = changeFor ? `\n💵 Troco: ${formatCurrency(changeFor)}` : "";
+    const feeText = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
     const productsTotal = cartTotal(cart);
-    const grandTotal    = productsTotal + deliveryFee;
-    const grandText     = deliveryFee > 0
-        ? `\n\n💰 *Total final: ${formatCurrency(grandTotal)}*`
-        : "";
+    const grandTotal = productsTotal + deliveryFee;
+    const grandText = deliveryFee > 0 ? `\n\n💰 *Total final: ${formatCurrency(grandTotal)}*` : "";
+
+    const addressComplete = isAddressComplete(session);
+    if (!addressComplete) {
+        await reply(
+            phoneE164,
+            `📋 *Resumo do pedido:*\n\n${formatCart(cart)}${feeText}\n` +
+            `📍 Endereço: ${address}\n\n` +
+            `⚠️ Para confirmar, preciso do *número* do endereço. Qual é o número da casa?`
+        );
+        await sendInteractiveButtons(phoneE164, "Enquanto isso:", [
+            { id: "adicionar_produtos", title: "🔄 Alterar itens" },
+            { id: "alterar_endereco", title: "📍 Mudar endereço" },
+        ]);
+        return;
+    }
 
     await reply(
         phoneE164,
@@ -2488,15 +2915,11 @@ async function sendOrderSummary(
         `💳 Pagamento: ${paymentLabel}${changeText}` +
         `${grandText}`
     );
-    await sendInteractiveButtons(
-        phoneE164,
-        "Confirmar o pedido?",
-        [
-            { id: "confirmar",          title: "Confirmar pedido"  },
-            { id: "adicionar_produtos", title: "Adicionar produtos" },
-            { id: "cancelar",           title: "Cancelar"          },
-        ]
-    );
+    await sendInteractiveButtons(phoneE164, "Confirmar o pedido?", [
+        { id: "confirmar", title: "✅ Confirmar pedido" },
+        { id: "adicionar_produtos", title: "🔄 Alterar itens" },
+        { id: "alterar_endereco", title: "📍 Mudar endereço" },
+    ]);
 }
 
 async function handleCheckoutPayment(
@@ -2526,8 +2949,7 @@ async function handleCheckoutPayment(
             step:    "checkout_confirm",
             context: { ...session.context, change_for: changeFor, awaiting_change_for: false },
         });
-        const feeD = (session.context.delivery_fee as number | null) ?? 0;
-        await sendOrderSummary(phoneE164, session.cart, address, "Dinheiro", changeFor, feeD);
+        await sendOrderSummary(phoneE164, { ...session, context: { ...session.context, change_for: changeFor, awaiting_change_for: false } });
         return;
     }
 
@@ -2547,7 +2969,7 @@ async function handleCheckoutPayment(
         "cash":    "cash",
     };
 
-    const method = paymentMap[normalize(input)];
+    let method = paymentMap[normalize(input)] ?? detectPaymentMethod(input);
     if (!method) {
         await sendPaymentButtons(phoneE164);
         return;
@@ -2562,13 +2984,11 @@ async function handleCheckoutPayment(
     }
 
     // pix ou card → vai direto para confirmação
-    const paymentLabel = method === "pix" ? "PIX" : "Cartão";
     await saveSession(admin, threadId, companyId, {
         step:    "checkout_confirm",
         context: { ...session.context, payment_method: method },
     });
-    const deliveryFeeP = (session.context.delivery_fee as number | null) ?? 0;
-    await sendOrderSummary(phoneE164, session.cart, address, paymentLabel, null, deliveryFeeP);
+    await sendOrderSummary(phoneE164, { ...session, context: { ...session.context, payment_method: method } });
 }
 
 // ─── CHECKOUT_CONFIRM ─────────────────────────────────────────────────────────
@@ -2590,6 +3010,20 @@ async function handleCheckoutConfirm(
         "| cart:", session.cart.length, "| address:", address,
         "| paymentMethod:", paymentMethod, "| changeFor:", changeFor);
 
+    // "Alterar endereço" → volta ao fluxo de endereço para informar novo
+    if (matchesAny(input, ["alterar_endereco", "alterar endereco", "alterar endereço", "mudar endereço", "trocar endereço"])) {
+        await saveSession(admin, threadId, companyId, {
+            step:    "checkout_address",
+            context: { ...session.context, delivery_address: undefined, saved_address: null, awaiting_address: true },
+        });
+        await reply(
+            phoneE164,
+            `📍 Qual é o seu *novo endereço de entrega*?\n\n` +
+            `_Ex: Rua das Flores, 123, Bairro Centro_`
+        );
+        return;
+    }
+
     // "Adicionar produtos" → volta ao catálogo preservando carrinho, endereço e pagamento
     if (matchesAny(input, ["adicionar_produtos", "adicionar produtos"])) {
         const categories = await getCategories(admin, companyId);
@@ -2610,6 +3044,90 @@ async function handleCheckoutConfirm(
             "Categorias"
         );
         return;
+    }
+
+    // Etapa: aguardando nome (pedido no final, antes de confirmar)
+    if (session.context.awaiting_name_confirm) {
+        const nameInput = input.trim();
+        if (nameInput.length < 2) {
+            await reply(phoneE164, "Por favor, digite seu nome completo.");
+            return;
+        }
+
+        let customerId = session.customer_id;
+        if (!customerId) {
+            const recovered = await getOrCreateCustomer(admin, companyId, phoneE164);
+            customerId = recovered?.id ?? null;
+        }
+        if (customerId) {
+            await admin.from("customers").update({ name: nameInput }).eq("id", customerId);
+        } else {
+            const phoneClean = phoneE164.replace(/\D/g, "");
+            const { data: inserted } = await admin.from("customers").insert({
+                company_id: companyId,
+                phone:      phoneE164,
+                name:       nameInput,
+            }).select("id").single();
+            customerId = (inserted as any)?.id ?? null;
+        }
+
+        await saveSession(admin, threadId, companyId, {
+            customer_id: customerId,
+            context:     { ...session.context, awaiting_name_confirm: false },
+        });
+
+        // Após salvar nome, verificar maioridade
+        const { data: custRow } = await admin
+            .from("customers")
+            .select("is_adult")
+            .eq("id", customerId)
+            .maybeSingle();
+
+        if (!custRow?.is_adult) {
+            await saveSession(admin, threadId, companyId, {
+                context: { ...session.context, awaiting_name_confirm: false, awaiting_age_confirm: true },
+            });
+            await reply(
+                phoneE164,
+                "Para prosseguir com o pedido, confirme: você é *maior de 18 anos*? Responda *sim* ou *não*."
+            );
+            return;
+        }
+        // Nome salvo e já é maior → criar pedido diretamente (pula checagem de input)
+        const feeForOrder = (session.context.delivery_fee as number | null) ?? 0;
+        try {
+            const orderId = await createOrder(admin, companyId, customerId!, session.cart, paymentMethod, address, changeFor, feeForOrder);
+            const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
+            const cartSnapshot = [...session.cart];
+            // Limpeza de sessão assim que o insert retornar sucesso: cart zerado, step em home
+            await saveSession(admin, threadId, companyId, {
+                step: "main_menu", cart: [], context: { last_order_id: orderId },
+            });
+            const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
+            const paymentLine = paymentMethod === "cash"
+                ? `💳 Pagamento: Dinheiro${changeFor ? ` (troco para ${formatCurrency(changeFor)})` : ""}`
+                : `💳 Pagamento: ${pmLabels[paymentMethod] ?? paymentMethod}`;
+            await reply(
+                phoneE164,
+                `✅ *Pedido confirmado!* 🍺\n\n${formatCart(cartSnapshot)}\n\n📍 Endereço: ${address}\n${paymentLine}\n🔖 Pedido: #${orderShort}\n\n📦 Recebemos seu pedido e já estamos preparando!\n_Obrigado por pedir no ${companyName}!_`
+            );
+            try {
+                const accompaniments = await getAccompanimentItems(admin, companyId, cartSnapshot.map((c) => c.variantId));
+                if (accompaniments.length > 0) {
+                    const lines = accompaniments.map((v) => {
+                        const vol = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
+                        return `• ${v.productName}${vol}`.trim() + ` — ${formatCurrency(v.unitPrice)}`;
+                    });
+                    await reply(phoneE164, `🛒 *Que tal adicionar ao seu pedido?*\n\n${lines.join("\n")}\n\n_Digite *1* para ver o cardápio completo ou *menu* para voltar ao início._`);
+                }
+            } catch { /* ignore */ }
+            return;
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error("[checkout_confirm] ERRO ao criar pedido:", msg);
+            await reply(phoneE164, "Desculpe, houve um erro ao registrar seu pedido. Por favor, fale com um atendente. 😞");
+            return;
+        }
     }
 
     // Etapa: aguardando confirmação de maioridade
@@ -2654,11 +3172,8 @@ async function handleCheckoutConfirm(
 
     // Input não reconhecido → reenviar resumo SEM cancelar o pedido
     if (!matchesAny(input, ["confirmar", "confirmar pedido", "confirmo", "sim", "ok", "s", "1"])) {
-        const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
-        const pmLabel = pmLabels[paymentMethod] ?? paymentMethod;
-        const feeC = (session.context.delivery_fee as number | null) ?? 0;
-        await reply(phoneE164, "⚠️ Por favor, use os botões para confirmar ou cancelar o pedido:");
-        await sendOrderSummary(phoneE164, session.cart, address, pmLabel, changeFor, feeC);
+        await reply(phoneE164, "⚠️ Por favor, use os botões para confirmar ou alterar o pedido:");
+        await sendOrderSummary(phoneE164, session);
         return;
     }
 
@@ -2675,12 +3190,21 @@ async function handleCheckoutConfirm(
         await saveSession(admin, threadId, companyId, { customer_id: customerId });
     }
 
-    // Antes de criar o pedido, exige confirmação de maioridade (uma única vez)
+    // Antes de criar o pedido: nome e maioridade (no final do fluxo)
     const { data: customerRow } = await admin
         .from("customers")
-        .select("is_adult")
+        .select("name, is_adult")
         .eq("id", customerId)
         .maybeSingle();
+
+    const hasName = !!(customerRow?.name && String(customerRow.name).trim().length >= 2);
+    if (!hasName) {
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, awaiting_name_confirm: true },
+        });
+        await reply(phoneE164, "Para finalizar, qual é o seu *nome*?");
+        return;
+    }
 
     if (!customerRow?.is_adult) {
         await saveSession(admin, threadId, companyId, {
@@ -2700,11 +3224,10 @@ async function handleCheckoutConfirm(
 
         console.log("[checkout_confirm] Pedido criado com sucesso | orderId:", orderId);
 
-        // Snapshot do carrinho antes de limpar
+        // Limpeza de sessão assim que o insert retornar sucesso: cart zerado, step em home
         const cartSnapshot = [...session.cart];
-
         await saveSession(admin, threadId, companyId, {
-            step:    "done",
+            step:    "main_menu",
             cart:    [],
             context: { last_order_id: orderId },
         });

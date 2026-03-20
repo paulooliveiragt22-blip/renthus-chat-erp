@@ -268,7 +268,7 @@ export default function DashboardClient() {
             <div className="grid gap-4 lg:grid-cols-3">
 
                 {/* AreaChart 24h */}
-                <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 lg:col-span-2">
+                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900 lg:col-span-2">
                     <div className="mb-5 flex items-start justify-between gap-3">
                         <div>
                             <h2 className="text-sm font-bold text-zinc-800 dark:text-zinc-100">Volume de Pedidos</h2>
@@ -331,7 +331,7 @@ export default function DashboardClient() {
                 </div>
 
                 {/* Top 5 produtos */}
-                <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+                <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="mb-1 flex items-center gap-2">
                         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-50 dark:bg-orange-500/10">
                             <Package className="h-4 w-4 text-accent" />
@@ -392,7 +392,7 @@ export default function DashboardClient() {
 
             {/* ── linha de faturamento do gráfico (R$) ──────────────────── */}
             {!loading && (data?.chartData ?? []).some((d) => d.total > 0) && (
-                <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="mb-5 flex items-start justify-between">
                         <div>
                             <h2 className="text-sm font-bold text-zinc-800 dark:text-zinc-100">Faturamento por Hora</h2>
