@@ -32,7 +32,7 @@ function isoDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${
 // ─── types ────────────────────────────────────────────────────────────────────
 
 type Period = "today" | "7d" | "15d" | "30d" | "custom";
-type Tab    = "dashboard" | "extrato" | "receber" | "pagar";
+type Tab    = "dashboard" | "extrato" | "receber" | "pagar" | "caixa" | "dre";
 
 interface Bill {
     id: string;
@@ -70,6 +70,8 @@ interface Stats {
     profit: number; realProfit: number;
     orders: number; ticket: number;
     byDay: DaySummary[]; byPay: PaySummary[];
+    byOrigin: Record<string, number>;
+    totalAReceber: number;
 }
 
 const PAY_META: Record<string, { label: string; color: string }> = {
@@ -145,6 +147,26 @@ export default function FinanceiroPage() {
     const [bills,        setBills]        = useState<Bill[]>([]);
     const [billsLoading, setBillsLoading] = useState(false);
     const [billFilter,   setBillFilter]   = useState<"open" | "paid" | "overdue" | "all">("open");
+    const [payBill,      setPayBill]      = useState<Bill | null>(null);
+    const [payForm,      setPayForm]      = useState({ amount: "", payment_method: "pix", received_at: isoDate(new Date()) });
+    const [payingBill,   setPayingBill]   = useState(false);
+
+    // Nova conta a pagar
+    const [showNewBill,  setShowNewBill]  = useState(false);
+    const [newBillForm,  setNewBillForm]  = useState({ description: "", amount: "", due_date: isoDate(new Date()), payment_method: "pix", notes: "" });
+    const [savingBill,   setSavingBill]   = useState(false);
+
+    // Caixa
+    interface CaixaReg { id: string; opened_at: string; closed_at: string|null; operator_name: string|null; initial_amount: number; closing_amount: number|null; difference: number|null; status: string }
+    const [caixaList,    setCaixaList]    = useState<CaixaReg[]>([]);
+    const [caixaListLoading, setCaixaListLoading] = useState(false);
+    const [caixaMovs,    setCaixaMovs]    = useState<any[]>([]);
+    const [selectedCaixa, setSelectedCaixa] = useState<string|null>(null);
+
+    // DRE
+    interface DRELine { account_name: string; account_type: string; total: number }
+    const [dreData,      setDreData]      = useState<DRELine[]>([]);
+    const [dreLoading,   setDreLoading]   = useState(false);
 
     // New expense modal
     const [showExpModal, setShowExpModal] = useState(false);
@@ -166,7 +188,7 @@ export default function FinanceiroPage() {
         return { from: isoDate(new Date(Date.now() - 29 * 86400000)), to: today, days: 30 };
     }, [period, customFrom, customTo]);
 
-    // ── load orders + costs ───────────────────────────────────────────────────
+    // ── load (fonte primária: sales + sale_payments; fallback: orders) ───────
     const load = useCallback(async () => {
         if (!companyId) return;
         setLoading(true);
@@ -174,35 +196,62 @@ export default function FinanceiroPage() {
         const fromIso = dateRange.from + "T00:00:00.000Z";
         const toIso   = dateRange.to   + "T23:59:59.999Z";
 
-        // 1. Pedidos não cancelados no período
-        const { data: ordersRaw, error: ordErr } = await supabase
-            .from("orders")
-            .select("id, created_at, total_amount, delivery_fee, payment_method, status")
+        // 1. Sales no período (fonte nova — pós Sprint1)
+        const { data: salesRaw } = await supabase
+            .from("sales")
+            .select("id, created_at, total, subtotal, origin, status")
             .eq("company_id", companyId)
             .neq("status", "canceled")
             .gte("created_at", fromIso)
             .lte("created_at", toIso)
             .order("created_at", { ascending: true });
 
-        if (ordErr) console.error("[financeiro] orders error:", ordErr.message);
+        // 1b. Fallback: orders (antes do Sprint1 ou canais que não passam por sales)
+        const { data: ordersRaw } = await supabase
+            .from("orders")
+            .select("id, created_at, total_amount, delivery_fee, payment_method, status, source")
+            .eq("company_id", companyId)
+            .neq("status", "canceled")
+            .is("sale_id", null)          // só os que NÃO têm sale (legado)
+            .gte("created_at", fromIso)
+            .lte("created_at", toIso)
+            .order("created_at", { ascending: true });
 
+        const safeSales  = (salesRaw  ?? []) as any[];
         const safeOrders = (ordersRaw ?? []) as any[];
-        console.log("[financeiro] pedidos carregados:", safeOrders.length, "| period:", dateRange);
 
-        // 2. Custo real via order_items → produto_embalagens → products.preco_custo_unitario
-        const orderIds = safeOrders.map((o) => o.id);
-        const costMap: Record<string, number> = {};
+        // 2. sale_payments para breakdown por forma de pagamento
+        const saleIds = safeSales.map((s: any) => s.id);
+        let salePayments: any[] = [];
+        if (saleIds.length > 0) {
+            const { data: spRows } = await supabase
+                .from("sale_payments")
+                .select("sale_id, payment_method, amount")
+                .in("sale_id", saleIds)
+                .not("payment_method", "in", '("credit_installment","boleto","cheque","promissoria")');
+            salePayments = spRows ?? [];
+        }
 
+        // 3. Custo real via sale_items (para sales) e order_items (fallback)
+        const costBySale: Record<string, number> = {};
+        if (saleIds.length > 0) {
+            const { data: siRows } = await supabase
+                .from("sale_items")
+                .select("sale_id, qty, unit_cost")
+                .in("sale_id", saleIds);
+            (siRows ?? []).forEach((si: any) => {
+                costBySale[si.sale_id] = (costBySale[si.sale_id] ?? 0) + Number(si.qty) * Number(si.unit_cost ?? 0);
+            });
+        }
+
+        const costByOrder: Record<string, number> = {};
+        const orderIds = safeOrders.map((o: any) => o.id);
         if (orderIds.length > 0) {
-            const { data: items, error: itemErr } = await supabase
+            const { data: items } = await supabase
                 .from("order_items")
-                .select("order_id, quantity, qty, produto_embalagem_id, unit_price")
+                .select("order_id, quantity, qty, produto_embalagem_id")
                 .in("order_id", orderIds);
-
-            if (itemErr) console.error("[financeiro] order_items error:", itemErr.message);
-
             const embIds = [...new Set((items ?? []).map((it: any) => it.produto_embalagem_id).filter(Boolean))];
-
             let embCostMap: Record<string, { baseCost: number; fator: number }> = {};
             if (embIds.length > 0) {
                 const { data: embRows } = await supabase
@@ -211,22 +260,17 @@ export default function FinanceiroPage() {
                     .eq("company_id", companyId)
                     .in("id", embIds);
                 (embRows ?? []).forEach((e: any) => {
-                    embCostMap[e.id] = {
-                        baseCost: Number(e.product_preco_custo ?? 0),
-                        fator: Number(e.fator_conversao ?? 1),
-                    };
+                    embCostMap[e.id] = { baseCost: Number(e.product_preco_custo ?? 0), fator: Number(e.fator_conversao ?? 1) };
                 });
             }
-
             (items ?? []).forEach((it: any) => {
-                const q    = Number(it.quantity ?? it.qty ?? 1);
-                const emb  = embCostMap[it.produto_embalagem_id];
-                const cp   = emb ? emb.baseCost * emb.fator : 0;
-                costMap[it.order_id] = (costMap[it.order_id] ?? 0) + cp * q;
+                const q  = Number(it.quantity ?? it.qty ?? 1);
+                const em = embCostMap[it.produto_embalagem_id];
+                costByOrder[it.order_id] = (costByOrder[it.order_id] ?? 0) + (em ? em.baseCost * em.fator * q : 0);
             });
         }
 
-        // 3. Despesas no período
+        // 4. Despesas no período
         const { data: expData } = await supabase
             .from("expenses")
             .select("id, category, description, amount, due_date, payment_status")
@@ -234,9 +278,17 @@ export default function FinanceiroPage() {
             .gte("due_date", dateRange.from)
             .lte("due_date", dateRange.to)
             .order("due_date", { ascending: false });
-
         const safeExp = (expData ?? []) as Expense[];
         setExpenses(safeExp);
+
+        // 5. A receber pendente (bills) — para o card clicável
+        const { data: billsOpen } = await supabase
+            .from("bills")
+            .select("saldo_devedor, status")
+            .eq("company_id", companyId)
+            .eq("type", "receivable")
+            .in("status", ["open", "partial", "overdue"]);
+        const totalAReceber = (billsOpen ?? []).reduce((s: number, b: any) => s + Number(b.saldo_devedor ?? 0), 0);
 
         // ── aggregate by day ──────────────────────────────────────────────────
         const dayMap: Record<string, DaySummary> = {};
@@ -245,38 +297,55 @@ export default function FinanceiroPage() {
             const iso = isoDate(d);
             dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
         }
-
-        safeOrders.forEach((o) => {
-            const iso = o.created_at.slice(0, 10);
+        safeSales.forEach((s: any) => {
+            const iso = (s.created_at as string).slice(0, 10);
             if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
-            dayMap[iso].revenue += Number(o.total_amount ?? 0);
-            dayMap[iso].cost    += costMap[o.id] ?? 0;
+            dayMap[iso].revenue += Number(s.total ?? 0);
+            dayMap[iso].cost    += costBySale[s.id] ?? 0;
             dayMap[iso].orders  += 1;
         });
-
-        // map paid expenses to their due_date day
+        safeOrders.forEach((o: any) => {
+            const iso = (o.created_at as string).slice(0, 10);
+            if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
+            dayMap[iso].revenue += Number(o.total_amount ?? 0);
+            dayMap[iso].cost    += costByOrder[o.id] ?? 0;
+            dayMap[iso].orders  += 1;
+        });
         safeExp.forEach((e) => {
             if (e.payment_status !== "paid") return;
             const iso = e.due_date;
             if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
             dayMap[iso].expensesDay += Number(e.amount);
         });
-
         const byDay = Object.values(dayMap).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
 
-        // ── aggregate by payment method ───────────────────────────────────────
+        // ── breakdown por forma de pagamento (sale_payments + orders legado) ──
         const payMap: Record<string, { total: number; count: number }> = {};
-        safeOrders.forEach((o) => {
+        salePayments.forEach((sp: any) => {
+            const m = sp.payment_method ?? "outros";
+            if (!payMap[m]) payMap[m] = { total: 0, count: 0 };
+            payMap[m].total += Number(sp.amount ?? 0);
+            payMap[m].count += 1;
+        });
+        safeOrders.forEach((o: any) => {
             const m = (o.payment_method ?? "outros") as string;
             if (!payMap[m]) payMap[m] = { total: 0, count: 0 };
             payMap[m].total += Number(o.total_amount ?? 0);
             payMap[m].count += 1;
         });
-
         const byPay: PaySummary[] = Object.entries(payMap).map(([method, v]) => {
             const meta = PAY_META[method] ?? { label: method, color: "#a1a1aa" };
             return { method, ...meta, ...v };
         }).sort((a, b) => b.total - a.total);
+
+        // ── breakdown por origem ───────────────────────────────────────────────
+        const originMap: Record<string, number> = { pdv: 0, chatbot: 0, ui_order: 0 };
+        safeSales.forEach((s: any) => { originMap[s.origin ?? "pdv"] = (originMap[s.origin ?? "pdv"] ?? 0) + Number(s.total ?? 0); });
+        safeOrders.forEach((o: any) => {
+            const src = o.source ?? o.channel ?? "ui_order";
+            const key = src === "balcao" ? "pdv" : src === "whatsapp" || src === "chatbot" ? "chatbot" : "ui_order";
+            originMap[key] = (originMap[key] ?? 0) + Number(o.total_amount ?? 0);
+        });
 
         // ── totals ────────────────────────────────────────────────────────────
         const revenue      = byDay.reduce((s, d) => s + d.revenue, 0);
@@ -286,11 +355,13 @@ export default function FinanceiroPage() {
 
         setStats({
             revenue, cost, expensesPaid,
-            profit:     revenue - cost,
-            realProfit: revenue - cost - expensesPaid,
+            profit:       revenue - cost,
+            realProfit:   revenue - cost - expensesPaid,
             orders,
-            ticket: orders > 0 ? revenue / orders : 0,
+            ticket:       orders > 0 ? revenue / orders : 0,
             byDay, byPay,
+            byOrigin:     originMap,
+            totalAReceber,
         });
         setLoading(false);
     }, [companyId, supabase, dateRange]);
@@ -338,16 +409,45 @@ export default function FinanceiroPage() {
 
         const lines: ExtratoLine[] = [];
 
-        // 1. Pedidos (não cancelados) com cliente
-        const { data: ordRows } = await supabase
-            .from("orders")
-            .select("id, created_at, total_amount, payment_method, status, channel, customers(name)")
+        // 1. sale_payments (fonte nova — pós Sprint1)
+        const { data: spRows } = await supabase
+            .from("sale_payments")
+            .select("id, created_at, amount, payment_method, status, sale_id, sales(origin, seller_name, customers(name))")
             .eq("company_id", companyId)
-            .neq("status", "canceled")
             .gte("created_at", fromIso)
             .lte("created_at", toIso)
             .order("created_at", { ascending: false })
             .limit(500);
+
+        (spRows ?? []).forEach((sp: any) => {
+            const sale    = sp.sales as any;
+            const origin  = sale?.origin ?? "pdv";
+            const channel = origin === "chatbot" ? "whatsapp" : origin === "ui_order" ? "admin" : "pdv";
+            lines.push({
+                id:             `sp-${sp.id}`,
+                date:           sp.created_at,
+                type:           "income",
+                source:         "financial_entry",
+                description:    `Venda — ${sale?.seller_name ?? origin}`,
+                customer:       sale?.customers?.name ?? "—",
+                channel,
+                payment_method: sp.payment_method ?? "—",
+                amount:         Number(sp.amount ?? 0),
+                status:         sp.status === "received" ? "recebido" : sp.status === "pending" ? "pendente" : sp.status,
+            });
+        });
+
+        // 2. Orders legados (sem sale_id)
+        const { data: ordRows } = await supabase
+            .from("orders")
+            .select("id, created_at, total_amount, payment_method, status, channel, source, customers(name)")
+            .eq("company_id", companyId)
+            .neq("status", "canceled")
+            .is("sale_id", null)
+            .gte("created_at", fromIso)
+            .lte("created_at", toIso)
+            .order("created_at", { ascending: false })
+            .limit(300);
 
         (ordRows ?? []).forEach((o: any) => {
             lines.push({
@@ -355,37 +455,12 @@ export default function FinanceiroPage() {
                 date:           o.created_at,
                 type:           "income",
                 source:         "order",
-                description:    `Pedido #${(o.id as string).slice(0,8)}`,
+                description:    `Pedido #${(o.id as string).slice(-6).toUpperCase()}`,
                 customer:       o.customers?.name ?? "—",
-                channel:        o.channel ?? "admin",
+                channel:        o.source ?? o.channel ?? "admin",
                 payment_method: o.payment_method ?? "—",
                 amount:         Number(o.total_amount ?? 0),
                 status:         o.status,
-            });
-        });
-
-        // 2. financial_entries no período
-        const { data: feRows } = await supabase
-            .from("financial_entries")
-            .select("id, created_at, type, amount, payment_method, description, order_id")
-            .eq("company_id", companyId)
-            .gte("created_at", fromIso)
-            .lte("created_at", toIso)
-            .order("created_at", { ascending: false })
-            .limit(500);
-
-        (feRows ?? []).forEach((f: any) => {
-            lines.push({
-                id:             `fe-${f.id}`,
-                date:           f.created_at,
-                type:           f.type === "expense" ? "expense" : "income",
-                source:         "financial_entry",
-                description:    f.description ?? `Lançamento #${(f.id as string).slice(0,8)}`,
-                customer:       "—",
-                channel:        f.order_id ? "pedido" : "manual",
-                payment_method: f.payment_method ?? "—",
-                amount:         Number(f.amount ?? 0),
-                status:         "lançado",
             });
         });
 
@@ -443,6 +518,106 @@ export default function FinanceiroPage() {
         if (activeTab === "receber") loadBills("receivable");
         if (activeTab === "pagar")   loadBills("payable");
     }, [activeTab, loadBills]);
+
+    const handlePayBill = async () => {
+        if (!payBill || !companyId || !payForm.amount) return;
+        setPayingBill(true);
+        const paid = parseFloat(payForm.amount) || 0;
+        const newAmountPaid = (payBill.original_amount - payBill.saldo_devedor) + paid;
+        const { error } = await supabase.from("bills").update({
+            amount_paid:  newAmountPaid,
+            payment_method: payForm.payment_method,
+            paid_at:      newAmountPaid >= payBill.original_amount ? new Date(payForm.received_at + "T12:00:00").toISOString() : undefined,
+        }).eq("id", payBill.id);
+        setPayingBill(false);
+        if (error) { alert("Erro: " + error.message); return; }
+        setPayBill(null);
+        setPayForm({ amount: "", payment_method: "pix", received_at: isoDate(new Date()) });
+        loadBills(payBill.type);
+    };
+
+    const handleNewBill = async () => {
+        if (!companyId || !newBillForm.amount || !newBillForm.due_date) return;
+        setSavingBill(true);
+        const { error } = await supabase.from("bills").insert({
+            company_id:      companyId,
+            type:            "payable",
+            description:     newBillForm.description.trim() || null,
+            original_amount: parseFloat(newBillForm.amount) || 0,
+            amount_paid:     0,
+            saldo_devedor:   parseFloat(newBillForm.amount) || 0,
+            due_date:        newBillForm.due_date,
+            payment_method:  newBillForm.payment_method || null,
+            status:          "open",
+            notes:           newBillForm.notes.trim() || null,
+        });
+        setSavingBill(false);
+        if (error) { alert("Erro: " + error.message); return; }
+        setShowNewBill(false);
+        setNewBillForm({ description: "", amount: "", due_date: isoDate(new Date()), payment_method: "pix", notes: "" });
+        loadBills("payable");
+    };
+
+    // ── caixa histórico ───────────────────────────────────────────────────────
+    const loadCaixaList = useCallback(async () => {
+        if (!companyId) return;
+        setCaixaListLoading(true);
+        const { data } = await supabase
+            .from("cash_registers")
+            .select("id, opened_at, closed_at, operator_name, initial_amount, closing_amount, difference, status")
+            .eq("company_id", companyId)
+            .order("opened_at", { ascending: false })
+            .limit(30);
+        setCaixaList((data ?? []) as any[]);
+        setCaixaListLoading(false);
+    }, [companyId, supabase]);
+
+    const loadCaixaMovs = useCallback(async (caixaId: string) => {
+        const { data } = await supabase
+            .from("cash_movements")
+            .select("id, type, amount, reason, operator_name, occurred_at")
+            .eq("cash_register_id", caixaId)
+            .order("occurred_at", { ascending: true });
+        setCaixaMovs((data ?? []) as any[]);
+        setSelectedCaixa(caixaId);
+    }, [supabase]);
+
+    useEffect(() => {
+        if (activeTab === "caixa") loadCaixaList();
+    }, [activeTab, loadCaixaList]);
+
+    // ── DRE ───────────────────────────────────────────────────────────────────
+    const loadDRE = useCallback(async () => {
+        if (!companyId) return;
+        setDreLoading(true);
+        const fromIso = dateRange.from + "T00:00:00.000Z";
+        const toIso   = dateRange.to   + "T23:59:59.999Z";
+        // Tenta carregar da view v_dre (pós Sprint1); fallback: agrega manualmente
+        const { data: dreRows, error } = await supabase
+            .from("v_dre")
+            .select("account_name, account_type, total")
+            .eq("company_id", companyId)
+            .gte("period_start", fromIso)
+            .lte("period_end",   toIso);
+        if (!error && dreRows && dreRows.length > 0) {
+            setDreData(dreRows as DRELine[]);
+        } else {
+            // Fallback sintético a partir do stats já carregado
+            if (stats) {
+                setDreData([
+                    { account_name: "Vendas à Vista",        account_type: "revenue", total: stats.revenue - stats.totalAReceber },
+                    { account_name: "Vendas a Prazo (realiz.)", account_type: "revenue", total: stats.totalAReceber > 0 ? 0 : 0 },
+                    { account_name: "Custo de Mercadorias",  account_type: "cost",    total: stats.cost },
+                    { account_name: "Despesas Operacionais", account_type: "expense", total: stats.expensesPaid },
+                ]);
+            }
+        }
+        setDreLoading(false);
+    }, [companyId, supabase, dateRange, stats]);
+
+    useEffect(() => {
+        if (activeTab === "dre") loadDRE();
+    }, [activeTab, loadDRE]);
 
     const extratoPages     = Math.ceil(extrato.length / EXTRATO_PAGE_SIZE);
     const extratoSlice     = extrato.slice((extratoPage - 1) * EXTRATO_PAGE_SIZE, extratoPage * EXTRATO_PAGE_SIZE);
@@ -573,6 +748,22 @@ export default function FinanceiroPage() {
                     }`}>
                     <ArrowUpCircle className="h-3.5 w-3.5" /> A Pagar
                 </button>
+                <button onClick={() => setActiveTab("caixa")}
+                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
+                        activeTab === "caixa"
+                            ? "bg-white text-orange-700 shadow dark:bg-zinc-800 dark:text-orange-400"
+                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    }`}>
+                    <Banknote className="h-3.5 w-3.5" /> Caixa
+                </button>
+                <button onClick={() => setActiveTab("dre")}
+                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
+                        activeTab === "dre"
+                            ? "bg-white text-violet-700 shadow dark:bg-zinc-800 dark:text-violet-400"
+                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    }`}>
+                    <FileText className="h-3.5 w-3.5" /> DRE
+                </button>
             </div>
 
             {period === "custom" && (
@@ -587,26 +778,53 @@ export default function FinanceiroPage() {
             )}
 
             {activeTab === "dashboard" && (<>
-            {/* KPI cards */}
+            {/* KPI cards — clicáveis: redirecionam para a aba/fonte */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {[
-                    { icon: BadgeDollarSign, label: "Receita Bruta",   value: stats ? brl(stats.revenue)     : "—", sub: `${stats?.orders ?? 0} pedidos`, bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600" },
-                    { icon: TrendingUp,      label: "Lucro s/ Custo",  value: stats ? brl(stats.profit)      : "—", sub: stats && stats.revenue > 0 ? `Margem ${pct(profitMargin)}` : "Cadastre custo", bg: "bg-emerald-100 dark:bg-emerald-900/30", ic: "text-emerald-600" },
-                    { icon: TrendingDown,    label: "Despesas Pagas",  value: stats ? brl(stats.expensesPaid): "—", sub: `${expenses.filter(e=>e.payment_status==="paid").length} lançamentos`, bg: "bg-red-100 dark:bg-red-900/30", ic: "text-red-500" },
-                    { icon: Wallet,          label: "Lucro Real",      value: stats ? brl(stats.realProfit)  : "—", sub: stats && stats.revenue > 0 ? `Margem real ${pct(realMargin)}` : "após despesas", bg: "bg-orange-100 dark:bg-orange-900/30", ic: "text-orange-500" },
-                ].map(({ icon: Icon, label, value, sub, bg, ic }) => (
-                    <div key={label} className="flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
+                    { icon: BadgeDollarSign, label: "Receita Bruta",   value: stats ? brl(stats.revenue)     : "—", sub: `${stats?.orders ?? 0} vendas`, bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600", tab: "extrato" as Tab, title: "Ver extrato completo" },
+                    { icon: ArrowDownCircle, label: "A Receber",        value: stats ? brl(stats.totalAReceber): "—", sub: "saldo devedor aberto",          bg: "bg-emerald-100 dark:bg-emerald-900/30", ic: "text-emerald-600", tab: "receber" as Tab, title: "Ver contas a receber" },
+                    { icon: TrendingDown,    label: "Despesas Pagas",  value: stats ? brl(stats.expensesPaid): "—", sub: `${expenses.filter(e=>e.payment_status==="paid").length} lançamentos`, bg: "bg-red-100 dark:bg-red-900/30", ic: "text-red-500", tab: "pagar" as Tab, title: "Ver contas a pagar" },
+                    { icon: Wallet,          label: "Lucro Real",      value: stats ? brl(stats.realProfit)  : "—", sub: stats && stats.revenue > 0 ? `Margem ${pct(realMargin)}` : "após despesas", bg: "bg-orange-100 dark:bg-orange-900/30", ic: "text-orange-500", tab: null, title: null },
+                ].map(({ icon: Icon, label, value, sub, bg, ic, tab, title }) => (
+                    <button key={label} onClick={() => tab && setActiveTab(tab)}
+                        title={title ?? undefined}
+                        className={`flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900 text-left w-full ${tab ? "cursor-pointer ring-0 hover:ring-2 hover:ring-violet-200 dark:hover:ring-violet-800" : "cursor-default"}`}>
                         <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${bg}`}>
                             <Icon className={`h-5 w-5 ${ic}`} />
                         </span>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                             <p className="text-xs text-zinc-400">{label}</p>
                             {loading ? <Skeleton className="mt-1 h-7 w-28" /> : <p className="truncate text-xl font-bold text-zinc-900 dark:text-zinc-50">{value}</p>}
                             <p className="mt-0.5 text-xs text-zinc-400">{sub}</p>
                         </div>
-                    </div>
+                        {tab && <ChevronDown className="h-3.5 w-3.5 shrink-0 -rotate-90 text-zinc-300 dark:text-zinc-600" />}
+                    </button>
                 ))}
             </div>
+
+            {/* Cards de origem de venda */}
+            {stats && (stats.byOrigin.pdv > 0 || stats.byOrigin.chatbot > 0 || stats.byOrigin.ui_order > 0) && (
+                <div className="grid grid-cols-3 gap-4">
+                    {[
+                        { key: "pdv",      label: "PDV / Balcão",    cls: "text-orange-600 bg-orange-100 dark:bg-orange-900/30" },
+                        { key: "chatbot",  label: "Chat / WhatsApp", cls: "text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30" },
+                        { key: "ui_order", label: "Pedidos Web/UI",  cls: "text-blue-600 bg-blue-100 dark:bg-blue-900/30" },
+                    ].map(({ key, label, cls }) => (
+                        <button key={key} onClick={() => setActiveTab("extrato")}
+                            title="Ver extrato filtrado"
+                            className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:shadow-md hover:ring-2 hover:ring-zinc-200 dark:bg-zinc-900 dark:hover:ring-zinc-700 transition-all text-left">
+                            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-black ${cls}`}>
+                                {key === "pdv" ? "PDV" : key === "chatbot" ? "Chat" : "UI"}
+                            </span>
+                            <div>
+                                <p className="text-[10px] text-zinc-400">{label}</p>
+                                <p className="text-base font-bold text-zinc-900 dark:text-zinc-50">{brl(stats.byOrigin[key] ?? 0)}</p>
+                            </div>
+                            <ChevronDown className="ml-auto h-3 w-3 -rotate-90 text-zinc-300 dark:text-zinc-600 shrink-0" />
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {/* Bar chart */}
             <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
@@ -1000,6 +1218,12 @@ export default function FinanceiroPage() {
                                 {activeTab === "receber" ? "Contas a Receber" : "Contas a Pagar"}
                             </p>
                             <span className="ml-auto text-xs text-zinc-400">{bills.length} registros</span>
+                            {activeTab === "pagar" && (
+                                <button onClick={() => setShowNewBill(true)}
+                                    className="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 transition-colors">
+                                    <Plus className="h-3 w-3" /> Nova conta
+                                </button>
+                            )}
                         </div>
 
                         {billsLoading ? (
@@ -1015,7 +1239,7 @@ export default function FinanceiroPage() {
                             <table className="w-full text-xs">
                                 <thead>
                                     <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                                        {["Vencimento","Cliente","Descrição","Forma","Valor","Saldo","Status"].map(h => (
+                                        {["Vencimento","Cliente","Descrição","Forma","Valor","Saldo","Status",""].map(h => (
                                             <th key={h} className="px-4 py-2.5 text-left font-semibold text-zinc-400">{h}</th>
                                         ))}
                                     </tr>
@@ -1045,6 +1269,16 @@ export default function FinanceiroPage() {
                                                         {statusInfo.label}
                                                     </span>
                                                 </td>
+                                                <td className="px-4 py-3">
+                                                    {b.status !== "paid" && b.status !== "canceled" && (
+                                                        <button
+                                                            onClick={() => { setPayBill(b); setPayForm({ amount: b.saldo_devedor.toFixed(2), payment_method: b.payment_method ?? "pix", received_at: isoDate(new Date()) }); }}
+                                                            className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-emerald-500 transition-colors whitespace-nowrap">
+                                                            <CheckCircle2 className="h-3 w-3" />
+                                                            {activeTab === "receber" ? "Receber" : "Pagar"}
+                                                        </button>
+                                                    )}
+                                                </td>
                                             </tr>
                                         );
                                     })}
@@ -1055,6 +1289,267 @@ export default function FinanceiroPage() {
                 </div>
             )}
         </div>
+
+        {/* ── Modal: Registrar Pagamento (bill) ─────────────────────────────── */}
+        {payBill && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+                    <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                        <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                            {payBill.type === "receivable" ? "Registrar Recebimento" : "Registrar Pagamento"}
+                        </p>
+                        <button onClick={() => setPayBill(null)} className="ml-auto text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"><X className="h-4 w-4" /></button>
+                    </div>
+                    <div className="p-5 space-y-4">
+                        <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 px-4 py-3 text-sm">
+                            <p className="text-xs text-zinc-400 mb-0.5">{payBill.customer_name ?? payBill.description ?? "Conta"}</p>
+                            <p className="font-bold text-zinc-900 dark:text-zinc-50">
+                                Saldo devedor: <span className="text-amber-600">{brl(payBill.saldo_devedor)}</span>
+                            </p>
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor recebido (R$)</label>
+                            <input type="number" min={0.01} step={0.01} value={payForm.amount}
+                                onChange={e => setPayForm(p => ({...p, amount: e.target.value}))}
+                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:border-emerald-500 focus:outline-none" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Forma</label>
+                                <select value={payForm.payment_method} onChange={e => setPayForm(p => ({...p, payment_method: e.target.value}))}
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none">
+                                    {Object.entries(PAY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Data</label>
+                                <input type="date" value={payForm.received_at} onChange={e => setPayForm(p => ({...p, received_at: e.target.value}))}
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none" />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                        <button onClick={() => setPayBill(null)}
+                            className="flex-1 rounded-xl border border-zinc-200 py-2.5 text-sm text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800 transition-colors">Cancelar</button>
+                        <button onClick={handlePayBill} disabled={payingBill || !payForm.amount}
+                            className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition-all">
+                            {payingBill ? "Salvando…" : "Confirmar"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* ── Modal: Nova Conta a Pagar ──────────────────────────────────────── */}
+        {showNewBill && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+                    <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                        <ArrowUpCircle className="h-5 w-5 text-red-600" />
+                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Nova Conta a Pagar</p>
+                        <button onClick={() => setShowNewBill(false)} className="ml-auto text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"><X className="h-4 w-4" /></button>
+                    </div>
+                    <div className="p-5 space-y-4">
+                        <div>
+                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Descrição / Fornecedor</label>
+                            <input value={newBillForm.description} onChange={e => setNewBillForm(p => ({...p, description: e.target.value}))}
+                                placeholder="Ex: Fornecedor bebidas, Aluguel…"
+                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 placeholder-zinc-400 focus:border-red-500 focus:outline-none" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor (R$)</label>
+                                <input type="number" min={0.01} step={0.01} value={newBillForm.amount}
+                                    onChange={e => setNewBillForm(p => ({...p, amount: e.target.value}))}
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:border-red-500 focus:outline-none" />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Vencimento</label>
+                                <input type="date" value={newBillForm.due_date} onChange={e => setNewBillForm(p => ({...p, due_date: e.target.value}))}
+                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Forma de pagamento</label>
+                            <select value={newBillForm.payment_method} onChange={e => setNewBillForm(p => ({...p, payment_method: e.target.value}))}
+                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none">
+                                {Object.entries(PAY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Observação</label>
+                            <input value={newBillForm.notes} onChange={e => setNewBillForm(p => ({...p, notes: e.target.value}))}
+                                placeholder="Opcional"
+                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none" />
+                        </div>
+                    </div>
+                    <div className="flex gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                        <button onClick={() => setShowNewBill(false)}
+                            className="flex-1 rounded-xl border border-zinc-200 py-2.5 text-sm text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800 transition-colors">Cancelar</button>
+                        <button onClick={handleNewBill} disabled={savingBill || !newBillForm.amount || !newBillForm.due_date}
+                            className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-50 transition-all">
+                            {savingBill ? "Salvando…" : "Salvar"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* ── Aba: Caixa ──────────────────────────────────────────────────────── */}
+        {activeTab === "caixa" && (
+            <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Histórico de Caixas</p>
+                    <button onClick={loadCaixaList} disabled={caixaListLoading}
+                        className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
+                        <RefreshCcw className={`h-3 w-3 ${caixaListLoading ? "animate-spin" : ""}`} /> Atualizar
+                    </button>
+                </div>
+
+                <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
+                    {caixaListLoading ? (
+                        <div className="space-y-2 p-5">{[...Array(4)].map((_,i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+                    ) : caixaList.length === 0 ? (
+                        <div className="py-12 text-center">
+                            <Banknote className="mx-auto h-8 w-8 text-zinc-300 dark:text-zinc-600" />
+                            <p className="mt-2 text-sm text-zinc-400">Nenhum caixa encontrado. Abra o primeiro caixa no PDV.</p>
+                        </div>
+                    ) : (
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                                    {["Abertura","Fechamento","Operador","Fundo","Total esperado","Contagem","Diferença","Status","Movimentos"].map(h => (
+                                        <th key={h} className="px-4 py-2.5 text-left font-semibold text-zinc-400">{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
+                                {caixaList.map((cx: any) => (
+                                    <tr key={cx.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                                        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono">{new Date(cx.opened_at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</td>
+                                        <td className="px-4 py-3 text-zinc-500 font-mono">{cx.closed_at ? new Date(cx.closed_at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—"}</td>
+                                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{cx.operator_name ?? "—"}</td>
+                                        <td className="px-4 py-3 font-mono">{brl(cx.initial_amount ?? 0)}</td>
+                                        <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-200">—</td>
+                                        <td className="px-4 py-3 font-mono">{cx.closing_amount != null ? brl(cx.closing_amount) : "—"}</td>
+                                        <td className={`px-4 py-3 font-mono font-bold ${(cx.difference ?? 0) < 0 ? "text-red-600" : (cx.difference ?? 0) > 0 ? "text-emerald-600" : "text-zinc-400"}`}>
+                                            {cx.difference != null ? brl(cx.difference) : "—"}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${cx.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-500"}`}>
+                                                {cx.status === "open" ? "Aberto" : "Fechado"}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <button onClick={() => loadCaixaMovs(cx.id)}
+                                                className="rounded-lg border border-zinc-200 px-2.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800 transition-colors">
+                                                Ver movimentos
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+
+                {/* Movimentos do caixa selecionado */}
+                {selectedCaixa && caixaMovs.length > 0 && (
+                    <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
+                        <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+                            <Banknote className="h-4 w-4 text-orange-500" />
+                            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Movimentos do caixa</p>
+                            <button onClick={() => { setSelectedCaixa(null); setCaixaMovs([]); }} className="ml-auto text-xs text-zinc-400 hover:text-zinc-700">fechar</button>
+                        </div>
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                                    {["Hora","Tipo","Valor","Operador","Motivo"].map(h => (
+                                        <th key={h} className="px-4 py-2.5 text-left font-semibold text-zinc-400">{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
+                                {caixaMovs.map((m: any) => (
+                                    <tr key={m.id}>
+                                        <td className="px-4 py-3 font-mono text-zinc-500">{new Date(m.occurred_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${m.type === "sangria" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                                                {m.type === "sangria" ? "Sangria" : "Suprimento"}
+                                            </span>
+                                        </td>
+                                        <td className={`px-4 py-3 font-mono font-bold ${m.type === "sangria" ? "text-red-600" : "text-emerald-600"}`}>
+                                            {m.type === "sangria" ? "- " : "+ "}{brl(m.amount ?? 0)}
+                                        </td>
+                                        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{m.operator_name ?? "—"}</td>
+                                        <td className="px-4 py-3 text-zinc-500">{m.reason ?? "—"}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* ── Aba: DRE ────────────────────────────────────────────────────────── */}
+        {activeTab === "dre" && (
+            <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Demonstrativo de Resultado — {periodLabel}</p>
+                        <p className="text-xs text-zinc-400">Resumo gerencial de receitas e despesas no período</p>
+                    </div>
+                    <button onClick={loadDRE} disabled={dreLoading}
+                        className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
+                        <RefreshCcw className={`h-3 w-3 ${dreLoading ? "animate-spin" : ""}`} /> Atualizar
+                    </button>
+                </div>
+
+                <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden max-w-2xl">
+                    {dreLoading ? (
+                        <div className="space-y-2 p-5">{[...Array(6)].map((_,i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+                    ) : (
+                        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                            {/* Receitas */}
+                            <div className="bg-zinc-50 dark:bg-zinc-800/50 px-5 py-2.5">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Receitas</p>
+                            </div>
+                            {dreData.filter(r => r.account_type === "revenue").map(r => (
+                                <div key={r.account_name} className="flex items-center justify-between px-5 py-3 text-sm">
+                                    <span className="text-zinc-600 dark:text-zinc-400">{r.account_name}</span>
+                                    <span className="font-bold text-emerald-600">+ {brl(r.total)}</span>
+                                </div>
+                            ))}
+                            {stats && (
+                                <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-900/20 px-5 py-3 text-sm font-black">
+                                    <span className="text-zinc-700 dark:text-zinc-200">= Receita Total</span>
+                                    <span className="text-emerald-600 text-base">{brl(stats.revenue)}</span>
+                                </div>
+                            )}
+                            {/* Custos */}
+                            <div className="bg-zinc-50 dark:bg-zinc-800/50 px-5 py-2.5">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Custos e Despesas</p>
+                            </div>
+                            {dreData.filter(r => r.account_type === "cost" || r.account_type === "expense").map(r => (
+                                <div key={r.account_name} className="flex items-center justify-between px-5 py-3 text-sm">
+                                    <span className="text-zinc-600 dark:text-zinc-400">{r.account_name}</span>
+                                    <span className="font-bold text-red-500">- {brl(r.total)}</span>
+                                </div>
+                            ))}
+                            {/* Resultado */}
+                            {stats && (
+                                <div className={`flex items-center justify-between px-5 py-4 text-sm font-black border-t-2 ${stats.realProfit >= 0 ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700" : "border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700"}`}>
+                                    <span className="text-zinc-700 dark:text-zinc-200 text-base">= Resultado do Período</span>
+                                    <span className={`text-xl ${stats.realProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{brl(stats.realProfit)}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
 
         {/* ── Nova Despesa Modal (dark mode) ────────────────────────────────── */}
         {showExpModal && (

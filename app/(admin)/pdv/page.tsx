@@ -3,11 +3,13 @@
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   BadgeDollarSign, Banknote, CreditCard, Minus, Plus, QrCode,
   Search, ShoppingCart, Trash2, X, CheckCircle2, Printer,
-  ChevronDown, User, Zap, Keyboard, AlertCircle, Home, Mail,
-  UserPlus, UserCheck,
+  ChevronDown, User, Keyboard, AlertCircle,
+  UserPlus, UserCheck, Lock, Unlock, ArrowDownLeft, ArrowUpRight,
+  FileText, TrendingDown, TrendingUp, Clock,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -47,7 +49,18 @@ interface Variant {
   sales_count: number;
 }
 interface CartItem  { variant: Variant; qty: number }
-interface PayLine   { id: string; method: "pix"|"card"|"cash"|"credit"; value: string; received: string; due_date?: string }
+type PayMethod = "pix"|"card"|"debit"|"cash"|"credit"|"boleto"|"cheque"|"promissoria";
+interface PayLine   { id: string; method: PayMethod; value: string; received: string; due_date?: string }
+
+interface CaixaInfo {
+  id: string;
+  opened_at: string;
+  operator_name: string | null;
+  initial_amount: number;
+  total_in: number;
+  total_out: number;
+  balance_expected: number;
+}
 
 interface CustomerSummary {
   id: string; name: string|null; phone: string|null;
@@ -55,12 +68,16 @@ interface CustomerSummary {
   enderecos?: Array<{ id:string; apelido:string; logradouro:string|null; numero:string|null; bairro:string|null }>;
 }
 
-const PAY = {
-  pix:    { label:"PIX",      icon:QrCode,       color:"text-emerald-400", bg:"bg-emerald-900/30 border-emerald-700" },
-  card:   { label:"Cartão",   icon:CreditCard,   color:"text-blue-400",   bg:"bg-blue-900/30 border-blue-700"       },
-  cash:   { label:"Dinheiro", icon:Banknote,     color:"text-orange-400", bg:"bg-orange-900/30 border-orange-700"   },
-  credit: { label:"A Prazo",  icon:AlertCircle,  color:"text-red-400",    bg:"bg-red-900/30 border-red-700"         },
-} as const;
+const PAY: Record<PayMethod, { label:string; icon:React.ElementType; color:string; bg:string; prazo?:boolean }> = {
+  pix:         { label:"PIX",         icon:QrCode,      color:"text-emerald-400", bg:"bg-emerald-900/30 border-emerald-700" },
+  card:        { label:"Crédito",     icon:CreditCard,  color:"text-blue-400",   bg:"bg-blue-900/30 border-blue-700"       },
+  debit:       { label:"Débito",      icon:CreditCard,  color:"text-sky-400",    bg:"bg-sky-900/30 border-sky-700"         },
+  cash:        { label:"Dinheiro",    icon:Banknote,    color:"text-orange-400", bg:"bg-orange-900/30 border-orange-700"   },
+  credit:      { label:"A Prazo",     icon:AlertCircle, color:"text-red-400",    bg:"bg-red-900/30 border-red-700",       prazo:true },
+  boleto:      { label:"Boleto",      icon:FileText,    color:"text-cyan-400",   bg:"bg-cyan-900/30 border-cyan-700",     prazo:true },
+  cheque:      { label:"Cheque",      icon:FileText,    color:"text-slate-400",  bg:"bg-slate-900/30 border-slate-700",   prazo:true },
+  promissoria: { label:"Promissória", icon:FileText,    color:"text-amber-400",  bg:"bg-amber-900/30 border-amber-700",   prazo:true },
+};
 
 async function fetchCep(cep: string) {
   const clean = cep.replace(/\D/g,"");
@@ -93,8 +110,11 @@ function useF2(cb: () => void) {
 // ─── page ─────────────────────────────────────────────────────────────────────
 
 export default function PDVPage() {
-  const supabase = useMemo(() => createClient(), []);
+  const supabase     = useMemo(() => createClient(), []);
   const { currentCompanyId: companyId } = useWorkspace();
+  const searchParams = useSearchParams();
+  const fromOrderId  = searchParams.get("from_order");
+  const [fromOrderBanner, setFromOrderBanner] = useState<string | null>(null);
 
   const [variants,    setVariants]    = useState<Variant[]>([]);
   const [loadingProd, setLoadingProd] = useState(true);
@@ -115,6 +135,17 @@ export default function PDVPage() {
   const [savingCust,       setSavingCust]       = useState(false);
   const [cepLoading,       setCepLoading]       = useState(false);
   const custSearchRef = useRef<HTMLInputElement>(null);
+
+  // ── caixa ─────────────────────────────────────────────────────────────
+  const [caixa,           setCaixa]           = useState<CaixaInfo | null>(null);
+  const [caixaLoading,    setCaixaLoading]    = useState(true);
+  const [showAbrirCaixa,  setShowAbrirCaixa]  = useState(false);
+  const [showFecharCaixa, setShowFecharCaixa] = useState(false);
+  const [showMovimento,   setShowMovimento]   = useState(false);
+  const [movForm, setMovForm] = useState({ type: "sangria" as "sangria"|"suprimento", amount: "", reason: "" });
+  const [abrirForm, setAbrirForm] = useState({ initial_amount: "200", operator: "" });
+  const [fecharContagem, setFecharContagem] = useState("");
+  const [caixaSubmitting, setCaixaSubmitting] = useState(false);
 
   // ── checkout ─────────────────────────────────────────────────────────
   const [showCheckout, setShowCheckout] = useState(false);
@@ -164,8 +195,120 @@ export default function PDVPage() {
     setLoadingProd(false);
   }, [companyId, supabase]);
 
+  // ── caixa ops ─────────────────────────────────────────────────────────────
+  const loadCaixa = useCallback(async () => {
+    if (!companyId) return;
+    setCaixaLoading(true);
+    const { data } = await supabase
+      .from("cash_registers")
+      .select("id, opened_at, operator_name, initial_amount")
+      .eq("company_id", companyId)
+      .eq("status", "open")
+      .maybeSingle();
+
+    if (!data) { setCaixa(null); setCaixaLoading(false); return; }
+
+    // Totaliza entradas/saídas do dia via cash_movements + sales
+    const [movRes, salesRes] = await Promise.all([
+      supabase.from("cash_movements").select("type, amount").eq("cash_register_id", data.id),
+      supabase.from("sale_payments")
+        .select("amount, payment_method")
+        .eq("company_id", companyId)
+        .gte("created_at", data.opened_at),
+    ]);
+
+    const movements = (movRes.data ?? []) as { type: string; amount: number }[];
+    const salePayments = (salesRes.data ?? []) as { amount: number; payment_method: string }[];
+
+    const totalIn  = salePayments.filter(p => !["credit","boleto","cheque","promissoria","credit_installment"].includes(p.payment_method))
+                                  .reduce((s, p) => s + Number(p.amount), 0)
+                   + movements.filter(m => m.type === "suprimento").reduce((s, m) => s + Number(m.amount), 0)
+                   + Number(data.initial_amount ?? 0);
+    const totalOut = movements.filter(m => m.type === "sangria").reduce((s, m) => s + Number(m.amount), 0);
+
+    setCaixa({ ...data, total_in: totalIn, total_out: totalOut, balance_expected: totalIn - totalOut });
+    setCaixaLoading(false);
+  }, [companyId, supabase]);
+
+  const handleAbrirCaixa = async () => {
+    if (!companyId) return;
+    setCaixaSubmitting(true);
+    const { error } = await supabase.from("cash_registers").insert({
+      company_id:     companyId,
+      operator_name:  abrirForm.operator.trim() || sellerName.trim() || null,
+      initial_amount: parseFloat(abrirForm.initial_amount) || 0,
+      status:         "open",
+      opened_at:      new Date().toISOString(),
+    });
+    setCaixaSubmitting(false);
+    if (error) { alert("Erro ao abrir caixa: " + error.message); return; }
+    setShowAbrirCaixa(false);
+    await loadCaixa();
+  };
+
+  const handleFecharCaixa = async () => {
+    if (!caixa || !companyId) return;
+    setCaixaSubmitting(true);
+    const counted = parseFloat(fecharContagem) || 0;
+    const { error } = await supabase.from("cash_registers").update({
+      status:         "closed",
+      closed_at:      new Date().toISOString(),
+      closing_amount: counted,
+      difference:     counted - caixa.balance_expected,
+    }).eq("id", caixa.id);
+    setCaixaSubmitting(false);
+    if (error) { alert("Erro ao fechar caixa: " + error.message); return; }
+    setShowFecharCaixa(false);
+    setFecharContagem("");
+    setCaixa(null);
+  };
+
+  const handleMovimento = async () => {
+    if (!caixa || !companyId || !movForm.amount) return;
+    setCaixaSubmitting(true);
+    const { error } = await supabase.from("cash_movements").insert({
+      cash_register_id: caixa.id,
+      company_id:       companyId,
+      type:             movForm.type,
+      amount:           parseFloat(movForm.amount) || 0,
+      reason:           movForm.reason.trim() || null,
+      operator_name:    sellerName.trim() || null,
+      occurred_at:      new Date().toISOString(),
+    });
+    setCaixaSubmitting(false);
+    if (error) { alert("Erro: " + error.message); return; }
+    setShowMovimento(false);
+    setMovForm({ type: "sangria", amount: "", reason: "" });
+    await loadCaixa();
+  };
+
   useEffect(() => { loadVariants(); }, [loadVariants]);
+  useEffect(() => { loadCaixa(); }, [loadCaixa]);
   useEffect(() => { if (!showCheckout) searchRef.current?.focus(); }, [showCheckout]);
+
+  // Pré-carrega carrinho a partir de um pedido existente (botão "Fechar no PDV")
+  useEffect(() => {
+    if (!fromOrderId || !companyId || variants.length === 0) return;
+    (async () => {
+      const { data: items } = await supabase
+        .from("order_items")
+        .select("produto_embalagem_id, quantity, qty, product_name, unit_price")
+        .eq("order_id", fromOrderId);
+      if (!items || items.length === 0) return;
+      const newCart: CartItem[] = [];
+      for (const it of items as any[]) {
+        const embId = it.produto_embalagem_id;
+        const v = variants.find(v => v.id === embId);
+        if (v) {
+          newCart.push({ variant: v, qty: Number(it.quantity ?? it.qty ?? 1) });
+        }
+      }
+      if (newCart.length > 0) {
+        setCart(newCart);
+        setFromOrderBanner(`Pedido #${fromOrderId.slice(-6).toUpperCase()}`);
+      }
+    })();
+  }, [fromOrderId, companyId, variants, supabase]);
 
   // ── customer search (debounced) ──────────────────────────────────────
   useEffect(() => {
@@ -275,7 +418,7 @@ export default function PDVPage() {
   // ── payments ─────────────────────────────────────────────────────────────
   const payTotal    = useMemo(() => payments.reduce((s,p) => s + (parseFloat(p.value)||0), 0), [payments]);
   const remaining   = useMemo(() => Math.max(0, cartTotal - payTotal), [cartTotal, payTotal]);
-  const canFinalize = payTotal >= cartTotal && cartTotal > 0 && !finalizing;
+  const canFinalize = payTotal >= cartTotal && cartTotal > 0 && !finalizing && !!caixa;
 
   // Auto-focus newly added payment input after state update
   useEffect(() => {
@@ -286,10 +429,12 @@ export default function PDVPage() {
   }, [payments]);
 
   const addPayLine = () => {
-    const used  = new Set(payments.map(p => p.method));
-    const methods = (["pix","card","cash"] as const).filter(m => !used.has(m));
-    // also offer credit if customer has limit
-    const allMethods: Array<"pix"|"card"|"cash"|"credit"> = [...methods, ...(canUseCredit && !used.has("credit") ? ["credit" as const] : [])];
+    const used = new Set(payments.map(p => p.method));
+    const vistaOptions: PayMethod[] = (["pix","card","debit","cash"] as PayMethod[]).filter(m => !used.has(m));
+    const prazoOptions: PayMethod[] = selectedCustomer
+      ? (["credit","boleto","cheque","promissoria"] as PayMethod[]).filter(m => !used.has(m))
+      : [];
+    const allMethods: PayMethod[] = [...vistaOptions, ...prazoOptions];
     const next = allMethods[0];
     if (!next) return;
     const newId      = Date.now().toString();
@@ -374,25 +519,36 @@ export default function PDVPage() {
   // ── finalize ──────────────────────────────────────────────────────────────
   const finalize = async () => {
     if (!companyId || !canFinalize) return;
-    const hasCreditPayment = payments.some(p => p.method === "credit");
+    const PRAZO_METHODS: PayMethod[] = ["credit","boleto","cheque","promissoria"];
+    const hasCreditPayment = payments.some(p => PRAZO_METHODS.includes(p.method));
     if (hasCreditPayment && !selectedCustomer) {
-      alert("Selecione um cliente para usar pagamento A Prazo."); return;
+      alert("Selecione um cliente para usar pagamento a prazo."); return;
+    }
+    if (!caixa) {
+      alert("Abra o caixa antes de finalizar uma venda."); return;
     }
     setFinalizing(true);
     try {
       const primary = [...payments].sort((a,b)=>(parseFloat(b.value)||0)-(parseFloat(a.value)||0))[0];
       const isPaid = !hasCreditPayment;
 
+      // payment_method normalizado: prazo genérico → subtipo
+      const normMethod = (m: PayMethod): string => {
+        if (m === "credit") return "credit_installment";
+        return m;
+      };
+
       // 1. Criar sale (registro financeiro da venda)
       const { data: sale, error: saleErr } = await supabase.from("sales").insert({
-        company_id:     companyId,
-        customer_id:    selectedCustomer?.id ?? null,
-        seller_name:    sellerName || null,
-        origin:         "pdv",
-        subtotal:       cartTotal,
-        total:          cartTotal,
-        status:         isPaid ? "paid" : "partial",
-        notes:          sellerName ? `Balcão — ${sellerName}` : "Balcão",
+        company_id:       companyId,
+        cash_register_id: caixa?.id ?? null,
+        customer_id:      selectedCustomer?.id ?? null,
+        seller_name:      sellerName || null,
+        origin:           "pdv",
+        subtotal:         cartTotal,
+        total:            cartTotal,
+        status:           isPaid ? "paid" : "partial",
+        notes:            sellerName ? `Balcão — ${sellerName}` : "Balcão",
       }).select("id").single();
       if (saleErr) throw new Error(saleErr.message);
       const saleId = sale.id;
@@ -413,10 +569,10 @@ export default function PDVPage() {
       const { error: salePayErr } = await supabase.from("sale_payments").insert(payments.map(p => ({
         sale_id:        saleId,
         company_id:     companyId,
-        payment_method: p.method === "credit" ? "credit_installment" : p.method,
+        payment_method: normMethod(p.method),
         amount:         parseFloat(p.value) || 0,
         due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
-        received_at:    p.method !== "credit" ? new Date().toISOString() : null,
+        received_at:    !PAY[p.method].prazo ? new Date().toISOString() : null,
       })));
       if (salePayErr) console.error("[pdv] sale_payments:", salePayErr.message);
 
@@ -461,13 +617,13 @@ export default function PDVPage() {
         type:           "income",
         amount:         parseFloat(p.value) || 0,
         delivery_fee:   0,
-        payment_method: p.method === "credit" ? "credit_installment" : p.method,
+        payment_method: normMethod(p.method),
         origin:         "balcao",
         description:    `Venda PDV${sellerName ? " — " + sellerName : ""}`,
         occurred_at:    new Date().toISOString(),
-        status:         p.method === "credit" ? "pending" : "received",
+        status:         PAY[p.method].prazo ? "pending" : "received",
         due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
-        received_at:    p.method !== "credit" ? new Date().toISOString() : null,
+        received_at:    !PAY[p.method].prazo ? new Date().toISOString() : null,
       })));
       if (finErr) console.error("[pdv] financial_entries:", finErr.message);
 
@@ -493,6 +649,7 @@ export default function PDVPage() {
       }
       setSaleOk(true);
       setCart([]);
+      loadCaixa();
     } catch(err:any) {
       alert("Erro ao finalizar: "+err.message);
     } finally { setFinalizing(false); }
@@ -504,6 +661,60 @@ export default function PDVPage() {
   return (
     /* Root: full viewport, dark mode ativado */
     <div className="dark fixed inset-0 left-60 flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
+
+      {/* ── Caixa status bar ──────────────────────────────────────────── */}
+      {!caixaLoading && (
+        <div className={`flex shrink-0 items-center gap-3 border-b px-4 py-1.5 text-xs ${
+          caixa
+            ? "border-emerald-900/50 bg-emerald-950/40"
+            : "border-red-900/50 bg-red-950/40"
+        }`}>
+          {caixa ? (
+            <>
+              <Unlock className="h-3 w-3 text-emerald-400 shrink-0" />
+              <span className="text-emerald-300 font-semibold">Caixa aberto</span>
+              {caixa.operator_name && <span className="text-zinc-500">· {caixa.operator_name}</span>}
+              <span className="text-zinc-600">·</span>
+              <span className="text-zinc-400">
+                {new Date(caixa.opened_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
+              </span>
+              <span className="ml-auto flex items-center gap-3">
+                <span className="flex items-center gap-1 text-emerald-400">
+                  <TrendingUp className="h-3 w-3" />
+                  {caixa.total_in.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
+                </span>
+                {caixa.total_out > 0 && (
+                  <span className="flex items-center gap-1 text-red-400">
+                    <TrendingDown className="h-3 w-3" />
+                    {caixa.total_out.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
+                  </span>
+                )}
+                <span className="font-bold text-zinc-200">
+                  Saldo: {caixa.balance_expected.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
+                </span>
+                <button onClick={() => setShowMovimento(true)}
+                  className="flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-zinc-400 hover:border-orange-600 hover:text-orange-400 transition-colors">
+                  <ArrowDownLeft className="h-2.5 w-2.5" /> Sangria / Suprimento
+                </button>
+                <button onClick={() => setShowFecharCaixa(true)}
+                  className="flex items-center gap-1 rounded-md border border-red-800 bg-red-950/40 px-2 py-0.5 text-red-400 hover:bg-red-900/40 transition-colors">
+                  <Lock className="h-2.5 w-2.5" /> Fechar caixa
+                </button>
+              </span>
+            </>
+          ) : (
+            <>
+              <Lock className="h-3 w-3 text-red-400 shrink-0" />
+              <span className="text-red-300 font-semibold">Caixa fechado</span>
+              <span className="text-zinc-500">— finalizações bloqueadas</span>
+              <button onClick={() => setShowAbrirCaixa(true)}
+                className="ml-auto flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-0.5 font-semibold text-white hover:bg-emerald-500 transition-colors">
+                <Unlock className="h-3 w-3" /> Abrir caixa
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── Top bar (compact) ─────────────────────────────────────────── */}
       <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-2">
@@ -540,6 +751,14 @@ export default function PDVPage() {
           <span className="text-orange-400 font-bold">F2</span>
           <span>= Finalizar</span>
         </div>
+
+        {/* Banner: fechando pedido existente */}
+        {fromOrderBanner && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 shrink-0">
+            <ShoppingCart className="h-3 w-3" />
+            Fechando {fromOrderBanner}
+          </div>
+        )}
       </header>
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
@@ -753,12 +972,20 @@ export default function PDVPage() {
             )}
 
             {/* Finalize — F2 */}
-            <button onClick={openCheckout} disabled={cart.length===0}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-black text-white shadow-[0_0_18px_rgba(249,115,22,0.45)] transition-all hover:bg-orange-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25">
-              <BadgeDollarSign className="h-4 w-4" />
-              Finalizar
-              <kbd className="ml-auto rounded bg-orange-400/40 px-1.5 py-0.5 text-[10px] font-bold">F2</kbd>
-            </button>
+            {!caixa && !caixaLoading ? (
+              <button onClick={() => setShowAbrirCaixa(true)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-sm font-black text-white hover:bg-emerald-500 transition-all active:scale-95">
+                <Unlock className="h-4 w-4" />
+                Abrir caixa para vender
+              </button>
+            ) : (
+              <button onClick={openCheckout} disabled={cart.length===0 || !caixa}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-black text-white shadow-[0_0_18px_rgba(249,115,22,0.45)] transition-all hover:bg-orange-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25">
+                <BadgeDollarSign className="h-4 w-4" />
+                Finalizar
+                <kbd className="ml-auto rounded bg-orange-400/40 px-1.5 py-0.5 text-[10px] font-bold">F2</kbd>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -911,11 +1138,12 @@ export default function PDVPage() {
                           </div>
                           <div className="relative">
                             <select value={pay.method}
-                              onChange={e=>updPay(pay.id,"method",e.target.value as PayLine["method"])}
+                              onChange={e=>updPay(pay.id,"method",e.target.value as PayMethod)}
                               className="appearance-none rounded-lg bg-zinc-900/60 pl-2.5 pr-6 py-1 text-xs font-medium text-zinc-200 border border-zinc-700 focus:outline-none">
-                              {(["pix","card","cash",...(canUseCredit ? ["credit" as const] : [])] as Array<PayLine["method"]>)
-                                .filter(m=>m===pay.method||!payments.some(p=>p.id!==pay.id&&p.method===m))
-                                .map(m=><option key={m} value={m}>{PAY[m].label}</option>)}
+                              {(["pix","card","debit","cash",
+                                 ...(selectedCustomer ? ["credit","boleto","cheque","promissoria"] : [])] as PayMethod[])
+                                .filter(m => m === pay.method || !payments.some(p => p.id !== pay.id && p.method === m))
+                                .map(m => <option key={m} value={m}>{PAY[m].label}</option>)}
                             </select>
                             <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-zinc-500" />
                           </div>
@@ -935,13 +1163,15 @@ export default function PDVPage() {
                           )}
                         </div>
 
-                        {pay.method === "credit" && selectedCustomer && (
+                        {PAY[pay.method].prazo && (
                           <div className="flex flex-col gap-1">
-                            <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Vencimento</label>
+                            <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                              Vencimento {!selectedCustomer && <span className="text-red-400">(cliente obrigatório)</span>}
+                            </label>
                             <input
                               type="date"
                               value={pay.due_date ?? creditDefaultDue}
-                              onChange={(e) => updPay(pay.id, "due_date" as any, e.target.value)}
+                              onChange={(e) => updPay(pay.id, "due_date" as keyof PayLine, e.target.value)}
                               className="w-full rounded-lg bg-zinc-900/60 border border-zinc-700 px-2 py-1.5 text-xs font-medium text-zinc-200 focus:outline-none focus:border-orange-500"
                             />
                           </div>
@@ -971,7 +1201,7 @@ export default function PDVPage() {
                   })}
 
                   {/* Credit warning */}
-                {payments.some(p=>p.method==="credit") && selectedCustomer && (
+                {payments.some(p => PAY[p.method].prazo) && selectedCustomer && (
                   <div className="flex items-start gap-2 rounded-xl bg-red-900/20 border border-red-700/50 px-3 py-2">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400 mt-0.5" />
                     <div>
@@ -982,8 +1212,8 @@ export default function PDVPage() {
                     </div>
                   </div>
                 )}
-                {payments.some(p=>p.method==="credit") && !selectedCustomer && (
-                  <p className="text-[11px] text-red-400">⚠ Selecione um cliente para usar A Prazo.</p>
+                {payments.some(p => PAY[p.method].prazo) && !selectedCustomer && (
+                  <p className="text-[11px] text-red-400">⚠ Selecione um cliente para formas a prazo.</p>
                 )}
 
                 {/* Remaining — red while unpaid, green when covered */}
@@ -1024,6 +1254,156 @@ export default function PDVPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Abrir Caixa ──────────────────────────────────────────── */}
+      {showAbrirCaixa && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-xs rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
+            <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-600/20">
+                <Unlock className="h-4 w-4 text-emerald-400" />
+              </div>
+              <p className="text-sm font-bold text-zinc-100">Abrir Caixa</p>
+              <button onClick={() => setShowAbrirCaixa(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Operador</label>
+                <input value={abrirForm.operator} onChange={e => setAbrirForm(p => ({...p, operator: e.target.value}))}
+                  placeholder={sellerName || "Nome do operador"}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Fundo de caixa (R$)</label>
+                <input type="number" min={0} step={0.01} value={abrirForm.initial_amount}
+                  onChange={e => setAbrirForm(p => ({...p, initial_amount: e.target.value}))}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none" />
+              </div>
+            </div>
+            <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
+              <button onClick={() => setShowAbrirCaixa(false)}
+                className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
+              <button onClick={handleAbrirCaixa} disabled={caixaSubmitting}
+                className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition-all">
+                {caixaSubmitting ? "Abrindo…" : "Abrir Caixa"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Fechar Caixa ─────────────────────────────────────────── */}
+      {showFecharCaixa && caixa && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
+            <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-red-600/20">
+                <Lock className="h-4 w-4 text-red-400" />
+              </div>
+              <p className="text-sm font-bold text-zinc-100">Fechar Caixa</p>
+              <button onClick={() => setShowFecharCaixa(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Resumo */}
+              <div className="rounded-xl bg-zinc-800/60 border border-zinc-700 divide-y divide-zinc-700">
+                {[
+                  { label: "Fundo inicial",  value: brl(caixa.initial_amount), cls: "text-zinc-300" },
+                  { label: "Total vendido",  value: brl(caixa.total_in - caixa.initial_amount), cls: "text-emerald-400" },
+                  { label: "Sangrias",       value: `- ${brl(caixa.total_out)}`, cls: "text-red-400" },
+                  { label: "Saldo esperado", value: brl(caixa.balance_expected), cls: "text-orange-400 font-black" },
+                ].map(row => (
+                  <div key={row.label} className="flex items-center justify-between px-4 py-2.5 text-xs">
+                    <span className="text-zinc-500">{row.label}</span>
+                    <span className={row.cls}>{row.value}</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                  Contagem física (R$)
+                </label>
+                <input type="number" min={0} step={0.01} value={fecharContagem}
+                  onChange={e => setFecharContagem(e.target.value)}
+                  placeholder="Valor contado no caixa"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none" />
+                {fecharContagem && (
+                  <p className={`mt-1 text-xs font-semibold ${
+                    (parseFloat(fecharContagem)||0) >= caixa.balance_expected ? "text-emerald-400" : "text-red-400"
+                  }`}>
+                    Diferença: {brl((parseFloat(fecharContagem)||0) - caixa.balance_expected)}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
+              <button onClick={() => setShowFecharCaixa(false)}
+                className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
+              <button onClick={handleFecharCaixa} disabled={caixaSubmitting}
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-50 transition-all">
+                {caixaSubmitting ? "Fechando…" : "Confirmar Fechamento"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Sangria / Suprimento ────────────────────────────────── */}
+      {showMovimento && caixa && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-xs rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
+            <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3.5">
+              <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${movForm.type === "sangria" ? "bg-red-600/20" : "bg-emerald-600/20"}`}>
+                {movForm.type === "sangria"
+                  ? <ArrowDownLeft className="h-4 w-4 text-red-400" />
+                  : <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                }
+              </div>
+              <p className="text-sm font-bold text-zinc-100">Movimento de Caixa</p>
+              <button onClick={() => setShowMovimento(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Tipo toggle */}
+              <div className="grid grid-cols-2 gap-2">
+                {(["sangria","suprimento"] as const).map(t => (
+                  <button key={t} onClick={() => setMovForm(p => ({...p, type: t}))}
+                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
+                      movForm.type === t
+                        ? t === "sangria"
+                          ? "border-red-600 bg-red-950/40 text-red-300"
+                          : "border-emerald-600 bg-emerald-950/40 text-emerald-300"
+                        : "border-zinc-700 text-zinc-500 hover:border-zinc-600"
+                    }`}>
+                    {t === "sangria"
+                      ? <><ArrowDownLeft className="h-3 w-3" /> Sangria</>
+                      : <><ArrowUpRight className="h-3 w-3" /> Suprimento</>
+                    }
+                  </button>
+                ))}
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Valor (R$)</label>
+                <input type="number" min={0} step={0.01} value={movForm.amount}
+                  onChange={e => setMovForm(p => ({...p, amount: e.target.value}))}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Motivo</label>
+                <input value={movForm.reason} onChange={e => setMovForm(p => ({...p, reason: e.target.value}))}
+                  placeholder={movForm.type === "sangria" ? "Ex: Depósito banco" : "Ex: Troco adicional"}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none" />
+              </div>
+            </div>
+            <div className="border-t border-zinc-800 px-5 py-3.5 flex gap-3">
+              <button onClick={() => setShowMovimento(false)}
+                className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Cancelar</button>
+              <button onClick={handleMovimento} disabled={caixaSubmitting || !movForm.amount}
+                className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50 transition-all">
+                {caixaSubmitting ? "Salvando…" : "Confirmar"}
+              </button>
+            </div>
           </div>
         </div>
       )}
