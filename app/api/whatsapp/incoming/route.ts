@@ -1,263 +1,235 @@
-import { NextResponse } from "next/server";
+/**
+ * app/api/whatsapp/incoming/route.ts
+ *
+ * Webhook da Meta WhatsApp Cloud API.
+ *
+ * GET  → verificação do webhook (hub.challenge)
+ * POST → mensagens e status callbacks
+ *
+ * Configurar no Meta Business:
+ *   URL:   https://<seu-dominio>/api/whatsapp/incoming
+ *   Token: process.env.WHATSAPP_VERIFY_TOKEN
+ */
+
+import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 
-// Twilio inbound webhook for WhatsApp.
-//
-// This route handles both inbound messages and status callbacks from Twilio.  It
-// resolves the correct WhatsApp channel based on the `To` address, creates
-// or updates a thread record, inserts the inbound message into
-// `whatsapp_messages`, updates the thread preview, and returns an empty
-// TwiML response so Twilio does not attempt to resend.
-
 export const runtime = "nodejs";
 
-/**
- * Remove the `whatsapp:` prefix from a Twilio address.
- */
-function stripWhatsAppPrefix(v: string) {
-    const s = String(v ?? "").trim();
-    return s.startsWith("whatsapp:") ? s.replace("whatsapp:", "") : s;
-}
+// ─── GET — verificação do webhook ─────────────────────────────────────────────
 
-/**
- * Normalize a Twilio phone string into E.164.  Returns null if not valid.
- */
-function normalizeE164(v: string) {
-    const p = stripWhatsAppPrefix(v).trim();
-    if (!p) return null;
-    if (!p.startsWith("+")) return null;
-    return p;
-}
+export async function GET(req: NextRequest) {
+    const { searchParams } = new URL(req.url);
+    const mode      = searchParams.get("hub.mode");
+    const token     = searchParams.get("hub.verify_token");
+    const challenge = searchParams.get("hub.challenge");
 
-/**
- * Safely clone JSON-serializable objects.  Used for storing raw payloads.
- */
-function safeJson(obj: any) {
-    try {
-        return JSON.parse(JSON.stringify(obj));
-    } catch {
-        return obj;
+    if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+        return new NextResponse(challenge, { status: 200 });
     }
+    return new NextResponse("Forbidden", { status: 403 });
 }
 
-/**
- * Resolve the Twilio channel for the given `toAddr`.  The `toAddr` comes from
- * Twilio in the format `whatsapp:+5566...`.  The lookup is performed
- * against `whatsapp_channels.from_identifier`; if no exact match is found
- * the first active Twilio channel is returned as a fallback.
- */
-async function resolveTwilioChannel(
-    admin: ReturnType<typeof createAdminClient>,
-    toAddr: string
-) {
-    // Try to match the exact from_identifier value
-    const { data: channel } = await admin
-        .from("whatsapp_channels")
-        .select("id, company_id, provider, from_identifier")
-        .eq("provider", "twilio")
-        .eq("status", "active")
-        .eq("from_identifier", toAddr)
-        .maybeSingle();
+// ─── POST — mensagens inbound ──────────────────────────────────────────────────
 
-    if (channel) return channel;
+export async function POST(req: Request) {
+    const admin = createAdminClient();
 
-    // Fallback: first active Twilio channel
-    const { data: fallback } = await admin
-        .from("whatsapp_channels")
-        .select("id, company_id, provider, from_identifier")
-        .eq("provider", "twilio")
-        .eq("status", "active")
-        .limit(1)
-        .maybeSingle();
+    let body: any;
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    }
 
-    return fallback ?? null;
+    // A Meta sempre envia object === "whatsapp_business_account"
+    if (body?.object !== "whatsapp_business_account") {
+        return NextResponse.json({ ok: true }); // ignorar outros webhooks
+    }
+
+    for (const entry of body?.entry ?? []) {
+        for (const change of entry?.changes ?? []) {
+            if (change?.field !== "messages") continue;
+
+            const value = change?.value ?? {};
+
+            // ── Status callbacks (sent, delivered, read, failed) ─────────────
+            for (const statusUpdate of value?.statuses ?? []) {
+                const waId   = statusUpdate?.id;
+                const status = statusUpdate?.status;   // sent | delivered | read | failed
+                if (waId && status) {
+                    await admin
+                        .from("whatsapp_messages")
+                        .update({ status })
+                        .eq("provider", "meta")
+                        .eq("provider_message_id", waId);
+                }
+            }
+
+            // ── Mensagens inbound ────────────────────────────────────────────
+            const messages = value?.messages ?? [];
+            if (!messages.length) continue;
+
+            // Resolve canal da empresa pelo phone_number_id
+            const phoneNumberId: string = value?.metadata?.phone_number_id ?? "";
+            const { data: channel } = await admin
+                .from("whatsapp_channels")
+                .select("id, company_id, from_identifier, provider_metadata")
+                .eq("provider", "meta")
+                .eq("status", "active")
+                .maybeSingle();
+
+            if (!channel) continue; // nenhum canal Meta configurado
+
+            for (const msg of messages) {
+                const waId      = msg?.id as string | null;
+                const fromRaw   = msg?.from as string; // ex: "5565999999999" (sem +)
+                const msgType   = msg?.type as string; // text | interactive | image | ...
+                const timestamp = msg?.timestamp;
+
+                if (!fromRaw || !waId) continue;
+
+                // Normaliza para E.164
+                const phoneE164 = fromRaw.startsWith("+") ? fromRaw : `+${fromRaw}`;
+
+                // Nome do perfil do contato
+                const contact    = (value?.contacts ?? []).find((c: any) => c.wa_id === fromRaw);
+                const profileName: string | null = contact?.profile?.name ?? null;
+
+                // Extrai texto da mensagem (text ou interactive reply)
+                let bodyText = "";
+                if (msgType === "text") {
+                    bodyText = msg?.text?.body ?? "";
+                } else if (msgType === "interactive") {
+                    const interactive = msg?.interactive ?? {};
+                    if (interactive.type === "button_reply") {
+                        bodyText = interactive.button_reply?.title ?? interactive.button_reply?.id ?? "";
+                    } else if (interactive.type === "list_reply") {
+                        bodyText = interactive.list_reply?.title ?? interactive.list_reply?.id ?? "";
+                    }
+                }
+
+                // ── Upsert thread ────────────────────────────────────────────
+                const threadId = await upsertThread({
+                    admin,
+                    companyId:   channel.company_id,
+                    channelId:   channel.id,
+                    phoneE164,
+                    profileName,
+                });
+
+                if (!threadId) continue;
+
+                // ── Insere mensagem (dedup via provider_message_id) ──────────
+                const { error: insErr } = await admin
+                    .from("whatsapp_messages")
+                    .insert({
+                        thread_id:           threadId,
+                        direction:           "inbound",
+                        channel:             "whatsapp",
+                        provider:            "meta",
+                        provider_message_id: waId,
+                        from_addr:           phoneE164,
+                        to_addr:             phoneNumberId,
+                        body:                bodyText || null,
+                        num_media:           msgType === "image" || msgType === "video" || msgType === "audio" || msgType === "document" ? 1 : 0,
+                        status:              "received",
+                        raw_payload:         msg,
+                    });
+
+                if (insErr) {
+                    // Código 23505 = unique violation → mensagem duplicada, ignorar
+                    if ((insErr as any).code === "23505") continue;
+                    console.error("[wa/incoming] insert error:", insErr.message);
+                    continue;
+                }
+
+                // ── Atualiza preview da thread ───────────────────────────────
+                await admin
+                    .from("whatsapp_threads")
+                    .update({
+                        last_message_at:      new Date().toISOString(),
+                        last_message_preview: (bodyText ?? "").slice(0, 120) || null,
+                    })
+                    .eq("id", threadId);
+
+                // ── Dispara chatbot (se bot ativo e há texto) ────────────────
+                if (!bodyText.trim()) continue;
+
+                const { data: threadRow } = await admin
+                    .from("whatsapp_threads")
+                    .select("bot_active")
+                    .eq("id", threadId)
+                    .maybeSingle();
+
+                if (threadRow?.bot_active === false) continue;
+
+                processInboundMessage({
+                    admin,
+                    companyId:   channel.company_id,
+                    threadId,
+                    messageId:   waId,
+                    phoneE164,
+                    text:        bodyText,
+                    profileName,
+                }).catch((err) =>
+                    console.error("[chatbot] processInboundMessage error:", err)
+                );
+            }
+        }
+    }
+
+    // Meta exige 200 em até 5s; responde imediatamente
+    return NextResponse.json({ ok: true }, { status: 200 });
 }
 
-/**
- * Find or create a thread for the incoming message.
- *
- * A thread is uniquely identified by (company_id, phone_e164).  If an
- * existing thread is found it is updated with the latest channel and
- * timestamps.  If no thread exists, a new record is inserted.  The
- * `profileName` is only applied if provided.
- */
-async function getOrCreateThread(params: {
-    admin: ReturnType<typeof createAdminClient>;
-    companyId: string;
-    channelId: string;
-    fromPhoneE164: string;
-    waFrom: string;
-    waTo: string;
-    profileName?: string | null;
-}) {
-    const { admin, companyId, channelId, fromPhoneE164, waFrom, waTo, profileName } = params;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-    const { data: existing, error: exErr } = await admin
+async function upsertThread(params: {
+    admin:       ReturnType<typeof createAdminClient>;
+    companyId:   string;
+    channelId:   string;
+    phoneE164:   string;
+    profileName: string | null;
+}): Promise<string | null> {
+    const { admin, companyId, channelId, phoneE164, profileName } = params;
+
+    const { data: existing } = await admin
         .from("whatsapp_threads")
         .select("id, profile_name")
         .eq("company_id", companyId)
-        .eq("phone_e164", fromPhoneE164)
+        .eq("phone_e164", phoneE164)
         .maybeSingle();
 
-    if (exErr) throw new Error(exErr.message);
-
     if (existing?.id) {
-        // Update channel and last_message_at; only update profile_name if provided
-        const updatePayload: any = {
-            channel_id: channelId,
-            wa_from: waFrom,
-            wa_to: waTo,
+        const update: Record<string, unknown> = {
+            channel_id:      channelId,
             last_message_at: new Date().toISOString(),
         };
-        if (profileName) updatePayload.profile_name = profileName;
-
-        await admin
-            .from("whatsapp_threads")
-            .update(updatePayload)
-            .eq("id", existing.id);
-
+        if (profileName && profileName !== existing.profile_name) {
+            update.profile_name = profileName;
+        }
+        await admin.from("whatsapp_threads").update(update).eq("id", existing.id);
         return existing.id;
     }
 
     const { data: created, error } = await admin
         .from("whatsapp_threads")
         .insert({
-            company_id: companyId,
-            channel_id: channelId,
-            phone_e164: fromPhoneE164,
-            wa_from: waFrom,
-            wa_to: waTo,
-            profile_name: profileName ?? null,
-            last_message_at: new Date().toISOString(),
+            company_id:           companyId,
+            channel_id:           channelId,
+            phone_e164:           phoneE164,
+            profile_name:         profileName ?? null,
+            last_message_at:      new Date().toISOString(),
             last_message_preview: null,
         })
         .select("id")
         .single();
 
     if (error || !created?.id) {
-        throw new Error(error?.message || "Failed to create thread");
+        console.error("[wa/incoming] upsertThread error:", error?.message);
+        return null;
     }
     return created.id;
-}
-
-export async function POST(req: Request) {
-    // Twilio sends x-www-form-urlencoded body
-    const form = await req.formData();
-
-    const From = String(form.get("From") ?? "");
-    const To = String(form.get("To") ?? "");
-    const Body = String(form.get("Body") ?? "");
-    const MessageSid = String(form.get("MessageSid") ?? "");
-    const AccountSid = String(form.get("AccountSid") ?? "");
-    const ProfileName = String(form.get("ProfileName") ?? "");
-    const NumMedia = Number(form.get("NumMedia") ?? 0);
-    // Status callbacks may use MessageStatus or SmsStatus
-    const MessageStatus = String(form.get("MessageStatus") ?? form.get("SmsStatus") ?? "");
-
-    const admin = createAdminClient();
-
-    // Status callback: only update message status and do not insert new record
-    if ((!Body || !Body.trim()) && MessageSid && MessageStatus) {
-        await admin
-            .from("whatsapp_messages")
-            .update({
-                status: MessageStatus,
-                raw_payload: safeJson(Object.fromEntries(form.entries())),
-            })
-            .eq("provider", "twilio")
-            .eq("provider_message_id", MessageSid);
-
-        return new NextResponse("<Response></Response>", {
-            status: 200,
-            headers: { "Content-Type": "text/xml" },
-        });
-    }
-
-    // Resolve the channel for this inbound message
-    const channel = await resolveTwilioChannel(admin, To);
-    if (!channel) {
-        // If no channel configured, respond 200 to avoid re-delivery
-        return new NextResponse("<Response></Response>", {
-            status: 200,
-            headers: { "Content-Type": "text/xml" },
-        });
-    }
-
-    // Normalize from address to E.164
-    const fromPhoneE164 = normalizeE164(From);
-    if (!fromPhoneE164) {
-        // Cannot determine phone number; respond OK to avoid re-delivery
-        return new NextResponse("<Response></Response>", {
-            status: 200,
-            headers: { "Content-Type": "text/xml" },
-        });
-    }
-
-    // Find or create thread
-    const threadId = await getOrCreateThread({
-        admin,
-        companyId: channel.company_id,
-        channelId: channel.id,
-        fromPhoneE164,
-        waFrom: From,
-        waTo: To,
-        profileName: ProfileName || null,
-    });
-
-    const bodyText = (Body ?? "").trim();
-
-    // Insert inbound message; deduplication is enforced via unique index on provider+provider_message_id
-    const { error: insErr } = await admin.from("whatsapp_messages").insert({
-        thread_id: threadId,
-        direction: "inbound",
-        channel: "whatsapp",
-        provider: "twilio",
-        provider_message_id: MessageSid || null,
-        twilio_message_sid: MessageSid || null,
-        twilio_account_sid: AccountSid || null,
-        from_addr: From,
-        to_addr: To,
-        body: bodyText || null,
-        num_media: Number.isFinite(NumMedia) ? NumMedia : 0,
-        status: "received",
-        raw_payload: safeJson(Object.fromEntries(form.entries())),
-    });
-
-    // If inserted (no duplication), update the thread preview and trigger chatbot
-    if (!insErr) {
-        await admin
-            .from("whatsapp_threads")
-            .update({
-                last_message_at: new Date().toISOString(),
-                last_message_preview: ((bodyText ?? "").slice(0, 120)) || null,
-            })
-            .eq("id", threadId);
-
-        // Verifica se o bot está ativo para esta thread antes de disparar
-        const { data: threadRow } = await admin
-            .from("whatsapp_threads")
-            .select("bot_active")
-            .eq("id", threadId)
-            .maybeSingle();
-
-        if (threadRow?.bot_active !== false && bodyText) {
-            // Dispara chatbot de forma assíncrona (não bloqueia resposta ao Twilio)
-            processInboundMessage({
-                admin,
-                companyId: channel.company_id,
-                threadId,
-                messageId: MessageSid || "",
-                phoneE164: fromPhoneE164,
-                text: bodyText,
-                profileName: ProfileName || null,
-            }).catch((err) => console.error("[chatbot] processInboundMessage error:", err));
-        }
-    }
-
-    // Return an empty TwiML response so Twilio does not retry
-    return new NextResponse("<Response></Response>", {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-    });
 }
