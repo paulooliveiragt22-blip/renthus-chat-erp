@@ -10,10 +10,12 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "@/lib/whatsapp/send";
-import { getCachedProducts } from "@/lib/chatbot/TextParserService";
-import { getOrderParserService, parsedItemsToCartItems } from "@/lib/chatbot/OrderParserService";
-import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "@/lib/chatbot/PackagingExtractor";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../whatsapp/send";
+import { getCachedProducts } from "./TextParserService";
+import { getOrderParserService, parsedItemsToCartItems } from "./OrderParserService";
+import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "./PackagingExtractor";
+import { buildProductDisplayName as _buildProductDisplayName } from "./displayHelpers";
+export type { DisplayableVariant } from "./displayHelpers";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -467,64 +469,7 @@ function matchScore(term: string, productName: string, tags: string | null): 0 |
  *   FARD → " (fardo 24un)"
  *   PAC  → " (pct 15un)"
  */
-function buildProductDisplayName(v: VariantRow, isCase = false): string {
-    // ── Rótulo de volume ─────────────────────────────────────────────────────
-    let volLabel = "";
-
-    if (v.volumeValue > 0) {
-        // Dados estruturados: prioritize unit_type_sigla (JOIN com unit_types)
-        const unitStr = v.unitTypeSigla ?? (v.unit !== "un" && v.unit !== "UN" ? v.unit : null);
-        volLabel = unitStr ? ` ${v.volumeValue}${unitStr}` : ` ${v.volumeValue}`;
-    } else if (v.details) {
-        // Tenta extrair volume do campo livre (ex: "600", "350ml", "1L")
-        const parsed = parseVolumeFromText(v.details);
-        if (parsed) {
-            volLabel = ` ${parsed}`;
-        } else if (!isGenericVolumeWord(v.details)) {
-            // Campo livre com sentido (latinha, trezentinha, garrafa, etc.)
-            // Capitaliza primeira letra para apresentação
-            const cap = v.details.trim();
-            volLabel = ` ${cap.charAt(0).toUpperCase()}${cap.slice(1).toLowerCase()}`;
-        }
-        // Se for genérico ruim ("ml", "un", "un", "lata lata") → não exibe
-    }
-
-    const baseName = `${v.productName}${volLabel}`.trim();
-
-    // ── Sufixo de embalagem bulk ──────────────────────────────────────────────
-    if (!isCase || !v.caseQty) return baseName;
-
-    const sigla = v.bulkSigla ?? "CX";
-    switch (sigla) {
-        case "FARD": return `${baseName} (fardo ${v.caseQty}un)`;
-        case "PAC":  return `${baseName} (pct ${v.caseQty}un)`;
-        default:     return `${baseName} (cx ${v.caseQty}un)`;
-    }
-}
-
-/**
- * Tenta extrair um volume de um texto livre (campo descricao).
- * Ex: "600" → "600" (sem unidade), "350ml" → "350ml", "1L" → "1L"
- * Retorna null se não parece ser um volume.
- */
-function parseVolumeFromText(text: string): string | null {
-    const t = text.trim();
-    // Padrão: número + unidade opcional (350ml, 1L, 600)
-    const m = t.match(/^(\d+(?:[.,]\d+)?)\s*(ml|l|litro|litros|g|kg)?\s*$/i);
-    if (!m) return null;
-    const num = m[1];
-    const unit = m[2] ? m[2].toLowerCase().replace("litro", "L").replace("litros", "L") : "";
-    return unit ? `${num}${unit}` : num;
-}
-
-/**
- * Retorna true para textos que são ruído como campo de volume
- * (genéricos demais para exibir ao cliente).
- */
-function isGenericVolumeWord(text: string): boolean {
-    const GENERIC = new Set(["ml", "l", "un", "und", "unidade", "unidades", "lata lata", "latinha lata"]);
-    return GENERIC.has(text.trim().toLowerCase());
-}
+const buildProductDisplayName = _buildProductDisplayName;
 
 /**
  * Filtra variantes pelo tipo de embalagem solicitado pelo cliente.
