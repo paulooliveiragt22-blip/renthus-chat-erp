@@ -78,7 +78,12 @@ function addToCartLocal(
 }
 
 function paymentLabel(pm: string) {
-    return pm === "pix" ? "Pix" : pm === "card" ? "Cartão" : pm === "cash" ? "Dinheiro" : String(pm || "-");
+    const labels: Record<string, string> = {
+        pix: "Pix", card: "Cartão", cash: "Dinheiro", debit: "Débito",
+        credit_installment: "Crédito Parc.", boleto: "Boleto",
+        promissoria: "Promissória", cheque: "Cheque", credit: "A Prazo",
+    };
+    return labels[pm] ?? String(pm || "-");
 }
 
 function orderNum(id: string) { return String(id || "").slice(-6).toUpperCase() || "-"; }
@@ -878,6 +883,20 @@ export default function PedidosPage() {
                             const recentTs   = recentOrders[o.id];
                             const isRecent   = !!recentTs && Date.now() - recentTs < 60000;
                             const isFlashing = flashOrders.has(o.id);
+                            const source     = String((o as any).source ?? (o as any).channel ?? "");
+                            const SOURCE_BADGE: Record<string, string> = {
+                                chatbot:  "bg-emerald-100 text-emerald-700",
+                                whatsapp: "bg-emerald-100 text-emerald-700",
+                                pdv:      "bg-orange-100 text-orange-700",
+                                balcao:   "bg-orange-100 text-orange-700",
+                                ui_order: "bg-blue-100 text-blue-700",
+                                admin:    "bg-blue-100 text-blue-700",
+                            };
+                            const SOURCE_LABEL: Record<string, string> = {
+                                chatbot:  "Chat", whatsapp: "Chat",
+                                pdv:      "PDV",  balcao:   "PDV",
+                                ui_order: "UI",   admin:    "UI",
+                            };
 
                             const pmKey = String((o as any).payment_method ?? "");
 
@@ -891,15 +910,22 @@ export default function PedidosPage() {
                                             : "bg-white hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
                                     }`}
                                 >
-                                    {/* Ping + Nº */}
-                                    <div className="flex w-20 shrink-0 items-center gap-2">
-                                        {isRecent && (
-                                            <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
-                                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                                                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                                    {/* Ping + Nº + origem */}
+                                    <div className="flex w-20 shrink-0 flex-col gap-0.5">
+                                        <div className="flex items-center gap-1.5">
+                                            {isRecent && (
+                                                <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
+                                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                                                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                                                </span>
+                                            )}
+                                            <span className="text-xs font-bold text-zinc-400">#{num}</span>
+                                        </div>
+                                        {source && SOURCE_LABEL[source] && (
+                                            <span className={`inline-flex w-fit rounded-full px-1.5 py-0.5 text-[9px] font-bold ${SOURCE_BADGE[source] ?? "bg-zinc-100 text-zinc-500"}`}>
+                                                {SOURCE_LABEL[source]}
                                             </span>
                                         )}
-                                        <span className="text-xs font-bold text-zinc-400">#{num}</span>
                                     </div>
 
                                     {/* Cliente */}
