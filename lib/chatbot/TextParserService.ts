@@ -9,6 +9,7 @@
 import Fuse from "fuse.js";
 import { Client } from "@googlemaps/google-maps-services-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildProductDisplayName } from "./displayHelpers";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ export async function getCachedProducts(
 
     const { data: rows, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, preco_venda, tags, product_name, product_details, volume_quantidade, product_unit_type")
+        .select("id, produto_id, descricao, preco_venda, tags, product_name, product_details, volume_quantidade, product_unit_type, unit_type_sigla")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -77,15 +78,23 @@ export async function getCachedProducts(
     }
 
     const products: ProductForSearch[] = (rows ?? []).map((r: any) => {
-        const vol = r.volume_quantidade ? ` ${r.volume_quantidade}${r.product_unit_type ?? ""}` : "";
-        const name = `${r.product_name ?? ""}${vol}`.trim();
+        const details = (r.descricao ?? r.product_details ?? null) as string | null;
+        const name = buildProductDisplayName({
+            productName:   String(r.product_name ?? ""),
+            volumeValue:   Number(r.volume_quantidade ?? 0),
+            unit:          String(r.product_unit_type ?? ""),
+            unitTypeSigla: (r.unit_type_sigla ?? null) as string | null,
+            details,
+            caseQty:       null,
+            bulkSigla:     null,
+        });
         return {
             id: String(r.id),
             productId: String(r.produto_id),
             productName: name || String(r.product_name ?? ""),
             unitPrice: Number(r.preco_venda ?? 0),
             tags: r.tags ?? null,
-            details: (r.descricao ?? r.product_details ?? null) as string | null,
+            details,
         };
     });
 
