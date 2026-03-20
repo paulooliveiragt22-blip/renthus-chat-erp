@@ -25,6 +25,7 @@
 
 import Fuse from "fuse.js";
 import { Client } from "@googlemaps/google-maps-services-js";
+import { extractPackagingIntent, isBulkPackaging } from "@/lib/chatbot/PackagingExtractor";
 
 // ─── Tipos (compatíveis com Session) ─────────────────────────────────────────
 
@@ -64,12 +65,14 @@ export interface ProductForSearch {
 
 /** Item parseado: produto + quantidade */
 export interface ParsedItem {
-    productId: string;
-    variantId: string;
-    name: string;
-    price: number;
-    qty: number;
-    confidence: number;  // 1 - Fuse score (0–1)
+    productId:      string;
+    variantId:      string;
+    name:           string;
+    price:          number;
+    qty:            number;
+    confidence:     number;   // 1 - Fuse score (0–1)
+    packagingSigla: string;   // "UN" | "CX" | "FARD" | "PAC"
+    isCase:         boolean;  // true quando packagingSigla ≠ "UN"
 }
 
 /** Endereço extraído/validado */
@@ -297,42 +300,65 @@ export class OrderParserService {
     }
 
     /**
-     * Extrai itens (produto + qty) de um trecho de texto.
-     * ORDEM: primeiro busca o produto; quantidade só de palavras/dígitos antes ou adjacentes ao produto.
-     * Sanity: qty > 20 → usa 1 (provável confusão com número de endereço).
+     * Extrai itens (produto + qty + embalagem) de um trecho de texto.
+     *
+     * ORDEM:
+     *   1. extractPackagingIntent → detecta "cx", "caixa", "caixinha", "fardinho", etc.
+     *   2. Busca produto no cleanText via Fuse.js
+     *   3. Se embalagem bulk e produto tem casePrice → usa casePrice + caseVariantId
+     *
+     * Sanity: qty > QTY_SANITY_MAX → usa 1 (número de endereço).
      */
     private extractItems(text: string, includeLowConfidence = false): ParsedItem[] {
         const items: ParsedItem[] = [];
         const parts = splitMultiItems(text);
 
         for (const part of parts) {
-            const { qty: rawQty, remainder } = extractQuantityFromText(part);
-            if (!remainder || remainder.length < 2) continue;
+            // Extrai intenção de embalagem E quantidade do trecho
+            const pkgIntent = extractPackagingIntent(part);
+            const { qty: rawQty, packagingSigla, cleanText } = pkgIntent;
 
-            // Busca produto no texto (sem números de unidade como 600ml)
-            const searchText = this.stripUnitMeasuresFromSearch(remainder);
-            const found = this.findProduct(searchText || remainder, includeLowConfidence);
+            // Usa o cleanText (sem token de embalagem) para buscar o produto
+            const searchBase = cleanText || part;
+            if (!searchBase || searchBase.trim().length < 2) continue;
+
+            // Remove medidas de unidade (600ml, 350g) que não são embalagem
+            const searchText = this.stripUnitMeasuresFromSearch(searchBase);
+            const found = this.findProduct(searchText || searchBase, includeLowConfidence);
             if (!found) continue;
 
             // Sanity: quantidade muito alta provavelmente é número de endereço
             let qty = rawQty;
-            if (qty > QTY_SANITY_MAX) {
-                qty = 1;
-            }
+            if (qty > QTY_SANITY_MAX) qty = 1;
 
             const p = found.product;
+
+            // Decide se é venda bulk (CX/FARD/PAC) e produto suporta
+            const wantsBulk = isBulkPackaging(packagingSigla) && Boolean(p.hasCase);
+            const isCase    = wantsBulk;
+
+            // Monta label de volume
             const volLabel = p.volumeValue
-                ? ` ${p.volumeValue}${p.unit ? ` ${p.unit}` : ""}`.trim()
+                ? ` ${p.volumeValue}${p.unit ? p.unit : ""}`.trim()
                 : "";
-            const name = `${p.productName}${volLabel}`.trim();
+            let name = `${p.productName}${volLabel}`.trim();
+            if (isCase && p.caseQty) {
+                name = `${name} (cx ${p.caseQty}un)`;
+            }
+
+            // Preço e variantId dependem da embalagem
+            const price     = isCase ? (p.casePrice ?? p.unitPrice) : p.unitPrice;
+            const variantId = isCase ? (p.caseVariantId ?? p.id) : p.id;
 
             items.push({
-                productId: p.productId,
-                variantId: p.id,
+                productId:      p.productId,
+                variantId,
                 name,
-                price: p.unitPrice,
+                price,
                 qty,
-                confidence: found.confidence,
+                confidence:     found.confidence,
+                packagingSigla: packagingSigla ?? "UN",
+                isCase,
             });
         }
 
@@ -461,12 +487,20 @@ export class OrderParserService {
         }
 
         // 2) Remover endereço do texto e enviar só o restante para busca de produtos
-        const textForProducts = addrExtract
+        const textAfterAddr = addrExtract
             ? this.removeAddressFromText(raw, addrExtract.rawSlice)
             : raw;
 
+        // 2b) Extrair intenção de embalagem do texto sem endereço
+        //     (ex: "6 cx de heineken" → packagingSigla=CX, cleanText="heineken")
+        const pkgIntent      = extractPackagingIntent(textAfterAddr);
+        const textForProducts = pkgIntent.cleanText || textAfterAddr;
+
         if (textForProducts.trim()) {
-            console.log("[OrderParserService] Texto para busca de produtos (após remover endereço):", textForProducts.trim());
+            console.log("[OrderParserService] Texto para busca de produtos (após remover endereço + embalagem):", textForProducts.trim());
+            if (pkgIntent.packagingSigla) {
+                console.log("[OrderParserService] Embalagem detectada:", pkgIntent.packagingSigla, "| qty:", pkgIntent.qty);
+            }
         }
 
         if (!textForProducts.trim()) {
@@ -577,9 +611,10 @@ export function parsedItemsToCartItems(items: ParsedItem[]): CartItem[] {
     return items.map((i) => ({
         variantId: i.variantId,
         productId: i.productId,
-        name: i.name,
-        price: i.price,
-        qty: i.qty,
+        name:      i.name,
+        price:     i.price,
+        qty:       i.qty,
+        isCase:    i.isCase,
     }));
 }
 

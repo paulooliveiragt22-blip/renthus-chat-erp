@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "@/lib/whatsapp/send";
 import { getCachedProducts } from "@/lib/chatbot/TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "@/lib/chatbot/OrderParserService";
+import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "@/lib/chatbot/PackagingExtractor";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -418,13 +419,16 @@ interface VariantRow {
     tags:            string | null;  // sinônimos separados por vírgula
     volumeValue:     number;
     unit:            string;
+    /** Sigla da unidade de medida do volume (ex: "ml", "L", "kg"). Vem do JOIN com unit_types. */
+    unitTypeSigla:   string | null;
     unitPrice:       number;
     hasCase:         boolean;
     caseQty:         number | null;
     casePrice:       number | null;
-    // ID da embalagem CX (para debitar estoque) quando `isCase === true`.
-    // No novo modelo, `id` é o ID da embalagem UN (unit).
-    caseVariantId?: string;
+    /** Sigla comercial da embalagem bulk: "CX" | "FARD" | "PAC" (null quando só tem UN) */
+    bulkSigla:       string | null;
+    // ID da embalagem bulk (CX/FARD/PAC) para debitar estoque quando `isCase === true`.
+    caseVariantId?:  string;
     isAccompaniment: boolean;
 }
 
@@ -445,6 +449,109 @@ function matchScore(term: string, productName: string, tags: string | null): 0 |
         if (synonyms.some((s) => s.includes(t) || t.includes(s))) return 1;
     }
     return 0;
+}
+
+// ─── Apresentação de produtos ─────────────────────────────────────────────────
+
+/**
+ * Monta o nome de exibição do produto de forma robusta, em 4 níveis de fallback.
+ *
+ * Prioridade de volume:
+ *   1. volumeValue + unitTypeSigla → "Heineken 600ml"     (estruturado completo)
+ *   2. volumeValue + unit          → "Heineken 600ml"     (fallback campo produto)
+ *   3. descricao que parece volume → "Skol 600ml"         (parse do campo livre)
+ *   4. descricao significativa     → "Skol Latinha"       (ex: "latinha","trezentinha")
+ *   5. só o nome do produto        → "Skol"
+ *
+ * Sufixo de embalagem (quando isCase=true):
+ *   CX   → " (cx 24un)"
+ *   FARD → " (fardo 24un)"
+ *   PAC  → " (pct 15un)"
+ */
+function buildProductDisplayName(v: VariantRow, isCase = false): string {
+    // ── Rótulo de volume ─────────────────────────────────────────────────────
+    let volLabel = "";
+
+    if (v.volumeValue > 0) {
+        // Dados estruturados: prioritize unit_type_sigla (JOIN com unit_types)
+        const unitStr = v.unitTypeSigla ?? (v.unit !== "un" && v.unit !== "UN" ? v.unit : null);
+        volLabel = unitStr ? ` ${v.volumeValue}${unitStr}` : ` ${v.volumeValue}`;
+    } else if (v.details) {
+        // Tenta extrair volume do campo livre (ex: "600", "350ml", "1L")
+        const parsed = parseVolumeFromText(v.details);
+        if (parsed) {
+            volLabel = ` ${parsed}`;
+        } else if (!isGenericVolumeWord(v.details)) {
+            // Campo livre com sentido (latinha, trezentinha, garrafa, etc.)
+            // Capitaliza primeira letra para apresentação
+            const cap = v.details.trim();
+            volLabel = ` ${cap.charAt(0).toUpperCase()}${cap.slice(1).toLowerCase()}`;
+        }
+        // Se for genérico ruim ("ml", "un", "un", "lata lata") → não exibe
+    }
+
+    const baseName = `${v.productName}${volLabel}`.trim();
+
+    // ── Sufixo de embalagem bulk ──────────────────────────────────────────────
+    if (!isCase || !v.caseQty) return baseName;
+
+    const sigla = v.bulkSigla ?? "CX";
+    switch (sigla) {
+        case "FARD": return `${baseName} (fardo ${v.caseQty}un)`;
+        case "PAC":  return `${baseName} (pct ${v.caseQty}un)`;
+        default:     return `${baseName} (cx ${v.caseQty}un)`;
+    }
+}
+
+/**
+ * Tenta extrair um volume de um texto livre (campo descricao).
+ * Ex: "600" → "600" (sem unidade), "350ml" → "350ml", "1L" → "1L"
+ * Retorna null se não parece ser um volume.
+ */
+function parseVolumeFromText(text: string): string | null {
+    const t = text.trim();
+    // Padrão: número + unidade opcional (350ml, 1L, 600)
+    const m = t.match(/^(\d+(?:[.,]\d+)?)\s*(ml|l|litro|litros|g|kg)?\s*$/i);
+    if (!m) return null;
+    const num = m[1];
+    const unit = m[2] ? m[2].toLowerCase().replace("litro", "L").replace("litros", "L") : "";
+    return unit ? `${num}${unit}` : num;
+}
+
+/**
+ * Retorna true para textos que são ruído como campo de volume
+ * (genéricos demais para exibir ao cliente).
+ */
+function isGenericVolumeWord(text: string): boolean {
+    const GENERIC = new Set(["ml", "l", "un", "und", "unidade", "unidades", "lata lata", "latinha lata"]);
+    return GENERIC.has(text.trim().toLowerCase());
+}
+
+/**
+ * Filtra variantes pelo tipo de embalagem solicitado pelo cliente.
+ * Retorna { filtered, wasFiltered }.
+ *
+ * - packagingSigla = null → sem filtro (retorna todas)
+ * - packagingSigla = "CX"/"FARD"/"PAC" → apenas variantes que têm embalagem bulk
+ * - packagingSigla = "UN" → retorna todas (UN sempre disponível)
+ *
+ * Fallback: se nenhuma variante satisfaz o filtro, retorna todas + wasFiltered=false
+ * para que o bot possa informar ao cliente que a embalagem pedida não está disponível.
+ */
+function filterVariantsByPackaging(
+    variants: VariantRow[],
+    packagingSigla: string | null
+): { filtered: VariantRow[]; wasFiltered: boolean } {
+    if (!packagingSigla || packagingSigla === "UN") {
+        return { filtered: variants, wasFiltered: false };
+    }
+    // Bulk: só produtos que possuem a embalagem bulk cadastrada
+    const withBulk = variants.filter((v) => v.hasCase);
+    if (withBulk.length > 0) {
+        return { filtered: withBulk, wasFiltered: true };
+    }
+    // Nenhum produto tem bulk cadastrado → fallback para todos
+    return { filtered: variants, wasFiltered: false };
 }
 
 async function getCategories(admin: SupabaseClient, companyId: string): Promise<Category[]> {
@@ -496,13 +603,14 @@ async function getProductsByCategory(
 
     if (!rows?.length) return [];
 
+    const BULK_SIGLAS = new Set(["CX", "CAIXA", "FARD", "PAC"]);
     const byProd: Record<string, { unit: any | null; case: any | null }> = {};
     for (const r of rows as any[]) {
         const pid = String(r.produto_id);
         byProd[pid] ??= { unit: null, case: null };
         const sig = String(r.sigla_comercial ?? "").toUpperCase();
         if (sig === "UN" || sig === "UNIDADE") byProd[pid].unit = r;
-        if (sig === "CX" || sig === "CAIXA") byProd[pid].case = r;
+        if (BULK_SIGLAS.has(sig) && !byProd[pid].case) byProd[pid].case = r; // primeiro bulk encontrado
     }
 
     const options: ProductListItem[] = [];
@@ -566,17 +674,21 @@ async function getVariantsByCategory(
 
     if (!rows?.length) return [];
 
-    const byProd: Record<string, { unit: any | null; case: any | null }> = {};
+    const BULK_SIGLAS_SET = new Set(["CX", "FARD", "PAC"]);
+    const byProd: Record<string, { unit: any | null; case: any | null; caseSigla: string | null }> = {};
     const prodOrder: string[] = [];
     for (const r of rows as any[]) {
         const pid = String(r.produto_id);
         if (!byProd[pid]) {
-            byProd[pid] = { unit: null, case: null };
+            byProd[pid] = { unit: null, case: null, caseSigla: null };
             prodOrder.push(pid);
         }
         const sig = String(r.sigla_comercial ?? "").toUpperCase();
         if (sig === "UN") byProd[pid].unit = r;
-        if (sig === "CX") byProd[pid].case = r;
+        if (BULK_SIGLAS_SET.has(sig) && !byProd[pid].case) {
+            byProd[pid].case = r;
+            byProd[pid].caseSigla = sig;
+        }
     }
 
     const variants: VariantRow[] = [];
@@ -586,18 +698,22 @@ async function getVariantsByCategory(
         if (!unitPack && !casePack) continue;
 
         const p = unitPack ?? casePack;
+        const volQty  = Number((unitPack ?? casePack)?.volume_quantidade ?? 0);
+        const utSigla = String((unitPack ?? casePack)?.unit_type_sigla ?? "") || null;
         variants.push({
             id: String(unitPack?.id ?? casePack?.id ?? pid),
             productId: pid,
             productName: String(p?.product_name ?? ""),
             details: (unitPack?.descricao ?? casePack?.descricao ?? p?.product_details ?? null) as string | null,
             tags: unitPack?.tags ?? casePack?.tags ?? null,
-            volumeValue: 0,
+            volumeValue: volQty,
             unit: String(p?.product_unit_type ?? "un"),
+            unitTypeSigla: utSigla,
             unitPrice: Number(unitPack?.preco_venda ?? 0),
             hasCase: Boolean(casePack),
             caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
             casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
+            bulkSigla: byProd[pid]?.caseSigla ?? null,
             caseVariantId: casePack ? String(casePack.id) : undefined,
             isAccompaniment: Boolean(unitPack?.is_acompanhamento || casePack?.is_acompanhamento),
         });
@@ -701,10 +817,12 @@ async function searchVariantsByText(
                 tags:            v.tags    ?? null,
                 volumeValue:     Number(v.volume_value ?? 0),
                 unit:            v.unit ?? "ml",
+                unitTypeSigla:   null,
                 unitPrice:       Number(v.unit_price ?? 0),
                 hasCase:         Boolean(v.has_case),
                 caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
                 casePrice:       v.case_price ? Number(v.case_price) : null,
+                bulkSigla:       v.has_case ? "CX" : null,
                 isAccompaniment: Boolean(v.is_accompaniment),
             },
         });
@@ -756,10 +874,12 @@ async function searchVariantsByText(
                 tags:            v.tags    ?? null,
                 volumeValue:     Number(v.volume_value ?? 0),
                 unit:            v.unit ?? "ml",
+                unitTypeSigla:   null,
                 unitPrice:       Number(v.unit_price ?? 0),
                 hasCase:         Boolean(v.has_case),
                 caseQty:         v.case_qty   ? Number(v.case_qty)   : null,
                 casePrice:       v.case_price ? Number(v.case_price) : null,
+                bulkSigla:       v.has_case ? "CX" : null,
                 isAccompaniment: Boolean(v.is_accompaniment),
             };
         })
@@ -782,7 +902,7 @@ async function searchVariantsByTextV2(
 
     const { data, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade, unit_type_sigla")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -792,19 +912,27 @@ async function searchVariantsByTextV2(
     }
     if (!data?.length) return [];
 
-    // 1) Agrupar por produto (Pai)
+    // Siglas que representam embalagem bulk (mais de 1 unidade)
+    const BULK = new Set(["CX", "FARD", "PAC"]);
+
+    // 1) Agrupar por produto
     const byProd: Record<string, {
-        unitPack: any | null;
-        casePack: any | null;
-        tags: string[];
+        unitPack:  any | null;
+        casePack:  any | null;
+        caseSigla: string | null;
+        tags:      string[];
     }> = {};
 
     for (const r of data as any[]) {
         const pid = String(r.produto_id);
-        byProd[pid] ??= { unitPack: null, casePack: null, tags: [] };
+        byProd[pid] ??= { unitPack: null, casePack: null, caseSigla: null, tags: [] };
         const sig = String(r.sigla_comercial ?? "").toUpperCase();
         if (sig === "UN") byProd[pid].unitPack = r;
-        if (sig === "CX") byProd[pid].casePack = r;
+        // Aceita primeiro bulk encontrado (CX, FARD ou PAC)
+        if (BULK.has(sig) && !byProd[pid].casePack) {
+            byProd[pid].casePack  = r;
+            byProd[pid].caseSigla = sig;
+        }
         if (r.tags) byProd[pid].tags.push(String(r.tags));
     }
 
@@ -814,21 +942,22 @@ async function searchVariantsByTextV2(
             const casePack = grp.casePack;
             if (!unitPack) return null;
 
-            const p = unitPack;
-            const volQty = Number(unitPack.volume_quantidade ?? 0);
-            const volUnit = String(p.product_unit_type ?? "un");
+            const volQty  = Number(unitPack.volume_quantidade ?? 0);
+            const utSigla = String(unitPack.unit_type_sigla ?? "") || null;
             return {
-                id: String(unitPack.id),
-                productId: pid,
-                productName: String(p.product_name ?? ""),
-                details: (unitPack.descricao ?? p.product_details ?? null) as string | null,
-                tags: grp.tags.length ? grp.tags.join(",") : null,
-                volumeValue: volQty,
-                unit: volUnit,
-                unitPrice: Number(unitPack.preco_venda ?? 0),
-                hasCase: Boolean(casePack),
-                caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
-                casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
+                id:           String(unitPack.id),
+                productId:    pid,
+                productName:  String(unitPack.product_name ?? ""),
+                details:      (unitPack.descricao ?? unitPack.product_details ?? null) as string | null,
+                tags:         grp.tags.length ? grp.tags.join(",") : null,
+                volumeValue:  volQty,
+                unit:         String(unitPack.product_unit_type ?? "un"),
+                unitTypeSigla: utSigla,
+                unitPrice:    Number(unitPack.preco_venda ?? 0),
+                hasCase:      Boolean(casePack),
+                caseQty:      casePack ? Number(casePack.fator_conversao ?? 1) : null,
+                casePrice:    casePack ? Number(casePack.preco_venda ?? 0) : null,
+                bulkSigla:    grp.caseSigla,
                 caseVariantId: casePack ? String(casePack.id) : undefined,
                 isAccompaniment: Boolean(unitPack.is_acompanhamento || casePack?.is_acompanhamento),
             };
@@ -908,18 +1037,21 @@ async function handleFreeTextInput(
         if (needsNumber) {
             // Endereço incompleto (ex: sem número) → pedir apenas o número
             const textWithoutAddr = rawInput.replace(addrMatch.rawSlice, " ").trim();
-            const productTerms    = extractTerms(textWithoutAddr);
-            const { qty: pQty, terms: pTerms } = extractQuantity(productTerms);
-            const foundProducts = pTerms.length >= 1 ? await searchVariantsByText(admin, companyId, pTerms) : [];
+            const needsNumPkg     = extractPackagingIntent(textWithoutAddr);
+            const pTerms          = extractTerms(needsNumPkg.cleanText);
+            const foundProducts   = pTerms.length >= 1 ? await searchVariantsByText(admin, companyId, pTerms) : [];
             const bestProduct = foundProducts[0] ?? null;
+            const pQty        = needsNumPkg.qty;
+            const bpIsCase    = isBulkPackaging(needsNumPkg.packagingSigla) && Boolean(bestProduct?.hasCase);
             let newCart = [...session.cart];
             if (bestProduct) {
-                const vol = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
-                const name = `${bestProduct.productName}${vol}`.trim();
-                const qty = (pQty >= 1 ? pQty : 1);
-                const idx = newCart.findIndex((c) => c.variantId === bestProduct.id && !c.isCase);
+                const name  = buildProductDisplayName(bestProduct, bpIsCase);
+                const price = bpIsCase ? (bestProduct.casePrice ?? bestProduct.unitPrice) : bestProduct.unitPrice;
+                const vId   = bpIsCase ? (bestProduct.caseVariantId ?? bestProduct.id) : bestProduct.id;
+                const qty   = pQty >= 1 ? pQty : 1;
+                const idx   = newCart.findIndex((c) => c.variantId === vId && Boolean(c.isCase) === bpIsCase);
                 if (idx >= 0) newCart[idx] = { ...newCart[idx], qty: newCart[idx].qty + qty };
-                else newCart.push({ variantId: bestProduct.id, productId: bestProduct.productId, name, price: bestProduct.unitPrice, qty, isCase: false });
+                else newCart.push({ variantId: vId, productId: bestProduct.productId, name, price, qty, isCase: bpIsCase, caseQty: bpIsCase ? (bestProduct.caseQty ?? undefined) : undefined });
             }
             await saveSession(admin, threadId, companyId, {
                 step: "awaiting_address_number",
@@ -946,12 +1078,14 @@ async function handleFreeTextInput(
 
         // Tenta encontrar produto na parte da mensagem sem o endereço
         const textWithoutAddr = rawInput.replace(addrMatch.rawSlice, " ").trim();
-        const productTerms    = extractTerms(textWithoutAddr);
-        const { qty: pQty, terms: pTerms } = extractQuantity(productTerms);
-        const foundProducts = pTerms.length >= 1
+        const addrPkgIntent   = extractPackagingIntent(textWithoutAddr);
+        const pQty            = addrPkgIntent.qty;
+        const pTerms          = extractTerms(addrPkgIntent.cleanText);
+        const foundProducts   = pTerms.length >= 1
             ? await searchVariantsByText(admin, companyId, pTerms)
             : [];
         const bestProduct = foundProducts[0] ?? null;
+        const addrIsCase  = isBulkPackaging(addrPkgIntent.packagingSigla) && Boolean(bestProduct?.hasCase);
 
         // Busca zona de entrega (bairro do regex ou do Google)
         const neighborhoodForZone = structuredAddr?.bairro || addrMatch.neighborhood;
@@ -976,14 +1110,15 @@ async function handleFreeTextInput(
 
         // Adiciona produto ao carrinho se encontrado
         if (bestProduct) {
-            const vol  = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
-            const name = `${bestProduct.productName}${vol}`.trim();
-            const qty  = pQty >= 1 ? pQty : 1;
-            const idx  = newCart.findIndex((c) => c.variantId === bestProduct.id && !c.isCase);
+            const name  = buildProductDisplayName(bestProduct, addrIsCase);
+            const price = addrIsCase ? (bestProduct.casePrice ?? bestProduct.unitPrice) : bestProduct.unitPrice;
+            const vId   = addrIsCase ? (bestProduct.caseVariantId ?? bestProduct.id) : bestProduct.id;
+            const qty   = pQty >= 1 ? pQty : 1;
+            const idx   = newCart.findIndex((c) => c.variantId === vId && Boolean(c.isCase) === addrIsCase);
             if (idx >= 0) {
                 newCart[idx] = { ...newCart[idx], qty: newCart[idx].qty + qty };
             } else {
-                newCart.push({ variantId: bestProduct.id, productId: bestProduct.productId, name, price: bestProduct.unitPrice, qty, isCase: false });
+                newCart.push({ variantId: vId, productId: bestProduct.productId, name, price, qty, isCase: addrIsCase, caseQty: addrIsCase ? (bestProduct.caseQty ?? undefined) : undefined });
             }
         }
 
@@ -994,10 +1129,8 @@ async function handleFreeTextInput(
         });
 
         // ── Caso combinado: produto + endereço + zona encontrada ─────────────
-        // Confirmação silenciosa quando Google retornou 100% precisão
         if (bestProduct && zone) {
-            const vol       = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
-            const itemName  = `${bestProduct.productName}${vol}`.trim();
+            const itemName = buildProductDisplayName(bestProduct, addrIsCase);
             const itemQty   = pQty >= 1 ? pQty : 1;
             const cartWithFee = cartTotal(newCart) + zone.fee;
             const addrLine = googleOk
@@ -1021,8 +1154,7 @@ async function handleFreeTextInput(
 
         // ── Endereço + produto, mas sem zona correspondente ──────────────────
         if (bestProduct && !zone) {
-            const vol      = bestProduct.volumeValue ? ` ${bestProduct.volumeValue}${bestProduct.unit}` : "";
-            const itemName = `${bestProduct.productName}${vol}`.trim();
+            const itemName = buildProductDisplayName(bestProduct, addrIsCase);
             const itemQty  = pQty >= 1 ? pQty : 1;
             if (addrMatch.neighborhood) {
                 // Bairro digitado mas não cadastrado → listar opções
@@ -1086,28 +1218,28 @@ async function handleFreeTextInput(
         return "handled";
     }
 
-    // ── 1. Extração de termos ─────────────────────────────────────────────────
-    const allTerms = extractTerms(rawInput);
+    // ── 1. Extração de embalagem + quantidade + texto limpo ──────────────────
+    const pkgIntent = extractPackagingIntent(rawInput);
+    const { qty, packagingSigla, cleanText, isExplicit: pkgExplicit } = pkgIntent;
 
-    console.log(`[freetext] input: "${rawInput}" | todos os termos extraídos:`, allTerms);
+    console.log(`[freetext] input: "${rawInput}" | pkg=${packagingSigla ?? "none"} qty=${qty} cleanText="${cleanText}"`);
 
-    if (!allTerms.length) {
-        console.log("[freetext] → skip (sem termos após remover stopwords)");
-        return "skip";
-    }
-
-    const { qty, terms } = extractQuantity(allTerms);
-
-    console.log(`[freetext] termos de busca: [${terms.join(", ")}] | quantidade detectada: ${qty}`);
+    // Remove stopwords do cleanText para busca no banco
+    const terms = extractTerms(cleanText);
 
     if (!terms.length) {
-        console.log("[freetext] → skip (só tinha números, sem termos de produto)");
+        console.log("[freetext] → skip (sem termos de produto após extração)");
         return "skip";
     }
+
+    console.log(`[freetext] termos de busca: [${terms.join(", ")}] | quantidade: ${qty} | embalagem: ${packagingSigla ?? "não especificada"}`);
 
     const found = await searchVariantsByText(admin, companyId, terms);
 
-    console.log(`[freetext] produtos encontrados no Supabase: ${found.length}`, found.map(v => v.productName));
+    // Filtra pelo tipo de embalagem pedido (ex: "cx" → só produtos com CX)
+    const { filtered: foundFiltered, wasFiltered } = filterVariantsByPackaging(found, packagingSigla);
+
+    console.log(`[freetext] total encontrados: ${found.length} | após filtro embalagem: ${foundFiltered.length}`);
 
     // ── Nenhum resultado ──────────────────────────────────────────────────────
     if (!found.length) {
@@ -1115,24 +1247,44 @@ async function handleFreeTextInput(
         return "notfound";
     }
 
-    // ── Match único → confirmação automática ou pergunta de quantidade ────────
-    if (found.length === 1) {
-        const v        = found[0];
-        const volLabel = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
-        const name     = `${v.productName}${volLabel}`.trim();
+    // Se pediu embalagem bulk (CX/FARD/PAC) mas nenhum produto tem ela → avisa
+    if (pkgExplicit && isBulkPackaging(packagingSigla) && !wasFiltered) {
+        const pkgNome = packagingLabel(packagingSigla);
+        await reply(
+            phoneE164,
+            `⚠️ Encontrei o produto, mas ele não está disponível por *${pkgNome}*.\n` +
+            `Posso oferecer por *unidade*. Quantas unidades deseja?`
+        );
+        // Continua para o fluxo normal com found (sem filtro)
+    }
 
-        if (qty > 1) {
-            // Quantidade extraída da mensagem → adiciona direto ao carrinho
+    // Lista efetiva a usar
+    const effective = wasFiltered ? foundFiltered : found;
+
+    // ── Match único ───────────────────────────────────────────────────────────
+    if (effective.length === 1) {
+        const v = effective[0];
+
+        // Decide se é venda em caixa/bulk: cliente explicitou OU produto só tem CX
+        const forceCase = pkgExplicit && isBulkPackaging(packagingSigla) && v.hasCase;
+        const isCase    = forceCase;
+        const name      = buildProductDisplayName(v, isCase);
+        const price     = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
+        const varId     = isCase ? (v.caseVariantId ?? v.id) : v.id;
+
+        // Tem qty explícita OU embalagem explícita → adiciona ao carrinho direto
+        if (qty > 1 || isCase) {
             const newItem: CartItem = {
-                variantId: v.id,
+                variantId: varId,
                 productId: v.productId,
                 name,
-                price:   v.unitPrice,
+                price,
                 qty,
-                isCase:  false,
+                isCase,
+                caseQty: isCase ? (v.caseQty ?? undefined) : undefined,
             };
             const existingIdx = session.cart.findIndex(
-                (i) => i.variantId === v.id && !i.isCase
+                (i) => i.variantId === varId && Boolean(i.isCase) === isCase
             );
             const newCart = [...session.cart];
             if (existingIdx >= 0) {
@@ -1146,9 +1298,9 @@ async function handleFreeTextInput(
                 cart: newCart,
                 context: {
                     ...session.context,
-                    variants:       found,
-                    brand_name:     "Resultados",
-                    category_name:  "Busca",
+                    variants:        found,
+                    brand_name:      "Resultados",
+                    category_name:   "Busca",
                     pending_variant: null,
                     pending_is_case: null,
                 },
@@ -1156,7 +1308,7 @@ async function handleFreeTextInput(
 
             await sendInteractiveButtons(
                 phoneE164,
-                `✅ Certo! Adicionei *${qty}x ${name}* (${formatCurrency(v.unitPrice * qty)}) ao seu pedido.\n\n${formatCart(newCart)}\n\nDeseja mais alguma coisa ou podemos fechar?`,
+                `✅ Certo! Adicionei *${qty}x ${name}* (${formatCurrency(price * qty)}) ao seu pedido.\n\n${formatCart(newCart)}\n\nDeseja mais alguma coisa ou podemos fechar?`,
                 [
                     { id: "mais_produtos", title: "Mais produtos" },
                     { id: "ver_carrinho",  title: "Ver carrinho" },
@@ -1166,7 +1318,8 @@ async function handleFreeTextInput(
             return "handled";
         }
 
-        // Sem quantidade → pergunta quanto quer
+        // Sem quantidade e sem embalagem explícita → pergunta quanto quer
+        // Se tem opção de caixa, mostra as duas opções numeradas
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_products",
             context: {
@@ -1176,51 +1329,52 @@ async function handleFreeTextInput(
                 category_name:    "Busca",
                 pending_variant:  v,
                 pending_is_case:  false,
-                unit_case_choice: Boolean(v.hasCase && v.casePrice), // UN + CX numerados
+                unit_case_choice: Boolean(v.hasCase && v.casePrice),
             },
         });
 
         if (v.hasCase && v.casePrice) {
-            const cxLabel = `caixa ${v.caseQty}un`;
+            const cxName  = buildProductDisplayName(v, true);
+            const unName  = buildProductDisplayName(v, false);
+            const pkgNome = packagingLabel(v.bulkSigla);
             await reply(
                 phoneE164,
                 `Encontrei:\n\n` +
-                `1. *${name}* — ${formatCurrency(v.unitPrice)}\n` +
-                `2. *${v.productName}* ${cxLabel} — ${formatCurrency(v.casePrice)}\n\n` +
-                `Qual opção e quantas unidades deseja?`
+                `1. *${unName}* — ${formatCurrency(v.unitPrice)}\n` +
+                `2. *${cxName}* — ${formatCurrency(v.casePrice)}\n\n` +
+                `Qual opção deseja? Digite *1* ou *2* e a quantidade (ex: *2 caixas*).`
             );
         } else {
+            const unName = buildProductDisplayName(v, false);
             await reply(
                 phoneE164,
-                `Encontrei *${name}* por *${formatCurrency(v.unitPrice)}*. 🍺\n\nQuantas unidades deseja?`
+                `Encontrei *${unName}* por *${formatCurrency(v.unitPrice)}*. 🍺\n\nQuantas unidades deseja?`
             );
         }
         return "handled";
     }
 
     // ── Múltiplos resultados → lista numerada em texto puro ──────────────────
-    // Máximo 5 opções visíveis; se houver mais avisa para refinar a busca.
     const MAX_SHOWN = 5;
-    const displayed = found.slice(0, MAX_SHOWN);
-    const hasMore   = found.length > MAX_SHOWN;
+    const displayed = effective.slice(0, MAX_SHOWN);
+    const hasMore   = effective.length > MAX_SHOWN;
 
-    // Salva TODOS os resultados no contexto + flag de seleção numérica
     await saveSession(admin, threadId, companyId, {
         step:    "catalog_products",
         context: {
             ...session.context,
-            variants:        found,   // lista completa preservada para ver_mais
+            variants:        found,
             brand_name:      "Resultados",
             category_name:   "Busca",
             pending_variant: null,
             pending_is_case: null,
-            search_numbered: true,    // flag: próximo input numérico = seleção
+            search_numbered: true,
         },
     });
 
     const listText = formatNumberedList(displayed);
     const moreHint = hasMore
-        ? `\n\n_Mostrando ${MAX_SHOWN} de ${found.length} opções. Digite o nome para refinar a busca._`
+        ? `\n\n_Mostrando ${MAX_SHOWN} de ${effective.length} opções. Digite o nome para refinar a busca._`
         : "";
     const multiHint = displayed.length > 1
         ? `\n\nDigite o *número* da opção (ex: *2*) ou *vários* separados por vírgula (ex: *1,3*).`
@@ -1270,10 +1424,12 @@ async function getAccompanimentItems(
                     tags: r.tags ?? null,
                     volumeValue: 0,
                     unit: "un",
+                    unitTypeSigla: null,
                     unitPrice: Number(r.preco_venda ?? 0),
                     hasCase: false,
                     caseQty: null,
                     casePrice: null,
+                    bulkSigla: null,
                     caseVariantId: undefined,
                     isAccompaniment: true,
                 });
@@ -1325,10 +1481,12 @@ async function getAccompanimentItems(
                     tags: grp.tags.length ? grp.tags.join(",") : null,
                     volumeValue: 0,
                     unit: String(unitPack.product_unit_type ?? "un"),
+                    unitTypeSigla: null,
                     unitPrice: Number(unitPack.preco_venda ?? 0),
                     hasCase: Boolean(casePack),
                     caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
                     casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
+                    bulkSigla: casePack ? String(casePack.sigla_comercial ?? "CX").toUpperCase() : null,
                     caseVariantId: casePack ? String(casePack.id) : undefined,
                     isAccompaniment: true,
                 });
