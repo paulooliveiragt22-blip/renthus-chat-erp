@@ -1900,6 +1900,10 @@ export async function processInboundMessage(
             await handleAwaitingAddressNumber(admin, companyId, threadId, phoneE164, input, session);
             break;
 
+        case "awaiting_address_neighborhood":
+            await handleAwaitingAddressNeighborhood(admin, companyId, threadId, phoneE164, input, session);
+            break;
+
         case "checkout_payment":
             await handleCheckoutPayment(admin, companyId, threadId, phoneE164, input, session);
             break;
@@ -2915,43 +2919,35 @@ async function handleAwaitingAddressNumber(
     const parsedAddr = await parser.validateAddress(combinedAddress);
 
     if (parsedAddr) {
-        const zone = parsedAddr.neighborhood
-            ? await findDeliveryZone(admin, companyId, parsedAddr.neighborhood)
-            : null;
+        const neighborhood = parsedAddr.neighborhood ?? null;
 
-        const structuredAddr = {
-            rua: parsedAddr.street ?? "",
-            numero: parsedAddr.houseNumber ?? null,
-            bairro: parsedAddr.neighborhood ?? "",
-            formatted: parsedAddr.formatted ?? combinedAddress,
-            placeId: parsedAddr.placeId ?? "",
-        };
+        // Sem bairro → pede bairro antes de ir ao pagamento
+        if (!neighborhood) {
+            const finalAddr = parsedAddr.formatted ?? combinedAddress;
+            await saveSession(admin, threadId, companyId, {
+                step: "awaiting_address_neighborhood",
+                context: {
+                    ...session.context,
+                    address_draft:    finalAddr,
+                    address_validation_error: undefined,
+                    delivery_address_structured: {
+                        rua:       parsedAddr.street      ?? "",
+                        numero:    parsedAddr.houseNumber  ?? null,
+                        bairro:    "",
+                        formatted: finalAddr,
+                        placeId:   parsedAddr.placeId      ?? "",
+                    },
+                },
+            });
+            await reply(
+                phoneE164,
+                `📍 Endereço: *${finalAddr}*\n\n` +
+                `Para calcular o frete, qual é o seu *bairro*? (ex: Centro, Residencial Bela Vista)`
+            );
+            return;
+        }
 
-        await saveSession(admin, threadId, companyId, {
-            step: "catalog_products",
-            context: {
-                ...session.context,
-                delivery_address: parsedAddr.formatted ?? combinedAddress,
-                delivery_address_structured: structuredAddr,
-                delivery_address_place_id: parsedAddr.placeId ?? null,
-                delivery_fee: zone?.fee ?? null,
-                delivery_zone_id: zone?.id ?? null,
-                address_draft: undefined,
-                address_validation_error: undefined,
-            },
-        });
-
-        const zoneLabel = zone?.label ?? "entrega";
-        const feeText = zone ? `\n🛵 Taxa ${zoneLabel}: *${formatCurrency(zone.fee)}*` : "";
-        const cartText = session.cart.length > 0 ? `\n\n🛒 *Pedido:*\n${formatCart(session.cart)}` : "";
-        await sendInteractiveButtons(
-            phoneE164,
-            `📍 Endereço confirmado!\n*${parsedAddr.formatted ?? combinedAddress}*${feeText}${cartText}\n\nAlgo mais ou deseja finalizar?`,
-            [
-                { id: "mais_produtos", title: "Mais produtos" },
-                { id: "finalizar",     title: "Finalizar pedido" },
-            ]
-        );
+        await commitAddress(admin, companyId, threadId, phoneE164, session, parsedAddr.formatted ?? combinedAddress, neighborhood, parsedAddr);
         return;
     }
 
@@ -2999,18 +2995,77 @@ async function handleCheckoutAddress(
     }
 
     // Aguardando digitação do endereço
-    if (input.length < 10) {
+    if (input.length < 5) {
         await reply(phoneE164, "Por favor, informe o endereço completo (rua, número e bairro).");
         return;
     }
 
-    if (session.customer_id) {
-        // Update legacy field (keeps chatbot flow intact)
-        await admin.from("customers").update({ address: input, neighborhood: (session.context.delivery_neighborhood as string|null) ?? null }).eq("id", session.customer_id);
+    // 1) Exige número no endereço
+    if (!/\d/.test(input)) {
+        await saveSession(admin, threadId, companyId, {
+            step:    "awaiting_address_number",
+            context: { ...session.context, address_draft: input, saved_address: null, awaiting_address: false },
+        });
+        await reply(phoneE164, `📍 Endereço parcial: *${input}*\n\nQual é o *número* do endereço? (ex: 120, 456)`);
+        return;
+    }
 
-        // Upsert in enderecos_cliente — trigger on customers.address will also fire,
-        // but we do it explicitly to set correct fields (logradouro, bairro, etc.)
-        const bairro = (session.context.delivery_neighborhood as string|null) ?? null;
+    // 2) Valida com Google
+    const parser = getOrderParserService();
+    const parsedAddr = await parser.validateAddress(input);
+    const finalAddr  = parsedAddr?.formatted ?? input;
+    const neighborhood = parsedAddr?.neighborhood ?? null;
+
+    // 3) Google não retornou bairro → pede
+    if (!neighborhood) {
+        await saveSession(admin, threadId, companyId, {
+            step:    "awaiting_address_neighborhood",
+            context: {
+                ...session.context,
+                address_draft:    finalAddr,
+                saved_address:    null,
+                awaiting_address: false,
+                delivery_address_structured: parsedAddr ? {
+                    rua:       parsedAddr.street    ?? "",
+                    numero:    parsedAddr.houseNumber ?? null,
+                    bairro:    "",
+                    formatted: finalAddr,
+                    placeId:   parsedAddr.placeId   ?? "",
+                } : null,
+            },
+        });
+        await reply(
+            phoneE164,
+            `📍 Endereço: *${finalAddr}*\n\n` +
+            `Para calcular o frete, qual é o seu *bairro*? (ex: Centro, Residencial Bela Vista)`
+        );
+        return;
+    }
+
+    // 4) Bairro confirmado → salva e vai para pagamento
+    await commitAddress(admin, companyId, threadId, phoneE164, session, finalAddr, neighborhood, parsedAddr ?? undefined);
+}
+
+/**
+ * Persiste endereço validado (Google + bairro resolvido), atualiza customer e vai para pagamento.
+ */
+async function commitAddress(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    session: Session,
+    finalAddr: string,
+    neighborhood: string,
+    parsedAddr?: { street?: string; houseNumber?: string; placeId?: string; formatted?: string }
+): Promise<void> {
+    const zone = await findDeliveryZone(admin, companyId, neighborhood);
+
+    if (session.customer_id) {
+        await admin.from("customers")
+            .update({ address: finalAddr, neighborhood })
+            .eq("id", session.customer_id);
+
         const { data: existingAddr } = await admin
             .from("enderecos_cliente")
             .select("id")
@@ -3020,8 +3075,8 @@ async function handleCheckoutAddress(
 
         if (existingAddr?.id) {
             await admin.from("enderecos_cliente").update({
-                logradouro:   input,
-                bairro:       bairro,
+                logradouro:   finalAddr,
+                bairro:       neighborhood,
                 is_principal: true,
             }).eq("id", existingAddr.id);
         } else {
@@ -3029,8 +3084,8 @@ async function handleCheckoutAddress(
                 company_id:   companyId,
                 customer_id:  session.customer_id,
                 apelido:      "Chatbot",
-                logradouro:   input,
-                bairro:       bairro,
+                logradouro:   finalAddr,
+                bairro:       neighborhood,
                 is_principal: true,
             });
         }
@@ -3039,15 +3094,62 @@ async function handleCheckoutAddress(
     await saveSession(admin, threadId, companyId, {
         step:        "checkout_payment",
         customer_id: session.customer_id,
-        context:     {
+        context: {
             ...session.context,
-            delivery_address: input,
-            saved_address:    null,
-            awaiting_address: false,
+            delivery_address:    finalAddr,
+            delivery_neighborhood: neighborhood,
+            delivery_fee:        zone?.fee ?? null,
+            delivery_zone_id:    zone?.id  ?? null,
+            delivery_address_structured: parsedAddr ? {
+                rua:       parsedAddr.street      ?? "",
+                numero:    parsedAddr.houseNumber  ?? null,
+                bairro:    neighborhood,
+                formatted: finalAddr,
+                placeId:   parsedAddr.placeId      ?? "",
+            } : null,
+            address_draft:         undefined,
+            address_validation_error: undefined,
+            saved_address:         null,
+            awaiting_address:      false,
         },
     });
 
+    const feeText = zone ? `\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*` : "";
+    await reply(phoneE164, `📍 Endereço confirmado: *${finalAddr}* — ${neighborhood}${feeText}`);
     await sendPaymentButtons(phoneE164);
+}
+
+// ─── AWAITING_ADDRESS_NEIGHBORHOOD ────────────────────────────────────────────
+
+async function handleAwaitingAddressNeighborhood(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const addressDraft = (session.context.address_draft as string) ?? "";
+    if (!addressDraft) {
+        await saveSession(admin, threadId, companyId, { step: "checkout_address", context: { ...session.context, awaiting_address: true } });
+        await reply(phoneE164, "Não encontrei o endereço anterior. Pode informar novamente? (Ex: Rua das Flores, 123)");
+        return;
+    }
+
+    const neighborhood = input.trim();
+    if (neighborhood.length < 2) {
+        await reply(phoneE164, "Por favor, informe o nome do bairro (ex: Centro, Jardim Primavera).");
+        return;
+    }
+
+    // Combina endereço + bairro e valida novamente para obter formatted correto
+    const parser     = getOrderParserService();
+    const combined   = `${addressDraft}, ${neighborhood}`;
+    const parsedAddr = await parser.validateAddress(combined);
+    const finalAddr  = parsedAddr?.formatted ?? combined;
+    const resolvedNeighborhood = parsedAddr?.neighborhood ?? neighborhood;
+
+    await commitAddress(admin, companyId, threadId, phoneE164, session, finalAddr, resolvedNeighborhood, parsedAddr ?? undefined);
 }
 
 // ─── CHECKOUT_PAYMENT ─────────────────────────────────────────────────────────
