@@ -18,6 +18,7 @@ import {
     Printer,
     RefreshCcw,
     Search,
+    ShoppingCart,
 } from "lucide-react";
 
 const PAGE_SIZE = 20;
@@ -991,6 +992,16 @@ export default function PedidosPage() {
                                                 className="rounded-lg p-2 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
                                             >
                                                 <MessageCircle className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                        {/* Fechar no PDV — apenas pedidos de chat/UI não finalizados */}
+                                        {st === "new" && (source === "chatbot" || source === "whatsapp" || source === "ui_order" || source === "admin") && (
+                                            <button
+                                                title="Fechar no PDV"
+                                                onClick={() => router.push(`/pdv?from_order=${o.id}`)}
+                                                className="flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-orange-600 transition-colors"
+                                            >
+                                                <ShoppingCart className="h-3 w-3" /> PDV
                                             </button>
                                         )}
                                     </div>
