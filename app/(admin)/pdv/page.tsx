@@ -381,8 +381,50 @@ export default function PDVPage() {
     setFinalizing(true);
     try {
       const primary = [...payments].sort((a,b)=>(parseFloat(b.value)||0)-(parseFloat(a.value)||0))[0];
+      const isPaid = !hasCreditPayment;
+
+      // 1. Criar sale (registro financeiro da venda)
+      const { data: sale, error: saleErr } = await supabase.from("sales").insert({
+        company_id:     companyId,
+        customer_id:    selectedCustomer?.id ?? null,
+        seller_name:    sellerName || null,
+        origin:         "pdv",
+        subtotal:       cartTotal,
+        total:          cartTotal,
+        status:         isPaid ? "paid" : "partial",
+        notes:          sellerName ? `Balcão — ${sellerName}` : "Balcão",
+      }).select("id").single();
+      if (saleErr) throw new Error(saleErr.message);
+      const saleId = sale.id;
+
+      // 2. sale_items (snapshot de custo zero — sem controle de estoque ainda)
+      const { error: saleItemErr } = await supabase.from("sale_items").insert(cart.map(i => ({
+        sale_id:             saleId,
+        company_id:          companyId,
+        produto_embalagem_id: i.variant.id,
+        product_name:        `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
+        qty:                 i.qty,
+        unit_price:          i.variant.unit_price,
+        unit_cost:           0,
+      })));
+      if (saleItemErr) console.error("[pdv] sale_items:", saleItemErr.message);
+
+      // 3. sale_payments — dispara trigger que cria bills para pagamentos a prazo
+      const { error: salePayErr } = await supabase.from("sale_payments").insert(payments.map(p => ({
+        sale_id:        saleId,
+        company_id:     companyId,
+        payment_method: p.method === "credit" ? "credit_installment" : p.method,
+        amount:         parseFloat(p.value) || 0,
+        due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
+        received_at:    p.method !== "credit" ? new Date().toISOString() : null,
+      })));
+      if (salePayErr) console.error("[pdv] sale_payments:", salePayErr.message);
+
+      // 4. Pedido legado (orders) linkado ao sale — mantém compatibilidade com impressão e pedidos
       const { data: order, error: ordErr } = await supabase.from("orders").insert({
         company_id:     companyId,
+        sale_id:        saleId,
+        source:         "pdv",
         customer_id:    selectedCustomer?.id ?? null,
         customer_name:  selectedCustomer?.name ?? (sellerName ? `[Balcão] ${sellerName}` : "Balcão"),
         total:          cartTotal,
@@ -391,54 +433,43 @@ export default function PDVPage() {
         payment_method: primary?.method ?? "pix",
         status:         "finalized",
         channel:        "balcao",
-        paid:           !hasCreditPayment,
+        paid:           isPaid,
+        confirmed_at:   new Date().toISOString(),
       }).select("id").single();
       if (ordErr) throw new Error(ordErr.message);
       const oid = order.id;
 
-      // line_total is a GENERATED column (quantity * unit_price) — never send it explicitly
+      // 5. order_items (line_total é coluna GENERATED — não enviar)
       const { error: itemErr } = await supabase.from("order_items").insert(cart.map(i => ({
-        company_id:         companyId,
-        order_id:           oid,
-        product_id:         i.variant.produto_id,
+        company_id:           companyId,
+        order_id:             oid,
+        product_id:           i.variant.produto_id,
         produto_embalagem_id: i.variant.id,
-        product_name:       `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
-        quantity:           i.qty,
-        qty:                i.qty,
-          unit_type:          String(i.variant.sigla_comercial ?? "").toUpperCase() === "CX" ? "case" : "unit",
-        unit_price:         i.variant.unit_price,
+        product_name:         `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
+        quantity:             i.qty,
+        qty:                  i.qty,
+        unit_type:            String(i.variant.sigla_comercial ?? "").toUpperCase() === "CX" ? "case" : "unit",
+        unit_price:           i.variant.unit_price,
       })));
       if (itemErr) console.error("[pdv] order_items:", itemErr.message);
 
+      // 6. financial_entries para dashboard legado (sale_id evita duplicação pelo trigger)
       const { error: finErr } = await supabase.from("financial_entries").insert(payments.map(p => ({
         company_id:     companyId,
         order_id:       oid,
+        sale_id:        saleId,
         type:           "income",
         amount:         parseFloat(p.value) || 0,
         delivery_fee:   0,
-        payment_method: p.method,
+        payment_method: p.method === "credit" ? "credit_installment" : p.method,
         origin:         "balcao",
         description:    `Venda PDV${sellerName ? " — " + sellerName : ""}`,
         occurred_at:    new Date().toISOString(),
+        status:         p.method === "credit" ? "pending" : "received",
+        due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
+        received_at:    p.method !== "credit" ? new Date().toISOString() : null,
       })));
       if (finErr) console.error("[pdv] financial_entries:", finErr.message);
-
-      // vendas_a_prazo: one record per credit payment line
-      const creditLines = payments.filter(p => p.method === "credit" && selectedCustomer);
-      if (creditLines.length > 0 && selectedCustomer) {
-        const { error: prazoErr } = await supabase.from("vendas_a_prazo").insert(
-          creditLines.map(p => ({
-            company_id:      companyId,
-            order_id:        oid,
-            customer_id:     selectedCustomer.id,
-            valor:           parseFloat(p.value) || 0,
-            data_vencimento: new Date((p.due_date ?? creditDefaultDue) + "T12:00:00").toISOString(),
-            status:          "pendente",
-            notas:           `PDV${sellerName ? " — " + sellerName : ""}`,
-          }))
-        );
-        if (prazoErr) console.error("[pdv] vendas_a_prazo:", prazoErr.message);
-      }
 
       if (autoPrint) {
         // Electron (desktop): impressão direta via IPC
