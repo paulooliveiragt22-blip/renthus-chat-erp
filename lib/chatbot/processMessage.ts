@@ -250,7 +250,7 @@ interface AddressMatch {
  */
 function extractAddressFromText(input: string): AddressMatch | null {
     // Padrão principal — captura prefixo + nome + número
-    const ADDR_RE = /\b(rua|r\.|av\.?|avenida|alameda|travessa|trav\.?|estrada|rodovia|pra[cç]a|p[cç][ao]\.?|beco|viela|setor|quadra|qd\.?)\s+([\wÀ-úÀ-ÿ\s]{2,50?}?)[\s,]*(?:n[º°oa]?\.?\s*)?(\d{1,5})\b/i;
+    const ADDR_RE = /\b(rua|r\.|av\.?|avenida|alameda|travessa|trav\.?|estrada|rodovia|pra[cç]a|p[cç][ao]\.?|beco|viela|setor|quadra|qd\.?)\s+([\wÀ-úÀ-ÿ\s]{2,50}?)[\s,]*(?:n[º°oa]?\.?\s*)?(\d{1,5})\b/i;
 
     const m = input.match(ADDR_RE);
     if (!m) return null;
