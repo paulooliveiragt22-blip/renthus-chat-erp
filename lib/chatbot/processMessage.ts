@@ -226,8 +226,7 @@ const NUMBER_EMOJIS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️�
 
 function formatNumberedList(variants: VariantRow[]): string {
     return variants.map((v, i) => {
-        const vol   = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
-        const name  = `${v.productName}${vol}`.trim();
+        const name  = buildProductDisplayName(v);
         const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
         return `${emoji} *${name}* — ${formatCurrency(v.unitPrice)}`;
     }).join("\n");
@@ -2339,7 +2338,7 @@ async function sendVariantsList(
 ): Promise<void> {
     const unitRows = variants.map((v) => ({
         id:          v.id,
-        title:       truncateTitle(`${v.productName}${v.volumeValue ? ` ${v.volumeValue}${v.unit}` : ""} - ${formatCurrency(v.unitPrice)}`),
+        title:       truncateTitle(`${buildProductDisplayName(v)} - ${formatCurrency(v.unitPrice)}`),
         description: v.details ?? undefined,
     }));
 
@@ -2354,7 +2353,7 @@ async function sendVariantsList(
             title: "Caixa com:",
             rows:  caseVariants.map((v) => ({
                 id:          `${v.id}_case`,
-                title:       truncateTitle(`${v.caseQty}un - ${v.productName}${v.volumeValue ? ` ${v.volumeValue}${v.unit}` : ""}`),
+                title:       truncateTitle(`${v.caseQty}un - ${buildProductDisplayName(v, true)}`),
                 description: `${v.details ? v.details + " - " : ""}${formatCurrency(v.casePrice ?? 0)}`,
             })),
         });
@@ -2592,8 +2591,7 @@ async function handleCatalogProducts(
         if (indices.length === 1) {
             // Seleção simples → pergunta quantidade
             const v       = variants[indices[0]];
-            const vol     = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
-            const label   = `*${v.productName}${vol}* — ${formatCurrency(v.unitPrice)}`;
+            const label   = `*${buildProductDisplayName(v)}* — ${formatCurrency(v.unitPrice)}`;
             const caseInfo = v.hasCase && v.casePrice
                 ? `\n_Também disponível em caixa com ${v.caseQty}un por ${formatCurrency(v.casePrice)}._`
                 : "";
@@ -2615,8 +2613,7 @@ async function handleCatalogProducts(
 
         for (const idx of indices) {
             const v        = variants[idx];
-            const vol      = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
-            const itemName = `${v.productName}${vol}`.trim();
+            const itemName = buildProductDisplayName(v);
             const existing = newCart.findIndex((c) => c.variantId === v.id && !c.isCase);
             if (existing >= 0) {
                 newCart[existing] = { ...newCart[existing], qty: newCart[existing].qty + 1 };
@@ -2702,12 +2699,9 @@ async function handleCatalogProducts(
             }
         }
 
-        const isCase   = unitCaseChoice ? opt === 2 : Boolean(pendingIsCase);
-        const price    = isCase ? (pendingVariant.casePrice ?? pendingVariant.unitPrice) : pendingVariant.unitPrice;
-        const volLabel = pendingVariant.volumeValue ? `${pendingVariant.volumeValue}${pendingVariant.unit}` : "";
-        const name     = isCase
-            ? (volLabel ? `${pendingVariant.productName} ${volLabel} (cx ${pendingVariant.caseQty}un)` : `${pendingVariant.productName} (cx ${pendingVariant.caseQty}un)`)
-            : (volLabel ? `${pendingVariant.productName} ${volLabel}` : pendingVariant.productName);
+        const isCase = unitCaseChoice ? opt === 2 : Boolean(pendingIsCase);
+        const price  = isCase ? (pendingVariant.casePrice ?? pendingVariant.unitPrice) : pendingVariant.unitPrice;
+        const name   = buildProductDisplayName(pendingVariant, isCase);
 
         const newCart     = [...session.cart];
         const existingIdx = newCart.findIndex(
@@ -2774,10 +2768,10 @@ async function handleCatalogProducts(
         context: { ...session.context, pending_variant: selectedVariant, pending_is_case: isCase },
     });
 
-    const volLabel = selectedVariant.volumeValue ? `${selectedVariant.volumeValue}${selectedVariant.unit}` : "";
+    const selName  = buildProductDisplayName(selectedVariant, isCase);
     const label    = isCase
-        ? `*${selectedVariant.productName}${volLabel ? " " + volLabel : ""} — Caixa com ${selectedVariant.caseQty}un* (${formatCurrency(selectedVariant.casePrice ?? 0)})`
-        : `*${selectedVariant.productName}${volLabel ? " " + volLabel : ""}* (${formatCurrency(selectedVariant.unitPrice)})`;
+        ? `*${selName} — Caixa com ${selectedVariant.caseQty}un* (${formatCurrency(selectedVariant.casePrice ?? 0)})`
+        : `*${selName}* (${formatCurrency(selectedVariant.unitPrice)})`;
 
     await reply(phoneE164, `${label}\n\nQuantas unidades?`);
 }
@@ -3380,8 +3374,7 @@ async function handleCheckoutConfirm(
                 const accompaniments = await getAccompanimentItems(admin, companyId, cartSnapshot.map((c) => c.variantId));
                 if (accompaniments.length > 0) {
                     const lines = accompaniments.map((v) => {
-                        const vol = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
-                        return `• ${v.productName}${vol}`.trim() + ` — ${formatCurrency(v.unitPrice)}`;
+                            return `• ${buildProductDisplayName(v)} — ${formatCurrency(v.unitPrice)}`;
                     });
                     await reply(phoneE164, `🛒 *Que tal adicionar ao seu pedido?*\n\n${lines.join("\n")}\n\n_Digite *1* para ver o cardápio completo ou *menu* para voltar ao início._`);
                 }
@@ -3519,9 +3512,7 @@ async function handleCheckoutConfirm(
             const accompaniments = await getAccompanimentItems(admin, companyId, cartEmbalagemIds);
             if (accompaniments.length > 0) {
                 const lines = accompaniments.map((v) => {
-                    const vol  = v.volumeValue ? ` ${v.volumeValue}${v.unit}` : "";
-                    const name = `${v.productName}${vol}`.trim();
-                    return `• ${name} — ${formatCurrency(v.unitPrice)}`;
+                    return `• ${buildProductDisplayName(v)} — ${formatCurrency(v.unitPrice)}`;
                 });
                 await reply(
                     phoneE164,
