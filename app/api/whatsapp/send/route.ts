@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import twilio from "twilio";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { checkLimit, requireFeature } from "@/lib/billing/entitlements";
 
