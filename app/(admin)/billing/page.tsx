@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { CheckCircle2, MessageCircle, RefreshCcw, Sparkles, XCircle, Zap } from "lucide-react";
 
-type ActiveSubscription = {
+type Subscription = {
     subscription_id: string;
     plan_id: string;
     plan_key: string;
@@ -10,266 +11,192 @@ type ActiveSubscription = {
     allow_overage: boolean;
 } | null;
 
-type LimitCheckResult = {
+type WhatsAppUsage = {
     allowed: boolean;
-    feature_key: string;
-    year_month: string;
     used: number;
     limit_per_month: number | null;
     will_overage_by: number;
-    allow_overage: boolean;
 };
 
 type StatusResponse = {
     ok: true;
-    company_id: string;
-    subscription: ActiveSubscription;
+    subscription: Subscription;
     enabled_features: string[];
-    enabled_features_count: number;
-    usage: {
-        whatsapp_messages: LimitCheckResult;
-    };
+    usage: { whatsapp_messages: WhatsAppUsage };
 };
 
-function Badge({ children }: { children: React.ReactNode }) {
-    return (
-        <span
-            style={{
-                display: "inline-block",
-                padding: "4px 8px",
-                borderRadius: 999,
-                border: "1px solid #e5e5e5",
-                background: "#fafafa",
-                fontSize: 12,
-                fontWeight: 800,
-            }}
-        >
-            {children}
-        </span>
-    );
-}
+const FEATURE_LABELS: Record<string, string> = {
+    whatsapp_messages: "Mensagens WhatsApp",
+    ai_parser:         "Parser com IA (Claude Haiku)",
+    assisted_mode:     "Modo assistido",
+    printing_auto:     "Impressão automática",
+    pdv:               "Ponto de venda (PDV)",
+};
 
-export default function AdminBillingPage() {
-    const [status, setStatus] = useState<StatusResponse | null>(null);
+const PLAN_PRICES: Record<string, string> = {
+    starter: "R$ 297/mês",
+    pro:     "R$ 397/mês",
+};
+
+export default function BillingPage() {
+    const [status,  setStatus]  = useState<StatusResponse | null>(null);
     const [loading, setLoading] = useState(true);
-    const [busy, setBusy] = useState(false);
-    const [err, setErr] = useState<string | null>(null);
+    const [error,   setError]   = useState<string | null>(null);
 
-    async function loadStatus() {
-        setLoading(true);
-        setErr(null);
+    async function load() {
+        setLoading(true); setError(null);
         try {
-            const res = await fetch("/api/billing/status", { credentials: "include", cache: "no-store" });
+            const res  = await fetch("/api/billing/status", { credentials: "include", cache: "no-store" });
             const json = await res.json().catch(() => ({}));
-
-            if (!res.ok) {
-                setStatus(null);
-                setErr(json?.error ?? `Erro ao carregar status (HTTP ${res.status})`);
-                setLoading(false);
-                return;
-            }
-
+            if (!res.ok) { setError(json?.error ?? `Erro HTTP ${res.status}`); return; }
             setStatus(json as StatusResponse);
-            setLoading(false);
-        } catch (e: any) {
-            console.error(e);
-            setStatus(null);
-            setErr("Falha ao carregar status");
-            setLoading(false);
-        }
+        } catch { setError("Falha de conexão"); }
+        finally  { setLoading(false); }
     }
 
-    useEffect(() => {
-        loadStatus();
-    }, []);
+    useEffect(() => { load(); }, []);
 
-    async function doUpgrade(plan_key: "mini_erp" | "full_erp") {
-        setBusy(true);
-        setErr(null);
-        try {
-            const res = await fetch("/api/billing/upgrade", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ plan_key }),
-            });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                setErr(json?.error ?? `Falha ao alterar plano (HTTP ${res.status})`);
-                return;
-            }
-            await loadStatus();
-        } catch (e: any) {
-            console.error(e);
-            setErr("Falha ao alterar plano");
-        } finally {
-            setBusy(false);
-        }
-    }
+    const sub  = status?.subscription ?? null;
+    const wa   = status?.usage?.whatsapp_messages ?? null;
+    const isPro = sub?.plan_key === "pro";
 
-    async function allowOverage() {
-        setBusy(true);
-        setErr(null);
-        try {
-            const res = await fetch("/api/billing/allow-overage", {
-                method: "POST",
-                credentials: "include",
-            });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                setErr(json?.error ?? `Falha ao permitir overage (HTTP ${res.status})`);
-                return;
-            }
-            await loadStatus();
-        } catch (e: any) {
-            console.error(e);
-            setErr("Falha ao permitir overage");
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    const planLabel = useMemo(() => {
-        if (!status?.subscription) return "Sem subscription ativa";
-        return `${status.subscription.plan_key}${status.subscription.plan_name ? ` (${status.subscription.plan_name})` : ""}`;
-    }, [status]);
-
-    const whatsapp = status?.usage?.whatsapp_messages ?? null;
-    const whatsappLabel = useMemo(() => {
-        if (!whatsapp) return "-";
-        const lim = whatsapp.limit_per_month;
-        if (lim == null) return `Uso: ${whatsapp.used} (sem limite definido)`;
-        return `Uso: ${whatsapp.used} / ${lim} • Excedente: ${Math.max(0, whatsapp.used - lim)} • Vai exceder: ${whatsapp.will_overage_by}`;
-    }, [whatsapp]);
+    const pct      = wa?.limit_per_month ? Math.min(100, Math.round((wa.used / wa.limit_per_month) * 100)) : 0;
+    const barColor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-400" : "bg-emerald-500";
 
     return (
-        <div style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-                <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Admin Billing</h1>
+        <div className="flex flex-col gap-6 max-w-2xl">
+            {/* header */}
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Plano & Uso</h1>
+                    <p className="mt-0.5 text-xs text-zinc-400">Acompanhe seu plano e consumo mensal</p>
+                </div>
                 <button
-                    onClick={loadStatus}
-                    disabled={loading || busy}
-                    style={{
-                        padding: "10px 12px",
-                        borderRadius: 12,
-                        border: "1px solid #3B246B",
-                        background: "#fff",
-                        fontWeight: 900,
-                        cursor: loading || busy ? "not-allowed" : "pointer",
-                        opacity: loading || busy ? 0.6 : 1,
-                    }}
+                    onClick={load}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
                 >
+                    <RefreshCcw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
                     Atualizar
                 </button>
             </div>
 
-            <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 14, background: "#fff", overflow: "hidden" }}>
-                <div style={{ padding: 12, borderBottom: "1px solid #eee", fontWeight: 900 }}>Status atual</div>
+            {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-400">
+                    {error}
+                </div>
+            )}
 
-                <div style={{ padding: 12, display: "grid", gap: 10 }}>
-                    {err ? <div style={{ color: "crimson", fontSize: 13 }}>{err}</div> : null}
-
-                    {loading ? (
-                        <div style={{ color: "#666" }}>Carregando...</div>
-                    ) : !status ? (
-                        <div style={{ color: "#666" }}>Sem dados (verifique permissões/endpoint).</div>
-                    ) : (
-                        <>
-                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                                <Badge>company_id: {status.company_id}</Badge>
-                                <Badge>plano: {planLabel}</Badge>
-                                <Badge>allow_overage: {String(status.subscription?.allow_overage ?? false)}</Badge>
-                                <Badge>features: {status.enabled_features_count}</Badge>
-                            </div>
-
-                            <div style={{ marginTop: 2, display: "grid", gap: 6 }}>
-                                <div style={{ fontWeight: 900 }}>WhatsApp (mensagens/mês)</div>
-                                <div style={{ fontSize: 13, color: "#333" }}>{whatsappLabel}</div>
-                                <div style={{ fontSize: 12, color: "#666" }}>
-                                    Status de envio:{" "}
-                                    <b style={{ color: whatsapp?.allowed ? "green" : "crimson" }}>
-                                        {whatsapp?.allowed ? "permitido" : "bloqueado (limite atingido e sem overage)"}
-                                    </b>
+            {loading ? (
+                <div className="space-y-4">
+                    {[1, 2].map((i) => (
+                        <div key={i} className="h-28 animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800" />
+                    ))}
+                </div>
+            ) : !status ? null : (
+                <>
+                    {/* ── card plano ─────────────────────────────────────── */}
+                    <div className={`relative overflow-hidden rounded-2xl border p-6 shadow-sm ${
+                        isPro
+                            ? "border-violet-200 bg-gradient-to-br from-violet-50 to-white dark:border-violet-700/40 dark:from-violet-950/30 dark:to-zinc-900"
+                            : "border-sky-200 bg-gradient-to-br from-sky-50 to-white dark:border-sky-700/40 dark:from-sky-950/30 dark:to-zinc-900"
+                    }`}>
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    {isPro
+                                        ? <Zap className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+                                        : <Sparkles className="h-5 w-5 text-sky-500 dark:text-sky-400" />}
+                                    <span className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                                        {sub?.plan_name ?? sub?.plan_key ?? "Sem plano"}
+                                    </span>
+                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                        isPro
+                                            ? "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
+                                            : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
+                                    }`}>
+                                        Ativo
+                                    </span>
                                 </div>
+                                <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                                    {PLAN_PRICES[sub?.plan_key ?? ""] ?? ""}
+                                </p>
                             </div>
+                        </div>
 
-                            <details style={{ marginTop: 8 }}>
-                                <summary style={{ cursor: "pointer", fontWeight: 900 }}>Ver features habilitadas</summary>
-                                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8 }}>
-                                    {status.enabled_features.length === 0 ? (
-                                        <span style={{ color: "#666" }}>Nenhuma feature (provável falta de seed/plan_features)</span>
-                                    ) : (
-                                        status.enabled_features.map((f) => <Badge key={f}>{f}</Badge>)
+                        {/* features */}
+                        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {(status.enabled_features ?? []).map((f) => (
+                                <div key={f} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                                    {FEATURE_LABELS[f] ?? f}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ── card WhatsApp uso ──────────────────────────────── */}
+                    <div className="rounded-2xl border border-zinc-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                        <div className="flex items-center gap-3 mb-5">
+                            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-50 dark:bg-green-500/10">
+                                <MessageCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                            </span>
+                            <div>
+                                <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Mensagens WhatsApp</p>
+                                <p className="text-xs text-zinc-400">Consumo do mês atual</p>
+                            </div>
+                            <div className="ml-auto flex items-center gap-1.5">
+                                {wa?.allowed
+                                    ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                    : <XCircle className="h-4 w-4 text-red-500" />}
+                                <span className={`text-xs font-semibold ${wa?.allowed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                                    {wa?.allowed ? "Envio liberado" : "Limite atingido"}
+                                </span>
+                            </div>
+                        </div>
+
+                        {wa ? (
+                            <>
+                                <div className="flex items-end justify-between mb-2">
+                                    <span className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
+                                        {wa.used.toLocaleString("pt-BR")}
+                                    </span>
+                                    {wa.limit_per_month != null && (
+                                        <span className="text-sm text-zinc-400">
+                                            de {wa.limit_per_month.toLocaleString("pt-BR")} mensagens
+                                        </span>
                                     )}
                                 </div>
-                            </details>
-                        </>
-                    )}
-                </div>
-            </div>
 
-            <div style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 14, background: "#fff", overflow: "hidden" }}>
-                <div style={{ padding: 12, borderBottom: "1px solid #eee", fontWeight: 900 }}>Ações (Dev/Admin)</div>
+                                {wa.limit_per_month != null && (
+                                    <>
+                                        <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                                            <div
+                                                className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+                                                style={{ width: `${pct}%` }}
+                                            />
+                                        </div>
+                                        <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
+                                            <span>{pct}% utilizado</span>
+                                            <span>
+                                                {Math.max(0, wa.limit_per_month - wa.used).toLocaleString("pt-BR")} restantes
+                                            </span>
+                                        </div>
+                                    </>
+                                )}
 
-                <div style={{ padding: 12, display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    <button
-                        onClick={() => doUpgrade("mini_erp")}
-                        disabled={busy}
-                        style={{
-                            padding: "10px 12px",
-                            borderRadius: 12,
-                            border: "1px solid #3B246B",
-                            background: "#fff",
-                            fontWeight: 900,
-                            cursor: busy ? "not-allowed" : "pointer",
-                            opacity: busy ? 0.6 : 1,
-                        }}
-                        title="Cria/ativa subscription no plano mini_erp (encerra anterior)"
-                    >
-                        Ativar Mini ERP
-                    </button>
-
-                    <button
-                        onClick={() => doUpgrade("full_erp")}
-                        disabled={busy}
-                        style={{
-                            padding: "10px 12px",
-                            borderRadius: 12,
-                            border: "1px solid #FF6600",
-                            background: "#FF6600",
-                            color: "#fff",
-                            fontWeight: 900,
-                            cursor: busy ? "not-allowed" : "pointer",
-                            opacity: busy ? 0.6 : 1,
-                        }}
-                        title="Cria/ativa subscription no plano full_erp (encerra anterior)"
-                    >
-                        Ativar ERP Full
-                    </button>
-
-                    <button
-                        onClick={allowOverage}
-                        disabled={busy}
-                        style={{
-                            padding: "10px 12px",
-                            borderRadius: 12,
-                            border: "1px solid #FF6600",
-                            background: "#fff",
-                            color: "#FF6600",
-                            fontWeight: 900,
-                            cursor: busy ? "not-allowed" : "pointer",
-                            opacity: busy ? 0.6 : 1,
-                        }}
-                        title="Marca allow_overage=true na subscription ativa"
-                    >
-                        Permitir overage
-                    </button>
-
-                    <div style={{ marginLeft: "auto", color: "#666", fontSize: 12, alignSelf: "center" }}>
-                        {busy ? "Processando..." : "Dica: use esta tela só para desenvolvimento/admin."}
+                                {pct >= 90 && (
+                                    <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700/30 dark:bg-red-900/20 dark:text-red-400">
+                                        ⚠️ Você está próximo do limite mensal. Entre em contato com o suporte para aumentar sua cota.
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <p className="text-sm text-zinc-400">Sem dados de uso disponíveis.</p>
+                        )}
                     </div>
-                </div>
-            </div>
+                </>
+            )}
         </div>
     );
 }
