@@ -16,7 +16,9 @@ import {
     Package,
     RefreshCcw,
     ShoppingCart,
+    Sparkles,
     TrendingUp,
+    Zap,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -42,6 +44,13 @@ type StatsData = {
     chartData: ChartPoint[];
     topProducts: TopProduct[];
 };
+
+type PlanData = {
+    plan_key: string;
+    plan_name: string | null;
+    used: number;
+    limit: number | null;
+} | null;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +99,7 @@ export default function DashboardClient() {
     const [loading,     setLoading]     = useState(true);
     const [error,       setError]       = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const [planData,    setPlanData]    = useState<PlanData>(null);
     // flash visual quando chega evento realtime
     const [realtimeFlash, setRealtimeFlash] = useState(false);
 
@@ -112,6 +122,23 @@ export default function DashboardClient() {
         }
     }
 
+    async function loadPlanData() {
+        try {
+            const res  = await fetch("/api/billing/status", { credentials: "include", cache: "no-store" });
+            if (!res.ok) return;
+            const json = await res.json();
+            const sub  = json?.subscription;
+            const wa   = json?.usage?.whatsapp_messages;
+            if (!sub) return;
+            setPlanData({
+                plan_key:  sub.plan_key ?? "",
+                plan_name: sub.plan_name ?? null,
+                used:      wa?.used ?? 0,
+                limit:     wa?.limit_per_month ?? null,
+            });
+        } catch { /* silently ignore */ }
+    }
+
     /** Agenda refresh com debounce de 800ms e aciona flash visual */
     function scheduleRealtimeRefresh() {
         if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -126,6 +153,7 @@ export default function DashboardClient() {
     // Polling de segurança (60s) + refresh inicial
     useEffect(() => {
         loadStats();
+        loadPlanData();
         const timer = setInterval(() => loadStats(true), 60_000);
         return () => {
             clearInterval(timer);
@@ -263,6 +291,59 @@ export default function DashboardClient() {
                           );
                       })}
             </div>
+
+            {/* ── plano & uso WhatsApp ──────────────────────────────────── */}
+            {planData && (() => {
+                const isPro    = planData.plan_key === "pro";
+                const pct      = planData.limit ? Math.min(100, Math.round((planData.used / planData.limit) * 100)) : 0;
+                const barColor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-400" : "bg-emerald-500";
+                return (
+                    <div className="flex flex-wrap items-center gap-4 rounded-xl border border-zinc-100 bg-white px-5 py-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                        {/* badge plano */}
+                        <div className="flex items-center gap-2 shrink-0">
+                            {isPro
+                                ? <Zap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                                : <Sparkles className="h-4 w-4 text-sky-500 dark:text-sky-400" />}
+                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
+                                isPro
+                                    ? "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
+                                    : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
+                            }`}>
+                                {planData.plan_name ?? planData.plan_key}
+                            </span>
+                        </div>
+
+                        {/* divider */}
+                        <div className="hidden h-5 w-px bg-zinc-200 dark:bg-zinc-700 sm:block" />
+
+                        {/* uso WhatsApp */}
+                        <div className="flex flex-1 min-w-[180px] flex-col gap-1">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                                    Mensagens WhatsApp — mês atual
+                                </span>
+                                <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
+                                    {planData.used.toLocaleString("pt-BR")}
+                                    {planData.limit != null && ` / ${planData.limit.toLocaleString("pt-BR")}`}
+                                </span>
+                            </div>
+                            {planData.limit != null && (
+                                <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                                    <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${pct}%` }} />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* link para billing */}
+                        <a
+                            href="/billing"
+                            className="shrink-0 text-[11px] font-semibold text-violet-600 hover:text-violet-700 dark:text-violet-400"
+                        >
+                            Ver plano →
+                        </a>
+                    </div>
+                );
+            })()}
 
             {/* ── gráfico + top produtos ─────────────────────────────────── */}
             <div className="grid gap-4 lg:grid-cols-3">

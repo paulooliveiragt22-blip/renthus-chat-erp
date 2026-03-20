@@ -8,7 +8,7 @@
  *
  * Configurar no Meta Business:
  *   URL:   https://<seu-dominio>/api/whatsapp/incoming
- *   Token: process.env.WHATSAPP_VERIFY_TOKEN
+ *   Token: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -25,9 +25,18 @@ export async function GET(req: NextRequest) {
     const token     = searchParams.get("hub.verify_token");
     const challenge = searchParams.get("hub.challenge");
 
-    if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+    const expectedToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+
+    if (!expectedToken) {
+        console.error("[wa/incoming] WHATSAPP_WEBHOOK_VERIFY_TOKEN não definida");
+        return new NextResponse("Server misconfigured", { status: 500 });
+    }
+
+    if (mode === "subscribe" && token === expectedToken) {
         return new NextResponse(challenge, { status: 200 });
     }
+
+    console.warn("[wa/incoming] GET 403 | mode:", mode, "| token match:", token === expectedToken);
     return new NextResponse("Forbidden", { status: 403 });
 }
 

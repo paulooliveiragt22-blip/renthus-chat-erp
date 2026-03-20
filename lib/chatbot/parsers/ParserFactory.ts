@@ -15,6 +15,7 @@ import type { ParseIntentResult, ProductForSearch } from "../OrderParserService"
 import { parseWithClaude, type ClaudeParserConfig } from "./ClaudeParser";
 import { parseWithRegex } from "./RegexParser";
 import { logParserResult } from "../services/ParserLogger";
+import { alertParserFallback } from "../services/AlertService";
 
 export interface ParserFactoryParams {
     admin: SupabaseClient;
@@ -54,7 +55,7 @@ export async function parseWithFactory(
     if (level1Result && isActionable(level1Result)) {
         const ms = Date.now() - t0;
         logParserResult(admin, {
-            companyId, threadId, messageId,
+            companyId, threadId, waMessageId: messageId,
             input,
             parserLevel: 1,
             fallbackUsed: false,
@@ -76,12 +77,18 @@ export async function parseWithFactory(
     if (level2Result && isActionable(level2Result)) {
         const ms = Date.now() - t0;
         logParserResult(admin, {
-            companyId, threadId, messageId,
+            companyId, threadId, waMessageId: messageId,
             input,
             parserLevel: 2,
             fallbackUsed: true,
             responseTimeMs: ms,
             action: level2Result.action,
+        }).catch(() => {});
+        alertParserFallback(admin, {
+            companyId, threadId,
+            level: 2,
+            inputText: input,
+            errorHint: level1Result ? `claude: ${level1Result.action}` : "claude: exception",
         }).catch(() => {});
         return { ...level2Result, _parserLevel: 2, _fallbackUsed: true, _responseTimeMs: ms };
     }
@@ -108,12 +115,18 @@ export async function parseWithFactory(
 
     const ms = Date.now() - t0;
     logParserResult(admin, {
-        companyId, threadId, messageId,
+        companyId, threadId, waMessageId: messageId,
         input,
         parserLevel: 3,
         fallbackUsed: true,
         responseTimeMs: ms,
         action: finalResult.action,
+    }).catch(() => {});
+    alertParserFallback(admin, {
+        companyId, threadId,
+        level: 3,
+        inputText: input,
+        errorHint: "both claude and regex failed",
     }).catch(() => {});
 
     return { ...withAssistedFlag, _parserLevel: 3, _fallbackUsed: true, _responseTimeMs: ms };
