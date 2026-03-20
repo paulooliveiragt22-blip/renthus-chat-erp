@@ -515,7 +515,7 @@ export default function FinanceiroPage() {
                     { icon: TrendingDown,    label: "Despesas Pagas",  value: stats ? brl(stats.expensesPaid): "—", sub: `${expenses.filter(e=>e.payment_status==="paid").length} lançamentos`, bg: "bg-red-100 dark:bg-red-900/30", ic: "text-red-500" },
                     { icon: Wallet,          label: "Lucro Real",      value: stats ? brl(stats.realProfit)  : "—", sub: stats && stats.revenue > 0 ? `Margem real ${pct(realMargin)}` : "após despesas", bg: "bg-orange-100 dark:bg-orange-900/30", ic: "text-orange-500" },
                 ].map(({ icon: Icon, label, value, sub, bg, ic }) => (
-                    <div key={label} className="flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+                    <div key={label} className="flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                         <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${bg}`}>
                             <Icon className={`h-5 w-5 ${ic}`} />
                         </span>
@@ -529,7 +529,7 @@ export default function FinanceiroPage() {
             </div>
 
             {/* Bar chart */}
-            <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+            <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                 <div className="mb-4 flex items-center justify-between">
                     <div>
                         <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Faturamento por dia — {periodLabel}</p>
@@ -557,7 +557,7 @@ export default function FinanceiroPage() {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
 
                 {/* Payment methods */}
-                <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="mb-4 flex items-center gap-2">
                         <CreditCard className="h-4 w-4 text-violet-600" />
                         <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Formas de Pagamento</p>
@@ -590,7 +590,7 @@ export default function FinanceiroPage() {
                 </div>
 
                 {/* Profit breakdown */}
-                <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="mb-4 flex items-center gap-2">
                         <TrendingUp className="h-4 w-4 text-emerald-600" />
                         <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Análise de Resultado</p>
@@ -629,7 +629,7 @@ export default function FinanceiroPage() {
                 </div>
 
                 {/* Expenses pie */}
-                <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                     <div className="mb-4 flex items-center gap-2">
                         <TrendingDown className="h-4 w-4 text-red-500" />
                         <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Despesas por categoria</p>
@@ -771,7 +771,7 @@ export default function FinanceiroPage() {
                             { icon: ArrowDownCircle, label: "Saídas",    value: brl(extratoExpenses), cls: "text-red-500" },
                             { icon: Wallet,          label: "Saldo",     value: brl(extratoIncome - extratoExpenses), cls: extratoIncome - extratoExpenses >= 0 ? "text-violet-600" : "text-red-500" },
                         ].map(({ icon: Icon, label, value, cls }) => (
-                            <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm dark:bg-zinc-900">
+                            <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
                                 <Icon className={`h-5 w-5 ${cls}`} />
                                 <div>
                                     <p className="text-xs text-zinc-400">{label}</p>
