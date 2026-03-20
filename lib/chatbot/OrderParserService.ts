@@ -114,27 +114,37 @@ function normalize(s: string): string {
         .trim();
 }
 
+/** Verbos/palavras de pedido que podem preceder a quantidade (ex: "manda duas heineken") */
+const LEADING_VERBS = /\b(quero|quer|manda|mande|traga|trazer|por favor|pf|me\s+da|me\s+de)\s+/gi;
+
 /**
  * Extrai quantidade de um trecho de texto (número ou palavra).
+ * Converte 'um/uma' → 1, 'dois/duas' → 2, etc.
  * Retorna { qty, remainder } onde remainder é o texto sem a quantidade.
  */
 function extractQuantityFromText(text: string): { qty: number; remainder: string } {
-    const t = text.trim();
+    let t = text.trim();
+    if (!t) return { qty: 1, remainder: t };
+
+    // Remove verbos no início para expor quantidade (ex: "manda duas heineken" → "duas heineken")
+    t = t.replace(LEADING_VERBS, "").trim();
+    if (!t) return { qty: 1, remainder: text.trim() };
+
     let qty = 1;
     let remainder = t;
 
-    // Regex: número em qualquer posição (1-99), ex: "quero 2 skol" ou "2 skol"
+    // Número em qualquer posição (1-99), ex: "2 skol" ou "quero 2 skol"
     const numMatch = t.match(/(?:^|\s)(\d{1,2})\s+(.+)$/);
     if (numMatch) {
         const n = parseInt(numMatch[1], 10);
         if (n >= 1 && n <= 99) {
             qty = n;
-            remainder = numMatch[2].trim().replace(/\b(quero|quer|manda|traga|por favor|pf)\b/gi, "").trim();
+            remainder = numMatch[2].trim();
             return { qty, remainder };
         }
     }
 
-    // Regex: número no início
+    // Número no início
     const numStart = t.match(/^\s*(\d{1,2})\s+(.+)$/);
     if (numStart) {
         const n = parseInt(numStart[1], 10);
@@ -145,7 +155,7 @@ function extractQuantityFromText(text: string): { qty: number; remainder: string
         }
     }
 
-    // Palavra por extenso no início
+    // Palavra por extenso (um, uma, dois, duas, etc.) — no início ou após verbos
     for (const [word, value] of Object.entries(QUANTITY_WORDS)) {
         const re = new RegExp(`^\\s*${word}\\s+(.+)$`, "i");
         const m = t.match(re);
@@ -156,31 +166,61 @@ function extractQuantityFromText(text: string): { qty: number; remainder: string
         }
     }
 
-    return { qty, remainder: t };
+    // Palavra por extenso em qualquer posição (ex: "manda duas heineken" já sem verbos = "duas heineken")
+    for (const [word, value] of Object.entries(QUANTITY_WORDS)) {
+        const re = new RegExp(`\\b${word}\\s+(.+)`, "i");
+        const m = t.match(re);
+        if (m && m[1].trim().length >= 2) {
+            qty = value;
+            remainder = m[1].trim();
+            return { qty, remainder };
+        }
+    }
+
+    return { qty: 1, remainder: t };
+}
+
+/** Resultado da extração de endereço: endereço formatado + slice exato para remoção */
+export interface AddressExtractResult {
+    address: string;
+    rawSlice: string;  // trecho exato na string original para remover antes de buscar produtos
 }
 
 /**
  * Extrai endereço da mensagem usando regex e palavras-chave.
- * Procura por: rua/av/nº/bairro ou texto após "na"/"no".
+ * PRIORIDADE: primeiro identifica endereço (rua/av/etc + número + bairro/cidade).
+ * LIMPEZA RADICAL: rawSlice inclui todo o bloco (logradouro + número + bairro/cidade)
+ * para que o restante da string fique vazio quando o usuário só digitou endereço.
  */
-function extractAddressFromText(input: string): string | null {
-    // Padrão principal: prefixo + nome + número
+function extractAddressFromText(input: string): AddressExtractResult | null {
     const ADDR_RE = /\b(rua|r\.|av\.?|avenida|alameda|travessa|trav\.?|estrada|rodovia|pra[cç]a|p[cç][ao]\.?|beco|viela|setor|quadra|qd\.?)\s+([\wÀ-úÀ-ÿ\s]{2,50}?)[\s,]*(?:n[º°oa]?\.?\s*)?(\d{1,5})\b/i;
     const m = input.match(ADDR_RE);
     if (m) {
-        const after = input.slice(input.indexOf(m[0]) + m[0].length).trim();
-        const neighMatch = after.match(/^[\s,\-–]+([A-Za-zÀ-úÀ-ÿ][A-Za-zÀ-úÀ-ÿ\s]{1,40}?)(?:[,;.]|$)/i);
+        const addrStart = input.indexOf(m[0]);
+        const addrEnd = addrStart + m[0].length;
+        // NÃO fazer trim: precisamos do espaço antes do bairro para o regex capturar
+        const after = input.slice(addrEnd);
+        // Bairro/cidade: espaço ou vírgula + sequência de palavras (ex: " São Mateus", " - Centro")
+        const neighMatch = after.match(/^[\s,\-–]+([A-Za-zÀ-úÀ-ÿ][A-Za-zÀ-úÀ-ÿ\s]{1,50}?)(?=\s*$|[.,;]|$)/i);
         const neighborhood = neighMatch ? ` - ${neighMatch[1].trim()}` : "";
-        return `${m[0]}${neighborhood}`.trim();
+        const fullAddr = `${m[0]}${neighborhood}`.trim();
+        const rawSlice = neighMatch
+            ? input.slice(addrStart, addrEnd + neighMatch[0].length).trim()
+            : m[0];
+        return { address: fullAddr, rawSlice };
     }
 
     // Fallback: texto após "na rua", "no bairro", "na av", etc.
-    const afterPrep = input.match(/\b(?:na|no)\s+(rua|av\.?|avenida|bairro|r\.)\s+(.+?)(?:\.|$)/i);
-    if (afterPrep) return afterPrep[2].trim();
+    const afterPrep = input.match(/\b(na|no)\s+(rua|av\.?|avenida|bairro|r\.)\s+(.+?)(?:\.|$)/i);
+    if (afterPrep) {
+        const rawSlice = afterPrep[0];
+        return { address: afterPrep[3].trim(), rawSlice };
+    }
 
-    // Fallback: sequência que contém nº ou número de endereço
-    const withNum = input.match(/.{10,80}(?:n[º°]\.?\s*|,\s*)\d{1,5}\b.{0,50}/i);
-    if (withNum) return withNum[0].trim();
+    const withNum = input.match(/.{10,80}(?:n[º°]\.?\s*|,\s*)\d{1,5}\b[\wÀ-úÀ-ÿ\s\-–]{0,60}?$/i);
+    if (withNum) {
+        return { address: withNum[0].trim(), rawSlice: withNum[0].trim() };
+    }
 
     return null;
 }
@@ -281,15 +321,31 @@ export class OrderParserService {
     }
 
     /**
-     * Remove o trecho de endereço do texto para não confundir a busca de produtos.
+     * Remove o trecho de endereço do texto antes de buscar produtos no Fuse.js.
+     * LIMPEZA RADICAL: remove todo o bloco de endereço incluindo bairro/cidade.
+     * A string resultante deve ser vazia se o usuário só digitou endereço.
      */
-    private removeAddressFromText(text: string, addressRaw: string): string {
-        const candidates = ["na " + addressRaw, "no " + addressRaw, addressRaw];
+    private removeAddressFromText(text: string, rawSlice: string): string {
+        const lower = text.toLowerCase();
+        const sliceLower = rawSlice.toLowerCase();
+        let idx = lower.indexOf(sliceLower);
+        if (idx >= 0) {
+            const before = text.slice(0, idx).trim();
+            const after = text.slice(idx + rawSlice.length).trim();
+            return [before, after].filter(Boolean).join(" ").trim();
+        }
+        const candidates = [
+            "na " + rawSlice,
+            "no " + rawSlice,
+            rawSlice,
+            rawSlice.replace(" - ", " "),
+            rawSlice.replace(/ - /g, " "),
+        ];
         for (const toRemove of candidates) {
-            const idx = text.toLowerCase().indexOf(toRemove.toLowerCase());
-            if (idx >= 0) {
-                const before = text.slice(0, idx).trim();
-                const after = text.slice(idx + toRemove.length).trim();
+            const i = lower.indexOf(toRemove.toLowerCase());
+            if (i >= 0) {
+                const before = text.slice(0, i).trim();
+                const after = text.slice(i + toRemove.length).trim();
                 return [before, after].filter(Boolean).join(" ").trim();
             }
         }
@@ -304,6 +360,8 @@ export class OrderParserService {
         if (!this.mapsClient || !this.googleApiKey || !text.trim()) {
             return { raw: text.trim(), formatted: text.trim() };
         }
+
+        console.log("[OrderParserService] Chamando API do Google Geocoding para:", text.trim());
 
         try {
             const res = await this.mapsClient.geocode({
@@ -321,7 +379,7 @@ export class OrderParserService {
             const comps = result.address_components ?? [];
 
             const getComp = (types: string[]) =>
-                comps.find((c) => types.some((t) => c.types.includes(t)))?.long_name;
+                comps.find((c) => types.some((t) => (c.types as readonly string[]).includes(t)))?.long_name;
 
             return {
                 raw: text.trim(),
@@ -352,29 +410,41 @@ export class OrderParserService {
             return { action: "invalid", message: "Mensagem muito curta." };
         }
 
-        // 1) Extrair endereço (se houver)
-        let addressRaw = extractAddressFromText(raw);
+        // 1) PRIORIDADE: extrair endereço primeiro (rua, av, etc.) e remover da string
+        //    antes de mandar o restante para o Fuse.js buscar produtos (evita buscar "rua" como produto)
+        const addrExtract = extractAddressFromText(raw);
         let parsedAddress: ParsedAddress | null = null;
 
-        if (addressRaw) {
+        if (addrExtract) {
+            console.log("[OrderParserService] Endereço identificado:", addrExtract.address, "| rawSlice:", addrExtract.rawSlice);
             if (options?.validateAddressWithGoogle && this.mapsClient) {
-                parsedAddress = await this.validateAddress(addressRaw);
+                parsedAddress = await this.validateAddress(addrExtract.address);
             } else {
-                parsedAddress = { raw: addressRaw, formatted: addressRaw };
+                parsedAddress = { raw: addrExtract.address, formatted: addrExtract.address };
             }
         }
 
-        // 2) Remover endereço do texto para buscar produtos
-        const textForProducts = addressRaw ? this.removeAddressFromText(raw, addressRaw) : raw;
+        // 2) Remover endereço do texto e enviar só o restante para busca de produtos
+        const textForProducts = addrExtract
+            ? this.removeAddressFromText(raw, addrExtract.rawSlice)
+            : raw;
+
+        if (textForProducts.trim()) {
+            console.log("[OrderParserService] Texto para busca de produtos (após remover endereço):", textForProducts.trim());
+        }
+
         if (!textForProducts.trim()) {
             if (parsedAddress) {
+                const ctx: Partial<Session["context"]> = {
+                    delivery_address: parsedAddress.formatted,
+                    delivery_address_place_id: parsedAddress.placeId,
+                    askAddress: false,
+                };
+                if (parsedAddress.neighborhood) ctx.delivery_neighborhood = parsedAddress.neighborhood;
                 return {
                     action: "add_to_cart",
                     items: [],
-                    contextUpdate: {
-                        delivery_address: parsedAddress.formatted,
-                        delivery_address_place_id: parsedAddress.placeId,
-                    },
+                    contextUpdate: ctx,
                     askAddress: false,
                 };
             }
