@@ -11,7 +11,6 @@
  *  4. Atualiza registro e preview da thread
  */
 
-import twilio from "twilio";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface SendMessageParams {

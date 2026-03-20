@@ -14,6 +14,7 @@ import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListM
 import { getCachedProducts } from "./TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "./OrderParserService";
 import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "./PackagingExtractor";
+import { parseWithFactory } from "./parsers/ParserFactory";
 import { buildProductDisplayName as _buildProductDisplayName } from "./displayHelpers";
 export type { DisplayableVariant } from "./displayHelpers";
 
@@ -1714,7 +1715,7 @@ async function reply(phoneE164: string, text: string): Promise<void> {
 export async function processInboundMessage(
     params: ProcessMessageParams
 ): Promise<void> {
-    const { admin, companyId, threadId, phoneE164, text, profileName } = params;
+    const { admin, companyId, threadId, messageId, phoneE164, text, profileName } = params;
 
     console.log("[chatbot] processInboundMessage START | thread:", threadId, "company:", companyId, "text:", text);
 
@@ -1724,10 +1725,10 @@ export async function processInboundMessage(
         return;
     }
 
-    // Verifica se existe bot ativo para esta empresa
+    // Verifica se existe bot ativo para esta empresa e carrega config
     const { data: botRows, error: botErr } = await admin
         .from("chatbots")
-        .select("id")
+        .select("id, config")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .limit(1);
@@ -1738,6 +1739,8 @@ export async function processInboundMessage(
         console.warn("[chatbot] Nenhum chatbot ativo para company:", companyId, "— verifique tabela chatbots");
         return;
     }
+
+    const botConfig = (botRows[0]?.config as Record<string, unknown>) ?? {};
 
     const [company, session] = await Promise.all([
         getCompanyInfo(admin, companyId),
@@ -1903,12 +1906,24 @@ export async function processInboundMessage(
         return;
     }
 
-    // ── 11. Interceptor global: OrderParserService (produtos + endereço) ──────
+    // ── 11. Interceptor global: ParserFactory (Claude→Regex→Assisted) ─────────
     // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
     if (input.length >= 3) {
         const products = await getCachedProducts(admin, companyId);
-        const parser = getOrderParserService();
-        const parsed = await parser.parseIntent(input, products, { validateAddressWithGoogle: true });
+        const parsed = await parseWithFactory({
+            admin,
+            companyId,
+            threadId,
+            messageId,
+            input,
+            products,
+            claudeConfig: {
+                model:      String(botConfig.model   ?? "claude-haiku-4-5-20251001"),
+                threshold:  Number(botConfig.threshold ?? 0.75),
+                maxRetries: Number(botConfig.max_retries ?? 2),
+                timeoutMs:  Number(botConfig.timeout_ms  ?? 8000),
+            },
+        });
 
         if (parsed.action === "add_to_cart" && parsed.items.length > 0) {
             const toAdd = parsedItemsToCartItems(parsed.items);
