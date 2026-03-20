@@ -7,6 +7,7 @@ import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     BadgeCheck,
     Bike,
+    Bot,
     Building2,
     CreditCard,
     Loader2,
@@ -44,7 +45,7 @@ type Company = {
     settings: Record<string, unknown> | null;
 };
 
-type Tab = "geral" | "delivery" | "pagamentos" | "seguranca";
+type Tab = "geral" | "delivery" | "pagamentos" | "seguranca" | "chatbot";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -167,9 +168,19 @@ export default function ConfiguracoesPage() {
     });
 
     // segurança (informativo — não salva senha aqui)
-    const [saving, setSaving]       = useState(false);
-    const [msg,    setMsg]          = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [msg,    setMsg]    = useState<string | null>(null);
     const msgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // chatbot config
+    const [chatbotId,       setChatbotId]       = useState<string | null>(null);
+    const [chatbotModel,    setChatbotModel]     = useState("claude-haiku-4-5-20251001");
+    const [chatbotThreshold,setChatbotThreshold] = useState("0.75");
+    const [chatbotRetries,  setChatbotRetries]   = useState("2");
+    const [chatbotTimeout,  setChatbotTimeout]   = useState("8000");
+    const [botSaving,       setBotSaving]        = useState(false);
+    const [botMsg,          setBotMsg]           = useState<string | null>(null);
+    const botMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── load company ──────────────────────────────────────────────────────────
     const loadCompany = useCallback(async () => {
@@ -208,6 +219,49 @@ export default function ConfiguracoesPage() {
     }, [companyId]);
 
     useEffect(() => { loadCompany(); }, [loadCompany]);
+
+    // ── load chatbot config ───────────────────────────────────────────────────
+    useEffect(() => {
+        fetch("/api/chatbot/config", { credentials: "include", cache: "no-store" })
+            .then((r) => r.json())
+            .then((json) => {
+                const cb = json?.chatbot;
+                if (!cb) return;
+                setChatbotId(cb.id);
+                const cfg = cb.config ?? {};
+                setChatbotModel(cfg.model     ?? "claude-haiku-4-5-20251001");
+                setChatbotThreshold(String(cfg.threshold  ?? "0.75"));
+                setChatbotRetries(String(cfg.max_retries ?? "2"));
+                setChatbotTimeout(String(cfg.timeout_ms  ?? "8000"));
+            })
+            .catch(() => {});
+    }, []);
+
+    async function saveChatbot() {
+        if (!chatbotId) { setBotMsg("Nenhum chatbot encontrado para esta empresa."); return; }
+        setBotSaving(true); setBotMsg(null);
+        const res = await fetch("/api/chatbot/config", {
+            method:  "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                id: chatbotId,
+                config: {
+                    provider:             "anthropic",
+                    model:                chatbotModel,
+                    threshold:            Number(chatbotThreshold) || 0.75,
+                    max_retries:          Number(chatbotRetries)   || 2,
+                    timeout_ms:           Number(chatbotTimeout)   || 8000,
+                    fallback_chain:       ["claude", "regex", "assisted"],
+                    catalog_cache_ttl_min: 15,
+                },
+            }),
+        });
+        const json = await res.json().catch(() => ({}));
+        setBotMsg(res.ok ? "✓ Configurações do chatbot salvas" : (json?.error ?? "Erro ao salvar"));
+        setBotSaving(false);
+        if (botMsgTimer.current) clearTimeout(botMsgTimer.current);
+        botMsgTimer.current = setTimeout(() => setBotMsg(null), 4000);
+    }
 
     // ── save ──────────────────────────────────────────────────────────────────
     async function save() {
@@ -248,6 +302,7 @@ export default function ConfiguracoesPage() {
         { id: "delivery",   label: "Delivery",   icon: Truck },
         { id: "pagamentos", label: "Pagamentos",  icon: Wallet },
         { id: "seguranca",  label: "Segurança",   icon: Shield },
+        { id: "chatbot",    label: "Chatbot",     icon: Bot },
     ];
 
     // ── render ────────────────────────────────────────────────────────────────
@@ -484,6 +539,122 @@ export default function ConfiguracoesPage() {
                         </div>
                     )}
                     </>
+                    )}
+
+                    {/* ── ABA: CHATBOT ───────────────────────────────────── */}
+                    {activeTab === "chatbot" && (
+                        <div className="flex flex-col gap-6">
+                            <SectionTitle icon={Bot} title="Configurações do Chatbot" desc="Ajuste o modelo de IA e os parâmetros de resposta" />
+
+                            {!chatbotId && (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-400">
+                                    Nenhum chatbot encontrado para esta empresa. Crie um chatbot primeiro.
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                                {/* Modelo */}
+                                <div className="flex flex-col gap-1 sm:col-span-2">
+                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Modelo de IA</label>
+                                    <select
+                                        value={chatbotModel}
+                                        onChange={(e) => setChatbotModel(e.target.value)}
+                                        disabled={!chatbotId}
+                                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                                    >
+                                        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — rápido e econômico (recomendado)</option>
+                                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — mais inteligente, maior custo</option>
+                                    </select>
+                                    <p className="text-[11px] text-zinc-400">O modelo é usado para interpretar pedidos em linguagem natural.</p>
+                                </div>
+
+                                {/* Threshold */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                        Confiança mínima ({chatbotThreshold})
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0.5" max="1" step="0.05"
+                                        value={chatbotThreshold}
+                                        onChange={(e) => setChatbotThreshold(e.target.value)}
+                                        disabled={!chatbotId}
+                                        className="w-full accent-violet-600 disabled:opacity-50"
+                                    />
+                                    <div className="flex justify-between text-[10px] text-zinc-400">
+                                        <span>0.5 — permissivo</span>
+                                        <span>1.0 — rígido</span>
+                                    </div>
+                                    <p className="text-[11px] text-zinc-400">Abaixo desse valor o bot cai para o modo Regex / Assistido.</p>
+                                </div>
+
+                                {/* Max retries */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Tentativas máximas da IA</label>
+                                    <select
+                                        value={chatbotRetries}
+                                        onChange={(e) => setChatbotRetries(e.target.value)}
+                                        disabled={!chatbotId}
+                                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                                    >
+                                        <option value="1">1 tentativa</option>
+                                        <option value="2">2 tentativas (padrão)</option>
+                                        <option value="3">3 tentativas</option>
+                                    </select>
+                                    <p className="text-[11px] text-zinc-400">Número de re-tentativas quando a IA falha ou excede o timeout.</p>
+                                </div>
+
+                                {/* Timeout */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Timeout da IA (ms)</label>
+                                    <select
+                                        value={chatbotTimeout}
+                                        onChange={(e) => setChatbotTimeout(e.target.value)}
+                                        disabled={!chatbotId}
+                                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                                    >
+                                        <option value="5000">5 segundos</option>
+                                        <option value="8000">8 segundos (padrão)</option>
+                                        <option value="12000">12 segundos</option>
+                                        <option value="15000">15 segundos</option>
+                                    </select>
+                                    <p className="text-[11px] text-zinc-400">Se a IA demorar mais que isso, cai para o Regex.</p>
+                                </div>
+                            </div>
+
+                            {/* info fallback chain */}
+                            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-2">Cadeia de fallback (automática)</p>
+                                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 flex-wrap">
+                                    <span className="rounded-full bg-violet-100 px-2.5 py-0.5 font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">1 · Claude IA</span>
+                                    <span>→</span>
+                                    <span className="rounded-full bg-sky-100 px-2.5 py-0.5 font-semibold text-sky-700 dark:bg-sky-500/20 dark:text-sky-300">2 · Regex / Fuse.js</span>
+                                    <span>→</span>
+                                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">3 · Modo Assistido</span>
+                                </div>
+                            </div>
+
+                            {/* save bar */}
+                            {botMsg && (
+                                <div className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                                    botMsg.startsWith("✓")
+                                        ? "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/40 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                        : "border border-red-200 bg-red-50 text-red-700 dark:border-red-700/40 dark:bg-red-900/20 dark:text-red-400"
+                                }`}>
+                                    {botMsg}
+                                </div>
+                            )}
+                            <div className="flex justify-end">
+                                <button
+                                    onClick={saveChatbot}
+                                    disabled={botSaving || !chatbotId}
+                                    className="flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50"
+                                >
+                                    {botSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                    Salvar configurações
+                                </button>
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
