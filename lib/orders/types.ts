@@ -1,4 +1,15 @@
-export type PaymentMethod = "pix" | "card" | "cash";
+/** Formas de pagamento à vista (aceitas por todos os canais) */
+export type PaymentMethodVista = "pix" | "card" | "cash" | "debit";
+
+/** Formas de pagamento a prazo (somente PDV/balcão — nunca chatbot) */
+export type PaymentMethodPrazo = "credit_installment" | "boleto" | "promissoria" | "cheque";
+
+/** Alias legado mantido para compatibilidade ("credit" = a prazo genérico do PDV) */
+export type PaymentMethod = PaymentMethodVista | PaymentMethodPrazo | "credit";
+
+export type SaleOrigin = "pdv" | "ui_order" | "chatbot";
+export type SaleStatus = "open" | "paid" | "partial" | "canceled";
+
 export type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
 
 export type CustomerRow = { name: string | null; phone: string | null; address: string | null };

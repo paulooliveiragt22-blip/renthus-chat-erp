@@ -32,7 +32,21 @@ function isoDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${
 // ─── types ────────────────────────────────────────────────────────────────────
 
 type Period = "today" | "7d" | "15d" | "30d" | "custom";
-type Tab    = "dashboard" | "extrato";
+type Tab    = "dashboard" | "extrato" | "receber" | "pagar";
+
+interface Bill {
+    id: string;
+    type: "receivable" | "payable";
+    description: string | null;
+    customer_name: string | null;
+    original_amount: number;
+    saldo_devedor: number;
+    due_date: string;
+    status: "open" | "partial" | "paid" | "overdue" | "canceled";
+    payment_method: string | null;
+    sale_id: string | null;
+    order_id: string | null;
+}
 
 interface ExtratoLine {
     id:             string;
@@ -59,9 +73,15 @@ interface Stats {
 }
 
 const PAY_META: Record<string, { label: string; color: string }> = {
-    pix:   { label: "PIX",      color: "#22c55e" },
-    card:  { label: "Cartão",   color: "#6d28d9" },
-    cash:  { label: "Dinheiro", color: "#f97316" },
+    pix:                { label: "PIX",           color: "#22c55e" },
+    card:               { label: "Cartão",         color: "#6d28d9" },
+    cash:               { label: "Dinheiro",       color: "#f97316" },
+    debit:              { label: "Débito",          color: "#3b82f6" },
+    credit_installment: { label: "Crédito Parc.",  color: "#a855f7" },
+    boleto:             { label: "Boleto",          color: "#0ea5e9" },
+    promissoria:        { label: "Promissória",     color: "#f59e0b" },
+    cheque:             { label: "Cheque",          color: "#64748b" },
+    credit:             { label: "A Prazo",         color: "#ef4444" }, // legado
 };
 
 const EXPENSE_CATS = [
@@ -120,6 +140,11 @@ export default function FinanceiroPage() {
     const [extratoLoading, setExtratoLoading] = useState(false);
     const [extratoPage,    setExtratoPage]    = useState(1);
     const EXTRATO_PAGE_SIZE = 50;
+
+    // Contas a Receber / Pagar
+    const [bills,        setBills]        = useState<Bill[]>([]);
+    const [billsLoading, setBillsLoading] = useState(false);
+    const [billFilter,   setBillFilter]   = useState<"open" | "paid" | "overdue" | "all">("open");
 
     // New expense modal
     const [showExpModal, setShowExpModal] = useState(false);
@@ -390,6 +415,35 @@ export default function FinanceiroPage() {
         if (activeTab === "extrato") loadExtrato();
     }, [activeTab, loadExtrato]);
 
+    // ── contas a receber / pagar ──────────────────────────────────────────────
+    const loadBills = useCallback(async (type: "receivable" | "payable") => {
+        if (!companyId) return;
+        setBillsLoading(true);
+        let q = supabase
+            .from("bills")
+            .select(`
+                id, type, description, original_amount, saldo_devedor,
+                due_date, status, payment_method, sale_id, order_id,
+                customers(name)
+            `)
+            .eq("company_id", companyId)
+            .eq("type", type)
+            .order("due_date", { ascending: true });
+        if (billFilter !== "all") q = q.eq("status", billFilter);
+        const { data, error } = await q;
+        if (error) console.error("[financeiro] bills:", error.message);
+        setBills((data ?? []).map((b: any) => ({
+            ...b,
+            customer_name: b.customers?.name ?? null,
+        })));
+        setBillsLoading(false);
+    }, [companyId, supabase, billFilter]);
+
+    useEffect(() => {
+        if (activeTab === "receber") loadBills("receivable");
+        if (activeTab === "pagar")   loadBills("payable");
+    }, [activeTab, loadBills]);
+
     const extratoPages     = Math.ceil(extrato.length / EXTRATO_PAGE_SIZE);
     const extratoSlice     = extrato.slice((extratoPage - 1) * EXTRATO_PAGE_SIZE, extratoPage * EXTRATO_PAGE_SIZE);
     const extratoIncome    = extrato.filter(e => e.type === "income").reduce((s, e) => s + e.amount, 0);
@@ -462,9 +516,14 @@ export default function FinanceiroPage() {
                             {{ today:"Hoje","7d":"7d","15d":"15d","30d":"30d",custom:"Personalizado" }[p]}
                         </button>
                     ))}
-                    <button onClick={activeTab === "extrato" ? loadExtrato : load} disabled={loading || extratoLoading}
+                    <button onClick={
+                        activeTab === "extrato" ? loadExtrato
+                        : activeTab === "receber" ? () => loadBills("receivable")
+                        : activeTab === "pagar"   ? () => loadBills("payable")
+                        : load
+                    } disabled={loading || extratoLoading || billsLoading}
                         className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
-                        <RefreshCcw className={`h-3 w-3 ${(loading || extratoLoading) ? "animate-spin" : ""}`} />
+                        <RefreshCcw className={`h-3 w-3 ${(loading || extratoLoading || billsLoading) ? "animate-spin" : ""}`} />
                         Atualizar
                     </button>
                 </div>
@@ -492,6 +551,27 @@ export default function FinanceiroPage() {
                             {extrato.length}
                         </span>
                     )}
+                </button>
+                <button onClick={() => setActiveTab("receber")}
+                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
+                        activeTab === "receber"
+                            ? "bg-white text-emerald-700 shadow dark:bg-zinc-800 dark:text-emerald-400"
+                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    }`}>
+                    <ArrowDownCircle className="h-3.5 w-3.5" /> A Receber
+                    {bills.filter(b => b.type === "receivable" && b.status !== "paid" && b.status !== "canceled").length > 0 && activeTab === "receber" && (
+                        <span className="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                            {bills.filter(b => b.status !== "paid" && b.status !== "canceled").length}
+                        </span>
+                    )}
+                </button>
+                <button onClick={() => setActiveTab("pagar")}
+                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
+                        activeTab === "pagar"
+                            ? "bg-white text-red-700 shadow dark:bg-zinc-800 dark:text-red-400"
+                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    }`}>
+                    <ArrowUpCircle className="h-3.5 w-3.5" /> A Pagar
                 </button>
             </div>
 
@@ -865,6 +945,111 @@ export default function FinanceiroPage() {
                                 </div>
                             )}
                             </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Contas a Receber / Pagar ────────────────────────────────────── */}
+            {(activeTab === "receber" || activeTab === "pagar") && (
+                <div className="flex flex-col gap-4">
+                    {/* Filter strip */}
+                    <div className="flex items-center gap-2">
+                        {(["open","overdue","paid","all"] as const).map(f => (
+                            <button key={f} onClick={() => setBillFilter(f)}
+                                className={`rounded-lg px-3 py-1.5 text-xs font-semibold border transition-all ${
+                                    billFilter === f
+                                        ? "bg-violet-600 text-white border-violet-600"
+                                        : "border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                                }`}>
+                                {{ open:"Em aberto", overdue:"Vencidas", paid:"Pagas", all:"Todas" }[f]}
+                            </button>
+                        ))}
+                        <button onClick={() => activeTab === "receber" ? loadBills("receivable") : loadBills("payable")}
+                            disabled={billsLoading}
+                            className="ml-auto flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
+                            <RefreshCcw className={`h-3 w-3 ${billsLoading ? "animate-spin" : ""}`} />
+                            Atualizar
+                        </button>
+                    </div>
+
+                    {/* Totais rápidos */}
+                    {bills.length > 0 && (
+                        <div className="grid grid-cols-3 gap-4">
+                            {[
+                                { label: "Total em aberto",  value: bills.filter(b => b.status === "open" || b.status === "partial").reduce((s,b) => s + b.saldo_devedor, 0), cls: "text-amber-600" },
+                                { label: "Total vencido",    value: bills.filter(b => b.status === "overdue").reduce((s,b) => s + b.saldo_devedor, 0), cls: "text-red-600" },
+                                { label: "Total recebido",   value: bills.filter(b => b.status === "paid").reduce((s,b) => s + b.original_amount, 0), cls: "text-emerald-600" },
+                            ].map(c => (
+                                <div key={c.label} className="rounded-xl bg-white p-4 shadow-sm dark:bg-zinc-900">
+                                    <p className="text-xs text-zinc-400">{c.label}</p>
+                                    <p className={`mt-1 text-lg font-bold ${c.cls}`}>{brl(c.value)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Table */}
+                    <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
+                        <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+                            {activeTab === "receber"
+                                ? <ArrowDownCircle className="h-4 w-4 text-emerald-600" />
+                                : <ArrowUpCircle className="h-4 w-4 text-red-600" />
+                            }
+                            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                                {activeTab === "receber" ? "Contas a Receber" : "Contas a Pagar"}
+                            </p>
+                            <span className="ml-auto text-xs text-zinc-400">{bills.length} registros</span>
+                        </div>
+
+                        {billsLoading ? (
+                            <div className="space-y-2 p-5">
+                                {[...Array(5)].map((_,i) => <Skeleton key={i} className="h-10 w-full" />)}
+                            </div>
+                        ) : bills.length === 0 ? (
+                            <div className="py-12 text-center">
+                                <CheckCircle2 className="mx-auto h-8 w-8 text-zinc-300 dark:text-zinc-600" />
+                                <p className="mt-2 text-sm text-zinc-400">Nenhum registro encontrado</p>
+                            </div>
+                        ) : (
+                            <table className="w-full text-xs">
+                                <thead>
+                                    <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                                        {["Vencimento","Cliente","Descrição","Forma","Valor","Saldo","Status"].map(h => (
+                                            <th key={h} className="px-4 py-2.5 text-left font-semibold text-zinc-400">{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
+                                    {bills.map(b => {
+                                        const isOverdue = b.status === "overdue" || (b.status === "open" && new Date(b.due_date) < new Date());
+                                        const statusInfo = {
+                                            open:     { label: "Em aberto",  cls: "text-amber-600 bg-amber-50 dark:bg-amber-900/20" },
+                                            partial:  { label: "Parcial",    cls: "text-blue-600 bg-blue-50 dark:bg-blue-900/20" },
+                                            paid:     { label: "Pago",       cls: "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" },
+                                            overdue:  { label: "Vencido",    cls: "text-red-600 bg-red-50 dark:bg-red-900/20" },
+                                            canceled: { label: "Cancelado",  cls: "text-zinc-400 bg-zinc-100 dark:bg-zinc-800" },
+                                        }[isOverdue && b.status !== "paid" ? "overdue" : b.status] ?? { label: b.status, cls: "text-zinc-400" };
+                                        return (
+                                            <tr key={b.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                                                <td className={`px-4 py-3 font-mono ${isOverdue && b.status !== "paid" ? "text-red-500" : "text-zinc-600 dark:text-zinc-400"}`}>
+                                                    {new Date(b.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
+                                                </td>
+                                                <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{b.customer_name ?? "—"}</td>
+                                                <td className="px-4 py-3 text-zinc-500">{b.description ?? "—"}</td>
+                                                <td className="px-4 py-3 text-zinc-500">{PAY_META[b.payment_method ?? ""]?.label ?? b.payment_method ?? "—"}</td>
+                                                <td className="px-4 py-3 font-mono font-semibold text-zinc-700 dark:text-zinc-200">{brl(b.original_amount)}</td>
+                                                <td className={`px-4 py-3 font-mono font-semibold ${b.saldo_devedor > 0 ? "text-amber-600" : "text-emerald-600"}`}>{brl(b.saldo_devedor)}</td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${statusInfo.cls}`}>
+                                                        {statusInfo.label}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         )}
                     </div>
                 </div>
