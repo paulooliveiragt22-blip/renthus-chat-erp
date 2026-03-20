@@ -96,6 +96,8 @@ const STOPWORDS = new Set([
     "quero","quer","queria","gostaria","pode","manda","mande","traz","traga",
     "ve","ver","preciso","quero pedir","to querendo","vou querer","quero ver",
     "comprar","pedir","adicionar","colocar","botar","busca","buscar",
+    "acrescentar","botar","quero adicionar","quero botar","coloca","coloque",
+    "poe","traz mais","manda mais","inclui","incluir","aumentar",
     // pronomes / artigos / preposições
     "me","mim","pra","para","de","do","da","dos","das","um","uma","uns","umas",
     "o","a","os","as","eh","e","com","sem","por","no","na","nos","nas","ai","aqui",
@@ -285,6 +287,29 @@ function detectAddressAnywhere(input: string): AddressMatch | { full: string; ra
         const raw = fallback[0].trim();
         return { full: raw.replace(/^(?:na|no)\s+/i, "").trim(), rawSlice: raw };
     }
+    return null;
+}
+
+const AFFIRMATIVE = ["sim","s","yes","continuar","continue","blz","ok","pode","beleza","top","certo","perfeito","exato","claro","positivo","vai","bora","tudo bem","tudo certo","isso","com certeza","manda","pode sim","por favor","pfv"];
+const NEGATIVE = ["nao","n","no","nope","negativo","desistir","voltar","nao quero","nao obrigado"];
+
+function extractClientName(input: string): string | null {
+    const m = input.match(/(?:sou o?|me chamo|meu nome[eé]?|chamo|pode me chamar de)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i);
+    return m ? m[1].trim() : null;
+}
+
+function hasVolumeClue(text: string): boolean {
+    return /\b(ml|litro|litros|kg|cx|caixa|fardo|pac|lata)\b/i.test(text) || /\d+\s*(ml|l|kg|litro)/i.test(text);
+}
+
+function detectRemoveIntent(input: string): boolean {
+    return /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|cancela|cancelar|deleta|exclui|excluir|menos|retirar|tirar)\b/i.test(input);
+}
+
+function detectMultipleAddresses(input: string): string[] | null {
+    const ADDR_RE = /\b(?:rua|r\.|av\.?|avenida|alameda|travessa|estrada|rodovia|pra[cç]a|setor|quadra)\s+[\wÀ-úÀ-ÿ\s]{2,50}?\s+\d{1,5}\b/gi;
+    const matches = input.match(ADDR_RE);
+    if (matches && matches.length >= 2) return matches;
     return null;
 }
 
@@ -954,7 +979,26 @@ async function handleFreeTextInput(
     rawInput: string,
     session: Session
 ): Promise<"handled" | "notfound" | "skip"> {
-    // ── 0. Detecção de endereço (+ produto combinado) na mesma mensagem ──────
+    // ── 0. Detecção de múltiplos endereços ───────────────────────────────────
+    const multiAddrs = detectMultipleAddresses(rawInput);
+    if (multiAddrs && multiAddrs.length >= 2) {
+        await saveSession(admin, threadId, companyId, {
+            step: "awaiting_split_order",
+            context: {
+                ...session.context,
+                split_address_1: multiAddrs[0],
+                split_address_2: multiAddrs[1],
+            },
+        });
+        await reply(
+            phoneE164,
+            `Serão dois pedidos com pagamentos diferentes ou somente um pedido entregue em dois endereços?\n\n` +
+            `1️⃣ Dois pedidos separados\n2️⃣ Um pedido, dois endereços`
+        );
+        return "handled";
+    }
+
+    // ── 0b. Detecção de endereço (+ produto combinado) na mesma mensagem ─────
     const addrMatch = extractAddressFromText(rawInput);
     if (addrMatch) {
         console.log("[freetext] endereço detectado:", addrMatch.full, "| bairro:", addrMatch.neighborhood);
@@ -1204,6 +1248,34 @@ async function handleFreeTextInput(
 
     // Lista efetiva a usar
     const effective = wasFiltered ? foundFiltered : found;
+
+    // ── Produto sem volume especificado → mostrar variantes ───────────────────
+    // Se o usuário não especificou volume E os resultados têm o mesmo nome de produto (múltiplas variantes)
+    if (!hasVolumeClue(cleanText) && !pkgExplicit && effective.length > 1) {
+        const productNames = new Set(effective.map((v) => normalize(v.productName)));
+        if (productNames.size === 1) {
+            // Todos do mesmo produto mas variantes diferentes (volumes)
+            const displayName = effective[0].productName;
+            const listLines = effective.slice(0, 9).map((v, i) => {
+                const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
+                const name = buildProductDisplayName(v, false);
+                return `${emoji} *${name}* — ${formatCurrency(v.unitPrice)}`;
+            });
+            await saveSession(admin, threadId, companyId, {
+                step: "awaiting_variant_selection",
+                context: {
+                    ...session.context,
+                    variant_options: effective.slice(0, 9),
+                    variant_qty: qty,
+                },
+            });
+            await reply(
+                phoneE164,
+                `🍺 *${displayName}* — qual opção você quer?\n\n${listLines.join("\n")}\n\n_Digite o número da opção. Para pedir vários: "1,2 3,4" (opção,qtd)_`
+            );
+            return "handled";
+        }
+    }
 
     // ── Match único ───────────────────────────────────────────────────────────
     if (effective.length === 1) {
@@ -1654,9 +1726,63 @@ export async function processInboundMessage(
 
     console.log("[chatbot] session step:", session.step, "| cartItems:", session.cart.length, "| input:", input);
 
+    // ── Detecção de nome do cliente ───────────────────────────────────────────
+    const detectedName = extractClientName(input);
+    if (detectedName && session.customer_id) {
+        await admin.from("customers").update({ name: detectedName }).eq("id", session.customer_id);
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, client_name: detectedName },
+        });
+        session.context.client_name = detectedName;
+        await reply(phoneE164, `Olá, *${detectedName}*! 😊 Como posso te ajudar?`);
+        return;
+    }
+
     // ── Comandos globais (funcionam em qualquer etapa) ────────────────────────
 
-    if (matchesAny(input, ["cancelar", "limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
+    // awaiting_cancel_confirm: handle yes/no
+    if (session.step === "awaiting_cancel_confirm") {
+        const normInput = normalize(input);
+        const isAff = AFFIRMATIVE.some((a) => normInput === normalize(a) || normInput.includes(normalize(a)));
+        const isNeg = NEGATIVE.some((n) => normInput === normalize(n) || normInput.includes(normalize(n)));
+        if (isAff) {
+            await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
+            await reply(phoneE164, buildMainMenu(companyName));
+            return;
+        }
+        if (isNeg) {
+            const prevStep = (session.context.cancel_return_step as string) ?? "catalog_products";
+            await saveSession(admin, threadId, companyId, { step: prevStep, context: { ...session.context, cancel_return_step: undefined } });
+            await reply(phoneE164, "Ok, pedido mantido! Pode continuar. 😊");
+            return;
+        }
+        await reply(phoneE164, "Tem certeza que quer cancelar o pedido? Responda *sim* para confirmar.");
+        return;
+    }
+
+    // cancelar: se vier com produto → remove item; se sozinho → pede confirmação
+    if (matchesAny(input, ["cancelar", "cancela"])) {
+        const normIn = normalize(input);
+        const withoutCancel = normIn.replace(/\b(cancelar|cancela)\b/g, "").trim();
+        const cancelTerms = withoutCancel.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+        const isCancelWithProduct = cancelTerms.length > 0 && !matchesAny(withoutCancel, ["pedido"]);
+        if (!isCancelWithProduct) {
+            if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
+                await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
+                await reply(phoneE164, buildMainMenu(companyName));
+                return;
+            }
+            await saveSession(admin, threadId, companyId, {
+                step: "awaiting_cancel_confirm",
+                context: { ...session.context, cancel_return_step: session.step },
+            });
+            await reply(phoneE164, "Tem certeza que quer cancelar o pedido? Responda *sim* para confirmar.");
+            return;
+        }
+        // Has product terms — fall through to remove logic below
+    }
+
+    if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
         await reply(phoneE164, buildMainMenu(companyName));
         return;
@@ -1667,8 +1793,38 @@ export async function processInboundMessage(
         return;
     }
 
+    // ── Global remove intent (cancelar + produto, tira X, etc.) ──────────────
+    if (detectRemoveIntent(input) && session.cart.length > 0) {
+        const normIn = normalize(input);
+        const withoutVerb = normIn.replace(/\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|cancela|cancelar|deleta|exclui|excluir|menos|retirar|tirar)\b/gi, "").trim();
+        const removeTerms = withoutVerb.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+        if (removeTerms.length > 0) {
+            const idx = session.cart.findIndex((c) => removeTerms.some((t) => normalize(c.name).includes(t)));
+            if (idx >= 0) {
+                const item = session.cart[idx];
+                const newCart = session.cart.filter((_, i) => i !== idx);
+                await saveSession(admin, threadId, companyId, { cart: newCart });
+                await reply(
+                    phoneE164,
+                    `🗑️ *${item.name}* removido do pedido.\n\n${newCart.length > 0 ? formatCart(newCart) : "Carrinho vazio."}`
+                );
+                return;
+            }
+        }
+    }
+
+    // ── Affirmative global handling ───────────────────────────────────────────
+    {
+        const normInput = normalize(input);
+        const isAff = AFFIRMATIVE.some((a) => normInput === normalize(a) || normInput.includes(normalize(a)));
+        if (isAff && session.step === "checkout_confirm") {
+            await handleCheckoutConfirm(admin, companyId, threadId, phoneE164, companyName, "confirmar", session);
+            return;
+        }
+    }
+
     // ── Atalho global de checkout: "fechar", "pagar", "finalizar", "acabou" ──
-    const CHECKOUT_KEYWORDS = ["fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha","bater caixa"];
+    const CHECKOUT_KEYWORDS = ["fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha","bater caixa","vou pagar","quero finalizar","vou finalizar","pode fechar","fecha ai","bater o caixa","quero fechar","encerrar","terminar","quero confirmar"];
     if (matchesAny(input, CHECKOUT_KEYWORDS) && session.cart.length > 0) {
         console.log("[chatbot] atalho de checkout detectado | cart:", session.cart.length);
         await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
@@ -1711,7 +1867,19 @@ export async function processInboundMessage(
                 Object.assign(ctx, parsed.contextUpdate);
             }
 
+            // Detecta método de pagamento na mesma mensagem
+            const detectedPmInCart = detectPaymentMethod(input);
+            if (detectedPmInCart && !ctx.payment_method) {
+                ctx.payment_method = detectedPmInCart;
+            }
+
             await saveSession(admin, threadId, companyId, { cart: newCart, context: ctx });
+
+            // Se endereço + pagamento detectados → ir para checkout_confirm
+            if (ctx.delivery_address && ctx.payment_method) {
+                await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, { ...session, cart: newCart, context: ctx });
+                return;
+            }
 
             const stepLabels: Record<string, string> = {
                 main_menu: "menu",
@@ -1910,6 +2078,20 @@ export async function processInboundMessage(
 
         case "checkout_confirm":
             await handleCheckoutConfirm(admin, companyId, threadId, phoneE164, companyName, input, session);
+            break;
+
+        case "awaiting_cancel_confirm":
+            // Handled above in global commands section
+            await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
+            await reply(phoneE164, buildMainMenu(companyName));
+            break;
+
+        case "awaiting_variant_selection":
+            await handleAwaitingVariantSelection(admin, companyId, threadId, phoneE164, input, session);
+            break;
+
+        case "awaiting_split_order":
+            await handleAwaitingSplitOrder(admin, companyId, threadId, phoneE164, input, session);
             break;
 
         case "handover":
@@ -3577,6 +3759,141 @@ async function handleCheckoutConfirm(
             `Desculpe, houve um erro ao registrar seu pedido. Por favor, fale com um atendente. 😞`
         );
     }
+}
+
+// ─── AWAITING_VARIANT_SELECTION ───────────────────────────────────────────────
+
+async function handleAwaitingVariantSelection(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const variantOptions = (session.context.variant_options as VariantRow[]) ?? [];
+    const variantQty = (session.context.variant_qty as number) ?? 1;
+
+    if (!variantOptions.length) {
+        await saveSession(admin, threadId, companyId, { step: "catalog_products" });
+        await reply(phoneE164, "Não encontrei as opções. Digite o nome do produto novamente.");
+        return;
+    }
+
+    // Parse multi-select: "1", "1 2", "1,3 2,2", "1 e 3", "2x1"
+    const normInput = input.trim();
+    type Selection = { idx: number; qty: number };
+    const selections: Selection[] = [];
+
+    // "2x1" format → qty x option
+    const qtyxMatch = normInput.match(/^(\d+)x(\d+)$/i);
+    if (qtyxMatch) {
+        const q = parseInt(qtyxMatch[1], 10);
+        const o = parseInt(qtyxMatch[2], 10) - 1;
+        if (o >= 0 && o < variantOptions.length) selections.push({ idx: o, qty: q });
+    } else {
+        // Split by " e ", spaces, commas
+        const parts = normInput.split(/\s+e\s+|\s+/);
+        for (const part of parts) {
+            const commaMatch = part.match(/^(\d+),(\d+)$/);
+            if (commaMatch) {
+                const o = parseInt(commaMatch[1], 10) - 1;
+                const q = parseInt(commaMatch[2], 10);
+                if (o >= 0 && o < variantOptions.length) selections.push({ idx: o, qty: q });
+            } else {
+                const num = parseInt(part, 10);
+                if (!isNaN(num)) {
+                    const o = num - 1;
+                    if (o >= 0 && o < variantOptions.length) selections.push({ idx: o, qty: variantQty });
+                }
+            }
+        }
+    }
+
+    if (!selections.length) {
+        const listText = variantOptions.map((v, i) => {
+            const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
+            return `${emoji} *${buildProductDisplayName(v)}* — ${formatCurrency(v.unitPrice)}`;
+        }).join("\n");
+        await reply(phoneE164, `Número inválido. Escolha:\n\n${listText}\n\n_Digite o número da opção._`);
+        return;
+    }
+
+    const newCart = [...session.cart];
+    const addedLines: string[] = [];
+
+    for (const sel of selections) {
+        const v = variantOptions[sel.idx];
+        const name = buildProductDisplayName(v, false);
+        const existing = newCart.findIndex((c) => c.variantId === v.id && !c.isCase);
+        if (existing >= 0) {
+            newCart[existing] = { ...newCart[existing], qty: newCart[existing].qty + sel.qty };
+        } else {
+            newCart.push({ variantId: v.id, productId: v.productId, name, price: v.unitPrice, qty: sel.qty, isCase: false });
+        }
+        addedLines.push(`✅ ${sel.qty}x *${name}* — ${formatCurrency(v.unitPrice * sel.qty)}`);
+    }
+
+    await saveSession(admin, threadId, companyId, {
+        step: "catalog_products",
+        cart: newCart,
+        context: { ...session.context, variant_options: null, variant_qty: null },
+    });
+
+    await sendInteractiveButtons(
+        phoneE164,
+        `${addedLines.join("\n")}\n\n${formatCart(newCart)}\n\nDeseja mais alguma coisa?`,
+        [
+            { id: "mais_produtos", title: "Mais produtos" },
+            { id: "ver_carrinho",  title: "Ver carrinho" },
+            { id: "finalizar",     title: "Finalizar pedido" },
+        ]
+    );
+}
+
+// ─── AWAITING_SPLIT_ORDER ──────────────────────────────────────────────────────
+
+async function handleAwaitingSplitOrder(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const normInput = normalize(input);
+    const isSplit = normInput === "1" || /\bsepar/i.test(input);
+    const isSingle = normInput === "2" || /\b(mesmo|unico|único|so um)\b/i.test(input);
+
+    if (isSplit) {
+        await saveSession(admin, threadId, companyId, {
+            step: "checkout_address",
+            context: { ...session.context, split_order: true, awaiting_address: true },
+        });
+        await reply(phoneE164, "📍 Dois pedidos separados! Qual é o *primeiro endereço de entrega*?");
+        return;
+    }
+
+    if (isSingle) {
+        const addr1 = (session.context.split_address_1 as string) ?? "";
+        const addr2 = (session.context.split_address_2 as string) ?? "";
+        await saveSession(admin, threadId, companyId, {
+            step: "catalog_products",
+            context: {
+                ...session.context,
+                split_order: false,
+                delivery_address: addr1 && addr2 ? `${addr1} / ${addr2}` : addr1 || addr2,
+            },
+        });
+        await reply(phoneE164, `📍 Certo! Entregaremos em *${addr1}* e *${addr2}*.\n\nContinue adicionando produtos ou finalize o pedido.`);
+        return;
+    }
+
+    await reply(
+        phoneE164,
+        "Serão dois pedidos com pagamentos diferentes ou somente um pedido entregue em dois endereços?\n\n" +
+        "1️⃣ Dois pedidos separados\n2️⃣ Um pedido, dois endereços"
+    );
 }
 
 // ─── HANDOVER ─────────────────────────────────────────────────────────────────
