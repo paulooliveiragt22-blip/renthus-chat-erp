@@ -65,8 +65,8 @@ function extractBodyText(m: any): string | null {
             const subType = String(interactive.type ?? "");
 
             if (subType === "button_reply") {
-                // Botão de resposta rápida de template interativo
-                return (String(interactive.button_reply?.title ?? interactive.button_reply?.id ?? "").trim()) || null;
+                // Preferir id sobre title para que o bot reconheça os IDs (change_items, change_address, etc.)
+                return (String(interactive.button_reply?.id ?? interactive.button_reply?.title ?? "").trim()) || null;
             }
             if (subType === "list_reply") {
                 // Seleção de lista interativa — retorna o id para permitir lookup por variantId/_case
