@@ -59,6 +59,32 @@ function matchesAny(input: string, keywords: string[]): boolean {
     return keywords.some((k) => n.includes(normalize(k)));
 }
 
+/**
+ * Detecta forma de pagamento em texto livre (case insensitive).
+ * Trata variações como "pix", "no pix", "vai ser no cartão", "1" (cartão), "2" (pix), "3" (dinheiro).
+ * Retorna "pix" | "card" | "cash" ou null.
+ */
+function detectPaymentMethod(input: string): "pix" | "card" | "cash" | null {
+    const n = normalize(input).trim();
+    if (!n) return null;
+
+    // Números das opções (1=cartão, 2=pix, 3=dinheiro) – exato ou em frase
+    if (/\b1\b/.test(input.trim())) return "card";
+    if (/\b2\b/.test(input.trim())) return "pix";
+    if (/\b3\b/.test(input.trim())) return "cash";
+
+    // PIX (prioridade: termo exato ou contido)
+    if (/\bpix\b/i.test(input) || n === "pix") return "pix";
+
+    // Cartão
+    if (/\b(cartao|cartão|card|credito|crédito|debito|débito)\b/i.test(input)) return "card";
+
+    // Dinheiro
+    if (/\b(dinheiro|cash)\b/i.test(input)) return "cash";
+
+    return null;
+}
+
 // ─── Processamento de linguagem natural ───────────────────────────────────────
 
 /** Palavras que não carregam informação de produto e devem ser ignoradas na busca. */
@@ -1502,6 +1528,19 @@ export async function processInboundMessage(
         return;
     }
 
+    // ── Prioridade checkout_payment: não chamar OrderParserService ─────────────
+    // Em checkout_payment, validar PIX/Cartão/Dinheiro antes do parser global.
+    // Parser só roda se texto for muito longo (usuário mudou de assunto).
+    const PAYMENT_STEP = "checkout_payment";
+    const PAYMENT_IGNORE_PARSER_LENGTH = 50;
+    if (session.step === PAYMENT_STEP && input.length <= PAYMENT_IGNORE_PARSER_LENGTH) {
+        const detectedPayment = detectPaymentMethod(input);
+        if (detectedPayment) {
+            await handleCheckoutPayment(admin, companyId, threadId, phoneE164, input, session);
+            return;
+        }
+    }
+
     // ── Interceptor global: OrderParserService (produtos + endereço) ───────────
     // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
     if (input.length >= 3) {
@@ -2930,7 +2969,7 @@ async function handleCheckoutPayment(
         "cash":    "cash",
     };
 
-    const method = paymentMap[normalize(input)];
+    let method = paymentMap[normalize(input)] ?? detectPaymentMethod(input);
     if (!method) {
         await sendPaymentButtons(phoneE164);
         return;
