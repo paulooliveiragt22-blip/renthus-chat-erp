@@ -25,7 +25,7 @@
 
 import Fuse from "fuse.js";
 import { Client } from "@googlemaps/google-maps-services-js";
-import { extractPackagingIntent, isBulkPackaging } from "@/lib/chatbot/PackagingExtractor";
+import { extractPackagingIntent, isBulkPackaging } from "./PackagingExtractor";
 
 // ─── Tipos (compatíveis com Session) ─────────────────────────────────────────
 
@@ -322,8 +322,14 @@ export class OrderParserService {
             const searchBase = cleanText || part;
             if (!searchBase || searchBase.trim().length < 2) continue;
 
+            // Remove expressões de cortesia/destino que contaminam a busca
+            // Ex: "heineken pra mim" → "heineken" | "skol por favor" → "skol"
+            const searchStripped = searchBase
+                .replace(/\s+(pra mim|para mim|pra nos|pra nós|pra minha casa|por favor|pfv|pf|obrigado|obg|porfa)\s*$/i, "")
+                .trim();
+
             // Remove medidas de unidade (600ml, 350g) que não são embalagem
-            const searchText = this.stripUnitMeasuresFromSearch(searchBase);
+            const searchText = this.stripUnitMeasuresFromSearch(searchStripped || searchBase);
             const found = this.findProduct(searchText || searchBase, includeLowConfidence);
             if (!found) continue;
 
@@ -491,19 +497,17 @@ export class OrderParserService {
             ? this.removeAddressFromText(raw, addrExtract.rawSlice)
             : raw;
 
-        // 2b) Extrair intenção de embalagem do texto sem endereço
-        //     (ex: "6 cx de heineken" → packagingSigla=CX, cleanText="heineken")
-        const pkgIntent      = extractPackagingIntent(textAfterAddr);
-        const textForProducts = pkgIntent.cleanText || textAfterAddr;
-
-        if (textForProducts.trim()) {
-            console.log("[OrderParserService] Texto para busca de produtos (após remover endereço + embalagem):", textForProducts.trim());
-            if (pkgIntent.packagingSigla) {
-                console.log("[OrderParserService] Embalagem detectada:", pkgIntent.packagingSigla, "| qty:", pkgIntent.qty);
+        // 2b) Log de embalagem para debug — a extração real de qty+embalagem acontece
+        //     dentro de extractItems, por parte (suporta multi-item corretamente).
+        if (textAfterAddr.trim()) {
+            console.log("[OrderParserService] Texto para busca de produtos (após remover endereço):", textAfterAddr.trim());
+            const pkgDebug = extractPackagingIntent(textAfterAddr);
+            if (pkgDebug.packagingSigla) {
+                console.log("[OrderParserService] Embalagem detectada:", pkgDebug.packagingSigla, "| qty:", pkgDebug.qty);
             }
         }
 
-        if (!textForProducts.trim()) {
+        if (!textAfterAddr.trim()) {
             if (parsedAddress) {
                 const ctx: Partial<Session["context"]> = {
                     delivery_address: parsedAddress.formatted,
@@ -521,16 +525,16 @@ export class OrderParserService {
             return { action: "invalid", message: "Não identifiquei produtos nem endereço." };
         }
 
-        // 3) Extrair itens (produto + quantidade)
-        const items = this.extractItems(textForProducts);
+        // 3) Extrair itens (produto + quantidade) — passa o texto completo para preservar qty/embalagem por item
+        const items = this.extractItems(textAfterAddr);
 
         if (!items.length) {
-            const lowConfItems = this.extractItems(textForProducts, true);
+            const lowConfItems = this.extractItems(textAfterAddr, true);
             const best = lowConfItems[0];
             if (best && best.confidence >= 0.05 && best.confidence < CONFIDENCE_LOW) {
                 return {
                     action: "low_confidence",
-                    message: `Não tenho certeza do produto _"${textForProducts}"_.`,
+                    message: `Não tenho certeza do produto _"${textAfterAddr}"_.`,
                     confidence: best.confidence,
                     contextUpdate: parsedAddress ? {
                         delivery_address: parsedAddress.formatted,
@@ -541,7 +545,7 @@ export class OrderParserService {
             }
             return {
                 action: "product_not_found",
-                message: `Não consegui identificar o produto em _"${textForProducts}"_.`,
+                message: `Não consegui identificar o produto em _"${textAfterAddr}"_.`,
                 contextUpdate: parsedAddress ? {
                     delivery_address: parsedAddress.formatted,
                     delivery_address_place_id: parsedAddress.placeId,

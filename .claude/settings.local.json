@@ -99,7 +99,8 @@
       "Bash(file:*)",
       "Bash(tasklist:*)",
       "Bash(taskkill:*)",
-      "mcp__filesystem__read_text_file"
+      "mcp__filesystem__read_text_file",
+      "Bash(npm test:*)"
     ]
   },
   "enabledMcpjsonServers": [

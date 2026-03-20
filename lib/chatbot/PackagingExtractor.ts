@@ -151,24 +151,36 @@ export function extractPackagingIntent(rawText: string): PackagingIntent {
 
     // ── Padrão 1 & 2: alias ANTES do produto ─────────────────────────────────
     //
-    // Captura:  [número? ] [alias] [preposição?] [resto do texto]
+    // Captura:  [número ou palavra? ] [alias] [preposição?] [resto do texto]
     // Ex:  "6 cx de heineken 600ml"
+    //      "seis cx de heineken"       ← número por extenso antes do alias
     //      "caixinha skol"
     //      "2 fardos de brahma lata"
-    //
-    // Regex: ^(\d{1,2}\s+)?(<alias>)\s+(<preposição opcional>)?(.+)$
     //
     // Construímos dinamicamente com as chaves do mapa, da maior para a menor
     // (para "caixinhas" ser testado antes de "caixa").
     const aliasKeys = Object.keys(PACKAGING_ALIASES).sort((a, b) => b.length - a.length);
     const aliasPattern = aliasKeys.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 
+    // Pré-converte número por extenso no início para dígito, assim o reBefore
+    // funciona tanto para "6 cx" quanto para "seis cx".
+    let textForReBefore = normalize(text);
+    let preWordQty: number | null = null;
+    for (const [word, value] of Object.entries(QUANTITY_WORDS)) {
+        const reWord = new RegExp(`^${word}\\b\\s+`, "i");
+        if (reWord.test(textForReBefore)) {
+            preWordQty = value;
+            textForReBefore = textForReBefore.replace(reWord, `${value} `);
+            break;
+        }
+    }
+
     // Padrão 1+2: ALIAS vem antes do produto (com ou sem número)
     const reBefore = new RegExp(
         `^(\\d{1,2}\\s+)?(${aliasPattern})\\b\\s+(.+)$`,
         "i"
     );
-    const mBefore = normalize(text).match(reBefore);
+    const mBefore = textForReBefore.match(reBefore);
 
     if (mBefore) {
         const rawQtyStr = mBefore[1]?.trim() ?? null;
@@ -177,7 +189,10 @@ export function extractPackagingIntent(rawText: string): PackagingIntent {
 
         const sigla = PACKAGING_ALIASES[aliasRaw] ?? null;
         if (sigla) {
-            const qty = rawQtyStr ? parseInt(rawQtyStr, 10) : parseQuantityWord(rest) ?? 1;
+            // Prioridade: dígito no rawQtyStr > palavra por extenso pré-convertida > palavra no resto
+            const qty = rawQtyStr
+                ? (preWordQty ?? parseInt(rawQtyStr, 10))
+                : parseQuantityWord(rest) ?? 1;
             // Se a quantidade veio de palavra no resto, remove essa palavra do cleanText
             const cleanText = rawQtyStr ? rest : stripLeadingQuantityWord(rest);
             return {
