@@ -10,12 +10,14 @@
     "test": "tsc --project tsconfig.test.json && node --test .tests-dist/**/*.test.js"
   },
   "dependencies": {
+    "@googlemaps/google-maps-services-js": "^3.4.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
     "@tanstack/react-query": "^5.64.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
+    "fuse.js": "^7.1.0",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.577.0",
