@@ -580,7 +580,7 @@ export default function PDVPage() {
       const { data: order, error: ordErr } = await supabase.from("orders").insert({
         company_id:     companyId,
         sale_id:        saleId,
-        source:         "pdv",
+        source:         "pdv_direct",
         customer_id:    selectedCustomer?.id ?? null,
         customer_name:  selectedCustomer?.name ?? (sellerName ? `[Balcão] ${sellerName}` : "Balcão"),
         total:          cartTotal,
