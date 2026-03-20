@@ -10,5 +10,14 @@
     "lib": ["es2020", "dom"],
     "allowJs": true
   },
-  "include": ["middleware.ts", "tests/**/*.ts"]
+  "include": [
+    "middleware.ts",
+    "tests/**/*.ts",
+    "lib/chatbot/PackagingExtractor.ts",
+    "lib/chatbot/OrderParserService.ts",
+    "lib/chatbot/displayHelpers.ts",
+    "lib/chatbot/processMessage.ts",
+    "lib/chatbot/TextParserService.ts",
+    "lib/whatsapp/send.ts"
+  ]
 }
