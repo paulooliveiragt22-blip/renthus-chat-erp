@@ -14,7 +14,17 @@ const BORDER = "#eee";
 
 type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
 type OrderRow = { id: string; status: string; total_amount: number; created_at: string; customer_name?: string | null; customers?: { name?: string } | null };
-type Thread = { id: string; phone_e164: string; profile_name: string | null; last_message_at: string | null; last_message_preview: string | null };
+type Thread = {
+    id: string;
+    phone_e164: string;
+    profile_name: string | null;
+    last_message_at: string | null;
+    last_message_preview: string | null;
+    created_at: string;
+    bot_active: boolean | null;
+    handover_at: string | null;
+    unread_count?: number;
+};
 
 function prettyStatus(s: string) {
     if (s === "new") return "Novo";
