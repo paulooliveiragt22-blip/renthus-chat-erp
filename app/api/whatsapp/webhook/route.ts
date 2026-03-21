@@ -277,10 +277,15 @@ export async function POST(req: Request) {
 
         if (!bodyText) continue;
 
-        // Deduplicação: evita processar o mesmo wamid duas vezes se Meta reenviar
-        const { data: queueRow, error: queueErr } = await admin
-            .from("chatbot_queue")
-            .upsert({
+        // Deduplicação com stale-recovery:
+        // - "done"        → já processado com sucesso → skip
+        // - "processing"  < 60s → em processamento → skip (evita race)
+        // - "processing" >= 60s → Vercel matou o job → reprocessa (stale)
+        // - "failed" / null → insere/reprocessa normalmente
+        let queueRowId: string | null = null;
+
+        if (messageId) {
+            const insertPayload = {
                 company_id:   channel.company_id,
                 thread_id:    threadId,
                 phone_e164:   phoneE164,
@@ -289,16 +294,42 @@ export async function POST(req: Request) {
                 profile_name: profileName ?? null,
                 metadata:     { channel_id: channel.id },
                 status:       "processing",
-            }, { onConflict: "message_id", ignoreDuplicates: true })
-            .select("id")
-            .maybeSingle();
+            };
 
-        if (queueErr) {
-            console.error("[webhook] chatbot_queue upsert error:", queueErr.message);
-        } else if (!queueRow) {
-            // Duplicata — já foi processado
-            console.warn("[webhook] duplicata ignorada:", messageId);
-            continue;
+            const { data: inserted, error: insertErr } = await admin
+                .from("chatbot_queue")
+                .insert(insertPayload)
+                .select("id")
+                .maybeSingle();
+
+            if (!insertErr) {
+                queueRowId = inserted?.id ?? null;
+            } else if (insertErr.code === "23505") {
+                // Conflito — verifica o job existente
+                const { data: existing } = await admin
+                    .from("chatbot_queue")
+                    .select("id, status, created_at")
+                    .eq("message_id", messageId)
+                    .maybeSingle();
+
+                if (!existing || existing.status === "done") {
+                    console.warn("[webhook] dedup: job já concluído, ignorando:", messageId);
+                    continue;
+                }
+
+                const ageMs = Date.now() - new Date(existing.created_at).getTime();
+                if (existing.status === "processing" && ageMs < 60_000) {
+                    console.warn("[webhook] dedup: job em andamento (<60s), ignorando:", messageId);
+                    continue;
+                }
+
+                // Job stale ou failed → reprocessa
+                console.warn("[webhook] dedup: job stale/failed, reprocessando:", messageId, existing.status);
+                await admin.from("chatbot_queue").update({ status: "processing" }).eq("id", existing.id);
+                queueRowId = existing.id;
+            } else {
+                console.error("[webhook] chatbot_queue insert error:", insertErr.message);
+            }
         }
 
         // Verifica bot_active
@@ -313,7 +344,7 @@ export async function POST(req: Request) {
             const cutoff     = new Date(Date.now() - 5 * 60 * 1000);
 
             if (!handoverAt || handoverAt > cutoff) {
-                if (queueRow?.id) await admin.from("chatbot_queue").update({ status: "done" }).eq("id", queueRow.id);
+                if (queueRowId) await admin.from("chatbot_queue").update({ status: "done" }).eq("id", queueRowId!);
                 continue;
             }
 
@@ -342,14 +373,14 @@ export async function POST(req: Request) {
                 text:        bodyText,
                 profileName,
             });
-            if (queueRow?.id) await admin.from("chatbot_queue").update({ status: "done" }).eq("id", queueRow.id);
+            if (queueRowId) await admin.from("chatbot_queue").update({ status: "done" }).eq("id", queueRowId!);
         } catch (err: any) {
             console.error("[chatbot] processInboundMessage ERRO:", err?.message ?? err);
-            if (queueRow?.id) {
+            if (queueRowId) {
                 await admin.from("chatbot_queue").update({
                     status:     "failed",
                     last_error: String(err?.message ?? err).slice(0, 500),
-                }).eq("id", queueRow.id);
+                }).eq("id", queueRowId!);
             }
         }
 
