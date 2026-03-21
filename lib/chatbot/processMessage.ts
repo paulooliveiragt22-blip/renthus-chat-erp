@@ -11,7 +11,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Fuse from "fuse.js";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../whatsapp/send";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections, sendFlowMessage } from "../whatsapp/send";
 import { getCachedProducts } from "./TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "./OrderParserService";
 import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "./PackagingExtractor";
@@ -2277,6 +2277,11 @@ export async function processInboundMessage(
             await handleAwaitingSplitOrder(admin, companyId, threadId, phoneE164, input, session);
             break;
 
+        case "awaiting_flow":
+            // Flow aberto — aguardando submissão do formulário nativo
+            // Ignora mensagens de texto até o Flow ser submetido ou expirar
+            break;
+
         case "handover":
             // Bot silenciado — humano está atendendo
             break;
@@ -3200,7 +3205,10 @@ async function goToCheckoutFromCart(
     if (address && payment) {
         await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
         await sendOrderSummary(phoneE164, session);
-    } else if (address) {
+        return;
+    }
+
+    if (address && !payment) {
         const customer = await getOrCreateCustomer(admin, companyId, phoneE164);
         await saveSession(admin, threadId, companyId, {
             step:        "checkout_payment",
@@ -3208,6 +3216,24 @@ async function goToCheckoutFromCart(
             context:     session.context,
         });
         await sendPaymentButtons(phoneE164);
+        return;
+    }
+
+    // Sem endereço: usa WhatsApp Flow se configurado, senão fluxo conversacional
+    if (process.env.WHATSAPP_FLOW_ID) {
+        const customer   = await getOrCreateCustomer(admin, companyId, phoneE164);
+        const flowToken  = `${threadId}|${companyId}`;
+        await saveSession(admin, threadId, companyId, {
+            step:        "awaiting_flow",
+            customer_id: customer?.id ?? session.customer_id,
+            context:     { ...session.context, flow_token: flowToken },
+        });
+        const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
+        await sendFlowMessage(phoneE164, {
+            flowToken,
+            bodyText: `🛒 *${cartSummary}*\n\nPreencha o endereço e forma de pagamento:`,
+            ctaLabel: "Preencher dados",
+        });
     } else {
         await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
     }
