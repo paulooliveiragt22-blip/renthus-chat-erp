@@ -725,8 +725,6 @@ async function searchVariantsByText(
 
     if (!terms.length) return [];
 
-    console.log("[search] termos normalizados para busca:", terms);
-
     // ── Passagem 1: busca ampla em memória ────────────────────────────────────
     const { data, error } = await admin
         .from("product_variants")
@@ -740,8 +738,6 @@ async function searchVariantsByText(
         .limit(400);
 
     if (error) console.error("[search] erro Supabase:", error?.message);
-    console.log("[search] variantes carregadas:", data?.length ?? 0);
-
     if (!data?.length) return [];
 
     type Scored = { row: VariantRow; score: number };
@@ -801,13 +797,10 @@ async function searchVariantsByText(
     scored.sort((a, b) => b.score - a.score);
     const pass1 = scored.slice(0, limit).map((s) => s.row);
 
-    console.log("[search] resultados pass1:", pass1.length, "| scores:", scored.slice(0, 5).map(s => `${s.row.productName}(${s.score})`));
-
     if (pass1.length > 0) return pass1;
 
     // ── Passagem 2: fallback via .ilike() no Supabase ─────────────────────────
     // Útil se o catálogo tiver mais de 400 variantes ou a variante estava inativa
-    console.log("[search] pass1 vazia → tentando ilike fallback para termos:", terms);
 
     const ilikeFilters = terms.map((t) => `products.name.ilike.%${t}%`).join(",");
     const { data: fallbackData } = await admin
@@ -822,12 +815,7 @@ async function searchVariantsByText(
         .or(ilikeFilters)
         .limit(limit);
 
-    if (!fallbackData?.length) {
-        console.log("[search] ilike fallback também não retornou resultados");
-        return [];
-    }
-
-    console.log("[search] ilike fallback encontrou:", (fallbackData ?? []).length, "variantes");
+    if (!fallbackData?.length) return [];
 
     return ((fallbackData ?? []) as any[])
         .filter((v) => {
@@ -1002,8 +990,6 @@ async function handleFreeTextInput(
     // ── 0b. Detecção de endereço (+ produto combinado) na mesma mensagem ─────
     const addrMatch = extractAddressFromText(rawInput);
     if (addrMatch) {
-        console.log("[freetext] endereço detectado:", addrMatch.full, "| bairro:", addrMatch.neighborhood);
-
         // Valida endereço via OrderParserService (Google Geocoding + restrição Sorriso-MT)
         const parser = getOrderParserService();
         const parsedAddr = await parser.validateAddress(addrMatch.full);
@@ -1211,30 +1197,18 @@ async function handleFreeTextInput(
     const pkgIntent = extractPackagingIntent(rawInput);
     const { qty, packagingSigla, cleanText, isExplicit: pkgExplicit } = pkgIntent;
 
-    console.log(`[freetext] input: "${rawInput}" | pkg=${packagingSigla ?? "none"} qty=${qty} cleanText="${cleanText}"`);
-
     // Remove stopwords do cleanText para busca no banco
     const terms = extractTerms(cleanText);
 
-    if (!terms.length) {
-        console.log("[freetext] → skip (sem termos de produto após extração)");
-        return "skip";
-    }
-
-    console.log(`[freetext] termos de busca: [${terms.join(", ")}] | quantidade: ${qty} | embalagem: ${packagingSigla ?? "não especificada"}`);
+    if (!terms.length) return "skip";
 
     const found = await searchVariantsByText(admin, companyId, terms);
 
     // Filtra pelo tipo de embalagem pedido (ex: "cx" → só produtos com CX)
     const { filtered: foundFiltered, wasFiltered } = filterVariantsByPackaging(found, packagingSigla);
 
-    console.log(`[freetext] total encontrados: ${found.length} | após filtro embalagem: ${foundFiltered.length}`);
-
     // ── Nenhum resultado ──────────────────────────────────────────────────────
-    if (!found.length) {
-        console.log("[freetext] → notfound (nenhuma variante correspondeu)");
-        return "notfound";
-    }
+    if (!found.length) return "notfound";
 
     // Se pediu embalagem bulk (CX/FARD/PAC) mas nenhum produto tem ela → avisa
     if (pkgExplicit && isBulkPackaging(packagingSigla) && !wasFiltered) {
@@ -1598,15 +1572,6 @@ async function createOrder(
 ): Promise<string> {
     const total = cartTotal(cart) + deliveryFee;
 
-    console.log("[createOrder] dados:", JSON.stringify({
-        company_id:     companyId,
-        customer_id:    customerId,
-        cart,
-        address:        deliveryAddress,
-        payment_method: paymentMethod,
-        change_for:     changeFor ?? null,
-    }, null, 2));
-
     const orderPayload = {
         company_id:       companyId,
         customer_id:      customerId,
@@ -1622,14 +1587,11 @@ async function createOrder(
         // details: reservado para observações do dashboard — não poluir com dados do pedido
     };
 
-    console.log("[createOrder] inserindo order...");
     const { data: order, error: orderErr } = await admin
         .from("orders")
         .insert(orderPayload)
         .select()
         .single();
-
-    console.log("[createOrder] order result:", order, orderErr);
 
     if (orderErr || !order?.id) {
         console.error("[createOrder] FALHA ao inserir order:", {
@@ -1654,8 +1616,6 @@ async function createOrder(
         // line_total é coluna gerada no banco; não deve ser enviada
     }));
 
-    console.log("[createOrder] inserindo", items.length, "itens...");
-
     const { error: itemsErr } = await admin.from("order_items").insert(items);
 
     if (itemsErr) {
@@ -1671,7 +1631,6 @@ async function createOrder(
 
     // Débito de estoque fica a cargo do trigger em `order_items` (produto_embalagem_id → fator_conversao).
 
-    console.log("[createOrder] concluído | orderId:", order.id);
     return order.id as string;
 }
 
@@ -1773,15 +1732,8 @@ export async function processInboundMessage(
 ): Promise<void> {
     const { admin, companyId, threadId, messageId, phoneE164, text, profileName } = params;
 
-    console.log("[chatbot] processInboundMessage START | thread:", threadId, "company:", companyId, "text:", text);
-
     const input = text.trim();
-    if (!input) {
-        console.log("[chatbot] input vazio, ignorando");
-        return;
-    }
-
-    console.log("[chatbot] A — buscando chatbot ativo...");
+    if (!input) return;
 
     // Verifica se existe bot ativo para esta empresa e carrega config
     const { data: botRows, error: botErr } = await admin
@@ -1791,8 +1743,6 @@ export async function processInboundMessage(
         .eq("is_active", true)
         .limit(1);
 
-    console.log("[chatbot] B — chatbots ativos:", botRows?.length ?? 0, botErr ? `| erro: ${botErr.message}` : "");
-
     if (!botRows?.length) {
         console.warn("[chatbot] Nenhum chatbot ativo para company:", companyId, "— verifique tabela chatbots");
         return;
@@ -1800,7 +1750,6 @@ export async function processInboundMessage(
 
     const botConfig = (botRows[0]?.config as Record<string, unknown>) ?? {};
 
-    console.log("[chatbot] C — carregando company + session...");
     const [company, session] = await Promise.all([
         getCompanyInfo(admin, companyId),
         getOrCreateSession(admin, threadId, companyId),
@@ -1808,8 +1757,6 @@ export async function processInboundMessage(
 
     const companyName = company?.name ?? "nossa loja";
     const settings    = company?.settings ?? {};
-
-    console.log("[chatbot] D — session step:", session.step, "| cartItems:", session.cart.length, "| input:", input);
 
     // ── 1. Global reset (menu/oi/ola/reiniciar — WITHOUT cancelar) ───────────
     if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
@@ -1931,7 +1878,6 @@ export async function processInboundMessage(
     // ── 8. Checkout keywords ──────────────────────────────────────────────────
     const CHECKOUT_KEYWORDS = ["fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha","bater caixa","vou pagar","quero finalizar","vou finalizar","pode fechar","fecha ai","bater o caixa","quero fechar","encerrar","terminar","quero confirmar"];
     if (matchesAny(input, CHECKOUT_KEYWORDS) && session.cart.length > 0) {
-        console.log("[chatbot] atalho de checkout detectado | cart:", session.cart.length);
         await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
         return;
     }
@@ -1991,7 +1937,6 @@ export async function processInboundMessage(
         "handover",
     ]);
     if (input.length >= 3 && !SKIP_PARSER_STEPS.has(session.step)) {
-        console.log("[chatbot] E — entrando no parseWithFactory | step:", session.step, "| aiInput será:", cleanInputForAI(input));
         const products = await getCachedProducts(admin, companyId);
         const aiInput = cleanInputForAI(input); // Layer 2: remove ruídos antes de enviar à IA
         const parsed = await parseWithFactory({
@@ -2009,8 +1954,6 @@ export async function processInboundMessage(
                 timeoutMs:  4000, // 4s max → sobra ~6s para DB, Maps e envio da resposta
             },
         });
-
-        console.log("[chatbot] F — parseWithFactory concluído | action:", parsed.action, "| intent:", (parsed as any)._intent);
 
         // ── Intent não-order detectada pelo Claude ──────────────────────────
         const detectedIntent = (parsed as any)._intent as MessageIntent | undefined;
@@ -2895,8 +2838,6 @@ async function handleCatalogProducts(
             .map((s) => parseInt(s.trim(), 10) - 1)
             .filter((i) => !isNaN(i) && i >= 0 && i < variants.length);
 
-        console.log("[catalog_products] seleção numérica:", input, "→ índices:", indices);
-
         if (!indices.length) {
             const listText = formatNumberedList(variants.slice(0, 5));
             await reply(phoneE164, `Número inválido. Escolha entre 1 e ${Math.min(variants.length, 5)}:\n\n${listText}`);
@@ -3679,10 +3620,6 @@ async function handleCheckoutConfirm(
     const paymentMethod = (session.context.payment_method   as string) ?? "cash";
     const changeFor     = (session.context.change_for       as number | null) ?? null;
 
-    console.log("[checkout_confirm] input:", input, "| customer_id:", session.customer_id,
-        "| cart:", session.cart.length, "| address:", address,
-        "| paymentMethod:", paymentMethod, "| changeFor:", changeFor);
-
     // "Mudar endereço" (ID change_address ou texto) → volta ao fluxo de endereço
     if (
         input === "change_address" ||
@@ -3892,8 +3829,6 @@ async function handleCheckoutConfirm(
         const feeForOrder = (session.context.delivery_fee as number | null) ?? 0;
         const orderId     = await createOrder(admin, companyId, customerId, session.cart, paymentMethod, address, changeFor, feeForOrder);
         const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
-
-        console.log("[checkout_confirm] Pedido criado com sucesso | orderId:", orderId);
 
         // Limpeza de sessão assim que o insert retornar sucesso: cart zerado, step em home
         const cartSnapshot = [...session.cart];
