@@ -1711,6 +1711,61 @@ async function reply(phoneE164: string, text: string): Promise<void> {
     }
 }
 
+// ─── Layer 1: Regex quick-resolve ────────────────────────────────────────────
+
+/** Saudações puras — sem nenhum conteúdo de produto junto */
+const GREETING_ONLY_RE = /^(bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|como\s+vai|como\s+voce|boa\s+noite|feliz\s+ano|feliz\s+natal|obrigad[oa]|obg|valeu|vlw|tchau|ate\s+mais)\s*[!?.,]?\s*$/i;
+
+/** Consulta de status/localização do pedido */
+const ORDER_STATUS_RE = /\b(cad[eê](\s+meu)?|onde\s+est[aá]|onde\s+ficou|status\s+d[oe]\s+pedido|meu\s+pedido|acompanhar\s+pedido|quanto\s+tempo\s+(falta|vai|leva)|previs[aã]o\s+de\s+entrega)\b/i;
+
+/**
+ * Layer 2: Remove ruídos antes de enviar ao Claude.
+ * Elimina saudações no início e cortesias no fim para economizar tokens
+ * e melhorar a precisão da extração de produto/quantidade.
+ */
+function cleanInputForAI(input: string): string {
+    const s = input
+        .replace(/^(bom\s+dia|boa\s+tarde|boa\s+noite|oi+|ol[aá]|e\s*a[ií]|ei+|hey|hello|opa)[,!\s]+/i, "")
+        .replace(/[\s,]*(por\s+favor|pfv+|pf|obrigad[oa]|obg|valeu|vlw)\s*[!.,]?\s*$/i, "")
+        .trim();
+    return s || input;
+}
+
+/** Consulta o último pedido e responde com status — reutilizado em Layer 1 e no fallback do Claude */
+async function replyWithOrderStatus(
+    admin: SupabaseClient,
+    companyId: string,
+    phoneE164: string
+): Promise<void> {
+    const { data: recentOrder } = await admin
+        .from("orders")
+        .select("id, status, total_amount, created_at")
+        .eq("company_id", companyId)
+        .eq("customer_phone", phoneE164)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (recentOrder) {
+        const statusMap: Record<string, string> = {
+            new:       "📦 Em preparo",
+            delivered: "🚴 A caminho",
+            finalized: "✅ Entregue",
+            canceled:  "❌ Cancelado",
+        };
+        const statusText = statusMap[recentOrder.status] ?? recentOrder.status;
+        const total = Number(recentOrder.total_amount ?? 0)
+            .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        await reply(
+            phoneE164,
+            `Seu último pedido:\n\n🧾 Status: *${statusText}*\n💰 Total: *${total}*\n\nPrecisa de mais alguma coisa?`
+        );
+    } else {
+        await reply(phoneE164, "Não encontrei pedidos recentes para o seu número. Posso te ajudar a fazer um novo pedido! 🛒");
+    }
+}
+
 // ─── Ponto de entrada ─────────────────────────────────────────────────────────
 
 export async function processInboundMessage(
@@ -1907,6 +1962,18 @@ export async function processInboundMessage(
         return;
     }
 
+    // ── 10.5. Layer 1 — Regex quick-resolve (zero tokens de IA) ─────────────
+    // Saudações puras → responde menu sem acionar Claude
+    if (GREETING_ONLY_RE.test(input)) {
+        await reply(phoneE164, `Olá! 😊 ${buildMainMenu(companyName)}`);
+        return;
+    }
+    // Consulta de status → busca direta no banco, sem Claude
+    if (ORDER_STATUS_RE.test(input)) {
+        await replyWithOrderStatus(admin, companyId, phoneE164);
+        return;
+    }
+
     // ── 11. Interceptor global: ParserFactory (Claude→Regex→Assisted) ─────────
     // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
     // Steps com inputs triviais (pix, sim, número de casa) não precisam de Claude
@@ -1922,12 +1989,13 @@ export async function processInboundMessage(
     ]);
     if (input.length >= 3 && !SKIP_PARSER_STEPS.has(session.step)) {
         const products = await getCachedProducts(admin, companyId);
+        const aiInput = cleanInputForAI(input); // Layer 2: remove ruídos antes de enviar à IA
         const parsed = await parseWithFactory({
             admin,
             companyId,
             threadId,
             messageId,
-            input,
+            input: aiInput,
             products,
             step: session.step,
             claudeConfig: {
@@ -1970,35 +2038,7 @@ export async function processInboundMessage(
         }
 
         if (detectedIntent === "order_status") {
-            // Consulta o pedido mais recente desta thread
-            const { data: recentOrder } = await admin
-                .from("orders")
-                .select("id, status, total_amount, created_at")
-                .eq("company_id", companyId)
-                .eq("customer_phone", phoneE164)
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-            if (recentOrder) {
-                const statusMap: Record<string, string> = {
-                    new:       "📦 Em preparo",
-                    delivered: "🚴 A caminho",
-                    finalized: "✅ Entregue",
-                    canceled:  "❌ Cancelado",
-                };
-                const statusText = statusMap[recentOrder.status] ?? recentOrder.status;
-                const total = Number(recentOrder.total_amount ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-                await reply(
-                    phoneE164,
-                    `Seu último pedido:\n\n` +
-                    `🧾 Status: *${statusText}*\n` +
-                    `💰 Total: *${total}*\n\n` +
-                    `Precisa de mais alguma coisa?`
-                );
-            } else {
-                await reply(phoneE164, "Não encontrei pedidos recentes para o seu número. Posso te ajudar a fazer um novo pedido! 🛒");
-            }
+            await replyWithOrderStatus(admin, companyId, phoneE164);
             return;
         }
 
@@ -2319,30 +2359,12 @@ async function handleLowConfidenceFallback(
         return true;
     }
 
-    const categories = await getCategories(admin, companyId);
-    if (categories.length > 0) {
-        await saveSession(admin, threadId, companyId, {
-            step: "catalog_categories",
-            context: { ...session.context, categories, consecutive_unknown_count: 0 },
-        });
-        await sendListMessage(
-            phoneE164,
-            "🍺 Escolha uma categoria para ver os produtos:",
-            "Ver categorias",
-            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
-            "Categorias"
-        );
-    } else {
-        await reply(phoneE164, `Não encontrei categorias no momento. Deseja *falar com um atendente*?`);
-        await sendInteractiveButtons(phoneE164, "Opções:", [
-            { id: "1", title: "Ver cardápio" },
-            { id: "3", title: "Falar com atendente" },
-        ]);
-    }
+    // Layer 4: IA não entendeu em 2 turnos → handover automático
+    await doHandover(admin, companyId, threadId, phoneE164, companyName, session);
     return true;
 }
 
-/** Incrementa consecutive_unknown_count; se >= 2, envia menu interativo e retorna true */
+/** Incrementa consecutive_unknown_count; se >= 2, aciona handover automático e retorna true */
 async function handleUnknownInputAndMaybeSendMenu(
     admin: SupabaseClient,
     threadId: string,
@@ -2356,7 +2378,8 @@ async function handleUnknownInputAndMaybeSendMenu(
         context: { ...session.context, consecutive_unknown_count: count },
     });
     if (count >= 2) {
-        await sendInteractiveMenuFallback(phoneE164, companyName);
+        // Layer 4: fallback após 2 turnos sem entender → handover automático
+        await doHandover(admin, companyId, threadId, phoneE164, companyName, session);
         return true;
     }
     return false;
