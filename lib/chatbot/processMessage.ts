@@ -1781,6 +1781,8 @@ export async function processInboundMessage(
         return;
     }
 
+    console.log("[chatbot] A — buscando chatbot ativo...");
+
     // Verifica se existe bot ativo para esta empresa e carrega config
     const { data: botRows, error: botErr } = await admin
         .from("chatbots")
@@ -1789,7 +1791,7 @@ export async function processInboundMessage(
         .eq("is_active", true)
         .limit(1);
 
-    console.log("[chatbot] chatbots ativos:", botRows?.length ?? 0, botErr ? `| erro: ${botErr.message}` : "");
+    console.log("[chatbot] B — chatbots ativos:", botRows?.length ?? 0, botErr ? `| erro: ${botErr.message}` : "");
 
     if (!botRows?.length) {
         console.warn("[chatbot] Nenhum chatbot ativo para company:", companyId, "— verifique tabela chatbots");
@@ -1798,6 +1800,7 @@ export async function processInboundMessage(
 
     const botConfig = (botRows[0]?.config as Record<string, unknown>) ?? {};
 
+    console.log("[chatbot] C — carregando company + session...");
     const [company, session] = await Promise.all([
         getCompanyInfo(admin, companyId),
         getOrCreateSession(admin, threadId, companyId),
@@ -1806,7 +1809,7 @@ export async function processInboundMessage(
     const companyName = company?.name ?? "nossa loja";
     const settings    = company?.settings ?? {};
 
-    console.log("[chatbot] session step:", session.step, "| cartItems:", session.cart.length, "| input:", input);
+    console.log("[chatbot] D — session step:", session.step, "| cartItems:", session.cart.length, "| input:", input);
 
     // ── 1. Global reset (menu/oi/ola/reiniciar — WITHOUT cancelar) ───────────
     if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
@@ -1988,6 +1991,7 @@ export async function processInboundMessage(
         "handover",
     ]);
     if (input.length >= 3 && !SKIP_PARSER_STEPS.has(session.step)) {
+        console.log("[chatbot] E — entrando no parseWithFactory | step:", session.step, "| aiInput será:", cleanInputForAI(input));
         const products = await getCachedProducts(admin, companyId);
         const aiInput = cleanInputForAI(input); // Layer 2: remove ruídos antes de enviar à IA
         const parsed = await parseWithFactory({
@@ -2005,6 +2009,8 @@ export async function processInboundMessage(
                 timeoutMs:  4000, // 4s max → sobra ~6s para DB, Maps e envio da resposta
             },
         });
+
+        console.log("[chatbot] F — parseWithFactory concluído | action:", parsed.action, "| intent:", (parsed as any)._intent);
 
         // ── Intent não-order detectada pelo Claude ──────────────────────────
         const detectedIntent = (parsed as any)._intent as MessageIntent | undefined;
