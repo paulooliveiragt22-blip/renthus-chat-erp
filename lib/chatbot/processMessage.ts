@@ -15,6 +15,7 @@ import { getCachedProducts } from "./TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "./OrderParserService";
 import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "./PackagingExtractor";
 import { parseWithFactory } from "./parsers/ParserFactory";
+import type { MessageIntent } from "./parsers/ClaudeParser";
 import { buildProductDisplayName as _buildProductDisplayName } from "./displayHelpers";
 export type { DisplayableVariant } from "./displayHelpers";
 
@@ -1917,6 +1918,7 @@ export async function processInboundMessage(
             messageId,
             input,
             products,
+            step: session.step,
             claudeConfig: {
                 model:      String(botConfig.model   ?? "claude-haiku-4-5-20251001"),
                 threshold:  Number(botConfig.threshold ?? 0.75),
@@ -1924,6 +1926,76 @@ export async function processInboundMessage(
                 timeoutMs:  Number(botConfig.timeout_ms  ?? 8000),
             },
         });
+
+        // ── Intent não-order detectada pelo Claude ──────────────────────────
+        const detectedIntent = (parsed as any)._intent as MessageIntent | undefined;
+
+        if (detectedIntent === "product_question") {
+            // Tenta responder a dúvida do produto consultando o catálogo
+            const question = (parsed as any).message as string | undefined ?? input;
+            const terms    = question.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3);
+            const match    = products.find((p) =>
+                terms.some((t: string) =>
+                    p.productName.toLowerCase().includes(t) ||
+                    (p.details ?? "").toLowerCase().includes(t) ||
+                    (p.tags    ?? "").toLowerCase().includes(t)
+                )
+            );
+            if (match) {
+                const priceStr = match.unitPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                await reply(
+                    phoneE164,
+                    `Temos *${match.productName}${match.details ? " " + match.details : ""}* por ${priceStr}.\n\n` +
+                    `Quer adicionar ao pedido? Basta dizer a quantidade! 🛒`
+                );
+            } else {
+                await reply(
+                    phoneE164,
+                    `Não encontrei *${question}* no catálogo agora. 😔\n\n` +
+                    `Posso te mostrar o cardápio completo? Digite *cardápio* ou escolha uma categoria.`
+                );
+            }
+            return;
+        }
+
+        if (detectedIntent === "order_status") {
+            // Consulta o pedido mais recente desta thread
+            const { data: recentOrder } = await admin
+                .from("orders")
+                .select("id, status, total_amount, created_at")
+                .eq("company_id", companyId)
+                .eq("customer_phone", phoneE164)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (recentOrder) {
+                const statusMap: Record<string, string> = {
+                    new:       "📦 Em preparo",
+                    delivered: "🚴 A caminho",
+                    finalized: "✅ Entregue",
+                    canceled:  "❌ Cancelado",
+                };
+                const statusText = statusMap[recentOrder.status] ?? recentOrder.status;
+                const total = Number(recentOrder.total_amount ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                await reply(
+                    phoneE164,
+                    `Seu último pedido:\n\n` +
+                    `🧾 Status: *${statusText}*\n` +
+                    `💰 Total: *${total}*\n\n` +
+                    `Precisa de mais alguma coisa?`
+                );
+            } else {
+                await reply(phoneE164, "Não encontrei pedidos recentes para o seu número. Posso te ajudar a fazer um novo pedido! 🛒");
+            }
+            return;
+        }
+
+        if (detectedIntent === "chitchat") {
+            // Saudação / agradecimento / conversa aleatória — responde e mostra o menu
+            await reply(phoneE164, `Olá! 😊 Estou aqui para ajudar com seus pedidos.\n\n${buildMainMenu(companyName)}`);
+            return;
+        }
 
         if (parsed.action === "add_to_cart" && parsed.items.length > 0) {
             const toAdd = parsedItemsToCartItems(parsed.items);
