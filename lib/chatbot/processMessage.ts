@@ -3239,8 +3239,9 @@ async function goToCheckoutFromCart(
         const customer    = await getOrCreateCustomer(admin, companyId, phoneE164);
         const customerId  = customer?.id ?? session.customer_id ?? null;
 
-        // Verifica endereços salvos
-        if (customerId) {
+        // Verifica endereços salvos (skip se usuário pediu novo endereço)
+        const skipSaved = !!(session.context.skip_saved_addresses);
+        if (customerId && !skipSaved) {
             const { data: savedAddrs } = await admin
                 .from("enderecos_cliente")
                 .select("id, apelido, logradouro, numero, complemento, bairro")
@@ -3278,7 +3279,7 @@ async function goToCheckoutFromCart(
         await saveSession(admin, threadId, companyId, {
             step:        "awaiting_flow",
             customer_id: customerId,
-            context:     { ...session.context, flow_token: flowToken },
+            context:     { ...session.context, flow_token: flowToken, skip_saved_addresses: undefined },
         });
         const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
         await sendFlowMessage(phoneE164, {
@@ -3302,27 +3303,14 @@ async function handleAwaitingAddressSelection(
     input: string,
     session: Session
 ): Promise<void> {
-    const wppConfig = await getWhatsAppConfig(admin, companyId);
-
-    // "Novo endereço" → abre o Flow (ou fluxo conversacional)
+    // "Novo endereço" → reutiliza goToCheckoutFromCart com flag skip_saved_addresses
     if (input === "new_address") {
-        const newSession = { ...session, step: "main_menu" as const };
-        if (wppConfig.flowId) {
-            const flowToken = `${threadId}|${companyId}`;
-            await saveSession(admin, threadId, companyId, {
-                step:    "awaiting_flow",
-                context: { ...session.context, saved_addresses: undefined, flow_token: flowToken },
-            });
-            const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
-            await sendFlowMessage(phoneE164, {
-                flowToken,
-                bodyText: `🛒 *${cartSummary}*\n\nPreencha o endereço e forma de pagamento:`,
-                ctaLabel: "Preencher dados",
-                flowId:   wppConfig.flowId,
-            });
-        } else {
-            await goToCheckoutAddress(admin, companyId, threadId, phoneE164, newSession);
-        }
+        const freshSession = {
+            ...session,
+            context: { ...session.context, saved_addresses: undefined, skip_saved_addresses: true },
+        };
+        await saveSession(admin, threadId, companyId, { context: freshSession.context });
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, freshSession);
         return;
     }
 
