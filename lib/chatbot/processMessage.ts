@@ -682,7 +682,7 @@ async function getVariantsByCategory(
             volumeValue: volQty,
             unit: String(p?.product_unit_type ?? "un"),
             unitTypeSigla: utSigla,
-            unitPrice: Number(unitPack?.preco_venda ?? 0),
+            unitPrice: Number(unitPack?.preco_venda ?? casePack?.preco_venda ?? 0),
             hasCase: Boolean(casePack),
             caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
             casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
@@ -1966,6 +1966,7 @@ export async function processInboundMessage(
         "checkout_confirm",
         "awaiting_address_number",
         "awaiting_address_neighborhood",
+        "awaiting_address_selection",
         "awaiting_split_order",
         "awaiting_variant_selection",
         "done",
@@ -2278,6 +2279,10 @@ export async function processInboundMessage(
             await handleAwaitingSplitOrder(admin, companyId, threadId, phoneE164, input, session);
             break;
 
+        case "awaiting_address_selection":
+            await handleAwaitingAddressSelection(admin, companyId, threadId, phoneE164, input, session);
+            break;
+
         case "awaiting_flow":
             // Flow aberto — aguardando submissão do formulário nativo
             // Ignora mensagens de texto até o Flow ser submetido ou expirar
@@ -2453,7 +2458,15 @@ async function handleMainMenu(
         }
 
         await saveSession(admin, threadId, companyId, { step: "main_menu" });
-        await reply(phoneE164, buildWelcomeGreeting(companyName, customer?.name));
+        const hasName = !!(customer?.name && customer.name.trim().length > 0);
+        const greetText = hasName
+            ? `Olá, *${customer!.name.trim()}*! O que manda pra hoje? 🍺`
+            : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nO que manda pra hoje?`;
+        await sendInteractiveButtons(phoneE164, greetText, [
+            { id: "1", title: "🍺 Ver cardápio" },
+            { id: "2", title: "📦 Meu pedido" },
+            { id: "3", title: "🙋 Falar c/ atendente" },
+        ]);
         return;
     }
 
@@ -3223,11 +3236,48 @@ async function goToCheckoutFromCart(
     // Sem endereço: usa WhatsApp Flow se configurado, senão fluxo conversacional
     const wppConfig = await getWhatsAppConfig(admin, companyId);
     if (wppConfig.flowId) {
-        const customer   = await getOrCreateCustomer(admin, companyId, phoneE164);
-        const flowToken  = `${threadId}|${companyId}`;
+        const customer    = await getOrCreateCustomer(admin, companyId, phoneE164);
+        const customerId  = customer?.id ?? session.customer_id ?? null;
+
+        // Verifica endereços salvos
+        if (customerId) {
+            const { data: savedAddrs } = await admin
+                .from("enderecos_cliente")
+                .select("id, apelido, logradouro, numero, complemento, bairro")
+                .eq("customer_id", customerId)
+                .eq("company_id", companyId)
+                .order("is_principal", { ascending: false })
+                .limit(5);
+
+            if (savedAddrs && savedAddrs.length > 0) {
+                const rows = [
+                    ...savedAddrs.map((a) => ({
+                        id:          `addr_${a.id}`,
+                        title:       (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24),
+                        description: ([a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ")).slice(0, 72),
+                    })),
+                    { id: "new_address", title: "➕ Novo endereço" },
+                ];
+                await saveSession(admin, threadId, companyId, {
+                    step:        "awaiting_address_selection",
+                    customer_id: customerId,
+                    context:     { ...session.context, saved_addresses: savedAddrs },
+                });
+                await sendListMessage(
+                    phoneE164,
+                    "📍 Escolha o endereço de entrega:",
+                    "Ver endereços",
+                    rows,
+                    "Endereços salvos"
+                );
+                return;
+            }
+        }
+
+        const flowToken = `${threadId}|${companyId}`;
         await saveSession(admin, threadId, companyId, {
             step:        "awaiting_flow",
-            customer_id: customer?.id ?? session.customer_id,
+            customer_id: customerId,
             context:     { ...session.context, flow_token: flowToken },
         });
         const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
@@ -3239,6 +3289,99 @@ async function goToCheckoutFromCart(
         });
     } else {
         await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
+    }
+}
+
+// ─── AWAITING_ADDRESS_SELECTION ───────────────────────────────────────────────
+
+async function handleAwaitingAddressSelection(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const wppConfig = await getWhatsAppConfig(admin, companyId);
+
+    // "Novo endereço" → abre o Flow (ou fluxo conversacional)
+    if (input === "new_address") {
+        const newSession = { ...session, step: "main_menu" as const };
+        if (wppConfig.flowId) {
+            const flowToken = `${threadId}|${companyId}`;
+            await saveSession(admin, threadId, companyId, {
+                step:    "awaiting_flow",
+                context: { ...session.context, saved_addresses: undefined, flow_token: flowToken },
+            });
+            const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
+            await sendFlowMessage(phoneE164, {
+                flowToken,
+                bodyText: `🛒 *${cartSummary}*\n\nPreencha o endereço e forma de pagamento:`,
+                ctaLabel: "Preencher dados",
+                flowId:   wppConfig.flowId,
+            });
+        } else {
+            await goToCheckoutAddress(admin, companyId, threadId, phoneE164, newSession);
+        }
+        return;
+    }
+
+    // Endereço salvo selecionado: input = "addr_<uuid>"
+    if (input.startsWith("addr_")) {
+        const addrId = input.slice(5);
+        const { data: addrRow } = await admin
+            .from("enderecos_cliente")
+            .select("logradouro, numero, complemento, bairro")
+            .eq("id", addrId)
+            .maybeSingle();
+
+        if (!addrRow) {
+            await reply(phoneE164, "Endereço não encontrado. Por favor, escolha outra opção.");
+            return;
+        }
+
+        const fullAddress = [addrRow.logradouro, addrRow.numero, addrRow.complemento, addrRow.bairro]
+            .filter(Boolean).join(", ");
+        const neighborhood = addrRow.bairro ?? "";
+
+        const zone = await findDeliveryZone(admin, companyId, neighborhood);
+        const deliveryFee = zone ? Number(zone.fee) : 0;
+
+        await saveSession(admin, threadId, companyId, {
+            step:    "checkout_payment",
+            context: {
+                ...session.context,
+                saved_addresses:  undefined,
+                delivery_address: fullAddress,
+                delivery_fee:     deliveryFee,
+                delivery_zone_id: zone?.id ?? null,
+            },
+        });
+        await sendPaymentButtons(phoneE164);
+        return;
+    }
+
+    // Input desconhecido → reexibe a lista
+    const savedAddrs = (session.context.saved_addresses as Array<{
+        id: string; apelido: string | null; logradouro: string | null;
+        numero: string | null; complemento: string | null; bairro: string | null;
+    }>) ?? [];
+    if (savedAddrs.length > 0) {
+        const rows = [
+            ...savedAddrs.map((a) => ({
+                id:          `addr_${a.id}`,
+                title:       (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24),
+                description: ([a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ")).slice(0, 72),
+            })),
+            { id: "new_address", title: "➕ Novo endereço" },
+        ];
+        await sendListMessage(
+            phoneE164,
+            "📍 Escolha o endereço de entrega:",
+            "Ver endereços",
+            rows,
+            "Endereços salvos"
+        );
     }
 }
 
@@ -3309,6 +3452,20 @@ async function handleAwaitingAddressNumber(
 
     if (parsedAddr) {
         const neighborhood = parsedAddr.neighborhood ?? null;
+
+        // Google não confirmou o número → rejeita
+        if (!parsedAddr.houseNumber) {
+            await reply(
+                phoneE164,
+                `❌ Não consegui confirmar o número *${number}* para este endereço.\n\n` +
+                `Por favor, informe o endereço completo novamente.\n_Ex: Rua das Flores, 123, Centro_`
+            );
+            await saveSession(admin, threadId, companyId, {
+                step:    "checkout_address",
+                context: { ...session.context, address_draft: undefined, awaiting_address: true },
+            });
+            return;
+        }
 
         // Sem bairro → pede bairro antes de ir ao pagamento
         if (!neighborhood) {
@@ -3404,6 +3561,16 @@ async function handleCheckoutAddress(
     const parsedAddr = await parser.validateAddress(input);
     const finalAddr  = parsedAddr?.formatted ?? input;
     const neighborhood = parsedAddr?.neighborhood ?? null;
+
+    // 2b) Google não confirmou o número → rejeita
+    if (parsedAddr && !parsedAddr.houseNumber) {
+        await reply(
+            phoneE164,
+            `❌ Não consegui confirmar o número do endereço.\n\n` +
+            `Por favor, informe novamente com *rua, número e bairro*.\n_Ex: Rua das Flores, 123, Centro_`
+        );
+        return;
+    }
 
     // 3) Google não retornou bairro → pede
     if (!neighborhood) {
@@ -3702,20 +3869,25 @@ async function handleCheckoutConfirm(
     const paymentMethod = (session.context.payment_method   as string) ?? "cash";
     const changeFor     = (session.context.change_for       as number | null) ?? null;
 
-    // "Mudar endereço" (ID change_address ou texto) → volta ao fluxo de endereço
+    // "Mudar endereço" (ID change_address ou texto) → reabre o Flow (ou fluxo conversacional)
     if (
         input === "change_address" ||
         matchesAny(input, ["alterar_endereco", "alterar endereco", "alterar endereço", "mudar endereço", "trocar endereço"])
     ) {
-        await saveSession(admin, threadId, companyId, {
-            step:    "checkout_address",
-            context: { ...session.context, delivery_address: undefined, saved_address: null, awaiting_address: true },
-        });
-        await reply(
-            phoneE164,
-            `📍 Qual é o seu *novo endereço de entrega*?\n\n` +
-            `_Ex: Rua das Flores, 123, Bairro Centro_`
-        );
+        const clearedContext = {
+            ...session.context,
+            delivery_address:   undefined,
+            delivery_fee:       undefined,
+            delivery_zone_id:   undefined,
+            payment_method:     undefined,
+            change_for:         undefined,
+            flow_address_done:  undefined,
+            flow_apelido:       undefined,
+            flow_bairro_label:  undefined,
+        };
+        const clearedSession = { ...session, context: clearedContext };
+        await saveSession(admin, threadId, companyId, { context: clearedContext });
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, clearedSession);
         return;
     }
 

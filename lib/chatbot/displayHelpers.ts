@@ -60,13 +60,8 @@ export function buildProductDisplayName(v: DisplayableVariant, isCase = false): 
 
     if (!isCase || !v.caseQty) return baseName;
 
-    // Sufixo de embalagem bulk
-    const sigla = v.bulkSigla ?? "CX";
-    switch (sigla) {
-        case "FARD": return `${baseName} (fardo ${v.caseQty}un)`;
-        case "PAC":  return `${baseName} (pct ${v.caseQty}un)`;
-        default:     return `${baseName} (cx ${v.caseQty}un)`;
-    }
+    // Sufixo de embalagem bulk: "N unidades"
+    return `${baseName} — ${v.caseQty} unidades`;
 }
 
 /**

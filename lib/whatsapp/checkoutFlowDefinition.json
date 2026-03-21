@@ -69,6 +69,14 @@
                 "helper-text": "Ex: Apto 2, Casa B"
               },
               {
+                "type": "TextInput",
+                "name": "apelido",
+                "label": "Apelido do endereço",
+                "required": false,
+                "input-type": "text",
+                "helper-text": "Ex: Casa, Trabalho"
+              },
+              {
                 "type": "Dropdown",
                 "name": "bairro",
                 "label": "Bairro",
@@ -84,7 +92,8 @@
                     "rua":         "${form.rua}",
                     "numero":      "${form.numero}",
                     "complemento": "${form.complemento}",
-                    "bairro":      "${form.bairro}"
+                    "bairro":      "${form.bairro}",
+                    "apelido":     "${form.apelido}"
                   }
                 }
               }
