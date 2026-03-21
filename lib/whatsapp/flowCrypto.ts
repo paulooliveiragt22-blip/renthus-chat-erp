@@ -29,10 +29,13 @@ export function decryptFlowRequest(
     initialVector:     string,
     privateKeyPem:     string
 ): FlowDecryptResult {
+    // Normaliza quebras de linha (Vercel pode armazenar \r\n ou \\n literais)
+    const normalizedKey = privateKeyPem.replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+
     // Etapa 1: decripta a AES key usando RSA-OAEP SHA-256
     const aesKey = privateDecrypt(
         {
-            key:      privateKeyPem,
+            key:      normalizedKey,
             padding:  constants.RSA_PKCS1_OAEP_PADDING,
             oaepHash: "sha256",
         },
