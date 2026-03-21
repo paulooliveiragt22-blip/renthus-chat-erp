@@ -211,7 +211,7 @@ export default function FinanceiroPage() {
             .from("orders")
             .select("id, created_at, total_amount, delivery_fee, payment_method, status, source")
             .eq("company_id", companyId)
-            .neq("status", "canceled")
+            .in("status", ["finalized", "delivered"])
             .is("sale_id", null)          // só os que NÃO têm sale (legado)
             .gte("created_at", fromIso)
             .lte("created_at", toIso)
@@ -287,7 +287,7 @@ export default function FinanceiroPage() {
             .select("saldo_devedor, status")
             .eq("company_id", companyId)
             .eq("type", "receivable")
-            .in("status", ["open", "partial", "overdue"]);
+            .in("status", ["pending", "partial", "overdue"]);
         const totalAReceber = (billsOpen ?? []).reduce((s: number, b: any) => s + Number(b.saldo_devedor ?? 0), 0);
 
         // ── aggregate by day ──────────────────────────────────────────────────
