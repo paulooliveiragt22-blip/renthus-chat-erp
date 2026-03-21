@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     let iv: Buffer;
     try {
         const result = decryptFlowRequest(encrypted_flow_data, encrypted_aes_key, initial_vector, privateKey);
-        flowBody = result.body as FlowRequestBody;
+        flowBody = result.body as unknown as FlowRequestBody;
         aesKey   = result.aesKey;
         iv       = result.iv;
     } catch (err: any) {
