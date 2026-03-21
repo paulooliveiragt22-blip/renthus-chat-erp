@@ -189,19 +189,10 @@ export async function parseWithClaude(
     const catalogText = buildCatalogText(products, cfg.step);
     const prompt      = buildPrompt(input, catalogText);
 
-    console.log("[DEBUG] Vai chamar Claude API agora...");
-    console.log("[DEBUG] API Key presente:", !!process.env.ANTHROPIC_API_KEY);
-    console.log("[DEBUG] Mensagem (input limpo):", input);
-    console.log("[DEBUG] Model:", cfg.model, "| maxRetries:", cfg.maxRetries, "| timeoutMs:", cfg.timeoutMs);
-
     let lastErr: unknown;
     for (let attempt = 0; attempt < cfg.maxRetries; attempt++) {
-        console.log("[DEBUG] Claude tentativa", attempt + 1, "de", cfg.maxRetries);
         const controller = new AbortController();
-        const timer = setTimeout(() => {
-            console.error("[DEBUG] Claude TIMEOUT após", cfg.timeoutMs, "ms — abortando");
-            controller.abort();
-        }, cfg.timeoutMs);
+        const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
 
         let raw: ClaudeRawResult;
         let tokensInput  = 0;
@@ -221,7 +212,6 @@ export async function parseWithClaude(
 
             tokensInput  = response.usage?.input_tokens  ?? 0;
             tokensOutput = response.usage?.output_tokens ?? 0;
-            console.log("[DEBUG] Claude respondeu! Tokens:", { input: tokensInput, output: tokensOutput });
 
             const text    = response.content[0]?.type === "text" ? response.content[0].text : "";
             const jsonStr = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
