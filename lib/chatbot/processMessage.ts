@@ -1909,7 +1909,18 @@ export async function processInboundMessage(
 
     // ── 11. Interceptor global: ParserFactory (Claude→Regex→Assisted) ─────────
     // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
-    if (input.length >= 3) {
+    // Steps com inputs triviais (pix, sim, número de casa) não precisam de Claude
+    const SKIP_PARSER_STEPS = new Set([
+        "checkout_payment",
+        "checkout_confirm",
+        "awaiting_address_number",
+        "awaiting_address_neighborhood",
+        "awaiting_split_order",
+        "awaiting_variant_selection",
+        "done",
+        "handover",
+    ]);
+    if (input.length >= 3 && !SKIP_PARSER_STEPS.has(session.step)) {
         const products = await getCachedProducts(admin, companyId);
         const parsed = await parseWithFactory({
             admin,
@@ -1920,10 +1931,10 @@ export async function processInboundMessage(
             products,
             step: session.step,
             claudeConfig: {
-                model:      String(botConfig.model   ?? "claude-haiku-4-5-20251001"),
+                model:      String(botConfig.model    ?? "claude-haiku-4-5-20251001"),
                 threshold:  Number(botConfig.threshold ?? 0.75),
-                maxRetries: Number(botConfig.max_retries ?? 2),
-                timeoutMs:  Number(botConfig.timeout_ms  ?? 8000),
+                maxRetries: 1,    // nunca retry em serverless — Vercel tem limite de 10s
+                timeoutMs:  4000, // 4s max → sobra ~6s para DB, Maps e envio da resposta
             },
         });
 
