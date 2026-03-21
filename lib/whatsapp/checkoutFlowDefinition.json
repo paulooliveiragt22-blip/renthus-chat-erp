@@ -1,5 +1,10 @@
 {
   "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "ADDRESS": ["PAYMENT"],
+    "PAYMENT": ["SUCCESS"]
+  },
   "screens": [
     {
       "id": "ADDRESS",
@@ -187,6 +192,14 @@
           {
             "type": "TextBody",
             "text": "Seu pedido ${data.order_code} foi recebido. Já estamos preparando! 🍺\n\nFique de olho nas próximas mensagens para confirmar."
+          },
+          {
+            "type": "Footer",
+            "label": "Fechar",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {}
+            }
           }
         ]
       }
