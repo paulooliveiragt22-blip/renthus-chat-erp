@@ -438,6 +438,7 @@ export class OrderParserService {
                     // Localidade: Sorriso (MT)
                     components: "country:BR|administrative_area:MT|locality:Sorriso",
                 },
+                timeout: 3000, // 3s max — evita travar o fluxo inteiro
             });
 
             const result = res.data.results?.[0];
