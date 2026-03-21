@@ -275,10 +275,10 @@ export async function POST(req: Request) {
             continue;
         }
 
-        if (!bodyText) continue; // mídia sem texto — não enfileira para chatbot
+        if (!bodyText) continue;
 
-        // Enfileira para processamento assíncrono (deduplicação por message_id)
-        const { error: queueErr } = await admin
+        // Deduplicação: evita processar o mesmo wamid duas vezes se Meta reenviar
+        const { data: queueRow, error: queueErr } = await admin
             .from("chatbot_queue")
             .upsert({
                 company_id:   channel.company_id,
@@ -288,42 +288,83 @@ export async function POST(req: Request) {
                 body_text:    bodyText,
                 profile_name: profileName ?? null,
                 metadata:     { channel_id: channel.id },
-            }, { onConflict: "message_id", ignoreDuplicates: true });
+                status:       "processing",
+            }, { onConflict: "message_id", ignoreDuplicates: true })
+            .select("id")
+            .maybeSingle();
 
         if (queueErr) {
-            console.error("[webhook] falha ao enfileirar:", queueErr.message);
-        } else {
-            enqueuedCount++;
+            console.error("[webhook] chatbot_queue upsert error:", queueErr.message);
+        } else if (!queueRow) {
+            // Duplicata — já foi processado
+            console.warn("[webhook] duplicata ignorada:", messageId);
+            continue;
         }
+
+        // Verifica bot_active
+        const { data: threadRow } = await admin
+            .from("whatsapp_threads")
+            .select("bot_active, handover_at")
+            .eq("id", threadId)
+            .maybeSingle();
+
+        if (threadRow?.bot_active === false) {
+            const handoverAt = threadRow.handover_at ? new Date(threadRow.handover_at) : null;
+            const cutoff     = new Date(Date.now() - 5 * 60 * 1000);
+
+            if (!handoverAt || handoverAt > cutoff) {
+                if (queueRow?.id) await admin.from("chatbot_queue").update({ status: "done" }).eq("id", queueRow.id);
+                continue;
+            }
+
+            // Handover expirado → reativa
+            const { sendWhatsAppMessage } = await import("@/lib/whatsapp/send");
+            await Promise.all([
+                admin.from("whatsapp_threads").update({ bot_active: true, handover_at: null }).eq("id", threadId),
+                admin.from("chatbot_sessions").delete().eq("thread_id", threadId),
+            ]);
+            await sendWhatsAppMessage(phoneE164,
+                "😔 No momento não há atendentes disponíveis.\n" +
+                "Nosso assistente automático está de volta!\n\n" +
+                "Digite qualquer mensagem para continuar."
+            );
+        }
+
+        // Processa inline (Google Maps agora tem timeout 3s, Claude timeout 6s)
+        try {
+            const { processInboundMessage } = await import("@/lib/chatbot/processMessage");
+            await processInboundMessage({
+                admin,
+                companyId:   channel.company_id,
+                threadId,
+                messageId:   messageId ?? "",
+                phoneE164,
+                text:        bodyText,
+                profileName,
+            });
+            if (queueRow?.id) await admin.from("chatbot_queue").update({ status: "done" }).eq("id", queueRow.id);
+        } catch (err: any) {
+            console.error("[chatbot] processInboundMessage ERRO:", err?.message ?? err);
+            if (queueRow?.id) {
+                await admin.from("chatbot_queue").update({
+                    status:     "failed",
+                    last_error: String(err?.message ?? err).slice(0, 500),
+                }).eq("id", queueRow.id);
+            }
+        }
+
+        enqueuedCount++;
     }
 
-    // ── 2. Status updates (fire-and-forget, sem bloquear) ────────────────────
+    // ── 2. Status updates ─────────────────────────────────────────────────────
     const statuses: any[] = Array.isArray(value?.statuses) ? value.statuses : [];
-    if (statuses.length > 0) {
-        Promise.all(
-            statuses
-                .filter((s) => s?.id && s?.status)
-                .map((s) =>
-                    admin
-                        .from("whatsapp_messages")
-                        .update({ status: String(s.status), raw_payload: safeJson(payload) })
-                        .eq("provider", "meta")
-                        .eq("provider_message_id", String(s.id))
-                )
-        ).catch((err) => console.error("[webhook] status update error:", err));
-    }
-
-    // ── 3. Retorna 200 imediatamente ao Meta ─────────────────────────────────
-    // Triggering process-queue fire-and-forget (sem await — não bloqueia resposta)
-    if (enqueuedCount > 0) {
-        const base = process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}`
-            : (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000");
-        fetch(`${base}/api/chatbot/process-queue`, {
-            headers: process.env.CRON_SECRET
-                ? { Authorization: `Bearer ${process.env.CRON_SECRET}` }
-                : {},
-        }).catch(() => {}); // ignore — job persiste na fila se falhar
+    for (const s of statuses) {
+        if (!s?.id || !s?.status) continue;
+        await admin
+            .from("whatsapp_messages")
+            .update({ status: String(s.status), raw_payload: safeJson(payload) })
+            .eq("provider", "meta")
+            .eq("provider_message_id", String(s.id));
     }
 
     return NextResponse.json({ ok: true });
