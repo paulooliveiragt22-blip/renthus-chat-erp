@@ -105,7 +105,11 @@
       "Bash(echo \"INSERT INTO subscriptions \\(company_id, plan_id, status, started_at\\) VALUES \\(''''e5865f09-7dce-4fce-afad-d9ab20031790'''', ''''6e8e1640-dfde-41eb-b9d1-a67e822ffdf2'''', ''''active'''', now\\(\\)\\) ON CONFLICT DO NOTHING RETURNING id, status;\")",
       "mcp__filesystem__list_directory",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git:*)",
+      "Bash(openssl genrsa:*)",
+      "Bash(openssl rsa:*)",
+      "WebFetch(domain:developers.facebook.com)"
     ]
   },
   "enabledMcpjsonServers": [
