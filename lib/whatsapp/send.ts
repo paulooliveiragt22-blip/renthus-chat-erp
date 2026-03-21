@@ -101,11 +101,13 @@ export async function sendFlowMessage(
         bodyText:   string;
         ctaLabel:   string;
         mode?:      "published" | "draft";
+        /** Flow ID da empresa (sobrepõe WHATSAPP_FLOW_ID env var) */
+        flowId?:    string;
     }
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
     const token         = process.env.WHATSAPP_TOKEN;
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const flowId        = process.env.WHATSAPP_FLOW_ID;
+    const flowId        = params.flowId ?? process.env.WHATSAPP_FLOW_ID;
 
     if (!token || !phoneNumberId) {
         console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
