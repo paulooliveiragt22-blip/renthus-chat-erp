@@ -215,150 +215,115 @@ export async function POST(req: Request) {
 
     // ── 1. Mensagens inbound ──────────────────────────────────────────────────
     const messages: any[] = Array.isArray(value?.messages) ? value.messages : [];
-    console.log("[webhook] mensagens no payload:", messages.length);
+    const profileName: string | null = value?.contacts?.[0]?.profile?.name ?? null;
+    let enqueuedCount = 0;
 
     for (const m of messages) {
-        const messageId  = m?.id ? String(m.id) : null;
-        const fromWaId   = m?.from ? String(m.from) : null;
-        const phoneE164  = fromWaId ? normalizeE164(fromWaId) : null;
+        const messageId = m?.id ? String(m.id) : null;
+        const fromWaId  = m?.from ? String(m.from) : null;
+        const phoneE164 = fromWaId ? normalizeE164(fromWaId) : null;
 
-        console.log("[webhook] processando mensagem:", { messageId, fromWaId, phoneE164, type: m?.type });
+        if (!phoneE164) continue;
 
-        if (!phoneE164) {
-            console.warn("[webhook] from inválido, ignorando mensagem:", m);
-            continue;
-        }
-
-        const profileName: string | null = value?.contacts?.[0]?.profile?.name ?? null;
         const bodyText = extractBodyText(m);
-        console.log("[webhook] bodyText extraído:", bodyText, "| tipo:", m?.type);
-
-        // Detecta mídia (imagem, áudio, vídeo, documento)
         const msgType: string = String(m?.type ?? "text");
+
+        // Detecta mídia
         let numMedia = 0;
         let mediaSummary: any = null;
-
         if (msgType === "image" && m.image) {
-            numMedia = 1;
-            mediaSummary = {
-                type: "image",
-                id: m.image.id,
-                mime_type: m.image.mime_type,
-                caption: m.image.caption ?? null,
-            };
+            numMedia = 1; mediaSummary = { type: "image", id: m.image.id, mime_type: m.image.mime_type, caption: m.image.caption ?? null };
         } else if (msgType === "video" && m.video) {
-            numMedia = 1;
-            mediaSummary = {
-                type: "video",
-                id: m.video.id,
-                mime_type: m.video.mime_type,
-                caption: m.video.caption ?? null,
-            };
+            numMedia = 1; mediaSummary = { type: "video", id: m.video.id, mime_type: m.video.mime_type, caption: m.video.caption ?? null };
         } else if (msgType === "audio" && m.audio) {
-            numMedia = 1;
-            mediaSummary = {
-                type: "audio",
-                id: m.audio.id,
-                mime_type: m.audio.mime_type,
-            };
+            numMedia = 1; mediaSummary = { type: "audio", id: m.audio.id, mime_type: m.audio.mime_type };
         } else if (msgType === "document" && m.document) {
-            numMedia = 1;
-            mediaSummary = {
-                type: "document",
-                id: m.document.id,
-                mime_type: m.document.mime_type,
-                filename: m.document.filename ?? null,
-            };
+            numMedia = 1; mediaSummary = { type: "document", id: m.document.id, mime_type: m.document.mime_type, filename: m.document.filename ?? null };
         }
 
         let threadId: string;
         try {
-            threadId = await getOrCreateThread({
-                admin,
-                companyId:   channel.company_id,
-                channelId:   channel.id,
-                phoneE164,
-                profileName,
-            });
-            console.log("[webhook] threadId:", threadId);
+            threadId = await getOrCreateThread({ admin, companyId: channel.company_id, channelId: channel.id, phoneE164, profileName });
         } catch (err) {
             console.error("[webhook] getOrCreateThread error:", err);
             continue;
         }
 
-        // Insere mensagem; índice único (provider, provider_message_id) evita duplicação
-        const { error: insErr } = await admin.from("whatsapp_messages").insert({
-            thread_id:           threadId,
-            direction:           "inbound",
-            channel:             "whatsapp",
-            provider:            "meta",
-            provider_message_id: messageId,
-            from_addr:           phoneE164,
-            to_addr:             String(channel.from_identifier ?? phoneNumberId ?? ""),
-            body:                bodyText,
-            num_media:           numMedia,
-            status:              "received",
-            raw_payload:         safeJson({
-                ...payload,
-                _media: mediaSummary,
+        // Insere mensagem (índice único evita duplicação) + preview da thread em paralelo
+        const [{ error: insErr }] = await Promise.all([
+            admin.from("whatsapp_messages").insert({
+                thread_id:           threadId,
+                direction:           "inbound",
+                channel:             "whatsapp",
+                provider:            "meta",
+                provider_message_id: messageId,
+                from_addr:           phoneE164,
+                to_addr:             String(channel.from_identifier ?? phoneNumberId ?? ""),
+                body:                bodyText,
+                num_media:           numMedia,
+                status:              "received",
+                raw_payload:         safeJson({ ...payload, _media: mediaSummary }),
             }),
-        });
+            admin.from("whatsapp_threads").update({
+                last_message_at:      new Date().toISOString(),
+                last_message_preview: ((bodyText ?? "").slice(0, 120)) || null,
+            }).eq("id", threadId),
+        ]);
 
-        if (insErr) {
-            if (insErr.code === "23505") {
-                // Mensagem duplicada — chatbot já processou, pode chamar de novo para retomar sessão
-                console.warn("[webhook] mensagem duplicada (23505), continuando para chatbot:", messageId);
-            } else {
-                console.error("[webhook] insert whatsapp_messages error:", insErr.code, insErr.message);
-                continue; // erro real → pula essa mensagem
-            }
-        }
-
-        // Atualiza preview da thread
-        await admin.from("whatsapp_threads").update({
-            last_message_at:      new Date().toISOString(),
-            last_message_preview: ((bodyText ?? "").slice(0, 120)) || null,
-        }).eq("id", threadId);
-
-        // Enfileira para processamento assíncrono (evita timeout Vercel no webhook)
-        if (!bodyText) {
-            console.log("[webhook] bodyText vazio ou tipo não suportado, não enfileirado. tipo:", m?.type);
+        if (insErr && insErr.code !== "23505") {
+            console.error("[webhook] insert whatsapp_messages error:", insErr.code, insErr.message);
             continue;
         }
 
-        const { error: queueErr } = await admin.from("chatbot_queue").upsert({
-            company_id:   channel.company_id,
-            thread_id:    threadId,
-            phone_e164:   phoneE164,
-            message_id:   messageId,
-            body_text:    bodyText,
-            profile_name: profileName ?? null,
-            metadata:     { channel_id: channel.id },
-        }, { onConflict: "message_id", ignoreDuplicates: true });
+        if (!bodyText) continue; // mídia sem texto — não enfileira para chatbot
+
+        // Enfileira para processamento assíncrono (deduplicação por message_id)
+        const { error: queueErr } = await admin
+            .from("chatbot_queue")
+            .upsert({
+                company_id:   channel.company_id,
+                thread_id:    threadId,
+                phone_e164:   phoneE164,
+                message_id:   messageId,
+                body_text:    bodyText,
+                profile_name: profileName ?? null,
+                metadata:     { channel_id: channel.id },
+            }, { onConflict: "message_id", ignoreDuplicates: true });
 
         if (queueErr) {
-            console.error("[webhook] falha ao enfileirar mensagem:", queueErr.message);
+            console.error("[webhook] falha ao enfileirar:", queueErr.message);
         } else {
-            console.log("[webhook] mensagem enfileirada na chatbot_queue:", messageId);
+            enqueuedCount++;
         }
     }
 
-    // ── 2. Status updates (sent/delivered/read/failed) ────────────────────────
+    // ── 2. Status updates (fire-and-forget, sem bloquear) ────────────────────
     const statuses: any[] = Array.isArray(value?.statuses) ? value.statuses : [];
+    if (statuses.length > 0) {
+        Promise.all(
+            statuses
+                .filter((s) => s?.id && s?.status)
+                .map((s) =>
+                    admin
+                        .from("whatsapp_messages")
+                        .update({ status: String(s.status), raw_payload: safeJson(payload) })
+                        .eq("provider", "meta")
+                        .eq("provider_message_id", String(s.id))
+                )
+        ).catch((err) => console.error("[webhook] status update error:", err));
+    }
 
-    for (const s of statuses) {
-        const id     = s?.id     ? String(s.id)     : null;
-        const status = s?.status ? String(s.status) : null;
-        if (!id || !status) continue;
-
-        await admin
-            .from("whatsapp_messages")
-            .update({
-                status,
-                raw_payload: safeJson(payload),
-            })
-            .eq("provider", "meta")
-            .eq("provider_message_id", id);
+    // ── 3. Retorna 200 imediatamente ao Meta ─────────────────────────────────
+    // Triggering process-queue fire-and-forget (sem await — não bloqueia resposta)
+    if (enqueuedCount > 0) {
+        const base = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000");
+        fetch(`${base}/api/chatbot/process-queue`, {
+            headers: process.env.CRON_SECRET
+                ? { Authorization: `Bearer ${process.env.CRON_SECRET}` }
+                : {},
+        }).catch(() => {}); // ignore — job persiste na fila se falhar
     }
 
     return NextResponse.json({ ok: true });
