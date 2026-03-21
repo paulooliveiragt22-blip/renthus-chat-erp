@@ -68,7 +68,7 @@ export async function getCachedProducts(
 
     const { data: rows, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, preco_venda, tags, product_name, product_details, volume_quantidade, product_unit_type, unit_type_sigla")
+        .select("id, produto_id, descricao, preco_venda, tags, tags_auto, product_name, product_details, volume_quantidade, product_unit_type, unit_type_sigla")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -93,7 +93,7 @@ export async function getCachedProducts(
             productId: String(r.produto_id),
             productName: name || String(r.product_name ?? ""),
             unitPrice: Number(r.preco_venda ?? 0),
-            tags: r.tags ?? null,
+            tags: (r.tags_auto ?? r.tags) || null,
             details,
         };
     });
