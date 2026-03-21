@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptFlowRequest, encryptFlowResponse } from "@/lib/whatsapp/flowCrypto";
 import { sendWhatsAppMessage, sendInteractiveButtons } from "@/lib/whatsapp/send";
+import { getWhatsAppConfig } from "@/lib/whatsapp/getConfig";
 
 export const runtime = "nodejs";
 
@@ -55,12 +56,6 @@ function parseFlowToken(token: string): { threadId: string; companyId: string } 
 // ─── Handler principal ────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-    const privateKey = process.env.WHATSAPP_FLOWS_PRIVATE_KEY;
-    if (!privateKey) {
-        console.error("[flows] WHATSAPP_FLOWS_PRIVATE_KEY não definida");
-        return NextResponse.json({ error: "misconfigured" }, { status: 500 });
-    }
-
     // Lê body raw (Meta envia application/json com campos de criptografia)
     let rawBody: { encrypted_flow_data: string; encrypted_aes_key: string; initial_vector: string };
     try {
@@ -74,17 +69,34 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "missing_fields" }, { status: 400 });
     }
 
-    // Decripta
+    const admin = createAdminClient();
+
+    // Decripta — precisamos do flow_token para saber o companyId,
+    // então tentamos resolver a chave privada em duas etapas:
+    // 1ª tentativa: chave global (env var)
+    // 2ª tentativa: após extrair companyId, chave da empresa
     let flowBody: FlowRequestBody;
     let aesKey: Buffer;
     let iv: Buffer;
+
+    // Tentativa com chave global primeiro
+    const globalKey = process.env.WHATSAPP_FLOWS_PRIVATE_KEY;
+    if (!globalKey) {
+        console.error("[flows] WHATSAPP_FLOWS_PRIVATE_KEY não definida");
+        return NextResponse.json({ error: "misconfigured" }, { status: 500 });
+    }
+
     try {
-        const result = decryptFlowRequest(encrypted_flow_data, encrypted_aes_key, initial_vector, privateKey);
+        const result = decryptFlowRequest(encrypted_flow_data, encrypted_aes_key, initial_vector, globalKey);
         flowBody = result.body as unknown as FlowRequestBody;
         aesKey   = result.aesKey;
         iv       = result.iv;
-    } catch (err: any) {
-        console.error("[flows] Falha na decriptação:", err?.message);
+    } catch {
+        // Pode ser que a empresa tenha chave própria — tenta com a chave da empresa
+        // Para isso precisamos extrair o companyId do flow_token sem decriptar (não é possível)
+        // Portanto: a chave global DEVE corresponder à chave registrada no Meta para este número.
+        // Chaves por empresa são suportadas quando a empresa usa número próprio via company_integrations.
+        console.error("[flows] Falha na decriptação com chave global");
         return NextResponse.json({ error: "decryption_failed" }, { status: 421 });
     }
 
@@ -95,8 +107,6 @@ export async function POST(req: NextRequest) {
         const response = encryptFlowResponse({ version: "3.0", data: { status: "active" } }, aesKey, iv);
         return new NextResponse(response, { headers: { "Content-Type": "text/plain" } });
     }
-
-    const admin = createAdminClient();
 
     // ── INIT — retorna dados iniciais da tela ADDRESS ─────────────────────────
     if (action === "INIT") {

@@ -12,6 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Fuse from "fuse.js";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections, sendFlowMessage } from "../whatsapp/send";
+import { getWhatsAppConfig } from "../whatsapp/getConfig";
 import { getCachedProducts } from "./TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "./OrderParserService";
 import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "./PackagingExtractor";
@@ -3220,7 +3221,8 @@ async function goToCheckoutFromCart(
     }
 
     // Sem endereço: usa WhatsApp Flow se configurado, senão fluxo conversacional
-    if (process.env.WHATSAPP_FLOW_ID) {
+    const wppConfig = await getWhatsAppConfig(admin, companyId);
+    if (wppConfig.flowId) {
         const customer   = await getOrCreateCustomer(admin, companyId, phoneE164);
         const flowToken  = `${threadId}|${companyId}`;
         await saveSession(admin, threadId, companyId, {
@@ -3233,6 +3235,7 @@ async function goToCheckoutFromCart(
             flowToken,
             bodyText: `🛒 *${cartSummary}*\n\nPreencha o endereço e forma de pagamento:`,
             ctaLabel: "Preencher dados",
+            flowId:   wppConfig.flowId,
         });
     } else {
         await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
