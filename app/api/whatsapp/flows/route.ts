@@ -169,6 +169,7 @@ export async function POST(req: NextRequest) {
             const numero      = String(formData?.numero      ?? "").trim();
             const complemento = String(formData?.complemento ?? "").trim();
             const bairroId    = String(formData?.bairro      ?? "");
+            const apelido     = String(formData?.apelido     ?? "").trim() || "Entrega";
 
             if (!rua || !numero || !bairroId) {
                 return encryptedError("missing_address_fields", aesKey, iv);
@@ -206,6 +207,11 @@ export async function POST(req: NextRequest) {
                         delivery_fee:      deliveryFee,
                         delivery_zone_id:  zoneRow?.id ?? null,
                         flow_address_done: true,
+                        flow_apelido:      apelido,
+                        flow_rua:          rua,
+                        flow_numero:       numero,
+                        flow_complemento:  complemento,
+                        flow_bairro_label: bairroLabel,
                     },
                 })
                 .eq("thread_id", threadId);
@@ -273,6 +279,45 @@ export async function POST(req: NextRequest) {
                     },
                 })
                 .eq("thread_id", threadId);
+
+            // Salva endereço em enderecos_cliente (com apelido do formulário)
+            const customerId = sessionRow.customer_id ?? null;
+            if (customerId) {
+                const flowApelido     = (context.flow_apelido     as string) ?? "Entrega";
+                const flowRua         = (context.flow_rua         as string) ?? address;
+                const flowNumero      = (context.flow_numero      as string) ?? null;
+                const flowComplemento = (context.flow_complemento as string) ?? null;
+                const flowBairro      = (context.flow_bairro_label as string) ?? null;
+
+                const { data: existingAddr } = await admin
+                    .from("enderecos_cliente")
+                    .select("id")
+                    .eq("customer_id", customerId)
+                    .eq("company_id", companyId)
+                    .eq("apelido", flowApelido)
+                    .maybeSingle();
+
+                if (existingAddr?.id) {
+                    await admin.from("enderecos_cliente").update({
+                        logradouro:   flowRua,
+                        numero:       flowNumero,
+                        complemento:  flowComplemento,
+                        bairro:       flowBairro,
+                        is_principal: true,
+                    }).eq("id", existingAddr.id);
+                } else {
+                    await admin.from("enderecos_cliente").insert({
+                        company_id:   companyId,
+                        customer_id:  customerId,
+                        apelido:      flowApelido,
+                        logradouro:   flowRua,
+                        numero:       flowNumero,
+                        complemento:  flowComplemento,
+                        bairro:       flowBairro,
+                        is_principal: true,
+                    });
+                }
+            }
 
             // Busca telefone da thread para enviar a confirmação
             const { data: threadRow } = await admin
