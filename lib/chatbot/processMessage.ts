@@ -10,12 +10,15 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../whatsapp/send";
+import Fuse from "fuse.js";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections, sendFlowMessage } from "../whatsapp/send";
+import { getWhatsAppConfig } from "../whatsapp/getConfig";
 import { getCachedProducts } from "./TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "./OrderParserService";
 import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "./PackagingExtractor";
 import { parseWithFactory } from "./parsers/ParserFactory";
 import type { MessageIntent } from "./parsers/ClaudeParser";
+import { parseWithRegex } from "./parsers/RegexParser";
 import { buildProductDisplayName as _buildProductDisplayName } from "./displayHelpers";
 export type { DisplayableVariant } from "./displayHelpers";
 
@@ -679,7 +682,7 @@ async function getVariantsByCategory(
             volumeValue: volQty,
             unit: String(p?.product_unit_type ?? "un"),
             unitTypeSigla: utSigla,
-            unitPrice: Number(unitPack?.preco_venda ?? 0),
+            unitPrice: Number(unitPack?.preco_venda ?? casePack?.preco_venda ?? 0),
             hasCase: Boolean(casePack),
             caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
             casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
@@ -725,8 +728,6 @@ async function searchVariantsByText(
 
     if (!terms.length) return [];
 
-    console.log("[search] termos normalizados para busca:", terms);
-
     // ── Passagem 1: busca ampla em memória ────────────────────────────────────
     const { data, error } = await admin
         .from("product_variants")
@@ -740,8 +741,6 @@ async function searchVariantsByText(
         .limit(400);
 
     if (error) console.error("[search] erro Supabase:", error?.message);
-    console.log("[search] variantes carregadas:", data?.length ?? 0);
-
     if (!data?.length) return [];
 
     type Scored = { row: VariantRow; score: number };
@@ -801,13 +800,10 @@ async function searchVariantsByText(
     scored.sort((a, b) => b.score - a.score);
     const pass1 = scored.slice(0, limit).map((s) => s.row);
 
-    console.log("[search] resultados pass1:", pass1.length, "| scores:", scored.slice(0, 5).map(s => `${s.row.productName}(${s.score})`));
-
     if (pass1.length > 0) return pass1;
 
     // ── Passagem 2: fallback via .ilike() no Supabase ─────────────────────────
     // Útil se o catálogo tiver mais de 400 variantes ou a variante estava inativa
-    console.log("[search] pass1 vazia → tentando ilike fallback para termos:", terms);
 
     const ilikeFilters = terms.map((t) => `products.name.ilike.%${t}%`).join(",");
     const { data: fallbackData } = await admin
@@ -822,12 +818,7 @@ async function searchVariantsByText(
         .or(ilikeFilters)
         .limit(limit);
 
-    if (!fallbackData?.length) {
-        console.log("[search] ilike fallback também não retornou resultados");
-        return [];
-    }
-
-    console.log("[search] ilike fallback encontrou:", (fallbackData ?? []).length, "variantes");
+    if (!fallbackData?.length) return [];
 
     return ((fallbackData ?? []) as any[])
         .filter((v) => {
@@ -1002,8 +993,6 @@ async function handleFreeTextInput(
     // ── 0b. Detecção de endereço (+ produto combinado) na mesma mensagem ─────
     const addrMatch = extractAddressFromText(rawInput);
     if (addrMatch) {
-        console.log("[freetext] endereço detectado:", addrMatch.full, "| bairro:", addrMatch.neighborhood);
-
         // Valida endereço via OrderParserService (Google Geocoding + restrição Sorriso-MT)
         const parser = getOrderParserService();
         const parsedAddr = await parser.validateAddress(addrMatch.full);
@@ -1211,30 +1200,18 @@ async function handleFreeTextInput(
     const pkgIntent = extractPackagingIntent(rawInput);
     const { qty, packagingSigla, cleanText, isExplicit: pkgExplicit } = pkgIntent;
 
-    console.log(`[freetext] input: "${rawInput}" | pkg=${packagingSigla ?? "none"} qty=${qty} cleanText="${cleanText}"`);
-
     // Remove stopwords do cleanText para busca no banco
     const terms = extractTerms(cleanText);
 
-    if (!terms.length) {
-        console.log("[freetext] → skip (sem termos de produto após extração)");
-        return "skip";
-    }
-
-    console.log(`[freetext] termos de busca: [${terms.join(", ")}] | quantidade: ${qty} | embalagem: ${packagingSigla ?? "não especificada"}`);
+    if (!terms.length) return "skip";
 
     const found = await searchVariantsByText(admin, companyId, terms);
 
     // Filtra pelo tipo de embalagem pedido (ex: "cx" → só produtos com CX)
     const { filtered: foundFiltered, wasFiltered } = filterVariantsByPackaging(found, packagingSigla);
 
-    console.log(`[freetext] total encontrados: ${found.length} | após filtro embalagem: ${foundFiltered.length}`);
-
     // ── Nenhum resultado ──────────────────────────────────────────────────────
-    if (!found.length) {
-        console.log("[freetext] → notfound (nenhuma variante correspondeu)");
-        return "notfound";
-    }
+    if (!found.length) return "notfound";
 
     // Se pediu embalagem bulk (CX/FARD/PAC) mas nenhum produto tem ela → avisa
     if (pkgExplicit && isBulkPackaging(packagingSigla) && !wasFiltered) {
@@ -1598,15 +1575,6 @@ async function createOrder(
 ): Promise<string> {
     const total = cartTotal(cart) + deliveryFee;
 
-    console.log("[createOrder] dados:", JSON.stringify({
-        company_id:     companyId,
-        customer_id:    customerId,
-        cart,
-        address:        deliveryAddress,
-        payment_method: paymentMethod,
-        change_for:     changeFor ?? null,
-    }, null, 2));
-
     const orderPayload = {
         company_id:       companyId,
         customer_id:      customerId,
@@ -1622,14 +1590,11 @@ async function createOrder(
         // details: reservado para observações do dashboard — não poluir com dados do pedido
     };
 
-    console.log("[createOrder] inserindo order...");
     const { data: order, error: orderErr } = await admin
         .from("orders")
         .insert(orderPayload)
         .select()
         .single();
-
-    console.log("[createOrder] order result:", order, orderErr);
 
     if (orderErr || !order?.id) {
         console.error("[createOrder] FALHA ao inserir order:", {
@@ -1654,8 +1619,6 @@ async function createOrder(
         // line_total é coluna gerada no banco; não deve ser enviada
     }));
 
-    console.log("[createOrder] inserindo", items.length, "itens...");
-
     const { error: itemsErr } = await admin.from("order_items").insert(items);
 
     if (itemsErr) {
@@ -1671,7 +1634,6 @@ async function createOrder(
 
     // Débito de estoque fica a cargo do trigger em `order_items` (produto_embalagem_id → fator_conversao).
 
-    console.log("[createOrder] concluído | orderId:", order.id);
     return order.id as string;
 }
 
@@ -1773,13 +1735,8 @@ export async function processInboundMessage(
 ): Promise<void> {
     const { admin, companyId, threadId, messageId, phoneE164, text, profileName } = params;
 
-    console.log("[chatbot] processInboundMessage START | thread:", threadId, "company:", companyId, "text:", text);
-
     const input = text.trim();
-    if (!input) {
-        console.log("[chatbot] input vazio, ignorando");
-        return;
-    }
+    if (!input) return;
 
     // Verifica se existe bot ativo para esta empresa e carrega config
     const { data: botRows, error: botErr } = await admin
@@ -1788,8 +1745,6 @@ export async function processInboundMessage(
         .eq("company_id", companyId)
         .eq("is_active", true)
         .limit(1);
-
-    console.log("[chatbot] chatbots ativos:", botRows?.length ?? 0, botErr ? `| erro: ${botErr.message}` : "");
 
     if (!botRows?.length) {
         console.warn("[chatbot] Nenhum chatbot ativo para company:", companyId, "— verifique tabela chatbots");
@@ -1805,8 +1760,6 @@ export async function processInboundMessage(
 
     const companyName = company?.name ?? "nossa loja";
     const settings    = company?.settings ?? {};
-
-    console.log("[chatbot] session step:", session.step, "| cartItems:", session.cart.length, "| input:", input);
 
     // ── 1. Global reset (menu/oi/ola/reiniciar — WITHOUT cancelar) ───────────
     if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
@@ -1928,7 +1881,6 @@ export async function processInboundMessage(
     // ── 8. Checkout keywords ──────────────────────────────────────────────────
     const CHECKOUT_KEYWORDS = ["fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha","bater caixa","vou pagar","quero finalizar","vou finalizar","pode fechar","fecha ai","bater o caixa","quero fechar","encerrar","terminar","quero confirmar"];
     if (matchesAny(input, CHECKOUT_KEYWORDS) && session.cart.length > 0) {
-        console.log("[chatbot] atalho de checkout detectado | cart:", session.cart.length);
         await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
         return;
     }
@@ -1977,11 +1929,44 @@ export async function processInboundMessage(
     // ── 11. Interceptor global: ParserFactory (Claude→Regex→Assisted) ─────────
     // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
     // Steps com inputs triviais (pix, sim, número de casa) não precisam de Claude
+
+    // ── 11b. Add-to-cart hijack em steps de checkout ─────────────────────────────
+    // Permite adicionar produto por texto livre mesmo durante checkout/pagamento/confirmação,
+    // usando apenas o Regex parser (rápido, sem Claude) para não esgotar o timeout de 10s.
+    const CHECKOUT_HIJACK_STEPS = new Set([
+        "checkout_payment",
+        "checkout_confirm",
+        "awaiting_address_number",
+        "awaiting_address_neighborhood",
+    ]);
+    if (CHECKOUT_HIJACK_STEPS.has(session.step) && input.length >= 3) {
+        const isPayment  = !!detectPaymentMethod(input);
+        const isConfirm  = matchesAny(input, ["sim", "não", "nao", "s", "n", "ok", "confirmar", "confirmo", "1", "change_items", "change_address"]);
+        const hasAddress = extractAddressFromText(input) !== null;
+        if (!isPayment && !isConfirm && !hasAddress) {
+            const hijackProducts = await getCachedProducts(admin, companyId);
+            const hijackResult   = await parseWithRegex(input, hijackProducts);
+            if (hijackResult?.action === "add_to_cart" && (hijackResult.items?.length ?? 0) > 0) {
+                const toAdd    = parsedItemsToCartItems(hijackResult.items!);
+                const newCart  = mergeCart(session.cart, toAdd);
+                const itemList = hijackResult.items!.map((i) => `${i.qty}x ${i.name}`).join(", ");
+                await saveSession(admin, threadId, companyId, { cart: newCart });
+                await reply(
+                    phoneE164,
+                    `✅ Adicionado: ${itemList}!\n\n${formatCart(newCart)}\n\n` +
+                    `_Continue ou diga *finalizar* para fechar o pedido._`
+                );
+                return;
+            }
+        }
+    }
+
     const SKIP_PARSER_STEPS = new Set([
         "checkout_payment",
         "checkout_confirm",
         "awaiting_address_number",
         "awaiting_address_neighborhood",
+        "awaiting_address_selection",
         "awaiting_split_order",
         "awaiting_variant_selection",
         "done",
@@ -1990,6 +1975,9 @@ export async function processInboundMessage(
     if (input.length >= 3 && !SKIP_PARSER_STEPS.has(session.step)) {
         const products = await getCachedProducts(admin, companyId);
         const aiInput = cleanInputForAI(input); // Layer 2: remove ruídos antes de enviar à IA
+        const cartSummary = session.cart.length > 0
+            ? session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ")
+            : "";
         const parsed = await parseWithFactory({
             admin,
             companyId,
@@ -1998,6 +1986,7 @@ export async function processInboundMessage(
             input: aiInput,
             products,
             step: session.step,
+            cartSummary,
             claudeConfig: {
                 model:      String(botConfig.model    ?? "claude-haiku-4-5-20251001"),
                 threshold:  Number(botConfig.threshold ?? 0.75),
@@ -2218,8 +2207,9 @@ export async function processInboundMessage(
         if (parsed.action === "low_confidence") {
             const FREE_TEXT_STEPS = ["main_menu", "welcome", "catalog_products", "cart"];
             if (!FREE_TEXT_STEPS.includes(session.step)) {
+                const fallbackProducts = await getCachedProducts(admin, companyId);
                 const didFallback = await handleLowConfidenceFallback(
-                    admin, companyId, threadId, phoneE164, companyName, session
+                    admin, companyId, threadId, phoneE164, companyName, session, input, fallbackProducts
                 );
                 if (didFallback) return;
             }
@@ -2289,6 +2279,15 @@ export async function processInboundMessage(
             await handleAwaitingSplitOrder(admin, companyId, threadId, phoneE164, input, session);
             break;
 
+        case "awaiting_address_selection":
+            await handleAwaitingAddressSelection(admin, companyId, threadId, phoneE164, input, session);
+            break;
+
+        case "awaiting_flow":
+            // Flow aberto — aguardando submissão do formulário nativo
+            // Ignora mensagens de texto até o Flow ser submetido ou expirar
+            break;
+
         case "handover":
             // Bot silenciado — humano está atendendo
             break;
@@ -2337,7 +2336,9 @@ async function handleLowConfidenceFallback(
     threadId: string,
     phoneE164: string,
     companyName: string,
-    session: Session
+    session: Session,
+    input = "",
+    products: { productName: string; unitPrice: number; tags?: string | null }[] = []
 ): Promise<boolean> {
     const count = ((session.context.consecutive_unknown_count as number) ?? 0) + 1;
     await saveSession(admin, threadId, companyId, {
@@ -2345,11 +2346,23 @@ async function handleLowConfidenceFallback(
     });
 
     if (count === 1) {
+        // Tenta sugerir produtos próximos via Fuse.js
+        let suggestionText = "";
+        if (input && products.length > 0) {
+            const fuse = new Fuse(products, {
+                keys: [{ name: "productName", weight: 0.7 }, { name: "tags", weight: 0.3 }],
+                threshold: 0.5,
+                includeScore: true,
+            });
+            const hits = fuse.search(input).slice(0, 3).filter((r) => (r.score ?? 1) < 0.5);
+            if (hits.length > 0) {
+                const lines = hits.map((r) => `• *${r.item.productName}* — ${formatCurrency(r.item.unitPrice)}`);
+                suggestionText = `Você quis dizer algum destes?\n\n${lines.join("\n")}\n\n`;
+            }
+        }
         await reply(
             phoneE164,
-            `Não consegui entender muito bem. 😅\n\n` +
-            `Você gostaria de *adicionar um produto* ao pedido ou *falar com um atendente*?\n\n` +
-            `Digite o nome do produto ou escolha uma opção abaixo:`
+            `${suggestionText}Não entendi bem. 😅 Digite o nome do produto ou escolha uma opção:`
         );
         await sendInteractiveButtons(phoneE164, "Como posso ajudar?", [
             { id: "1", title: "Ver cardápio" },
@@ -2445,7 +2458,15 @@ async function handleMainMenu(
         }
 
         await saveSession(admin, threadId, companyId, { step: "main_menu" });
-        await reply(phoneE164, buildWelcomeGreeting(companyName, customer?.name));
+        const hasName = !!(customer?.name && customer.name.trim().length > 0);
+        const greetText = hasName
+            ? `Olá, *${customer!.name.trim()}*! O que manda pra hoje? 🍺`
+            : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nO que manda pra hoje?`;
+        await sendInteractiveButtons(phoneE164, greetText, [
+            { id: "1", title: "🍺 Ver cardápio" },
+            { id: "2", title: "📦 Meu pedido" },
+            { id: "3", title: "🙋 Falar c/ atendente" },
+        ]);
         return;
     }
 
@@ -2889,8 +2910,6 @@ async function handleCatalogProducts(
             .map((s) => parseInt(s.trim(), 10) - 1)
             .filter((i) => !isNaN(i) && i >= 0 && i < variants.length);
 
-        console.log("[catalog_products] seleção numérica:", input, "→ índices:", indices);
-
         if (!indices.length) {
             const listText = formatNumberedList(variants.slice(0, 5));
             await reply(phoneE164, `Número inválido. Escolha entre 1 e ${Math.min(variants.length, 5)}:\n\n${listText}`);
@@ -3200,7 +3219,10 @@ async function goToCheckoutFromCart(
     if (address && payment) {
         await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
         await sendOrderSummary(phoneE164, session);
-    } else if (address) {
+        return;
+    }
+
+    if (address && !payment) {
         const customer = await getOrCreateCustomer(admin, companyId, phoneE164);
         await saveSession(admin, threadId, companyId, {
             step:        "checkout_payment",
@@ -3208,8 +3230,158 @@ async function goToCheckoutFromCart(
             context:     session.context,
         });
         await sendPaymentButtons(phoneE164);
+        return;
+    }
+
+    // Sem endereço: usa WhatsApp Flow se configurado, senão fluxo conversacional
+    const wppConfig = await getWhatsAppConfig(admin, companyId);
+    if (wppConfig.flowId) {
+        const customer    = await getOrCreateCustomer(admin, companyId, phoneE164);
+        const customerId  = customer?.id ?? session.customer_id ?? null;
+
+        // Verifica endereços salvos
+        if (customerId) {
+            const { data: savedAddrs } = await admin
+                .from("enderecos_cliente")
+                .select("id, apelido, logradouro, numero, complemento, bairro")
+                .eq("customer_id", customerId)
+                .eq("company_id", companyId)
+                .order("is_principal", { ascending: false })
+                .limit(5);
+
+            if (savedAddrs && savedAddrs.length > 0) {
+                const rows = [
+                    ...savedAddrs.map((a) => ({
+                        id:          `addr_${a.id}`,
+                        title:       (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24),
+                        description: ([a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ")).slice(0, 72),
+                    })),
+                    { id: "new_address", title: "➕ Novo endereço" },
+                ];
+                await saveSession(admin, threadId, companyId, {
+                    step:        "awaiting_address_selection",
+                    customer_id: customerId,
+                    context:     { ...session.context, saved_addresses: savedAddrs },
+                });
+                await sendListMessage(
+                    phoneE164,
+                    "📍 Escolha o endereço de entrega:",
+                    "Ver endereços",
+                    rows,
+                    "Endereços salvos"
+                );
+                return;
+            }
+        }
+
+        const flowToken = `${threadId}|${companyId}`;
+        await saveSession(admin, threadId, companyId, {
+            step:        "awaiting_flow",
+            customer_id: customerId,
+            context:     { ...session.context, flow_token: flowToken },
+        });
+        const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
+        await sendFlowMessage(phoneE164, {
+            flowToken,
+            bodyText: `🛒 *${cartSummary}*\n\nPreencha o endereço e forma de pagamento:`,
+            ctaLabel: "Preencher dados",
+            flowId:   wppConfig.flowId,
+        });
     } else {
         await goToCheckoutAddress(admin, companyId, threadId, phoneE164, session);
+    }
+}
+
+// ─── AWAITING_ADDRESS_SELECTION ───────────────────────────────────────────────
+
+async function handleAwaitingAddressSelection(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const wppConfig = await getWhatsAppConfig(admin, companyId);
+
+    // "Novo endereço" → abre o Flow (ou fluxo conversacional)
+    if (input === "new_address") {
+        const newSession = { ...session, step: "main_menu" as const };
+        if (wppConfig.flowId) {
+            const flowToken = `${threadId}|${companyId}`;
+            await saveSession(admin, threadId, companyId, {
+                step:    "awaiting_flow",
+                context: { ...session.context, saved_addresses: undefined, flow_token: flowToken },
+            });
+            const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
+            await sendFlowMessage(phoneE164, {
+                flowToken,
+                bodyText: `🛒 *${cartSummary}*\n\nPreencha o endereço e forma de pagamento:`,
+                ctaLabel: "Preencher dados",
+                flowId:   wppConfig.flowId,
+            });
+        } else {
+            await goToCheckoutAddress(admin, companyId, threadId, phoneE164, newSession);
+        }
+        return;
+    }
+
+    // Endereço salvo selecionado: input = "addr_<uuid>"
+    if (input.startsWith("addr_")) {
+        const addrId = input.slice(5);
+        const { data: addrRow } = await admin
+            .from("enderecos_cliente")
+            .select("logradouro, numero, complemento, bairro")
+            .eq("id", addrId)
+            .maybeSingle();
+
+        if (!addrRow) {
+            await reply(phoneE164, "Endereço não encontrado. Por favor, escolha outra opção.");
+            return;
+        }
+
+        const fullAddress = [addrRow.logradouro, addrRow.numero, addrRow.complemento, addrRow.bairro]
+            .filter(Boolean).join(", ");
+        const neighborhood = addrRow.bairro ?? "";
+
+        const zone = await findDeliveryZone(admin, companyId, neighborhood);
+        const deliveryFee = zone ? Number(zone.fee) : 0;
+
+        await saveSession(admin, threadId, companyId, {
+            step:    "checkout_payment",
+            context: {
+                ...session.context,
+                saved_addresses:  undefined,
+                delivery_address: fullAddress,
+                delivery_fee:     deliveryFee,
+                delivery_zone_id: zone?.id ?? null,
+            },
+        });
+        await sendPaymentButtons(phoneE164);
+        return;
+    }
+
+    // Input desconhecido → reexibe a lista
+    const savedAddrs = (session.context.saved_addresses as Array<{
+        id: string; apelido: string | null; logradouro: string | null;
+        numero: string | null; complemento: string | null; bairro: string | null;
+    }>) ?? [];
+    if (savedAddrs.length > 0) {
+        const rows = [
+            ...savedAddrs.map((a) => ({
+                id:          `addr_${a.id}`,
+                title:       (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24),
+                description: ([a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ")).slice(0, 72),
+            })),
+            { id: "new_address", title: "➕ Novo endereço" },
+        ];
+        await sendListMessage(
+            phoneE164,
+            "📍 Escolha o endereço de entrega:",
+            "Ver endereços",
+            rows,
+            "Endereços salvos"
+        );
     }
 }
 
@@ -3280,6 +3452,20 @@ async function handleAwaitingAddressNumber(
 
     if (parsedAddr) {
         const neighborhood = parsedAddr.neighborhood ?? null;
+
+        // Google não confirmou o número → rejeita
+        if (!parsedAddr.houseNumber) {
+            await reply(
+                phoneE164,
+                `❌ Não consegui confirmar o número *${number}* para este endereço.\n\n` +
+                `Por favor, informe o endereço completo novamente.\n_Ex: Rua das Flores, 123, Centro_`
+            );
+            await saveSession(admin, threadId, companyId, {
+                step:    "checkout_address",
+                context: { ...session.context, address_draft: undefined, awaiting_address: true },
+            });
+            return;
+        }
 
         // Sem bairro → pede bairro antes de ir ao pagamento
         if (!neighborhood) {
@@ -3375,6 +3561,16 @@ async function handleCheckoutAddress(
     const parsedAddr = await parser.validateAddress(input);
     const finalAddr  = parsedAddr?.formatted ?? input;
     const neighborhood = parsedAddr?.neighborhood ?? null;
+
+    // 2b) Google não confirmou o número → rejeita
+    if (parsedAddr && !parsedAddr.houseNumber) {
+        await reply(
+            phoneE164,
+            `❌ Não consegui confirmar o número do endereço.\n\n` +
+            `Por favor, informe novamente com *rua, número e bairro*.\n_Ex: Rua das Flores, 123, Centro_`
+        );
+        return;
+    }
 
     // 3) Google não retornou bairro → pede
     if (!neighborhood) {
@@ -3673,24 +3869,25 @@ async function handleCheckoutConfirm(
     const paymentMethod = (session.context.payment_method   as string) ?? "cash";
     const changeFor     = (session.context.change_for       as number | null) ?? null;
 
-    console.log("[checkout_confirm] input:", input, "| customer_id:", session.customer_id,
-        "| cart:", session.cart.length, "| address:", address,
-        "| paymentMethod:", paymentMethod, "| changeFor:", changeFor);
-
-    // "Mudar endereço" (ID change_address ou texto) → volta ao fluxo de endereço
+    // "Mudar endereço" (ID change_address ou texto) → reabre o Flow (ou fluxo conversacional)
     if (
         input === "change_address" ||
         matchesAny(input, ["alterar_endereco", "alterar endereco", "alterar endereço", "mudar endereço", "trocar endereço"])
     ) {
-        await saveSession(admin, threadId, companyId, {
-            step:    "checkout_address",
-            context: { ...session.context, delivery_address: undefined, saved_address: null, awaiting_address: true },
-        });
-        await reply(
-            phoneE164,
-            `📍 Qual é o seu *novo endereço de entrega*?\n\n` +
-            `_Ex: Rua das Flores, 123, Bairro Centro_`
-        );
+        const clearedContext = {
+            ...session.context,
+            delivery_address:   undefined,
+            delivery_fee:       undefined,
+            delivery_zone_id:   undefined,
+            payment_method:     undefined,
+            change_for:         undefined,
+            flow_address_done:  undefined,
+            flow_apelido:       undefined,
+            flow_bairro_label:  undefined,
+        };
+        const clearedSession = { ...session, context: clearedContext };
+        await saveSession(admin, threadId, companyId, { context: clearedContext });
+        await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, clearedSession);
         return;
     }
 
@@ -3886,8 +4083,6 @@ async function handleCheckoutConfirm(
         const feeForOrder = (session.context.delivery_fee as number | null) ?? 0;
         const orderId     = await createOrder(admin, companyId, customerId, session.cart, paymentMethod, address, changeFor, feeForOrder);
         const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
-
-        console.log("[checkout_confirm] Pedido criado com sucesso | orderId:", orderId);
 
         // Limpeza de sessão assim que o insert retornar sucesso: cart zerado, step em home
         const cartSnapshot = [...session.cart];

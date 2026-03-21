@@ -31,6 +31,7 @@ export interface ClaudeParserConfig {
     maxRetries?: number;
     timeoutMs?: number;
     step?: string;         // step atual da sessão (para filtrar catálogo)
+    cartSummary?: string;  // e.g. "2x Heineken 600ml, 1x Gelo 5kg" — injetado no prompt
 }
 
 const DEFAULT_CONFIG: Required<ClaudeParserConfig> = {
@@ -39,6 +40,7 @@ const DEFAULT_CONFIG: Required<ClaudeParserConfig> = {
     maxRetries: 1,   // 1 retry máx — 2 retries × 6s = 12s estoura Vercel Hobby (10s)
     timeoutMs: 5000, // 5s por tentativa → total máx ~6s (dentro do limite de 10s)
     step: "",
+    cartSummary: "",
 };
 
 // Steps onde não faz sentido enviar o catálogo completo
@@ -117,14 +119,11 @@ function buildCatalogText(products: ProductForSearch[], step: string): string {
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
 
-function buildPrompt(input: string, catalogText: string): string {
+function buildSystemPrompt(catalogText: string): string {
     return `Você é o assistente de pedidos de uma distribuidora de bebidas via WhatsApp.
 
 ═══ CATÁLOGO (variantId|nome|preço) ═══
 ${catalogText}
-
-═══ MENSAGEM DO CLIENTE ═══
-"${input}"
 
 ═══ REGRAS DE PARSE ═══
 STOPWORDS (ignorar completamente): ${STOPWORDS_SAMPLE}
@@ -139,7 +138,7 @@ Ao identificar produto, ignore stopwords. Ex: "quero 2 heineken" → qty=2, prod
 Divisores de múltiplos itens: " e ", " + ", " , ", " mais ", " com ".
   Ex: "2 skol e 1 gelo" → 2 itens.
 
-═══ RESPOSTA ═══
+═══ FORMATO DE RESPOSTA ═══
 Retorne SOMENTE JSON válido (sem markdown):
 
 {
@@ -172,6 +171,14 @@ REGRAS DE ACTION (só para intent=order):
 - address = null se não houver endereço`;
 }
 
+function buildUserMessage(input: string, step: string, cartSummary: string): string {
+    const hasContext = step || cartSummary;
+    const contextSection = hasContext
+        ? `═══ CONTEXTO DA SESSÃO ═══\nStep atual: ${step || "início"}\nCarrinho: ${cartSummary || "vazio"}\n\n`
+        : "";
+    return `${contextSection}═══ MENSAGEM DO CLIENTE ═══\n"${input}"`;
+}
+
 // ─── Parse principal ──────────────────────────────────────────────────────────
 
 export async function parseWithClaude(
@@ -187,47 +194,60 @@ export async function parseWithClaude(
 
     const client      = new Anthropic();
     const catalogText = buildCatalogText(products, cfg.step);
-    const prompt      = buildPrompt(input, catalogText);
+    const systemPrompt = buildSystemPrompt(catalogText);
+    const userMessage  = buildUserMessage(input, cfg.step, cfg.cartSummary);
 
     let lastErr: unknown;
     for (let attempt = 0; attempt < cfg.maxRetries; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+
+        let raw: ClaudeRawResult;
+        let tokensInput  = 0;
+        let tokensOutput = 0;
+
         try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+            const response = await (client.beta as any).promptCaching.messages.create(
+                {
+                    model:      cfg.model,
+                    max_tokens: 600,
+                    system: [
+                        {
+                            type:          "text",
+                            text:          systemPrompt,
+                            cache_control: { type: "ephemeral" },
+                        },
+                    ],
+                    messages: [{ role: "user", content: userMessage }],
+                },
+                { signal: controller.signal as any }
+            );
 
-            let raw: ClaudeRawResult;
-            let tokensInput  = 0;
-            let tokensOutput = 0;
+            clearTimeout(timer);
 
-            try {
-                const response = await client.messages.create(
-                    {
-                        model:      cfg.model,
-                        max_tokens: 600,
-                        messages:   [{ role: "user", content: prompt }],
-                    },
-                    { signal: controller.signal as any }
-                );
+            tokensInput  = response.usage?.input_tokens  ?? 0;
+            tokensOutput = response.usage?.output_tokens ?? 0;
 
-                clearTimeout(timer);
-
-                tokensInput  = response.usage?.input_tokens  ?? 0;
-                tokensOutput = response.usage?.output_tokens ?? 0;
-
-                const text    = response.content[0]?.type === "text" ? response.content[0].text : "";
-                const jsonStr = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-                raw = JSON.parse(jsonStr) as ClaudeRawResult;
-            } finally {
-                clearTimeout(timer);
-            }
+            const text    = response.content[0]?.type === "text" ? response.content[0].text : "";
+            const jsonStr = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+            raw = JSON.parse(jsonStr) as ClaudeRawResult;
 
             return mapClaudeResult(raw, products, cfg.threshold, tokensInput, tokensOutput);
         } catch (err) {
+            clearTimeout(timer);
             lastErr = err;
-            if ((err as any)?.name === "AbortError") break;
+            const errName = (err as any)?.name;
+            const errStatus = (err as any)?.status;
+            const errMsg = (err as any)?.message ?? String(err);
+            console.error("[ERRO CLAUDE] tentativa", attempt + 1, "| name:", errName, "| status:", errStatus, "| message:", errMsg);
+            if (errName === "AbortError") {
+                console.error("[ERRO CLAUDE] AbortError = timeout de", cfg.timeoutMs, "ms atingido");
+                break;
+            }
         }
     }
 
+    console.error("[ERRO CLAUDE] Todas as tentativas falharam. Último erro:", lastErr);
     throw lastErr;
 }
 

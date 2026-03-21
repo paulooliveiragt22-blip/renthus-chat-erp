@@ -84,6 +84,90 @@ export async function sendWhatsAppMessage(
 }
 
 /**
+ * Dispara um WhatsApp Flow para o usuário.
+ *
+ * Requer:
+ *   WHATSAPP_FLOW_ID          — ID do Flow registrado no Meta Business Manager
+ *   WHATSAPP_TOKEN            — Bearer token da Meta
+ *   WHATSAPP_PHONE_NUMBER_ID  — phone_number_id do número cadastrado
+ *
+ * O flowToken identifica a sessão e é passado de volta ao endpoint /api/whatsapp/flows
+ * via action INIT/data_exchange. Formato recomendado: "${threadId}|${companyId}".
+ */
+export async function sendFlowMessage(
+    to:     string,
+    params: {
+        flowToken:  string;
+        bodyText:   string;
+        ctaLabel:   string;
+        mode?:      "published" | "draft";
+        /** Flow ID da empresa (sobrepõe WHATSAPP_FLOW_ID env var) */
+        flowId?:    string;
+    }
+): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+    const token         = process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const flowId        = params.flowId ?? process.env.WHATSAPP_FLOW_ID;
+
+    if (!token || !phoneNumberId) {
+        console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
+        return { ok: false, error: "missing_env_vars" };
+    }
+    if (!flowId) {
+        console.error("[send] WHATSAPP_FLOW_ID não configurado");
+        return { ok: false, error: "missing_flow_id" };
+    }
+
+    const toNormalized = normalizeBrazilianNumber(to);
+    const url          = `${GRAPH_API_BASE}/${phoneNumberId}/messages`;
+
+    const body = {
+        messaging_product: "whatsapp",
+        to:                toNormalized,
+        type:              "interactive",
+        interactive: {
+            type: "flow",
+            body: { text: params.bodyText.slice(0, 1024) },
+            action: {
+                name:       "flow",
+                parameters: {
+                    flow_id:             flowId,
+                    flow_token:          params.flowToken,
+                    flow_action:         "data_exchange",
+                    mode:                params.mode ?? "published",
+                    flow_cta:            params.ctaLabel.slice(0, 20),
+                    flow_action_payload: { screen: "ADDRESS" },
+                },
+            },
+        },
+    };
+
+    try {
+        const res = await fetch(url, {
+            method:  "POST",
+            headers: {
+                Authorization:  `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+        });
+
+        const json = await res.json().catch(() => ({})) as any;
+
+        if (!res.ok) {
+            console.error("[send] Meta API error (flow):", JSON.stringify(json));
+            return { ok: false, error: json?.error?.message ?? `HTTP ${res.status}` };
+        }
+
+        return { ok: true, messageId: json?.messages?.[0]?.id };
+
+    } catch (err: any) {
+        console.error("[send] fetch error (flow):", err?.message ?? err);
+        return { ok: false, error: String(err?.message ?? err) };
+    }
+}
+
+/**
  * Envia mensagem interativa com até 3 botões de resposta rápida (reply_button).
  * Título de cada botão: máx 20 chars.
  */

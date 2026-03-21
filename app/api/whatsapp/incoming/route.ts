@@ -4,11 +4,9 @@
  * Webhook da Meta WhatsApp Cloud API.
  *
  * GET  → verificação do webhook (hub.challenge)
- * POST → mensagens e status callbacks
- *
- * Configurar no Meta Business:
- *   URL:   https://<seu-dominio>/api/whatsapp/incoming
- *   Token: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+ * POST → processa mensagens com await e retorna 200 após processamento.
+ *        processInboundMessage é aguardado para garantir que o Lambda
+ *        não seja congelado antes de concluir o fluxo do chatbot.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -52,9 +50,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "invalid_json" }, { status: 400 });
     }
 
-    // A Meta sempre envia object === "whatsapp_business_account"
     if (body?.object !== "whatsapp_business_account") {
-        return NextResponse.json({ ok: true }); // ignorar outros webhooks
+        return NextResponse.json({ ok: true });
     }
 
     for (const entry of body?.entry ?? []) {
@@ -66,7 +63,7 @@ export async function POST(req: Request) {
             // ── Status callbacks (sent, delivered, read, failed) ─────────────
             for (const statusUpdate of value?.statuses ?? []) {
                 const waId   = statusUpdate?.id;
-                const status = statusUpdate?.status;   // sent | delivered | read | failed
+                const status = statusUpdate?.status;
                 if (waId && status) {
                     await admin
                         .from("whatsapp_messages")
@@ -80,7 +77,6 @@ export async function POST(req: Request) {
             const messages = value?.messages ?? [];
             if (!messages.length) continue;
 
-            // Resolve canal da empresa pelo phone_number_id
             const phoneNumberId: string = value?.metadata?.phone_number_id ?? "";
             const { data: channel } = await admin
                 .from("whatsapp_channels")
@@ -89,34 +85,34 @@ export async function POST(req: Request) {
                 .eq("status", "active")
                 .maybeSingle();
 
-            if (!channel) continue; // nenhum canal Meta configurado
+            if (!channel) continue;
 
             for (const msg of messages) {
-                const waId      = msg?.id as string | null;
-                const fromRaw   = msg?.from as string; // ex: "5565999999999" (sem +)
-                const msgType   = msg?.type as string; // text | interactive | image | ...
-                const timestamp = msg?.timestamp;
+                const waId    = msg?.id as string | null;
+                const fromRaw = msg?.from as string;
+                const msgType = msg?.type as string;
 
                 if (!fromRaw || !waId) continue;
 
-                // Normaliza para E.164
                 const phoneE164 = fromRaw.startsWith("+") ? fromRaw : `+${fromRaw}`;
 
-                // Nome do perfil do contato
-                const contact    = (value?.contacts ?? []).find((c: any) => c.wa_id === fromRaw);
+                const contact     = (value?.contacts ?? []).find((c: any) => c.wa_id === fromRaw);
                 const profileName: string | null = contact?.profile?.name ?? null;
 
-                // Extrai texto da mensagem (text ou interactive reply)
+                // Extrai texto — botões e listas preferem ID para a lógica do bot
                 let bodyText = "";
                 if (msgType === "text") {
                     bodyText = msg?.text?.body ?? "";
                 } else if (msgType === "interactive") {
                     const interactive = msg?.interactive ?? {};
                     if (interactive.type === "button_reply") {
-                        bodyText = interactive.button_reply?.title ?? interactive.button_reply?.id ?? "";
+                        // ID primeiro: "change_items", "1", "confirm_order_yes", etc.
+                        bodyText = interactive.button_reply?.id ?? interactive.button_reply?.title ?? "";
                     } else if (interactive.type === "list_reply") {
-                        bodyText = interactive.list_reply?.title ?? interactive.list_reply?.id ?? "";
+                        bodyText = interactive.list_reply?.id ?? interactive.list_reply?.title ?? "";
                     }
+                } else if (msgType === "button") {
+                    bodyText = msg?.button?.text ?? "";
                 }
 
                 // ── Upsert thread ────────────────────────────────────────────
@@ -130,7 +126,7 @@ export async function POST(req: Request) {
 
                 if (!threadId) continue;
 
-                // ── Insere mensagem (dedup via provider_message_id) ──────────
+                // ── Insere mensagem (dedup via provider_message_id único) ─────
                 const { error: insErr } = await admin
                     .from("whatsapp_messages")
                     .insert({
@@ -142,14 +138,17 @@ export async function POST(req: Request) {
                         from_addr:           phoneE164,
                         to_addr:             phoneNumberId,
                         body:                bodyText || null,
-                        num_media:           msgType === "image" || msgType === "video" || msgType === "audio" || msgType === "document" ? 1 : 0,
+                        num_media:           ["image","video","audio","document"].includes(msgType) ? 1 : 0,
                         status:              "received",
                         raw_payload:         msg,
                     });
 
                 if (insErr) {
-                    // Código 23505 = unique violation → mensagem duplicada, ignorar
-                    if ((insErr as any).code === "23505") continue;
+                    if ((insErr as any).code === "23505") {
+                        // Duplicata (Meta reentregou) — ignora
+                        console.warn("[wa/incoming] dedup: mensagem já inserida, ignorando:", waId);
+                        continue;
+                    }
                     console.error("[wa/incoming] insert error:", insErr.message);
                     continue;
                 }
@@ -163,9 +162,9 @@ export async function POST(req: Request) {
                     })
                     .eq("id", threadId);
 
-                // ── Dispara chatbot (se bot ativo e há texto) ────────────────
                 if (!bodyText.trim()) continue;
 
+                // ── Verifica bot_active ──────────────────────────────────────
                 const { data: threadRow } = await admin
                     .from("whatsapp_threads")
                     .select("bot_active")
@@ -174,22 +173,24 @@ export async function POST(req: Request) {
 
                 if (threadRow?.bot_active === false) continue;
 
-                processInboundMessage({
-                    admin,
-                    companyId:   channel.company_id,
-                    threadId,
-                    messageId:   waId,
-                    phoneE164,
-                    text:        bodyText,
-                    profileName,
-                }).catch((err) =>
-                    console.error("[chatbot] processInboundMessage error:", err)
-                );
+                // ── Processa chatbot com await (Lambda deve concluir antes do retorno) ──
+                try {
+                    await processInboundMessage({
+                        admin,
+                        companyId:   channel.company_id,
+                        threadId,
+                        messageId:   waId,
+                        phoneE164,
+                        text:        bodyText,
+                        profileName,
+                    });
+                } catch (err: any) {
+                    console.error("[chatbot] processInboundMessage error:", err?.message ?? err);
+                }
             }
         }
     }
 
-    // Meta exige 200 em até 5s; responde imediatamente
     return NextResponse.json({ ok: true }, { status: 200 });
 }
 
