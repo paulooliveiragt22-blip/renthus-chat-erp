@@ -5,17 +5,17 @@
  *
  * Decryption (request):
  *   1. Decripta a AES key usando RSA-OAEP SHA-256 com a chave privada
- *   2. Decripta os dados do Flow usando AES-256-GCM
+ *   2. Decripta os dados do Flow usando AES-128-GCM
  *
  * Encryption (response):
  *   1. Usa a mesma AES key
- *   2. IV da resposta = IV da requisição com bytes invertidos
- *   3. Encripta com AES-256-GCM, concatena ciphertext + auth tag
+ *   2. IV da resposta = bitwise NOT de cada byte do IV da requisição (~iv[i])
+ *   3. Encripta com AES-128-GCM, concatena ciphertext + auth tag
  *
  * Variável de ambiente: WHATSAPP_FLOWS_PRIVATE_KEY (RSA PEM, PKCS#8)
  */
 
-import { createDecipheriv, createCipheriv, privateDecrypt, constants } from "crypto";
+import { createDecipheriv, createCipheriv, createPrivateKey, privateDecrypt, constants } from "crypto";
 
 export interface FlowDecryptResult {
     body:   Record<string, unknown>;
@@ -35,14 +35,14 @@ export function decryptFlowRequest(
     // Etapa 1: decripta a AES key usando RSA-OAEP SHA-256
     const aesKey = privateDecrypt(
         {
-            key:      normalizedKey,
+            key:      createPrivateKey(normalizedKey),
             padding:  constants.RSA_PKCS1_OAEP_PADDING,
             oaepHash: "sha256",
         },
         Buffer.from(encryptedAesKey, "base64")
     );
 
-    // Etapa 2: decripta os dados usando AES-256-GCM
+    // Etapa 2: decripta os dados usando AES-128-GCM
     const iv              = Buffer.from(initialVector, "base64");
     const encryptedBuffer = Buffer.from(encryptedFlowData, "base64");
 
@@ -51,7 +51,7 @@ export function decryptFlowRequest(
     const ciphertext = encryptedBuffer.subarray(0, -TAG_LEN);
     const authTag    = encryptedBuffer.subarray(-TAG_LEN);
 
-    const decipher = createDecipheriv("aes-256-gcm", aesKey, iv);
+    const decipher = createDecipheriv("aes-128-gcm", aesKey, iv);
     decipher.setAuthTag(authTag);
     const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
@@ -67,10 +67,13 @@ export function encryptFlowResponse(
     aesKey: Buffer,
     iv:     Buffer
 ): string {
-    // IV da resposta = bytes do IV da requisição invertidos
-    const responseIv = Buffer.from(iv).reverse();
+    // IV da resposta = bitwise NOT de cada byte do IV da requisição
+    const responseIv = Buffer.alloc(iv.length);
+    for (let i = 0; i < iv.length; i++) {
+        responseIv[i] = ~iv[i];
+    }
 
-    const cipher    = createCipheriv("aes-256-gcm", aesKey, responseIv);
+    const cipher    = createCipheriv("aes-128-gcm", aesKey, responseIv);
     const encrypted = Buffer.concat([
         cipher.update(JSON.stringify(responseBody), "utf8"),
         cipher.final(),
