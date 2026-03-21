@@ -1,5 +1,5 @@
 {
-  "version": "3.0",
+  "version": "7.3",
   "screens": [
     {
       "id": "ADDRESS",
@@ -137,13 +137,18 @@
                 ]
               },
               {
-                "type": "TextInput",
-                "name": "troco_para",
-                "label": "Troco para (R$)",
-                "required": false,
-                "input-type": "number",
-                "helper-text": "Deixe em branco se não precisar de troco",
-                "visible": "${form.payment_method === 'cash'}"
+                "type": "If",
+                "condition": "${form.payment_method} == 'cash'",
+                "then": [
+                  {
+                    "type": "TextInput",
+                    "name": "troco_para",
+                    "label": "Troco para (R$)",
+                    "required": false,
+                    "input-type": "number",
+                    "helper-text": "Deixe em branco se não precisar de troco"
+                  }
+                ]
               },
               {
                 "type": "Footer",
