@@ -10,12 +10,14 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import Fuse from "fuse.js";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../whatsapp/send";
 import { getCachedProducts } from "./TextParserService";
 import { getOrderParserService, parsedItemsToCartItems } from "./OrderParserService";
 import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "./PackagingExtractor";
 import { parseWithFactory } from "./parsers/ParserFactory";
 import type { MessageIntent } from "./parsers/ClaudeParser";
+import { parseWithRegex } from "./parsers/RegexParser";
 import { buildProductDisplayName as _buildProductDisplayName } from "./displayHelpers";
 export type { DisplayableVariant } from "./displayHelpers";
 
@@ -1926,6 +1928,38 @@ export async function processInboundMessage(
     // ── 11. Interceptor global: ParserFactory (Claude→Regex→Assisted) ─────────
     // Toda mensagem passa primeiro pelo parser; produtos são adicionados (merge), endereço validado com Google
     // Steps com inputs triviais (pix, sim, número de casa) não precisam de Claude
+
+    // ── 11b. Add-to-cart hijack em steps de checkout ─────────────────────────────
+    // Permite adicionar produto por texto livre mesmo durante checkout/pagamento/confirmação,
+    // usando apenas o Regex parser (rápido, sem Claude) para não esgotar o timeout de 10s.
+    const CHECKOUT_HIJACK_STEPS = new Set([
+        "checkout_payment",
+        "checkout_confirm",
+        "awaiting_address_number",
+        "awaiting_address_neighborhood",
+    ]);
+    if (CHECKOUT_HIJACK_STEPS.has(session.step) && input.length >= 3) {
+        const isPayment  = !!detectPaymentMethod(input);
+        const isConfirm  = matchesAny(input, ["sim", "não", "nao", "s", "n", "ok", "confirmar", "confirmo", "1", "change_items", "change_address"]);
+        const hasAddress = extractAddressFromText(input) !== null;
+        if (!isPayment && !isConfirm && !hasAddress) {
+            const hijackProducts = await getCachedProducts(admin, companyId);
+            const hijackResult   = await parseWithRegex(input, hijackProducts);
+            if (hijackResult?.action === "add_to_cart" && (hijackResult.items?.length ?? 0) > 0) {
+                const toAdd    = parsedItemsToCartItems(hijackResult.items!);
+                const newCart  = mergeCart(session.cart, toAdd);
+                const itemList = hijackResult.items!.map((i) => `${i.qty}x ${i.name}`).join(", ");
+                await saveSession(admin, threadId, companyId, { cart: newCart });
+                await reply(
+                    phoneE164,
+                    `✅ Adicionado: ${itemList}!\n\n${formatCart(newCart)}\n\n` +
+                    `_Continue ou diga *finalizar* para fechar o pedido._`
+                );
+                return;
+            }
+        }
+    }
+
     const SKIP_PARSER_STEPS = new Set([
         "checkout_payment",
         "checkout_confirm",
@@ -1939,6 +1973,9 @@ export async function processInboundMessage(
     if (input.length >= 3 && !SKIP_PARSER_STEPS.has(session.step)) {
         const products = await getCachedProducts(admin, companyId);
         const aiInput = cleanInputForAI(input); // Layer 2: remove ruídos antes de enviar à IA
+        const cartSummary = session.cart.length > 0
+            ? session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ")
+            : "";
         const parsed = await parseWithFactory({
             admin,
             companyId,
@@ -1947,6 +1984,7 @@ export async function processInboundMessage(
             input: aiInput,
             products,
             step: session.step,
+            cartSummary,
             claudeConfig: {
                 model:      String(botConfig.model    ?? "claude-haiku-4-5-20251001"),
                 threshold:  Number(botConfig.threshold ?? 0.75),
@@ -2167,8 +2205,9 @@ export async function processInboundMessage(
         if (parsed.action === "low_confidence") {
             const FREE_TEXT_STEPS = ["main_menu", "welcome", "catalog_products", "cart"];
             if (!FREE_TEXT_STEPS.includes(session.step)) {
+                const fallbackProducts = await getCachedProducts(admin, companyId);
                 const didFallback = await handleLowConfidenceFallback(
-                    admin, companyId, threadId, phoneE164, companyName, session
+                    admin, companyId, threadId, phoneE164, companyName, session, input, fallbackProducts
                 );
                 if (didFallback) return;
             }
@@ -2286,7 +2325,9 @@ async function handleLowConfidenceFallback(
     threadId: string,
     phoneE164: string,
     companyName: string,
-    session: Session
+    session: Session,
+    input = "",
+    products: { productName: string; unitPrice: number; tags?: string | null }[] = []
 ): Promise<boolean> {
     const count = ((session.context.consecutive_unknown_count as number) ?? 0) + 1;
     await saveSession(admin, threadId, companyId, {
@@ -2294,11 +2335,23 @@ async function handleLowConfidenceFallback(
     });
 
     if (count === 1) {
+        // Tenta sugerir produtos próximos via Fuse.js
+        let suggestionText = "";
+        if (input && products.length > 0) {
+            const fuse = new Fuse(products, {
+                keys: [{ name: "productName", weight: 0.7 }, { name: "tags", weight: 0.3 }],
+                threshold: 0.5,
+                includeScore: true,
+            });
+            const hits = fuse.search(input).slice(0, 3).filter((r) => (r.score ?? 1) < 0.5);
+            if (hits.length > 0) {
+                const lines = hits.map((r) => `• *${r.item.productName}* — ${formatCurrency(r.item.unitPrice)}`);
+                suggestionText = `Você quis dizer algum destes?\n\n${lines.join("\n")}\n\n`;
+            }
+        }
         await reply(
             phoneE164,
-            `Não consegui entender muito bem. 😅\n\n` +
-            `Você gostaria de *adicionar um produto* ao pedido ou *falar com um atendente*?\n\n` +
-            `Digite o nome do produto ou escolha uma opção abaixo:`
+            `${suggestionText}Não entendi bem. 😅 Digite o nome do produto ou escolha uma opção:`
         );
         await sendInteractiveButtons(phoneE164, "Como posso ajudar?", [
             { id: "1", title: "Ver cardápio" },

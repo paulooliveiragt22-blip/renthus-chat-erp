@@ -27,6 +27,7 @@ export interface ParserFactoryParams {
     claudeConfig?: ClaudeParserConfig;
     /** Step atual da sessão (para filtro de catálogo e contexto de prompt) */
     step?:        string;
+    cartSummary?: string;
 }
 
 export type ParseResultWithMeta = ParseIntentResult & {
@@ -53,7 +54,7 @@ function isNonOrderIntent(result: ParseIntentResult): boolean {
 export async function parseWithFactory(
     params: ParserFactoryParams
 ): Promise<ParseResultWithMeta> {
-    const { admin, companyId, threadId, messageId, input, products, claudeConfig, step } = params;
+    const { admin, companyId, threadId, messageId, input, products, claudeConfig, step, cartSummary } = params;
     const t0 = Date.now();
 
     // ── Nível 1: Claude Haiku ─────────────────────────────────────────────────
@@ -62,6 +63,7 @@ export async function parseWithFactory(
         level1Result = await parseWithClaude(input, products, {
             ...claudeConfig,
             step: step ?? "",
+            cartSummary: cartSummary ?? "",
         });
     } catch (err) {
         console.warn("[ParserFactory] Claude failed:", (err as any)?.message);
