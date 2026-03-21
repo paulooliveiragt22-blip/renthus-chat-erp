@@ -189,45 +189,60 @@ export async function parseWithClaude(
     const catalogText = buildCatalogText(products, cfg.step);
     const prompt      = buildPrompt(input, catalogText);
 
+    console.log("[DEBUG] Vai chamar Claude API agora...");
+    console.log("[DEBUG] API Key presente:", !!process.env.ANTHROPIC_API_KEY);
+    console.log("[DEBUG] Mensagem (input limpo):", input);
+    console.log("[DEBUG] Model:", cfg.model, "| maxRetries:", cfg.maxRetries, "| timeoutMs:", cfg.timeoutMs);
+
     let lastErr: unknown;
     for (let attempt = 0; attempt < cfg.maxRetries; attempt++) {
+        console.log("[DEBUG] Claude tentativa", attempt + 1, "de", cfg.maxRetries);
+        const controller = new AbortController();
+        const timer = setTimeout(() => {
+            console.error("[DEBUG] Claude TIMEOUT após", cfg.timeoutMs, "ms — abortando");
+            controller.abort();
+        }, cfg.timeoutMs);
+
+        let raw: ClaudeRawResult;
+        let tokensInput  = 0;
+        let tokensOutput = 0;
+
         try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+            const response = await client.messages.create(
+                {
+                    model:      cfg.model,
+                    max_tokens: 600,
+                    messages:   [{ role: "user", content: prompt }],
+                },
+                { signal: controller.signal as any }
+            );
 
-            let raw: ClaudeRawResult;
-            let tokensInput  = 0;
-            let tokensOutput = 0;
+            clearTimeout(timer);
 
-            try {
-                const response = await client.messages.create(
-                    {
-                        model:      cfg.model,
-                        max_tokens: 600,
-                        messages:   [{ role: "user", content: prompt }],
-                    },
-                    { signal: controller.signal as any }
-                );
+            tokensInput  = response.usage?.input_tokens  ?? 0;
+            tokensOutput = response.usage?.output_tokens ?? 0;
+            console.log("[DEBUG] Claude respondeu! Tokens:", { input: tokensInput, output: tokensOutput });
 
-                clearTimeout(timer);
-
-                tokensInput  = response.usage?.input_tokens  ?? 0;
-                tokensOutput = response.usage?.output_tokens ?? 0;
-
-                const text    = response.content[0]?.type === "text" ? response.content[0].text : "";
-                const jsonStr = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-                raw = JSON.parse(jsonStr) as ClaudeRawResult;
-            } finally {
-                clearTimeout(timer);
-            }
+            const text    = response.content[0]?.type === "text" ? response.content[0].text : "";
+            const jsonStr = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+            raw = JSON.parse(jsonStr) as ClaudeRawResult;
 
             return mapClaudeResult(raw, products, cfg.threshold, tokensInput, tokensOutput);
         } catch (err) {
+            clearTimeout(timer);
             lastErr = err;
-            if ((err as any)?.name === "AbortError") break;
+            const errName = (err as any)?.name;
+            const errStatus = (err as any)?.status;
+            const errMsg = (err as any)?.message ?? String(err);
+            console.error("[ERRO CLAUDE] tentativa", attempt + 1, "| name:", errName, "| status:", errStatus, "| message:", errMsg);
+            if (errName === "AbortError") {
+                console.error("[ERRO CLAUDE] AbortError = timeout de", cfg.timeoutMs, "ms atingido");
+                break;
+            }
         }
     }
 
+    console.error("[ERRO CLAUDE] Todas as tentativas falharam. Último erro:", lastErr);
     throw lastErr;
 }
 
