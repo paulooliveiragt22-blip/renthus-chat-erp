@@ -36,8 +36,8 @@ export interface ClaudeParserConfig {
 const DEFAULT_CONFIG: Required<ClaudeParserConfig> = {
     model: "claude-haiku-4-5-20251001",
     threshold: 0.75,
-    maxRetries: 2,
-    timeoutMs: 8000,
+    maxRetries: 1,   // 1 retry máx — 2 retries × 6s = 12s estoura Vercel Hobby (10s)
+    timeoutMs: 5000, // 5s por tentativa → total máx ~6s (dentro do limite de 10s)
     step: "",
 };
 
