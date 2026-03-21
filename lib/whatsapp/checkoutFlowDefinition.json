@@ -1,0 +1,190 @@
+{
+  "version": "3.0",
+  "screens": [
+    {
+      "id": "ADDRESS",
+      "title": "Endereço de Entrega",
+      "data": {
+        "bairros": {
+          "type": "array",
+          "__example__": [
+            { "id": "centro", "title": "Centro" },
+            { "id": "norte",  "title": "Bairro Norte" }
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "id":    { "type": "string" },
+              "title": { "type": "string" }
+            }
+          }
+        },
+        "cart_summary": {
+          "type": "string",
+          "__example__": "2x Heineken 600ml — R$25,00"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextSubheading",
+            "text": "🛒 Seu pedido"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.cart_summary}"
+          },
+          {
+            "type": "Form",
+            "name": "address_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "rua",
+                "label": "Rua / Avenida",
+                "required": true,
+                "input-type": "text",
+                "helper-text": "Ex: Rua das Flores"
+              },
+              {
+                "type": "TextInput",
+                "name": "numero",
+                "label": "Número",
+                "required": true,
+                "input-type": "text",
+                "helper-text": "Ex: 123"
+              },
+              {
+                "type": "TextInput",
+                "name": "complemento",
+                "label": "Complemento (opcional)",
+                "required": false,
+                "input-type": "text",
+                "helper-text": "Ex: Apto 2, Casa B"
+              },
+              {
+                "type": "Dropdown",
+                "name": "bairro",
+                "label": "Bairro",
+                "required": true,
+                "data-source": "${data.bairros}"
+              },
+              {
+                "type": "Footer",
+                "label": "Próximo →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "rua":         "${form.rua}",
+                    "numero":      "${form.numero}",
+                    "complemento": "${form.complemento}",
+                    "bairro":      "${form.bairro}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "PAYMENT",
+      "title": "Forma de Pagamento",
+      "data": {
+        "address_display": {
+          "type": "string",
+          "__example__": "Rua das Flores, 123, Centro"
+        },
+        "cart_summary": {
+          "type": "string",
+          "__example__": "2x Heineken 600ml — R$25,00\nTotal: R$25,00"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextSubheading",
+            "text": "📍 Entrega"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.address_display}"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "🛒 Resumo"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.cart_summary}"
+          },
+          {
+            "type": "Form",
+            "name": "payment_form",
+            "children": [
+              {
+                "type": "RadioButtonsGroup",
+                "name": "payment_method",
+                "label": "Como vai pagar?",
+                "required": true,
+                "data-source": [
+                  { "id": "pix",  "title": "💸 PIX" },
+                  { "id": "card", "title": "💳 Cartão" },
+                  { "id": "cash", "title": "💵 Dinheiro" }
+                ]
+              },
+              {
+                "type": "TextInput",
+                "name": "troco_para",
+                "label": "Troco para (R$)",
+                "required": false,
+                "input-type": "number",
+                "helper-text": "Deixe em branco se não precisar de troco",
+                "visible": "${form.payment_method === 'cash'}"
+              },
+              {
+                "type": "Footer",
+                "label": "Confirmar pedido ✅",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "payment_method": "${form.payment_method}",
+                    "troco_para":     "${form.troco_para}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "SUCCESS",
+      "title": "Pedido Recebido!",
+      "terminal": true,
+      "data": {
+        "order_code": {
+          "type": "string",
+          "__example__": "#A1B2C3D4"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "✅ Dados confirmados!"
+          },
+          {
+            "type": "TextBody",
+            "text": "Seu pedido ${data.order_code} foi recebido. Já estamos preparando! 🍺\n\nFique de olho nas próximas mensagens para confirmar."
+          }
+        ]
+      }
+    }
+  ]
+}
