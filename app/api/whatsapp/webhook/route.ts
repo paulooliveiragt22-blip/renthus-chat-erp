@@ -19,13 +19,6 @@
 
 import { NextResponse, NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processInboundMessage } from "@/lib/chatbot/processMessage";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
-
-const REACTIVATE_MSG =
-    "😔 No momento não há atendentes disponíveis.\n" +
-    "Mas não se preocupe — nosso assistente automático está de volta para te ajudar!\n\n" +
-    "Digite qualquer mensagem para continuar seu pedido.";
 
 export const runtime = "nodejs";
 
@@ -327,61 +320,26 @@ export async function POST(req: Request) {
             last_message_preview: ((bodyText ?? "").slice(0, 120)) || null,
         }).eq("id", threadId);
 
-        // Aciona o chatbot apenas se bot_active != false e houver texto
+        // Enfileira para processamento assíncrono (evita timeout Vercel no webhook)
         if (!bodyText) {
-            console.log("[webhook] bodyText vazio ou tipo não suportado, chatbot não acionado. tipo:", m?.type);
+            console.log("[webhook] bodyText vazio ou tipo não suportado, não enfileirado. tipo:", m?.type);
             continue;
         }
 
-        const { data: threadRow } = await admin
-            .from("whatsapp_threads")
-            .select("bot_active, handover_at")
-            .eq("id", threadId)
-            .maybeSingle();
+        const { error: queueErr } = await admin.from("chatbot_queue").upsert({
+            company_id:   channel.company_id,
+            thread_id:    threadId,
+            phone_e164:   phoneE164,
+            message_id:   messageId,
+            body_text:    bodyText,
+            profile_name: profileName ?? null,
+            metadata:     { channel_id: channel.id },
+        }, { onConflict: "message_id", ignoreDuplicates: true });
 
-        console.log("[webhook] bot_active:", threadRow?.bot_active, "| handover_at:", threadRow?.handover_at);
-
-        if (threadRow?.bot_active === false) {
-            const handoverAt     = threadRow.handover_at ? new Date(threadRow.handover_at) : null;
-            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-
-            if (!handoverAt || handoverAt > fiveMinutesAgo) {
-                console.log("[webhook] bot inativo (handover recente), chatbot não acionado");
-                continue;
-            }
-
-            // Handover expirado (> 5 min sem resposta humana) → reativa bot
-            console.log("[webhook] reativando bot após handover expirado | threadId:", threadId);
-
-            await admin
-                .from("whatsapp_threads")
-                .update({ bot_active: true, handover_at: null })
-                .eq("id", threadId);
-
-            await admin
-                .from("chatbot_sessions")
-                .delete()
-                .eq("thread_id", threadId);
-
-            await sendWhatsAppMessage(phoneE164, REACTIVATE_MSG);
-            // Após reativar, processa a mensagem atual normalmente pelo chatbot
-        }
-
-        console.log("[webhook] → chamando processInboundMessage para thread:", threadId, "company:", channel.company_id);
-
-        try {
-            await processInboundMessage({
-                admin,
-                companyId:   channel.company_id,
-                threadId,
-                messageId:   messageId ?? "",
-                phoneE164,
-                text:        bodyText,
-                profileName,
-            });
-            console.log("[webhook] processInboundMessage concluído");
-        } catch (err) {
-            console.error("[chatbot] processInboundMessage ERRO:", err);
+        if (queueErr) {
+            console.error("[webhook] falha ao enfileirar mensagem:", queueErr.message);
+        } else {
+            console.log("[webhook] mensagem enfileirada na chatbot_queue:", messageId);
         }
     }
 
