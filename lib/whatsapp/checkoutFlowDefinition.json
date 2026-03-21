@@ -63,7 +63,7 @@
               {
                 "type": "TextInput",
                 "name": "complemento",
-                "label": "Complemento (opcional)",
+                "label": "Complemento",
                 "required": false,
                 "input-type": "text",
                 "helper-text": "Ex: Apto 2, Casa B"
