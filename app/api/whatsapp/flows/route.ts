@@ -108,35 +108,20 @@ export async function POST(req: NextRequest) {
         return new NextResponse(response, { headers: { "Content-Type": "text/plain" } });
     }
 
-    // ── INIT — retorna dados iniciais da tela ADDRESS ─────────────────────────
+    // ── INIT — retorna tela CEP_SEARCH com resumo do carrinho ────────────────
     if (action === "INIT") {
         const ids = parseFlowToken(flow_token);
         if (!ids) {
             return encryptedError("invalid_token", aesKey, iv);
         }
 
-        const { threadId, companyId } = ids;
+        const { threadId } = ids;
 
-        // Carrega bairros (delivery_zones) e carrinho da sessão
-        const [zonesResult, sessionResult] = await Promise.all([
-            admin
-                .from("delivery_zones")
-                .select("id, label, fee")
-                .eq("company_id", companyId)
-                .eq("is_active", true)
-                .order("fee", { ascending: true })
-                .limit(20),
-            admin
-                .from("chatbot_sessions")
-                .select("cart, context")
-                .eq("thread_id", threadId)
-                .maybeSingle(),
-        ]);
-
-        const bairros = (zonesResult.data ?? []).map((z) => ({
-            id:    z.id,
-            title: `${z.label}${z.fee > 0 ? ` (+${formatCurrency(z.fee)})` : " (grátis)"}`,
-        }));
+        const sessionResult = await admin
+            .from("chatbot_sessions")
+            .select("cart")
+            .eq("thread_id", threadId)
+            .maybeSingle();
 
         const cart = (sessionResult.data?.cart ?? []) as Array<{ name: string; qty: number; price: number }>;
         const cartSummary = formatCart(cart);
@@ -144,11 +129,8 @@ export async function POST(req: NextRequest) {
         const response = encryptFlowResponse(
             {
                 version: "3.0",
-                screen:  "ADDRESS",
-                data:    {
-                    bairros,
-                    cart_summary: cartSummary,
-                },
+                screen:  "CEP_SEARCH",
+                data:    { cart_summary: cartSummary },
             },
             aesKey,
             iv
@@ -163,26 +145,82 @@ export async function POST(req: NextRequest) {
 
         const { threadId, companyId } = ids;
 
+        // ── Tela CEP_SEARCH → busca ViaCEP e navega para ADDRESS ────────────
+        if (screen === "CEP_SEARCH") {
+            const rawCep = String(formData?.cep ?? "").replace(/\D/g, "");
+
+            let ruaInit    = "";
+            let bairroInit = "";
+
+            if (rawCep.length === 8) {
+                try {
+                    const viaCepRes  = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`, { signal: AbortSignal.timeout(5000) });
+                    const viaCepData = await viaCepRes.json().catch(() => ({})) as Record<string, string>;
+                    if (!viaCepData.erro) {
+                        ruaInit    = viaCepData.logradouro ?? "";
+                        bairroInit = viaCepData.bairro     ?? "";
+                    }
+                } catch {
+                    // CEP inválido ou timeout — continua sem pré-preenchimento
+                    console.warn("[flows] ViaCEP falhou para CEP:", rawCep);
+                }
+            }
+
+            // Carrega carrinho para exibir no ADDRESS
+            const sessionResult = await admin
+                .from("chatbot_sessions")
+                .select("cart")
+                .eq("thread_id", threadId)
+                .maybeSingle();
+            const cart = (sessionResult.data?.cart ?? []) as Array<{ name: string; qty: number; price: number }>;
+
+            const response = encryptFlowResponse(
+                {
+                    version: "3.0",
+                    screen:  "ADDRESS",
+                    data:    {
+                        rua_init:     ruaInit,
+                        bairro_init:  bairroInit,
+                        cart_summary: formatCart(cart),
+                    },
+                },
+                aesKey,
+                iv
+            );
+            return new NextResponse(response, { headers: { "Content-Type": "text/plain" } });
+        }
+
         // ── Tela ADDRESS → navega para PAYMENT ───────────────────────────────
         if (screen === "ADDRESS") {
             const rua         = String(formData?.rua         ?? "").trim();
             const numero      = String(formData?.numero      ?? "").trim();
             const complemento = String(formData?.complemento ?? "").trim();
-            const bairroId    = String(formData?.bairro      ?? "");
+            const bairroText  = String(formData?.bairro      ?? "").trim();
             const apelido     = String(formData?.apelido     ?? "").trim() || "Entrega";
 
-            if (!rua || !numero || !bairroId) {
+            if (!rua || !numero || !bairroText) {
                 return encryptedError("missing_address_fields", aesKey, iv);
             }
 
-            // Busca zona de entrega
-            const { data: zoneRow } = await admin
+            // Busca zona de entrega por texto (match em label e neighborhoods)
+            const { data: allZones } = await admin
                 .from("delivery_zones")
-                .select("id, label, fee")
-                .eq("id", bairroId)
-                .maybeSingle();
+                .select("id, label, fee, neighborhoods")
+                .eq("company_id", companyId)
+                .eq("is_active", true);
 
-            const bairroLabel = zoneRow?.label ?? bairroId;
+            const normalizedBairro = bairroText.toLowerCase();
+            const zoneRow = (allZones ?? []).find((z) => {
+                if (z.label.toLowerCase().includes(normalizedBairro) || normalizedBairro.includes(z.label.toLowerCase())) return true;
+                if (Array.isArray(z.neighborhoods)) {
+                    return z.neighborhoods.some((n: string) =>
+                        n.toLowerCase().includes(normalizedBairro) || normalizedBairro.includes(n.toLowerCase())
+                    );
+                }
+                return false;
+            }) ?? null;
+
+            const bairroLabel = zoneRow?.label ?? bairroText;
             const deliveryFee = zoneRow ? Number(zoneRow.fee) : 0;
             const address     = [rua, numero, complemento, bairroLabel]
                 .filter(Boolean)

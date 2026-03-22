@@ -2,28 +2,15 @@
   "version": "7.3",
   "data_api_version": "3.0",
   "routing_model": {
-    "ADDRESS": ["PAYMENT"],
-    "PAYMENT": ["SUCCESS"]
+    "CEP_SEARCH": ["ADDRESS"],
+    "ADDRESS":    ["PAYMENT"],
+    "PAYMENT":    ["SUCCESS"]
   },
   "screens": [
     {
-      "id": "ADDRESS",
+      "id": "CEP_SEARCH",
       "title": "Endereço de Entrega",
       "data": {
-        "bairros": {
-          "type": "array",
-          "__example__": [
-            { "id": "centro", "title": "Centro" },
-            { "id": "norte",  "title": "Bairro Norte" }
-          ],
-          "items": {
-            "type": "object",
-            "properties": {
-              "id":    { "type": "string" },
-              "title": { "type": "string" }
-            }
-          }
-        },
         "cart_summary": {
           "type": "string",
           "__example__": "2x Heineken 600ml — R$25,00"
@@ -42,6 +29,54 @@
           },
           {
             "type": "Form",
+            "name": "cep_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "cep",
+                "label": "CEP",
+                "required": false,
+                "input-type": "number",
+                "helper-text": "Digite seu CEP para buscar o endereço automaticamente (opcional)"
+              },
+              {
+                "type": "Footer",
+                "label": "Continuar →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "cep": "${form.cep}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "ADDRESS",
+      "title": "Endereço de Entrega",
+      "data": {
+        "rua_init": {
+          "type": "string",
+          "__example__": ""
+        },
+        "bairro_init": {
+          "type": "string",
+          "__example__": ""
+        },
+        "cart_summary": {
+          "type": "string",
+          "__example__": "2x Heineken 600ml — R$25,00"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
             "name": "address_form",
             "children": [
               {
@@ -50,7 +85,8 @@
                 "label": "Rua / Avenida",
                 "required": true,
                 "input-type": "text",
-                "helper-text": "Ex: Rua das Flores"
+                "helper-text": "Ex: Rua das Flores",
+                "init-value": "${data.rua_init}"
               },
               {
                 "type": "TextInput",
@@ -59,6 +95,15 @@
                 "required": true,
                 "input-type": "text",
                 "helper-text": "Ex: 123"
+              },
+              {
+                "type": "TextInput",
+                "name": "bairro",
+                "label": "Bairro",
+                "required": true,
+                "input-type": "text",
+                "helper-text": "Ex: Centro, Jardim América",
+                "init-value": "${data.bairro_init}"
               },
               {
                 "type": "TextInput",
@@ -77,13 +122,6 @@
                 "helper-text": "Ex: Casa, Trabalho"
               },
               {
-                "type": "Dropdown",
-                "name": "bairro",
-                "label": "Bairro",
-                "required": true,
-                "data-source": "${data.bairros}"
-              },
-              {
                 "type": "Footer",
                 "label": "Próximo →",
                 "on-click-action": {
@@ -91,8 +129,8 @@
                   "payload": {
                     "rua":         "${form.rua}",
                     "numero":      "${form.numero}",
-                    "complemento": "${form.complemento}",
                     "bairro":      "${form.bairro}",
+                    "complemento": "${form.complemento}",
                     "apelido":     "${form.apelido}"
                   }
                 }
