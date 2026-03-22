@@ -268,7 +268,15 @@ export async function handleCatalogProducts(
         const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_categories",
-            context: { ...session.context, categories },
+            context: {
+                ...session.context,
+                categories,
+                // Limpa flags que poderiam travar o catálogo
+                awaiting_neighborhood: false,
+                pending_variant:       null,
+                pending_is_case:       null,
+                unit_case_choice:      false,
+            },
         });
         await sendListMessage(
             phoneE164,
@@ -277,6 +285,28 @@ export async function handleCatalogProducts(
             categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
             "Categorias"
         );
+        return;
+    }
+
+    // ── Navegar para carrinho ─────────────────────────────────────────────────
+    // Intercept BEFORE awaiting_neighborhood so "ver_carrinho" always works
+    if (input === "ver_carrinho" || CARRINHO_RE.test(input) || VER_CARRINHO_RE.test(input)) {
+        await goToCartFn(admin, companyId, threadId, phoneE164, {
+            ...session,
+            context: { ...session.context, awaiting_neighborhood: false, pending_variant: null },
+        });
+        return;
+    }
+
+    // ── Finalizar pedido ──────────────────────────────────────────────────────
+    // Intercept BEFORE awaiting_neighborhood as extra safety (global CHECKOUT_KEYWORDS
+    // in processMessage.ts already catches "finalizar", but this handles the local scope)
+    if (input === "finalizar" || FINALIZAR_RE.test(input) || FECHAR_RE.test(input) || CHECKOUT_CAT_RE.test(input)) {
+        if (!session.cart.length) {
+            await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
+            return;
+        }
+        await goToCheckoutFromCartFn(admin, companyId, threadId, phoneE164, session);
         return;
     }
 
@@ -420,27 +450,23 @@ export async function handleCatalogProducts(
         return;
     }
 
-    // ── Navegar para carrinho ou finalizar ────────────────────────────────────
-    if (input === "ver_carrinho" || CARRINHO_RE.test(input) || VER_CARRINHO_RE.test(input)) {
-        await goToCartFn(admin, companyId, threadId, phoneE164, session);
-        return;
-    }
-
-    if (input === "finalizar" || FINALIZAR_RE.test(input) || FECHAR_RE.test(input) || CHECKOUT_CAT_RE.test(input)) {
-        if (!session.cart.length) {
-            await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
-            return;
-        }
-        await goToCheckoutFromCartFn(admin, companyId, threadId, phoneE164, session);
-        return;
-    }
-
     // ── Aguardando quantidade (ou opção+quantidade quando unit_case_choice) ─────
     const pendingVariant  = session.context.pending_variant as VariantRow | undefined;
     const pendingIsCase   = session.context.pending_is_case as boolean   | undefined;
     const unitCaseChoice  = session.context.unit_case_choice as boolean  | undefined;
 
     if (pendingVariant) {
+        // If user sent a known navigation button, bail out of quantity-awaiting
+        // (these should have been caught above, but guard against stale pending_variant)
+        const KNOWN_BUTTONS = ["mais_produtos", "ver_carrinho", "finalizar", "ver_mais"];
+        if (KNOWN_BUTTONS.includes(input)) {
+            await saveSession(admin, threadId, companyId, {
+                context: { ...session.context, pending_variant: null, pending_is_case: null, unit_case_choice: false },
+            });
+            await reply(phoneE164, "Escolha um produto para adicionar ao pedido, ou escreva o que você precisa.");
+            return;
+        }
+
         let opt = 1;
         let qty = 1;
         if (unitCaseChoice) {
