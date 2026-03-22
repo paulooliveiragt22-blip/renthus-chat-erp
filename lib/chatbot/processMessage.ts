@@ -1776,7 +1776,15 @@ export async function processInboundMessage(
     // ── 1. Global reset (menu/oi/ola/reiniciar — WITHOUT cancelar) ───────────
     if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-        await reply(phoneE164, buildMainMenu(companyName));
+        await sendInteractiveButtons(
+            phoneE164,
+            `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nVocê pode digitar o que precisa que já vejo pra você.`,
+            [
+                { id: "1", title: "🍺 Ver cardápio" },
+                { id: "2", title: "📦 Meu pedido" },
+                { id: "3", title: "🙋 Falar c/ atendente" },
+            ]
+        );
         return;
     }
 
