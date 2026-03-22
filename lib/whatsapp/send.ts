@@ -137,7 +137,6 @@ export async function sendFlowMessage(
                     flow_action:          "data_exchange",
                     mode:                 params.mode ?? "published",
                     flow_cta:             params.ctaLabel.slice(0, 20),
-                    flow_action_payload:  { screen: "ADDRESS" },
                 },
             },
         },
