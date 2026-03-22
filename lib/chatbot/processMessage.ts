@@ -229,11 +229,22 @@ function mergeCart(existing: CartItem[], toAdd: CartItem[]): CartItem[] {
  */
 const NUMBER_EMOJIS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
 
+/**
+ * Retorna true quando o VariantRow representa uma embalagem bulk (CX/FARD/PAC).
+ * Dois casos: produto CX-only (id === caseVariantId) ou variante CX de produto UN+CX
+ * adicionada ao displayVariants com id sobrescrito.
+ */
+function isCaseVariant(v: VariantRow): boolean {
+    return v.hasCase && !!v.caseVariantId && v.id === v.caseVariantId;
+}
+
 function formatNumberedList(variants: VariantRow[]): string {
     return variants.map((v, i) => {
-        const name  = buildProductDisplayName(v);
-        const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
-        return `${emoji} *${name}* — ${formatCurrency(v.unitPrice)}`;
+        const isCase = isCaseVariant(v);
+        const name   = buildProductDisplayName(v, isCase);
+        const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
+        const emoji  = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
+        return `${emoji} *${name}* — ${formatCurrency(price)}`;
     }).join("\n");
 }
 
@@ -1244,9 +1255,9 @@ async function handleFreeTextInput(
             const displayName = effective[0].productName;
             const displayVariants: VariantRow[] = [];
             for (const v of variants) {
-                displayVariants.push(v); // UN variant
-                // Add CX variant as separate entry if exists
-                if (v.hasCase && v.caseVariantId) {
+                displayVariants.push(v); // UN (ou CX-only já com id=caseVariantId)
+                // Para UN+CX: adiciona a variante CX separada (CX-only não entra aqui pois id===caseVariantId)
+                if (v.hasCase && v.caseVariantId && v.id !== v.caseVariantId) {
                     displayVariants.push({
                         ...v,
                         id: v.caseVariantId,
@@ -1257,10 +1268,11 @@ async function handleFreeTextInput(
 
             if (displayVariants.length >= 1) {
                 const listLines = displayVariants.slice(0, 9).map((v, i) => {
-                    const emoji = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
-                    const isCase = variants.some(orig => orig.caseVariantId === v.id && orig.id !== v.id);
-                    const name = buildProductDisplayName(v, isCase);
-                    return `${emoji} *${name}* — ${formatCurrency(v.unitPrice)}`;
+                    const emoji  = NUMBER_EMOJIS[i] ?? `${i + 1}.`;
+                    const isCase = isCaseVariant(v);
+                    const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
+                    const name   = buildProductDisplayName(v, isCase);
+                    return `${emoji} *${name}* — ${formatCurrency(price)}`;
                 });
                 await saveSession(admin, threadId, companyId, {
                     step: "awaiting_variant_selection",
@@ -2919,7 +2931,9 @@ async function handleCatalogProducts(
         if (indices.length === 1) {
             // Seleção simples → pergunta quantidade
             const v       = variants[indices[0]];
-            const label   = `*${buildProductDisplayName(v)}* — ${formatCurrency(v.unitPrice)}`;
+            const isCaseV = isCaseVariant(v);
+            const vPrice  = isCaseV ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
+            const label   = `*${buildProductDisplayName(v, isCaseV)}* — ${formatCurrency(vPrice)}`;
             const caseInfo = v.hasCase && v.casePrice
                 ? `\n_Também disponível em caixa com ${v.caseQty}un por ${formatCurrency(v.casePrice)}._`
                 : "";
@@ -4171,8 +4185,10 @@ async function handleAwaitingVariantSelection(
 
     if (!selections.length) {
         const listText = variantOptions.map((v, i) => {
-            const nm = buildProductDisplayName(v);
-            return `${NUMBER_EMOJIS[i] ?? `${i+1}.`} *${nm}* — ${formatCurrency(v.unitPrice)}`;
+            const isCase = isCaseVariant(v);
+            const nm     = buildProductDisplayName(v, isCase);
+            const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
+            return `${NUMBER_EMOJIS[i] ?? `${i+1}.`} *${nm}* — ${formatCurrency(price)}`;
         }).join("\n");
         await reply(phoneE164, `Digite o número da opção:\n\n${listText}\n\n_Ex: "1" para primeira opção, "1 2" para duas opções, "3x1" para 3 unidades da opção 1_`);
         return;
