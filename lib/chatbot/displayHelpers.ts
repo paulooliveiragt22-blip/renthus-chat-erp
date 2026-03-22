@@ -43,7 +43,7 @@ export function buildProductDisplayName(v: DisplayableVariant, isCase = false): 
         // 1) Sigla estruturada (JOIN com unit_types): "ml", "L", "kg" — confiável
         // 2) Fallback: campo unit do produto, mas ignora genéricos "un"/"UN"
         const unitStr = v.unitTypeSigla ?? (
-            v.unit && !/^un(d|idade|idades)?$/i.test(v.unit)
+            v.unit && !/^un(d|idade|idades)?$/iu.test(v.unit)
                 ? v.unit
                 : null
         );
@@ -64,12 +64,12 @@ export function buildProductDisplayName(v: DisplayableVariant, isCase = false): 
  * Ex: "600" → "600", "350ml" → "350ml", "1L" → "1L", "latinha" → null
  */
 export function parseVolumeFromText(text: string): string | null {
-    const m = text.trim().match(/^(\d+(?:[.,]\d+)?)\s*(ml|l|litro|litros|g|kg)?\s*$/i);
+    const m = text.trim().match(/^(\d+(?:[.,]\d+)?)\s*(ml|l|litro|litros|g|kg)?\s*$/iu);
     if (!m) return null;
     const num     = m[1];
     const rawUnit = m[2] ? m[2].toLowerCase() : "";
     // Normaliza: "litro"/"litros" → "L"; "l" sozinho → "L"; outros mantêm lowercase
-    const unit    = rawUnit === "l" || /^litros?$/i.test(rawUnit) ? "L" : rawUnit;
+    const unit    = rawUnit === "l" || /^litros?$/iu.test(rawUnit) ? "L" : rawUnit;
     return unit ? `${num}${unit}` : num;
 }
 

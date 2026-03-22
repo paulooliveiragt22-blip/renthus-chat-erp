@@ -19,6 +19,18 @@ import { handleFreeTextInput } from "./handleFreeText";
 import { buildProductDisplayName } from "../displayHelpers";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../../whatsapp/send";
 
+// ─── Regex de módulo ──────────────────────────────────────────────────────────
+const MAIS_PRODUTOS_RE = /\bmais\s+produtos\b/iu;
+const VER_CARRINHO_RE  = /\bver\s+carrinho\b/iu;
+const CARRINHO_RE      = /\bcarrinho\b/iu;
+const FINALIZAR_RE     = /\bfinalizar\b/iu;
+const FECHAR_RE        = /\bfechar\b/iu;
+const CHECKOUT_CAT_RE  = /\bcheckout\b/iu;
+const ONLY_NUMS_RE     = /^[\d,\s]+$/u;
+const HAS_DIGIT_RE     = /\d/u;
+const SPLIT_NUMS_RE    = /[,\s]+/u;
+const PARTS_SPLIT_RE   = /\s+/u;
+
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
 async function reply(phoneE164: string, text: string): Promise<void> {
@@ -179,7 +191,7 @@ export async function handleCatalogBrands(
     const categoryId = (session.context.category_id  as string)  ?? "";
 
     // Mais produtos → volta ao início do catálogo
-    if (input === "mais_produtos" || /\bmais produtos\b/i.test(input)) {
+    if (input === "mais_produtos" || MAIS_PRODUTOS_RE.test(input)) {
         const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_categories",
@@ -251,7 +263,7 @@ export async function handleCatalogProducts(
     const brandName  = (session.context.brand_name   as string)      ?? "";
 
     // ── Mais produtos → volta ao início do catálogo ───────────────────────────
-    if (input === "mais_produtos" || /\bmais produtos\b/i.test(input)) {
+    if (input === "mais_produtos" || MAIS_PRODUTOS_RE.test(input)) {
         const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
         await saveSession(admin, threadId, companyId, {
             step:    "catalog_categories",
@@ -327,12 +339,12 @@ export async function handleCatalogProducts(
 
     // ── Seleção numérica (quando vem de lista numerada em texto) ──────────────
     const isNumberedSearch = Boolean(session.context.search_numbered);
-    const looksNumeric     = /^[\d,\s]+$/.test(input.trim()) && /\d/.test(input);
+    const looksNumeric     = ONLY_NUMS_RE.test(input.trim()) && HAS_DIGIT_RE.test(input);
 
     if (isNumberedSearch && looksNumeric && !session.context.pending_variant) {
         // Parse: "2" → [1]   "1,3" → [0,2]   "1 3 5" → [0,2,4]
         const indices = input
-            .split(/[,\s]+/)
+            .split(SPLIT_NUMS_RE)
             .map((s) => parseInt(s.trim(), 10) - 1)
             .filter((i) => !isNaN(i) && i >= 0 && i < variants.length);
 
@@ -405,12 +417,12 @@ export async function handleCatalogProducts(
     }
 
     // ── Navegar para carrinho ou finalizar ────────────────────────────────────
-    if (input === "ver_carrinho" || /\bcarrinho\b/i.test(input) || /\bver carrinho\b/i.test(input)) {
+    if (input === "ver_carrinho" || CARRINHO_RE.test(input) || VER_CARRINHO_RE.test(input)) {
         await goToCartFn(admin, companyId, threadId, phoneE164, session);
         return;
     }
 
-    if (input === "finalizar" || /\bfinalizar\b/i.test(input) || /\bfechar\b/i.test(input) || /\bcheckout\b/i.test(input)) {
+    if (input === "finalizar" || FINALIZAR_RE.test(input) || FECHAR_RE.test(input) || CHECKOUT_CAT_RE.test(input)) {
         if (!session.cart.length) {
             await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
             return;
@@ -428,7 +440,7 @@ export async function handleCatalogProducts(
         let opt = 1;
         let qty = 1;
         if (unitCaseChoice) {
-            const parts = input.trim().split(/\s+/).filter(Boolean);
+            const parts = input.trim().split(PARTS_SPLIT_RE).filter(Boolean);
             if (parts.length >= 2) {
                 const o = parseInt(parts[0], 10);
                 const q = parseInt(parts[1], 10);

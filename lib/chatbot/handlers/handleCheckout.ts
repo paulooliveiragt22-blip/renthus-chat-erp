@@ -50,7 +50,7 @@ export function isAddressComplete(session: Session): boolean {
     if (structured?.numero && String(structured.numero).trim().length > 0) return true;
     if (session.context.address_draft && session.context.address_validation_error) return false;
     const addr = (session.context.delivery_address as string) ?? "";
-    return /\d{1,5}/.test(addr);
+    return /\d{1,5}/u.test(addr);
 }
 
 // ─── sendOrderSummary ─────────────────────────────────────────────────────────
@@ -888,8 +888,8 @@ export async function handleAwaitingSplitOrder(
     session: Session
 ): Promise<void> {
     const normInput = input.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-    const isSplit = normInput === "1" || /\bsepar/i.test(input);
-    const isSingle = normInput === "2" || /\b(mesmo|unico|único|so um)\b/i.test(input);
+    const isSplit = normInput === "1" || /\bsepar/iu.test(input);
+    const isSingle = normInput === "2" || /\b(mesmo|unico|único|so\s+um)\b/iu.test(input);
 
     if (isSplit) {
         await saveSession(admin, threadId, companyId, {

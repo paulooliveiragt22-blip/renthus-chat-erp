@@ -128,7 +128,7 @@ export async function handleAwaitingAddressNumber(
         return;
     }
 
-    const numMatch = input.trim().match(/(\d{1,5})/);
+    const numMatch = input.trim().match(/(\d{1,5})/u);
     const number = numMatch ? numMatch[1] : input.trim();
     if (!number) {
         await reply(phoneE164, "Por favor, digite apenas o *número* do endereço (ex: 120).");

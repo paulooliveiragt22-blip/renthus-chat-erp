@@ -63,10 +63,18 @@ async function reply(phoneE164: string, text: string): Promise<void> {
 // ─── Regex Layer 1 ────────────────────────────────────────────────────────────
 
 /** Saudações puras — sem nenhum conteúdo de produto junto */
-const GREETING_ONLY_RE = /^(bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|como\s+vai|como\s+voce|boa\s+noite|feliz\s+ano|feliz\s+natal|obrigad[oa]|obg|valeu|vlw|tchau|ate\s+mais)\s*[!?.,]?\s*$/i;
+const GREETING_ONLY_RE = /^(bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|como\s+vai|como\s+voce|feliz\s+ano|feliz\s+natal|obrigad[oa]|obg|valeu|vlw|tchau|ate\s+mais)\s*[!?.,]?\s*$/iu;
 
 /** Consulta de status/localização do pedido */
-const ORDER_STATUS_RE = /\b(cad[eê](\s+meu)?|onde\s+est[aá]|onde\s+ficou|status\s+d[oe]\s+pedido|meu\s+pedido|acompanhar\s+pedido|quanto\s+tempo\s+(falta|vai|leva)|previs[aã]o\s+de\s+entrega)\b/i;
+const ORDER_STATUS_RE = /\b(cad[eê](\s+meu)?|onde\s+est[aá]|onde\s+ficou|status\s+d[oe]\s+pedido|meu\s+pedido|acompanhar\s+pedido|quanto\s+tempo\s+(falta|vai|leva)|previs[aã]o\s+de\s+entrega)\b/iu;
+
+// ─── Regex de módulo (evita recriação por chamada) ────────────────────────────
+const REMOVE_VERBS_RE      = /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/giu;
+const CANCELAR_TEST_RE     = /\b(cancelar|cancela)\b/iu;
+const CANCELAR_STRIP_RE    = /\b(cancelar|cancela)\b/giu;
+const AWAIT_CANCEL_YES_RE  = /\b(sim|s|yes|pode|confirm|cancela|cancelo)\b/iu;
+const AWAIT_CANCEL_NO_RE   = /\b(nao|n|no|nope|voltar|continuar|nao\s+quero)\b/iu;
+const AFFIRMATIVE_RE       = /\b(sim|s|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda|confirmar)\b/iu;
 
 // ─── Ponto de entrada ─────────────────────────────────────────────────────────
 
@@ -141,8 +149,8 @@ export async function processInboundMessage(
     // ── 4. Remove intent (retira/tira/cancela + product) — before cancelar-alone check ──
     if (detectRemoveIntent(input) && session.cart.length > 0) {
         const normIn = normalize(input);
-        const withoutVerb = normIn.replace(/\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/gi, "").trim();
-        const removeTerms = withoutVerb.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+        const withoutVerb = normIn.replace(REMOVE_VERBS_RE, "").trim();
+        const removeTerms = withoutVerb.split(/\s+/u).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
         if (removeTerms.length > 0) {
             const idx = session.cart.findIndex((c) => removeTerms.some((t) => normalize(c.name).includes(t)));
             if (idx >= 0) {
@@ -159,11 +167,11 @@ export async function processInboundMessage(
     }
 
     // ── 5. Cancel handling (cancelar alone → awaiting_cancel_confirm; cancelar + product → remove) ──
-    const isCancelarInput = /\b(cancelar|cancela)\b/i.test(input);
+    const isCancelarInput = CANCELAR_TEST_RE.test(input);
     if (isCancelarInput) {
         const normIn = normalize(input);
-        const withoutCancel = normIn.replace(/\b(cancelar|cancela)\b/g, "").trim();
-        const cancelTerms = withoutCancel.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+        const withoutCancel = normIn.replace(CANCELAR_STRIP_RE, "").trim();
+        const cancelTerms = withoutCancel.split(/\s+/u).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
 
         if (cancelTerms.length > 0) {
             // Has product terms → try to remove from cart
@@ -202,8 +210,8 @@ export async function processInboundMessage(
 
     // ── 6. awaiting_cancel_confirm step handler ───────────────────────────────
     if (session.step === "awaiting_cancel_confirm") {
-        const isYes = /\b(sim|s|yes|pode|confirm|cancela|cancelo)\b/i.test(normalize(input));
-        const isNo  = /\b(nao|n|no|nope|voltar|continuar|nao quero)\b/i.test(normalize(input));
+        const isYes = AWAIT_CANCEL_YES_RE.test(normalize(input));
+        const isNo  = AWAIT_CANCEL_NO_RE.test(normalize(input));
         if (isYes) {
             await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
             await reply(phoneE164, buildMainMenu(companyName));
@@ -219,7 +227,7 @@ export async function processInboundMessage(
 
     // ── 7. Affirmative/negative global (checkout_confirm + other steps) ───────
     {
-        const isAffirmative = /\b(sim|s|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda)\b/i.test(input);
+        const isAffirmative = AFFIRMATIVE_RE.test(input);
         if (isAffirmative && session.step === "checkout_confirm") {
             await handleCheckoutConfirm(admin, companyId, threadId, phoneE164, companyName, "confirmar", session);
             return;

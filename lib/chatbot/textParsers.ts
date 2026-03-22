@@ -8,6 +8,19 @@
 import type { AddressMatch, VariantRow } from "./types";
 import { normalize, STOPWORDS, QUANTITY_WORDS_NORM } from "./utils";
 
+// ─── Regex de módulo ──────────────────────────────────────────────────────────
+const PAY_1_RE         = /^\s*1\s*$/u;
+const PAY_2_RE         = /^\s*2\s*$/u;
+const PAY_3_RE         = /^\s*3\s*$/u;
+const PIX_RE           = /\bpix\b/iu;
+const CARD_RE          = /\b(cartao|cartão|card|credito|crédito|debito|débito|maquina|maquininha)\b/iu;
+const CASH_RE          = /\b(dinheiro|cash|especie|espécie)\b/iu;
+const VOL_WORD_RE      = /\b(ml|litro|litros|kg|cx|caixa|fardo|pac|lata)\b/iu;
+const VOL_NUM_RE       = /\d+\s*(ml|l|kg|litro)/iu;
+const REMOVE_INTENT_RE = /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/iu;
+const GREET_STRIP_RE   = /^(bom\s+dia|boa\s+tarde|boa\s+noite|oi+|ol[aá]|e\s*a[ií]|ei+|hey|hello|opa)[,!\s]+/iu;
+const POLITE_STRIP_RE  = /[\s,]*(por\s+favor|pfv+|pf|obrigad[oa]|obg|valeu|vlw)\s*[!.,]?\s*$/iu;
+
 // ─── Endereço ─────────────────────────────────────────────────────────────────
 
 /**
@@ -20,7 +33,7 @@ import { normalize, STOPWORDS, QUANTITY_WORDS_NORM } from "./utils";
  */
 export function extractAddressFromText(input: string): AddressMatch | null {
     // Padrão principal — captura prefixo + nome + número
-    const ADDR_RE = /\b(rua|r\.|av\.?|avenida|alameda|travessa|trav\.?|estrada|rodovia|pra[cç]a|p[cç][ao]\.?|beco|viela|setor|quadra|qd\.?)\s+([\wÀ-úÀ-ÿ\s]{2,50}?)[\s,]*(?:n[º°oa]?\.?\s*)?(\d{1,5})\b/i;
+    const ADDR_RE = /\b(rua|r\.?|av\.?|avenida|alameda|travessa|trav\.?|estrada|rodovia|pra[cç]a|p[cç][ao]\.?|beco|viela|setor|quadra|qd\.?)\s+([\wÀ-úÀ-ÿ]+(?:\s+[\wÀ-úÀ-ÿ]+){0,8}?)[\s,]*(?:n[º°oa]?\.?\s*)?(\d{1,5})\b/iu;
 
     const m = input.match(ADDR_RE);
     if (!m) return null;
@@ -33,7 +46,7 @@ export function extractAddressFromText(input: string): AddressMatch | null {
     // Tenta capturar bairro: texto após o número e possível vírgula/hífen/espaço
     const afterAddr = input.slice(input.indexOf(rawSlice) + rawSlice.length).trim();
     // Bairro = 1ª sequência de palavras (até vírgula, ponto, ou fim)
-    const neighMatch = afterAddr.match(/^[\s,\-–]+([A-Za-zÀ-úÀ-ÿ][A-Za-zÀ-úÀ-ÿ\s]{1,40}?)(?:[,;.]|$)/i);
+    const neighMatch = afterAddr.match(/^[\s,\-–]+([A-Za-zÀ-úÀ-ÿ][\wÀ-úÀ-ÿ]*(?:\s+[\wÀ-úÀ-ÿ]+){0,8}?)(?:[,;.]|$)/iu);
     const neighborhood = neighMatch ? neighMatch[1].trim() : null;
 
     const street = `${prefix.charAt(0).toUpperCase() + prefix.slice(1).toLowerCase()} ${streetName}`;
@@ -48,7 +61,7 @@ export function extractAddressFromText(input: string): AddressMatch | null {
 export function detectAddressAnywhere(input: string): AddressMatch | { full: string; rawSlice: string } | null {
     const m = extractAddressFromText(input);
     if (m) return m;
-    const fallback = input.match(/\b(?:na|no)\s+(?:rua|r\.|av\.?|avenida)\s+([\wÀ-úÀ-ÿ\s,]{5,80}?)(?:\s*$|[.,]|$)/i);
+    const fallback = input.match(/\b(?:na|no)\s+(?:rua|r\.?|av\.?|avenida)\s+([\wÀ-úÀ-ÿ]+(?:[\s,]+[\wÀ-úÀ-ÿ]+){0,12}?)(?:\s*$|[.,]|$)/iu);
     if (fallback) {
         const raw = fallback[0].trim();
         return { full: raw.replace(/^(?:na|no)\s+/i, "").trim(), rawSlice: raw };
@@ -57,7 +70,7 @@ export function detectAddressAnywhere(input: string): AddressMatch | { full: str
 }
 
 export function detectMultipleAddresses(input: string): string[] | null {
-    const ADDR_RE = /\b(?:rua|r\.|av\.?|avenida|alameda|travessa|estrada|rodovia|pra[cç]a|setor|quadra)\s+[\wÀ-úÀ-ÿ\s]{2,50}?\s+\d{1,5}\b/gi;
+    const ADDR_RE = /\b(?:rua|r\.?|av\.?|avenida|alameda|travessa|estrada|rodovia|pra[cç]a|setor|quadra)\s+[\wÀ-úÀ-ÿ]+(?:\s+[\wÀ-úÀ-ÿ]+){0,8}?\s+\d{1,5}\b/giu;
     const matches = input.match(ADDR_RE);
     if (matches && matches.length >= 2) return matches;
     return null;
@@ -70,7 +83,7 @@ export function extractClientName(input: string): string | null {
     if (!m) return null;
     const name = m[1].trim();
     // Capitalize first letter of each word
-    return name.replace(/\b([a-zà-ú])/g, (c) => c.toUpperCase());
+    return name.replace(/\b([a-zà-ú])/gu, (c) => c.toUpperCase());
 }
 
 // ─── Quantidade ───────────────────────────────────────────────────────────────
@@ -90,7 +103,7 @@ export function extractQuantity(terms: string[]): { qty: number; terms: string[]
         }
 
         const n = parseInt(t, 10);
-        if (!isNaN(n) && n >= 1 && n <= 99 && /^\d+$/.test(t)) {
+        if (!isNaN(n) && n >= 1 && n <= 99 && /^\d+$/u.test(t)) {
             qty = n;
             continue;
         }
@@ -108,10 +121,10 @@ export function extractQuantity(terms: string[]): { qty: number; terms: string[]
  * Ex: "Quero 3 cerveja Skol" → ["3","cerveja","skol"]
  */
 export function extractTerms(input: string): string[] {
-    const words = normalize(input).split(/[\s,;:!?]+/);
+    const words = normalize(input).split(/[\s,;:!?]+/u);
     return words.filter((w) => {
         if (!w) return false;
-        const isQtyToken = /^\d+$/.test(w) || Object.prototype.hasOwnProperty.call(QUANTITY_WORDS_NORM, w);
+        const isQtyToken = /^\d+$/u.test(w) || Object.prototype.hasOwnProperty.call(QUANTITY_WORDS_NORM, w);
         if (!isQtyToken && w.length < 2) return false;
         // Quantidades (ex: "um", "tres") devem passar mesmo estando em STOPWORDS.
         if (STOPWORDS.has(w) && !isQtyToken) return false;
@@ -128,7 +141,7 @@ export function extractTerms(input: string): string[] {
  */
 export function splitMultiItems(input: string): string[] {
     return input
-        .split(/\s+e\s+|\s*\+\s*|\s*,\s*|\s+mais\s+|\s+com\s+/)
+        .split(/\s+e\s+|\s*\+\s*|\s*,\s*|\s+mais\s+|\s+com\s+/u)
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
 }
@@ -136,7 +149,7 @@ export function splitMultiItems(input: string): string[] {
 // ─── Detecção de intenções ────────────────────────────────────────────────────
 
 export function detectRemoveIntent(input: string): boolean {
-    return /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/i.test(input);
+    return REMOVE_INTENT_RE.test(input);
 }
 
 /**
@@ -150,13 +163,13 @@ export function detectPaymentMethod(input: string): "pix" | "card" | "cash" | nu
 
     // Only detect numbers as payment IF they're alone (not mixed with product text)
     // i.e., the ENTIRE message is just "1", "2", or "3"
-    if (/^\s*1\s*$/.test(input)) return "card";
-    if (/^\s*2\s*$/.test(input)) return "pix";
-    if (/^\s*3\s*$/.test(input)) return "cash";
+    if (PAY_1_RE.test(input)) return "card";
+    if (PAY_2_RE.test(input)) return "pix";
+    if (PAY_3_RE.test(input)) return "cash";
 
-    if (/\bpix\b/i.test(input)) return "pix";
-    if (/\b(cartao|cartão|card|credito|crédito|debito|débito|maquina|maquininha)\b/i.test(input)) return "card";
-    if (/\b(dinheiro|cash|especie|espécie)\b/i.test(input)) return "cash";
+    if (PIX_RE.test(input)) return "pix";
+    if (CARD_RE.test(input)) return "card";
+    if (CASH_RE.test(input)) return "cash";
 
     return null;
 }
@@ -164,7 +177,7 @@ export function detectPaymentMethod(input: string): "pix" | "card" | "cash" | nu
 // ─── Clues de volume ──────────────────────────────────────────────────────────
 
 export function hasVolumeClue(text: string): boolean {
-    return /\b(ml|litro|litros|kg|cx|caixa|fardo|pac|lata)\b/i.test(text) || /\d+\s*(ml|l|kg|litro)/i.test(text);
+    return VOL_WORD_RE.test(text) || VOL_NUM_RE.test(text);
 }
 
 // ─── Limpeza para IA ──────────────────────────────────────────────────────────
@@ -176,8 +189,8 @@ export function hasVolumeClue(text: string): boolean {
  */
 export function cleanInputForAI(input: string): string {
     const s = input
-        .replace(/^(bom\s+dia|boa\s+tarde|boa\s+noite|oi+|ol[aá]|e\s*a[ií]|ei+|hey|hello|opa)[,!\s]+/i, "")
-        .replace(/[\s,]*(por\s+favor|pfv+|pf|obrigad[oa]|obg|valeu|vlw)\s*[!.,]?\s*$/i, "")
+        .replace(GREET_STRIP_RE, "")
+        .replace(POLITE_STRIP_RE, "")
         .trim();
     return s || input;
 }

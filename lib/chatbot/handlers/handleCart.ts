@@ -98,7 +98,7 @@ export async function handleCart(
     }
 
     // "remover 2", "tirar 1"
-    const removeMatch = normalize(input).match(/^(remover|tirar|deletar)\s+(\d+)$/);
+    const removeMatch = normalize(input).match(/^(remover|tirar|deletar)\s+(\d+)$/u);
     if (removeMatch) {
         const idx = parseInt(removeMatch[2], 10) - 1;
         if (idx >= 0 && idx < session.cart.length) {
