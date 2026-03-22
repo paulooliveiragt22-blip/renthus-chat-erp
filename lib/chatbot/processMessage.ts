@@ -2472,8 +2472,8 @@ async function handleMainMenu(
         await saveSession(admin, threadId, companyId, { step: "main_menu" });
         const hasName = !!(customer?.name && customer.name.trim().length > 0);
         const greetText = hasName
-            ? `Olá, *${customer!.name.trim()}*! O que manda pra hoje? 🍺`
-            : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nO que manda pra hoje?`;
+            ? `Olá, *${customer!.name.trim()}*! 🍺\n\nVocê pode digitar o que precisa que já vejo pra você.`
+            : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nVocê pode digitar o que precisa que já vejo pra você.`;
         await sendInteractiveButtons(phoneE164, greetText, [
             { id: "1", title: "🍺 Ver cardápio" },
             { id: "2", title: "📦 Meu pedido" },
