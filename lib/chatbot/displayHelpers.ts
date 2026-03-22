@@ -22,9 +22,9 @@ export interface DisplayableVariant {
  * Prioridade de volume:
  *   1. volumeValue + unitTypeSigla → "Heineken 600ml"  (estruturado, vem do JOIN unit_types)
  *   2. volumeValue + unit          → "Heineken 600ml"  (fallback campo product_unit_type)
- *   3. details que parece volume   → "Skol 600"        (parse do campo livre)
- *   4. details com sentido         → "Skol Latinha"    (texto livre não genérico)
- *   5. só o nome do produto        → "Skol"
+ *   3. só o nome do produto        → "Skol"
+ *
+ * details NÃO é usado na exibição — serve apenas para busca por texto.
  *
  * Sufixo de embalagem bulk quando isCase=true:
  *   → "Heineken 600ml 24 unidades"  (sem traço; o traço fica no preço ao exibir)
@@ -48,18 +48,8 @@ export function buildProductDisplayName(v: DisplayableVariant, isCase = false): 
                 : null
         );
         volLabel = unitStr ? ` ${v.volumeValue}${unitStr}` : ` ${v.volumeValue}`;
-    } else if (v.details) {
-        // 3) Tenta parsear o campo livre como volume numérico
-        const parsed = parseVolumeFromText(v.details);
-        if (parsed) {
-            volLabel = ` ${parsed}`;
-        } else if (!isGenericVolumeWord(v.details)) {
-            // 4) Texto com sentido ("latinha", "trezentinha", "garrafa")
-            const cap = v.details.trim();
-            volLabel = ` ${cap.charAt(0).toUpperCase()}${cap.slice(1).toLowerCase()}`;
-        }
-        // 5) Genérico ruído ("ml", "un", "unidade") → omite
     }
+    // details é usado apenas para busca — não entra na exibição ao cliente
 
     const baseName = `${productName}${volLabel}`.trim();
 
