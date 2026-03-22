@@ -205,7 +205,7 @@ export async function handleFreeTextInput(
                 `💰 Total c/ entrega: *${formatCurrency(cartWithFee)}*\n\n` +
                 `Algo mais ou deseja finalizar?`,
                 [
-                    { id: "mais_produtos", title: "Mais produtos"    },
+                    { id: "mais_produtos", title: "Ver cardápio" },
                     { id: "finalizar",     title: "Finalizar pedido" },
                 ]
             );
@@ -253,7 +253,7 @@ export async function handleFreeTextInput(
                 phoneE164,
                 confirmMsg,
                 [
-                    { id: "mais_produtos", title: "Mais produtos"    },
+                    { id: "mais_produtos", title: "Ver cardápio" },
                     { id: "finalizar",     title: "Finalizar pedido" },
                 ]
             );
@@ -410,8 +410,8 @@ export async function handleFreeTextInput(
                 phoneE164,
                 `✅ Certo! Adicionei *${qty}x ${name}* (${formatCurrency(price * qty)}) ao seu pedido.\n\n${formatCart(newCart)}\n\nDeseja mais alguma coisa ou podemos fechar?`,
                 [
-                    { id: "mais_produtos", title: "Mais produtos" },
-                    { id: "ver_carrinho",  title: "Ver carrinho" },
+                    { id: "mais_produtos", title: "Ver cardápio" },
+                    { id: "ver_carrinho",  title: "Editar itens" },
                     { id: "finalizar",     title: "Finalizar pedido" },
                 ]
             );

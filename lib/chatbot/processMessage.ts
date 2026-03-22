@@ -142,11 +142,14 @@ export async function processInboundMessage(
     const settings    = company?.settings ?? {};
 
     // ── 1. Global reset (menu/oi/ola/reiniciar — WITHOUT cancelar) ───────────
-    if (matchesAny(input, ["limpar", "reiniciar", "menu", "inicio", "comecar", "oi", "ola", "hello", "hi", "esvaziar"])) {
+    // Usa regex com word-boundary para evitar falsos positivos via substring:
+    // "boa noite" contém "oi" em "no*oi*te" — matchesAny() dispararia incorretamente.
+    const GLOBAL_RESET_RE = /\b(?:limpar|reiniciar|menu|inicio|comecar|esvaziar|oi|ola|hello|hi)\b/iu;
+    if (GLOBAL_RESET_RE.test(normalize(input))) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
         await sendInteractiveButtons(
             phoneE164,
-            `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nVocê pode digitar o que precisa que já vejo pra você.`,
+            `Como posso te ajudar no *${companyName}*? 🍺`,
             [
                 { id: "1", title: "🍺 Ver cardápio" },
                 { id: "2", title: "📦 Meu pedido" },
@@ -318,7 +321,15 @@ export async function processInboundMessage(
     }
 
     // ── 8. Checkout keywords ──────────────────────────────────────────────────
-    const CHECKOUT_KEYWORDS = ["fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha","bater caixa","vou pagar","quero finalizar","vou finalizar","pode fechar","fecha ai","bater o caixa","quero fechar","encerrar","terminar","quero confirmar"];
+    const CHECKOUT_KEYWORDS = [
+        "fechar pedido","fechar","pagar","finalizar","acabou","checkout","quero pagar","fecha",
+        "bater caixa","vou pagar","quero finalizar","vou finalizar","pode fechar","fecha ai",
+        "bater o caixa","quero fechar","encerrar","terminar","quero confirmar",
+        // Gírias negativas / "chega, era só isso"
+        "nao quero mais","nao quero mais nada","era so isso","so isso mesmo",
+        "chega por hoje","chega por ora","nao preciso mais","era isso ai","mais nao","nao mais",
+        "pronto pode fechar","ta bom assim","to bom assim","isso e tudo","e so isso",
+    ];
     if (matchesAny(input, CHECKOUT_KEYWORDS) && session.cart.length > 0) {
         await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
         return;
@@ -359,7 +370,7 @@ export async function processInboundMessage(
     if (GREETING_ONLY_RE.test(input) && GREETING_ALLOWED_STEPS.has(session.step)) {
         await sendInteractiveButtons(
             phoneE164,
-            `Olá! 😊 Como posso te ajudar no *${companyName}*?`,
+            `Como posso te ajudar no *${companyName}*? 🍺`,
             [
                 { id: "1", title: "🍺 Ver cardápio" },
                 { id: "2", title: "📦 Meu pedido" },
@@ -509,12 +520,10 @@ export async function processInboundMessage(
 
         if (detectedIntent === "chitchat") {
             // Saudação/agradecimento apenas no menu/welcome — em outros steps preserva o fluxo.
-            // Ex: cliente digita "obrigado" no checkout_address → não manda saudação, deixa o
-            // switch lidar com o step correto.
             if (session.step === "main_menu" || session.step === "welcome" || !session.step) {
                 await sendInteractiveButtons(
                     phoneE164,
-                    `Olá! 😊 Estou aqui para ajudar com seus pedidos no *${companyName}*.`,
+                    `Como posso te ajudar no *${companyName}*? 🍺`,
                     [
                         { id: "1", title: "🍺 Ver cardápio" },
                         { id: "2", title: "📦 Meu pedido" },
@@ -710,7 +719,7 @@ export async function processInboundMessage(
         }
 
         if (parsed.action === "low_confidence") {
-            const FREE_TEXT_STEPS = ["main_menu", "welcome", "catalog_products", "cart"];
+            const FREE_TEXT_STEPS = ["main_menu", "welcome", "cart"];
             if (!FREE_TEXT_STEPS.includes(session.step)) {
                 const fallbackProducts = await getCachedProducts(admin, companyId);
                 const didFallback = await handleLowConfidenceFallback(
@@ -798,29 +807,14 @@ export async function processInboundMessage(
             break;
 
         case "done":
-            // Pedido já confirmado → volta ao menu no próximo contato
+            // Pedido confirmado → reset e trata a nova mensagem como main_menu
             await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-            await sendInteractiveButtons(
-                phoneE164,
-                `Como posso te ajudar no *${companyName}*?`,
-                [
-                    { id: "1", title: "🍺 Ver cardápio" },
-                    { id: "2", title: "📦 Meu pedido" },
-                    { id: "3", title: "🙋 Falar c/ atendente" },
-                ]
-            );
+            await handleMainMenu(admin, companyId, threadId, phoneE164, companyName, settings, input, { ...session, step: "main_menu", cart: [], context: {} }, profileName);
             break;
 
         default:
+            // Step desconhecido → reset silencioso e trata como main_menu
             await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-            await sendInteractiveButtons(
-                phoneE164,
-                `Como posso te ajudar no *${companyName}*?`,
-                [
-                    { id: "1", title: "🍺 Ver cardápio" },
-                    { id: "2", title: "📦 Meu pedido" },
-                    { id: "3", title: "🙋 Falar c/ atendente" },
-                ]
-            );
+            await handleMainMenu(admin, companyId, threadId, phoneE164, companyName, settings, input, { ...session, step: "main_menu", cart: [], context: {} }, profileName);
     }
 }

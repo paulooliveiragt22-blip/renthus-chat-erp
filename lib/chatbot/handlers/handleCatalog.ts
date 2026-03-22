@@ -27,6 +27,12 @@ const CARRINHO_RE      = /\bcarrinho\b/iu;
 const FINALIZAR_RE     = /\bfinalizar\b/iu;
 const FECHAR_RE        = /\bfechar\b/iu;
 const CHECKOUT_CAT_RE  = /\bcheckout\b/iu;
+
+// Respostas negativas após adicionar produto → finalizar pedido
+const NEGATIVE_DONE_RE = /^(nao|nop[es]?|nah|no|chega(?:u)?|ta\s+bom|to\s+bom|ta\s+otimo|blz|beleza|so\s+isso|era\s+so\s+isso|isso\s+mesmo|era\s+isso|fechou|ok\s+obg|ok\s+obrigado|e\s+isso|tudo\s+bem|certo\s+assim|tranquilo|e\s+isso\s+ai|era\s+isso\s+ai|pronto\s+sim|pode\s+fechar|fecha\s+ai|prontinho|e\s+tudo|tudo)$/iu;
+
+// Respostas positivas após adicionar produto → ver cardápio
+const POSITIVE_CONTINUE_RE = /^(sim|s{1,2}|sims?|show|bora|vamos|claro|com\s+certeza|pode\s+ser|pode\s+mostrar|me\s+mostra|mostra\s+ai|continua(?:r)?|top|topo|quero\s+mais|quero\s+ver|quero|vai\s+la|vai\s+la|manda\s+ver|manda|vai)$/iu;
 const ONLY_NUMS_RE     = /^[\d,\s]+$/u;
 const HAS_DIGIT_RE     = /\d/u;
 const SPLIT_NUMS_RE    = /[,\s]+/u;
@@ -310,6 +316,41 @@ export async function handleCatalogProducts(
         return;
     }
 
+    // ── Respostas negativas/positivas (só quando já há itens no carrinho) ────
+    if (session.cart.length > 0) {
+        const norm = normalize(input);
+
+        // "não", "chega", "blz", "era só isso"… → finalizar
+        if (NEGATIVE_DONE_RE.test(norm)) {
+            await goToCheckoutFromCartFn(admin, companyId, threadId, phoneE164, session);
+            return;
+        }
+
+        // "sim", "quero mais", "bora", "show"… → volta ao catálogo
+        if (POSITIVE_CONTINUE_RE.test(norm)) {
+            const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
+            await saveSession(admin, threadId, companyId, {
+                step: "catalog_categories",
+                context: {
+                    ...session.context,
+                    categories,
+                    awaiting_neighborhood: false,
+                    pending_variant:       null,
+                    pending_is_case:       null,
+                    unit_case_choice:      false,
+                },
+            });
+            await sendListMessage(
+                phoneE164,
+                "🍺 Escolha uma categoria:",
+                "Ver categorias",
+                categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+                "Categorias"
+            );
+            return;
+        }
+    }
+
     // ── Ver mais resultados de busca (lista numerada completa) ───────────────
     if (input === "ver_mais") {
         if (variants.length > 0) {
@@ -350,7 +391,7 @@ export async function handleCatalogProducts(
                 `💰 Total com entrega: *${formatCurrency(totalFinal)}*\n\n` +
                 `Algo mais ou deseja finalizar?`,
                 [
-                    { id: "mais_produtos", title: "Mais produtos"    },
+                    { id: "mais_produtos", title: "Ver cardápio" },
                     { id: "finalizar",     title: "Finalizar pedido" },
                 ]
             );
@@ -442,8 +483,8 @@ export async function handleCatalogProducts(
             phoneE164,
             `${addedLines.join("\n")}\n\n${formatCart(newCart)}\n\n_Cada item adicionado com 1 unidade._`,
             [
-                { id: "mais_produtos", title: "Mais produtos" },
-                { id: "ver_carrinho",  title: "Ver carrinho"  },
+                { id: "mais_produtos", title: "Ver cardápio" },
+                { id: "ver_carrinho",  title: "Editar itens"  },
                 { id: "finalizar",     title: "Finalizar pedido" },
             ]
         );
@@ -532,8 +573,8 @@ export async function handleCatalogProducts(
             phoneE164,
             `✅ *${qty}x ${name}* adicionado!\n\n${formatCart(newCart)}`,
             [
-                { id: "mais_produtos", title: "Mais produtos" },
-                { id: "ver_carrinho",  title: "Ver carrinho" },
+                { id: "mais_produtos", title: "Ver cardápio" },
+                { id: "ver_carrinho",  title: "Editar itens" },
                 { id: "finalizar",     title: "Finalizar pedido" },
             ]
         );
