@@ -11,7 +11,7 @@ import type { Session } from "../types";
 import { saveSession } from "../session";
 import {
     formatCurrency, matchesAny, isWithinBusinessHours,
-    getMenuOptionsOnly, buildMainMenu,
+    getMenuOptionsOnly,
 } from "../utils";
 import { getCategories } from "../db/variants";
 import { getOrCreateCustomer } from "../db/orders";
@@ -207,9 +207,9 @@ export async function handleMainMenu(
         const looksLikeProduct = /\s/.test(input) || /\d/.test(input);
         if (looksLikeProduct && input.length > 2) {
             const ftEarly = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
-            await saveSession(admin, threadId, companyId, { step: "main_menu" });
             if (ftEarly === "handled") return;
             if (ftEarly === "notfound") {
+                await saveSession(admin, threadId, companyId, { step: "main_menu" });
                 await reply(phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
                 return;
             }
@@ -323,5 +323,13 @@ export async function handleMainMenu(
     }
 
     // Input inválido (skip ou outro) → repete menu
-    await reply(phoneE164, buildMainMenu(companyName));
+    await sendInteractiveButtons(
+        phoneE164,
+        `Como posso te ajudar no *${companyName}*?`,
+        [
+            { id: "1", title: "🍺 Ver cardápio" },
+            { id: "2", title: "📦 Meu pedido" },
+            { id: "3", title: "🙋 Falar c/ atendente" },
+        ]
+    );
 }

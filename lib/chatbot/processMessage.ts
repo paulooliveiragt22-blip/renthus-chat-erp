@@ -29,7 +29,7 @@ import type { ProcessMessageParams, Session } from "./types";
 import { getOrCreateSession, saveSession } from "./session";
 import {
     normalize, matchesAny, formatCart, formatCurrency,
-    mergeCart, buildMainMenu, STOPWORDS,
+    mergeCart, STOPWORDS,
 } from "./utils";
 import {
     extractAddressFromText, detectMultipleAddresses, extractClientName,
@@ -263,7 +263,15 @@ export async function processInboundMessage(
         const isNo  = AWAIT_CANCEL_NO_RE.test(normalize(input));
         if (isYes) {
             await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-            await reply(phoneE164, buildMainMenu(companyName));
+            await sendInteractiveButtons(
+                phoneE164,
+                `✅ Pedido cancelado. Como posso te ajudar no *${companyName}*?`,
+                [
+                    { id: "1", title: "🍺 Ver cardápio" },
+                    { id: "2", title: "📦 Meu pedido" },
+                    { id: "3", title: "🙋 Falar c/ atendente" },
+                ]
+            );
         } else if (isNo) {
             const prevStep = (session.context.pre_cancel_step as string) ?? "main_menu";
             await saveSession(admin, threadId, companyId, { step: prevStep, context: { ...session.context, pre_cancel_step: undefined } });
@@ -349,7 +357,15 @@ export async function processInboundMessage(
     // Saudações puras → só responde no menu/welcome; em outros steps preserva o contexto.
     const GREETING_ALLOWED_STEPS = new Set(["main_menu", "welcome", ""]);
     if (GREETING_ONLY_RE.test(input) && GREETING_ALLOWED_STEPS.has(session.step)) {
-        await reply(phoneE164, `Olá! 😊 ${buildMainMenu(companyName)}`);
+        await sendInteractiveButtons(
+            phoneE164,
+            `Olá! 😊 Como posso te ajudar no *${companyName}*?`,
+            [
+                { id: "1", title: "🍺 Ver cardápio" },
+                { id: "2", title: "📦 Meu pedido" },
+                { id: "3", title: "🙋 Falar c/ atendente" },
+            ]
+        );
         return;
     }
     // Consulta de status → busca direta no banco, sem Claude
@@ -496,7 +512,15 @@ export async function processInboundMessage(
             // Ex: cliente digita "obrigado" no checkout_address → não manda saudação, deixa o
             // switch lidar com o step correto.
             if (session.step === "main_menu" || session.step === "welcome" || !session.step) {
-                await reply(phoneE164, `Olá! 😊 Estou aqui para ajudar com seus pedidos.\n\n${buildMainMenu(companyName)}`);
+                await sendInteractiveButtons(
+                    phoneE164,
+                    `Olá! 😊 Estou aqui para ajudar com seus pedidos no *${companyName}*.`,
+                    [
+                        { id: "1", title: "🍺 Ver cardápio" },
+                        { id: "2", title: "📦 Meu pedido" },
+                        { id: "3", title: "🙋 Falar c/ atendente" },
+                    ]
+                );
                 return;
             }
             // Outros steps: ignora o chitchat e deixa o switch tratar o step atual
@@ -776,11 +800,27 @@ export async function processInboundMessage(
         case "done":
             // Pedido já confirmado → volta ao menu no próximo contato
             await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-            await reply(phoneE164, buildMainMenu(companyName));
+            await sendInteractiveButtons(
+                phoneE164,
+                `Como posso te ajudar no *${companyName}*?`,
+                [
+                    { id: "1", title: "🍺 Ver cardápio" },
+                    { id: "2", title: "📦 Meu pedido" },
+                    { id: "3", title: "🙋 Falar c/ atendente" },
+                ]
+            );
             break;
 
         default:
             await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-            await reply(phoneE164, buildMainMenu(companyName));
+            await sendInteractiveButtons(
+                phoneE164,
+                `Como posso te ajudar no *${companyName}*?`,
+                [
+                    { id: "1", title: "🍺 Ver cardápio" },
+                    { id: "2", title: "📦 Meu pedido" },
+                    { id: "3", title: "🙋 Falar c/ atendente" },
+                ]
+            );
     }
 }
