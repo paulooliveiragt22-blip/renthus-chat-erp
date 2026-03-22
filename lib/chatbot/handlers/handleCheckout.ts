@@ -17,7 +17,7 @@ import { commitAddress, sendPaymentButtonsAddr } from "./handleAddress";
 import { buildProductDisplayName } from "../displayHelpers";
 import { getOrderParserService } from "../OrderParserService";
 import { getWhatsAppConfig } from "../../whatsapp/getConfig";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendFlowMessage } from "../../whatsapp/send";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendFlowMessage } from "../../whatsapp/send";
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
@@ -200,25 +200,31 @@ export async function goToCheckoutFromCart(
                 .limit(5);
 
             if (savedAddrs && savedAddrs.length > 0) {
-                const rows = [
-                    ...savedAddrs.map((a) => ({
-                        id:          `addr_${a.id}`,
-                        title:       (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24),
-                        description: ([a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ")).slice(0, 72),
+                // Máx 2 endereços + "Novo endereço" = 3 botões (limite WhatsApp)
+                const addrToShow = savedAddrs.slice(0, 2);
+                const addrLines = addrToShow.map((a) => {
+                    const detail = [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ");
+                    const label  = a.apelido ?? a.logradouro ?? "Endereço";
+                    return `📍 *${label}*: ${detail}`;
+                }).join("\n");
+
+                const buttons = [
+                    ...addrToShow.map((a) => ({
+                        id:    `addr_${a.id}`,
+                        title: (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 20),
                     })),
-                    { id: "new_address", title: "➕ Novo endereço" },
+                    { id: "new_address", title: "Novo endereço" },
                 ];
+
                 await saveSession(admin, threadId, companyId, {
                     step:        "awaiting_address_selection",
                     customer_id: customerId,
                     context:     { ...session.context, saved_addresses: savedAddrs },
                 });
-                await sendListMessage(
+                await sendInteractiveButtons(
                     phoneE164,
-                    "📍 Escolha o endereço de entrega:",
-                    "Ver endereços",
-                    rows,
-                    "Endereços salvos"
+                    `📍 *Endereço de entrega*\n\n${addrLines}\n\nEscolha abaixo ou adicione um novo:`,
+                    buttons
                 );
                 return;
             }
@@ -285,7 +291,8 @@ export async function handleAwaitingAddressSelection(
         const deliveryFee = zone ? Number(zone.fee) : 0;
 
         await saveSession(admin, threadId, companyId, {
-            step:    "checkout_payment",
+            step:        "checkout_payment",
+            customer_id: session.customer_id ?? undefined,
             context: {
                 ...session.context,
                 saved_addresses:  undefined,
@@ -298,26 +305,29 @@ export async function handleAwaitingAddressSelection(
         return;
     }
 
-    // Input desconhecido → reexibe a lista
+    // Input desconhecido → reexibe os botões
     const savedAddrs = (session.context.saved_addresses as Array<{
         id: string; apelido: string | null; logradouro: string | null;
         numero: string | null; complemento: string | null; bairro: string | null;
     }>) ?? [];
     if (savedAddrs.length > 0) {
-        const rows = [
-            ...savedAddrs.map((a) => ({
-                id:          `addr_${a.id}`,
-                title:       (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24),
-                description: ([a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ")).slice(0, 72),
+        const addrToShow = savedAddrs.slice(0, 2);
+        const addrLines  = addrToShow.map((a) => {
+            const detail = [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ");
+            const label  = a.apelido ?? a.logradouro ?? "Endereço";
+            return `📍 *${label}*: ${detail}`;
+        }).join("\n");
+        const buttons = [
+            ...addrToShow.map((a) => ({
+                id:    `addr_${a.id}`,
+                title: (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 20),
             })),
-            { id: "new_address", title: "➕ Novo endereço" },
+            { id: "new_address", title: "Novo endereço" },
         ];
-        await sendListMessage(
+        await sendInteractiveButtons(
             phoneE164,
-            "📍 Escolha o endereço de entrega:",
-            "Ver endereços",
-            rows,
-            "Endereços salvos"
+            `📍 *Endereço de entrega*\n\n${addrLines}\n\nEscolha abaixo ou adicione um novo:`,
+            buttons
         );
     }
 }
