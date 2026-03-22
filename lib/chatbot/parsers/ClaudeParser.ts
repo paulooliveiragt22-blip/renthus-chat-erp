@@ -12,6 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { ParseIntentResult, ProductForSearch } from "../OrderParserService";
+import { isBulkPackaging } from "../PackagingExtractor";
 
 // ─── Tipos de intenção ────────────────────────────────────────────────────────
 
@@ -114,9 +115,11 @@ function buildCatalogText(products: ProductForSearch[], step: string): string {
 
     return products
         .map((p) => {
-            const detail = p.details ? ` ${p.details}` : "";
             const price  = p.unitPrice.toFixed(2).replace(".", ",");
-            return `${p.id}|${p.productName}${detail}|R$${price}`;
+            const pkg = p.bulkSigla
+                ? `[${p.bulkSigla}${p.caseQty ? ` ${p.caseQty}un` : ""}]`
+                : "[UN]";
+            return `${p.id}|${p.productName}|R$${price}|${pkg}`;
         })
         .join("\n");
 }
@@ -126,7 +129,8 @@ function buildCatalogText(products: ProductForSearch[], step: string): string {
 function buildSystemPrompt(catalogText: string): string {
     return `Você é o assistente de pedidos de uma distribuidora de bebidas via WhatsApp.
 
-═══ CATÁLOGO (variantId|nome|preço) ═══
+═══ CATÁLOGO (variantId|nome|preço|embalagem) ═══
+[UN] = unidade avulsa  [CX Nun] = caixa com N unidades  [FARD] = fardo  [PAC] = pacote
 ${catalogText}
 
 ═══ REGRAS DE PARSE ═══
@@ -335,6 +339,7 @@ function mapClaudeResult(
         .filter((it) => it.confidence >= threshold * 0.7 && productMap.has(it.variantId))
         .map((it) => {
             const p = productMap.get(it.variantId)!;
+            const isCase = isBulkPackaging(p.bulkSigla ?? null);
             return {
                 productId:      p.productId,
                 variantId:      p.id,
@@ -342,8 +347,8 @@ function mapClaudeResult(
                 price:          p.unitPrice,
                 qty:            Math.max(1, Math.round(it.qty)),
                 confidence:     it.confidence,
-                packagingSigla: "UN" as const,
-                isCase:         false,
+                packagingSigla: (p.bulkSigla ?? "UN") as any,
+                isCase,
             };
         });
 

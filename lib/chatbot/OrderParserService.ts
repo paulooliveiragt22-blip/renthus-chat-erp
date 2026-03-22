@@ -61,6 +61,8 @@ export interface ProductForSearch {
     caseQty?: number | null;
     casePrice?: number | null;
     caseVariantId?: string;
+    /** Sigla bulk da embalagem: "CX" | "FARD" | "PAC" | null (null = unitário UN) */
+    bulkSigla?: string | null;
 }
 
 /** Item parseado: produto + quantidade */

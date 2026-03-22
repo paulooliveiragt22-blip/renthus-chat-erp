@@ -33,7 +33,7 @@ import {
 } from "./utils";
 import {
     extractAddressFromText, detectMultipleAddresses, extractClientName,
-    detectRemoveIntent, detectPaymentMethod, cleanInputForAI,
+    detectRemoveIntent, detectPaymentMethod, cleanInputForAI, hasVolumeClue,
 } from "./textParsers";
 import { getCompanyInfo } from "./db/company";
 import { getCategories, findDeliveryZone } from "./db/variants";
@@ -503,6 +503,25 @@ export async function processInboundMessage(
         }
 
         if (parsed.action === "add_to_cart" && parsed.items.length > 0) {
+            // Fix 5: se o usuário não especificou volume e existem múltiplas variantes do
+            // mesmo produto base no catálogo → redireciona para seleção de variante
+            if (!hasVolumeClue(input) && parsed.items.length === 1) {
+                const extractBaseName = (name: string) =>
+                    name.toLowerCase()
+                        .replace(/\d+(?:[.,]\d+)?\s*(?:ml|l|litros?|cl|g|kg)\b/gi, "")
+                        .replace(/\s+/g, " ").trim();
+                const baseName = extractBaseName(parsed.items[0].name);
+                const siblings = products.filter(
+                    (p) => extractBaseName(p.productName) === baseName
+                );
+                if (siblings.length > 1) {
+                    const ftResult = await handleFreeTextInput(
+                        admin, companyId, threadId, phoneE164, parsed.items[0].name, session
+                    );
+                    if (ftResult === "handled") return;
+                }
+            }
+
             const toAdd = parsedItemsToCartItems(parsed.items);
             const newCart = mergeCart(session.cart, toAdd);
             const ctx: Record<string, unknown> = { ...session.context, consecutive_unknown_count: 0 };

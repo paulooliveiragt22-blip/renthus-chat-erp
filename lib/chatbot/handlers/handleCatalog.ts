@@ -17,6 +17,7 @@ import {
 } from "../db/variants";
 import { handleFreeTextInput } from "./handleFreeText";
 import { buildProductDisplayName } from "../displayHelpers";
+import { isBulkPackaging } from "../PackagingExtractor";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../../whatsapp/send";
 
 // ─── Regex de módulo ──────────────────────────────────────────────────────────
@@ -356,19 +357,22 @@ export async function handleCatalogProducts(
 
         if (indices.length === 1) {
             // Seleção simples → pergunta quantidade
-            const v       = variants[indices[0]];
-            const isCaseV = isCaseVariant(v);
-            const vPrice  = isCaseV ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
-            const label   = `*${buildProductDisplayName(v, isCaseV)}* — ${formatCurrency(vPrice)}`;
-            const caseInfo = v.hasCase && v.casePrice
+            const v              = variants[indices[0]];
+            const pendingPkgSigla = (session.context.pending_packaging_sigla as string) ?? null;
+            const pkgWantCase    = Boolean(pendingPkgSigla && isBulkPackaging(pendingPkgSigla) && v.hasCase);
+            const isCaseV        = pkgWantCase || isCaseVariant(v);
+            const vPrice         = isCaseV ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
+            const label          = `*${buildProductDisplayName(v, isCaseV)}* — ${formatCurrency(vPrice)}`;
+            const caseInfo = !isCaseV && v.hasCase && v.casePrice
                 ? `\n_Também disponível em caixa com ${v.caseQty}un por ${formatCurrency(v.casePrice)}._`
                 : "";
             await saveSession(admin, threadId, companyId, {
                 context: {
                     ...session.context,
-                    search_numbered: false,
-                    pending_variant: v,
-                    pending_is_case: false,
+                    search_numbered:         false,
+                    pending_variant:         v,
+                    pending_is_case:         isCaseV,
+                    pending_packaging_sigla: null,
                 },
             });
             await reply(phoneE164, `${label}${caseInfo}\n\nQuantas unidades deseja?`);

@@ -312,17 +312,23 @@ export async function handleFreeTextInput(
     // ── Produto sem volume especificado → mostrar variantes ───────────────────
     // Se o usuário não especificou volume E os resultados são do mesmo produto (1 produto, possivelmente 1 variante)
     if (!hasVolumeClue(cleanText) && !pkgExplicit && effective.length >= 1) {
-        // Group by productId (more reliable than productName)
-        const byProductId = new Map<string, VariantRow[]>();
+        // Group by base product name (strip volume) to handle multi-volume same-brand products
+        // Ex: "Heineken 300ml" e "Heineken 600ml" → mesmo grupo "heineken"
+        const extractBaseName = (name: string) =>
+            name.toLowerCase()
+                .replace(/\d+(?:[.,]\d+)?\s*(?:ml|l|litros?|cl|g|kg)\b/gi, "")
+                .replace(/\s+/g, " ").trim();
+
+        const byBaseName = new Map<string, VariantRow[]>();
         for (const v of effective) {
-            const key = v.productId;
-            if (!byProductId.has(key)) byProductId.set(key, []);
-            byProductId.get(key)!.push(v);
+            const key = extractBaseName(v.productName);
+            if (!byBaseName.has(key)) byBaseName.set(key, []);
+            byBaseName.get(key)!.push(v);
         }
 
-        // Only show variant selection when all results are the same product
-        if (byProductId.size === 1) {
-            const variants = [...byProductId.values()][0];
+        // Only show variant selection when all results share the same base name
+        if (byBaseName.size === 1) {
+            const variants = [...byBaseName.values()][0];
             const displayName = effective[0].productName;
             const displayVariants: VariantRow[] = [];
             for (const v of variants) {
@@ -464,12 +470,13 @@ export async function handleFreeTextInput(
         step:    "catalog_products",
         context: {
             ...session.context,
-            variants:        found,
-            brand_name:      "Resultados",
-            category_name:   "Busca",
-            pending_variant: null,
-            pending_is_case: null,
-            search_numbered: true,
+            variants:                found,
+            brand_name:              "Resultados",
+            category_name:           "Busca",
+            pending_variant:         null,
+            pending_is_case:         null,
+            search_numbered:         true,
+            pending_packaging_sigla: pkgExplicit ? packagingSigla : null,
         },
     });
 

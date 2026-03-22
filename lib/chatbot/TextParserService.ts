@@ -20,6 +20,8 @@ export interface ProductForSearch {
     unitPrice: number;
     tags?: string | null;
     details?: string | null;
+    bulkSigla?: string | null;
+    caseQty?: number | null;
 }
 
 export interface ParsedProduct {
@@ -68,7 +70,7 @@ export async function getCachedProducts(
 
     const { data: rows, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, preco_venda, tags, tags_auto, product_name, product_details, volume_quantidade, product_unit_type, unit_type_sigla")
+        .select("id, produto_id, descricao, preco_venda, tags, tags_auto, product_name, product_details, volume_quantidade, product_unit_type, unit_type_sigla, sigla_comercial, fator_conversao")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -77,17 +79,22 @@ export async function getCachedProducts(
         return [];
     }
 
+    const BULK_SIGLAS = new Set(["CX", "FARD", "PAC"]);
     const products: ProductForSearch[] = (rows ?? []).map((r: any) => {
         const details = (r.descricao ?? r.product_details ?? null) as string | null;
+        const rawSigla = String(r.sigla_comercial ?? "").toUpperCase();
+        const bulkSigla = BULK_SIGLAS.has(rawSigla) ? rawSigla : null;
+        const caseQty = bulkSigla && r.fator_conversao ? Number(r.fator_conversao) : null;
+        const isCase = Boolean(bulkSigla);
         const name = buildProductDisplayName({
             productName:   String(r.product_name ?? ""),
             volumeValue:   Number(r.volume_quantidade ?? 0),
             unit:          String(r.product_unit_type ?? ""),
             unitTypeSigla: (r.unit_type_sigla ?? null) as string | null,
             details,
-            caseQty:       null,
-            bulkSigla:     null,
-        });
+            caseQty,
+            bulkSigla,
+        }, isCase);
         return {
             id: String(r.id),
             productId: String(r.produto_id),
@@ -95,6 +102,8 @@ export async function getCachedProducts(
             unitPrice: Number(r.preco_venda ?? 0),
             tags: (r.tags_auto ?? r.tags) || null,
             details,
+            bulkSigla,
+            caseQty,
         };
     });
 
