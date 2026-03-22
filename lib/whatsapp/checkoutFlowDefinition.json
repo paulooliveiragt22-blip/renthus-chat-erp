@@ -78,6 +78,10 @@
           {
             "type": "Form",
             "name": "address_form",
+            "init-values": {
+              "rua":    "${data.rua_init}",
+              "bairro": "${data.bairro_init}"
+            },
             "children": [
               {
                 "type": "TextInput",
@@ -85,8 +89,7 @@
                 "label": "Rua / Avenida",
                 "required": true,
                 "input-type": "text",
-                "helper-text": "Ex: Rua das Flores",
-                "init-value": "${data.rua_init}"
+                "helper-text": "Ex: Rua das Flores"
               },
               {
                 "type": "TextInput",
@@ -102,8 +105,7 @@
                 "label": "Bairro",
                 "required": true,
                 "input-type": "text",
-                "helper-text": "Ex: Centro, Jardim América",
-                "init-value": "${data.bairro_init}"
+                "helper-text": "Ex: Centro, Jardim América"
               },
               {
                 "type": "TextInput",
