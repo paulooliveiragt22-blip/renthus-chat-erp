@@ -804,30 +804,51 @@ export async function handleAwaitingVariantSelection(
 
     const defaultQty = Number(session.context.variant_qty ?? 1);
 
-    // Parse selections: support "3x1", "2 x 1", "1 2 3", single numbers
+    // Parse selections: par (opção, quantidade) em 3 formatos equivalentes:
+    //   "1x3 2x5"  → opção 1 qty 3, opção 2 qty 5   (x como separador)
+    //   "1,3 2,5"  → opção 1 qty 3, opção 2 qty 5   (vírgula dentro do token)
+    //   "1 3 2 5"  → opção 1 qty 3, opção 2 qty 5   (pares alternados)
+    //   "2"        → opção 2 qty = defaultQty
     interface Sel { idx: number; qty: number }
     const selections: Sel[] = [];
 
-    // Format: "{option}x{qty}" e.g. "1x2 2x3" = 2 of option 1, 3 of option 2
-    const oxqRe = /(\d+)\s*x\s*(\d+)/gi;
-    let oxqMatch: RegExpExecArray | null;
-    let hasQxo = false;
-    while ((oxqMatch = oxqRe.exec(input)) !== null) {
-        const opt = parseInt(oxqMatch[1], 10) - 1;
-        const q   = parseInt(oxqMatch[2], 10);
-        if (opt >= 0 && opt < variantOptions.length && q >= 1) {
-            selections.push({ idx: opt, qty: q });
-            hasQxo = true;
+    const tokens = input.trim().split(/\s+/);
+    const plainNums: number[] = [];
+
+    for (const token of tokens) {
+        // Formato NxM — "1x3"
+        const mXQ = token.match(/^(\d+)\s*x\s*(\d+)$/i);
+        if (mXQ) {
+            const opt = parseInt(mXQ[1], 10) - 1;
+            const q   = parseInt(mXQ[2], 10);
+            if (opt >= 0 && opt < variantOptions.length && q >= 1 && q <= 99) {
+                selections.push({ idx: opt, qty: q });
+            }
+            continue;
         }
+        // Formato N,M — "1,3" (dois números separados por vírgula, sem espaço)
+        const mNM = token.match(/^(\d+),(\d+)$/);
+        if (mNM) {
+            const opt = parseInt(mNM[1], 10) - 1;
+            const q   = parseInt(mNM[2], 10);
+            if (opt >= 0 && opt < variantOptions.length && q >= 1 && q <= 99) {
+                selections.push({ idx: opt, qty: q });
+            }
+            continue;
+        }
+        // Número avulso — acumula para pares alternados
+        const n = parseInt(token, 10);
+        if (!isNaN(n) && n >= 1) plainNums.push(n);
     }
 
-    if (!hasQxo) {
-        // Fall back: each space/comma separated number = one option, qty = defaultQty
-        const nums = input.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= variantOptions.length);
-        for (const n of nums) {
-            const existing = selections.find(s => s.idx === n - 1);
-            if (existing) existing.qty += defaultQty;
-            else selections.push({ idx: n - 1, qty: defaultQty });
+    // Pares alternados: [opção, qty, opção, qty …]
+    for (let i = 0; i < plainNums.length; i += 2) {
+        const opt = plainNums[i] - 1;
+        const q   = i + 1 < plainNums.length ? plainNums[i + 1] : defaultQty;
+        if (opt >= 0 && opt < variantOptions.length && q >= 1 && q <= 99) {
+            const dup = selections.find((s) => s.idx === opt);
+            if (dup) dup.qty += q;
+            else selections.push({ idx: opt, qty: q });
         }
     }
 
@@ -836,9 +857,12 @@ export async function handleAwaitingVariantSelection(
             const isCase = isCaseVariant(v);
             const nm     = buildProductDisplayName(v, isCase);
             const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
-            return `${NUMBER_EMOJIS[i] ?? `${i+1}.`} *${nm}* — ${formatCurrency(price)}`;
+            return `${NUMBER_EMOJIS[i] ?? `${i + 1}.`} *${nm}* — ${formatCurrency(price)}`;
         }).join("\n");
-        await reply(phoneE164, `Qual variante deseja?\n\n${listText}\n\n_Ex: *1* para a opção 1 · *1 2* para as opções 1 e 2 · *1x2 2x3* para qtd específica_`);
+        await reply(phoneE164,
+            `Qual opção e quantidade?\n\n${listText}\n\n` +
+            `_Ex: *2 3* = opção 2 com 3un · *1 2 2 5* = opção 1 (2un) + opção 2 (5un) · *1x2 2x5* = mesmo resultado_`
+        );
         return;
     }
 
@@ -870,7 +894,7 @@ export async function handleAwaitingVariantSelection(
         phoneE164,
         `✅ Adicionado: ${addedItems.join(", ")}!${cartText}\n\nQuer mais alguma coisa?`,
         [
-            { id: "mais_produtos", title: "Mais produtos" },
+            { id: "mais_produtos", title: "Ver cardápio" },
             { id: "finalizar",     title: "Finalizar pedido" },
         ]
     );

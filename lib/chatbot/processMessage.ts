@@ -423,8 +423,6 @@ export async function processInboundMessage(
         // Steps de catálogo: têm handlers próprios completos, parser global interfere
         "catalog_categories",
         "catalog_products",
-        "catalog_brands",
-        "catalog_variant",
         "cart",
         // Steps de endereço: handleCheckoutAddress e helpers já fazem validação completa
         "checkout_address",
@@ -742,18 +740,7 @@ export async function processInboundMessage(
             await handleCatalogCategories(admin, companyId, threadId, phoneE164, input, session);
             break;
 
-        case "catalog_brands":
-            // Legado: redireciona para categorias (marca removida) — preserva contexto (categories, etc.)
-            await saveSession(admin, threadId, companyId, { step: "catalog_categories", context: session.context });
-            await handleCatalogCategories(admin, companyId, threadId, phoneE164, input, session);
-            break;
-
         case "catalog_products":
-            await handleCatalogProducts(admin, companyId, threadId, phoneE164, input, session, goToCheckoutFromCart, goToCart);
-            break;
-
-        case "catalog_variant":
-            // Legado: redireciona para catalog_products
             await handleCatalogProducts(admin, companyId, threadId, phoneE164, input, session, goToCheckoutFromCart, goToCart);
             break;
 
