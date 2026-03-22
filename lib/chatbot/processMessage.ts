@@ -2678,25 +2678,30 @@ async function sendVariantsList(
     catName: string,
     brandName: string
 ): Promise<void> {
-    const unitRows = variants.map((v) => ({
+    // Unitários: apenas variantes que NÃO são CX-only
+    const unitVariants = variants.filter((v) => !isCaseVariant(v));
+    const unitRows = unitVariants.map((v) => ({
         id:          v.id,
-        title:       truncateTitle(`${buildProductDisplayName(v)} - ${formatCurrency(v.unitPrice)}`),
-        description: v.details ?? undefined,
+        title:       truncateTitle(buildProductDisplayName(v, false)),
+        description: formatCurrency(v.unitPrice),
     }));
 
+    // Caixas: variantes que têm preço de caixa (UN+CX e CX-only)
     const caseVariants = variants.filter((v) => v.hasCase && v.casePrice);
 
-    const sections: Array<{ title: string; rows: typeof unitRows }> = [
-        { title: "Unitário", rows: unitRows },
-    ];
+    const sections: Array<{ title: string; rows: typeof unitRows }> = [];
+
+    if (unitRows.length > 0) {
+        sections.push({ title: "Unitário", rows: unitRows });
+    }
 
     if (caseVariants.length > 0) {
         sections.push({
-            title: "Caixa com:",
+            title: "Caixa",
             rows:  caseVariants.map((v) => ({
-                id:          `${v.id}_case`,
-                title:       truncateTitle(`${v.caseQty}un - ${buildProductDisplayName(v, true)}`),
-                description: `${v.details ? v.details + " - " : ""}${formatCurrency(v.casePrice ?? 0)}`,
+                id:          isCaseVariant(v) ? v.id : `${v.id}_case`,
+                title:       truncateTitle(buildProductDisplayName(v, true)),
+                description: formatCurrency(v.casePrice ?? 0),
             })),
         });
     }
@@ -2955,14 +2960,16 @@ async function handleCatalogProducts(
 
         for (const idx of indices) {
             const v        = variants[idx];
-            const itemName = buildProductDisplayName(v);
-            const existing = newCart.findIndex((c) => c.variantId === v.id && !c.isCase);
+            const isCase   = isCaseVariant(v);
+            const itemName = buildProductDisplayName(v, isCase);
+            const price    = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
+            const existing = newCart.findIndex((c) => c.variantId === v.id && c.isCase === isCase);
             if (existing >= 0) {
                 newCart[existing] = { ...newCart[existing], qty: newCart[existing].qty + 1 };
             } else {
-                newCart.push({ variantId: v.id, productId: v.productId, name: itemName, price: v.unitPrice, qty: 1, isCase: false });
+                newCart.push({ variantId: v.id, productId: v.productId, name: itemName, price, qty: 1, isCase });
             }
-            addedLines.push(`✅ 1x *${itemName}* — ${formatCurrency(v.unitPrice)}`);
+            addedLines.push(`✅ 1x *${itemName}* — ${formatCurrency(price)}`);
         }
 
         await saveSession(admin, threadId, companyId, {

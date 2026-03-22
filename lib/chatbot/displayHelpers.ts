@@ -27,11 +27,16 @@ export interface DisplayableVariant {
  *   5. só o nome do produto        → "Skol"
  *
  * Sufixo de embalagem bulk quando isCase=true:
- *   CX   → " (cx Nun)"
- *   FARD → " (fardo Nun)"
- *   PAC  → " (pct Nun)"
+ *   → "Heineken 600ml 24 unidades"  (sem traço; o traço fica no preço ao exibir)
+ *
+ * A primeira letra do nome do produto é sempre maiúscula.
  */
 export function buildProductDisplayName(v: DisplayableVariant, isCase = false): string {
+    // Garante que a primeira letra do nome do produto está em maiúscula
+    const productName = v.productName
+        ? v.productName.charAt(0).toUpperCase() + v.productName.slice(1)
+        : v.productName;
+
     let volLabel = "";
 
     if (v.volumeValue > 0) {
@@ -56,12 +61,12 @@ export function buildProductDisplayName(v: DisplayableVariant, isCase = false): 
         // 5) Genérico ruído ("ml", "un", "unidade") → omite
     }
 
-    const baseName = `${v.productName}${volLabel}`.trim();
+    const baseName = `${productName}${volLabel}`.trim();
 
     if (!isCase || !v.caseQty) return baseName;
 
-    // Sufixo de embalagem bulk: "N unidades"
-    return `${baseName} — ${v.caseQty} unidades`;
+    // Sufixo de embalagem bulk: "N unidades" (sem traço — o traço fica no preço)
+    return `${baseName} ${v.caseQty} unidades`;
 }
 
 /**
