@@ -808,15 +808,14 @@ export async function handleAwaitingVariantSelection(
     interface Sel { idx: number; qty: number }
     const selections: Sel[] = [];
 
-    // Try "NxM" or "N x M" format first (qty x option)
-    const qxoRe = /(\d+)\s*x\s*(\d+)/gi;
-    let qxoMatch: RegExpExecArray | null;
+    // Format: "{option}x{qty}" e.g. "1x2 2x3" = 2 of option 1, 3 of option 2
+    const oxqRe = /(\d+)\s*x\s*(\d+)/gi;
+    let oxqMatch: RegExpExecArray | null;
     let hasQxo = false;
-    const inputForParsing = input;
-    while ((qxoMatch = qxoRe.exec(inputForParsing)) !== null) {
-        const q = parseInt(qxoMatch[1], 10);
-        const opt = parseInt(qxoMatch[2], 10) - 1;
-        if (opt >= 0 && opt < variantOptions.length) {
+    while ((oxqMatch = oxqRe.exec(input)) !== null) {
+        const opt = parseInt(oxqMatch[1], 10) - 1;
+        const q   = parseInt(oxqMatch[2], 10);
+        if (opt >= 0 && opt < variantOptions.length && q >= 1) {
             selections.push({ idx: opt, qty: q });
             hasQxo = true;
         }
@@ -839,7 +838,7 @@ export async function handleAwaitingVariantSelection(
             const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
             return `${NUMBER_EMOJIS[i] ?? `${i+1}.`} *${nm}* — ${formatCurrency(price)}`;
         }).join("\n");
-        await reply(phoneE164, `Digite o número da opção:\n\n${listText}\n\n_Ex: "1" para primeira opção, "1 2" para duas opções, "3x1" para 3 unidades da opção 1_`);
+        await reply(phoneE164, `Qual variante deseja?\n\n${listText}\n\n_Ex: *1* para a opção 1 · *1 2* para as opções 1 e 2 · *1x2 2x3* para qtd específica_`);
         return;
     }
 

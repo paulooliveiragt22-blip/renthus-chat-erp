@@ -113,15 +113,19 @@ function buildCatalogText(products: ProductForSearch[], step: string): string {
     // Em steps de checkout não há necessidade de buscar produtos
     if (CHECKOUT_STEPS.has(step)) return "(catálogo não necessário neste passo)";
 
-    return products
-        .map((p) => {
-            const price  = p.unitPrice.toFixed(2).replace(".", ",");
-            const pkg = p.bulkSigla
-                ? `[${p.bulkSigla}${p.caseQty ? ` ${p.caseQty}un` : ""}]`
-                : "[UN]";
-            return `${p.id}|${p.productName}|R$${price}|${pkg}`;
-        })
-        .join("\n");
+    const lines: string[] = [];
+    for (const p of products) {
+        const price = p.unitPrice.toFixed(2).replace(".", ",");
+        lines.push(`${p.id}|${p.productName}|R$${price}|[UN]`);
+        // Adiciona linha CX/FARD/PAC separada quando o produto tem embalagem bulk
+        if (p.hasCase && p.caseVariantId && p.casePrice) {
+            const cxLabel = p.bulkSigla ?? "CX";
+            const cxQty   = p.caseQty ? ` ${p.caseQty}un` : "";
+            const cxPrice = p.casePrice.toFixed(2).replace(".", ",");
+            lines.push(`${p.caseVariantId}|${p.productName} (${cxLabel})|R$${cxPrice}|[${cxLabel}${cxQty}]`);
+        }
+    }
+    return lines.join("\n");
 }
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
@@ -246,19 +250,20 @@ export async function parseWithClaude(
         let tokensOutput = 0;
 
         try {
-            const response = await (client.beta as any).promptCaching.messages.create(
+            const response = await client.beta.messages.create(
                 {
                     model:      cfg.model,
                     max_tokens: 600,
+                    betas:      ["prompt-caching-2024-07-31"],
                     system: [
                         {
                             type:          "text",
                             text:          systemPrompt,
-                            cache_control: { type: "ephemeral" },
+                            cache_control: { type: "ephemeral" } as any,
                         },
                     ],
                     messages: [{ role: "user", content: userMessage }],
-                },
+                } as any,
                 { signal: controller.signal as any }
             );
 

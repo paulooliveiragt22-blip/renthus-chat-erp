@@ -22,6 +22,9 @@ export interface ProductForSearch {
     details?: string | null;
     bulkSigla?: string | null;
     caseQty?: number | null;
+    hasCase?: boolean;
+    casePrice?: number | null;
+    caseVariantId?: string;
 }
 
 export interface ParsedProduct {
@@ -70,7 +73,7 @@ export async function getCachedProducts(
 
     const { data: rows, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, preco_venda, tags, tags_auto, product_name, product_details, volume_quantidade, product_unit_type, unit_type_sigla, sigla_comercial, fator_conversao")
+        .select("id, produto_id, descricao, preco_venda, tags, tags_auto, product_name, product_details, volume_quantidade, product_unit_type, unit_type_sigla, sigla_comercial, fator_conversao, product_volume_id")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -79,33 +82,52 @@ export async function getCachedProducts(
         return [];
     }
 
+    // Group by (produto_id, product_volume_id) — each distinct volume is a separate variant
     const BULK_SIGLAS = new Set(["CX", "FARD", "PAC"]);
-    const products: ProductForSearch[] = (rows ?? []).map((r: any) => {
-        const details = (r.descricao ?? r.product_details ?? null) as string | null;
-        const rawSigla = String(r.sigla_comercial ?? "").toUpperCase();
-        const bulkSigla = BULK_SIGLAS.has(rawSigla) ? rawSigla : null;
-        const caseQty = bulkSigla && r.fator_conversao ? Number(r.fator_conversao) : null;
-        const isCase = Boolean(bulkSigla);
-        const name = buildProductDisplayName({
-            productName:   String(r.product_name ?? ""),
-            volumeValue:   Number(r.volume_quantidade ?? 0),
-            unit:          String(r.product_unit_type ?? ""),
-            unitTypeSigla: (r.unit_type_sigla ?? null) as string | null,
-            details,
-            caseQty,
-            bulkSigla,
-        }, isCase);
-        return {
-            id: String(r.id),
-            productId: String(r.produto_id),
-            productName: name || String(r.product_name ?? ""),
-            unitPrice: Number(r.preco_venda ?? 0),
-            tags: (r.tags_auto ?? r.tags) || null,
-            details,
-            bulkSigla,
-            caseQty,
-        };
-    });
+    const byVol: Record<string, { unitPack: any; casePack: any; caseSigla: string | null; prodId: string }> = {};
+    for (const r of (rows ?? []) as any[]) {
+        const key = `${r.produto_id}::${r.product_volume_id ?? "null"}`;
+        byVol[key] ??= { unitPack: null, casePack: null, caseSigla: null, prodId: String(r.produto_id) };
+        const sig = String(r.sigla_comercial ?? "").toUpperCase();
+        if (sig === "UN" && !byVol[key].unitPack) byVol[key].unitPack = r;
+        if (BULK_SIGLAS.has(sig) && !byVol[key].casePack) {
+            byVol[key].casePack  = r;
+            byVol[key].caseSigla = sig;
+        }
+    }
+
+    const products: ProductForSearch[] = Object.entries(byVol)
+        .map(([, grp]) => {
+            const unitPack = grp.unitPack ?? grp.casePack;
+            if (!unitPack) return null;
+            const casePack  = grp.casePack;
+            const bulkSigla = grp.caseSigla;
+            const caseQty   = casePack ? Number(casePack.fator_conversao ?? 1) : null;
+            const details   = (unitPack.descricao ?? unitPack.product_details ?? null) as string | null;
+            const name = buildProductDisplayName({
+                productName:   String(unitPack.product_name ?? ""),
+                volumeValue:   Number(unitPack.volume_quantidade ?? 0),
+                unit:          String(unitPack.product_unit_type ?? ""),
+                unitTypeSigla: (unitPack.unit_type_sigla ?? null) as string | null,
+                details,
+                caseQty:   null,
+                bulkSigla: null,
+            });
+            return {
+                id:            String(unitPack.id),
+                productId:     grp.prodId,
+                productName:   name || String(unitPack.product_name ?? ""),
+                unitPrice:     Number(unitPack.preco_venda ?? 0),
+                tags:          (unitPack.tags_auto ?? unitPack.tags) || null,
+                details,
+                bulkSigla,
+                caseQty,
+                hasCase:       Boolean(casePack),
+                casePrice:     casePack ? Number(casePack.preco_venda ?? 0) : null,
+                caseVariantId: casePack ? String(casePack.id) : undefined,
+            } as ProductForSearch;
+        })
+        .filter(Boolean) as ProductForSearch[];
 
     productsCache.set(companyId, {
         data: products,

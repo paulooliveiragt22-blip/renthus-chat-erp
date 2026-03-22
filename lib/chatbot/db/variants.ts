@@ -105,7 +105,7 @@ export async function getVariantsByCategory(
 ): Promise<VariantRow[]> {
     const { data: rows } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade, unit_type_sigla")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade, unit_type_sigla, product_volume_id")
         .eq("company_id", companyId)
         .eq("category_id", categoryId)
         .limit(500);
@@ -113,34 +113,35 @@ export async function getVariantsByCategory(
     if (!rows?.length) return [];
 
     const BULK_SIGLAS_SET = new Set(["CX", "FARD", "PAC"]);
-    const byProd: Record<string, { unit: any | null; case: any | null; caseSigla: string | null }> = {};
-    const prodOrder: string[] = [];
+    const byVol: Record<string, { unit: any | null; case: any | null; caseSigla: string | null; prodId: string }> = {};
+    const volOrder: string[] = [];
     for (const r of rows as any[]) {
-        const pid = String(r.produto_id);
-        if (!byProd[pid]) {
-            byProd[pid] = { unit: null, case: null, caseSigla: null };
-            prodOrder.push(pid);
+        const key = `${r.produto_id}::${r.product_volume_id ?? "null"}`;
+        if (!byVol[key]) {
+            byVol[key] = { unit: null, case: null, caseSigla: null, prodId: String(r.produto_id) };
+            volOrder.push(key);
         }
         const sig = String(r.sigla_comercial ?? "").toUpperCase();
-        if (sig === "UN") byProd[pid].unit = r;
-        if (BULK_SIGLAS_SET.has(sig) && !byProd[pid].case) {
-            byProd[pid].case = r;
-            byProd[pid].caseSigla = sig;
+        if (sig === "UN" && !byVol[key].unit) byVol[key].unit = r;
+        if (BULK_SIGLAS_SET.has(sig) && !byVol[key].case) {
+            byVol[key].case = r;
+            byVol[key].caseSigla = sig;
         }
     }
 
     const variants: VariantRow[] = [];
-    for (const pid of prodOrder) {
-        const unitPack = byProd[pid]?.unit ?? null;
-        const casePack = byProd[pid]?.case ?? null;
+    for (const key of volOrder) {
+        const unitPack = byVol[key]?.unit ?? null;
+        const casePack = byVol[key]?.case ?? null;
         if (!unitPack && !casePack) continue;
 
         const p = unitPack ?? casePack;
         const volQty  = Number((unitPack ?? casePack)?.volume_quantidade ?? 0);
         const utSigla = String((unitPack ?? casePack)?.unit_type_sigla ?? "") || null;
+        const prodId  = byVol[key].prodId;
         variants.push({
-            id: String(unitPack?.id ?? casePack?.id ?? pid),
-            productId: pid,
+            id: String(unitPack?.id ?? casePack?.id ?? key),
+            productId: prodId,
             productName: String(p?.product_name ?? ""),
             details: (unitPack?.descricao ?? casePack?.descricao ?? p?.product_details ?? null) as string | null,
             tags: unitPack?.tags ?? casePack?.tags ?? null,
@@ -151,7 +152,7 @@ export async function getVariantsByCategory(
             hasCase: Boolean(casePack),
             caseQty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
             casePrice: casePack ? Number(casePack.preco_venda ?? 0) : null,
-            bulkSigla: byProd[pid]?.caseSigla ?? null,
+            bulkSigla: byVol[key]?.caseSigla ?? null,
             caseVariantId: casePack ? String(casePack.id) : undefined,
             isAccompaniment: Boolean(unitPack?.is_acompanhamento || casePack?.is_acompanhamento),
         });
@@ -330,7 +331,7 @@ export async function searchVariantsByTextV2(
 
     const { data, error } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade, unit_type_sigla")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade, unit_type_sigla, product_volume_id")
         .eq("company_id", companyId)
         .limit(800);
 
@@ -340,32 +341,31 @@ export async function searchVariantsByTextV2(
     }
     if (!data?.length) return [];
 
-    // Siglas que representam embalagem bulk (mais de 1 unidade)
     const BULK = new Set(["CX", "FARD", "PAC"]);
 
-    // 1) Agrupar por produto
-    const byProd: Record<string, {
+    // Group by (produto_id, product_volume_id) — each distinct volume = separate variant
+    const byVol: Record<string, {
         unitPack:  any | null;
         casePack:  any | null;
         caseSigla: string | null;
+        prodId:    string;
         tags:      string[];
     }> = {};
 
     for (const r of data as any[]) {
-        const pid = String(r.produto_id);
-        byProd[pid] ??= { unitPack: null, casePack: null, caseSigla: null, tags: [] };
+        const key = `${r.produto_id}::${r.product_volume_id ?? "null"}`;
+        byVol[key] ??= { unitPack: null, casePack: null, caseSigla: null, prodId: String(r.produto_id), tags: [] };
         const sig = String(r.sigla_comercial ?? "").toUpperCase();
-        if (sig === "UN") byProd[pid].unitPack = r;
-        // Aceita primeiro bulk encontrado (CX, FARD ou PAC)
-        if (BULK.has(sig) && !byProd[pid].casePack) {
-            byProd[pid].casePack  = r;
-            byProd[pid].caseSigla = sig;
+        if (sig === "UN" && !byVol[key].unitPack) byVol[key].unitPack = r;
+        if (BULK.has(sig) && !byVol[key].casePack) {
+            byVol[key].casePack  = r;
+            byVol[key].caseSigla = sig;
         }
-        if (r.tags) byProd[pid].tags.push(String(r.tags));
+        if (r.tags) byVol[key].tags.push(String(r.tags));
     }
 
-    const variants: VariantRow[] = Object.entries(byProd)
-        .map(([pid, grp]) => {
+    const variants: VariantRow[] = Object.entries(byVol)
+        .map(([, grp]) => {
             const unitPack = grp.unitPack ?? grp.casePack;
             const casePack = grp.casePack;
             if (!unitPack) return null;
@@ -374,7 +374,7 @@ export async function searchVariantsByTextV2(
             const utSigla = String(unitPack.unit_type_sigla ?? "") || null;
             return {
                 id:           String(unitPack.id),
-                productId:    pid,
+                productId:    grp.prodId,
                 productName:  String(unitPack.product_name ?? ""),
                 details:      (unitPack.descricao ?? unitPack.product_details ?? null) as string | null,
                 tags:         grp.tags.length ? grp.tags.join(",") : null,

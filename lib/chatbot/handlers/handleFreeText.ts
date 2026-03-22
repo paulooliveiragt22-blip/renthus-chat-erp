@@ -312,23 +312,16 @@ export async function handleFreeTextInput(
     // ── Produto sem volume especificado → mostrar variantes ───────────────────
     // Se o usuário não especificou volume E os resultados são do mesmo produto (1 produto, possivelmente 1 variante)
     if (!hasVolumeClue(cleanText) && !pkgExplicit && effective.length >= 1) {
-        // Group by base product name (strip volume) to handle multi-volume same-brand products
-        // Ex: "Heineken 300ml" e "Heineken 600ml" → mesmo grupo "heineken"
-        const extractBaseName = (name: string) =>
-            name.toLowerCase()
-                .replace(/\d+(?:[.,]\d+)?\s*(?:ml|l|litros?|cl|g|kg)\b/gi, "")
-                .replace(/\s+/g, " ").trim();
-
-        const byBaseName = new Map<string, VariantRow[]>();
+        // Group by productId — all volume variants of a product share the same productId
+        const byProductId = new Map<string, VariantRow[]>();
         for (const v of effective) {
-            const key = extractBaseName(v.productName);
-            if (!byBaseName.has(key)) byBaseName.set(key, []);
-            byBaseName.get(key)!.push(v);
+            if (!byProductId.has(v.productId)) byProductId.set(v.productId, []);
+            byProductId.get(v.productId)!.push(v);
         }
 
-        // Only show variant selection when all results share the same base name
-        if (byBaseName.size === 1) {
-            const variants = [...byBaseName.values()][0];
+        // Show variant selection when all results are the same product
+        if (byProductId.size === 1) {
+            const variants = [...byProductId.values()][0];
             const displayName = effective[0].productName;
             const displayVariants: VariantRow[] = [];
             for (const v of variants) {
@@ -361,7 +354,7 @@ export async function handleFreeTextInput(
                 });
                 await reply(
                     phoneE164,
-                    `🍺 *${displayName}* — qual opção você quer?\n\n${listLines.join("\n")}\n\n_Digite o número da opção. Para pedir vários: "1 2 3" ou "3x1" para 3 unidades da opção 1_`
+                    `🍺 *${displayName}* — qual opção você quer?\n\n${listLines.join("\n")}\n\n_Digite o número da opção. Ex: *1* para opção 1, *1 2 3* para várias, *1x2 2x3* para quantidades (opção x qtd)_`
                 );
                 return "handled";
             }
