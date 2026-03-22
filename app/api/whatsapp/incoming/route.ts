@@ -7,6 +7,12 @@
  * POST → processa mensagens com await e retorna 200 após processamento.
  *        processInboundMessage é aguardado para garantir que o Lambda
  *        não seja congelado antes de concluir o fluxo do chatbot.
+ *
+ * Deduplicação: INSERT em whatsapp_messages com unique index em provider_message_id.
+ * Se o Meta reenviar o mesmo waId (retry), o INSERT falha com 23505 e é ignorado.
+ *
+ * TODO (upgrade Pro): substituir processInboundMessage por enqueue em chatbot_queue
+ * e ativar o cron "* * * * *" para processamento assíncrono com retry automático.
  */
 
 import { NextRequest, NextResponse } from "next/server";

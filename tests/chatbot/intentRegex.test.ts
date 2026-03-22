@@ -21,6 +21,39 @@ const AWAIT_CANCEL_YES_RE = /(?<![a-záàâãéèêíïóôõúüç])\b(sim|yes|
 const AWAIT_CANCEL_NO_RE  = /(?<![a-záàâãéèêíïóôõúüç])\b(nao|não|no|nope|voltar|continuar|nao\s+quero)\b(?![a-záàâãéèêíïóôõúüç])/iu;
 const AFFIRMATIVE_RE      = /\b(sim|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda|confirmar)\b/iu;
 
+// ─── Novos guards de arbitragem (Features 2, 3, 4) ───────────────────────────
+// Fonte: lib/chatbot/processMessage.ts
+
+/** Feature 3: negação antes de "cancelar" invalida a intenção */
+const NEGATION_CANCEL_RE = /\b(nao|não|nem|nunca|jamais)\b.{0,25}\b(cancelar|cancela)\b/iu;
+
+/** Feature 3: negação genérica que invalida AFFIRMATIVE_RE em intenções críticas */
+const NEGATION_RE        = /\b(nao|não|nem|nunca|jamais|de\s+jeito\s+nenhum)\b/iu;
+
+// ─── Helpers de arbitragem (simulam a lógica do processMessage) ──────────────
+
+/**
+ * Simula a decisão do step 5: o input é realmente intenção de cancelar?
+ * Feature 3: se NEGATION_CANCEL_RE bate, não é.
+ */
+function isCancelIntent(input: string): boolean {
+    return CANCELAR_TEST_RE.test(input) && !NEGATION_CANCEL_RE.test(input);
+}
+
+/**
+ * Simula a decisão do step 7 para checkout_confirm.
+ * Retorna:
+ *   "confirm"     → alta confiança, confirmar pedido direto
+ *   "clarify"     → baixa confiança (frase longa), pedir confirmação explícita
+ *   "passthrough" → negação presente, deixar o switch handler tratar
+ */
+function affirmativeConfidence(input: string): "confirm" | "clarify" | "passthrough" {
+    if (!AFFIRMATIVE_RE.test(input)) return "passthrough";
+    if (NEGATION_RE.test(input))     return "passthrough";
+    const wordCount = input.trim().split(/\s+/u).length;
+    return wordCount <= 4 ? "confirm" : "clarify";
+}
+
 // Fonte: lib/chatbot/textParsers.ts
 const REMOVE_INTENT_RE = /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/iu;
 const PAY_1_RE         = /^\s*1\s*$/u;
@@ -369,4 +402,137 @@ describe("⚠️  Sobreposições entre Regex — comportamento documentado", ()
         // Mitigação: no step awaiting_cancel_confirm o cliente não está escolhendo pagamento.
         // Se o step mudar, atenção a essa ambiguidade.
     });
+});
+
+// ─── Feature 3 — NEGATION_CANCEL_RE ──────────────────────────────────────────
+
+describe("NEGATION_CANCEL_RE — filtro de negação antes de cancelar", () => {
+    const shouldNegate = [
+        "não quero cancelar",
+        "nao quero cancelar",
+        "nem cancelar",
+        "nunca cancelar",
+        "jamais cancelar",
+        "não, cancelar não",
+        "nao precisa cancelar",
+    ];
+
+    for (const phrase of shouldNegate) {
+        it(`bloqueia cancel: "${phrase}"`, () => {
+            assert.ok(!isCancelIntent(phrase), `esperava NÃO ser cancel em "${phrase}"`);
+        });
+    }
+
+    const shouldCancel = [
+        "cancelar",
+        "quero cancelar",
+        "cancela o pedido",
+        "cancela tudo",
+        "pode cancelar",   // "pode" não é negação
+    ];
+
+    for (const phrase of shouldCancel) {
+        it(`permite cancel: "${phrase}"`, () => {
+            assert.ok(isCancelIntent(phrase), `esperava cancel em "${phrase}"`);
+        });
+    }
+
+    it(`borda: "não gosto, cancelar" — negação longe do cancelar (> 25 chars) → permite cancel`, () => {
+        // A janela de 25 chars evita bloquear negações não relacionadas
+        const phrase = "não estou gostando muito do atendimento, quero cancelar";
+        // "não" está a ~50 chars de "cancelar" → NÃO bloqueia → isCancelIntent = true
+        assert.ok(isCancelIntent(phrase));
+    });
+});
+
+// ─── Feature 3 — NEGATION_RE ─────────────────────────────────────────────────
+
+describe("NEGATION_RE — negação genérica que invalida AFFIRMATIVE_RE", () => {
+    const positives = [
+        "não", "nao", "nem", "nunca", "jamais", "de jeito nenhum",
+        "não, pode não", "nao confirma", "nem pensar",
+    ];
+
+    for (const phrase of positives) {
+        it(`detecta negação: "${phrase}"`, () => {
+            assert.ok(test(NEGATION_RE, phrase));
+        });
+    }
+
+    const negatives = [
+        "sim", "ok", "confirmar", "pode", "bora",
+        "quero 2 skol", "finalizar pedido",
+    ];
+
+    for (const phrase of negatives) {
+        it(`NÃO detecta negação: "${phrase}"`, () => {
+            assert.ok(!test(NEGATION_RE, phrase));
+        });
+    }
+});
+
+// ─── Features 2, 3, 4 — affirmativeConfidence ────────────────────────────────
+
+describe("affirmativeConfidence — confiança restrita + fallback de confirmação", () => {
+
+    // Alta confiança: frase curta sem negação → confirma direto
+    const highConf: [string, string][] = [
+        ["sim",              "confirm"],
+        ["ok",               "confirm"],
+        ["pode",             "confirm"],
+        ["confirmar",        "confirm"],
+        ["bora sim",         "confirm"],
+        ["vai vai",          "confirm"],
+        ["ok pode",          "confirm"],
+        ["sim confirmar",    "confirm"],
+    ];
+
+    for (const [phrase, expected] of highConf) {
+        it(`"${phrase}" → ${expected} (alta confiança, ≤ 4 palavras)`, () => {
+            assert.strictEqual(affirmativeConfidence(phrase), expected);
+        });
+    }
+
+    // Baixa confiança: frase longa sem negação → pede clarificação
+    const lowConf: [string, string][] = [
+        ["ok mas antes de confirmar, tem troco?",      "clarify"],
+        ["pode confirmar sim, endereço está certo",    "clarify"],
+        ["bora pode mandar que estou esperando aqui",  "clarify"],
+        ["sim quero confirmar mas muda o endereço",    "clarify"],
+    ];
+
+    for (const [phrase, expected] of lowConf) {
+        it(`"${phrase}" → ${expected} (baixa confiança, > 4 palavras)`, () => {
+            assert.strictEqual(affirmativeConfidence(phrase), expected);
+        });
+    }
+
+    // Negação presente → passthrough (não confirma, não pede clarificação)
+    const negated: [string, string][] = [
+        ["não, pode não",                      "passthrough"],
+        ["nao confirma",                       "passthrough"],
+        ["não quero confirmar agora",          "passthrough"],
+        ["nem pensar em confirmar",            "passthrough"],
+        ["ok mas não quero confirmar ainda",   "passthrough"],
+    ];
+
+    for (const [phrase, expected] of negated) {
+        it(`"${phrase}" → ${expected} (negação presente)`, () => {
+            assert.strictEqual(affirmativeConfidence(phrase), expected);
+        });
+    }
+
+    // Sem match afirmativo → passthrough
+    const noMatch: [string, string][] = [
+        ["cadê meu pedido",  "passthrough"],
+        ["quero 2 skol",     "passthrough"],
+        ["cancelar",         "passthrough"],
+        ["",                 "passthrough"],
+    ];
+
+    for (const [phrase, expected] of noMatch) {
+        it(`"${phrase}" → ${expected} (sem palavra afirmativa)`, () => {
+            assert.strictEqual(affirmativeConfidence(phrase), expected);
+        });
+    }
 });

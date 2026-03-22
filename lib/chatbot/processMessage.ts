@@ -76,6 +76,21 @@ const AWAIT_CANCEL_YES_RE  = /(?<![a-záàâãéèêíïóôõúüç])\b(sim|yes
 const AWAIT_CANCEL_NO_RE   = /(?<![a-záàâãéèêíïóôõúüç])\b(nao|não|no|nope|voltar|continuar|nao\s+quero)\b(?![a-záàâãéèêíïóôõúüç])/iu;
 const AFFIRMATIVE_RE       = /\b(sim|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda|confirmar)\b/iu;
 
+// ─── Arbitragem de intenção (Features 2, 3, 4) ────────────────────────────────
+
+/**
+ * Feature 3 — Filtro de Negação para cancelamento.
+ * "não quero cancelar", "nem cancelar", "jamais cancelar" → NÃO é intenção de cancelar.
+ * Janela de 25 chars entre negação e "cancelar" cobre construções naturais em PT-BR.
+ */
+const NEGATION_CANCEL_RE = /\b(nao|não|nem|nunca|jamais)\b.{0,25}\b(cancelar|cancela)\b/iu;
+
+/**
+ * Feature 3 — Negação genérica que invalida AFFIRMATIVE_RE em intenções críticas.
+ * Detecta "não", "nao", "nem", "nunca", "jamais", "de jeito nenhum".
+ */
+const NEGATION_RE = /\b(nao|não|nem|nunca|jamais|de\s+jeito\s+nenhum)\b/iu;
+
 // ─── Ponto de entrada ─────────────────────────────────────────────────────────
 
 export async function processInboundMessage(
@@ -167,7 +182,8 @@ export async function processInboundMessage(
     }
 
     // ── 5. Cancel handling (cancelar alone → awaiting_cancel_confirm; cancelar + product → remove) ──
-    const isCancelarInput = CANCELAR_TEST_RE.test(input);
+    // Feature 3: "não quero cancelar", "nem cancelar" → negação invalida a intenção
+    const isCancelarInput = CANCELAR_TEST_RE.test(input) && !NEGATION_CANCEL_RE.test(input);
     if (isCancelarInput) {
         const normIn = normalize(input);
         const withoutCancel = normIn.replace(CANCELAR_STRIP_RE, "").trim();
@@ -226,11 +242,37 @@ export async function processInboundMessage(
     }
 
     // ── 7. Affirmative/negative global (checkout_confirm + other steps) ───────
+    //
+    // Feature 2 (Confiança Restrita): só confirma diretamente se frase é curta (≤ 4 palavras).
+    // Feature 3 (Filtro de Negação):  se a mensagem contém negação, não trata como confirmação.
+    // Feature 4 (Fallback):           frase longa + sem negação → pergunta "é isso?" com botões.
     {
         const isAffirmative = AFFIRMATIVE_RE.test(input);
         if (isAffirmative && session.step === "checkout_confirm") {
-            await handleCheckoutConfirm(admin, companyId, threadId, phoneE164, companyName, "confirmar", session);
-            return;
+            const hasNegation = NEGATION_RE.test(input);
+            const wordCount   = input.trim().split(/\s+/u).length;
+
+            if (hasNegation) {
+                // Negação presente: "não, pode não", "não confirma" → não é confirmação.
+                // Deixa o switch (linha abaixo) chamar handleCheckoutConfirm com o input
+                // original; lá, se não reconhecer, reexibe o resumo do pedido.
+            } else if (wordCount <= 4) {
+                // Alta confiança: frase curta e sem negação ("sim", "ok", "pode confirmar").
+                await handleCheckoutConfirm(admin, companyId, threadId, phoneE164, companyName, "confirmar", session);
+                return;
+            } else {
+                // Baixa confiança: frase longa com palavra afirmativa ("ok mas antes, muda o endereço").
+                // Feature 4: pede confirmação explícita via botões em vez de processar direto.
+                await sendInteractiveButtons(
+                    phoneE164,
+                    `Entendi que você quer *confirmar o pedido*, é isso?`,
+                    [
+                        { id: "confirmar",    title: "✅ Sim, confirmar" },
+                        { id: "change_items", title: "✏️ Não, alterar" },
+                    ]
+                );
+                return;
+            }
         }
     }
 
