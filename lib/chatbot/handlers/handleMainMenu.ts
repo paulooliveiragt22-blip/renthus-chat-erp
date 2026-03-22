@@ -7,7 +7,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Fuse from "fuse.js";
-import type { Session } from "../types";
+import Anthropic from "@anthropic-ai/sdk";
+import type { Session, CartItem } from "../types";
 import { saveSession } from "../session";
 import {
     formatCurrency, matchesAny, isWithinBusinessHours,
@@ -17,6 +18,69 @@ import { getCategories } from "../db/variants";
 import { getOrCreateCustomer } from "../db/orders";
 import { handleFreeTextInput } from "./handleFreeText";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
+
+// ─── claudeNaturalReply ───────────────────────────────────────────────────────
+
+const STEP_CONTEXT: Record<string, string> = {
+    catalog_products:           "cliente está escolhendo produtos do cardápio",
+    catalog_categories:         "cliente está escolhendo uma categoria do cardápio",
+    awaiting_variant_selection: "cliente precisa escolher uma variante e quantidade (ex: 1x2 = opção 1 com 2 unidades)",
+    checkout_payment:           "cliente precisa informar forma de pagamento: PIX, Cartão ou Dinheiro",
+    checkout_address:           "cliente precisa informar endereço de entrega",
+    awaiting_address_selection: "cliente está escolhendo um endereço salvo ou adicionando novo",
+    awaiting_address_number:    "cliente precisa informar apenas o número do endereço",
+    awaiting_address_neighborhood: "cliente precisa informar o bairro",
+    checkout_confirm:           "cliente está confirmando o pedido",
+    main_menu:                  "cliente está no menu principal",
+    awaiting_flow:              "cliente tem um formulário de endereço/pagamento aberto no WhatsApp",
+};
+
+/**
+ * Chama Claude Haiku para gerar uma resposta natural quando o regex não reconheceu o input.
+ * NUNCA retorna erro ao cliente — sempre responde de forma útil e redireciona.
+ */
+export async function claudeNaturalReply(params: {
+    input:        string;
+    step:         string;
+    cart:         CartItem[];
+    lastBotMsg:   string;
+    companyName:  string;
+}): Promise<string> {
+    const cartText = params.cart.length > 0
+        ? params.cart.map((i) => `${i.qty}x ${i.name}`).join(", ")
+        : "vazio";
+
+    const stepDesc = STEP_CONTEXT[params.step] ?? "atendimento geral";
+
+    try {
+        const client = new Anthropic();
+        const msg = await client.messages.create(
+            {
+                model:      "claude-haiku-4-5-20251001",
+                max_tokens: 150,
+                messages:   [{
+                    role:    "user",
+                    content: `Você é atendente de uma distribuidora de bebidas via WhatsApp chamada "${params.companyName}".
+
+Contexto atual: ${stepDesc}
+Carrinho: ${cartText}
+Última mensagem do bot: "${params.lastBotMsg}"
+Mensagem do cliente: "${params.input}"
+
+Responda em português brasileiro de forma natural e curta (máx 2 frases).
+NÃO diga "não entendi", "não reconheço" ou similares.
+Seja útil, educado e direcione para o próximo passo correto.`,
+                }],
+            },
+            { timeout: 3500 }
+        );
+        const block = msg.content.find((b) => b.type === "text");
+        return block && block.type === "text" ? block.text.trim() : "Como posso te ajudar? 😊";
+    } catch {
+        // Fallback silencioso — nunca expõe erro técnico ao cliente
+        return "Como posso te ajudar? 😊";
+    }
+}
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
@@ -76,28 +140,6 @@ export async function doHandover(
  * 1ª vez: pergunta educadamente se quer adicionar produto ou falar com atendente.
  * 2ª vez: envia List Message com categorias do ERP.
  */
-/** Mensagem de fallback específica por step — evita "falando com uma parede" */
-function buildStepFallbackHint(step: string): string | null {
-    switch (step) {
-        case "checkout_payment":
-            return "Desculpe, não entendi. Você prefere *PIX*, *Cartão* ou *Dinheiro*?";
-        case "checkout_address":
-            return "Pode me confirmar apenas o *nome da rua e o número*?";
-        case "awaiting_address_number":
-            return "Qual é o *número* do endereço? (ex: 123)";
-        case "awaiting_address_neighborhood":
-            return "Qual é o *bairro*?";
-        case "awaiting_variant_selection":
-            return "Por favor, escolha a variante pelo *número* indicado.";
-        case "awaiting_address_selection":
-            return "Escolha um dos endereços listados ou *digite um novo endereço completo*.";
-        case "checkout_confirm":
-            return "Desculpe, não entendi. Digite *confirmar* para fechar o pedido ou *cancelar* para desistir.";
-        default:
-            return null;
-    }
-}
-
 export async function handleLowConfidenceFallback(
     admin: SupabaseClient,
     companyId: string,
@@ -113,42 +155,37 @@ export async function handleLowConfidenceFallback(
         context: { ...session.context, consecutive_unknown_count: count },
     });
 
-    if (count === 1) {
-        // Fallback inteligente: dica específica ao step atual
-        const stepHint = buildStepFallbackHint(session.step);
-        if (stepHint) {
-            await reply(phoneE164, stepHint);
-            return true;
-        }
-
-        // Sem dica de step: tenta sugerir produtos próximos via Fuse.js
-        let suggestionText = "";
-        if (input && products.length > 0) {
-            const fuse = new Fuse(products, {
-                keys: [{ name: "productName", weight: 0.7 }, { name: "tags", weight: 0.3 }],
-                threshold: 0.5,
-                includeScore: true,
-            });
-            const hits = fuse.search(input).slice(0, 3).filter((r) => (r.score ?? 1) < 0.5);
-            if (hits.length > 0) {
-                const lines = hits.map((r) => `• *${r.item.productName}* — ${formatCurrency(r.item.unitPrice)}`);
-                suggestionText = `Você quis dizer algum destes?\n\n${lines.join("\n")}\n\n`;
-            }
-        }
-        await reply(
-            phoneE164,
-            `${suggestionText}Não entendi bem. 😅 Digite o nome do produto ou escolha uma opção:`
-        );
-        await sendInteractiveButtons(phoneE164, "Como posso ajudar?", [
-            { id: "1", title: "Ver cardápio" },
-            { id: "2", title: "Status do pedido" },
-            { id: "3", title: "Falar com atendente" },
-        ]);
+    // Handover automático após 3 tentativas sem entender
+    if (count >= 3) {
+        await doHandover(admin, companyId, threadId, phoneE164, companyName, session);
         return true;
     }
 
-    // Layer 4: IA não entendeu em 2 turnos → handover automático
-    await doHandover(admin, companyId, threadId, phoneE164, companyName, session);
+    // Tenta sugerir produtos próximos via Fuse.js (sem expor ao cliente diretamente)
+    let fuseHint = "";
+    if (input && products.length > 0) {
+        const fuse = new Fuse(products, {
+            keys:      [{ name: "productName", weight: 0.7 }, { name: "tags", weight: 0.3 }],
+            threshold: 0.5,
+            includeScore: true,
+        });
+        const hits = fuse.search(input).slice(0, 3).filter((r) => (r.score ?? 1) < 0.5);
+        if (hits.length > 0) {
+            fuseHint = "\nProdutos próximos: " + hits.map((r) => r.item.productName).join(", ");
+        }
+    }
+
+    // Claude Haiku responde de forma natural — sem "não entendi"
+    const lastBotMsg = (session.context.last_bot_question as string | undefined) ?? "";
+    const naturalReply = await claudeNaturalReply({
+        input:       input + fuseHint,
+        step:        session.step,
+        cart:        session.cart,
+        lastBotMsg,
+        companyName,
+    });
+
+    await reply(phoneE164, naturalReply);
     return true;
 }
 

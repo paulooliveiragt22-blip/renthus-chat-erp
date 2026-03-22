@@ -10,6 +10,7 @@ import type { Session, VariantRow } from "../types";
 import { saveSession } from "../session";
 import { formatCurrency, formatCart, cartTotal, matchesAny, isCaseVariant, NUMBER_EMOJIS } from "../utils";
 import { detectPaymentMethod } from "../textParsers";
+import { claudeNaturalReply } from "./handleMainMenu";
 import { findDeliveryZone, listDeliveryZones, getCategories } from "../db/variants";
 import { getOrCreateCustomer, createOrder } from "../db/orders";
 import { getAccompanimentItems } from "../db/variants";
@@ -17,7 +18,7 @@ import { commitAddress, sendPaymentButtonsAddr } from "./handleAddress";
 import { buildProductDisplayName } from "../displayHelpers";
 import { getOrderParserService } from "../OrderParserService";
 import { getWhatsAppConfig } from "../../whatsapp/getConfig";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendFlowMessage } from "../../whatsapp/send";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendFlowMessage, sendListMessage } from "../../whatsapp/send";
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
@@ -200,31 +201,35 @@ export async function goToCheckoutFromCart(
                 .limit(5);
 
             if (savedAddrs && savedAddrs.length > 0) {
-                // Máx 2 endereços + "Novo endereço" = 3 botões (limite WhatsApp)
-                const addrToShow = savedAddrs.slice(0, 2);
-                const addrLines = addrToShow.map((a) => {
-                    const detail = [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ");
-                    const label  = a.apelido ?? a.logradouro ?? "Endereço";
-                    return `📍 *${label}*: ${detail}`;
-                }).join("\n");
-
-                const buttons = [
-                    ...addrToShow.map((a) => ({
-                        id:    `addr_${a.id}`,
-                        title: (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 20),
-                    })),
-                    { id: "new_address", title: "Novo endereço" },
-                ];
+                // Usa List Message para suportar até 3 endereços + "Novo endereço"
+                // (botões têm limite de 3; list messages suportam mais itens)
+                const addrToShow = savedAddrs.slice(0, 3);
 
                 await saveSession(admin, threadId, companyId, {
                     step:        "awaiting_address_selection",
                     customer_id: customerId,
                     context:     { ...session.context, saved_addresses: savedAddrs },
                 });
-                await sendInteractiveButtons(
+
+                const rows = [
+                    ...addrToShow.map((a) => {
+                        const detail = [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ");
+                        const label  = (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24);
+                        return {
+                            id:          `addr_${a.id}`,
+                            title:       label,
+                            description: detail.slice(0, 72),
+                        };
+                    }),
+                    { id: "new_address", title: "📍 Novo endereço", description: "Preencher novo endereço" },
+                ];
+
+                await sendListMessage(
                     phoneE164,
-                    `📍 *Endereço de entrega*\n\n${addrLines}\n\nEscolha abaixo ou adicione um novo:`,
-                    buttons
+                    `📍 *Endereço de entrega*\n\nEscolha um endereço salvo ou adicione um novo:`,
+                    "Escolher endereço",
+                    rows,
+                    "Endereços"
                 );
                 return;
             }
@@ -234,7 +239,7 @@ export async function goToCheckoutFromCart(
         await saveSession(admin, threadId, companyId, {
             step:        "awaiting_flow",
             customer_id: customerId,
-            context:     { ...session.context, flow_token: flowToken, skip_saved_addresses: undefined },
+            context:     { ...session.context, flow_token: flowToken, flow_started_at: new Date().toISOString(), skip_saved_addresses: undefined },
         });
         const cartSummary = session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ");
         await sendFlowMessage(phoneE164, {
@@ -305,29 +310,66 @@ export async function handleAwaitingAddressSelection(
         return;
     }
 
-    // Input desconhecido → reexibe os botões
+    // Input desconhecido — tenta interpretar como endereço em texto livre
+    if (input.length >= 5) {
+        const { getOrderParserService } = await import("../OrderParserService");
+        const parser     = getOrderParserService();
+        const parsedAddr = await parser.validateAddress(input);
+
+        if (parsedAddr && parsedAddr.houseNumber) {
+            const finalAddr    = parsedAddr.formatted ?? input;
+            const neighborhood = parsedAddr.neighborhood ?? "";
+            const zone = neighborhood ? await findDeliveryZone(admin, companyId, neighborhood) : null;
+
+            await saveSession(admin, threadId, companyId, {
+                step:        "checkout_payment",
+                customer_id: session.customer_id ?? undefined,
+                context: {
+                    ...session.context,
+                    saved_addresses:  undefined,
+                    delivery_address: finalAddr,
+                    delivery_fee:     zone ? Number(zone.fee) : 0,
+                    delivery_zone_id: zone?.id ?? null,
+                },
+            });
+            await reply(phoneE164, `📍 Endereço confirmado: *${finalAddr}*`);
+            await sendPaymentButtons(phoneE164);
+            return;
+        }
+    }
+
+    // Não reconheceu como endereço — Claude responde e reexibe as opções
+    const naturalReply = await claudeNaturalReply({
+        input,
+        step:        "awaiting_address_selection",
+        cart:        session.cart,
+        lastBotMsg:  "Escolha um endereço salvo ou adicione um novo",
+        companyName: "",
+    });
+    await reply(phoneE164, naturalReply);
+
     const savedAddrs = (session.context.saved_addresses as Array<{
         id: string; apelido: string | null; logradouro: string | null;
         numero: string | null; complemento: string | null; bairro: string | null;
     }>) ?? [];
     if (savedAddrs.length > 0) {
-        const addrToShow = savedAddrs.slice(0, 2);
-        const addrLines  = addrToShow.map((a) => {
-            const detail = [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ");
-            const label  = a.apelido ?? a.logradouro ?? "Endereço";
-            return `📍 *${label}*: ${detail}`;
-        }).join("\n");
-        const buttons = [
-            ...addrToShow.map((a) => ({
-                id:    `addr_${a.id}`,
-                title: (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 20),
-            })),
-            { id: "new_address", title: "Novo endereço" },
+        const rows = [
+            ...savedAddrs.slice(0, 3).map((a) => {
+                const detail = [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ");
+                return {
+                    id:          `addr_${a.id}`,
+                    title:       (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24),
+                    description: detail.slice(0, 72),
+                };
+            }),
+            { id: "new_address", title: "📍 Novo endereço", description: "Preencher novo endereço" },
         ];
-        await sendInteractiveButtons(
+        await sendListMessage(
             phoneE164,
-            `📍 *Endereço de entrega*\n\n${addrLines}\n\nEscolha abaixo ou adicione um novo:`,
-            buttons
+            "📍 Escolha um endereço:",
+            "Escolher endereço",
+            rows,
+            "Endereços"
         );
     }
 }
@@ -486,6 +528,15 @@ export async function handleCheckoutPayment(
     const normalizedInput = input.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     let method = paymentMap[normalizedInput] ?? detectPaymentMethod(input);
     if (!method) {
+        // Claude entende a intenção de pagamento de forma natural
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "checkout_payment",
+            cart:        session.cart,
+            lastBotMsg:  "Como deseja pagar? PIX, Cartão ou Dinheiro",
+            companyName: "",
+        });
+        await reply(phoneE164, naturalReply);
         await sendPaymentButtons(phoneE164);
         return;
     }
@@ -859,8 +910,17 @@ export async function handleAwaitingVariantSelection(
             const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
             return `${NUMBER_EMOJIS[i] ?? `${i + 1}.`} *${nm}* — ${formatCurrency(price)}`;
         }).join("\n");
+        // Claude responde naturalmente antes de reexibir a lista
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "awaiting_variant_selection",
+            cart:        session.cart,
+            lastBotMsg:  `Qual opção? ${listText}`,
+            companyName: "",
+        });
+        await reply(phoneE164, naturalReply);
         await reply(phoneE164,
-            `Qual opção e quantidade?\n\n${listText}\n\n` +
+            `${listText}\n\n` +
             `_Ex: *2 3* = opção 2 com 3un · *1 2 2 5* = opção 1 (2un) + opção 2 (5un) · *1x2 2x5* = mesmo resultado_`
         );
         return;

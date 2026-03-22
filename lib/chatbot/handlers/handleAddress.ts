@@ -12,6 +12,7 @@ import { saveSession } from "../session";
 import { formatCurrency } from "../utils";
 import { findDeliveryZone } from "../db/variants";
 import { getOrderParserService } from "../OrderParserService";
+import { claudeNaturalReply } from "./handleMainMenu";
 import { sendWhatsAppMessage, sendInteractiveButtons } from "../../whatsapp/send";
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
@@ -186,7 +187,14 @@ export async function handleAwaitingAddressNumber(
         return;
     }
 
-    await reply(phoneE164, "Não consegui validar o endereço. Pode enviar o endereço completo? (Ex: Rua das Flores, 123, Centro)");
+    const naturalReply = await claudeNaturalReply({
+        input,
+        step:        "awaiting_address_number",
+        cart:        session.cart,
+        lastBotMsg:  "Qual é o número do endereço?",
+        companyName: "",
+    });
+    await reply(phoneE164, naturalReply);
 }
 
 // ─── handleAwaitingAddressNeighborhood ────────────────────────────────────────
@@ -208,7 +216,14 @@ export async function handleAwaitingAddressNeighborhood(
 
     const neighborhood = input.trim();
     if (neighborhood.length < 2) {
-        await reply(phoneE164, "Por favor, informe o nome do bairro (ex: Centro, Jardim Primavera).");
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "awaiting_address_neighborhood",
+            cart:        session.cart,
+            lastBotMsg:  "Qual é o bairro?",
+            companyName: "",
+        });
+        await reply(phoneE164, naturalReply);
         return;
     }
 

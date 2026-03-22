@@ -5,19 +5,20 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Session, Category, Brand, VariantRow } from "../types";
+import type { Session, Category, VariantRow } from "../types";
 import { saveSession } from "../session";
 import {
     normalize, truncateTitle, isCaseVariant, formatCurrency,
     formatCart, cartTotal, NUMBER_EMOJIS,
 } from "../utils";
 import {
-    getCategories, getVariantsByCategory, getVariantsByBrandAndCategory,
+    getCategories, getVariantsByCategory,
     findDeliveryZone, listDeliveryZones,
 } from "../db/variants";
 import { handleFreeTextInput } from "./handleFreeText";
 import { buildProductDisplayName } from "../displayHelpers";
 import { isBulkPackaging } from "../PackagingExtractor";
+import { claudeNaturalReply } from "./handleMainMenu";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../../whatsapp/send";
 
 // ─── Regex de módulo ──────────────────────────────────────────────────────────
@@ -29,10 +30,11 @@ const FECHAR_RE        = /\bfechar\b/iu;
 const CHECKOUT_CAT_RE  = /\bcheckout\b/iu;
 
 // Respostas negativas após adicionar produto → finalizar pedido
-const NEGATIVE_DONE_RE = /^(nao|nop[es]?|nah|no|chega(?:u)?|ta\s+bom|to\s+bom|ta\s+otimo|blz|beleza|so\s+isso|era\s+so\s+isso|isso\s+mesmo|era\s+isso|fechou|ok\s+obg|ok\s+obrigado|e\s+isso|tudo\s+bem|certo\s+assim|tranquilo|e\s+isso\s+ai|era\s+isso\s+ai|pronto\s+sim|pode\s+fechar|fecha\s+ai|prontinho|e\s+tudo|tudo)$/iu;
+// Aceita token único OU início da frase com negação + palavras não-produto
+const NEGATIVE_DONE_RE = /^(nao|nop[es]?|nah|no|chega(?:u)?|ta\s+bom|to\s+bom|ta\s+otimo|blz|beleza|so\s+isso|era\s+so\s+isso|isso\s+mesmo|era\s+isso|fechou|ok\s+obg|ok\s+obrigado|e\s+isso|tudo\s+bem|certo\s+assim|tranquilo|e\s+isso\s+ai|era\s+isso\s+ai|pronto\s+sim|pode\s+fechar|fecha\s+ai|prontinho|e\s+tudo|tudo|nao\s+obrigad[oa]|nao\s+preciso|nao\s+quero\s+mais|nao\s+mais\s+nada|nao\s+quero\s+nada\s+mais|por\s+hoje\s+e\s+so\s+isso|e\s+so\s+por\s+hoje|so\s+esses|so\s+esses\s+mesmo|e\s+isso\s+obg|e\s+isso\s+obrigad[oa]|pode\s+fechar\s+obg|pode\s+fechar\s+obrigad[oa]|ja\s+e\s+suficiente|ja\s+basta|ta\s+otimo\s+obg|show\s+obg|beleza\s+obg)$/iu;
 
 // Respostas positivas após adicionar produto → ver cardápio
-const POSITIVE_CONTINUE_RE = /^(sim|s{1,2}|sims?|show|bora|vamos|claro|com\s+certeza|pode\s+ser|pode\s+mostrar|me\s+mostra|mostra\s+ai|continua(?:r)?|top|topo|quero\s+mais|quero\s+ver|quero|vai\s+la|vai\s+la|manda\s+ver|manda|vai)$/iu;
+const POSITIVE_CONTINUE_RE = /^(sim|s{1,2}|sims?|show|bora|vamos|claro|com\s+certeza|pode\s+ser|pode\s+mostrar|me\s+mostra|mostra\s+ai|continua(?:r)?|top|topo|quero\s+mais|quero\s+ver|quero|vai\s+la|manda\s+ver|manda|vai|sim\s+por\s+favor|sim\s+obrigad[oa]|quero\s+ver\s+mais|me\s+mostra\s+mais|mostra\s+mais|tem\s+mais|o\s+que\s+mais\s+tem)$/iu;
 const ONLY_NUMS_RE     = /^[\d,\s]+$/u;
 const HAS_DIGIT_RE     = /\d/u;
 const SPLIT_NUMS_RE    = /[,\s]+/u;
@@ -59,19 +61,6 @@ function formatNumberedList(variants: VariantRow[]): string {
 
 // ─── Exibição de produtos/marcas ──────────────────────────────────────────────
 
-export async function sendBrandsList(
-    phoneE164: string,
-    brands: Brand[],
-    categoryName: string
-): Promise<void> {
-    await sendListMessage(
-        phoneE164,
-        `*${categoryName}* 🍺\n_Escolha uma marca:_`,
-        "Ver marcas",
-        brands.map((b, i) => ({ id: String(i + 1), title: truncateTitle(b.name) })),
-        "Marcas"
-    );
-}
 
 export async function sendVariantsList(
     phoneE164: string,
@@ -142,9 +131,18 @@ export async function handleCatalogCategories(
         const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
         if (ftResult === "handled") return;
         if (ftResult === "notfound") {
+            // Claude responde naturalmente antes de reexibir categorias
+            const naturalReply = await claudeNaturalReply({
+                input,
+                step:        "catalog_categories",
+                cart:        session.cart,
+                lastBotMsg:  "Escolha uma categoria",
+                companyName: "",
+            });
+            await reply(phoneE164, naturalReply);
             await sendListMessage(
                 phoneE164,
-                `Não encontrei _"${input}"_ 😅 Escolha uma categoria:`,
+                "🍺 Categorias disponíveis:",
                 "Ver categorias",
                 categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
                 "Categorias"
@@ -154,9 +152,17 @@ export async function handleCatalogCategories(
     }
 
     if (!selected) {
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "catalog_categories",
+            cart:        session.cart,
+            lastBotMsg:  "Escolha uma categoria",
+            companyName: "",
+        });
+        await reply(phoneE164, naturalReply);
         await sendListMessage(
             phoneE164,
-            "Não entendi. Escolha uma categoria ou *digite o nome do produto*:",
+            "🍺 Categorias disponíveis:",
             "Ver categorias",
             categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
             "Categorias"
@@ -183,75 +189,6 @@ export async function handleCatalogCategories(
     await sendVariantsList(phoneE164, variants, selected.name, selected.name);
 }
 
-// ─── handleCatalogBrands ──────────────────────────────────────────────────────
-
-export async function handleCatalogBrands(
-    admin: SupabaseClient,
-    companyId: string,
-    threadId: string,
-    phoneE164: string,
-    input: string,
-    session: Session
-): Promise<void> {
-    const brands     = (session.context.brands      as Brand[])  ?? [];
-    const catName    = (session.context.category_name as string) ?? "Produtos";
-    const categoryId = (session.context.category_id  as string)  ?? "";
-
-    // Mais produtos → volta ao início do catálogo
-    if (input === "mais_produtos" || MAIS_PRODUTOS_RE.test(input)) {
-        const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
-        await saveSession(admin, threadId, companyId, {
-            step:    "catalog_categories",
-            context: { ...session.context, categories },
-        });
-        await sendListMessage(
-            phoneE164,
-            "🍺 Escolha uma categoria:",
-            "Ver categorias",
-            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
-            "Categorias"
-        );
-        return;
-    }
-
-    const num = parseInt(input, 10);
-    let selected: Brand | null = null;
-
-    if (!isNaN(num) && num >= 1 && num <= brands.length) {
-        selected = brands[num - 1];
-    } else {
-        const lower = normalize(input);
-        selected = brands.find((b) => normalize(b.name).includes(lower)) ?? null;
-    }
-
-    if (!selected) {
-        // Tenta busca livre antes de repetir lista de marcas
-        if (input.length >= 2) {
-            const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
-            if (ftResult === "handled") return;
-        }
-        await sendBrandsList(phoneE164, brands, catName);
-        return;
-    }
-
-    const variants = await getVariantsByBrandAndCategory(admin, companyId, selected.id, categoryId);
-
-    if (!variants.length) {
-        await reply(
-            phoneE164,
-            `Nenhum produto disponível para *${selected.name}* no momento.\n` +
-            `Digite *menu* para voltar.`
-        );
-        return;
-    }
-
-    await saveSession(admin, threadId, companyId, {
-        step:    "catalog_products",
-        context: { ...session.context, variants, brand_name: selected.name },
-    });
-
-    await sendVariantsList(phoneE164, variants, catName, selected.name);
-}
 
 // ─── handleCatalogProducts ────────────────────────────────────────────────────
 
@@ -595,10 +532,22 @@ export async function handleCatalogProducts(
     }
 
     if (!selectedVariant) {
-        // Fallback: se estava em modo numerado, reexibe a lista numerada
+        // Claude Haiku responde de forma natural e redireciona
+        const lastBotMsg = isNumberedSearch
+            ? `Escolha um número entre 1 e ${variants.length}`
+            : `Escolha um produto de ${catName}`;
+        const naturalReply = await claudeNaturalReply({
+            input:       input,
+            step:        "catalog_products",
+            cart:        session.cart,
+            lastBotMsg,
+            companyName: catName,
+        });
+        await reply(phoneE164, naturalReply);
+        // Re-exibe a lista para o cliente continuar
         if (isNumberedSearch && variants.length > 0) {
             const listText = formatNumberedList(variants.slice(0, 5));
-            await reply(phoneE164, `Opção inválida. Escolha um número da lista:\n\n${listText}`);
+            await reply(phoneE164, listText);
         } else {
             await sendVariantsList(phoneE164, variants, catName, brandName);
         }

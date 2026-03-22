@@ -141,11 +141,15 @@ export async function processInboundMessage(
     const companyName = company?.name ?? "nossa loja";
     const settings    = company?.settings ?? {};
 
-    // ── 1. Global reset (menu/oi/ola/reiniciar — WITHOUT cancelar) ───────────
-    // Usa regex com word-boundary para evitar falsos positivos via substring:
-    // "boa noite" contém "oi" em "no*oi*te" — matchesAny() dispararia incorretamente.
-    const GLOBAL_RESET_RE = /\b(?:limpar|reiniciar|menu|inicio|comecar|esvaziar|oi|ola|hello|hi)\b/iu;
-    if (GLOBAL_RESET_RE.test(normalize(input))) {
+    // ── 1. Global reset ───────────────────────────────────────────────────────
+    // Dois comportamentos distintos:
+    // a) Reset EXPLÍCITO (limpar/reiniciar/esvaziar): apaga carrinho sempre
+    // b) Navegação (oi/ola/menu/inicio): preserva carrinho se tiver itens
+    const EXPLICIT_RESET_RE = /\b(?:limpar|reiniciar|esvaziar|comecar)\b/iu;
+    const NAV_RESET_RE      = /\b(?:menu|inicio|oi|ola|hello|hi)\b/iu;
+    const normInput = normalize(input);
+
+    if (EXPLICIT_RESET_RE.test(normInput)) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
         await sendInteractiveButtons(
             phoneE164,
@@ -156,6 +160,34 @@ export async function processInboundMessage(
                 { id: "3", title: "🙋 Falar c/ atendente" },
             ]
         );
+        return;
+    }
+
+    if (NAV_RESET_RE.test(normInput)) {
+        if (session.cart.length > 0) {
+            // Tem carrinho: mostra menu mas PRESERVA carrinho e contexto
+            await saveSession(admin, threadId, companyId, { step: "main_menu" });
+            await sendInteractiveButtons(
+                phoneE164,
+                `Como posso te ajudar no *${companyName}*? 🍺\n\n_Seu carrinho foi mantido (${session.cart.length} ${session.cart.length === 1 ? "item" : "itens"})._`,
+                [
+                    { id: "1", title: "🍺 Ver cardápio" },
+                    { id: "2", title: "📦 Meu pedido" },
+                    { id: "3", title: "🙋 Falar c/ atendente" },
+                ]
+            );
+        } else {
+            await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
+            await sendInteractiveButtons(
+                phoneE164,
+                `Como posso te ajudar no *${companyName}*? 🍺`,
+                [
+                    { id: "1", title: "🍺 Ver cardápio" },
+                    { id: "2", title: "📦 Meu pedido" },
+                    { id: "3", title: "🙋 Falar c/ atendente" },
+                ]
+            );
+        }
         return;
     }
 
@@ -333,6 +365,39 @@ export async function processInboundMessage(
     if (matchesAny(input, CHECKOUT_KEYWORDS) && session.cart.length > 0) {
         await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
         return;
+    }
+
+    // ── 8b. Global NEGATIVE/POSITIVE response (qualquer step com carrinho) ────
+    // Evita que "não obrigado" e similares fiquem sem resposta em qualquer step
+    const CHECKOUT_PROTECTED_STEPS = new Set([
+        "checkout_address", "awaiting_address_number", "awaiting_address_neighborhood",
+        "awaiting_address_selection", "checkout_payment", "checkout_confirm",
+        "awaiting_cancel_confirm", "awaiting_split_order",
+    ]);
+    if (session.cart.length > 0 && !CHECKOUT_PROTECTED_STEPS.has(session.step)) {
+        const normIn = normalize(input);
+        const GLOBAL_NEGATIVE_RE = /^(nao|nop[es]?|nah|chega(?:u)?|ta\s+bom|to\s+bom|blz|beleza|so\s+isso|era\s+so\s+isso|isso\s+mesmo|era\s+isso|fechou|prontinho|ja\s+basta|nao\s+obrigad[oa]|nao\s+preciso|nao\s+quero\s+mais|ja\s+e\s+suficiente|pode\s+fechar|fecha\s+ai|e\s+so\s+isso|e\s+tudo)$/iu;
+        const GLOBAL_POSITIVE_RE  = /^(sim|bora|vamos|claro|top|quero\s+mais|ver\s+mais|me\s+mostra\s+mais|tem\s+mais|mostra\s+mais)$/iu;
+
+        if (GLOBAL_NEGATIVE_RE.test(normIn)) {
+            await goToCheckoutFromCart(admin, companyId, threadId, phoneE164, session);
+            return;
+        }
+        if (GLOBAL_POSITIVE_RE.test(normIn)) {
+            const categories = await getCategories(admin, companyId);
+            await saveSession(admin, threadId, companyId, {
+                step:    "catalog_categories",
+                context: { ...session.context, categories },
+            });
+            await sendListMessage(
+                phoneE164,
+                "🍺 Escolha uma categoria:",
+                "Ver categorias",
+                categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+                "Categorias"
+            );
+            return;
+        }
     }
 
     // ── 9. Payment detection for payment step (any message length) ────────────
@@ -784,10 +849,38 @@ export async function processInboundMessage(
             await handleAwaitingAddressSelection(admin, companyId, threadId, phoneE164, input, session);
             break;
 
-        case "awaiting_flow":
-            // Flow aberto — aguardando submissão do formulário nativo
-            // Ignora mensagens de texto até o Flow ser submetido ou expirar
+        case "awaiting_flow": {
+            // Flow aberto — mas NÃO silencia o cliente
+            const FLOW_ESCAPE_RE = /\b(?:cancelar|sair|voltar|menu|oi|ola)\b/iu;
+            const flowStartedAt  = session.context.flow_started_at as string | undefined;
+            const flowExpired    = flowStartedAt
+                ? Date.now() - new Date(flowStartedAt).getTime() > 30 * 60 * 1000
+                : false;
+
+            if (FLOW_ESCAPE_RE.test(normalize(input)) || flowExpired) {
+                // Volta para seleção de endereço preservando carrinho
+                await saveSession(admin, threadId, companyId, {
+                    step:    "main_menu",
+                    context: { ...session.context, flow_token: undefined, flow_started_at: undefined },
+                });
+                await sendInteractiveButtons(
+                    phoneE164,
+                    `Formulário cancelado. Seu carrinho foi mantido! 😊\n\nComo posso te ajudar?`,
+                    [
+                        { id: "1", title: "🍺 Ver cardápio" },
+                        { id: "finalizar", title: "Finalizar pedido" },
+                        { id: "3", title: "🙋 Falar c/ atendente" },
+                    ]
+                );
+            } else {
+                // Qualquer outra mensagem — orienta sem engolir
+                await reply(
+                    phoneE164,
+                    `Você tem um formulário de endereço aberto. Preencha-o pelo botão acima ou diga *cancelar* para voltar. 😊`
+                );
+            }
             break;
+        }
 
         case "handover":
             // Bot silenciado — humano está atendendo
