@@ -651,7 +651,7 @@ async function getVariantsByCategory(
 ): Promise<VariantRow[]> {
     const { data: rows } = await admin
         .from("view_chat_produtos")
-        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details")
+        .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, is_acompanhamento, sigla_comercial, product_name, product_unit_type, product_details, volume_quantidade, unit_type_sigla")
         .eq("company_id", companyId)
         .eq("category_id", categoryId)
         .limit(500);
