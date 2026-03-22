@@ -27,11 +27,13 @@ export type MessageIntent =
 
 export interface ClaudeParserConfig {
     model?: string;
-    threshold?: number;    // confiança mínima (padrão: 0.75)
+    threshold?: number;       // confiança mínima (padrão: 0.75)
     maxRetries?: number;
     timeoutMs?: number;
-    step?: string;         // step atual da sessão (para filtrar catálogo)
-    cartSummary?: string;  // e.g. "2x Heineken 600ml, 1x Gelo 5kg" — injetado no prompt
+    step?: string;            // step atual da sessão (para filtrar catálogo)
+    cartSummary?: string;     // e.g. "2x Heineken 600ml, 1x Gelo 5kg" — injetado no prompt
+    lastBotQuestion?: string; // última pergunta feita pelo bot — ancora a interpretação
+    lastIntent?: string;      // última intenção classificada — evita viradas bruscas de contexto
 }
 
 const DEFAULT_CONFIG: Required<ClaudeParserConfig> = {
@@ -41,6 +43,8 @@ const DEFAULT_CONFIG: Required<ClaudeParserConfig> = {
     timeoutMs: 5000, // 5s por tentativa → total máx ~6s (dentro do limite de 10s)
     step: "",
     cartSummary: "",
+    lastBotQuestion: "",
+    lastIntent: "",
 };
 
 // Steps onde não faz sentido enviar o catálogo completo
@@ -168,15 +172,40 @@ REGRAS DE ACTION (só para intent=order):
 - qty deve ser inteiro ≥ 1
 - confidence = 1.0 para match exato, menor para parciais
 - items = [] para low_confidence, not_found e intents não-order
-- address = null se não houver endereço`;
+- address = null se não houver endereço
+
+═══ REGRAS DE CONTEXTO ═══
+1. ANCORAGEM: Se "Última pergunta do bot" estiver preenchida, a resposta do cliente
+   provavelmente é sobre esse tema.
+   Ex: bot perguntou "endereço?" → "rua das flores 86" É endereço, não produto.
+   Ex: bot perguntou "pagamento?" → "no pix" É método de pagamento.
+
+2. CETICISMO: Se o cliente nega algo ("não quero pix", "sem cartão"),
+   a intenção NÃO é o que foi negado. Ignore a palavra-chave negada.
+
+3. CONTINUIDADE: Se "Última intenção" for "order" e a nova mensagem for curta
+   e ambígua, assuma que é continuação do pedido (ex: adicionando mais produtos).
+
+4. CONFIANÇA: Se a interpretação tiver menos de 80% de certeza,
+   use action="low_confidence" — é melhor perguntar do que agir errado.`;
 }
 
-function buildUserMessage(input: string, step: string, cartSummary: string): string {
-    const hasContext = step || cartSummary;
-    const contextSection = hasContext
-        ? `═══ CONTEXTO DA SESSÃO ═══\nStep atual: ${step || "início"}\nCarrinho: ${cartSummary || "vazio"}\n\n`
-        : "";
-    return `${contextSection}═══ MENSAGEM DO CLIENTE ═══\n"${input}"`;
+function buildUserMessage(
+    input: string,
+    step: string,
+    cartSummary: string,
+    lastBotQuestion?: string,
+    lastIntent?: string,
+): string {
+    const lines: string[] = ["═══ CONTEXTO DA SESSÃO ═══"];
+    lines.push(`Step atual: ${step || "início"}`);
+    lines.push(`Carrinho: ${cartSummary || "vazio"}`);
+    if (lastBotQuestion) lines.push(`Última pergunta do bot: "${lastBotQuestion}"`);
+    if (lastIntent)      lines.push(`Última intenção detectada: ${lastIntent}`);
+    lines.push("");
+    lines.push("═══ MENSAGEM DO CLIENTE ═══");
+    lines.push(`"${input}"`);
+    return lines.join("\n");
 }
 
 // ─── Parse principal ──────────────────────────────────────────────────────────
@@ -195,7 +224,13 @@ export async function parseWithClaude(
     const client      = new Anthropic();
     const catalogText = buildCatalogText(products, cfg.step);
     const systemPrompt = buildSystemPrompt(catalogText);
-    const userMessage  = buildUserMessage(input, cfg.step, cfg.cartSummary);
+    const userMessage  = buildUserMessage(
+        input,
+        cfg.step,
+        cfg.cartSummary,
+        cfg.lastBotQuestion || undefined,
+        cfg.lastIntent      || undefined,
+    );
 
     let lastErr: unknown;
     for (let attempt = 0; attempt < cfg.maxRetries; attempt++) {

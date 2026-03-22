@@ -76,6 +76,23 @@ const AWAIT_CANCEL_YES_RE  = /(?<![a-záàâãéèêíïóôõúüç])\b(sim|yes
 const AWAIT_CANCEL_NO_RE   = /(?<![a-záàâãéèêíïóôõúüç])\b(nao|não|no|nope|voltar|continuar|nao\s+quero)\b(?![a-záàâãéèêíïóôõúüç])/iu;
 const AFFIRMATIVE_RE       = /\b(sim|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda|confirmar)\b/iu;
 
+// ─── Mapa step → última pergunta do bot ──────────────────────────────────────
+//
+// Usado para injetar "Última pergunta do bot" no prompt do ClaudeParser,
+// ancorando a interpretação do próximo input do cliente.
+// Ex: step=checkout_payment → Claude sabe que a resposta provavelmente é um método de pagamento.
+
+const BOT_QUESTION_BY_STEP: Record<string, string> = {
+    checkout_address:              "Qual é o seu endereço de entrega?",
+    checkout_payment:              "Como você vai pagar? (PIX, Cartão ou Dinheiro)",
+    checkout_confirm:              "Confirme os detalhes do pedido. Digite confirmar para fechar.",
+    awaiting_cancel_confirm:       "Tem certeza que quer cancelar o pedido?",
+    awaiting_address_number:       "Qual é o número do endereço?",
+    awaiting_address_neighborhood: "Qual é o bairro?",
+    awaiting_variant_selection:    "Qual variante você prefere? (escolha pelo número)",
+    awaiting_address_selection:    "Escolha um endereço salvo ou informe um novo.",
+};
+
 // ─── Arbitragem de intenção (Features 2, 3, 4) ────────────────────────────────
 
 /**
@@ -182,8 +199,24 @@ export async function processInboundMessage(
     }
 
     // ── 5. Cancel handling (cancelar alone → awaiting_cancel_confirm; cancelar + product → remove) ──
-    // Feature 3: "não quero cancelar", "nem cancelar" → negação invalida a intenção
-    const isCancelarInput = CANCELAR_TEST_RE.test(input) && !NEGATION_CANCEL_RE.test(input);
+    //
+    // Feature 3 (Filtro de Negação — contexto-consciente):
+    //   "não quero cancelar" → NÃO é intenção de cancelar (negação explícita).
+    //   "não, cancela" quando bot perguntou "Qual seu endereço?" → É cancelamento!
+    //     (o "não" está respondendo a pergunta do bot, não negando o cancel.)
+    //   Regra: NEGATION_CANCEL_RE só suprime cancel quando o bot NÃO está esperando
+    //   uma resposta que naturalmente pode ser "não" (ex: endereço, pagamento, variante).
+    const CANCEL_UNRELATED_QUESTION_STEPS = new Set([
+        "checkout_payment",
+        "checkout_address",
+        "awaiting_address_number",
+        "awaiting_address_neighborhood",
+        "awaiting_address_selection",
+        "awaiting_variant_selection",
+    ]);
+    const botHasOpenQuestion      = CANCEL_UNRELATED_QUESTION_STEPS.has(session.step);
+    const negationSuppressesCancel = NEGATION_CANCEL_RE.test(input) && !botHasOpenQuestion;
+    const isCancelarInput          = CANCELAR_TEST_RE.test(input) && !negationSuppressesCancel;
     if (isCancelarInput) {
         const normIn = normalize(input);
         const withoutCancel = normIn.replace(CANCELAR_STRIP_RE, "").trim();
@@ -313,8 +346,9 @@ export async function processInboundMessage(
     }
 
     // ── 10.5. Layer 1 — Regex quick-resolve (zero tokens de IA) ─────────────
-    // Saudações puras → responde menu sem acionar Claude
-    if (GREETING_ONLY_RE.test(input)) {
+    // Saudações puras → só responde no menu/welcome; em outros steps preserva o contexto.
+    const GREETING_ALLOWED_STEPS = new Set(["main_menu", "welcome", ""]);
+    if (GREETING_ONLY_RE.test(input) && GREETING_ALLOWED_STEPS.has(session.step)) {
         await reply(phoneE164, `Olá! 😊 ${buildMainMenu(companyName)}`);
         return;
     }
@@ -359,6 +393,15 @@ export async function processInboundMessage(
     }
 
     const SKIP_PARSER_STEPS = new Set([
+        // Steps de catálogo: têm handlers próprios completos, parser global interfere
+        "catalog_categories",
+        "catalog_products",
+        "catalog_brands",
+        "catalog_variant",
+        "cart",
+        // Steps de endereço: handleCheckoutAddress e helpers já fazem validação completa
+        "checkout_address",
+        // Steps de checkout: não esperam pedidos de produto
         "checkout_payment",
         "checkout_confirm",
         "awaiting_address_number",
@@ -375,6 +418,14 @@ export async function processInboundMessage(
         const cartSummary = session.cart.length > 0
             ? session.cart.map((i) => `${i.qty}x ${i.name}`).join(", ")
             : "";
+
+        // Deriva a última pergunta do bot pelo step atual; fallback para o contexto salvo.
+        const lastBotQuestion =
+            BOT_QUESTION_BY_STEP[session.step] ??
+            (session.context.last_bot_question as string | undefined) ??
+            "";
+        const lastIntent = (session.context.last_intent as string | undefined) ?? "";
+
         const parsed = await parseWithFactory({
             admin,
             companyId,
@@ -382,8 +433,10 @@ export async function processInboundMessage(
             messageId,
             input: aiInput,
             products,
-            step: session.step,
+            step:            session.step,
             cartSummary,
+            lastBotQuestion: lastBotQuestion || undefined,
+            lastIntent:      lastIntent      || undefined,
             claudeConfig: {
                 model:      String(botConfig.model    ?? "claude-haiku-4-5-20251001"),
                 threshold:  Number(botConfig.threshold ?? 0.75),
@@ -391,6 +444,16 @@ export async function processInboundMessage(
                 timeoutMs:  4000, // 4s max → sobra ~6s para DB, Maps e envio da resposta
             },
         });
+
+        // Persiste a intenção classificada para a próxima rodada (fire-and-forget).
+        // Não aguardamos para não bloquear o tempo de resposta.
+        const detectedIntentNow = (parsed as any)._intent as string | undefined;
+        if (detectedIntentNow) {
+            session.context.last_intent = detectedIntentNow; // em memória para uso imediato
+            saveSession(admin, threadId, companyId, {
+                context: { ...session.context, last_intent: detectedIntentNow },
+            }).catch(() => {});
+        }
 
         // ── Intent não-order detectada pelo Claude ──────────────────────────
         const detectedIntent = (parsed as any)._intent as MessageIntent | undefined;
@@ -429,9 +492,14 @@ export async function processInboundMessage(
         }
 
         if (detectedIntent === "chitchat") {
-            // Saudação / agradecimento / conversa aleatória — responde e mostra o menu
-            await reply(phoneE164, `Olá! 😊 Estou aqui para ajudar com seus pedidos.\n\n${buildMainMenu(companyName)}`);
-            return;
+            // Saudação/agradecimento apenas no menu/welcome — em outros steps preserva o fluxo.
+            // Ex: cliente digita "obrigado" no checkout_address → não manda saudação, deixa o
+            // switch lidar com o step correto.
+            if (session.step === "main_menu" || session.step === "welcome" || !session.step) {
+                await reply(phoneE164, `Olá! 😊 Estou aqui para ajudar com seus pedidos.\n\n${buildMainMenu(companyName)}`);
+                return;
+            }
+            // Outros steps: ignora o chitchat e deixa o switch tratar o step atual
         }
 
         if (parsed.action === "add_to_cart" && parsed.items.length > 0) {
@@ -623,8 +691,8 @@ export async function processInboundMessage(
             break;
 
         case "catalog_brands":
-            // Legado: redireciona para categorias (marca removida)
-            await saveSession(admin, threadId, companyId, { step: "catalog_categories", context: {} });
+            // Legado: redireciona para categorias (marca removida) — preserva contexto (categories, etc.)
+            await saveSession(admin, threadId, companyId, { step: "catalog_categories", context: session.context });
             await handleCatalogCategories(admin, companyId, threadId, phoneE164, input, session);
             break;
 

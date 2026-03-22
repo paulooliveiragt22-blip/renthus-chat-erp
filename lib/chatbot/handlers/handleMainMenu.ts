@@ -76,6 +76,28 @@ export async function doHandover(
  * 1ª vez: pergunta educadamente se quer adicionar produto ou falar com atendente.
  * 2ª vez: envia List Message com categorias do ERP.
  */
+/** Mensagem de fallback específica por step — evita "falando com uma parede" */
+function buildStepFallbackHint(step: string): string | null {
+    switch (step) {
+        case "checkout_payment":
+            return "Desculpe, não entendi. Você prefere *PIX*, *Cartão* ou *Dinheiro*?";
+        case "checkout_address":
+            return "Pode me confirmar apenas o *nome da rua e o número*?";
+        case "awaiting_address_number":
+            return "Qual é o *número* do endereço? (ex: 123)";
+        case "awaiting_address_neighborhood":
+            return "Qual é o *bairro*?";
+        case "awaiting_variant_selection":
+            return "Por favor, escolha a variante pelo *número* indicado.";
+        case "awaiting_address_selection":
+            return "Escolha um dos endereços listados ou *digite um novo endereço completo*.";
+        case "checkout_confirm":
+            return "Desculpe, não entendi. Digite *confirmar* para fechar o pedido ou *cancelar* para desistir.";
+        default:
+            return null;
+    }
+}
+
 export async function handleLowConfidenceFallback(
     admin: SupabaseClient,
     companyId: string,
@@ -92,7 +114,14 @@ export async function handleLowConfidenceFallback(
     });
 
     if (count === 1) {
-        // Tenta sugerir produtos próximos via Fuse.js
+        // Fallback inteligente: dica específica ao step atual
+        const stepHint = buildStepFallbackHint(session.step);
+        if (stepHint) {
+            await reply(phoneE164, stepHint);
+            return true;
+        }
+
+        // Sem dica de step: tenta sugerir produtos próximos via Fuse.js
         let suggestionText = "";
         if (input && products.length > 0) {
             const fuse = new Fuse(products, {
@@ -197,16 +226,6 @@ export async function handleMainMenu(
             { id: "3", title: "🙋 Falar c/ atendente" },
         ]);
         return;
-    }
-
-    // ── Busca livre antecipada: se a mensagem parece um pedido de produto, tenta buscar
-    //    antes de validar os atalhos 1/2/3 para não perder a intenção do cliente.
-    //    Critério: mais de uma palavra OU contém dígito junto com texto (ex: "3 skol")
-    const looksLikeProduct = /\s/.test(input) || /\d/.test(input);
-    if (looksLikeProduct && input.length > 2) {
-        const ftEarly = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
-        if (ftEarly === "handled") return;
-        // "notfound" ou "skip" → continua o fluxo normal abaixo
     }
 
     // Opção 1: Ver cardápio

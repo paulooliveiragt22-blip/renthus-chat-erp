@@ -26,8 +26,12 @@ export interface ParserFactoryParams {
     products:     ProductForSearch[];
     claudeConfig?: ClaudeParserConfig;
     /** Step atual da sessão (para filtro de catálogo e contexto de prompt) */
-    step?:        string;
-    cartSummary?: string;
+    step?:           string;
+    cartSummary?:    string;
+    /** Última pergunta enviada pelo bot — ancora a interpretação do próximo input */
+    lastBotQuestion?: string;
+    /** Última intenção classificada — evita viradas bruscas de contexto */
+    lastIntent?:     string;
 }
 
 export type ParseResultWithMeta = ParseIntentResult & {
@@ -54,7 +58,7 @@ function isNonOrderIntent(result: ParseIntentResult): boolean {
 export async function parseWithFactory(
     params: ParserFactoryParams
 ): Promise<ParseResultWithMeta> {
-    const { admin, companyId, threadId, messageId, input, products, claudeConfig, step, cartSummary } = params;
+    const { admin, companyId, threadId, messageId, input, products, claudeConfig, step, cartSummary, lastBotQuestion, lastIntent } = params;
     const t0 = Date.now();
 
     // ── Nível 1: Claude Haiku ─────────────────────────────────────────────────
@@ -62,8 +66,10 @@ export async function parseWithFactory(
     try {
         level1Result = await parseWithClaude(input, products, {
             ...claudeConfig,
-            step: step ?? "",
-            cartSummary: cartSummary ?? "",
+            step:            step            ?? "",
+            cartSummary:     cartSummary     ?? "",
+            lastBotQuestion: lastBotQuestion ?? "",
+            lastIntent:      lastIntent      ?? "",
         });
     } catch (err) {
         console.warn("[ParserFactory] Claude failed:", (err as any)?.message);
