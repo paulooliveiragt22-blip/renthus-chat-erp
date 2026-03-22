@@ -66,15 +66,15 @@ async function reply(phoneE164: string, text: string): Promise<void> {
 const GREETING_ONLY_RE = /^(bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|como\s+vai|como\s+voce|feliz\s+ano|feliz\s+natal|obrigad[oa]|obg|valeu|vlw|tchau|ate\s+mais)\s*[!?.,]?\s*$/iu;
 
 /** Consulta de status/localização do pedido */
-const ORDER_STATUS_RE = /\b(cad[eê](\s+meu)?|onde\s+est[aá]|onde\s+ficou|status\s+d[oe]\s+pedido|meu\s+pedido|acompanhar\s+pedido|quanto\s+tempo\s+(falta|vai|leva)|previs[aã]o\s+de\s+entrega)\b/iu;
+const ORDER_STATUS_RE = /(?:(?<!\w)cad[eê](?!\w)|onde\s+est[aá]\b|onde\s+ficou\b|\bstatus\s+d[oe]\s+pedido\b|\bmeu\s+pedido\b|\bacompanhar\s+pedido\b|\bquanto\s+tempo\s+(?:falta|vai|leva)\b|\bprevis[aã]o\s+de\s+entrega\b)/iu;
 
 // ─── Regex de módulo (evita recriação por chamada) ────────────────────────────
 const REMOVE_VERBS_RE      = /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/giu;
 const CANCELAR_TEST_RE     = /\b(cancelar|cancela)\b/iu;
 const CANCELAR_STRIP_RE    = /\b(cancelar|cancela)\b/giu;
-const AWAIT_CANCEL_YES_RE  = /\b(sim|s|yes|pode|confirm|cancela|cancelo)\b/iu;
-const AWAIT_CANCEL_NO_RE   = /\b(nao|n|no|nope|voltar|continuar|nao\s+quero)\b/iu;
-const AFFIRMATIVE_RE       = /\b(sim|s|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda|confirmar)\b/iu;
+const AWAIT_CANCEL_YES_RE  = /(?<![a-záàâãéèêíïóôõúüç])\b(sim|yes|pode|confirm|cancela|cancelo)\b(?![a-záàâãéèêíïóôõúüç])/iu;
+const AWAIT_CANCEL_NO_RE   = /(?<![a-záàâãéèêíïóôõúüç])\b(nao|não|no|nope|voltar|continuar|nao\s+quero)\b(?![a-záàâãéèêíïóôõúüç])/iu;
+const AFFIRMATIVE_RE       = /\b(sim|yes|continuar|continue|blz|ok|pode|beleza|top|certo|perfeito|exato|claro|positivo|vai|bora|isso|manda|confirmar)\b/iu;
 
 // ─── Ponto de entrada ─────────────────────────────────────────────────────────
 
