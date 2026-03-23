@@ -55,6 +55,7 @@ export default function Modal({
                 style={{
                     width: "min(1080px, 100%)",
                     background: "#fff",
+                    color: "#1a1a1a",
                     borderRadius: 12,
                     border: "1px solid #ddd",
                     padding: 12,
@@ -64,7 +65,7 @@ export default function Modal({
                 }}
             >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900 }}>{title}</h3>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: "#1a1a1a" }}>{title}</h3>
                     <button
                         onClick={onClose}
                         style={{
@@ -74,13 +75,15 @@ export default function Modal({
                             cursor: "pointer",
                             fontSize: 12,
                             fontWeight: 900,
+                            color: "#1a1a1a",
+                            background: "#f0f0f0",
                         }}
                     >
                         Fechar
                     </button>
                 </div>
 
-                <div style={{ marginTop: 10 }}>{children}</div>
+                <div style={{ marginTop: 10, color: "#1a1a1a" }}>{children}</div>
             </div>
         </div>,
         document.body
