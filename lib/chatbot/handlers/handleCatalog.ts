@@ -563,7 +563,7 @@ export async function handleCatalogProducts(
         await saveSession(admin, threadId, companyId, {
             step: "catalog_products",
             cart: newCart,
-            context: { ...session.context, pending_variant: null, pending_is_case: null, unit_case_choice: false },
+            context: { ...session.context, pending_variant: null, pending_is_case: null, unit_case_choice: false, catalog_unknown_count: 0 },
         });
 
         await sendInteractiveButtons(
@@ -592,22 +592,39 @@ export async function handleCatalogProducts(
     }
 
     if (!selectedVariant) {
-        // Claude Haiku responde de forma natural e redireciona
-        const lastBotMsg = isNumberedSearch
-            ? `Escolha um número entre 1 e ${variants.length}`
-            : `Escolha um produto de ${catName}`;
-        const naturalReply = await claudeNaturalReply({
-            input:       input,
-            step:        "catalog_products",
-            cart:        session.cart,
-            lastBotMsg,
-            companyName: catName,
+        // Tenta busca livre no catálogo completo antes do fallback
+        const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+        if (ftResult === "handled") return;
+
+        // Incrementa contador de inputs não reconhecidos
+        const unknownCount = ((session.context.catalog_unknown_count as number) ?? 0) + 1;
+
+        if (unknownCount >= 2) {
+            // Escape: volta para categorias após 2 tentativas sem reconhecer
+            const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
+            await saveSession(admin, threadId, companyId, {
+                step:    "catalog_categories",
+                context: { ...session.context, catalog_unknown_count: 0, pending_variant: null, pending_is_case: null },
+            });
+            await reply(phoneE164, `Não encontrei _"${input}"_ no catálogo. Tente uma categoria:`);
+            await sendListMessage(
+                phoneE164,
+                "🍺 Categorias disponíveis:",
+                "Ver categorias",
+                categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+                "Categorias"
+            );
+            return;
+        }
+
+        await saveSession(admin, threadId, companyId, {
+            context: { ...session.context, catalog_unknown_count: unknownCount },
         });
-        await reply(phoneE164, naturalReply);
-        // Re-exibe a lista para o cliente continuar
+
+        // Mensagem simples sem claudeNaturalReply para evitar alucinação de produtos
+        await reply(phoneE164, `Não encontrei _"${input}"_ na lista. Escolha pelo número ou nome:`);
         if (isNumberedSearch && variants.length > 0) {
-            const listText = formatNumberedList(variants.slice(0, 5));
-            await reply(phoneE164, listText);
+            await reply(phoneE164, formatNumberedList(variants.slice(0, 5)));
         } else {
             await sendVariantsList(phoneE164, variants, catName, brandName);
         }

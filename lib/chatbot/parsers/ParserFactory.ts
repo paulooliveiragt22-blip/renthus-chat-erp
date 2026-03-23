@@ -2,8 +2,8 @@
  * lib/chatbot/parsers/ParserFactory.ts
  *
  * Orquestrador da cadeia de fallback:
- *   Nível 1 — Claude Haiku (Anthropic SDK): intent classification + extração de pedido
- *   Nível 2 — Regex / Fuse.js (OrderParserService)
+ *   Nível 1 — Regex / Fuse.js (OrderParserService): pedidos diretos, rápido, sem custo
+ *   Nível 2 — Claude Haiku (Anthropic SDK): intent classification + casos complexos
  *   Nível 3 — Modo Assistido (ativa fluxo guiado via catálogo)
  *
  * Retorna ParseResultWithMeta compatível com processMessage.ts.
@@ -48,7 +48,7 @@ function isActionable(result: ParseIntentResult): boolean {
 
 /**
  * Retorna true se o resultado indica uma intent não-order detectada pelo LLM.
- * Nesses casos NÃO fazemos fallback para regex — o LLM entendeu que não é um pedido.
+ * Nesses casos não há fallback adicional — o LLM entendeu que não é um pedido.
  */
 function isNonOrderIntent(result: ParseIntentResult): boolean {
     const intent = (result as any)._intent as MessageIntent | undefined;
@@ -61,43 +61,14 @@ export async function parseWithFactory(
     const { admin, companyId, threadId, messageId, input, products, claudeConfig, step, cartSummary, lastBotQuestion, lastIntent } = params;
     const t0 = Date.now();
 
-    // ── Nível 1: Claude Haiku ─────────────────────────────────────────────────
-    let level1Result: (ParseIntentResult & { _intent?: MessageIntent; _tokensInput?: number; _tokensOutput?: number }) | null = null;
+    // ── Nível 1: Regex / Fuse.js ──────────────────────────────────────────────
+    // Pedidos diretos e claros resolvidos aqui em <1ms, sem custo de tokens.
+    // Ex: "2 heineken", "3 skol lata 600", "1 brahma e 2 gelo"
+    let level1Result: ParseIntentResult | null = null;
     try {
-        level1Result = await parseWithClaude(input, products, {
-            ...claudeConfig,
-            step:            step            ?? "",
-            cartSummary:     cartSummary     ?? "",
-            lastBotQuestion: lastBotQuestion ?? "",
-            lastIntent:      lastIntent      ?? "",
-        });
+        level1Result = await parseWithRegex(input, products);
     } catch (err) {
-        console.warn("[ParserFactory] Claude failed:", (err as any)?.message);
-    }
-
-    // Se Claude detectou intent não-order (pergunta, status, cancelar, humano, chitchat)
-    // → retorna imediatamente sem tentar regex (que só entende pedidos)
-    if (level1Result && isNonOrderIntent(level1Result)) {
-        const ms = Date.now() - t0;
-        logParserResult(admin, {
-            companyId, threadId, waMessageId: messageId,
-            input,
-            parserLevel:    1,
-            fallbackUsed:   false,
-            responseTimeMs: ms,
-            action:         level1Result.action,
-            intent:         (level1Result as any)._intent,
-            confidence:     (level1Result as any)._confidence ?? null,
-            tokensInput:    level1Result._tokensInput  ?? null,
-            tokensOutput:   level1Result._tokensOutput ?? null,
-        }).catch(() => {});
-        return {
-            ...level1Result,
-            _parserLevel:    1,
-            _fallbackUsed:   false,
-            _responseTimeMs: ms,
-            _intent:         (level1Result as any)._intent,
-        };
+        console.warn("[ParserFactory] Regex failed:", (err as any)?.message);
     }
 
     if (level1Result && isActionable(level1Result)) {
@@ -109,26 +80,55 @@ export async function parseWithFactory(
             fallbackUsed:   false,
             responseTimeMs: ms,
             action:         level1Result.action,
-            intent:         (level1Result as any)._intent,
-            confidence:     (level1Result as any)._confidence ?? null,
-            tokensInput:    level1Result._tokensInput  ?? null,
-            tokensOutput:   level1Result._tokensOutput ?? null,
         }).catch(() => {});
         return {
             ...level1Result,
             _parserLevel:    1,
             _fallbackUsed:   false,
             _responseTimeMs: ms,
-            _intent:         (level1Result as any)._intent,
         };
     }
 
-    // ── Nível 2: Regex / Fuse.js ──────────────────────────────────────────────
-    let level2Result: ParseIntentResult | null = null;
+    // ── Nível 2: Claude Haiku ─────────────────────────────────────────────────
+    // Regex não resolveu → Claude para intent classification e casos complexos:
+    // linguagem ambígua, perguntas sobre produto, mistura produto+endereço, chitchat.
+    let level2Result: (ParseIntentResult & { _intent?: MessageIntent; _tokensInput?: number; _tokensOutput?: number }) | null = null;
     try {
-        level2Result = await parseWithRegex(input, products);
+        level2Result = await parseWithClaude(input, products, {
+            ...claudeConfig,
+            step:            step            ?? "",
+            cartSummary:     cartSummary     ?? "",
+            lastBotQuestion: lastBotQuestion ?? "",
+            lastIntent:      lastIntent      ?? "",
+        });
     } catch (err) {
-        console.warn("[ParserFactory] Regex failed:", (err as any)?.message);
+        console.warn("[ParserFactory] Claude failed:", (err as any)?.message);
+    }
+
+    // Se Claude detectou intent não-order (product_question, order_status, chitchat…)
+    // → retorna imediatamente; o Regex nunca classifica intenções, então não há fallback
+    if (level2Result && isNonOrderIntent(level2Result)) {
+        const ms = Date.now() - t0;
+        logParserResult(admin, {
+            companyId, threadId, waMessageId: messageId,
+            input,
+            parserLevel:    2,
+            fallbackUsed:   true,
+            responseTimeMs: ms,
+            action:         level2Result.action,
+            intent:         (level2Result as any)._intent,
+            confidence:     (level2Result as any)._confidence ?? null,
+            tokensInput:    level2Result._tokensInput  ?? null,
+            tokensOutput:   level2Result._tokensOutput ?? null,
+            errorHint:      `regex: ${level1Result?.action ?? "exception"}`,
+        }).catch(() => {});
+        return {
+            ...level2Result,
+            _parserLevel:    2,
+            _fallbackUsed:   true,
+            _responseTimeMs: ms,
+            _intent:         (level2Result as any)._intent,
+        };
     }
 
     if (level2Result && isActionable(level2Result)) {
@@ -140,19 +140,24 @@ export async function parseWithFactory(
             fallbackUsed:   true,
             responseTimeMs: ms,
             action:         level2Result.action,
-            errorHint:      level1Result ? `claude: ${level1Result.action}` : "claude: exception",
+            intent:         (level2Result as any)._intent,
+            confidence:     (level2Result as any)._confidence ?? null,
+            tokensInput:    level2Result._tokensInput  ?? null,
+            tokensOutput:   level2Result._tokensOutput ?? null,
+            errorHint:      `regex: ${level1Result?.action ?? "exception"}`,
         }).catch(() => {});
         alertParserFallback(admin, {
             companyId, threadId,
             level: 2,
             inputText:  input,
-            errorHint:  level1Result ? `claude: ${level1Result.action}` : "claude: exception",
+            errorHint:  `regex: ${level1Result?.action ?? "exception"}`,
         }).catch(() => {});
         return {
             ...level2Result,
             _parserLevel:    2,
             _fallbackUsed:   true,
             _responseTimeMs: ms,
+            _intent:         (level2Result as any)._intent,
         };
     }
 
@@ -180,13 +185,13 @@ export async function parseWithFactory(
         fallbackUsed:   true,
         responseTimeMs: ms,
         action:         finalResult.action,
-        errorHint:      "both claude and regex failed",
+        errorHint:      "both regex and claude failed",
     }).catch(() => {});
     alertParserFallback(admin, {
         companyId, threadId,
         level: 3,
         inputText:  input,
-        errorHint:  "both claude and regex failed",
+        errorHint:  "both regex and claude failed",
     }).catch(() => {});
 
     return {

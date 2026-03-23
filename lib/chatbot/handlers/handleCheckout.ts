@@ -15,6 +15,7 @@ import { findDeliveryZone, listDeliveryZones, getCategories } from "../db/varian
 import { getOrCreateCustomer, createOrder } from "../db/orders";
 import { getAccompanimentItems } from "../db/variants";
 import { commitAddress, sendPaymentButtonsAddr } from "./handleAddress";
+import { handleFreeTextInput } from "./handleFreeText";
 import { buildProductDisplayName } from "../displayHelpers";
 import { getOrderParserService } from "../OrderParserService";
 import { getWhatsAppConfig } from "../../whatsapp/getConfig";
@@ -931,24 +932,21 @@ export async function handleAwaitingVariantSelection(
     }
 
     if (!selections.length) {
+        // Tenta busca livre no catálogo — o cliente pode ter digitado o nome em vez do número
+        const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+        if (ftResult === "handled") return;
+
+        // Nenhum número e produto não encontrado — reexibe lista sem claudeNaturalReply
+        // (evita que Claude alucine produtos fora do DB)
         const listText = variantOptions.map((v, i) => {
             const isCase = isCaseVariant(v);
             const nm     = buildProductDisplayName(v, isCase);
             const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
             return `${NUMBER_EMOJIS[i] ?? `${i + 1}.`} *${nm}* — ${formatCurrency(price)}`;
         }).join("\n");
-        // Claude responde naturalmente antes de reexibir a lista
-        const naturalReply = await claudeNaturalReply({
-            input,
-            step:        "awaiting_variant_selection",
-            cart:        session.cart,
-            lastBotMsg:  `Qual opção? ${listText}`,
-            companyName: "",
-        });
-        await reply(phoneE164, naturalReply);
         await reply(phoneE164,
-            `${listText}\n\n` +
-            `_Ex: *2 3* = opção 2 com 3un · *1 2 2 5* = opção 1 (2un) + opção 2 (5un) · *1x2 2x5* = mesmo resultado_`
+            `Escolha pelo número da opção:\n\n${listText}\n\n` +
+            `_Ex: *1* · *2 3* = opção 2 com 3un · *1x2 2x5* = opção 1 (2un) + opção 2 (5un)_`
         );
         return;
     }

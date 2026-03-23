@@ -350,7 +350,7 @@ function mapClaudeResult(
             return {
                 productId:      p.productId,
                 variantId:      p.id,
-                name:           it.productName || p.productName,
+                name:           p.productName, // sempre usa o nome do DB, nunca o nome hallucinated da IA
                 price:          p.unitPrice,
                 qty:            Math.max(1, Math.round(it.qty)),
                 confidence:     it.confidence,

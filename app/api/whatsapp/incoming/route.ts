@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
+import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 
 export const runtime = "nodejs";
 
@@ -170,14 +171,42 @@ export async function POST(req: Request) {
 
                 if (!bodyText.trim()) continue;
 
-                // ── Verifica bot_active ──────────────────────────────────────
+                // ── Verifica bot_active (com timeout de handover de 5 min) ──
                 const { data: threadRow } = await admin
                     .from("whatsapp_threads")
-                    .select("bot_active")
+                    .select("bot_active, handover_at")
                     .eq("id", threadId)
                     .maybeSingle();
 
-                if (threadRow?.bot_active === false) continue;
+                if (threadRow?.bot_active === false) {
+                    const HANDOVER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos
+                    const handoverAt = threadRow.handover_at
+                        ? new Date(threadRow.handover_at).getTime()
+                        : null;
+                    const timedOut = handoverAt !== null
+                        && (Date.now() - handoverAt) > HANDOVER_TIMEOUT_MS;
+
+                    if (!timedOut) continue;
+
+                    // Timeout expirado: restaura o bot preservando o carrinho
+                    await Promise.all([
+                        admin
+                            .from("whatsapp_threads")
+                            .update({ bot_active: true, handover_at: null })
+                            .eq("id", threadId),
+                        admin
+                            .from("chatbot_sessions")
+                            .update({ step: "main_menu" })
+                            .eq("thread_id", threadId)
+                            .eq("company_id", channel.company_id),
+                    ]);
+
+                    await sendWhatsAppMessage(
+                        phoneE164,
+                        `⏱️ Nenhum atendente respondeu nos últimos 5 minutos.\n\nVou continuar te ajudando por aqui! 😊`
+                    );
+                    // Continua para processInboundMessage normalmente
+                }
 
                 // ── Processa chatbot com await (Lambda deve concluir antes do retorno) ──
                 try {
