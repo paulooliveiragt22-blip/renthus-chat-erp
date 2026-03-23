@@ -313,9 +313,9 @@ export default function ConfiguracoesPage() {
                 <p className="mt-0.5 text-xs text-zinc-400">Gerencie os dados e preferências da sua empresa</p>
             </div>
 
-            <div className="flex gap-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:gap-6">
                 {/* ── TAB SIDEBAR ───────────────────────────────────────────── */}
-                <nav className="flex w-48 shrink-0 flex-col gap-1">
+                <nav className="flex flex-row gap-1 overflow-x-auto pb-1 sm:w-48 sm:shrink-0 sm:flex-col sm:overflow-x-visible sm:pb-0">
                     {tabs.map(({ id, label, icon: Icon }) => (
                         <button
                             key={id}

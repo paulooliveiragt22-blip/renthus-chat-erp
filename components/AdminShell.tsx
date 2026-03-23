@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
 import AdminSidebar from "@/components/AdminSidebar";
+import { Menu } from "lucide-react";
 
 /**
  * AdminShell engloba:
@@ -30,6 +31,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     ) return <>{children}</>;
 
     const supabase = useMemo(() => createClient(), []);
+
+    const [sidebarOpen, setSidebarOpen] = useState(false);
 
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -87,8 +90,30 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     return (
         <AdminOrdersProvider openOrder={openOrder}>
             <div className="flex h-screen overflow-hidden bg-zinc-100 text-zinc-900 transition-colors duration-300 dark:bg-zinc-950 dark:text-zinc-50">
-                <AdminSidebar />
+                {/* Overlay mobile — fecha sidebar ao clicar fora */}
+                {sidebarOpen && (
+                    <div
+                        className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+                        onClick={() => setSidebarOpen(false)}
+                        aria-hidden="true"
+                    />
+                )}
+
+                <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
                 <main className="flex flex-1 flex-col overflow-y-auto bg-zinc-100 transition-colors duration-300 dark:bg-zinc-950">
+                    {/* Barra hamburguer — só aparece no mobile */}
+                    <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-zinc-200 bg-zinc-100 px-4 py-3 lg:hidden dark:border-zinc-800 dark:bg-zinc-950">
+                        <button
+                            onClick={() => setSidebarOpen(true)}
+                            aria-label="Abrir menu"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        >
+                            <Menu className="h-4 w-4" />
+                        </button>
+                        <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Renthus ERP</span>
+                    </div>
+
                     <div className="mx-auto w-full max-w-6xl px-3 py-4 md:px-6 md:py-6">
                         {children}
                     </div>

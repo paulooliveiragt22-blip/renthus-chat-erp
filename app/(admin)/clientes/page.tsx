@@ -436,7 +436,7 @@ export default function ClientesPage() {
 
               {/* ── INFO ── */}
               {detailTab === "info" && (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                   {[
                     { label: "Nome",        value: selected.name,       icon: User    },
                     { label: "Telefone",    value: selected.phone,      icon: Phone   },
@@ -581,7 +581,7 @@ export default function ClientesPage() {
               </button>
             </div>
             <div className="overflow-y-auto max-h-[70vh] p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                 <div className="col-span-2">
                   <label className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Nome *</label>
                   <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
@@ -660,7 +660,7 @@ export default function ClientesPage() {
               <button onClick={() => setShowAddrForm(false)} className="ml-auto text-zinc-500 hover:text-zinc-200"><X className="h-5 w-5" /></button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                 <div className="col-span-2">
                   <label className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Apelido</label>
                   <input value={addrForm.apelido} onChange={e => setAddrForm(p => ({ ...p, apelido: e.target.value }))}

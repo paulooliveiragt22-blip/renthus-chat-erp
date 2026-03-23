@@ -247,9 +247,9 @@ export default function EstoquePage() {
             </div>
 
             {/* Table */}
-            <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
+            <div className="overflow-x-auto rounded-xl bg-white shadow-sm dark:bg-zinc-900">
                 {/* Header */}
-                <div className="grid grid-cols-[1.8fr_0.9fr_72px_96px_120px_160px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
+                <div className="grid min-w-[640px] grid-cols-[1.8fr_0.9fr_72px_96px_120px_160px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
                     <span>Produto</span>
                     <span>Categoria</span>
                     <span>Código</span>
@@ -279,7 +279,7 @@ export default function EstoquePage() {
                             return (
                                 <div
                                     key={item.id}
-                                    className={`grid grid-cols-[1.8fr_0.9fr_72px_96px_120px_160px] items-center gap-2 px-4 py-3 transition-colors ${
+                                    className={`grid min-w-[640px] grid-cols-[1.8fr_0.9fr_72px_96px_120px_160px] items-center gap-2 px-4 py-3 transition-colors ${
                                         !item.is_active
                                             ? "opacity-50"
                                             : flashId === item.id
