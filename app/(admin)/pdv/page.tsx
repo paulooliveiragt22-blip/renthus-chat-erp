@@ -68,6 +68,16 @@ interface CustomerSummary {
   enderecos?: Array<{ id:string; apelido:string; logradouro:string|null; numero:string|null; bairro:string|null }>;
 }
 
+interface PendingOrder {
+  id: string;
+  customer_name: string | null;
+  total_amount: number;
+  status: string;
+  created_at: string;
+  source: string | null;
+  channel: string | null;
+}
+
 const PAY: Record<PayMethod, { label:string; icon:React.ElementType; color:string; bg:string; prazo?:boolean }> = {
   pix:         { label:"PIX",         icon:QrCode,      color:"text-emerald-400", bg:"bg-emerald-900/30 border-emerald-700" },
   card:        { label:"Crédito",     icon:CreditCard,  color:"text-blue-400",   bg:"bg-blue-900/30 border-blue-700"       },
@@ -115,6 +125,11 @@ export default function PDVPage() {
   const searchParams = useSearchParams();
   const fromOrderId  = searchParams.get("from_order");
   const [fromOrderBanner, setFromOrderBanner] = useState<string | null>(null);
+
+  // ── mode toggle ──────────────────────────────────────────────────────
+  const [pdvMode,         setPdvMode]         = useState<"normal" | "pending">("normal");
+  const [pendingOrders,   setPendingOrders]   = useState<PendingOrder[]>([]);
+  const [loadingPending,  setLoadingPending]  = useState(false);
 
   const [variants,    setVariants]    = useState<Variant[]>([]);
   const [loadingProd, setLoadingProd] = useState(true);
@@ -194,6 +209,40 @@ export default function PDVPage() {
     }));
     setLoadingProd(false);
   }, [companyId, supabase]);
+
+  // ── pending orders ────────────────────────────────────────────────────────
+  const loadPendingOrders = useCallback(async () => {
+    if (!companyId) return;
+    setLoadingPending(true);
+    const { data, error } = await supabase
+      .from("orders")
+      .select("id, customer_name, total_amount, status, created_at, source, channel")
+      .eq("company_id", companyId)
+      .in("status", ["new", "confirmed", "preparing", "delivering"])
+      .is("sale_id", null)
+      .order("created_at", { ascending: false });
+    if (error) console.error("[pdv] pendingOrders:", error.message);
+    setPendingOrders((data ?? []) as PendingOrder[]);
+    setLoadingPending(false);
+  }, [companyId, supabase]);
+
+  const loadOrderIntoCart = useCallback(async (order: PendingOrder) => {
+    const { data: items } = await supabase
+      .from("order_items")
+      .select("produto_embalagem_id, quantity, qty, product_name, unit_price")
+      .eq("order_id", order.id);
+    if (!items || items.length === 0) return;
+    const newCart: CartItem[] = [];
+    for (const it of items as any[]) {
+      const v = variants.find(v => v.id === String(it.produto_embalagem_id));
+      if (v) newCart.push({ variant: v, qty: Number(it.quantity ?? it.qty ?? 1) });
+    }
+    if (newCart.length > 0) {
+      setCart(newCart);
+      setFromOrderBanner(`Pedido #${order.id.slice(-6).toUpperCase()}`);
+    }
+    setPdvMode("normal");
+  }, [supabase, variants]);
 
   // ── caixa ops ─────────────────────────────────────────────────────────────
   const loadCaixa = useCallback(async () => {
@@ -745,6 +794,32 @@ export default function PDVPage() {
             className="w-24 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none" />
         </div>
 
+        {/* Mode toggle */}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-800/80 p-0.5">
+          <button
+            onClick={() => setPdvMode("normal")}
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+              pdvMode === "normal"
+                ? "bg-orange-500 text-white shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <ShoppingCart className="h-3 w-3" />
+            Venda
+          </button>
+          <button
+            onClick={() => { setPdvMode("pending"); loadPendingOrders(); }}
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+              pdvMode === "pending"
+                ? "bg-violet-600 text-white shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <Clock className="h-3 w-3" />
+            Pedidos
+          </button>
+        </div>
+
         {/* Hint */}
         <div className="hidden items-center gap-1 text-[10px] text-zinc-600 xl:flex shrink-0">
           <Keyboard className="h-3 w-3" />
@@ -764,82 +839,145 @@ export default function PDVPage() {
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden min-h-0">
 
-        {/* ── Left: products ───────────────────────────────────────────── */}
+        {/* ── Left: products or pending orders ─────────────────────────── */}
         <div className="flex flex-1 flex-col overflow-hidden border-r border-zinc-800 min-w-0">
 
-          {/* Category tabs — single-line scrollable strip */}
-          <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-zinc-800 bg-zinc-900/80 px-3 py-1.5 scrollbar-hide">
-            {categories.map(cat => (
-              <button key={cat} onClick={()=>setActiveCat(cat)}
-                className={`shrink-0 rounded-md px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
-                  activeCat===cat ? "bg-orange-500 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-                }`}>
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Product grid — only this area scrolls */}
-          <div className="flex-1 overflow-y-auto p-3 min-h-0">
-            {loadingProd ? (
-              <div className="grid grid-cols-5 gap-2">
-                {Array.from({length:15}).map((_,i)=>(
-                  <div key={i} className="h-28 animate-pulse rounded-xl bg-zinc-800" />
+          {pdvMode === "pending" ? (
+            /* ── Pending orders view ────────────────────────────── */
+            <>
+              <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900/80 px-4 py-2">
+                <Clock className="h-3.5 w-3.5 text-violet-400" />
+                <span className="text-xs font-semibold text-violet-300">Pedidos não finalizados</span>
+                <button onClick={loadPendingOrders}
+                  className="ml-auto rounded-md border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors">
+                  Atualizar
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 min-h-0">
+                {loadingPending ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="h-16 animate-pulse rounded-xl bg-zinc-800" />
+                    ))}
+                  </div>
+                ) : pendingOrders.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-16 text-zinc-700">
+                    <Clock className="h-8 w-8" />
+                    <p className="text-xs">Nenhum pedido pendente.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {pendingOrders.map(order => {
+                      const statusLabels: Record<string, { label: string; color: string }> = {
+                        new:        { label: "Recebido",        color: "text-blue-400"   },
+                        confirmed:  { label: "Confirmado",      color: "text-emerald-400" },
+                        preparing:  { label: "Em preparo",      color: "text-orange-400" },
+                        delivering: { label: "Saiu p/ entrega", color: "text-violet-400" },
+                      };
+                      const st = statusLabels[order.status] ?? { label: order.status, color: "text-zinc-400" };
+                      const date = new Date(order.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+                      const src = order.channel === "chatbot" || order.source === "chatbot" ? "WhatsApp" : order.source ?? "—";
+                      return (
+                        <button key={order.id} onClick={() => loadOrderIntoCart(order)}
+                          className="flex w-full items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-3 text-left transition-all hover:border-violet-600 hover:bg-zinc-800 active:scale-[0.99]">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-zinc-100 truncate">
+                              {order.customer_name ?? "Cliente"}
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-zinc-500">
+                              #{order.id.slice(-8).toUpperCase()} · {date} · {src}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className={`text-[10px] font-semibold ${st.color}`}>{st.label}</p>
+                            <p className="text-sm font-bold text-orange-400">{brl(order.total_amount)}</p>
+                          </div>
+                          <Plus className="h-4 w-4 shrink-0 text-violet-400" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            /* ── Normal products view ────────────────────────────── */
+            <>
+              {/* Category tabs — single-line scrollable strip */}
+              <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-zinc-800 bg-zinc-900/80 px-3 py-1.5 scrollbar-hide">
+                {categories.map(cat => (
+                  <button key={cat} onClick={()=>setActiveCat(cat)}
+                    className={`shrink-0 rounded-md px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                      activeCat===cat ? "bg-orange-500 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+                    }`}>
+                    {cat}
+                  </button>
                 ))}
               </div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-16 text-zinc-700">
-                <Search className="h-8 w-8" />
-                <p className="text-xs">Sem resultados.</p>
+
+              {/* Product grid — only this area scrolls */}
+              <div className="flex-1 overflow-y-auto p-3 min-h-0">
+                {loadingProd ? (
+                  <div className="grid grid-cols-5 gap-2">
+                    {Array.from({length:15}).map((_,i)=>(
+                      <div key={i} className="h-28 animate-pulse rounded-xl bg-zinc-800" />
+                    ))}
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-16 text-zinc-700">
+                    <Search className="h-8 w-8" />
+                    <p className="text-xs">Sem resultados.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-5 gap-2">
+                    {filtered.map(v => {
+                      const inCart = cart.find(c => c.variant.id === v.id);
+                      const isPack = ["CX","FARD","PAC"].includes(v.sigla_comercial);
+                      const qtdLabel = isPack ? `${v.fator_conversao} un` : null;
+                      return (
+                        <button key={v.id} onClick={()=>addToCart(v)}
+                          className={`group relative flex flex-col rounded-xl border p-3 text-left transition-all duration-300 active:scale-95 hover:-translate-y-0.5 hover:shadow-lg ${
+                            inCart
+                              ? "border-orange-500/60 bg-orange-950/30 shadow-[0_0_12px_rgba(249,115,22,0.2)]"
+                              : "border-zinc-700 bg-zinc-800/60 hover:border-zinc-600 hover:bg-zinc-800"
+                          }`}>
+                          {inCart && (
+                            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
+                              {inCart.qty}
+                            </span>
+                          )}
+                          <p className="text-base font-semibold text-zinc-100 line-clamp-2 leading-tight capitalize">
+                            {v.product_name}
+                          </p>
+                          {v.volume_formatado && (
+                            <p className="mt-1 text-xs font-normal text-zinc-400 opacity-90 leading-none">{v.volume_formatado}</p>
+                          )}
+                          {v.details && !v.volume_formatado && (
+                            <p className="mt-1 text-xs font-normal text-zinc-400 opacity-90 leading-none truncate">{v.details}</p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-x-1.5 text-xs font-normal text-zinc-400 opacity-[0.7]">
+                            <span>{v.sigla_humanizada}</span>
+                            {qtdLabel && <span>• {qtdLabel}</span>}
+                          </div>
+                          <div className="mt-auto flex items-center justify-between pt-2">
+                            <span className="text-sm font-semibold">
+                              <span className="text-zinc-500 text-xs font-medium">{brlSplit(v.unit_price).prefix} </span>
+                              <span className="text-orange-400">{brlSplit(v.unit_price).value}</span>
+                            </span>
+                            <div className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
+                              inCart ? "bg-orange-500 text-white" : "bg-zinc-700 text-zinc-400 group-hover:bg-orange-500 group-hover:text-white"
+                            }`}>
+                              <Plus className="h-3 w-3" />
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="grid grid-cols-5 gap-2">
-                {filtered.map(v => {
-                  const inCart = cart.find(c => c.variant.id === v.id);
-                  const isPack = ["CX","FARD","PAC"].includes(v.sigla_comercial);
-                  const qtdLabel = isPack ? `${v.fator_conversao} un` : null;
-                  return (
-                    <button key={v.id} onClick={()=>addToCart(v)}
-                      className={`group relative flex flex-col rounded-xl border p-3 text-left transition-all duration-300 active:scale-95 hover:-translate-y-0.5 hover:shadow-lg ${
-                        inCart
-                          ? "border-orange-500/60 bg-orange-950/30 shadow-[0_0_12px_rgba(249,115,22,0.2)]"
-                          : "border-zinc-700 bg-zinc-800/60 hover:border-zinc-600 hover:bg-zinc-800"
-                      }`}>
-                      {inCart && (
-                        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
-                          {inCart.qty}
-                        </span>
-                      )}
-                      <p className="text-base font-semibold text-zinc-100 line-clamp-2 leading-tight capitalize">
-                        {v.product_name}
-                      </p>
-                      {v.volume_formatado && (
-                        <p className="mt-1 text-xs font-normal text-zinc-400 opacity-90 leading-none">{v.volume_formatado}</p>
-                      )}
-                      {v.details && !v.volume_formatado && (
-                        <p className="mt-1 text-xs font-normal text-zinc-400 opacity-90 leading-none truncate">{v.details}</p>
-                      )}
-                      <div className="mt-1 flex flex-wrap gap-x-1.5 text-xs font-normal text-zinc-400 opacity-[0.7]">
-                        <span>{v.sigla_humanizada}</span>
-                        {qtdLabel && <span>• {qtdLabel}</span>}
-                      </div>
-                      <div className="mt-auto flex items-center justify-between pt-2">
-                        <span className="text-sm font-semibold">
-                          <span className="text-zinc-500 text-xs font-medium">{brlSplit(v.unit_price).prefix} </span>
-                          <span className="text-orange-400">{brlSplit(v.unit_price).value}</span>
-                        </span>
-                        <div className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
-                          inCart ? "bg-orange-500 text-white" : "bg-zinc-700 text-zinc-400 group-hover:bg-orange-500 group-hover:text-white"
-                        }`}>
-                          <Plus className="h-3 w-3" />
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
 
         {/* ── Right: cart — full height, nothing scrolls except items list ── */}
