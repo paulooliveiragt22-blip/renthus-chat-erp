@@ -549,7 +549,13 @@ export async function processInboundMessage(
         const detectedIntent = (parsed as any)._intent as MessageIntent | undefined;
 
         if (detectedIntent === "product_question") {
-            // Tenta responder a dúvida do produto consultando o catálogo
+            // Rota pelo handleFreeTextInput: salva step=catalog_products + pending_variant
+            // para que o próximo input do cliente (ex: "2" = quantidade) seja tratado
+            // no contexto correto, evitando que "2" seja interpretado como opção do menu.
+            const ftResult = await handleFreeTextInput(admin, companyId, threadId, phoneE164, input, session);
+            if (ftResult === "handled") return;
+
+            // handleFreeTextInput não conseguiu resolver (skip/notfound) → responde diretamente
             const question = (parsed as any).message as string | undefined ?? input;
             const terms    = question.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3);
             const match    = products.find((p) =>
