@@ -698,10 +698,10 @@ export default function PedidosPage() {
         <div className="flex flex-col gap-4 min-h-full">
 
             {/* ── HEADER ── */}
-            <header className="flex items-center justify-between rounded-xl bg-purple-900 px-5 py-4 shadow-md">
+            <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-purple-900 px-5 py-4 shadow-md">
                 <div>
                     <h1 className="text-lg font-bold text-white">Pedidos</h1>
-                    <p className="text-xs text-purple-200 mt-0.5">
+                    <p className="hidden text-xs text-purple-200 mt-0.5 sm:block">
                         Gerencie pedidos em tempo real, com ações rápidas e WhatsApp.
                     </p>
                 </div>
@@ -852,7 +852,7 @@ export default function PedidosPage() {
                 ) : (
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                         {/* ── Sticky column header ── */}
-                        <div className="sticky top-0 z-10 flex items-center gap-4 border-b border-zinc-100 bg-zinc-50 px-5 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/95 backdrop-blur">
+                        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-zinc-100 bg-zinc-50 px-3 py-2.5 sm:gap-4 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900/95 backdrop-blur">
                             <div className="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                                 Pedido
                             </div>
@@ -865,7 +865,7 @@ export default function PedidosPage() {
                             <div className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                                 Status
                             </div>
-                            <div className="w-28 shrink-0 text-right text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                            <div className="w-16 shrink-0 text-right text-[10px] font-semibold uppercase tracking-wider text-zinc-400 sm:w-28 dark:text-zinc-500">
                                 Valor
                             </div>
                             <div className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
@@ -905,7 +905,7 @@ export default function PedidosPage() {
                                 <div
                                     key={o.id}
                                     onClick={() => openOrder(o.id)}
-                                    className={`group flex cursor-pointer items-center gap-4 px-5 py-4 transition-colors ${
+                                    className={`group flex cursor-pointer items-center gap-2 px-3 py-4 sm:gap-4 sm:px-5 transition-colors ${
                                         isFlashing
                                             ? "bg-emerald-50 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-900/20 dark:ring-emerald-700/50"
                                             : "bg-white hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
@@ -962,8 +962,8 @@ export default function PedidosPage() {
                                     </div>
 
                                     {/* Total */}
-                                    <div className="w-28 shrink-0 text-right">
-                                        <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(o.total_amount)}</span>
+                                    <div className="w-16 shrink-0 text-right sm:w-28">
+                                        <span className="text-xs font-bold text-zinc-900 sm:text-sm dark:text-zinc-50">R$ {formatBRL(o.total_amount)}</span>
                                     </div>
 
                                     {/* Ações rápidas */}
@@ -999,9 +999,9 @@ export default function PedidosPage() {
                                             <button
                                                 title="Fechar no PDV"
                                                 onClick={() => router.push(`/pdv?from_order=${o.id}`)}
-                                                className="flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-orange-600 transition-colors"
+                                                className="flex items-center gap-1 rounded-lg bg-orange-500 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-orange-600 transition-colors sm:px-2.5"
                                             >
-                                                <ShoppingCart className="h-3 w-3" /> PDV
+                                                <ShoppingCart className="h-3 w-3" /><span className="hidden sm:inline">PDV</span>
                                             </button>
                                         )}
                                     </div>
