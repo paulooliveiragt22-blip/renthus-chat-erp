@@ -566,11 +566,25 @@ export async function processInboundMessage(
                 )
             );
             if (match) {
+                // Salva pending_variant + step=catalog_products para que o próximo input
+                // (ex: "2" = quantidade) seja tratado no contexto correto.
                 const priceStr = match.unitPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                await saveSession(admin, threadId, companyId, {
+                    step: "catalog_products",
+                    context: {
+                        ...session.context,
+                        pending_variant: {
+                            variantId:   match.id,
+                            productName: match.productName,
+                            details:     match.details ?? "",
+                            unitPrice:   match.unitPrice,
+                        },
+                    },
+                });
                 await reply(
                     phoneE164,
                     `Temos *${match.productName}${match.details ? " " + match.details : ""}* por ${priceStr}.\n\n` +
-                    `Quer adicionar ao pedido? Basta dizer a quantidade! 🛒`
+                    `Quantas unidades você quer? 🛒`
                 );
             } else {
                 await reply(
