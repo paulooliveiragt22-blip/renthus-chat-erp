@@ -6,14 +6,24 @@ import HeaderClient from "@/components/HeaderClient";
 import ThemeProvider from "@/components/ThemeProvider";
 
 export const metadata = {
-  title: "Renthus - Admin",
-  description: "Painel Renthus Service",
+  title: "Renthus ERP",
+  description: "Painel de gestão Renthus — pedidos, estoque e atendimento.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Renthus",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export const viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#6d28d9",
 };
 
 export default function RootLayout({

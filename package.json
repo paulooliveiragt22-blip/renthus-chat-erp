@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
