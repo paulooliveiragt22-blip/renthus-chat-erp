@@ -28,11 +28,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
   }
 
+  // Busca impressora padrão da empresa (company_printers.is_default) ou a primeira com auto_print
+  let printerId: string | null = null;
+  const { data: cpRow } = await admin
+    .from("company_printers")
+    .select("printer_id")
+    .eq("company_id", access.companyId)
+    .eq("is_default", true)
+    .maybeSingle();
+  if (cpRow?.printer_id) {
+    printerId = cpRow.printer_id;
+  } else {
+    const { data: pRow } = await admin
+      .from("printers")
+      .select("id")
+      .eq("company_id", access.companyId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (pRow?.id) printerId = pRow.id;
+  }
+
   const { data: job, error: jobErr } = await admin
     .from("print_jobs")
     .insert([{
       company_id: access.companyId,
       order_id:   order_id,
+      printer_id: printerId,
       status:     "pending",
       attempts:   0,
       priority:   5,

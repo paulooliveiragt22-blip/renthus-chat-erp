@@ -9,6 +9,7 @@ import {
     ChevronRight,
     ClipboardCopy,
     Copy,
+    Download,
     FileText,
     KeyRound,
     Loader2,
@@ -427,8 +428,8 @@ export default function ImpressorasPage() {
                             ))}
                     </div>
 
-                    {/* Test print */}
-                    <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                    {/* Test print + Download */}
+                    <div className="flex items-center gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
                         <button
                             onClick={testPrint}
                             disabled={testLoading}
@@ -437,8 +438,16 @@ export default function ImpressorasPage() {
                             {testLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
                             Pedido de Teste
                         </button>
-                        {testMsg && <p className="mt-2 text-xs text-zinc-500">{testMsg}</p>}
+                        <a
+                            href="/api/downloads/print-agen"
+                            download
+                            className="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-700/40 dark:bg-violet-900/20 dark:text-violet-300"
+                        >
+                            <Download className="h-3 w-3" />
+                            Baixar Agente
+                        </a>
                     </div>
+                    {testMsg && <p className="text-xs text-zinc-500">{testMsg}</p>}
                 </div>
 
                 {/* ── CARD: Fila de Impressão ──────────────────────────────── */}
