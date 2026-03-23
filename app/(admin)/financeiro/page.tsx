@@ -59,6 +59,11 @@ interface ExtratoLine {
     payment_method: string;
     amount:         number;
     status:         string;
+    // referências para ação no modal
+    orderId?:       string | null;
+    saleId?:        string | null;
+    customerId?:    string | null;
+    orderStatus?:   string | null;
 }
 
 interface DaySummary  { isoDate: string; label: string; revenue: number; cost: number; orders: number; expensesDay: number }
@@ -73,6 +78,8 @@ interface Stats {
     byOrigin: Record<string, number>;
     totalAReceber: number;
 }
+
+const A_PRAZO_METHODS = new Set(["credit", "credit_installment", "boleto", "promissoria", "cheque"]);
 
 const PAY_META: Record<string, { label: string; color: string }> = {
     pix:                { label: "PIX",           color: "#22c55e" },
@@ -142,6 +149,12 @@ export default function FinanceiroPage() {
     const [extratoLoading, setExtratoLoading] = useState(false);
     const [extratoPage,    setExtratoPage]    = useState(1);
     const EXTRATO_PAGE_SIZE = 50;
+
+    // Modal de detalhe do lançamento
+    const [extratoModal,  setExtratoModal]  = useState<ExtratoLine | null>(null);
+    const [finalizeForm,  setFinalizeForm]  = useState({ payment_method: "pix", due_date: isoDate(new Date()), notes: "" });
+    const [finalizing,    setFinalizing]    = useState(false);
+    const [finalizeMsg,   setFinalizeMsg]   = useState<string | null>(null);
 
     // Contas a Receber / Pagar
     const [bills,        setBills]        = useState<Bill[]>([]);
@@ -412,7 +425,7 @@ export default function FinanceiroPage() {
         // 1. sale_payments (fonte nova — pós Sprint1)
         const { data: spRows } = await supabase
             .from("sale_payments")
-            .select("id, created_at, amount, payment_method, status, sale_id, sales(origin, notes, customers(name))")
+            .select("id, created_at, amount, payment_method, status, sale_id, sales(origin, notes, customer_id, customers(name))")
             .eq("company_id", companyId)
             .gte("created_at", fromIso)
             .lte("created_at", toIso)
@@ -434,15 +447,19 @@ export default function FinanceiroPage() {
                 payment_method: sp.payment_method ?? "—",
                 amount:         Number(sp.amount ?? 0),
                 status:         sp.status === "received" ? "recebido" : sp.status === "pending" ? "pendente" : sp.status,
+                orderId:        null,
+                saleId:         sp.sale_id ?? null,
+                customerId:     (sale as any)?.customer_id ?? null,
+                orderStatus:    null,
             });
         });
 
-        // 2. Orders legados (sem sale_id)
+        // 2. Orders legados (sem sale_id) — somente finalizados/entregues (não contar abertos)
         const { data: ordRows } = await supabase
             .from("orders")
-            .select("id, created_at, total_amount, payment_method, status, channel, source, customers(name)")
+            .select("id, created_at, total_amount, payment_method, status, channel, source, customer_id, customers(name)")
             .eq("company_id", companyId)
-            .neq("status", "canceled")
+            .in("status", ["finalized", "delivered", "confirmed", "preparing", "delivering"])
             .is("sale_id", null)
             .gte("created_at", fromIso)
             .lte("created_at", toIso)
@@ -461,6 +478,10 @@ export default function FinanceiroPage() {
                 payment_method: o.payment_method ?? "—",
                 amount:         Number(o.total_amount ?? 0),
                 status:         o.status,
+                orderId:        o.id,
+                saleId:         null,
+                customerId:     o.customer_id ?? null,
+                orderStatus:    o.status,
             });
         });
 
@@ -489,6 +510,52 @@ export default function FinanceiroPage() {
     useEffect(() => {
         if (activeTab === "extrato") loadExtrato();
     }, [activeTab, loadExtrato]);
+
+    // Finalizar pedido do extrato + roteamento à vista / a prazo
+    const handleFinalizeOrder = async () => {
+        if (!extratoModal?.orderId || !companyId) return;
+        setFinalizing(true);
+        setFinalizeMsg(null);
+        const isPrazo = A_PRAZO_METHODS.has(finalizeForm.payment_method);
+
+        const { error: orderErr } = await supabase
+            .from("orders")
+            .update({ status: "finalized", payment_method: finalizeForm.payment_method, paid: !isPrazo })
+            .eq("id", extratoModal.orderId)
+            .eq("company_id", companyId);
+
+        if (orderErr) {
+            setFinalizeMsg("Erro: " + orderErr.message);
+            setFinalizing(false);
+            return;
+        }
+
+        if (isPrazo) {
+            if (!extratoModal.customerId) {
+                setFinalizeMsg("Cliente não identificado — não foi possível lançar a prazo.");
+                setFinalizing(false);
+                return;
+            }
+            const { error: prazoErr } = await supabase.from("vendas_a_prazo").insert({
+                company_id:       companyId,
+                order_id:         extratoModal.orderId,
+                customer_id:      extratoModal.customerId,
+                valor:            extratoModal.amount,
+                data_vencimento:  finalizeForm.due_date + "T12:00:00",
+                status:           "aberto",
+                notas:            finalizeForm.notes || `Pedido #${extratoModal.orderId.slice(-6).toUpperCase()}`,
+            });
+            if (prazoErr) {
+                setFinalizeMsg("Pedido finalizado, mas erro ao lançar a prazo: " + prazoErr.message);
+                setFinalizing(false);
+                return;
+            }
+        }
+
+        setFinalizing(false);
+        setExtratoModal(null);
+        loadExtrato();
+    };
 
     // ── contas a receber / pagar ──────────────────────────────────────────────
     const loadBills = useCallback(async (type: "receivable" | "payable") => {
@@ -1110,7 +1177,13 @@ export default function FinanceiroPage() {
                                     </thead>
                                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                                         {extratoSlice.map((line) => (
-                                            <tr key={line.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
+                                            <tr key={line.id}
+                                                onClick={() => {
+                                                    setExtratoModal(line);
+                                                    setFinalizeForm({ payment_method: line.payment_method !== "—" ? line.payment_method : "pix", due_date: isoDate(new Date()), notes: "" });
+                                                    setFinalizeMsg(null);
+                                                }}
+                                                className="cursor-pointer hover:bg-violet-50/50 dark:hover:bg-violet-900/10 transition-colors">
                                                 <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
                                                     {new Date(line.date).toLocaleDateString("pt-BR")}
                                                     <span className="ml-1 text-zinc-300 dark:text-zinc-600">
@@ -1622,6 +1695,107 @@ export default function FinanceiroPage() {
                         <button onClick={saveExpense} disabled={saving || !expForm.amount || !expForm.due_date}
                             className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-40 transition-colors">
                             {saving ? "Salvando…" : "Registrar Despesa"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        {/* ── Modal detalhe / finalização de lançamento ──────────────────── */}
+        {extratoModal && (
+            <div onClick={() => setExtratoModal(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-3xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 overflow-hidden">
+                    {/* header */}
+                    <div className="flex items-center gap-3 border-b border-zinc-100 px-6 py-4 dark:border-zinc-800">
+                        <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${extratoModal.type === "income" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
+                            {extratoModal.type === "income"
+                                ? <ArrowUpCircle className="h-5 w-5 text-emerald-600" />
+                                : <ArrowDownCircle className="h-5 w-5 text-red-500" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-100">{extratoModal.description}</p>
+                            <p className="text-xs text-zinc-400">{new Date(extratoModal.date).toLocaleString("pt-BR")}</p>
+                        </div>
+                        <button onClick={() => setExtratoModal(null)} className="rounded-lg p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
+                            <X className="h-5 w-5" />
+                        </button>
+                    </div>
+
+                    {/* detalhes */}
+                    <div className="space-y-3 px-6 py-4">
+                        <div className="grid grid-cols-2 gap-3 rounded-xl bg-zinc-50 px-4 py-3 text-xs dark:bg-zinc-800">
+                            <div><p className="text-zinc-400">Cliente</p><p className="font-semibold text-zinc-700 dark:text-zinc-200">{extratoModal.customer}</p></div>
+                            <div><p className="text-zinc-400">Canal</p><p className="font-semibold text-zinc-700 dark:text-zinc-200">{CHANNEL_LABEL[extratoModal.channel] ?? extratoModal.channel}</p></div>
+                            <div><p className="text-zinc-400">Pagamento</p><p className="font-semibold text-zinc-700 dark:text-zinc-200">{PAY_LABEL[extratoModal.payment_method] ?? extratoModal.payment_method}</p></div>
+                            <div><p className="text-zinc-400">Valor</p><p className={`text-lg font-bold ${extratoModal.type === "income" ? "text-emerald-600" : "text-red-500"}`}>{brl(extratoModal.amount)}</p></div>
+                        </div>
+
+                        {/* ── Seção de finalização — só para pedidos não finalizados ── */}
+                        {extratoModal.source === "order" && extratoModal.orderId &&
+                         !["finalized","delivered"].includes(extratoModal.orderStatus ?? "") && (
+                            <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-4 dark:border-violet-800 dark:bg-violet-900/20">
+                                <p className="text-xs font-bold text-violet-700 dark:text-violet-300">Finalizar pedido</p>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-zinc-600 dark:text-zinc-300">Forma de pagamento</label>
+                                    <select value={finalizeForm.payment_method}
+                                        onChange={(e) => setFinalizeForm(f => ({ ...f, payment_method: e.target.value }))}
+                                        className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100">
+                                        <optgroup label="À vista">
+                                            <option value="pix">PIX</option>
+                                            <option value="cash">Dinheiro</option>
+                                            <option value="card">Cartão de crédito</option>
+                                            <option value="debit">Cartão de débito</option>
+                                        </optgroup>
+                                        <optgroup label="A prazo (lança em Contas a Receber)">
+                                            <option value="credit">A Prazo / Fiado</option>
+                                            <option value="credit_installment">Crédito Parcelado</option>
+                                            <option value="boleto">Boleto</option>
+                                            <option value="promissoria">Promissória</option>
+                                            <option value="cheque">Cheque</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+
+                                {A_PRAZO_METHODS.has(finalizeForm.payment_method) && (
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold text-zinc-600 dark:text-zinc-300">Vencimento</label>
+                                        <input type="date" value={finalizeForm.due_date}
+                                            onChange={(e) => setFinalizeForm(f => ({ ...f, due_date: e.target.value }))}
+                                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-semibold text-zinc-600 dark:text-zinc-300">Observação <span className="font-normal text-zinc-400">(opcional)</span></label>
+                                    <input type="text" value={finalizeForm.notes}
+                                        onChange={(e) => setFinalizeForm(f => ({ ...f, notes: e.target.value }))}
+                                        placeholder="Ex: cliente pagou na entrega"
+                                        className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+                                </div>
+
+                                {finalizeMsg && (
+                                    <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 dark:bg-red-900/20 dark:text-red-400">{finalizeMsg}</p>
+                                )}
+
+                                <button onClick={handleFinalizeOrder} disabled={finalizing}
+                                    className="w-full rounded-xl bg-violet-600 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50 transition-colors">
+                                    {finalizing ? "Finalizando…" : A_PRAZO_METHODS.has(finalizeForm.payment_method) ? "Finalizar + Lançar a prazo" : "Finalizar pedido (à vista)"}
+                                </button>
+                            </div>
+                        )}
+
+                        {extratoModal.source === "order" &&
+                         ["finalized","delivered"].includes(extratoModal.orderStatus ?? "") && (
+                            <div className="rounded-xl bg-emerald-50 px-4 py-3 text-xs dark:bg-emerald-900/20">
+                                <p className="font-semibold text-emerald-700 dark:text-emerald-400">✅ Pedido já finalizado</p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="border-t border-zinc-100 px-6 py-3 dark:border-zinc-800">
+                        <button onClick={() => setExtratoModal(null)}
+                            className="w-full rounded-xl border border-zinc-200 py-2 text-xs font-semibold text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
+                            Fechar
                         </button>
                     </div>
                 </div>
