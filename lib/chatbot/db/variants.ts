@@ -377,6 +377,7 @@ export async function searchVariantsByTextV2(
                 productId:    grp.prodId,
                 productName:  String(unitPack.product_name ?? ""),
                 details:      (unitPack.descricao ?? unitPack.product_details ?? null) as string | null,
+                searchDesc:   (unitPack.descricao ?? null) as string | null,
                 tags:         grp.tags.length ? grp.tags.join(",") : null,
                 volumeValue:  volQty,
                 unit:         String(unitPack.product_unit_type ?? "un"),
@@ -400,6 +401,7 @@ export async function searchVariantsByTextV2(
         const productNameNorm = normalize(String(v.productName ?? ""));
         const tagStr = v.tags ? normalize(String(v.tags)) : "";
         const detailStr = v.details ? normalize(String(v.details)) : "";
+        const searchDescStr = v.searchDesc ? normalize(String(v.searchDesc)) : "";
 
         let totalScore = 0;
         for (const term of terms) {
@@ -412,6 +414,7 @@ export async function searchVariantsByTextV2(
                     totalScore += 1;
                 }
             }
+            if (searchDescStr.includes(term)) totalScore += 2;
             if (detailStr.includes(term)) totalScore += 1;
         }
         if (totalScore > 0) scored.push({ score: totalScore, row: v });

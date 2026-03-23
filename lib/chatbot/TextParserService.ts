@@ -20,6 +20,8 @@ export interface ProductForSearch {
     unitPrice: number;
     tags?: string | null;
     details?: string | null;
+    /** produto_embalagens.descricao — somente para busca, nunca exibir ao cliente */
+    searchDesc?: string | null;
     bulkSigla?: string | null;
     caseQty?: number | null;
     hasCase?: boolean;
@@ -103,7 +105,8 @@ export async function getCachedProducts(
             const casePack  = grp.casePack;
             const bulkSigla = grp.caseSigla;
             const caseQty   = casePack ? Number(casePack.fator_conversao ?? 1) : null;
-            const details   = (unitPack.descricao ?? unitPack.product_details ?? null) as string | null;
+            const details    = (unitPack.descricao ?? unitPack.product_details ?? null) as string | null;
+            const searchDesc = (unitPack.descricao ?? null) as string | null;
             const name = buildProductDisplayName({
                 productName:   String(unitPack.product_name ?? ""),
                 volumeValue:   Number(unitPack.volume_quantidade ?? 0),
@@ -120,6 +123,7 @@ export async function getCachedProducts(
                 unitPrice:     Number(unitPack.preco_venda ?? 0),
                 tags:          (unitPack.tags_auto ?? unitPack.tags) || null,
                 details,
+                searchDesc,
                 bulkSigla,
                 caseQty,
                 hasCase:       Boolean(casePack),
@@ -258,9 +262,10 @@ export function parseText(text: string, productsList: ProductForSearch[]): TextP
     // 3) Fuse.js para match de produtos
     const fuse = new Fuse(productsList, {
         keys: [
-            { name: "productName", weight: 0.6 },
-            { name: "tags", weight: 0.3 },
-            { name: "details", weight: 0.1 },
+            { name: "productName", weight: 0.55 },
+            { name: "tags", weight: 0.25 },
+            { name: "searchDesc", weight: 0.12 },
+            { name: "details", weight: 0.08 },
         ],
         threshold: FUSE_THRESHOLD,
         includeScore: true,

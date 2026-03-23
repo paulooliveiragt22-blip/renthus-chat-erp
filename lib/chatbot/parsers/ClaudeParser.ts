@@ -115,14 +115,15 @@ function buildCatalogText(products: ProductForSearch[], step: string): string {
 
     const lines: string[] = [];
     for (const p of products) {
-        const price = p.unitPrice.toFixed(2).replace(".", ",");
-        lines.push(`${p.id}|${p.productName}|R$${price}|[UN]`);
+        const price  = p.unitPrice.toFixed(2).replace(".", ",");
+        const kwSuffix = p.searchDesc ? `|kw:${p.searchDesc}` : "";
+        lines.push(`${p.id}|${p.productName}|R$${price}|[UN]${kwSuffix}`);
         // Adiciona linha CX/FARD/PAC separada quando o produto tem embalagem bulk
         if (p.hasCase && p.caseVariantId && p.casePrice) {
             const cxLabel = p.bulkSigla ?? "CX";
             const cxQty   = p.caseQty ? ` ${p.caseQty}un` : "";
             const cxPrice = p.casePrice.toFixed(2).replace(".", ",");
-            lines.push(`${p.caseVariantId}|${p.productName} (${cxLabel})|R$${cxPrice}|[${cxLabel}${cxQty}]`);
+            lines.push(`${p.caseVariantId}|${p.productName} (${cxLabel})|R$${cxPrice}|[${cxLabel}${cxQty}]${kwSuffix}`);
         }
     }
     return lines.join("\n");
@@ -133,8 +134,9 @@ function buildCatalogText(products: ProductForSearch[], step: string): string {
 function buildSystemPrompt(catalogText: string): string {
     return `Você é o assistente de pedidos de uma distribuidora de bebidas via WhatsApp.
 
-═══ CATÁLOGO (variantId|nome|preço|embalagem) ═══
+═══ CATÁLOGO (variantId|nome|preço|embalagem[|kw:palavras-chave]) ═══
 [UN] = unidade avulsa  [CX Nun] = caixa com N unidades  [FARD] = fardo  [PAC] = pacote
+O campo kw: contém palavras-chave internas para correspondência (ex: sabores, descrição). Use-as SOMENTE para identificar o produto correto. NUNCA mencione o conteúdo de kw: ao cliente.
 ${catalogText}
 
 ═══ REGRAS DE PARSE ═══

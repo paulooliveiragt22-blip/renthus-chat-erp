@@ -50,6 +50,8 @@ export interface VariantRow {
     productId:       string;
     productName:     string;
     details:         string | null;
+    /** produto_embalagens.descricao — somente para busca, nunca exibir ao cliente */
+    searchDesc?:     string | null;
     tags:            string | null;  // sinônimos separados por vírgula
     volumeValue:     number;
     unit:            string;
