@@ -173,10 +173,20 @@ export async function handleCatalogCategories(
     const variants = await getVariantsByCategory(admin, companyId, selected.id);
 
     if (!variants.length) {
-        await reply(
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "catalog_categories",
+            cart:        session.cart,
+            lastBotMsg:  `Categoria ${selected.name}`,
+            companyName: selected.name,
+        });
+        await reply(phoneE164, naturalReply);
+        await sendListMessage(
             phoneE164,
-            `Nenhum produto disponível em *${selected.name}* no momento.\n` +
-            `Digite *menu* para voltar.`
+            "🍺 Escolha outra categoria:",
+            "Ver categorias",
+            categories.map((c, i) => ({ id: String(i + 1), title: c.name })),
+            "Categorias"
         );
         return;
     }
@@ -300,7 +310,14 @@ export async function handleCatalogProducts(
                 `🔍 Todas as ${variants.length} opções encontradas:\n\n${listText}\n\nDigite o *número* da opção (ex: *2*) ou vários separados por vírgula (ex: *1,3*).`
             );
         } else {
-            await reply(phoneE164, "Não há mais opções. Digite o nome do produto para buscar novamente.");
+            const naturalReply = await claudeNaturalReply({
+                input:       "ver_mais",
+                step:        "catalog_products",
+                cart:        session.cart,
+                lastBotMsg:  `Produtos de ${catName}`,
+                companyName: catName,
+            });
+            await reply(phoneE164, naturalReply);
         }
         return;
     }
@@ -358,8 +375,16 @@ export async function handleCatalogProducts(
             .filter((i) => !isNaN(i) && i >= 0 && i < variants.length);
 
         if (!indices.length) {
+            const naturalReply = await claudeNaturalReply({
+                input,
+                step:        "catalog_products",
+                cart:        session.cart,
+                lastBotMsg:  `Escolha um número entre 1 e ${Math.min(variants.length, 5)}`,
+                companyName: catName,
+            });
+            await reply(phoneE164, naturalReply);
             const listText = formatNumberedList(variants.slice(0, 5));
-            await reply(phoneE164, `Número inválido. Escolha entre 1 e ${Math.min(variants.length, 5)}:\n\n${listText}`);
+            await reply(phoneE164, listText);
             return;
         }
 
@@ -441,7 +466,14 @@ export async function handleCatalogProducts(
             await saveSession(admin, threadId, companyId, {
                 context: { ...session.context, pending_variant: null, pending_is_case: null, unit_case_choice: false },
             });
-            await reply(phoneE164, "Escolha um produto para adicionar ao pedido, ou escreva o que você precisa.");
+            const naturalReply = await claudeNaturalReply({
+                input,
+                step:        "catalog_products",
+                cart:        session.cart,
+                lastBotMsg:  `Quantas unidades de ${buildProductDisplayName(pendingVariant, Boolean(pendingIsCase))}?`,
+                companyName: catName,
+            });
+            await reply(phoneE164, naturalReply);
             return;
         }
 
@@ -456,23 +488,51 @@ export async function handleCatalogProducts(
                     opt = o;
                     qty = q;
                 } else {
-                    await reply(phoneE164, "Digite a opção (1 ou 2) e a quantidade, ex: *1 3* ou *2 1*.");
+                    const naturalReply = await claudeNaturalReply({
+                        input,
+                        step:        "catalog_products",
+                        cart:        session.cart,
+                        lastBotMsg:  "Digite a opção (1 ou 2) e a quantidade, ex: 1 3 ou 2 1",
+                        companyName: catName,
+                    });
+                    await reply(phoneE164, naturalReply);
                     return;
                 }
             } else if (parts.length === 1) {
                 qty = parseInt(parts[0], 10);
                 if (isNaN(qty) || qty < 1 || qty > 99) {
-                    await reply(phoneE164, "Digite uma quantidade válida (1 a 99) ou opção e quantidade (ex: *2 1*).");
+                    const naturalReply = await claudeNaturalReply({
+                        input,
+                        step:        "catalog_products",
+                        cart:        session.cart,
+                        lastBotMsg:  "Digite uma quantidade válida (1 a 99) ou opção e quantidade (ex: 2 1)",
+                        companyName: catName,
+                    });
+                    await reply(phoneE164, naturalReply);
                     return;
                 }
             } else {
-                await reply(phoneE164, "Digite a opção e quantidade, ex: *1 3* ou *2 1*.");
+                const naturalReply = await claudeNaturalReply({
+                    input,
+                    step:        "catalog_products",
+                    cart:        session.cart,
+                    lastBotMsg:  "Digite a opção e quantidade, ex: 1 3 ou 2 1",
+                    companyName: catName,
+                });
+                await reply(phoneE164, naturalReply);
                 return;
             }
         } else {
             qty = parseInt(input, 10);
             if (isNaN(qty) || qty < 1 || qty > 99) {
-                await reply(phoneE164, "Digite uma quantidade válida (1 a 99).");
+                const naturalReply = await claudeNaturalReply({
+                    input,
+                    step:        "catalog_products",
+                    cart:        session.cart,
+                    lastBotMsg:  "Quantas unidades?",
+                    companyName: catName,
+                });
+                await reply(phoneE164, naturalReply);
                 return;
             }
         }

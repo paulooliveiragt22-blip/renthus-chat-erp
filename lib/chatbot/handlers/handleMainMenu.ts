@@ -359,7 +359,15 @@ export async function handleMainMenu(
         return;
     }
 
-    // Input inválido (skip ou outro) → repete menu
+    // Input inválido (skip ou outro) → Claude responde + repete menu
+    const naturalReply = await claudeNaturalReply({
+        input,
+        step:        "main_menu",
+        cart:        session.cart,
+        lastBotMsg:  `Como posso te ajudar no ${companyName}?`,
+        companyName,
+    });
+    await reply(phoneE164, naturalReply);
     await sendInteractiveButtons(
         phoneE164,
         `Como posso te ajudar no *${companyName}*?`,

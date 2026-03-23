@@ -306,7 +306,14 @@ export async function handleAwaitingAddressSelection(
             .maybeSingle();
 
         if (!addrRow) {
-            await reply(phoneE164, "Endereço não encontrado. Por favor, escolha outra opção.");
+            const naturalReply = await claudeNaturalReply({
+                input,
+                step:        "awaiting_address_selection",
+                cart:        session.cart,
+                lastBotMsg:  "Escolha um endereço salvo ou adicione um novo",
+                companyName: "",
+            });
+            await reply(phoneE164, naturalReply);
             return;
         }
 
@@ -450,11 +457,14 @@ export async function handleCheckoutAddress(
 
     // 2b) Google não confirmou o número → rejeita
     if (parsedAddr && !parsedAddr.houseNumber) {
-        await reply(
-            phoneE164,
-            `❌ Não consegui confirmar o número do endereço.\n\n` +
-            `Por favor, informe novamente com *rua, número e bairro*.\n_Ex: Rua das Flores, 123, Centro_`
-        );
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "checkout_address",
+            cart:        session.cart,
+            lastBotMsg:  "Qual é o seu endereço de entrega?",
+            companyName: "",
+        });
+        await reply(phoneE164, `${naturalReply}\n\n_Ex: Rua das Flores, 123, Centro_`);
         return;
     }
 
@@ -746,7 +756,14 @@ export async function handleCheckoutConfirm(
 
     // Input não reconhecido → reenviar resumo SEM cancelar o pedido
     if (!matchesAny(input, ["confirmar", "confirmar pedido", "confirmo", "sim", "ok", "s", "1"])) {
-        await reply(phoneE164, "⚠️ Por favor, use os botões para confirmar ou alterar o pedido:");
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "checkout_confirm",
+            cart:        session.cart,
+            lastBotMsg:  "Confirmar o pedido?",
+            companyName: "",
+        });
+        await reply(phoneE164, naturalReply);
         await sendOrderSummary(phoneE164, session);
         return;
     }

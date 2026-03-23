@@ -145,15 +145,18 @@ export async function handleAwaitingAddressNumber(
 
         // Google não confirmou o número → rejeita
         if (!parsedAddr.houseNumber) {
-            await reply(
-                phoneE164,
-                `❌ Não consegui confirmar o número *${number}* para este endereço.\n\n` +
-                `Por favor, informe o endereço completo novamente.\n_Ex: Rua das Flores, 123, Centro_`
-            );
             await saveSession(admin, threadId, companyId, {
                 step:    "checkout_address",
                 context: { ...session.context, address_draft: undefined, awaiting_address: true },
             });
+            const naturalReply = await claudeNaturalReply({
+                input,
+                step:        "awaiting_address_number",
+                cart:        session.cart,
+                lastBotMsg:  "Qual é o número do endereço?",
+                companyName: "",
+            });
+            await reply(phoneE164, `${naturalReply}\n\n_Ex: Rua das Flores, 123, Centro_`);
             return;
         }
 
