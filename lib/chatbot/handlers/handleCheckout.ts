@@ -111,6 +111,7 @@ export async function sendOrderSummary(
 }
 
 // ─── goToCheckoutAddress ──────────────────────────────────────────────────────
+// Caminho sem Flow: usa enderecos_cliente (mesmo comportamento do caminho com Flow)
 
 export async function goToCheckoutAddress(
     admin: SupabaseClient,
@@ -121,32 +122,53 @@ export async function goToCheckoutAddress(
 ): Promise<void> {
     const customer   = await getOrCreateCustomer(admin, companyId, phoneE164);
     const customerId = customer?.id ?? null;
-    const saved      = customer?.address ?? null;
 
-    if (saved) {
-        await saveSession(admin, threadId, companyId, {
-            step:        "checkout_address",
-            customer_id: customerId,
-            context:     { ...session.context, saved_address: saved },
-        });
-        await reply(
-            phoneE164,
-            `📍 *Endereço de entrega cadastrado:*\n${saved}\n\n` +
-            `1️⃣  Usar este endereço\n` +
-            `2️⃣  Informar novo endereço`
-        );
-    } else {
-        await saveSession(admin, threadId, companyId, {
-            step:        "checkout_address",
-            customer_id: customerId,
-            context:     { ...session.context, saved_address: null, awaiting_address: true },
-        });
-        await reply(
-            phoneE164,
-            `📍 Qual é o seu *endereço de entrega*?\n\n` +
-            `_Ex: Rua das Flores, 123, Bairro Centro_`
-        );
+    const skipSaved = !!(session.context.skip_saved_addresses);
+    if (customerId && !skipSaved) {
+        const { data: savedAddrs } = await admin
+            .from("enderecos_cliente")
+            .select("id, apelido, logradouro, numero, complemento, bairro")
+            .eq("customer_id", customerId)
+            .eq("company_id", companyId)
+            .order("is_principal", { ascending: false })
+            .limit(5);
+
+        if (savedAddrs && savedAddrs.length > 0) {
+            const addrToShow = savedAddrs.slice(0, 3);
+            await saveSession(admin, threadId, companyId, {
+                step:        "awaiting_address_selection",
+                customer_id: customerId,
+                context:     { ...session.context, saved_addresses: savedAddrs },
+            });
+            const rows = [
+                ...addrToShow.map((a) => {
+                    const detail = [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", ");
+                    const label  = (a.apelido ?? a.logradouro ?? "Endereço").slice(0, 24);
+                    return { id: `addr_${a.id}`, title: label, description: detail.slice(0, 72) };
+                }),
+                { id: "new_address", title: "📍 Novo endereço", description: "Digitar novo endereço" },
+            ];
+            await sendListMessage(
+                phoneE164,
+                `📍 *Endereço de entrega*\n\nEscolha um endereço salvo ou adicione um novo:`,
+                "Escolher endereço",
+                rows,
+                "Endereços"
+            );
+            return;
+        }
     }
+
+    // Sem endereços salvos → pede digitação livre
+    await saveSession(admin, threadId, companyId, {
+        step:        "checkout_address",
+        customer_id: customerId,
+        context:     { ...session.context, saved_address: null, awaiting_address: true, skip_saved_addresses: undefined },
+    });
+    await reply(
+        phoneE164,
+        `📍 Qual é o seu *endereço de entrega*?\n\n_Ex: Rua das Flores, 123, Bairro Centro_`
+    );
 }
 
 // ─── goToCheckoutFromCart ─────────────────────────────────────────────────────
@@ -385,40 +407,28 @@ export async function handleCheckoutAddress(
     session: Session,
     _profileName?: string | null
 ): Promise<void> {
-    const savedAddress   = session.context.saved_address   as string | null;
-    const awaitingAddress = session.context.awaiting_address as boolean | undefined;
-
-    // Temos endereço salvo e aguardamos "1" ou "2"
-    if (savedAddress && !awaitingAddress) {
-        if (input === "1") {
-            await saveSession(admin, threadId, companyId, {
-                step:        "checkout_payment",
-                customer_id: session.customer_id,
-                context:     { ...session.context, delivery_address: savedAddress },
-            });
-            await sendPaymentButtons(phoneE164);
-            return;
-        }
-        if (input === "2") {
-            await saveSession(admin, threadId, companyId, {
-                context: { ...session.context, saved_address: null, awaiting_address: true },
-            });
-            await reply(phoneE164, `📍 Informe o novo endereço de entrega:\n\n_Ex: Rua das Flores, 123_`);
-            return;
-        }
-        // Input inválido → repete a pergunta
-        await reply(
-            phoneE164,
-            `📍 *Endereço cadastrado:*\n${savedAddress}\n\n` +
-            `1️⃣  Usar este endereço\n` +
-            `2️⃣  Informar novo endereço`
-        );
+    // Lógica "1️⃣/2️⃣" aposentada — now handled by awaiting_address_selection via List Message.
+    // Se sessão ainda tem saved_address de fluxo antigo → redireciona para nova lógica
+    if (session.context.saved_address && !session.context.awaiting_address) {
+        const freshSession = {
+            ...session,
+            context: { ...session.context, saved_address: null, skip_saved_addresses: false },
+        };
+        await saveSession(admin, threadId, companyId, { context: freshSession.context });
+        await goToCheckoutAddress(admin, companyId, threadId, phoneE164, freshSession);
         return;
     }
 
     // Aguardando digitação do endereço
     if (input.length < 5) {
-        await reply(phoneE164, "Por favor, informe o endereço completo (rua, número e bairro).");
+        const naturalReply = await claudeNaturalReply({
+            input,
+            step:        "checkout_address",
+            cart:        session.cart,
+            lastBotMsg:  "Qual é o seu endereço de entrega?",
+            companyName: "",
+        });
+        await reply(phoneE164, naturalReply);
         return;
     }
 
