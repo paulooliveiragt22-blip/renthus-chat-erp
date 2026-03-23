@@ -55,6 +55,8 @@ export interface ProductForSearch {
     unitPrice: number;
     tags?: string | null;
     details?: string | null;
+    /** produto_embalagens.descricao — somente para busca, nunca exibir ao cliente */
+    searchDesc?: string | null;
     volumeValue?: number;
     unit?: string;
     hasCase?: boolean;

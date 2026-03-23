@@ -146,7 +146,7 @@ export default function FinanceiroPage() {
     // Contas a Receber / Pagar
     const [bills,        setBills]        = useState<Bill[]>([]);
     const [billsLoading, setBillsLoading] = useState(false);
-    const [billFilter,   setBillFilter]   = useState<"open" | "paid" | "overdue" | "all">("open");
+    const [billFilter,   setBillFilter]   = useState<"open" | "partial" | "paid" | "overdue" | "all">("open");
     const [payBill,      setPayBill]      = useState<Bill | null>(null);
     const [payForm,      setPayForm]      = useState({ amount: "", payment_method: "pix", received_at: isoDate(new Date()) });
     const [payingBill,   setPayingBill]   = useState(false);
@@ -287,7 +287,7 @@ export default function FinanceiroPage() {
             .select("saldo_devedor, status")
             .eq("company_id", companyId)
             .eq("type", "receivable")
-            .in("status", ["pending", "partial", "overdue"]);
+            .in("status", ["open", "partial", "overdue"]);
         const totalAReceber = (billsOpen ?? []).reduce((s: number, b: any) => s + Number(b.saldo_devedor ?? 0), 0);
 
         // ── aggregate by day ──────────────────────────────────────────────────
@@ -412,7 +412,7 @@ export default function FinanceiroPage() {
         // 1. sale_payments (fonte nova — pós Sprint1)
         const { data: spRows } = await supabase
             .from("sale_payments")
-            .select("id, created_at, amount, payment_method, status, sale_id, sales(origin, seller_name, customers(name))")
+            .select("id, created_at, amount, payment_method, status, sale_id, sales(origin, notes, customers(name))")
             .eq("company_id", companyId)
             .gte("created_at", fromIso)
             .lte("created_at", toIso)
@@ -428,7 +428,7 @@ export default function FinanceiroPage() {
                 date:           sp.created_at,
                 type:           "income",
                 source:         "financial_entry",
-                description:    `Venda — ${sale?.seller_name ?? origin}`,
+                description:    `Venda — ${sale?.notes ?? origin}`,
                 customer:       sale?.customers?.name ?? "—",
                 channel,
                 payment_method: sp.payment_method ?? "—",
@@ -590,15 +590,17 @@ export default function FinanceiroPage() {
     const loadDRE = useCallback(async () => {
         if (!companyId) return;
         setDreLoading(true);
-        const fromIso = dateRange.from + "T00:00:00.000Z";
-        const toIso   = dateRange.to   + "T23:59:59.999Z";
+        // period_start/period_end são colunas tipo date (mensal) — usar apenas YYYY-MM-DD
+        // Selecionar todos os meses que se sobreponham ao intervalo selecionado
+        const fromMonth = dateRange.from.slice(0, 7) + "-01";
+        const toMonth   = dateRange.to.slice(0, 7)   + "-01";
         // Tenta carregar da view v_dre (pós Sprint1); fallback: agrega manualmente
         const { data: dreRows, error } = await supabase
             .from("v_dre")
             .select("account_name, account_type, total")
             .eq("company_id", companyId)
-            .gte("period_start", fromIso)
-            .lte("period_end",   toIso);
+            .lte("period_start", toMonth)
+            .gte("period_end",   fromMonth);
         if (!error && dreRows && dreRows.length > 0) {
             setDreData(dreRows as DRELine[]);
         } else {
@@ -1173,14 +1175,14 @@ export default function FinanceiroPage() {
                 <div className="flex flex-col gap-4">
                     {/* Filter strip */}
                     <div className="flex items-center gap-2">
-                        {(["open","overdue","paid","all"] as const).map(f => (
+                        {(["open","partial","overdue","paid","all"] as const).map(f => (
                             <button key={f} onClick={() => setBillFilter(f)}
                                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold border transition-all ${
                                     billFilter === f
                                         ? "bg-violet-600 text-white border-violet-600"
                                         : "border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                                 }`}>
-                                {{ open:"Em aberto", overdue:"Vencidas", paid:"Pagas", all:"Todas" }[f]}
+                                {{ open:"Em aberto", partial:"Parcial", overdue:"Vencidas", paid:"Pagas", all:"Todas" }[f]}
                             </button>
                         ))}
                         <button onClick={() => activeTab === "receber" ? loadBills("receivable") : loadBills("payable")}
