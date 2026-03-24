@@ -10,9 +10,9 @@ import type { Session, CompanyConfig } from "../types";
 import type { ProcessMessageParams } from "../types";
 import type { MessageIntent } from "../parsers/ClaudeParser";
 import { saveSession } from "../session";
-import { sendWhatsAppMessage, sendInteractiveButtons } from "../../whatsapp/send";
+import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
 import {
-    matchesAny, formatCart, mergeCart,
+    matchesAny, formatCart, mergeCart, truncateTitle,
 } from "../utils";
 import {
     extractAddressFromText, detectPaymentMethod, cleanInputForAI, hasVolumeClue,
@@ -20,7 +20,8 @@ import {
 import { getCachedProducts } from "../TextParserService";
 import { parsedItemsToCartItems } from "../OrderParserService";
 import { parseWithFactory } from "../parsers/ParserFactory";
-import { parseWithRegex } from "../parsers/RegexParser";
+import { parseWithRegex, extractProductRequests } from "../parsers/RegexParser";
+import { findProductWithPackaging } from "../parsers/ProductMatcher";
 import { findDeliveryZone } from "../db/variants";
 import { replyWithOrderStatus } from "../db/orders";
 import { handleLowConfidenceFallback } from "../handlers/handleMainMenu";
@@ -60,6 +61,8 @@ const SKIP_PARSER_STEPS = new Set([
     "awaiting_address_selection",
     "awaiting_split_order",
     "awaiting_variant_selection",
+    "awaiting_item_confirmation",
+    "awaiting_packaging_selection",
     "done",
     "handover",
 ]);
@@ -116,6 +119,91 @@ export async function runParserChain(
     // ── Parser chain principal ────────────────────────────────────────────────
     if (input.length < 3 || SKIP_PARSER_STEPS.has(session.step)) {
         return { handled: false };
+    }
+
+    // ── Packaging validation: quantidade + produto → valida em produto_embalagens
+    const extracted = extractProductRequests(input);
+    if (extracted?.length) {
+        const item        = extracted[0];
+        const matchResult = await findProductWithPackaging(admin, companyId, item.produto, item.sigla);
+
+        if (matchResult.success) {
+            resetUnknownCount(session);
+
+            if (matchResult.unique) {
+                // Único resultado → pede confirmação ao cliente
+                const match    = matchResult.matches[0];
+                const subtotal = item.quantidade * match.preco;
+                const volStr   = match.volume ? ` ${match.volume}${match.unidade ?? ""}` : "";
+
+                session.context.pending_item = {
+                    quantidade:   item.quantidade,
+                    embalagem_id: match.embalagem_id,
+                    produto_id:   match.produto_id,
+                    produto_nome: match.produto_nome,
+                    sigla:        match.sigla,
+                    descricao:    match.descricao,
+                    volume:       match.volume,
+                    unidade:      match.unidade,
+                    fator:        match.fator,
+                    preco:        match.preco,
+                    subtotal,
+                };
+
+                await saveSession(admin, threadId, companyId, {
+                    context: session.context,
+                    step:    "awaiting_item_confirmation",
+                });
+
+                await sendInteractiveButtons(
+                    phoneE164,
+                    `Você pediu:\n\n` +
+                    `• *${item.quantidade}x ${match.produto_nome}*` +
+                    `${match.descricao ? " " + match.descricao : ""}${volStr}\n` +
+                    `• Embalagem: *${match.sigla}* (${match.fator} unid.)\n` +
+                    `• Subtotal: *R$ ${subtotal.toFixed(2)}*\n\n` +
+                    `Está correto?`,
+                    [
+                        { id: "confirm_item", title: "✅ Sim, adicionar" },
+                        { id: "cancel_item",  title: "❌ Cancelar" },
+                    ]
+                );
+                return { handled: true };
+            }
+
+            // Múltiplos resultados → exibe lista interativa
+            const listRows = matchResult.matches.slice(0, 10).map((m) => {
+                const volStr  = m.volume ? ` ${m.volume}${m.unidade ?? ""}` : "";
+                const descStr = m.descricao ? ` - ${m.descricao}` : "";
+                return {
+                    id:          `pkg_${m.embalagem_id}`,
+                    title:       truncateTitle(`${m.sigla}${volStr}`, 24),
+                    description: `R$ ${m.preco.toFixed(2)}${descStr}`.slice(0, 72),
+                };
+            });
+
+            session.context.pending_packaging_selection = {
+                quantidade:   item.quantidade,
+                produto_nome: matchResult.matches[0].produto_nome,
+                options:      matchResult.matches,
+            };
+
+            await saveSession(admin, threadId, companyId, {
+                context: session.context,
+                step:    "awaiting_packaging_selection",
+            });
+
+            await sendListMessage(
+                phoneE164,
+                `Encontrei *${matchResult.matches.length} opções* de ` +
+                `${matchResult.matches[0].produto_nome}.\n\nQual embalagem você quer?`,
+                "Ver opções",
+                listRows,
+                "Embalagens Disponíveis"
+            );
+            return { handled: true };
+        }
+        // matchResult.success === false → produto não encontrado → cai no parser chain
     }
 
     const products      = await getCachedProducts(admin, companyId);

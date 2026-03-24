@@ -6,11 +6,11 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Session, CompanyConfig } from "../types";
+import type { Session, CompanyConfig, CartItem } from "../types";
 import type { ProcessMessageParams } from "../types";
 import { saveSession } from "../session";
 import { sendWhatsAppMessage, sendInteractiveButtons } from "../../whatsapp/send";
-import { normalize } from "../utils";
+import { normalize, mergeCart, formatCart } from "../utils";
 import { handleMainMenu } from "../handlers/handleMainMenu";
 import {
     handleCatalogCategories, handleCatalogProducts,
@@ -93,6 +93,157 @@ export async function routeByStep(
         case "awaiting_address_selection":
             await handleAwaitingAddressSelection(admin, companyId, threadId, phoneE164, input, session);
             break;
+
+        case "awaiting_item_confirmation": {
+            if (input === "confirm_item") {
+                const pending = session.context.pending_item as {
+                    quantidade:   number;
+                    embalagem_id: string;
+                    produto_id:   string;
+                    produto_nome: string;
+                    sigla:        string;
+                    descricao:    string | null;
+                    volume:       number | null;
+                    unidade:      string | null;
+                    fator:        number;
+                    preco:        number;
+                    subtotal:     number;
+                } | undefined;
+
+                if (!pending) {
+                    await reply(phoneE164, "Desculpe, perdi o contexto. Pode repetir o pedido?");
+                    return;
+                }
+
+                const volStr   = pending.volume ? ` ${pending.volume}${pending.unidade ?? ""}` : "";
+                const cartItem: CartItem = {
+                    variantId: pending.embalagem_id,
+                    productId: pending.produto_id,
+                    name:      `${pending.produto_nome}${pending.descricao ? " " + pending.descricao : ""}${volStr}`.trim(),
+                    price:     pending.preco,
+                    qty:       pending.quantidade,
+                    isCase:    pending.sigla !== "UN",
+                    caseQty:   pending.sigla !== "UN" ? pending.fator : undefined,
+                };
+
+                const newCart = mergeCart(session.cart, [cartItem]);
+                const newCtx: Record<string, unknown> = { ...session.context, consecutive_unknown_count: 0 };
+                delete newCtx.pending_item;
+
+                await saveSession(admin, threadId, companyId, {
+                    cart:    newCart,
+                    context: newCtx,
+                    step:    "main_menu",
+                });
+
+                await sendInteractiveButtons(
+                    phoneE164,
+                    `✅ *Adicionado ao carrinho!*\n\n${formatCart(newCart)}\n\nQuer adicionar mais algo?`,
+                    [
+                        { id: "1",         title: "🍺 Ver cardápio" },
+                        { id: "finalizar", title: "Finalizar pedido" },
+                    ]
+                );
+                return;
+            }
+
+            if (input === "cancel_item") {
+                const newCtx = { ...session.context };
+                delete newCtx.pending_item;
+
+                await saveSession(admin, threadId, companyId, {
+                    context: newCtx,
+                    step:    "main_menu",
+                });
+
+                await sendInteractiveButtons(
+                    phoneE164,
+                    "Ok, cancelado! O que mais posso fazer por você? 🍺",
+                    [
+                        { id: "1",         title: "🍺 Ver cardápio" },
+                        { id: "finalizar", title: "Finalizar pedido" },
+                    ]
+                );
+                return;
+            }
+
+            await reply(phoneE164, "Não entendi. Clique em *✅ Sim, adicionar* ou *❌ Cancelar*.");
+            break;
+        }
+
+        case "awaiting_packaging_selection": {
+            if (!input.startsWith("pkg_")) {
+                await reply(phoneE164, "Por favor, escolha uma das opções da lista. 👆");
+                return;
+            }
+
+            const embalagemId = input.replace("pkg_", "");
+            const pending     = session.context.pending_packaging_selection as {
+                quantidade:   number;
+                produto_nome: string;
+                options:      Array<{
+                    produto_id:   string;
+                    produto_nome: string;
+                    embalagem_id: string;
+                    sigla:        string;
+                    descricao:    string | null;
+                    volume:       number | null;
+                    unidade:      string | null;
+                    fator:        number;
+                    preco:        number;
+                }>;
+            } | undefined;
+
+            if (!pending) {
+                await reply(phoneE164, "Desculpe, perdi o contexto. Pode repetir o pedido?");
+                return;
+            }
+
+            const selected = pending.options.find((o) => o.embalagem_id === embalagemId);
+            if (!selected) {
+                await reply(phoneE164, "Opção inválida. Tente novamente.");
+                return;
+            }
+
+            const subtotal = pending.quantidade * selected.preco;
+            const volStr   = selected.volume ? ` ${selected.volume}${selected.unidade ?? ""}` : "";
+            const newCtx   = { ...session.context };
+            delete newCtx.pending_packaging_selection;
+
+            newCtx.pending_item = {
+                quantidade:   pending.quantidade,
+                embalagem_id: selected.embalagem_id,
+                produto_id:   selected.produto_id,
+                produto_nome: selected.produto_nome,
+                sigla:        selected.sigla,
+                descricao:    selected.descricao,
+                volume:       selected.volume,
+                unidade:      selected.unidade,
+                fator:        selected.fator,
+                preco:        selected.preco,
+                subtotal,
+            };
+
+            await saveSession(admin, threadId, companyId, {
+                context: newCtx,
+                step:    "awaiting_item_confirmation",
+            });
+
+            await sendInteractiveButtons(
+                phoneE164,
+                `Você escolheu:\n\n` +
+                `• *${pending.quantidade}x ${selected.produto_nome}*` +
+                `${selected.descricao ? " " + selected.descricao : ""}${volStr}\n` +
+                `• Embalagem: *${selected.sigla}* (${selected.fator} unid.)\n` +
+                `• Subtotal: *R$ ${subtotal.toFixed(2)}*\n\n` +
+                `Confirma?`,
+                [
+                    { id: "confirm_item", title: "✅ Sim, adicionar" },
+                    { id: "cancel_item",  title: "❌ Cancelar" },
+                ]
+            );
+            break;
+        }
 
         case "awaiting_flow": {
             const FLOW_ESCAPE_RE  = /\b(?:cancelar|sair|voltar|menu|oi|ola)\b/iu;
