@@ -2,7 +2,8 @@
 
 import React from "react";
 import type { DraftQty, Variant } from "@/lib/orders/types";
-import { buildVariantTexts, btnPurple, formatBRL, toQtyInt } from "@/lib/orders/helpers";
+import { buildVariantTexts, formatBRL, toQtyInt } from "@/lib/orders/helpers";
+import { ShoppingCart } from "lucide-react";
 
 export default function VariantResultRow({
     v,
@@ -21,57 +22,52 @@ export default function VariantResultRow({
     const canAdd = unitN > 0 || boxN > 0;
 
     return (
-        <div
-            style={{
-                border: "1px solid #eee",
-                borderRadius: 12,
-                padding: 10,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 10,
-                alignItems: "center",
-            }}
-        >
-            <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {title}
-                </div>
-                <div style={{ color: "#555", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
-                <div style={{ color: "#111", marginTop: 4, fontSize: 12 }}>
-                    Unit: <b>R$ {formatBRL(v.unit_price)}</b>{" "}
-                    {v.has_case ? (
-                        <>
-                            • Caixa: <b>R$ {formatBRL(v.case_price ?? 0)}</b> ({v.case_qty ?? "?"} un)
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-800/50">
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-50">{title}</div>
+                {sub && <div className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{sub}</div>}
+                <div className="mt-1 text-[11px] text-zinc-700 dark:text-zinc-300">
+                    Un: <span className="font-bold">R$ {formatBRL(v.unit_price)}</span>
+                    {v.has_case && v.case_price != null && (
+                        <> · Cx: <span className="font-bold">R$ {formatBRL(v.case_price)}</span>
+                            {v.case_qty ? <span className="text-zinc-400"> ({v.case_qty} un)</span> : null}
                         </>
-                    ) : null}
+                    )}
                 </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: 11, fontWeight: 900 }}>Un</label>
+            <div className="flex shrink-0 items-end gap-2">
+                <div className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">Un</span>
                     <input
                         value={draft.unit}
                         onChange={(e) => onDraftChange({ unit: e.target.value })}
                         placeholder="0"
                         inputMode="numeric"
-                        style={{ width: 60, padding: 8, borderRadius: 10, border: "1px solid #ccc", fontSize: 12 }}
+                        className="w-14 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-center text-xs focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
                     />
                 </div>
 
-                <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: 11, fontWeight: 900 }}>Cx</label>
-                    <input
-                        value={draft.box}
-                        onChange={(e) => onDraftChange({ box: e.target.value })}
-                        placeholder="0"
-                        inputMode="numeric"
-                        style={{ width: 60, padding: 8, borderRadius: 10, border: "1px solid #ccc", fontSize: 12 }}
-                    />
-                </div>
+                {v.has_case && (
+                    <div className="flex flex-col items-center gap-1">
+                        <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">Cx</span>
+                        <input
+                            value={draft.box}
+                            onChange={(e) => onDraftChange({ box: e.target.value })}
+                            placeholder="0"
+                            inputMode="numeric"
+                            className="w-14 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-center text-xs focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
+                        />
+                    </div>
+                )}
 
-                <button disabled={!canAdd} onClick={() => onAdd(unitN, boxN)} style={btnPurple(!canAdd)}>
-                    Adicionar
+                <button
+                    disabled={!canAdd}
+                    onClick={() => onAdd(unitN, boxN)}
+                    className="flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                    <ShoppingCart className="h-3 w-3" />
+                    Add
                 </button>
             </div>
         </div>

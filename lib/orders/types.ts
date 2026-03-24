@@ -14,6 +14,16 @@ export type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
 
 export type CustomerRow = { name: string | null; phone: string | null; address: string | null };
 
+export type Driver = {
+    id: string;
+    company_id: string;
+    name: string;
+    phone: string | null;
+    vehicle: string | null;
+    plate: string | null;
+    is_active: boolean;
+};
+
 export type OrderRow = {
     id: string;
     status: OrderStatus | string;
@@ -25,6 +35,7 @@ export type OrderRow = {
     change_for: number | null;
     created_at: string;
     details: string | null;
+    driver_id: string | null;
     customers: CustomerRow | null;
 };
 

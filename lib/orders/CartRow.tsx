@@ -2,7 +2,8 @@
 
 import React from "react";
 import type { CartItem } from "@/lib/orders/types";
-import { buildVariantTexts, btnPurpleOutline, formatBRL } from "@/lib/orders/helpers";
+import { buildVariantTexts, formatBRL } from "@/lib/orders/helpers";
+import { Minus, Plus, Trash2 } from "lucide-react";
 
 export default function CartRow({
     item,
@@ -18,36 +19,41 @@ export default function CartRow({
     const { title, sub } = buildVariantTexts(item.variant);
 
     return (
-        <div
-            style={{
-                border: "1px solid #eee",
-                borderRadius: 12,
-                padding: 10,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 10,
-                alignItems: "center",
-            }}
-        >
-            <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {title} — {item.mode === "unit" ? "Unit" : "Caixa"}
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-800/50">
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                    {title} — <span className="text-zinc-500">{item.mode === "unit" ? "Un" : "Cx"}</span>
                 </div>
-                <div style={{ color: "#555", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
-                <div style={{ marginTop: 4, fontSize: 12 }}>
-                    <b>{item.qty}</b> × <b>R$ {formatBRL(item.price)}</b> = <b>R$ {formatBRL(item.qty * item.price)}</b>
+                {sub && (
+                    <div className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{sub}</div>
+                )}
+                <div className="mt-1 text-[11px] text-zinc-700 dark:text-zinc-300">
+                    <span className="font-bold">{item.qty}</span>
+                    {" × "}
+                    <span className="font-bold">R$ {formatBRL(item.price)}</span>
+                    {" = "}
+                    <span className="font-bold text-violet-700 dark:text-violet-400">R$ {formatBRL(item.qty * item.price)}</span>
                 </div>
             </div>
 
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <button onClick={onDec} style={btnPurpleOutline(false)}>
-                    -
+            <div className="flex shrink-0 items-center gap-1">
+                <button
+                    onClick={onDec}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                    <Minus className="h-3 w-3" />
                 </button>
-                <button onClick={onInc} style={btnPurpleOutline(false)}>
-                    +
+                <button
+                    onClick={onInc}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                    <Plus className="h-3 w-3" />
                 </button>
-                <button onClick={onRemove} style={btnPurpleOutline(false)}>
-                    Remover
+                <button
+                    onClick={onRemove}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-rose-100 bg-rose-50 text-rose-500 transition-colors hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-900/20 dark:text-rose-400"
+                >
+                    <Trash2 className="h-3 w-3" />
                 </button>
             </div>
         </div>

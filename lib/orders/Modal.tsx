@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 export default function Modal({
     title,
@@ -20,15 +21,10 @@ export default function Modal({
 
     useEffect(() => {
         if (!open) return;
-
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
-        };
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
         window.addEventListener("keydown", onKey);
-
         const prev = document.body.style.overflow;
         document.body.style.overflow = "hidden";
-
         return () => {
             window.removeEventListener("keydown", onKey);
             document.body.style.overflow = prev;
@@ -40,50 +36,29 @@ export default function Modal({
     return createPortal(
         <div
             onClick={onClose}
-            style={{
-                position: "fixed",
-                inset: 0,
-                background: "rgba(0,0,0,0.45)",
-                display: "grid",
-                placeItems: "center",
-                padding: 12,
-                zIndex: 9999,
-            }}
+            className="fixed inset-0 z-[9999] grid place-items-center bg-black/50 p-3"
         >
             <div
                 onClick={(e) => e.stopPropagation()}
-                style={{
-                    width: "min(1080px, 100%)",
-                    background: "#fff",
-                    color: "#1a1a1a",
-                    borderRadius: 12,
-                    border: "1px solid #ddd",
-                    padding: 12,
-                    maxHeight: "90vh",
-                    overflow: "auto",
-                    boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
-                }}
+                className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
             >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: "#1a1a1a" }}>{title}</h3>
+                {/* Header */}
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-50 line-clamp-1">
+                        {title}
+                    </h3>
                     <button
                         onClick={onClose}
-                        style={{
-                            border: "1px solid #ccc",
-                            borderRadius: 10,
-                            padding: "6px 10px",
-                            cursor: "pointer",
-                            fontSize: 12,
-                            fontWeight: 900,
-                            color: "#1a1a1a",
-                            background: "#f0f0f0",
-                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
                     >
-                        Fechar
+                        <X className="h-3.5 w-3.5" />
                     </button>
                 </div>
 
-                <div style={{ marginTop: 10, color: "#1a1a1a" }}>{children}</div>
+                {/* Body */}
+                <div className="overflow-y-auto px-5 py-4 text-zinc-900 dark:text-zinc-50">
+                    {children}
+                </div>
             </div>
         </div>,
         document.body

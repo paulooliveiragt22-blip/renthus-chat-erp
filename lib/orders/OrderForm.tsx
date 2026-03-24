@@ -1,17 +1,26 @@
 "use client";
 
 import React from "react";
-import type { CartItem, DraftQty, PaymentMethod, Variant } from "@/lib/orders/types";
+import type { CartItem, Driver, DraftQty, PaymentMethod, Variant } from "@/lib/orders/types";
 import {
-    btnPurple,
+    brlToNumber,
     cartSubtotal,
     cartTotalPreview,
     formatBRL,
     formatBRLInput,
-    brlToNumber,
 } from "@/lib/orders/helpers";
 import VariantResultRow from "./VariantResultRow";
 import CartRow from "./CartRow";
+import { Search, Truck } from "lucide-react";
+
+const inputCls =
+    "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50 dark:placeholder:text-zinc-500";
+
+const sectionCls =
+    "rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900";
+
+const labelCls =
+    "mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 
 export default function OrderForm({
     // cliente
@@ -35,6 +44,11 @@ export default function OrderForm({
     setDeliveryFeeEnabled,
     deliveryFee,
     setDeliveryFee,
+
+    // entregador (opcional)
+    drivers,
+    driverId,
+    setDriverId,
 
     // busca
     q,
@@ -79,6 +93,10 @@ export default function OrderForm({
     deliveryFee: string;
     setDeliveryFee: (v: string) => void;
 
+    drivers?: Driver[];
+    driverId?: string | null;
+    setDriverId?: (v: string | null) => void;
+
     q: string;
     onSearchChange: (text: string) => void;
     searching: boolean;
@@ -99,117 +117,167 @@ export default function OrderForm({
     modeLabel: string;
 }) {
     return (
-        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr", fontSize: 12 }}>
-            {/* Cliente */}
-            <div style={{ gridColumn: "1 / -1", border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 8 }}>Cliente</div>
-                <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 200px" }}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+            {/* ── Cliente ── */}
+            <div className={`${sectionCls} sm:col-span-2`}>
+                <div className={labelCls}>Cliente</div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_180px]">
                     <input
                         placeholder="Nome"
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
-                        style={{ padding: 9, border: "1px solid #ccc", borderRadius: 10, fontSize: 12 }}
+                        className={inputCls}
                     />
                     <input
                         placeholder="Telefone (WhatsApp)"
                         value={customerPhone}
                         onChange={(e) => setCustomerPhone(e.target.value)}
-                        style={{ padding: 9, border: "1px solid #ccc", borderRadius: 10, fontSize: 12 }}
+                        className={inputCls}
                     />
                 </div>
                 <input
                     placeholder="Endereço (texto livre)"
                     value={customerAddress}
                     onChange={(e) => setCustomerAddress(e.target.value)}
-                    style={{ marginTop: 8, width: "100%", padding: 9, border: "1px solid #ccc", borderRadius: 10, fontSize: 12 }}
+                    className={`${inputCls} mt-2`}
                 />
             </div>
 
-            {/* Pagamento */}
-            <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 8 }}>Pagamento</div>
+            {/* ── Pagamento ── */}
+            <div className={sectionCls}>
+                <div className={labelCls}>Pagamento</div>
 
                 <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                    style={{ width: "100%", padding: 9, border: "1px solid #ccc", borderRadius: 10, fontSize: 12 }}
+                    className={inputCls}
                 >
                     <option value="pix">PIX</option>
                     <option value="card">Cartão</option>
                     <option value="cash">Dinheiro</option>
+                    <option value="debit">Débito</option>
+                    <option value="credit_installment">Crédito Parcelado</option>
+                    <option value="a_prazo">A Prazo / Fiado</option>
                 </select>
 
-                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontWeight: 700 }}>
-                    <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} />
+                <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    <input
+                        type="checkbox"
+                        checked={paid}
+                        onChange={(e) => setPaid(e.target.checked)}
+                        className="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    />
                     Já está pago
                 </label>
 
                 {paymentMethod === "cash" && (
-                    <div style={{ marginTop: 8 }}>
-                        <label style={{ fontWeight: 700 }}>Cliente paga com (R$)</label>
+                    <div className="mt-3 space-y-2">
+                        <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                            Cliente paga com (R$)
+                        </label>
                         <input
                             value={changeFor}
                             onChange={(e) => setChangeFor(formatBRLInput(e.target.value))}
-                            style={{ marginTop: 6, width: "100%", padding: 9, border: "1px solid #ccc", borderRadius: 10, fontSize: 12 }}
+                            className={inputCls}
                             inputMode="numeric"
                         />
-
-                        <div style={{ marginTop: 8, padding: 8, borderRadius: 10, border: "1px solid #eee", background: "#fafafa" }}>
-                            <div style={{ fontWeight: 900, color: "#111" }}>Levar de troco: R$ {formatBRL(trocoNow)}</div>
-                            <div style={{ color: "#666", fontSize: 12 }}>
-                                Total atual: R$ {formatBRL(totalNow)} • Cliente paga com: R$ {formatBRL(customerPaysNow)}
+                        <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/50">
+                            <div className="text-xs font-bold text-zinc-900 dark:text-zinc-50">
+                                Troco: R$ {formatBRL(trocoNow)}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                Total: R$ {formatBRL(totalNow)} · Paga: R$ {formatBRL(customerPaysNow)}
                             </div>
                         </div>
                     </div>
                 )}
 
                 {paymentMethod === "card" && (
-                    <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>
-                        <b>Levar maquininha</b>
-                    </div>
+                    <p className="mt-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                        Levar maquininha
+                    </p>
                 )}
             </div>
 
-            {/* Entrega */}
-            <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 8 }}>Entrega</div>
+            {/* ── Entrega ── */}
+            <div className={sectionCls}>
+                <div className={labelCls}>Entrega</div>
 
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
-                    <input type="checkbox" checked={deliveryFeeEnabled} onChange={(e) => setDeliveryFeeEnabled(e.target.checked)} />
-                    Cobrar taxa
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    <input
+                        type="checkbox"
+                        checked={deliveryFeeEnabled}
+                        onChange={(e) => setDeliveryFeeEnabled(e.target.checked)}
+                        className="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    />
+                    Cobrar taxa de entrega
                 </label>
 
-                <div style={{ marginTop: 8 }}>
-                    <label style={{ fontWeight: 700 }}>Taxa de entrega (R$)</label>
+                <div className="mt-3 space-y-1">
+                    <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                        Taxa (R$)
+                    </label>
                     <input
                         value={deliveryFee}
                         onChange={(e) => setDeliveryFee(formatBRLInput(e.target.value))}
                         disabled={!deliveryFeeEnabled}
-                        style={{ marginTop: 6, width: "100%", padding: 9, border: "1px solid #ccc", borderRadius: 10, fontSize: 12 }}
+                        className={`${inputCls} disabled:opacity-50`}
                         inputMode="numeric"
                     />
-                    <small style={{ color: "#666" }}>Se desligado, fica 0.</small>
+                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                        Se desligado, taxa fica R$ 0,00.
+                    </p>
                 </div>
             </div>
 
-            {/* Buscar/Adicionar */}
-            <div style={{ gridColumn: "1 / -1", border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 8 }}>Adicionar itens</div>
+            {/* ── Entregador ── */}
+            {drivers && drivers.length > 0 && (
+                <div className={`${sectionCls} sm:col-span-2`}>
+                    <div className={`${labelCls} flex items-center gap-1.5`}>
+                        <Truck className="h-3.5 w-3.5" />
+                        Entregador
+                    </div>
+                    <select
+                        value={driverId ?? ""}
+                        onChange={(e) => setDriverId?.(e.target.value || null)}
+                        className={inputCls}
+                    >
+                        <option value="">— Sem entregador —</option>
+                        {drivers.map((d) => (
+                            <option key={d.id} value={d.id}>
+                                {d.name}
+                                {d.vehicle ? ` · ${d.vehicle}` : ""}
+                                {d.plate ? ` (${d.plate})` : ""}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
 
-                <input
-                    placeholder="Buscar (categoria, marca, detalhes, volume...)"
-                    value={q}
-                    onChange={(e) => onSearchChange(e.target.value)}
-                    style={{ width: "100%", padding: 9, border: "1px solid #ccc", borderRadius: 10, fontSize: 12 }}
-                />
+            {/* ── Adicionar itens ── */}
+            <div className={`${sectionCls} sm:col-span-2`}>
+                <div className={labelCls}>Adicionar itens</div>
 
-                <div style={{ marginTop: 8 }}>
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+                    <input
+                        placeholder="Buscar por categoria, marca, detalhes, volume..."
+                        value={q}
+                        onChange={(e) => onSearchChange(e.target.value)}
+                        className={`${inputCls} pl-9`}
+                    />
+                </div>
+
+                <div className="mt-3">
                     {searching ? (
-                        <p>Buscando...</p>
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500">Buscando...</p>
                     ) : results.length === 0 ? (
-                        <p style={{ color: "#666" }}>Digite pelo menos 2 letras para buscar.</p>
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                            Digite pelo menos 2 letras para buscar.
+                        </p>
                     ) : (
-                        <div style={{ display: "grid", gap: 8 }}>
+                        <div className="grid gap-2">
                             {results.map((v) => (
                                 <VariantResultRow
                                     key={v.id}
@@ -228,14 +296,14 @@ export default function OrderForm({
                 </div>
             </div>
 
-            {/* Carrinho */}
-            <div style={{ gridColumn: "1 / -1", border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 8 }}>{modeLabel}</div>
+            {/* ── Carrinho ── */}
+            <div className={`${sectionCls} sm:col-span-2`}>
+                <div className={labelCls}>{modeLabel}</div>
 
                 {cart.length === 0 ? (
-                    <p style={{ color: "#666" }}>Nenhum item ainda.</p>
+                    <p className="text-xs text-zinc-400 dark:text-zinc-500">Nenhum item adicionado.</p>
                 ) : (
-                    <div style={{ display: "grid", gap: 8 }}>
+                    <div className="grid gap-2">
                         {cart.map((item, idx) => (
                             <CartRow
                                 key={`${item.variant.id}-${item.mode}-${idx}`}
@@ -260,18 +328,20 @@ export default function OrderForm({
                     </div>
                 )}
 
-                <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div className="mt-4 space-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                    <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
                         <span>Subtotal</span>
-                        <b>R$ {formatBRL(cartSubtotal(cart))}</b>
+                        <span className="font-semibold">R$ {formatBRL(cartSubtotal(cart))}</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
                         <span>Taxa de entrega</span>
-                        <b>R$ {formatBRL(deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0)}</b>
+                        <span className="font-semibold">R$ {formatBRL(deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0)}</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-                        <span>Total</span>
-                        <b>R$ {formatBRL(cartTotalPreview(cart, deliveryFeeEnabled, deliveryFee))}</b>
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-50">Total</span>
+                        <span className="font-bold text-violet-700 dark:text-violet-400">
+                            R$ {formatBRL(cartTotalPreview(cart, deliveryFeeEnabled, deliveryFee))}
+                        </span>
                     </div>
                 </div>
             </div>

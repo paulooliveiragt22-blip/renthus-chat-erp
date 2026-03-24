@@ -30,6 +30,7 @@ import ActionModal, { ActionKind } from "@/lib/orders/ActionModal";
 
 import type {
     CartItem,
+    Driver,
     DraftQty,
     OrderFull,
     OrderRow,
@@ -202,6 +203,11 @@ export default function PedidosPage() {
     const setEditDraft   = (id: string, p: Partial<DraftQty>) => setEditDraftQty((prev) => ({ ...prev, [id]: { ...getEditDraft(id), ...p } }));
     const clearEditDraft = (id: string) => setEditDraftQty((prev) => ({ ...prev, [id]: { unit: "", box: "" } }));
 
+    // ── drivers ───────────────────────────────────────────────────────────────
+    const [drivers,      setDrivers]      = useState<Driver[]>([]);
+    const [driverId,     setDriverId]     = useState<string | null>(null);
+    const [editDriverId, setEditDriverId] = useState<string | null>(null);
+
     // ── whatsapp sending ──────────────────────────────────────────────────────
     const [sendingOutForDelivery,  setSendingOutForDelivery]  = useState(false);
     const [sendingDeliveredMessage, setSendingDeliveredMessage] = useState(false);
@@ -233,7 +239,7 @@ export default function PedidosPage() {
         setMsg(null);
         const { data, error } = await supabase
             .from("orders")
-            .select(`id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
+            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
             .order("created_at", { ascending: false })
             .limit(500);
         if (error) { setMsg(`Erro ao carregar pedidos: ${error.message}`); setOrders([]); setLoading(false); return; }
@@ -316,6 +322,16 @@ export default function PedidosPage() {
         opts.setSearching(false);
     }
 
+    async function loadDrivers(cid: string) {
+        const { data } = await supabase
+            .from("drivers")
+            .select("id, company_id, name, phone, vehicle, plate, is_active")
+            .eq("company_id", cid)
+            .eq("is_active", true)
+            .order("name");
+        if (data) setDrivers(data as Driver[]);
+    }
+
     async function upsertCustomerFromFields(nameRaw: string, phoneRaw: string, addressRaw: string): Promise<string | null> {
         const phone   = phoneRaw.trim();
         const name    = nameRaw.trim();
@@ -350,7 +366,7 @@ export default function PedidosPage() {
     async function fetchOrderRow(orderId: string): Promise<OrderRow | null> {
         const { data } = await supabase
             .from("orders")
-            .select(`id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
+            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
             .eq("id", orderId)
             .maybeSingle();
         return data as OrderRow | null;
@@ -359,7 +375,7 @@ export default function PedidosPage() {
     async function fetchOrderFull(orderId: string): Promise<OrderFull | null> {
         const { data: ord, error: ordErr } = await supabase
             .from("orders")
-            .select(`id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
+            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
             .eq("id", orderId)
             .single();
         if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
@@ -390,7 +406,10 @@ export default function PedidosPage() {
     }
 
     useEffect(() => {
-        if (companyId) loadCompanySettings(companyId);
+        if (companyId) {
+            loadCompanySettings(companyId);
+            loadDrivers(companyId);
+        }
         loadOrders();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [companyId]);
@@ -460,6 +479,7 @@ export default function PedidosPage() {
         setCustomerName(""); setCustomerPhone(""); setCustomerAddress("");
         setPaymentMethod("pix"); setPaid(false); setChangeFor("0,00");
         setCart([]); setQ(""); setResults([]); setDraftQty({}); setMsg(null);
+        setDriverId(null);
     }
 
     function openActionModal(kind: ActionKind, orderId: string) {
@@ -516,7 +536,7 @@ export default function PedidosPage() {
         const total  = cartSubtotal(cart) + fee;
         const { data: ord, error: ordErr } = await supabase
             .from("orders")
-            .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null })
+            .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null, driver_id: driverId || null })
             .select("id").single();
         if (ordErr) { setMsg(`Erro ao criar pedido: ${ordErr.message}`); setSaving(false); return; }
         if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); setSaving(false); return; }
@@ -558,6 +578,7 @@ export default function PedidosPage() {
             price: Number(it.unit_price ?? 0),
             mode: it.unit_type === "case" ? "case" : "unit",
         }));
+        setEditDriverId((full as any).driver_id ?? null);
         setEditCart(mapped); setEditQ(""); setEditResults([]); setEditDraftQty({});
         setOpenEdit(true); setEditLoading(false);
     }
@@ -571,7 +592,7 @@ export default function PedidosPage() {
         const fee    = editDeliveryFeeEnabled ? brlToNumber(editDeliveryFee) : 0;
         const change = editPaymentMethod === "cash" ? brlToNumber(editChangeFor) : null;
         const total  = cartSubtotal(editCart) + fee;
-        const { error: upErr } = await supabase.from("orders").update({ customer_id: customerId, payment_method: editPaymentMethod, paid: editPaid, change_for: change, delivery_fee: fee, total_amount: total }).eq("id", editOrder.id);
+        const { error: upErr } = await supabase.from("orders").update({ customer_id: customerId, payment_method: editPaymentMethod, paid: editPaid, change_for: change, delivery_fee: fee, total_amount: total, driver_id: editDriverId || null }).eq("id", editOrder.id);
         if (upErr) { setMsg(`Erro ao atualizar pedido: ${upErr.message}`); setEditSaving(false); return; }
         const { error: delErr } = await supabase.from("order_items").delete().eq("order_id", editOrder.id);
         if (delErr) { setMsg(`Erro ao apagar itens: ${delErr.message}`); setEditSaving(false); return; }
@@ -1098,6 +1119,8 @@ export default function PedidosPage() {
                 changeFor={changeFor}                  setChangeFor={setChangeFor}
                 deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
                 deliveryFee={deliveryFee}              setDeliveryFee={setDeliveryFee}
+                drivers={drivers}
+                driverId={driverId}                    setDriverId={setDriverId}
                 q={q}
                 onSearchChange={(text) => runVariantSearch(text, {
                     setText: setQ, setResults, setSearching,
@@ -1164,6 +1187,8 @@ export default function PedidosPage() {
                 changeFor={editChangeFor}                  setChangeFor={setEditChangeFor}
                 deliveryFeeEnabled={editDeliveryFeeEnabled} setDeliveryFeeEnabled={setEditDeliveryFeeEnabled}
                 deliveryFee={editDeliveryFee}              setDeliveryFee={setEditDeliveryFee}
+                drivers={drivers}
+                driverId={editDriverId}                    setDriverId={setEditDriverId}
                 q={editQ}
                 onSearchChange={(text) => runVariantSearch(text, {
                     setText: setEditQ, setResults: setEditResults, setSearching: setEditSearching,
