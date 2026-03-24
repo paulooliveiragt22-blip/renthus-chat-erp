@@ -21,7 +21,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
                 const { data: order, error: orderErr } = await admin
                     .from("orders")
-                    .select("*")
+                    .select("*, drivers ( id, name, vehicle, plate )")
                     .eq("id", orderId)
                     .maybeSingle();
 
@@ -58,7 +58,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         // Make sure the order belongs to the selected company
         const { data: order, error: orderErr } = await admin
             .from("orders")
-            .select("*")
+            .select("*, drivers ( id, name, vehicle, plate )")
             .eq("id", orderId)
             .eq("company_id", access.companyId)
             .maybeSingle();

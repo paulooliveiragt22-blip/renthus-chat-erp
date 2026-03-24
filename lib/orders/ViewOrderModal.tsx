@@ -15,6 +15,7 @@ import {
     Pencil,
     Phone,
     Printer,
+    Truck,
     User,
     XCircle,
     CheckCircle2,
@@ -260,6 +261,25 @@ export default function ViewOrderModal({
                                 total_amount={order.total_amount}
                             />
                         </div>
+
+                        {/* Entregador */}
+                        {(order as any).drivers?.name && (
+                            <div className="mt-3 border-t border-zinc-200 pt-3">
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Entregador</p>
+                                <div className="flex items-center gap-2">
+                                    <Truck className="h-4 w-4 shrink-0 text-zinc-400" />
+                                    <span className="text-sm font-bold text-zinc-900">
+                                        {(order as any).drivers.name}
+                                    </span>
+                                    {(order as any).drivers.vehicle && (
+                                        <span className="text-xs text-zinc-500">
+                                            · {(order as any).drivers.vehicle}
+                                            {(order as any).drivers.plate ? ` (${(order as any).drivers.plate})` : ""}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* ── OBSERVAÇÕES ── */}

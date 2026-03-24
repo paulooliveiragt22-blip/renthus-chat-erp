@@ -375,7 +375,7 @@ export default function PedidosPage() {
     async function fetchOrderFull(orderId: string): Promise<OrderFull | null> {
         const { data: ord, error: ordErr } = await supabase
             .from("orders")
-            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
+            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )`)
             .eq("id", orderId)
             .single();
         if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
@@ -637,6 +637,7 @@ export default function PedidosPage() {
         const custPays  = Number((full as any).change_for ?? 0);
         const troco     = calcTroco(total, custPays);
         const cust      = (full as any).customers;
+        const driver    = (full as any).drivers as { name?: string; vehicle?: string; plate?: string } | null;
 
         const qtyDisplay = (it: any) => {
             const q = Number(it.quantity ?? it.qty ?? 0);
@@ -660,7 +661,11 @@ export default function PedidosPage() {
         const w = window.open("", "_blank", "width=900,height=700");
         if (!w) { setMsg("Erro: popup bloqueado."); return; }
         w.document.open();
-        w.document.write(`<html><head><meta charset="utf-8"><style>body{font-family:Arial;font-size:12px;padding:12px}.s{font-weight:900}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border-bottom:1px solid #ddd;padding:6px}th{background:#f5f5f5;text-align:left}.obs{border:1px solid #ddd;border-radius:10px;padding:8px;margin-top:10px;font-weight:900;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:6px 8px;border:1px solid #999;border-radius:10px;cursor:pointer">Imprimir</button><h1 style="font-size:16px;margin:8px 0">Pedido • ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div><b>Cliente:</b> <b>${escapeHtml(cust?.name ?? "-")}</b> • <b>${escapeHtml(cust?.phone ?? "")}</b></div><div><b>Endereço:</b> <b>${escapeHtml(cust?.address ?? "-")}</b></div><div style="margin-top:6px"><b>Pagamento:</b> <b>${escapeHtml(pmLabel)}</b>${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><thead><tr><th>Item</th><th style="text-align:right">Qtd</th><th style="text-align:right">Preço</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows || "<tr><td colspan=4>Sem itens</td></tr>"}</tbody></table><div style="margin-top:10px"><div style="display:flex;justify-content:space-between"><span>Taxa entrega</span><b>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</b></div><div style="display:flex;justify-content:space-between;font-size:14px"><span>Total</span><b>R$ ${formatBRL((full as any).total_amount ?? 0)}</b></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+        const driverLine = driver?.name
+            ? `<div style="margin-top:4px"><b>Entregador:</b> <b>${escapeHtml(driver.name)}</b>${driver.vehicle ? ` • ${escapeHtml(driver.vehicle)}` : ""}${driver.plate ? ` (${escapeHtml(driver.plate)})` : ""}</div>`
+            : "";
+
+        w.document.write(`<html><head><meta charset="utf-8"><style>body{font-family:Arial;font-size:12px;padding:12px}.s{font-weight:900}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border-bottom:1px solid #ddd;padding:6px}th{background:#f5f5f5;text-align:left}.obs{border:1px solid #ddd;border-radius:10px;padding:8px;margin-top:10px;font-weight:900;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:6px 8px;border:1px solid #999;border-radius:10px;cursor:pointer">Imprimir</button><h1 style="font-size:16px;margin:8px 0">Pedido • ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div><b>Cliente:</b> <b>${escapeHtml(cust?.name ?? "-")}</b> • <b>${escapeHtml(cust?.phone ?? "")}</b></div><div><b>Endereço:</b> <b>${escapeHtml(cust?.address ?? "-")}</b></div>${driverLine}<div style="margin-top:6px"><b>Pagamento:</b> <b>${escapeHtml(pmLabel)}</b>${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><thead><tr><th>Item</th><th style="text-align:right">Qtd</th><th style="text-align:right">Preço</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows || "<tr><td colspan=4>Sem itens</td></tr>"}</tbody></table><div style="margin-top:10px"><div style="display:flex;justify-content:space-between"><span>Taxa entrega</span><b>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</b></div><div style="display:flex;justify-content:space-between;font-size:14px"><span>Total</span><b>R$ ${formatBRL((full as any).total_amount ?? 0)}</b></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
         w.document.close();
     }
 
