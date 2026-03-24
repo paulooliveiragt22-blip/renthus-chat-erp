@@ -108,7 +108,7 @@ export default function FilaClient() {
 
     if (error) { console.error("[Fila] fetch error:", error); return; }
 
-    const next = (data ?? []) as PendingOrder[];
+    const next = (data ?? []) as unknown as PendingOrder[];
 
     if (prevCountRef.current > 0 && next.length > prevCountRef.current) {
       playBeep();
