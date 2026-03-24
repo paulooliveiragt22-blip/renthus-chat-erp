@@ -240,6 +240,7 @@ export default function PedidosPage() {
         const { data, error } = await supabase
             .from("orders")
             .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
+            .neq("confirmation_status", "pending_confirmation")
             .order("created_at", { ascending: false })
             .limit(500);
         if (error) { setMsg(`Erro ao carregar pedidos: ${error.message}`); setOrders([]); setLoading(false); return; }
@@ -419,6 +420,14 @@ export default function PedidosPage() {
         if (!id) return;
         if (viewOrder?.id === id && openView) return;
         openOrder(id, true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
+
+    useEffect(() => {
+        const id = searchParams.get("edit");
+        if (!id) return;
+        if (editOrder?.id === id && openEdit) return;
+        openEditOrder(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 

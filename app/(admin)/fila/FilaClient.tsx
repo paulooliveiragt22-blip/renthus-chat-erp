@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
-import { Check, Clock, RefreshCcw, X } from "lucide-react";
+import { Check, Clock, MessageCircle, Pencil, RefreshCcw, X } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,7 @@ const PM_LABELS: Record<string, string> = {
 export default function FilaClient() {
   const supabase   = useMemo(() => createClient(), []);
   const { currentCompanyId: companyId } = useWorkspace();
+  const router     = useRouter();
 
   const [orders,     setOrders]     = useState<PendingOrder[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -428,7 +430,27 @@ export default function FilaClient() {
                 </div>
               </div>
 
-              {/* Ações */}
+              {/* Ações secundárias */}
+              <div className="px-3 pb-1 flex gap-2">
+                {phone && (
+                  <button
+                    onClick={() => router.push(`/whatsapp?phone=${encodeURIComponent(toE164(phone) ?? phone)}`)}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Abrir Chat
+                  </button>
+                )}
+                <button
+                  onClick={() => router.push(`/pedidos?edit=${order.id}`)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Editar Pedido
+                </button>
+              </div>
+
+              {/* Ações principais */}
               <div className="px-3 pb-3 flex gap-2">
                 <button
                   disabled={isBusy}
