@@ -19,7 +19,7 @@ import {
 import { handleCart, goToCart } from "../handlers/handleCart";
 import {
     goToCheckoutFromCart, handleAwaitingAddressSelection, handleCheckoutAddress,
-    handleCheckoutPayment, handleCheckoutConfirm,
+    handleCheckoutPayment, handleCheckoutConfirm, handleAwaitingSaveAddressApelido,
     handleAwaitingVariantSelection, handleAwaitingSplitOrder,
 } from "../handlers/handleCheckout";
 import { handleAwaitingAddressNumber, handleAwaitingAddressNeighborhood } from "../handlers/handleAddress";
@@ -74,6 +74,10 @@ export async function routeByStep(
 
         case "checkout_confirm":
             await handleCheckoutConfirm(admin, companyId, threadId, phoneE164, companyName, input, session);
+            break;
+
+        case "awaiting_save_address_apelido":
+            await handleAwaitingSaveAddressApelido(admin, companyId, threadId, phoneE164, input, session);
             break;
 
         case "awaiting_cancel_confirm":

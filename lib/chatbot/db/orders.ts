@@ -64,23 +64,25 @@ export async function createOrder(
     paymentMethod: string,
     deliveryAddress: string,
     changeFor?: number | null,
-    deliveryFee = 0
+    deliveryFee = 0,
+    deliveryEnderecoClienteId?: string | null
 ): Promise<string> {
     const total = cartTotal(cart) + deliveryFee;
 
     const orderPayload = {
-        company_id:          companyId,
-        customer_id:         customerId,
-        status:              "new",
-        confirmation_status: "pending_confirmation",
-        channel:             "whatsapp",
-        payment_method:      paymentMethod,
-        paid:                false,
-        delivery_fee:        deliveryFee,
-        total:               total,
-        total_amount:        total,
-        change_for:          changeFor ?? null,
-        delivery_address:    deliveryAddress,
+        company_id:                   companyId,
+        customer_id:                  customerId,
+        status:                       "new",
+        confirmation_status:          "pending_confirmation",
+        channel:                      "whatsapp",
+        payment_method:               paymentMethod,
+        paid:                         false,
+        delivery_fee:                 deliveryFee,
+        total:                        total,
+        total_amount:                 total,
+        change_for:                   changeFor ?? null,
+        delivery_address:             deliveryAddress,
+        delivery_endereco_cliente_id: deliveryEnderecoClienteId ?? null,
         // details: reservado para observações do dashboard — não poluir com dados do pedido
     };
 

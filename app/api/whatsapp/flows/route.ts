@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptFlowRequest, encryptFlowResponse } from "@/lib/whatsapp/flowCrypto";
-import { sendWhatsAppMessage, sendInteractiveButtons } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, sendListMessage } from "@/lib/whatsapp/send";
 import { getWhatsAppConfig } from "@/lib/whatsapp/getConfig";
 
 export const runtime = "nodejs";
@@ -304,21 +304,9 @@ export async function POST(req: NextRequest) {
                 return encryptedError("address_missing_in_session", aesKey, iv);
             }
 
-            // Atualiza sessão para checkout_confirm com todos os dados
-            await admin
-                .from("chatbot_sessions")
-                .update({
-                    step:    "checkout_confirm",
-                    context: {
-                        ...context,
-                        payment_method:    paymentMethod,
-                        change_for:        changeFor ?? null,
-                        flow_address_done: false,
-                    },
-                })
-                .eq("thread_id", threadId);
+            let deliveryEnderecoClienteId: string | null =
+                (context.delivery_endereco_cliente_id as string | undefined) ?? null;
 
-            // Salva endereço em enderecos_cliente (com apelido do formulário)
             const customerId = sessionRow.customer_id ?? null;
             if (customerId) {
                 const flowApelido     = (context.flow_apelido     as string) ?? "Entrega";
@@ -343,19 +331,41 @@ export async function POST(req: NextRequest) {
                         bairro:       flowBairro,
                         is_principal: true,
                     }).eq("id", existingAddr.id);
+                    deliveryEnderecoClienteId = existingAddr.id;
                 } else {
-                    await admin.from("enderecos_cliente").insert({
-                        company_id:   companyId,
-                        customer_id:  customerId,
-                        apelido:      flowApelido,
-                        logradouro:   flowRua,
-                        numero:       flowNumero,
-                        complemento:  flowComplemento,
-                        bairro:       flowBairro,
-                        is_principal: true,
-                    });
+                    const { data: inserted, error: insErr } = await admin
+                        .from("enderecos_cliente")
+                        .insert({
+                            company_id:   companyId,
+                            customer_id:  customerId,
+                            apelido:      flowApelido,
+                            logradouro:   flowRua,
+                            numero:       flowNumero,
+                            complemento:  flowComplemento,
+                            bairro:       flowBairro,
+                            is_principal: true,
+                        })
+                        .select("id")
+                        .single();
+                    if (!insErr && inserted?.id) {
+                        deliveryEnderecoClienteId = inserted.id as string;
+                    }
                 }
             }
+
+            await admin
+                .from("chatbot_sessions")
+                .update({
+                    step:    "checkout_confirm",
+                    context: {
+                        ...context,
+                        payment_method:               paymentMethod,
+                        change_for:                   changeFor ?? null,
+                        flow_address_done:            false,
+                        delivery_endereco_cliente_id: deliveryEnderecoClienteId,
+                    },
+                })
+                .eq("thread_id", threadId);
 
             // Busca telefone da thread para enviar a confirmação
             const { data: threadRow } = await admin
@@ -384,11 +394,22 @@ export async function POST(req: NextRequest) {
                     `💰 *Total: ${formatCurrency(total)}*`;
 
                 await sendWhatsAppMessage(phoneE164, summaryText);
-                await sendInteractiveButtons(phoneE164, "Confirmar o pedido?", [
-                    { id: "confirmar",     title: "✅ Confirmar pedido" },
-                    { id: "change_items",  title: "🔄 Alterar itens" },
-                    { id: "change_address", title: "📍 Mudar endereço" },
-                ]);
+
+                const hasLinkedAddr = !!deliveryEnderecoClienteId;
+                const rows: Array<{ id: string; title: string; description?: string }> = [];
+                if (!hasLinkedAddr) {
+                    rows.push({
+                        id:          "save_address",
+                        title:       "💾 Salvar endereço",
+                        description: "Cadastrar c/ apelido p/ próximos pedidos",
+                    });
+                }
+                rows.push(
+                    { id: "confirmar", title: "✅ Confirmar pedido", description: "Fechar e enviar p/ a loja" },
+                    { id: "change_items", title: "🔄 Alterar itens" },
+                    { id: "change_address", title: "📍 Mudar endereço" }
+                );
+                await sendListMessage(phoneE164, "Escolha uma opção:", "Ver opções", rows, "Pedido");
             }
 
             const response = encryptFlowResponse(

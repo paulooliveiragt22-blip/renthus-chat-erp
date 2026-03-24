@@ -38,9 +38,10 @@ const BOT_QUESTION_BY_STEP: Record<string, string> = {
     checkout_confirm:              "Confirme os detalhes do pedido. Digite confirmar para fechar.",
     awaiting_cancel_confirm:       "Tem certeza que quer cancelar o pedido?",
     awaiting_address_number:       "Qual é o número do endereço?",
-    awaiting_address_neighborhood: "Qual é o bairro?",
-    awaiting_variant_selection:    "Qual variante você prefere? (escolha pelo número)",
-    awaiting_address_selection:    "Escolha um endereço salvo ou informe um novo.",
+    awaiting_address_neighborhood:    "Qual é o bairro?",
+    awaiting_save_address_apelido:  "Como quer chamar este endereço?",
+    awaiting_variant_selection:     "Qual variante você prefere? (escolha pelo número)",
+    awaiting_address_selection:     "Escolha um endereço salvo ou informe um novo.",
 };
 
 const CHECKOUT_HIJACK_STEPS = new Set([
@@ -60,6 +61,7 @@ const SKIP_PARSER_STEPS = new Set([
     "awaiting_address_number",
     "awaiting_address_neighborhood",
     "awaiting_address_selection",
+    "awaiting_save_address_apelido",
     "awaiting_split_order",
     "awaiting_variant_selection",
     "awaiting_item_confirmation",
@@ -94,7 +96,7 @@ export async function runParserChain(
     // ── Add-to-cart hijack em steps de checkout ───────────────────────────────
     if (CHECKOUT_HIJACK_STEPS.has(session.step) && input.length >= 3) {
         const isPayment  = !!detectPaymentMethod(input);
-        const isConfirm  = matchesAny(input, ["sim", "não", "nao", "s", "n", "ok", "confirmar", "confirmo", "1", "change_items", "change_address"]);
+        const isConfirm  = matchesAny(input, ["sim", "não", "nao", "s", "n", "ok", "confirmar", "confirmo", "1", "change_items", "change_address", "save_address"]);
         const hasAddress = extractAddressFromText(input) !== null;
         if (!isPayment && !isConfirm && !hasAddress) {
             const hijackProducts = await getCachedProducts(admin, companyId);

@@ -5,7 +5,8 @@
  *
  * Fluxo:
  *   welcome → main_menu → catalog_categories → catalog_products
- *   → cart → checkout_address → checkout_payment → checkout_confirm → done
+ *   → cart → checkout_address → checkout_payment → checkout_confirm
+ *   → (opcional) awaiting_save_address_apelido → checkout_confirm → done
  *                                                                     ↘ handover
  *
  * Delega toda a lógica para 3 camadas:

@@ -56,31 +56,9 @@ export async function commitAddress(
         await admin.from("customers")
             .update({ address: finalAddr, neighborhood })
             .eq("id", session.customer_id);
-
-        const { data: existingAddr } = await admin
-            .from("enderecos_cliente")
-            .select("id")
-            .eq("customer_id", session.customer_id)
-            .eq("apelido", "Chatbot")
-            .maybeSingle();
-
-        if (existingAddr?.id) {
-            await admin.from("enderecos_cliente").update({
-                logradouro:   finalAddr,
-                bairro:       neighborhood,
-                is_principal: true,
-            }).eq("id", existingAddr.id);
-        } else {
-            await admin.from("enderecos_cliente").insert({
-                company_id:   companyId,
-                customer_id:  session.customer_id,
-                apelido:      "Chatbot",
-                logradouro:   finalAddr,
-                bairro:       neighborhood,
-                is_principal: true,
-            });
-        }
     }
+    // enderecos_cliente: o cliente grava com apelido na etapa "Salvar endereço" do resumo (checkout_confirm)
+    // ou pelo Flow / endereço salvo já escolhido na lista.
 
     await saveSession(admin, threadId, companyId, {
         step:        "checkout_payment",

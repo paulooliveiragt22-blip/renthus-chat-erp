@@ -107,11 +107,28 @@ export async function sendOrderSummary(
         `💳 Pagamento: ${paymentLabel}${changeText}` +
         `${grandText}`
     );
-    await sendInteractiveButtons(phoneE164, "Confirmar o pedido?", [
-        { id: "confirmar", title: "✅ Confirmar pedido" },
+
+    const hasLinkedAddr = !!(session.context.delivery_endereco_cliente_id as string | undefined);
+    const rows: Array<{ id: string; title: string; description?: string }> = [];
+    if (!hasLinkedAddr) {
+        rows.push({
+            id:          "save_address",
+            title:       "💾 Salvar endereço",
+            description: "Cadastrar c/ apelido p/ próximos pedidos",
+        });
+    }
+    rows.push(
+        { id: "confirmar", title: "✅ Confirmar pedido", description: "Fechar e enviar p/ a loja" },
         { id: "change_items", title: "🔄 Alterar itens" },
-        { id: "change_address", title: "📍 Mudar endereço" },
-    ]);
+        { id: "change_address", title: "📍 Mudar endereço" }
+    );
+    await sendListMessage(
+        phoneE164,
+        "Escolha uma opção:",
+        "Ver opções",
+        rows,
+        "Pedido"
+    );
 }
 
 // ─── goToCheckoutAddress ──────────────────────────────────────────────────────
@@ -334,10 +351,11 @@ export async function handleAwaitingAddressSelection(
             customer_id: session.customer_id ?? undefined,
             context: {
                 ...session.context,
-                saved_addresses:  undefined,
-                delivery_address: fullAddress,
-                delivery_fee:     deliveryFee,
-                delivery_zone_id: zone?.id ?? null,
+                saved_addresses:               undefined,
+                delivery_address:              fullAddress,
+                delivery_fee:                  deliveryFee,
+                delivery_zone_id:              zone?.id ?? null,
+                delivery_endereco_cliente_id:  addrId,
             },
         });
         await sendPaymentButtons(phoneE164);
@@ -406,6 +424,135 @@ export async function handleAwaitingAddressSelection(
             "Endereços"
         );
     }
+}
+
+// ─── handleAwaitingSaveAddressApelido ─────────────────────────────────────────
+
+/** Após "Salvar endereço" no resumo: grava linha em enderecos_cliente (apelido único por cliente/empresa, como no Flow). */
+export async function handleAwaitingSaveAddressApelido(
+    admin: SupabaseClient,
+    companyId: string,
+    threadId: string,
+    phoneE164: string,
+    input: string,
+    session: Session
+): Promise<void> {
+    const addr = String((session.context.delivery_address as string) ?? "").trim();
+    if (!addr) {
+        await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
+        await reply(admin, companyId, threadId, phoneE164, "Não encontrei o endereço do pedido. Use *Mudar endereço* no resumo.");
+        await sendOrderSummary(admin, companyId, threadId, phoneE164, { ...session, step: "checkout_confirm" });
+        return;
+    }
+
+    const raw = input.trim();
+    if (matchesAny(raw.toLowerCase(), ["pular", "pulae", "depois", "não", "nao", "nao quero", "skip"])) {
+        await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
+        await reply(admin, companyId, threadId, phoneE164, "Ok! Quando quiser, use *Salvar endereço* no resumo do pedido.");
+        await sendOrderSummary(admin, companyId, threadId, phoneE164, { ...session, step: "checkout_confirm" });
+        return;
+    }
+
+    if (raw.length < 1 || raw.length > 80) {
+        await reply(admin, companyId, threadId, phoneE164, "Digite um apelido (ex: *Casa*) ou *pular*.");
+        return;
+    }
+
+    let customerId = session.customer_id;
+    if (!customerId) {
+        const recovered = await getOrCreateCustomer(admin, companyId, phoneE164);
+        customerId = recovered?.id ?? null;
+    }
+    if (!customerId) {
+        await reply(admin, companyId, threadId, phoneE164, "Não foi possível identificar seu cadastro. Tente de novo em instantes.");
+        return;
+    }
+
+    const apelido = raw.slice(0, 80);
+    const structured = session.context.delivery_address_structured as {
+        rua?: string;
+        numero?: string | null;
+        bairro?: string;
+        formatted?: string;
+    } | null;
+    const neighborhood =
+        (session.context.delivery_neighborhood as string | undefined)?.trim()
+        || structured?.bairro?.trim()
+        || "";
+
+    const logradouro =
+        (structured?.rua && structured.rua.trim().length > 0)
+            ? structured.rua.trim()
+            : addr;
+    const numero = structured?.numero?.trim() ? structured.numero.trim() : null;
+
+    const { data: existingAddr } = await admin
+        .from("enderecos_cliente")
+        .select("id")
+        .eq("customer_id", customerId)
+        .eq("company_id", companyId)
+        .eq("apelido", apelido)
+        .maybeSingle();
+
+    let enderecoId: string;
+    if (existingAddr?.id) {
+        const { error } = await admin.from("enderecos_cliente").update({
+            logradouro:   logradouro,
+            numero:       numero,
+            bairro:       neighborhood || null,
+            is_principal: true,
+        }).eq("id", existingAddr.id);
+        if (error) {
+            console.error("[save_address] update enderecos_cliente:", error.message);
+            await reply(admin, companyId, threadId, phoneE164, "Não consegui atualizar o endereço. Tente outro apelido.");
+            return;
+        }
+        enderecoId = existingAddr.id;
+    } else {
+        const { data: inserted, error } = await admin
+            .from("enderecos_cliente")
+            .insert({
+                company_id:   companyId,
+                customer_id:  customerId,
+                apelido:      apelido,
+                logradouro:   logradouro,
+                numero:       numero,
+                bairro:       neighborhood || null,
+                is_principal: true,
+            })
+            .select("id")
+            .single();
+        if (error || !inserted?.id) {
+            console.error("[save_address] insert enderecos_cliente:", error?.message);
+            await reply(admin, companyId, threadId, phoneE164, "Não consegui salvar o endereço. Tente de novo.");
+            return;
+        }
+        enderecoId = inserted.id as string;
+    }
+
+    await admin.from("customers").update({ address: addr, neighborhood: neighborhood || null }).eq("id", customerId);
+
+    const nextCtx = {
+        ...session.context,
+        delivery_endereco_cliente_id: enderecoId,
+    };
+    await saveSession(admin, threadId, companyId, {
+        step:        "checkout_confirm",
+        customer_id: customerId,
+        context:     nextCtx,
+    });
+
+    await reply(
+        admin, companyId, threadId,
+        phoneE164,
+        `✅ Endereço salvo como *${apelido}*! Confirme o pedido abaixo.`
+    );
+    await sendOrderSummary(admin, companyId, threadId, phoneE164, {
+        ...session,
+        step:        "checkout_confirm",
+        customer_id: customerId,
+        context:     nextCtx,
+    });
 }
 
 // ─── handleCheckoutAddress ────────────────────────────────────────────────────
@@ -598,6 +745,17 @@ export async function handleCheckoutConfirm(
     const paymentMethod = (session.context.payment_method   as string) ?? "cash";
     const changeFor     = (session.context.change_for       as number | null) ?? null;
 
+    if (input === "save_address") {
+        await saveSession(admin, threadId, companyId, { step: "awaiting_save_address_apelido" });
+        await reply(
+            admin, companyId, threadId,
+            phoneE164,
+            "Como quer *chamar* este endereço nas próximas compras? (ex: *Casa*, *Trabalho*)\n\n" +
+            "_Digite *pular* para não salvar no cadastro agora._"
+        );
+        return;
+    }
+
     // "Mudar endereço" (ID change_address ou texto) → reabre o Flow (ou fluxo conversacional)
     if (
         input === "change_address" ||
@@ -605,14 +763,17 @@ export async function handleCheckoutConfirm(
     ) {
         const clearedContext = {
             ...session.context,
-            delivery_address:   undefined,
-            delivery_fee:       undefined,
-            delivery_zone_id:   undefined,
-            payment_method:     undefined,
-            change_for:         undefined,
-            flow_address_done:  undefined,
-            flow_apelido:       undefined,
-            flow_bairro_label:  undefined,
+            delivery_address:              undefined,
+            delivery_fee:                  undefined,
+            delivery_zone_id:              undefined,
+            payment_method:                undefined,
+            change_for:                    undefined,
+            flow_address_done:             undefined,
+            flow_apelido:                  undefined,
+            flow_bairro_label:             undefined,
+            delivery_endereco_cliente_id:  undefined,
+            delivery_address_structured:   undefined,
+            delivery_neighborhood:         undefined,
         };
         const clearedSession = { ...session, context: clearedContext };
         await saveSession(admin, threadId, companyId, { context: clearedContext });
@@ -688,8 +849,9 @@ export async function handleCheckoutConfirm(
         }
         // Nome salvo e já é maior → criar pedido diretamente (pula checagem de input)
         const feeForOrder = (session.context.delivery_fee as number | null) ?? 0;
+        const deliveryEnderecoId = (session.context.delivery_endereco_cliente_id as string | undefined) ?? null;
         try {
-            const orderId = await createOrder(admin, companyId, customerId!, session.cart, paymentMethod, address, changeFor, feeForOrder);
+            const orderId = await createOrder(admin, companyId, customerId!, session.cart, paymentMethod, address, changeFor, feeForOrder, deliveryEnderecoId);
             const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
             const cartSnapshot = [...session.cart];
             // Limpeza de sessão assim que o insert retornar sucesso: cart zerado, step em home
@@ -821,8 +983,9 @@ export async function handleCheckoutConfirm(
     }
 
     try {
-        const feeForOrder = (session.context.delivery_fee as number | null) ?? 0;
-        const orderId     = await createOrder(admin, companyId, customerId, session.cart, paymentMethod, address, changeFor, feeForOrder);
+        const feeForOrder        = (session.context.delivery_fee as number | null) ?? 0;
+        const deliveryEnderecoId = (session.context.delivery_endereco_cliente_id as string | undefined) ?? null;
+        const orderId            = await createOrder(admin, companyId, customerId, session.cart, paymentMethod, address, changeFor, feeForOrder, deliveryEnderecoId);
         const orderShort = orderId.replace(/-/g, "").slice(-8).toUpperCase();
 
         // Limpeza de sessão assim que o insert retornar sucesso: cart zerado, step em home
