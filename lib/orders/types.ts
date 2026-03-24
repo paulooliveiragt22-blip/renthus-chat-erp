@@ -14,6 +14,36 @@ export type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
 
 export type CustomerRow = { name: string | null; phone: string | null; address: string | null };
 
+/** Cliente na lista do novo pedido (admin) */
+export type OrderCustomerPick = { id: string; name: string | null; phone: string | null };
+
+/** Endereço salvo em enderecos_cliente para o seletor de pedido */
+export type SavedCustomerAddress = {
+    id: string;
+    apelido: string;
+    logradouro: string | null;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    estado: string | null;
+    cep: string | null;
+    is_principal: boolean;
+};
+
+export type NewOrderAddrForm = {
+    apelido: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    cidade: string;
+    estado: string;
+    cep: string;
+};
+
+export type OrderAddressMode = "saved" | "new" | "free";
+
 export type Driver = {
     id: string;
     company_id: string;

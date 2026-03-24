@@ -32,10 +32,14 @@ import type {
     CartItem,
     Driver,
     DraftQty,
+    NewOrderAddrForm,
+    OrderAddressMode,
+    OrderCustomerPick,
     OrderFull,
     OrderRow,
     OrderStatus,
     PaymentMethod,
+    SavedCustomerAddress,
     Variant,
 } from "@/lib/orders/types";
 
@@ -47,6 +51,7 @@ import {
     cartTotalPreview,
     escapeHtml,
     formatBRL,
+    formatEnderecoLine,
     formatDT,
     ORANGE,
     prettyStatus,
@@ -108,6 +113,17 @@ const STATUS_BADGE: Record<string, string> = {
     canceled:  "bg-zinc-100 text-zinc-500",
 };
 
+const EMPTY_NEW_ORDER_ADDR: NewOrderAddrForm = {
+    apelido: "",
+    logradouro: "",
+    numero: "",
+    complemento: "",
+    bairro: "",
+    cidade: "",
+    estado: "",
+    cep: "",
+};
+
 const PAYMENT_BADGE: Record<string, string> = {
     pix:  "bg-green-100 text-green-700",
     card: "bg-purple-100 text-purple-700",
@@ -158,6 +174,14 @@ export default function PedidosPage() {
     const [customerName,    setCustomerName]    = useState("");
     const [customerPhone,   setCustomerPhone]   = useState("");
     const [customerAddress, setCustomerAddress] = useState("");
+
+    const [orderCustomers,           setOrderCustomers]           = useState<OrderCustomerPick[]>([]);
+    const [orderCustomersLoading,   setOrderCustomersLoading]   = useState(false);
+    const [selectedOrderCustomerId, setSelectedOrderCustomerId] = useState<string | null>(null);
+    const [orderSavedAddresses,     setOrderSavedAddresses]     = useState<SavedCustomerAddress[]>([]);
+    const [orderAddressMode,        setOrderAddressMode]        = useState<OrderAddressMode>("free");
+    const [orderSelectedAddrId,     setOrderSelectedAddrId]     = useState<string | null>(null);
+    const [newOrderAddrForm,        setNewOrderAddrForm]        = useState<NewOrderAddrForm>(EMPTY_NEW_ORDER_ADDR);
     const [paymentMethod,   setPaymentMethod]   = useState<PaymentMethod>("pix");
     const [paid,            setPaid]            = useState(false);
     const [changeFor,       setChangeFor]       = useState("0,00");
@@ -333,13 +357,89 @@ export default function PedidosPage() {
         if (data) setDrivers(data as Driver[]);
     }
 
+    async function fetchOrderSavedAddresses(customerId: string) {
+        const { data } = await supabase
+            .from("enderecos_cliente")
+            .select("id,apelido,logradouro,numero,complemento,bairro,cidade,estado,cep,is_principal")
+            .eq("customer_id", customerId)
+            .order("is_principal", { ascending: false });
+        const list = (data as SavedCustomerAddress[]) ?? [];
+        setOrderSavedAddresses(list);
+        if (list.length > 0) {
+            setOrderAddressMode("saved");
+            const first = list.find((a) => a.is_principal) ?? list[0];
+            setOrderSelectedAddrId(first.id);
+            setCustomerAddress(formatEnderecoLine(first));
+        } else {
+            setOrderAddressMode("new");
+            setOrderSelectedAddrId(null);
+            setCustomerAddress("");
+            setNewOrderAddrForm(EMPTY_NEW_ORDER_ADDR);
+        }
+    }
+
+    async function handleSelectOrderCustomer(id: string | null) {
+        setSelectedOrderCustomerId(id);
+        setMsg(null);
+        if (!id) {
+            setOrderSavedAddresses([]);
+            setOrderAddressMode("free");
+            setOrderSelectedAddrId(null);
+            setCustomerName("");
+            setCustomerPhone("");
+            setCustomerAddress("");
+            setNewOrderAddrForm(EMPTY_NEW_ORDER_ADDR);
+            return;
+        }
+        const { data: row } = await supabase.from("customers").select("name,phone").eq("id", id).maybeSingle();
+        if (row) {
+            setCustomerName(row.name ?? "");
+            setCustomerPhone(row.phone ?? "");
+        }
+        await fetchOrderSavedAddresses(id);
+    }
+
+    useEffect(() => {
+        if (!openNew || !companyId) return;
+        let cancelled = false;
+        (async () => {
+            setOrderCustomersLoading(true);
+            const { data } = await supabase
+                .from("customers")
+                .select("id,name,phone")
+                .eq("company_id", companyId)
+                .order("name", { ascending: true, nullsFirst: false })
+                .limit(500);
+            if (!cancelled) {
+                setOrderCustomers((data as OrderCustomerPick[]) ?? []);
+                setOrderCustomersLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [openNew, companyId, supabase]);
+
+    useEffect(() => {
+        if (selectedOrderCustomerId && orderAddressMode === "saved" && orderSelectedAddrId) {
+            const e = orderSavedAddresses.find((a) => a.id === orderSelectedAddrId);
+            if (e) setCustomerAddress(formatEnderecoLine(e));
+        }
+    }, [selectedOrderCustomerId, orderAddressMode, orderSelectedAddrId, orderSavedAddresses]);
+
     async function upsertCustomerFromFields(nameRaw: string, phoneRaw: string, addressRaw: string): Promise<string | null> {
         const phone   = phoneRaw.trim();
         const name    = nameRaw.trim();
         const address = addressRaw.trim();
         if (!phone || phone.length < 8) { setMsg("Informe um telefone válido."); return null; }
         if (!name) { setMsg("Informe o nome do cliente."); return null; }
-        const { data: found, error: findErr } = await supabase.from("customers").select("id,name,phone,address").eq("phone", phone).limit(1).maybeSingle();
+        const { data: found, error: findErr } = await supabase
+            .from("customers")
+            .select("id,name,phone,address")
+            .eq("company_id", companyId as string)
+            .eq("phone", phone)
+            .limit(1)
+            .maybeSingle();
         if (findErr) { setMsg(`Erro ao buscar cliente: ${findErr.message}`); return null; }
         if (found?.id) {
             const { error: upErr } = await supabase.from("customers").update({ name, address: address || null }).eq("id", found.id);
@@ -486,6 +586,11 @@ export default function PedidosPage() {
     // ── order actions ─────────────────────────────────────────────────────────
     function resetNewOrder() {
         setCustomerName(""); setCustomerPhone(""); setCustomerAddress("");
+        setSelectedOrderCustomerId(null);
+        setOrderSavedAddresses([]);
+        setOrderAddressMode("free");
+        setOrderSelectedAddrId(null);
+        setNewOrderAddrForm(EMPTY_NEW_ORDER_ADDR);
         setPaymentMethod("pix"); setPaid(false); setChangeFor("0,00");
         setCart([]); setQ(""); setResults([]); setDraftQty({}); setMsg(null);
         setDriverId(null);
@@ -537,9 +642,81 @@ export default function PedidosPage() {
 
     async function createOrder() {
         if (cart.length === 0) { setMsg("Adicione pelo menos 1 item no pedido."); return; }
+        if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); return; }
         setSaving(true); setMsg(null);
-        const customerId = await upsertCustomerFromFields(customerName, customerPhone, customerAddress);
-        if (!customerId) { setSaving(false); return; }
+
+        let customerId: string | null = selectedOrderCustomerId;
+        let addressForOrder = customerAddress.trim();
+
+        if (customerId) {
+            if (!customerName.trim() || !customerPhone.trim()) {
+                setMsg("Cliente sem nome ou telefone.");
+                setSaving(false);
+                return;
+            }
+            if (orderAddressMode === "saved") {
+                if (orderSavedAddresses.length === 0) {
+                    setMsg("Este cliente não tem endereço salvo. Escolha “Salvar novo endereço” ou “Texto livre”.");
+                    setSaving(false);
+                    return;
+                }
+                if (!orderSelectedAddrId) {
+                    setMsg("Selecione um endereço salvo.");
+                    setSaving(false);
+                    return;
+                }
+                const e = orderSavedAddresses.find((a) => a.id === orderSelectedAddrId);
+                if (!e) {
+                    setMsg("Endereço selecionado não encontrado.");
+                    setSaving(false);
+                    return;
+                }
+                addressForOrder = formatEnderecoLine(e);
+            } else if (orderAddressMode === "new") {
+                const f = newOrderAddrForm;
+                if (!f.logradouro?.trim()) {
+                    setMsg("Informe o logradouro do novo endereço.");
+                    setSaving(false);
+                    return;
+                }
+                const { error: addrErr } = await supabase.from("enderecos_cliente").insert({
+                    company_id:  companyId,
+                    customer_id: customerId,
+                    apelido:     f.apelido.trim() || "Entrega",
+                    logradouro:  f.logradouro.trim() || null,
+                    numero:      f.numero.trim() || null,
+                    complemento: f.complemento.trim() || null,
+                    bairro:      f.bairro.trim() || null,
+                    cidade:      f.cidade.trim() || null,
+                    estado:      f.estado.trim() || null,
+                    cep:         f.cep.trim() || null,
+                    is_principal: orderSavedAddresses.length === 0,
+                });
+                if (addrErr) {
+                    setMsg(`Erro ao salvar endereço: ${addrErr.message}`);
+                    setSaving(false);
+                    return;
+                }
+                addressForOrder = formatEnderecoLine(f);
+            }
+            const { error: upErr } = await supabase
+                .from("customers")
+                .update({
+                    name: customerName.trim(),
+                    phone: customerPhone.trim(),
+                    address: addressForOrder || null,
+                })
+                .eq("id", customerId);
+            if (upErr) {
+                setMsg(`Erro ao atualizar cliente: ${upErr.message}`);
+                setSaving(false);
+                return;
+            }
+        } else {
+            const createdId = await upsertCustomerFromFields(customerName, customerPhone, customerAddress);
+            if (!createdId) { setSaving(false); return; }
+            customerId = createdId;
+        }
         const fee    = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
         const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
         const total  = cartSubtotal(cart) + fee;
@@ -548,7 +725,6 @@ export default function PedidosPage() {
             .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null, driver_id: driverId || null })
             .select("id").single();
         if (ordErr) { setMsg(`Erro ao criar pedido: ${ordErr.message}`); setSaving(false); return; }
-        if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); setSaving(false); return; }
         const { error: itemsErr } = await supabase.from("order_items").insert(buildItemsPayload(ord.id, companyId, cart));
         if (itemsErr) { setMsg(`Erro ao salvar itens: ${itemsErr.message}`); setSaving(false); return; }
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
@@ -1128,6 +1304,17 @@ export default function PedidosPage() {
                 customerName={customerName}            setCustomerName={setCustomerName}
                 customerPhone={customerPhone}          setCustomerPhone={setCustomerPhone}
                 customerAddress={customerAddress}      setCustomerAddress={setCustomerAddress}
+                orderCustomers={orderCustomers}
+                orderCustomersLoading={orderCustomersLoading}
+                selectedOrderCustomerId={selectedOrderCustomerId}
+                onSelectOrderCustomer={handleSelectOrderCustomer}
+                orderSavedAddresses={orderSavedAddresses}
+                orderAddressMode={orderAddressMode}
+                setOrderAddressMode={setOrderAddressMode}
+                orderSelectedAddrId={orderSelectedAddrId}
+                setOrderSelectedAddrId={setOrderSelectedAddrId}
+                newOrderAddrForm={newOrderAddrForm}
+                setNewOrderAddrForm={setNewOrderAddrForm}
                 paymentMethod={paymentMethod}          setPaymentMethod={setPaymentMethod}
                 paid={paid}                            setPaid={setPaid}
                 changeFor={changeFor}                  setChangeFor={setChangeFor}

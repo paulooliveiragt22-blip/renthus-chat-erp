@@ -3,7 +3,17 @@
 import React from "react";
 import Modal from "./Modal";
 import OrderForm from "./OrderForm";
-import type { CartItem, Driver, DraftQty, PaymentMethod, Variant } from "@/lib/orders/types";
+import type {
+    CartItem,
+    Driver,
+    DraftQty,
+    NewOrderAddrForm,
+    OrderAddressMode,
+    OrderCustomerPick,
+    PaymentMethod,
+    SavedCustomerAddress,
+    Variant,
+} from "@/lib/orders/types";
 
 export default function NewOrderModal({
     open,
@@ -15,6 +25,18 @@ export default function NewOrderModal({
     customerName,       setCustomerName,
     customerPhone,      setCustomerPhone,
     customerAddress,    setCustomerAddress,
+
+    orderCustomers,
+    orderCustomersLoading,
+    selectedOrderCustomerId,
+    onSelectOrderCustomer,
+    orderSavedAddresses,
+    orderAddressMode,
+    setOrderAddressMode,
+    orderSelectedAddrId,
+    setOrderSelectedAddrId,
+    newOrderAddrForm,
+    setNewOrderAddrForm,
 
     paymentMethod,      setPaymentMethod,
     paid,               setPaid,
@@ -43,6 +65,18 @@ export default function NewOrderModal({
     customerName: string;       setCustomerName: (v: string) => void;
     customerPhone: string;      setCustomerPhone: (v: string) => void;
     customerAddress: string;    setCustomerAddress: (v: string) => void;
+
+    orderCustomers: OrderCustomerPick[];
+    orderCustomersLoading: boolean;
+    selectedOrderCustomerId: string | null;
+    onSelectOrderCustomer: (id: string | null) => void;
+    orderSavedAddresses: SavedCustomerAddress[];
+    orderAddressMode: OrderAddressMode;
+    setOrderAddressMode: (m: OrderAddressMode) => void;
+    orderSelectedAddrId: string | null;
+    setOrderSelectedAddrId: (id: string | null) => void;
+    newOrderAddrForm: NewOrderAddrForm;
+    setNewOrderAddrForm: React.Dispatch<React.SetStateAction<NewOrderAddrForm>>;
 
     paymentMethod: PaymentMethod; setPaymentMethod: (v: PaymentMethod) => void;
     paid: boolean;              setPaid: (v: boolean) => void;
@@ -75,6 +109,17 @@ export default function NewOrderModal({
                 customerName={customerName}         setCustomerName={setCustomerName}
                 customerPhone={customerPhone}       setCustomerPhone={setCustomerPhone}
                 customerAddress={customerAddress}   setCustomerAddress={setCustomerAddress}
+                orderCustomers={orderCustomers}
+                orderCustomersLoading={orderCustomersLoading}
+                selectedOrderCustomerId={selectedOrderCustomerId}
+                onSelectOrderCustomer={onSelectOrderCustomer}
+                orderSavedAddresses={orderSavedAddresses}
+                orderAddressMode={orderAddressMode}
+                setOrderAddressMode={setOrderAddressMode}
+                orderSelectedAddrId={orderSelectedAddrId}
+                setOrderSelectedAddrId={setOrderSelectedAddrId}
+                newOrderAddrForm={newOrderAddrForm}
+                setNewOrderAddrForm={setNewOrderAddrForm}
                 paymentMethod={paymentMethod}       setPaymentMethod={setPaymentMethod}
                 paid={paid}                         setPaid={setPaid}
                 changeFor={changeFor}               setChangeFor={setChangeFor}

@@ -201,3 +201,27 @@ export function buildItemsPayload(orderId: string, companyId: string, list: Cart
         };
     });
 }
+
+/** Formata endereço de `enderecos_cliente` (ou formulário) em uma linha para pedido / customers.address */
+export function formatEnderecoLine(e: {
+    logradouro?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    cep?: string | null;
+}): string {
+    const line = [
+        [e.logradouro?.trim(), e.numero?.trim() ? `nº ${e.numero.trim()}` : null].filter(Boolean).join(", "),
+        e.complemento?.trim(),
+        e.bairro?.trim(),
+        [e.cidade?.trim(), e.estado?.trim()].filter(Boolean).join("/") || null,
+    ]
+        .filter(Boolean)
+        .join(", ");
+    const cep = e.cep?.replace(/\D/g, "");
+    const cepFmt = cep && cep.length === 8 ? `${cep.slice(0, 5)}-${cep.slice(5)}` : e.cep?.trim();
+    const parts = [line, cepFmt ? `CEP ${cepFmt}` : null].filter(Boolean);
+    return parts.join(" · ");
+}

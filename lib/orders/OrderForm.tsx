@@ -1,7 +1,17 @@
 "use client";
 
 import React from "react";
-import type { CartItem, Driver, DraftQty, PaymentMethod, Variant } from "@/lib/orders/types";
+import type {
+    CartItem,
+    Driver,
+    DraftQty,
+    NewOrderAddrForm,
+    OrderAddressMode,
+    OrderCustomerPick,
+    PaymentMethod,
+    SavedCustomerAddress,
+    Variant,
+} from "@/lib/orders/types";
 import {
     brlToNumber,
     cartSubtotal,
@@ -30,6 +40,19 @@ export default function OrderForm({
     setCustomerPhone,
     customerAddress,
     setCustomerAddress,
+
+    // cliente salvo (novo pedido admin — opcional: omitido no editar pedido)
+    orderCustomers,
+    orderCustomersLoading,
+    selectedOrderCustomerId,
+    onSelectOrderCustomer,
+    orderSavedAddresses,
+    orderAddressMode,
+    setOrderAddressMode,
+    orderSelectedAddrId,
+    setOrderSelectedAddrId,
+    newOrderAddrForm,
+    setNewOrderAddrForm,
 
     // pagamento
     paymentMethod,
@@ -81,6 +104,18 @@ export default function OrderForm({
     customerAddress: string;
     setCustomerAddress: (v: string) => void;
 
+    orderCustomers?: OrderCustomerPick[];
+    orderCustomersLoading?: boolean;
+    selectedOrderCustomerId?: string | null;
+    onSelectOrderCustomer?: (id: string | null) => void;
+    orderSavedAddresses?: SavedCustomerAddress[];
+    orderAddressMode?: OrderAddressMode;
+    setOrderAddressMode?: (m: OrderAddressMode) => void;
+    orderSelectedAddrId?: string | null;
+    setOrderSelectedAddrId?: (id: string | null) => void;
+    newOrderAddrForm?: NewOrderAddrForm;
+    setNewOrderAddrForm?: React.Dispatch<React.SetStateAction<NewOrderAddrForm>>;
+
     paymentMethod: PaymentMethod;
     setPaymentMethod: (v: PaymentMethod) => void;
     paid: boolean;
@@ -116,32 +151,232 @@ export default function OrderForm({
 
     modeLabel: string;
 }) {
+    const pickMode = orderCustomers !== undefined && !!onSelectOrderCustomer;
+    const oc = orderCustomers ?? [];
+    const ocLoading = orderCustomersLoading ?? false;
+    const selCust = selectedOrderCustomerId ?? null;
+    const addrs = orderSavedAddresses ?? [];
+    const addrMode = orderAddressMode ?? "free";
+    const setAddrMode = setOrderAddressMode ?? (() => {});
+    const selAddrId = orderSelectedAddrId ?? null;
+    const setSelAddrId = setOrderSelectedAddrId ?? (() => {});
+    const naForm = newOrderAddrForm ?? {
+        apelido: "",
+        logradouro: "",
+        numero: "",
+        complemento: "",
+        bairro: "",
+        cidade: "",
+        estado: "",
+        cep: "",
+    };
+    const setNaForm = setNewOrderAddrForm ?? (() => {});
+
     return (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 
             {/* ── Cliente ── */}
             <div className={`${sectionCls} sm:col-span-2`}>
                 <div className={labelCls}>Cliente</div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_180px]">
-                    <input
-                        placeholder="Nome"
-                        value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
-                        className={inputCls}
-                    />
-                    <input
-                        placeholder="Telefone (WhatsApp)"
-                        value={customerPhone}
-                        onChange={(e) => setCustomerPhone(e.target.value)}
-                        className={inputCls}
-                    />
-                </div>
-                <input
-                    placeholder="Endereço (texto livre)"
-                    value={customerAddress}
-                    onChange={(e) => setCustomerAddress(e.target.value)}
-                    className={`${inputCls} mt-2`}
-                />
+                {pickMode ? (
+                    <>
+                        <label className="mb-2 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                            Cliente cadastrado
+                        </label>
+                        <select
+                            value={selCust ?? ""}
+                            onChange={(e) => onSelectOrderCustomer!(e.target.value || null)}
+                            disabled={ocLoading}
+                            className={`${inputCls} mb-3`}
+                        >
+                            <option value="">
+                                {ocLoading ? "Carregando clientes…" : "Cadastro manual (digitar nome, telefone e endereço)"}
+                            </option>
+                            {oc.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {(c.name || "Sem nome").trim()} · {c.phone || "—"}
+                                </option>
+                            ))}
+                        </select>
+
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_180px]">
+                            <input
+                                placeholder="Nome"
+                                value={customerName}
+                                onChange={(e) => setCustomerName(e.target.value)}
+                                className={inputCls}
+                                disabled={!!selCust}
+                            />
+                            <input
+                                placeholder="Telefone (WhatsApp)"
+                                value={customerPhone}
+                                onChange={(e) => setCustomerPhone(e.target.value)}
+                                className={inputCls}
+                                disabled={!!selCust}
+                            />
+                        </div>
+                        {selCust && (
+                            <p className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                Nome e telefone vêm do cadastro. Para alterar, use a tela Clientes ou selecione cadastro manual.
+                            </p>
+                        )}
+
+                        <div className={`${labelCls} mt-4`}>Endereço de entrega</div>
+                        {selCust ? (
+                            <div className="space-y-3">
+                                <div className="flex flex-wrap gap-2">
+                                    {(["saved", "new", "free"] as const).map((m) => (
+                                        <button
+                                            key={m}
+                                            type="button"
+                                            onClick={() => setAddrMode(m)}
+                                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                                                addrMode === m
+                                                    ? "bg-violet-600 text-white shadow-sm"
+                                                    : "border border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                                            }`}
+                                        >
+                                            {m === "saved" ? "Endereço salvo" : m === "new" ? "Salvar novo endereço" : "Texto livre"}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {addrMode === "saved" && (
+                                    <div>
+                                        {addrs.length === 0 ? (
+                                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                                                Este cliente não tem endereços salvos. Use “Salvar novo endereço” ou “Texto livre”.
+                                            </p>
+                                        ) : (
+                                            <>
+                                                <select
+                                                    value={selAddrId ?? ""}
+                                                    onChange={(e) => setSelAddrId(e.target.value || null)}
+                                                    className={inputCls}
+                                                >
+                                                    {addrs.map((a) => (
+                                                        <option key={a.id} value={a.id}>
+                                                            {a.apelido}
+                                                            {a.is_principal ? " (principal)" : ""}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <p className="mt-2 rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-300">
+                                                    {customerAddress || "—"}
+                                                </p>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+
+                                {addrMode === "new" && (
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                        <input
+                                            placeholder="Apelido (ex: Casa, Trabalho)"
+                                            value={naForm.apelido}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, apelido: e.target.value }))}
+                                            className={inputCls}
+                                        />
+                                        <input
+                                            placeholder="CEP"
+                                            value={naForm.cep}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, cep: e.target.value }))}
+                                            className={inputCls}
+                                        />
+                                        <input
+                                            placeholder="Logradouro *"
+                                            value={naForm.logradouro}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, logradouro: e.target.value }))}
+                                            className={`${inputCls} sm:col-span-2`}
+                                        />
+                                        <input
+                                            placeholder="Número"
+                                            value={naForm.numero}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, numero: e.target.value }))}
+                                            className={inputCls}
+                                        />
+                                        <input
+                                            placeholder="Complemento"
+                                            value={naForm.complemento}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, complemento: e.target.value }))}
+                                            className={inputCls}
+                                        />
+                                        <input
+                                            placeholder="Bairro"
+                                            value={naForm.bairro}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, bairro: e.target.value }))}
+                                            className={inputCls}
+                                        />
+                                        <input
+                                            placeholder="Cidade"
+                                            value={naForm.cidade}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, cidade: e.target.value }))}
+                                            className={inputCls}
+                                        />
+                                        <input
+                                            placeholder="UF"
+                                            value={naForm.estado}
+                                            onChange={(e) => setNaForm((p) => ({ ...p, estado: e.target.value }))}
+                                            className={inputCls}
+                                        />
+                                        <p className="text-[11px] text-zinc-500 sm:col-span-2">
+                                            Será gravado em{" "}
+                                            <strong className="text-zinc-700 dark:text-zinc-300">enderecos_cliente</strong> e usado
+                                            neste pedido.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {addrMode === "free" && (
+                                    <>
+                                        <textarea
+                                            placeholder="Endereço completo (texto livre, não salva em endereços)"
+                                            value={customerAddress}
+                                            onChange={(e) => setCustomerAddress(e.target.value)}
+                                            rows={3}
+                                            className={`${inputCls} resize-y min-h-[4.5rem]`}
+                                        />
+                                        <p className="text-[11px] text-zinc-500">
+                                            Atualiza apenas o campo de endereço do cliente neste pedido.
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            <textarea
+                                placeholder="Endereço (texto livre)"
+                                value={customerAddress}
+                                onChange={(e) => setCustomerAddress(e.target.value)}
+                                rows={3}
+                                className={`${inputCls} resize-y min-h-[4.5rem]`}
+                            />
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_180px]">
+                            <input
+                                placeholder="Nome"
+                                value={customerName}
+                                onChange={(e) => setCustomerName(e.target.value)}
+                                className={inputCls}
+                            />
+                            <input
+                                placeholder="Telefone (WhatsApp)"
+                                value={customerPhone}
+                                onChange={(e) => setCustomerPhone(e.target.value)}
+                                className={inputCls}
+                            />
+                        </div>
+                        <textarea
+                            placeholder="Endereço (texto livre)"
+                            value={customerAddress}
+                            onChange={(e) => setCustomerAddress(e.target.value)}
+                            rows={3}
+                            className={`${inputCls} mt-2 resize-y min-h-[4.5rem]`}
+                        />
+                    </>
+                )}
             </div>
 
             {/* ── Pagamento ── */}
