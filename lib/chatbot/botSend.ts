@@ -65,17 +65,20 @@ export async function botSendList(
     companyId: string,
     threadId: string,
     phoneE164: string,
-    params: Parameters<typeof _sendListMessage>[1]
+    bodyText: string,
+    buttonLabel: string,
+    rows: Array<{ id: string; title: string; description?: string }>,
+    sectionTitle?: string
 ): Promise<void> {
     // Salva corpo da mensagem no histórico
     await sendViaService({
         admin,
         companyId,
         toPhone: phoneE164,
-        text: params.body,
+        text: bodyText,
         threadId,
         senderType: "bot",
     });
     // Envia a lista interativa via Meta API
-    await _sendListMessage(phoneE164, params);
+    await _sendListMessage(phoneE164, bodyText, buttonLabel, rows, sectionTitle);
 }
