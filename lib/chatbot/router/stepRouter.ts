@@ -245,6 +245,41 @@ export async function routeByStep(
             break;
         }
 
+        case "awaiting_removal_selection": {
+            if (!input.startsWith("remove_")) {
+                await reply(phoneE164, "Por favor, escolha um item da lista. 👆");
+                return;
+            }
+
+            const idx = parseInt(input.replace("remove_", ""), 10);
+
+            if (isNaN(idx) || idx < 0 || idx >= session.cart.length) {
+                await reply(phoneE164, "Item inválido. Por favor, tente novamente.");
+                return;
+            }
+
+            const removed = session.cart[idx];
+            const newCart = session.cart.filter((_, i) => i !== idx);
+            const newCtx: Record<string, unknown> = { ...session.context };
+            delete newCtx.pending_removal;
+
+            await saveSession(admin, threadId, companyId, {
+                cart:    newCart,
+                context: newCtx,
+                step:    "main_menu",
+            });
+
+            await sendInteractiveButtons(
+                phoneE164,
+                `✅ Removido: *${removed.qty}x ${removed.name}*\n\n${formatCart(newCart)}\n\nDigite mais produtos ou *finalizar*! 🍺`,
+                [
+                    { id: "1",         title: "🍺 Ver cardápio" },
+                    { id: "finalizar", title: "Finalizar pedido" },
+                ]
+            );
+            break;
+        }
+
         case "awaiting_flow": {
             const FLOW_ESCAPE_RE  = /\b(?:cancelar|sair|voltar|menu|oi|ola)\b/iu;
             const flowStartedAt   = session.context.flow_started_at as string | undefined;

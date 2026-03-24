@@ -20,7 +20,7 @@ import {
 import { getCachedProducts } from "../TextParserService";
 import { parsedItemsToCartItems } from "../OrderParserService";
 import { parseWithFactory } from "../parsers/ParserFactory";
-import { parseWithRegex, extractProductRequests } from "../parsers/RegexParser";
+import { parseWithRegex, extractProductRequests, extractRemoveRequest } from "../parsers/RegexParser";
 import { findProductWithPackaging } from "../parsers/ProductMatcher";
 import { findDeliveryZone } from "../db/variants";
 import { replyWithOrderStatus } from "../db/orders";
@@ -63,6 +63,7 @@ const SKIP_PARSER_STEPS = new Set([
     "awaiting_variant_selection",
     "awaiting_item_confirmation",
     "awaiting_packaging_selection",
+    "awaiting_removal_selection",
     "done",
     "handover",
 ]);
@@ -121,6 +122,61 @@ export async function runParserChain(
         return { handled: false };
     }
 
+    // ── Remove from cart ──────────────────────────────────────────────────────
+    const removeReq = extractRemoveRequest(input);
+    if (removeReq && session.cart.length > 0) {
+        const searchLower = removeReq.produto.toLowerCase();
+        const matchIdxs   = session.cart
+            .map((item, idx) => ({ item, idx }))
+            .filter(({ item }) => item.name.toLowerCase().includes(searchLower))
+            .map(({ idx }) => idx);
+
+        if (matchIdxs.length === 0) {
+            await reply(
+                phoneE164,
+                `Não encontrei *${removeReq.produto}* no seu carrinho.\n\n${formatCart(session.cart)}`
+            );
+            return { handled: true };
+        }
+
+        if (matchIdxs.length === 1) {
+            const removed = session.cart[matchIdxs[0]];
+            const newCart = session.cart.filter((_, i) => i !== matchIdxs[0]);
+            await saveSession(admin, threadId, companyId, { cart: newCart, context: session.context });
+            await reply(
+                phoneE164,
+                `✅ Removido: *${removed.qty}x ${removed.name}*\n\n${formatCart(newCart)}\n\n` +
+                `Quer adicionar algo ou *finalizar*?`
+            );
+            return { handled: true };
+        }
+
+        // Múltiplos → pergunta qual
+        const removeRows = matchIdxs.map((idx) => {
+            const item = session.cart[idx];
+            return {
+                id:          `remove_${idx}`,
+                title:       truncateTitle(`${item.qty}x ${item.name}`, 24),
+                description: `R$ ${(item.qty * item.price).toFixed(2)}`,
+            };
+        });
+
+        session.context.pending_removal = { indexes: matchIdxs };
+        await saveSession(admin, threadId, companyId, {
+            context: session.context,
+            step:    "awaiting_removal_selection",
+        });
+
+        await sendListMessage(
+            phoneE164,
+            `Encontrei *${matchIdxs.length} itens* com "${removeReq.produto}" no carrinho.\n\nQual você quer remover?`,
+            "Escolher",
+            removeRows,
+            "Itens no Carrinho"
+        );
+        return { handled: true };
+    }
+
     // ── Packaging validation: quantidade + produto → valida em produto_embalagens
     const extracted = extractProductRequests(input);
     if (extracted?.length) {
@@ -173,11 +229,12 @@ export async function runParserChain(
 
             // Múltiplos resultados → exibe lista interativa
             const listRows = matchResult.matches.slice(0, 10).map((m) => {
-                const volStr  = m.volume ? ` ${m.volume}${m.unidade ?? ""}` : "";
-                const descStr = m.descricao ? ` - ${m.descricao}` : "";
+                const volStr   = m.volume ? ` ${m.volume}${m.unidade ?? ""}` : "";
+                const fatorStr = m.fator > 1 ? ` (${m.fator}un)` : "";
+                const descStr  = m.descricao ? ` - ${m.descricao}` : "";
                 return {
                     id:          `pkg_${m.embalagem_id}`,
-                    title:       truncateTitle(`${m.sigla}${volStr}`, 24),
+                    title:       truncateTitle(`${m.sigla}${volStr}${fatorStr}`, 24),
                     description: `R$ ${m.preco.toFixed(2)}${descStr}`.slice(0, 72),
                 };
             });

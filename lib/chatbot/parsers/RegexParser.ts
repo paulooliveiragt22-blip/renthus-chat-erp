@@ -19,6 +19,27 @@ export async function parseWithRegex(
     return parser.parseIntent(input, products, { validateAddressWithGoogle: true });
 }
 
+// ─── Extração de remoção de item ─────────────────────────────────────────────
+
+const REMOVE_RE = /^\s*(?:remov(?:er|e)?|tir(?:ar|a|e)?|exclu(?:ir|i)?|delet(?:ar|a|e)?)\s+(.+)$/i;
+
+/**
+ * Detecta intenção de remover um item do carrinho.
+ * Retorna o nome do produto se encontrar padrão, null caso contrário.
+ *
+ * Exemplos:
+ *   "remover heineken"    → { produto: "heineken" }
+ *   "tirar brahma 330ml"  → { produto: "brahma 330ml" }
+ *   "excluir item 2"      → { produto: "item 2" }
+ */
+export function extractRemoveRequest(input: string): { produto: string } | null {
+    const m = input.trim().match(REMOVE_RE);
+    if (!m) return null;
+    const produto = m[1].trim();
+    if (produto.length < 2) return null;
+    return { produto };
+}
+
 // ─── Extração de pedido explícito ────────────────────────────────────────────
 
 export interface ExtractedRequest {
