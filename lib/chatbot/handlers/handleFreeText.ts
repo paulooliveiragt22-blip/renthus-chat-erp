@@ -23,15 +23,13 @@ import {
 import { buildProductDisplayName } from "../displayHelpers";
 import { extractPackagingIntent, packagingLabel, isBulkPackaging } from "../PackagingExtractor";
 import { getOrderParserService } from "../OrderParserService";
-import { sendWhatsAppMessage, sendInteractiveButtons } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons } from "../../whatsapp/send";
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[chatbot] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 // ─── Handler principal ────────────────────────────────────────────────────────
@@ -65,6 +63,7 @@ export async function handleFreeTextInput(
             },
         });
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `Serão dois pedidos com pagamentos diferentes ou somente um pedido entregue em dois endereços?\n\n` +
             `1️⃣ Dois pedidos separados\n2️⃣ Um pedido, dois endereços`
@@ -125,6 +124,7 @@ export async function handleFreeTextInput(
             });
             const prodMsg = bestProduct ? `✅ Anotado *${pQty >= 1 ? pQty : 1}x ${bestProduct.productName}*.\n\n` : "";
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `${prodMsg}📍 Endereço parcial: *${addrMatch.full}*\n\n` +
                 `Qual é o *número* do endereço? (ex: 120, 456)`
@@ -223,6 +223,7 @@ export async function handleFreeTextInput(
                     ? zones.map((z) => `• ${z.label} — ${formatCurrency(z.fee)}`).join("\n")
                     : "_Nenhuma zona cadastrada ainda._";
                 await reply(
+                    admin, companyId, threadId,
                     phoneE164,
                     `✅ ${itemQty}x *${itemName}* anotado!\n` +
                     `📍 Endereço: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
@@ -233,6 +234,7 @@ export async function handleFreeTextInput(
             } else {
                 // Endereço sem bairro → pede o bairro
                 await reply(
+                    admin, companyId, threadId,
                     phoneE164,
                     `✅ ${itemQty}x *${itemName}* anotado!\n` +
                     `📍 Endereço: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
@@ -263,6 +265,7 @@ export async function handleFreeTextInput(
                 ? zones.map((z) => `• ${z.label} — ${formatCurrency(z.fee)}`).join("\n")
                 : "_Nenhuma zona cadastrada._";
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `📍 Endereço: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
                 `⚠️ Não encontrei *${addrMatch.neighborhood}* nas zonas de entrega.\n` +
@@ -270,6 +273,7 @@ export async function handleFreeTextInput(
             );
         } else {
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `📍 Endereço anotado: *${addrMatch.street}, ${addrMatch.houseNumber}*\n\n` +
                 `Para calcular o frete, qual é o seu *bairro*?`
@@ -299,6 +303,7 @@ export async function handleFreeTextInput(
     if (pkgExplicit && isBulkPackaging(packagingSigla) && !wasFiltered) {
         const pkgNome = packagingLabel(packagingSigla);
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `⚠️ Encontrei o produto, mas ele não está disponível por *${pkgNome}*.\n` +
             `Posso oferecer por *unidade*. Quantas unidades deseja?`
@@ -353,6 +358,7 @@ export async function handleFreeTextInput(
                     },
                 });
                 await reply(
+                    admin, companyId, threadId,
                     phoneE164,
                     `🍺 *${displayName}* — qual opção você quer?\n\n${listLines.join("\n")}\n\n_Digite o número da opção. Ex: *1* para opção 1, *1 2 3* para várias, *1x2 2x3* para quantidades (opção x qtd)_`
                 );
@@ -438,6 +444,7 @@ export async function handleFreeTextInput(
             const unName  = buildProductDisplayName(v, false);
             const pkgNome = packagingLabel(v.bulkSigla);
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `Encontrei:\n\n` +
                 `1. *${unName}* — ${formatCurrency(v.unitPrice)}\n` +
@@ -447,6 +454,7 @@ export async function handleFreeTextInput(
         } else {
             const unName = buildProductDisplayName(v, false);
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `Encontrei *${unName}* por *${formatCurrency(v.unitPrice)}*. 🍺\n\nQuantas unidades deseja?`
             );
@@ -482,6 +490,7 @@ export async function handleFreeTextInput(
         : "";
 
     await reply(
+        admin, companyId, threadId,
         phoneE164,
         `🔍 Encontrei estas opções:\n\n${listText}${moreHint}${multiHint}`
     );

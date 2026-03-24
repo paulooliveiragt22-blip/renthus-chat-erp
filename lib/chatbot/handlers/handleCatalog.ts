@@ -19,7 +19,8 @@ import { handleFreeTextInput } from "./handleFreeText";
 import { buildProductDisplayName } from "../displayHelpers";
 import { isBulkPackaging } from "../PackagingExtractor";
 import { claudeNaturalReply } from "./handleMainMenu";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons, sendListMessage, sendListMessageSections } from "../../whatsapp/send";
 
 // ─── Regex de módulo ──────────────────────────────────────────────────────────
 const MAIS_PRODUTOS_RE = /\bmais\s+produtos\b/iu;
@@ -42,11 +43,8 @@ const PARTS_SPLIT_RE   = /\s+/u;
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[chatbot] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 function formatNumberedList(variants: VariantRow[]): string {
@@ -139,7 +137,7 @@ export async function handleCatalogCategories(
                 lastBotMsg:  "Escolha uma categoria",
                 companyName: "",
             });
-            await reply(phoneE164, naturalReply);
+            await reply(admin, companyId, threadId, phoneE164, naturalReply);
             await sendListMessage(
                 phoneE164,
                 "🍺 Categorias disponíveis:",
@@ -159,7 +157,7 @@ export async function handleCatalogCategories(
             lastBotMsg:  "Escolha uma categoria",
             companyName: "",
         });
-        await reply(phoneE164, naturalReply);
+        await reply(admin, companyId, threadId, phoneE164, naturalReply);
         await sendListMessage(
             phoneE164,
             "🍺 Categorias disponíveis:",
@@ -180,7 +178,7 @@ export async function handleCatalogCategories(
             lastBotMsg:  `Categoria ${selected.name}`,
             companyName: selected.name,
         });
-        await reply(phoneE164, naturalReply);
+        await reply(admin, companyId, threadId, phoneE164, naturalReply);
         await sendListMessage(
             phoneE164,
             "🍺 Escolha outra categoria:",
@@ -256,7 +254,7 @@ export async function handleCatalogProducts(
     // in processMessage.ts already catches "finalizar", but this handles the local scope)
     if (input === "finalizar" || FINALIZAR_RE.test(input) || FECHAR_RE.test(input) || CHECKOUT_CAT_RE.test(input)) {
         if (!session.cart.length) {
-            await reply(phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
+            await reply(admin, companyId, threadId, phoneE164, "Seu carrinho está vazio. Escolha um produto primeiro.");
             return;
         }
         await goToCheckoutFromCartFn(admin, companyId, threadId, phoneE164, session);
@@ -306,6 +304,7 @@ export async function handleCatalogProducts(
                 context: { ...session.context, search_numbered: true },
             });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `🔍 Todas as ${variants.length} opções encontradas:\n\n${listText}\n\nDigite o *número* da opção (ex: *2*) ou vários separados por vírgula (ex: *1,3*).`
             );
@@ -317,7 +316,7 @@ export async function handleCatalogProducts(
                 lastBotMsg:  `Produtos de ${catName}`,
                 companyName: catName,
             });
-            await reply(phoneE164, naturalReply);
+            await reply(admin, companyId, threadId, phoneE164, naturalReply);
         }
         return;
     }
@@ -356,6 +355,7 @@ export async function handleCatalogProducts(
                 ? zones.map((z) => `• ${z.label} — ${formatCurrency(z.fee)}`).join("\n")
                 : "_Nenhuma zona cadastrada ainda._";
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `⚠️ Não atendemos *${input}* ainda.\nNossos bairros de entrega:\n\n${zoneList}\n\n_Qual é o seu bairro?_`
             );
@@ -382,9 +382,9 @@ export async function handleCatalogProducts(
                 lastBotMsg:  `Escolha um número entre 1 e ${Math.min(variants.length, 5)}`,
                 companyName: catName,
             });
-            await reply(phoneE164, naturalReply);
+            await reply(admin, companyId, threadId, phoneE164, naturalReply);
             const listText = formatNumberedList(variants.slice(0, 5));
-            await reply(phoneE164, listText);
+            await reply(admin, companyId, threadId, phoneE164, listText);
             return;
         }
 
@@ -408,7 +408,7 @@ export async function handleCatalogProducts(
                     pending_packaging_sigla: null,
                 },
             });
-            await reply(phoneE164, `${label}${caseInfo}\n\nQuantas unidades deseja?`);
+            await reply(admin, companyId, threadId, phoneE164, `${label}${caseInfo}\n\nQuantas unidades deseja?`);
             return;
         }
 
@@ -473,7 +473,7 @@ export async function handleCatalogProducts(
                 lastBotMsg:  `Quantas unidades de ${buildProductDisplayName(pendingVariant, Boolean(pendingIsCase))}?`,
                 companyName: catName,
             });
-            await reply(phoneE164, naturalReply);
+            await reply(admin, companyId, threadId, phoneE164, naturalReply);
             return;
         }
 
@@ -495,7 +495,7 @@ export async function handleCatalogProducts(
                         lastBotMsg:  "Digite a opção (1 ou 2) e a quantidade, ex: 1 3 ou 2 1",
                         companyName: catName,
                     });
-                    await reply(phoneE164, naturalReply);
+                    await reply(admin, companyId, threadId, phoneE164, naturalReply);
                     return;
                 }
             } else if (parts.length === 1) {
@@ -508,7 +508,7 @@ export async function handleCatalogProducts(
                         lastBotMsg:  "Digite uma quantidade válida (1 a 99) ou opção e quantidade (ex: 2 1)",
                         companyName: catName,
                     });
-                    await reply(phoneE164, naturalReply);
+                    await reply(admin, companyId, threadId, phoneE164, naturalReply);
                     return;
                 }
             } else {
@@ -519,7 +519,7 @@ export async function handleCatalogProducts(
                     lastBotMsg:  "Digite a opção e quantidade, ex: 1 3 ou 2 1",
                     companyName: catName,
                 });
-                await reply(phoneE164, naturalReply);
+                await reply(admin, companyId, threadId, phoneE164, naturalReply);
                 return;
             }
         } else {
@@ -532,7 +532,7 @@ export async function handleCatalogProducts(
                     lastBotMsg:  "Quantas unidades?",
                     companyName: catName,
                 });
-                await reply(phoneE164, naturalReply);
+                await reply(admin, companyId, threadId, phoneE164, naturalReply);
                 return;
             }
         }
@@ -606,7 +606,7 @@ export async function handleCatalogProducts(
                 step:    "catalog_categories",
                 context: { ...session.context, catalog_unknown_count: 0, pending_variant: null, pending_is_case: null },
             });
-            await reply(phoneE164, `Não encontrei _"${input}"_ no catálogo. Tente uma categoria:`);
+            await reply(admin, companyId, threadId, phoneE164, `Não encontrei _"${input}"_ no catálogo. Tente uma categoria:`);
             await sendListMessage(
                 phoneE164,
                 "🍺 Categorias disponíveis:",
@@ -622,9 +622,9 @@ export async function handleCatalogProducts(
         });
 
         // Mensagem simples sem claudeNaturalReply para evitar alucinação de produtos
-        await reply(phoneE164, `Não encontrei _"${input}"_ na lista. Escolha pelo número ou nome:`);
+        await reply(admin, companyId, threadId, phoneE164, `Não encontrei _"${input}"_ na lista. Escolha pelo número ou nome:`);
         if (isNumberedSearch && variants.length > 0) {
-            await reply(phoneE164, formatNumberedList(variants.slice(0, 5)));
+            await reply(admin, companyId, threadId, phoneE164, formatNumberedList(variants.slice(0, 5)));
         } else {
             await sendVariantsList(phoneE164, variants, catName, brandName);
         }
@@ -640,5 +640,5 @@ export async function handleCatalogProducts(
         ? `*${selName} — Caixa com ${selectedVariant.caseQty}un* (${formatCurrency(selectedVariant.casePrice ?? 0)})`
         : `*${selName}* (${formatCurrency(selectedVariant.unitPrice)})`;
 
-    await reply(phoneE164, `${label}\n\nQuantas unidades?`);
+    await reply(admin, companyId, threadId, phoneE164, `${label}\n\nQuantas unidades?`);
 }

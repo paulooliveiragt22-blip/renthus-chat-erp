@@ -13,7 +13,8 @@
 import type { Session, CompanyConfig } from "../types";
 import type { ProcessMessageParams } from "../types";
 import { saveSession } from "../session";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
 import {
     normalize, matchesAny, formatCart, STOPWORDS,
 } from "../utils";
@@ -67,11 +68,8 @@ const GREETING_ALLOWED_STEPS = new Set(["main_menu", "welcome", ""]);
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[intentDetector] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 function resetUnknownCount(session: Session): void {
@@ -140,7 +138,7 @@ export async function detectGlobalIntents(
         if (session.customer_id) {
             await admin.from("customers").update({ name: detectedName }).eq("id", session.customer_id);
         }
-        await reply(phoneE164, `Olá, *${detectedName}*! 😊 Como posso te ajudar?`);
+        await reply(admin, companyId, threadId, phoneE164, `Olá, *${detectedName}*! 😊 Como posso te ajudar?`);
         return { handled: true };
     }
 
@@ -157,6 +155,7 @@ export async function detectGlobalIntents(
                 const newCart = session.cart.filter((_, i) => i !== idx);
                 await saveSession(admin, threadId, companyId, { cart: newCart });
                 await reply(
+                    admin, companyId, threadId,
                     phoneE164,
                     `🗑️ *${item.name}* removido do pedido.\n\n${newCart.length > 0 ? formatCart(newCart) : "Carrinho vazio."}`
                 );
@@ -185,11 +184,11 @@ export async function detectGlobalIntents(
                     if (item.qty > 1) {
                         newCart[idx] = { ...item, qty: item.qty - 1 };
                         await saveSession(admin, threadId, companyId, { cart: newCart, context: session.context });
-                        await reply(phoneE164, `↩️ *${item.name}*: agora ${item.qty - 1}x no carrinho.`);
+                        await reply(admin, companyId, threadId, phoneE164, `↩️ *${item.name}*: agora ${item.qty - 1}x no carrinho.`);
                     } else {
                         newCart.splice(idx, 1);
                         await saveSession(admin, threadId, companyId, { cart: newCart, context: session.context });
-                        await reply(phoneE164, `🗑️ *${item.name}* removido do carrinho.`);
+                        await reply(admin, companyId, threadId, phoneE164, `🗑️ *${item.name}* removido do carrinho.`);
                     }
                     return { handled: true };
                 }
@@ -201,7 +200,7 @@ export async function detectGlobalIntents(
                     step: "awaiting_cancel_confirm",
                     context: { ...session.context, pre_cancel_step: session.step },
                 });
-                await reply(phoneE164, "⚠️ Tem certeza que quer *cancelar o pedido*?\n\nResponda *sim* para confirmar ou *não* para continuar.");
+                await reply(admin, companyId, threadId, phoneE164, "⚠️ Tem certeza que quer *cancelar o pedido*?\n\nResponda *sim* para confirmar ou *não* para continuar.");
                 return { handled: true };
             }
         }
@@ -225,9 +224,9 @@ export async function detectGlobalIntents(
         } else if (isNo) {
             const prevStep = (session.context.pre_cancel_step as string) ?? "main_menu";
             await saveSession(admin, threadId, companyId, { step: prevStep, context: { ...session.context, pre_cancel_step: undefined } });
-            await reply(phoneE164, "Ok, continuando seu pedido! 😊");
+            await reply(admin, companyId, threadId, phoneE164, "Ok, continuando seu pedido! 😊");
         } else {
-            await reply(phoneE164, "Responda *sim* para cancelar o pedido ou *não* para continuar.");
+            await reply(admin, companyId, threadId, phoneE164, "Responda *sim* para cancelar o pedido ou *não* para continuar.");
         }
         return { handled: true };
     }
@@ -328,7 +327,7 @@ export async function detectGlobalIntents(
 
     if (ORDER_STATUS_RE.test(input)) {
         resetUnknownCount(session);
-        await replyWithOrderStatus(admin, companyId, phoneE164);
+        await replyWithOrderStatus(admin, companyId, threadId, phoneE164);
         return { handled: true };
     }
 

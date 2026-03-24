@@ -9,7 +9,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Session, CompanyConfig, CartItem } from "../types";
 import type { ProcessMessageParams } from "../types";
 import { saveSession } from "../session";
-import { sendWhatsAppMessage, sendInteractiveButtons } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons } from "../../whatsapp/send";
 import { normalize, mergeCart, formatCart } from "../utils";
 import { handleMainMenu } from "../handlers/handleMainMenu";
 import {
@@ -23,11 +24,8 @@ import {
 } from "../handlers/handleCheckout";
 import { handleAwaitingAddressNumber, handleAwaitingAddressNeighborhood } from "../handlers/handleAddress";
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[stepRouter] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 export async function routeByStep(
@@ -111,7 +109,7 @@ export async function routeByStep(
                 } | undefined;
 
                 if (!pending) {
-                    await reply(phoneE164, "Desculpe, perdi o contexto. Pode repetir o pedido?");
+                    await reply(admin, companyId, threadId, phoneE164, "Desculpe, perdi o contexto. Pode repetir o pedido?");
                     return;
                 }
 
@@ -167,13 +165,13 @@ export async function routeByStep(
                 return;
             }
 
-            await reply(phoneE164, "Não entendi. Clique em *✅ Sim, adicionar* ou *❌ Cancelar*.");
+            await reply(admin, companyId, threadId, phoneE164, "Não entendi. Clique em *✅ Sim, adicionar* ou *❌ Cancelar*.");
             break;
         }
 
         case "awaiting_packaging_selection": {
             if (!input.startsWith("pkg_")) {
-                await reply(phoneE164, "Por favor, escolha uma das opções da lista. 👆");
+                await reply(admin, companyId, threadId, phoneE164, "Por favor, escolha uma das opções da lista. 👆");
                 return;
             }
 
@@ -195,13 +193,13 @@ export async function routeByStep(
             } | undefined;
 
             if (!pending) {
-                await reply(phoneE164, "Desculpe, perdi o contexto. Pode repetir o pedido?");
+                await reply(admin, companyId, threadId, phoneE164, "Desculpe, perdi o contexto. Pode repetir o pedido?");
                 return;
             }
 
             const selected = pending.options.find((o) => o.embalagem_id === embalagemId);
             if (!selected) {
-                await reply(phoneE164, "Opção inválida. Tente novamente.");
+                await reply(admin, companyId, threadId, phoneE164, "Opção inválida. Tente novamente.");
                 return;
             }
 
@@ -247,14 +245,14 @@ export async function routeByStep(
 
         case "awaiting_removal_selection": {
             if (!input.startsWith("remove_")) {
-                await reply(phoneE164, "Por favor, escolha um item da lista. 👆");
+                await reply(admin, companyId, threadId, phoneE164, "Por favor, escolha um item da lista. 👆");
                 return;
             }
 
             const idx = parseInt(input.replace("remove_", ""), 10);
 
             if (isNaN(idx) || idx < 0 || idx >= session.cart.length) {
-                await reply(phoneE164, "Item inválido. Por favor, tente novamente.");
+                await reply(admin, companyId, threadId, phoneE164, "Item inválido. Por favor, tente novamente.");
                 return;
             }
 
@@ -311,6 +309,7 @@ export async function routeByStep(
                     context: { ...session.context, flow_repeat_count: flowRepeatCount + 1 },
                 });
                 await reply(
+                    admin, companyId, threadId,
                     phoneE164,
                     `Você tem um formulário de endereço aberto. Preencha-o pelo botão acima ou diga *cancelar* para voltar. 😊`
                 );

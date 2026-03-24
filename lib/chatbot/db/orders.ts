@@ -7,15 +7,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CartItem, Customer } from "../types";
 import { cartTotal } from "../utils";
-import { sendWhatsAppMessage } from "../../whatsapp/send";
+import { botReply } from "../botSend";
 
 // ─── Envio (local helper) ─────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[chatbot] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: SupabaseClient, companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 // ─── Cliente ──────────────────────────────────────────────────────────────────
@@ -140,6 +137,7 @@ export async function createOrder(
 export async function replyWithOrderStatus(
     admin: SupabaseClient,
     companyId: string,
+    threadId: string,
     phoneE164: string
 ): Promise<void> {
     const { data: recentOrder } = await admin
@@ -162,10 +160,11 @@ export async function replyWithOrderStatus(
         const total = Number(recentOrder.total_amount ?? 0)
             .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `Seu último pedido:\n\n🧾 Status: *${statusText}*\n💰 Total: *${total}*\n\nPrecisa de mais alguma coisa?`
         );
     } else {
-        await reply(phoneE164, "Não encontrei pedidos recentes para o seu número. Posso te ajudar a fazer um novo pedido! 🛒");
+        await reply(admin, companyId, threadId, phoneE164, "Não encontrei pedidos recentes para o seu número. Posso te ajudar a fazer um novo pedido! 🛒");
     }
 }

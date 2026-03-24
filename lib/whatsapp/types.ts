@@ -24,6 +24,7 @@ export type Message = {
     created_at: string;
     num_media?: number | null;
     raw_payload?: Record<string, unknown>;
+    sender_type?: "human" | "bot" | "system" | null;
 };
 
 export type Usage = {

@@ -19,6 +19,7 @@ export interface SendMessageParams {
     toPhone: string;       // E.164, ex: +5565999999999
     text: string;
     threadId?: string | null;
+    senderType?: "human" | "bot" | "system";
 }
 
 export interface SendMessageResult {
@@ -32,7 +33,7 @@ export interface SendMessageResult {
 export async function sendWhatsAppMessage(
     params: SendMessageParams
 ): Promise<SendMessageResult> {
-    const { admin, companyId, toPhone, text, threadId } = params;
+    const { admin, companyId, toPhone, text, threadId, senderType = "human" } = params;
 
     // 1. Canal ativo da empresa
     const { data: channel, error: chErr } = await admin
@@ -78,6 +79,7 @@ export async function sendWhatsAppMessage(
             num_media: 0,
             status: "pending",
             raw_payload: null,
+            sender_type: senderType,
         })
         .select("id")
         .single();

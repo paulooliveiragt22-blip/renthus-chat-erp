@@ -10,15 +10,13 @@ import { saveSession } from "../session";
 import { normalize, matchesAny, formatCart, buildMainMenu } from "../utils";
 import { getCategories } from "../db/variants";
 import { handleFreeTextInput } from "./handleFreeText";
-import { sendWhatsAppMessage, sendListMessage } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendListMessage } from "../../whatsapp/send";
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[chatbot] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 // ─── goToCart ─────────────────────────────────────────────────────────────────
@@ -32,7 +30,7 @@ export async function goToCart(
 ): Promise<void> {
     if (!session.cart.length) {
         await saveSession(admin, threadId, companyId, { step: "main_menu" });
-        await reply(phoneE164, "Carrinho vazio. Digite *1* para ver o cardápio.");
+        await reply(admin, companyId, threadId, phoneE164, "Carrinho vazio. Digite *1* para ver o cardápio.");
         return;
     }
 
@@ -40,6 +38,7 @@ export async function goToCart(
 
     const hasCheckoutData = !!(session.context.delivery_address && session.context.payment_method);
     await reply(
+        admin, companyId, threadId,
         phoneE164,
         `🛒 *Seu carrinho:*\n\n${formatCart(session.cart)}\n\n` +
         `Digite *finalizar* para ${hasCheckoutData ? "confirmar o pedido" : "fechar o pedido"}\n` +
@@ -62,7 +61,7 @@ export async function handleCart(
 ): Promise<void> {
     if (matchesAny(input, ["finalizar", "fechar", "checkout", "confirmar"])) {
         if (!session.cart.length) {
-            await reply(phoneE164, "Seu carrinho está vazio. Digite *1* para ver o cardápio.");
+            await reply(admin, companyId, threadId, phoneE164, "Seu carrinho está vazio. Digite *1* para ver o cardápio.");
             return;
         }
         await goToCheckoutFromCartFn(admin, companyId, threadId, phoneE164, session);
@@ -73,7 +72,7 @@ export async function handleCart(
     if (input === "mais_produtos" || matchesAny(input, ["mais produtos", "adicionar", "continuar"])) {
         const categories = (session.context.categories as Category[]) ?? await getCategories(admin, companyId);
         if (!categories.length) {
-            await reply(phoneE164, "Nenhuma categoria disponível. Tente novamente.");
+            await reply(admin, companyId, threadId, phoneE164, "Nenhuma categoria disponível. Tente novamente.");
             return;
         }
         await saveSession(admin, threadId, companyId, {
@@ -93,7 +92,7 @@ export async function handleCart(
 
     if (matchesAny(input, ["limpar", "esvaziar"])) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
-        await reply(phoneE164, "Carrinho esvaziado.\n\n" + buildMainMenu(companyName));
+        await reply(admin, companyId, threadId, phoneE164, "Carrinho esvaziado.\n\n" + buildMainMenu(companyName));
         return;
     }
 
@@ -106,6 +105,7 @@ export async function handleCart(
             const newCart = session.cart.filter((_, i) => i !== idx);
             await saveSession(admin, threadId, companyId, { cart: newCart });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `🗑️ *${removed.name}* removido.\n\n${formatCart(newCart)}\n\n` +
                 `_Digite *finalizar* para fechar o pedido ou *menu* para continuar comprando._`

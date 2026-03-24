@@ -17,7 +17,8 @@ import {
 import { getCategories } from "../db/variants";
 import { getOrCreateCustomer } from "../db/orders";
 import { handleFreeTextInput } from "./handleFreeText";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
 import { searchProductsForTool } from "../services/dbService";
 
 // ─── claudeNaturalReply ───────────────────────────────────────────────────────
@@ -181,11 +182,8 @@ export function sanitizeClaudeReply(text: string, catalogPrices: number[]): stri
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[chatbot] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 // ─── Envia menu como botões interativos ───────────────────────────────────────
@@ -223,6 +221,7 @@ export async function doHandover(
     ]);
 
     await reply(
+        admin, companyId, threadId,
         phoneE164,
         `👋 Vou te conectar com um atendente do *${companyName}*.\n\n` +
         `_Aguarde, alguém responderá em breve._`
@@ -286,7 +285,7 @@ export async function handleLowConfidenceFallback(
     const catalogPrices = products.map((p) => p.unitPrice);
     const naturalReply = sanitizeClaudeReply(rawReply, catalogPrices);
 
-    await reply(phoneE164, naturalReply);
+    await reply(admin, companyId, threadId, phoneE164, naturalReply);
     return true;
 }
 
@@ -329,7 +328,7 @@ export async function handleMainMenu(
         if (!isWithinBusinessHours(settings)) {
             const msg = (settings?.closed_message as string) ??
                 "Olá! No momento estamos fechados. Volte em breve. 😊";
-            await reply(phoneE164, msg);
+            await reply(admin, companyId, threadId, phoneE164, msg);
             return;
         }
 
@@ -348,7 +347,7 @@ export async function handleMainMenu(
             if (ftEarly === "handled") return;
             if (ftEarly === "notfound") {
                 await saveSession(admin, threadId, companyId, { step: "main_menu" });
-                await reply(phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
+                await reply(admin, companyId, threadId, phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
                 return;
             }
         }
@@ -371,7 +370,7 @@ export async function handleMainMenu(
         const categories = await getCategories(admin, companyId);
 
         if (!categories.length) {
-            await reply(phoneE164, "Ops! Nenhuma categoria cadastrada ainda. Tente mais tarde. 😅");
+            await reply(admin, companyId, threadId, phoneE164, "Ops! Nenhuma categoria cadastrada ainda. Tente mais tarde. 😅");
             return;
         }
 
@@ -396,7 +395,7 @@ export async function handleMainMenu(
         const customer = await getOrCreateCustomer(admin, companyId, phoneE164, profileName);
 
         if (!customer) {
-            await reply(phoneE164, "Não encontrei cadastro para o seu número. 😅");
+            await reply(admin, companyId, threadId, phoneE164, "Não encontrei cadastro para o seu número. 😅");
             return;
         }
 
@@ -410,7 +409,7 @@ export async function handleMainMenu(
             .maybeSingle();
 
         if (!lastOrder) {
-            await reply(phoneE164,
+            await reply(admin, companyId, threadId, phoneE164,
                 "Você ainda não fez nenhum pedido por aqui. 😊\n" +
                 "Digite *1* para ver o cardápio!"
             );
@@ -431,6 +430,7 @@ export async function handleMainMenu(
         const date  = new Date(lastOrder.created_at).toLocaleString("pt-BR");
 
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `*Seu último pedido:*\n\n` +
             `📋 Status: ${label}\n` +
@@ -456,7 +456,7 @@ export async function handleMainMenu(
     if (sentMenu) return;
 
     if (ftResult === "notfound") {
-        await reply(phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
+        await reply(admin, companyId, threadId, phoneE164, `Não encontrei _"${input}"_.\n\n${getMenuOptionsOnly()}`);
         return;
     }
 
@@ -470,7 +470,7 @@ export async function handleMainMenu(
         admin,
         companyId,
     });
-    await reply(phoneE164, naturalReply);
+    await reply(admin, companyId, threadId, phoneE164, naturalReply);
     await sendInteractiveButtons(
         phoneE164,
         `Como posso te ajudar no *${companyName}*?`,

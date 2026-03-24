@@ -13,15 +13,13 @@ import { formatCurrency } from "../utils";
 import { findDeliveryZone } from "../db/variants";
 import { getOrderParserService } from "../OrderParserService";
 import { claudeNaturalReply } from "./handleMainMenu";
-import { sendWhatsAppMessage, sendInteractiveButtons } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons } from "../../whatsapp/send";
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[chatbot] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 /** Envio dos botões de pagamento — duplicado aqui para evitar circular import com handleCheckout.ts */
@@ -108,7 +106,7 @@ export async function commitAddress(
     });
 
     const feeText = zone ? `\n🛵 Taxa ${zone.label}: *${formatCurrency(zone.fee)}*` : "";
-    await reply(phoneE164, `📍 Endereço confirmado: *${finalAddr}* — ${neighborhood}${feeText}`);
+    await reply(admin, companyId, threadId, phoneE164, `📍 Endereço confirmado: *${finalAddr}* — ${neighborhood}${feeText}`);
     await sendPaymentButtonsAddr(phoneE164);
 }
 
@@ -125,14 +123,14 @@ export async function handleAwaitingAddressNumber(
     const addressDraft = (session.context.address_draft as string) ?? "";
     if (!addressDraft) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", context: { ...session.context, address_draft: undefined } });
-        await reply(phoneE164, "Não encontrei o endereço anterior. Pode informar novamente? (Ex: Rua das Flores, 123)");
+        await reply(admin, companyId, threadId, phoneE164, "Não encontrei o endereço anterior. Pode informar novamente? (Ex: Rua das Flores, 123)");
         return;
     }
 
     const numMatch = input.trim().match(/(\d{1,5})/u);
     const number = numMatch ? numMatch[1] : input.trim();
     if (!number) {
-        await reply(phoneE164, "Por favor, digite apenas o *número* do endereço (ex: 120).");
+        await reply(admin, companyId, threadId, phoneE164, "Por favor, digite apenas o *número* do endereço (ex: 120).");
         return;
     }
 
@@ -156,7 +154,7 @@ export async function handleAwaitingAddressNumber(
                 lastBotMsg:  "Qual é o número do endereço?",
                 companyName: "",
             });
-            await reply(phoneE164, `${naturalReply}\n\n_Ex: Rua das Flores, 123, Centro_`);
+            await reply(admin, companyId, threadId, phoneE164, `${naturalReply}\n\n_Ex: Rua das Flores, 123, Centro_`);
             return;
         }
 
@@ -179,6 +177,7 @@ export async function handleAwaitingAddressNumber(
                 },
             });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `📍 Endereço: *${finalAddr}*\n\n` +
                 `Para calcular o frete, qual é o seu *bairro*? (ex: Centro, Residencial Bela Vista)`
@@ -197,7 +196,7 @@ export async function handleAwaitingAddressNumber(
         lastBotMsg:  "Qual é o número do endereço?",
         companyName: "",
     });
-    await reply(phoneE164, naturalReply);
+    await reply(admin, companyId, threadId, phoneE164, naturalReply);
 }
 
 // ─── handleAwaitingAddressNeighborhood ────────────────────────────────────────
@@ -213,7 +212,7 @@ export async function handleAwaitingAddressNeighborhood(
     const addressDraft = (session.context.address_draft as string) ?? "";
     if (!addressDraft) {
         await saveSession(admin, threadId, companyId, { step: "checkout_address", context: { ...session.context, awaiting_address: true } });
-        await reply(phoneE164, "Não encontrei o endereço anterior. Pode informar novamente? (Ex: Rua das Flores, 123)");
+        await reply(admin, companyId, threadId, phoneE164, "Não encontrei o endereço anterior. Pode informar novamente? (Ex: Rua das Flores, 123)");
         return;
     }
 
@@ -226,7 +225,7 @@ export async function handleAwaitingAddressNeighborhood(
             lastBotMsg:  "Qual é o bairro?",
             companyName: "",
         });
-        await reply(phoneE164, naturalReply);
+        await reply(admin, companyId, threadId, phoneE164, naturalReply);
         return;
     }
 

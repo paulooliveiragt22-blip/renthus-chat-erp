@@ -19,15 +19,13 @@ import { handleFreeTextInput } from "./handleFreeText";
 import { buildProductDisplayName } from "../displayHelpers";
 import { getOrderParserService } from "../OrderParserService";
 import { getWhatsAppConfig } from "../../whatsapp/getConfig";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendFlowMessage, sendListMessage } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons, sendFlowMessage, sendListMessage } from "../../whatsapp/send";
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[chatbot] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 // ─── sendPaymentButtons ───────────────────────────────────────────────────────
@@ -63,6 +61,9 @@ export function isAddressComplete(session: Session): boolean {
  * Se faltar número do endereço, pergunta pela informação e não exibe botão Confirmar.
  */
 export async function sendOrderSummary(
+    admin: Parameters<typeof botReply>[0],
+    companyId: string,
+    threadId: string,
     phoneE164: string,
     session: Session
 ): Promise<void> {
@@ -83,6 +84,7 @@ export async function sendOrderSummary(
     const addressComplete = isAddressComplete(session);
     if (!addressComplete) {
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `📋 *Resumo do pedido:*\n\n${formatCart(cart)}${feeText}\n` +
             `📍 Endereço: ${address}\n\n` +
@@ -96,6 +98,7 @@ export async function sendOrderSummary(
     }
 
     await reply(
+        admin, companyId, threadId,
         phoneE164,
         `📋 *Resumo do pedido:*\n\n` +
         `${formatCart(cart)}\n` +
@@ -167,6 +170,7 @@ export async function goToCheckoutAddress(
         context:     { ...session.context, saved_address: null, awaiting_address: true, skip_saved_addresses: undefined },
     });
     await reply(
+        admin, companyId, threadId,
         phoneE164,
         `📍 Qual é o seu *endereço de entrega*?\n\n_Ex: Rua das Flores, 123, Bairro Centro_`
     );
@@ -191,7 +195,7 @@ export async function goToCheckoutFromCart(
 
     if (address && payment) {
         await saveSession(admin, threadId, companyId, { step: "checkout_confirm" });
-        await sendOrderSummary(phoneE164, session);
+        await sendOrderSummary(admin, companyId, threadId, phoneE164, session);
         return;
     }
 
@@ -314,7 +318,7 @@ export async function handleAwaitingAddressSelection(
                 lastBotMsg:  "Escolha um endereço salvo ou adicione um novo",
                 companyName: "",
             });
-            await reply(phoneE164, naturalReply);
+            await reply(admin, companyId, threadId, phoneE164, naturalReply);
             return;
         }
 
@@ -362,7 +366,7 @@ export async function handleAwaitingAddressSelection(
                     delivery_zone_id: zone?.id ?? null,
                 },
             });
-            await reply(phoneE164, `📍 Endereço confirmado: *${finalAddr}*`);
+            await reply(admin, companyId, threadId, phoneE164, `📍 Endereço confirmado: *${finalAddr}*`);
             await sendPaymentButtons(phoneE164);
             return;
         }
@@ -376,7 +380,7 @@ export async function handleAwaitingAddressSelection(
         lastBotMsg:  "Escolha um endereço salvo ou adicione um novo",
         companyName: "",
     });
-    await reply(phoneE164, naturalReply);
+    await reply(admin, companyId, threadId, phoneE164, naturalReply);
 
     const savedAddrs = (session.context.saved_addresses as Array<{
         id: string; apelido: string | null; logradouro: string | null;
@@ -436,7 +440,7 @@ export async function handleCheckoutAddress(
             lastBotMsg:  "Qual é o seu endereço de entrega?",
             companyName: "",
         });
-        await reply(phoneE164, naturalReply);
+        await reply(admin, companyId, threadId, phoneE164, naturalReply);
         return;
     }
 
@@ -446,7 +450,7 @@ export async function handleCheckoutAddress(
             step:    "awaiting_address_number",
             context: { ...session.context, address_draft: input, saved_address: null, awaiting_address: false },
         });
-        await reply(phoneE164, `📍 Endereço parcial: *${input}*\n\nQual é o *número* do endereço? (ex: 120, 456)`);
+        await reply(admin, companyId, threadId, phoneE164, `📍 Endereço parcial: *${input}*\n\nQual é o *número* do endereço? (ex: 120, 456)`);
         return;
     }
 
@@ -465,7 +469,7 @@ export async function handleCheckoutAddress(
             lastBotMsg:  "Qual é o seu endereço de entrega?",
             companyName: "",
         });
-        await reply(phoneE164, `${naturalReply}\n\n_Ex: Rua das Flores, 123, Centro_`);
+        await reply(admin, companyId, threadId, phoneE164, `${naturalReply}\n\n_Ex: Rua das Flores, 123, Centro_`);
         return;
     }
 
@@ -488,6 +492,7 @@ export async function handleCheckoutAddress(
             },
         });
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `📍 Endereço: *${finalAddr}*\n\n` +
             `Para calcular o frete, qual é o seu *bairro*? (ex: Centro, Residencial Bela Vista)`
@@ -516,7 +521,7 @@ export async function handleCheckoutPayment(
         if (!matchesAny(input, ["nao", "não", "n", "sem troco"])) {
             const parsed = parseFloat(input.replace(",", ".").replace(/[^0-9.]/g, ""));
             if (isNaN(parsed) || parsed <= 0) {
-                await reply(phoneE164, "Digite o valor do troco (ex: *50*) ou *não* se não precisar.");
+                await reply(admin, companyId, threadId, phoneE164, "Digite o valor do troco (ex: *50*) ou *não* se não precisar.");
                 return;
             }
             changeFor = parsed;
@@ -526,7 +531,7 @@ export async function handleCheckoutPayment(
             step:    "checkout_confirm",
             context: { ...session.context, change_for: changeFor, awaiting_change_for: false },
         });
-        await sendOrderSummary(phoneE164, { ...session, context: { ...session.context, change_for: changeFor, awaiting_change_for: false } });
+        await sendOrderSummary(admin, companyId, threadId, phoneE164, { ...session, context: { ...session.context, change_for: changeFor, awaiting_change_for: false } });
         return;
     }
 
@@ -557,7 +562,7 @@ export async function handleCheckoutPayment(
             lastBotMsg:  "Como deseja pagar? PIX, Cartão ou Dinheiro",
             companyName: "",
         });
-        await reply(phoneE164, naturalReply);
+        await reply(admin, companyId, threadId, phoneE164, naturalReply);
         await sendPaymentButtons(phoneE164);
         return;
     }
@@ -566,7 +571,7 @@ export async function handleCheckoutPayment(
         await saveSession(admin, threadId, companyId, {
             context: { ...session.context, payment_method: "cash", awaiting_change_for: true },
         });
-        await reply(phoneE164, "💵 Troco para quanto?\n\nDigite o valor (ex: *50*) ou *não* se não precisar de troco.");
+        await reply(admin, companyId, threadId, phoneE164, "💵 Troco para quanto?\n\nDigite o valor (ex: *50*) ou *não* se não precisar de troco.");
         return;
     }
 
@@ -575,7 +580,7 @@ export async function handleCheckoutPayment(
         step:    "checkout_confirm",
         context: { ...session.context, payment_method: method },
     });
-    await sendOrderSummary(phoneE164, { ...session, context: { ...session.context, payment_method: method } });
+    await sendOrderSummary(admin, companyId, threadId, phoneE164, { ...session, context: { ...session.context, payment_method: method } });
 }
 
 // ─── handleCheckoutConfirm ────────────────────────────────────────────────────
@@ -625,6 +630,7 @@ export async function handleCheckoutConfirm(
             context: session.context, // preserva endereço, pagamento, etc.
         });
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `Entendido! Pode digitar o que deseja *adicionar* ou *remover* do seu carrinho.\n\n` +
             `${formatCart(session.cart)}\n\n` +
@@ -637,7 +643,7 @@ export async function handleCheckoutConfirm(
     if (session.context.awaiting_name_confirm) {
         const nameInput = input.trim();
         if (nameInput.length < 2) {
-            await reply(phoneE164, "Por favor, digite seu nome completo.");
+            await reply(admin, companyId, threadId, phoneE164, "Por favor, digite seu nome completo.");
             return;
         }
 
@@ -674,6 +680,7 @@ export async function handleCheckoutConfirm(
                 context: { ...session.context, awaiting_name_confirm: false, awaiting_age_confirm: true },
             });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 "Para prosseguir com o pedido, confirme: você é *maior de 18 anos*? Responda *sim* ou *não*."
             );
@@ -694,6 +701,7 @@ export async function handleCheckoutConfirm(
                 ? `💳 Pagamento: Dinheiro${changeFor ? ` (troco para ${formatCurrency(changeFor)})` : ""}`
                 : `💳 Pagamento: ${pmLabels[paymentMethod] ?? paymentMethod}`;
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `✅ *Pedido confirmado!* 🍺\n\n${formatCart(cartSnapshot)}\n\n📍 Endereço: ${address}\n${paymentLine}\n🔖 Pedido: #${orderShort}\n\n📦 Recebemos seu pedido e já estamos preparando!\n_Obrigado por pedir no ${companyName}!_`
             );
@@ -703,14 +711,14 @@ export async function handleCheckoutConfirm(
                     const lines = accompaniments.map((v) => {
                             return `• ${buildProductDisplayName(v)} — ${formatCurrency(v.unitPrice)}`;
                     });
-                    await reply(phoneE164, `🛒 *Que tal adicionar ao seu pedido?*\n\n${lines.join("\n")}\n\n_Digite *1* para ver o cardápio completo ou *menu* para voltar ao início._`);
+                    await reply(admin, companyId, threadId, phoneE164, `🛒 *Que tal adicionar ao seu pedido?*\n\n${lines.join("\n")}\n\n_Digite *1* para ver o cardápio completo ou *menu* para voltar ao início._`);
                 }
             } catch { /* ignore */ }
             return;
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error("[checkout_confirm] ERRO ao criar pedido:", msg);
-            await reply(phoneE164, "Desculpe, houve um erro ao registrar seu pedido. Por favor, fale com um atendente. 😞");
+            await reply(admin, companyId, threadId, phoneE164, "Desculpe, houve um erro ao registrar seu pedido. Por favor, fale com um atendente. 😞");
             return;
         }
     }
@@ -741,6 +749,7 @@ export async function handleCheckoutConfirm(
             // Após confirmar maioridade, segue fluxo normal de confirmação abaixo
         } else if (matchesAny(input, ["nao", "não", "n", "sou menor", "menor"])) {
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 "Para continuar, é necessário ser maior de 18 anos. Seu pedido não foi finalizado."
             );
@@ -748,6 +757,7 @@ export async function handleCheckoutConfirm(
             return;
         } else {
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 "Por favor, responda *sim* se você é maior de 18 anos, ou *não* se não for."
             );
@@ -764,8 +774,8 @@ export async function handleCheckoutConfirm(
             lastBotMsg:  "Confirmar o pedido?",
             companyName: "",
         });
-        await reply(phoneE164, naturalReply);
-        await sendOrderSummary(phoneE164, session);
+        await reply(admin, companyId, threadId, phoneE164, naturalReply);
+        await sendOrderSummary(admin, companyId, threadId, phoneE164, session);
         return;
     }
 
@@ -775,7 +785,7 @@ export async function handleCheckoutConfirm(
         const recovered = await getOrCreateCustomer(admin, companyId, phoneE164);
         if (!recovered) {
             console.error("[checkout_confirm] Falha ao recuperar customer | threadId:", threadId);
-            await reply(phoneE164, "Houve um erro interno. Por favor, tente novamente. 😞");
+            await reply(admin, companyId, threadId, phoneE164, "Houve um erro interno. Por favor, tente novamente. 😞");
             return;
         }
         customerId = recovered.id;
@@ -794,7 +804,7 @@ export async function handleCheckoutConfirm(
         await saveSession(admin, threadId, companyId, {
             context: { ...session.context, awaiting_name_confirm: true },
         });
-        await reply(phoneE164, "Para finalizar, qual é o seu *nome*?");
+        await reply(admin, companyId, threadId, phoneE164, "Para finalizar, qual é o seu *nome*?");
         return;
     }
 
@@ -803,6 +813,7 @@ export async function handleCheckoutConfirm(
             context: { ...session.context, awaiting_age_confirm: true },
         });
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             "Para prosseguir com o pedido, confirme: você é *maior de 18 anos*? Responda *sim* ou *não*."
         );
@@ -828,6 +839,7 @@ export async function handleCheckoutConfirm(
             : `💳 Pagamento: ${pmLabels[paymentMethod] ?? paymentMethod}`;
 
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `✅ *Pedido confirmado!* 🍺\n\n` +
             `${formatCart(cartSnapshot)}\n\n` +
@@ -847,6 +859,7 @@ export async function handleCheckoutConfirm(
                     return `• ${buildProductDisplayName(v)} — ${formatCurrency(v.unitPrice)}`;
                 });
                 await reply(
+                    admin, companyId, threadId,
                     phoneE164,
                     `🛒 *Que tal adicionar ao seu pedido?*\n\n${lines.join("\n")}\n\n` +
                     `_Digite *1* para ver o cardápio completo ou *menu* para voltar ao início._`
@@ -858,6 +871,7 @@ export async function handleCheckoutConfirm(
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[checkout_confirm] ERRO ao criar pedido:", msg);
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `Desculpe, houve um erro ao registrar seu pedido. Por favor, fale com um atendente. 😞`
         );
@@ -877,7 +891,7 @@ export async function handleAwaitingVariantSelection(
     const variantOptions = (session.context.variant_options as VariantRow[]) ?? [];
     if (!variantOptions.length) {
         await saveSession(admin, threadId, companyId, { step: "catalog_products" });
-        await reply(phoneE164, "Não encontrei as opções anteriores. O que você gostaria?");
+        await reply(admin, companyId, threadId, phoneE164, "Não encontrei as opções anteriores. O que você gostaria?");
         return;
     }
 
@@ -944,7 +958,7 @@ export async function handleAwaitingVariantSelection(
             const price  = isCase ? (v.casePrice ?? v.unitPrice) : v.unitPrice;
             return `${NUMBER_EMOJIS[i] ?? `${i + 1}.`} *${nm}* — ${formatCurrency(price)}`;
         }).join("\n");
-        await reply(phoneE164,
+        await reply(admin, companyId, threadId, phoneE164,
             `Escolha pelo número da opção:\n\n${listText}\n\n` +
             `_Ex: *1* · *2 3* = opção 2 com 3un · *1x2 2x5* = opção 1 (2un) + opção 2 (5un)_`
         );
@@ -1004,7 +1018,7 @@ export async function handleAwaitingSplitOrder(
             step: "checkout_address",
             context: { ...session.context, split_order: true, awaiting_address: true },
         });
-        await reply(phoneE164, "📍 Dois pedidos separados! Qual é o *primeiro endereço de entrega*?");
+        await reply(admin, companyId, threadId, phoneE164, "📍 Dois pedidos separados! Qual é o *primeiro endereço de entrega*?");
         return;
     }
 
@@ -1019,11 +1033,12 @@ export async function handleAwaitingSplitOrder(
                 delivery_address: addr1 && addr2 ? `${addr1} / ${addr2}` : addr1 || addr2,
             },
         });
-        await reply(phoneE164, `📍 Certo! Entregaremos em *${addr1}* e *${addr2}*.\n\nContinue adicionando produtos ou finalize o pedido.`);
+        await reply(admin, companyId, threadId, phoneE164, `📍 Certo! Entregaremos em *${addr1}* e *${addr2}*.\n\nContinue adicionando produtos ou finalize o pedido.`);
         return;
     }
 
     await reply(
+        admin, companyId, threadId,
         phoneE164,
         "Serão dois pedidos com pagamentos diferentes ou somente um pedido entregue em dois endereços?\n\n" +
         "1️⃣ Dois pedidos separados\n2️⃣ Um pedido, dois endereços"

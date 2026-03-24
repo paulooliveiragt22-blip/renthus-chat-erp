@@ -178,6 +178,7 @@ export default function WhatsAppInbox() {
     const messagesAreaRef   = useRef<HTMLDivElement | null>(null);
     const threadsAbortRef   = useRef<AbortController | null>(null);
     const messagesAbortRef  = useRef<AbortController | null>(null);
+    const prevThreadIdRef   = useRef<string | null>(null);
 
     // Profile cache: phone → {profile, ts}
     const profileCacheRef = useRef<Map<string, { profile: CustomerProfile; ts: number }>>(new Map());
@@ -350,16 +351,25 @@ export default function WhatsAppInbox() {
         window.history.replaceState({}, "", url.toString());
     }, [selectedThreadId]);
 
-    // Smart auto-scroll: only scroll if near bottom or first load
+    // Smart auto-scroll: instant on thread change, smooth on new messages near bottom
     useEffect(() => {
         if (loadingMessages) return;
         const area = messagesAreaRef.current;
         if (!area) return;
-        // On first load of a thread, always scroll to bottom
+
         const id = requestAnimationFrame(() => {
-            if (!messagesAreaRef.current) return;
-            if (isNearBottom(messagesAreaRef.current) || loadingMessages === false) {
-                bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            const a = messagesAreaRef.current;
+            if (!a) return;
+
+            const isNewThread = selectedThreadId !== prevThreadIdRef.current;
+            prevThreadIdRef.current = selectedThreadId;
+
+            if (isNewThread) {
+                // Primeira carga da thread: pulo instantâneo sem animação
+                a.scrollTop = a.scrollHeight;
+            } else if (isNearBottom(a)) {
+                // Nova mensagem chegou e já estávamos perto do final: scroll suave
+                a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
             }
         });
         return () => cancelAnimationFrame(id);
@@ -403,8 +413,9 @@ export default function WhatsAppInbox() {
                                 return [...prev, newMsg];
                             });
                             requestAnimationFrame(() => {
-                                if (messagesAreaRef.current && isNearBottom(messagesAreaRef.current)) {
-                                    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+                                const a = messagesAreaRef.current;
+                                if (a && isNearBottom(a)) {
+                                    a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
                                 }
                             });
                         } else {
@@ -465,7 +476,8 @@ export default function WhatsAppInbox() {
         };
         setMessages((prev) => [...prev, optimisticMsg]);
         requestAnimationFrame(() => {
-            bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            const a = messagesAreaRef.current;
+            if (a) a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
         });
 
         let body: any = { to_phone_e164: selectedThread.phone_e164, text };
@@ -877,6 +889,7 @@ export default function WhatsAppInbox() {
                         <div className="flex flex-col gap-2">
                             {messages.map((m) => {
                                 const isOut     = m.direction === "out" || m.direction === "outbound";
+                                const isBot     = m.sender_type === "bot";
                                 const isSending = m.id.startsWith("opt_");
                                 const rawMedia  = (m.raw_payload && (m.raw_payload as any)._media) || null;
                                 const hasRawMedia = (m.num_media ?? 0) > 0 && rawMedia;
@@ -956,8 +969,13 @@ export default function WhatsAppInbox() {
                                                 <p className={`text-xs italic ${isOut ? "text-white/60" : "text-zinc-400"}`}>Mensagem sem texto</p>
                                             ) : null}
 
-                                            {/* Hora + status */}
+                                            {/* Hora + status + remetente */}
                                             <div className={`mt-1 flex items-center gap-1.5 text-[10px] ${isOut ? "justify-end text-white/60" : "text-zinc-400"}`}>
+                                                {isBot && (
+                                                    <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[9px] font-semibold">
+                                                        🤖 Bot
+                                                    </span>
+                                                )}
                                                 <span>{isSending ? "Enviando..." : formatDT(m.created_at)}</span>
                                                 {isOut && !isSending && <span>• {m.status ?? "sent"}</span>}
                                             </div>

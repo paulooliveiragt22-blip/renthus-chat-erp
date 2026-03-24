@@ -10,7 +10,8 @@ import type { Session, CompanyConfig } from "../types";
 import type { ProcessMessageParams } from "../types";
 import type { MessageIntent } from "../parsers/ClaudeParser";
 import { saveSession } from "../session";
-import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
+import { botReply } from "../botSend";
+import { sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
 import {
     matchesAny, formatCart, mergeCart, truncateTitle,
 } from "../utils";
@@ -70,11 +71,8 @@ const SKIP_PARSER_STEPS = new Set([
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-async function reply(phoneE164: string, text: string): Promise<void> {
-    const result = await sendWhatsAppMessage(phoneE164, text);
-    if (!result.ok) {
-        console.error("[parserChain] Falha ao enviar resposta:", result.error);
-    }
+async function reply(admin: Parameters<typeof botReply>[0], companyId: string, threadId: string, phoneE164: string, text: string): Promise<void> {
+    await botReply(admin, companyId, threadId, phoneE164, text);
 }
 
 function resetUnknownCount(session: Session): void {
@@ -108,6 +106,7 @@ export async function runParserChain(
                 resetUnknownCount(session);
                 await saveSession(admin, threadId, companyId, { cart: newCart, context: session.context });
                 await reply(
+                    admin, companyId, threadId,
                     phoneE164,
                     `✅ Adicionado: ${itemList}!\n\n${formatCart(newCart)}\n\n` +
                     `_Continue ou diga *finalizar* para fechar o pedido._`
@@ -133,6 +132,7 @@ export async function runParserChain(
 
         if (matchIdxs.length === 0) {
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `Não encontrei *${removeReq.produto}* no seu carrinho.\n\n${formatCart(session.cart)}`
             );
@@ -144,6 +144,7 @@ export async function runParserChain(
             const newCart = session.cart.filter((_, i) => i !== matchIdxs[0]);
             await saveSession(admin, threadId, companyId, { cart: newCart, context: session.context });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `✅ Removido: *${removed.qty}x ${removed.name}*\n\n${formatCart(newCart)}\n\n` +
                 `Quer adicionar algo ou *finalizar*?`
@@ -333,12 +334,14 @@ export async function runParserChain(
                 },
             });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `Temos *${match.productName}${match.details ? " " + match.details : ""}* por ${priceStr}.\n\n` +
                 `Quantas unidades você quer? 🛒`
             );
         } else {
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `Não encontrei *${question}* no catálogo agora. 😔\n\n` +
                 `Posso te mostrar o cardápio completo? Digite *cardápio* ou escolha uma categoria.`
@@ -349,7 +352,7 @@ export async function runParserChain(
 
     // ── order_status ──────────────────────────────────────────────────────────
     if (detectedIntent === "order_status") {
-        await replyWithOrderStatus(admin, companyId, phoneE164);
+        await replyWithOrderStatus(admin, companyId, threadId, phoneE164);
         return { handled: true };
     }
 
@@ -394,7 +397,7 @@ export async function runParserChain(
         // Validação pós-parse: confirma existência no DB antes de adicionar ao carrinho
         const { valid: validItems, rejected } = await validateCartItems(admin, companyId, parsed.items);
         if (rejected.length > 0) {
-            await reply(phoneE164, `Não encontrei: ${rejected.join(", ")}. Adicionei o restante ao carrinho.`);
+            await reply(admin, companyId, threadId, phoneE164, `Não encontrei: ${rejected.join(", ")}. Adicionei o restante ao carrinho.`);
         }
         if (validItems.length === 0) return { handled: true };
 
@@ -433,6 +436,7 @@ export async function runParserChain(
         const stepLabel = stepLabels[session.step] ?? "pedido";
         const itemList  = validItems.map((i) => `${i.qty}x ${i.name}`).join(", ");
         await reply(
+            admin, companyId, threadId,
             phoneE164,
             `✅ Adicionado ${itemList}!\n\nSeu pedido agora tem *${newCart.length}* itens.\n\n` +
             `Podemos continuar com *${stepLabel}* ou quer algo mais?`
@@ -455,6 +459,7 @@ export async function runParserChain(
         if (session.cart.length > 0) {
             await saveSession(admin, threadId, companyId, { context: ctx });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `📍 Entrega para *${rawAddr}*.\n\n` +
                 `${formatCart(session.cart)}\n\nQual a forma de pagamento? 💳`
@@ -463,6 +468,7 @@ export async function runParserChain(
         } else {
             await saveSession(admin, threadId, companyId, { context: ctx, step: "main_menu" });
             await reply(
+                admin, companyId, threadId,
                 phoneE164,
                 `Endereço anotado: *${rawAddr}* 📍\n\nAgora me diga o que você quer pedir! 🍺`
             );
