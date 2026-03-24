@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
   Bike,
+  Clock,
   LayoutDashboard,
   MessageCircle,
   Moon,
@@ -24,6 +25,7 @@ import {
 const adminMenu = [
   { label: "Dashboard",     href: "/dashboard",      icon: LayoutDashboard },
   { label: "Pedidos",       href: "/pedidos",         icon: Receipt },
+  { label: "Fila",          href: "/fila",            icon: Clock },
   { label: "PDV / Balcão",  href: "/pdv",             icon: ShoppingCart },
   { label: "WhatsApp",      href: "/whatsapp",        icon: MessageCircle },
   { label: "Produtos",      href: "/produtos/lista",  icon: ShoppingBag },
