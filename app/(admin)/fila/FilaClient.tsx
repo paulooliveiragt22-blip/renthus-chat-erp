@@ -91,7 +91,7 @@ export default function FilaClient() {
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
   const fetchOrders = useMemo(() => async () => {
-    if (!companyId) return;
+    if (!companyId) { setLoading(false); return; }
 
     const { data, error } = await supabase
       .from("orders")
@@ -106,7 +106,7 @@ export default function FilaClient() {
       .order("created_at", { ascending: true })
       .limit(50);
 
-    if (error) { console.error("[Fila] fetch error:", error); return; }
+    if (error) { console.error("[Fila] fetch error:", error); setLoading(false); return; }
 
     const next = (data ?? []) as unknown as PendingOrder[];
 
