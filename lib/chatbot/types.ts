@@ -26,12 +26,19 @@ export interface CartItem {
     caseQty?: number; // unidades por caixa (para cálculo de unid. totais)
 }
 
+export interface HistoryEntry {
+    role: "user" | "bot";
+    text: string;
+    ts: number;
+}
+
 export interface Session {
     id: string;
     step: string;
     cart: CartItem[];
     customer_id: string | null;
     context: Record<string, unknown>;
+    history: HistoryEntry[];
 }
 
 export interface Category {
@@ -91,6 +98,25 @@ export interface ProductListItem {
 }
 
 export interface DeliveryZone { id: string; label: string; fee: number; }
+
+export interface CompanyConfig {
+    name:      string;
+    settings:  Record<string, unknown>;
+    botConfig: Record<string, unknown>;
+}
+
+/** Tipo estrito de retorno do parser (OrderParserService + ClaudeParser).
+ *  Nunca null — em caso de erro retorna ok=false, intent=low_confidence. */
+export interface ParseResult {
+    ok:            boolean;
+    intent:        "add_to_cart" | "product_question" | "chitchat" | "order_status" | "confirm_order" | "cancel" | "human" | "low_confidence";
+    items:         import("./OrderParserService").ParsedItem[];
+    address:       string | null;
+    paymentMethod: "pix" | "card" | "cash" | null;
+    confidence:    number;  // 0.0 – 1.0
+    question:      string | null; // para product_question
+    error:         string | null;
+}
 
 export interface AddressMatch {
     street:      string;   // "Rua das Flores"

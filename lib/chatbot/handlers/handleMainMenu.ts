@@ -18,6 +18,7 @@ import { getCategories } from "../db/variants";
 import { getOrCreateCustomer } from "../db/orders";
 import { handleFreeTextInput } from "./handleFreeText";
 import { sendWhatsAppMessage, sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
+import { searchProductsForTool } from "../services/dbService";
 
 // ─── claudeNaturalReply ───────────────────────────────────────────────────────
 
@@ -40,11 +41,13 @@ const STEP_CONTEXT: Record<string, string> = {
  * NUNCA retorna erro ao cliente — sempre responde de forma útil e redireciona.
  */
 export async function claudeNaturalReply(params: {
-    input:        string;
-    step:         string;
-    cart:         CartItem[];
-    lastBotMsg:   string;
-    companyName:  string;
+    input:       string;
+    step:        string;
+    cart:        CartItem[];
+    lastBotMsg:  string;
+    companyName: string;
+    admin?:      SupabaseClient;
+    companyId?:  string;
 }): Promise<string> {
     const cartText = params.cart.length > 0
         ? params.cart.map((i) => `${i.qty}x ${i.name}`).join(", ")
@@ -52,34 +55,128 @@ export async function claudeNaturalReply(params: {
 
     const stepDesc = STEP_CONTEXT[params.step] ?? "atendimento geral";
 
-    try {
-        const client = new Anthropic();
-        const msg = await client.messages.create(
-            {
-                model:      "claude-haiku-4-5-20251001",
-                max_tokens: 150,
-                messages:   [{
-                    role:    "user",
-                    content: `Você é atendente de uma distribuidora de bebidas via WhatsApp chamada "${params.companyName}".
+    const systemPrompt = `Você é um atendente virtual de delivery da distribuidora "${params.companyName}". REGRAS ABSOLUTAS — nunca viole:
 
-Contexto atual: ${stepDesc}
+1. NUNCA invente produtos, preços, marcas ou disponibilidade.
+2. Se o cliente perguntar sobre um produto, SEMPRE chame a tool buscar_produto antes de confirmar qualquer informação.
+3. Se buscar_produto retornar results=[], diga: "Esse item não está disponível no momento."
+4. NUNCA confirme estoque, temperatura, sabores ou especificações não listadas.
+5. NUNCA mencione preços que não vieram da buscar_produto.
+6. Se não souber a resposta, direcione: "Que tal ver nosso cardápio completo?"
+7. Respostas máximo 2 frases curtas. Sem emojis excessivos.`;
+
+    const userMessage = `Contexto atual: ${stepDesc}
 Carrinho: ${cartText}
 Última mensagem do bot: "${params.lastBotMsg}"
 Mensagem do cliente: "${params.input}"
 
 Responda em português brasileiro de forma natural e curta (máx 2 frases).
 NÃO diga "não entendi", "não reconheço" ou similares.
-Seja útil, educado e direcione para o próximo passo correto.`,
-                }],
+Seja útil, educado e direcione para o próximo passo correto.`;
+
+    const tools: Anthropic.Tool[] = [
+        {
+            name: "buscar_produto",
+            description:
+                "Busca um produto no catálogo pelo nome ou descrição. " +
+                "SEMPRE chame esta tool antes de confirmar disponibilidade ou preço de qualquer produto.",
+            input_schema: {
+                type: "object" as const,
+                properties: {
+                    query: {
+                        type: "string",
+                        description: "Nome ou descrição do produto a buscar",
+                    },
+                },
+                required: ["query"],
+            },
+        },
+    ];
+
+    try {
+        const client = new Anthropic();
+
+        // Primeira chamada — Claude pode chamar a tool buscar_produto
+        const firstMsg = await client.messages.create(
+            {
+                model:      "claude-haiku-4-5-20251001",
+                max_tokens: 300,
+                system:     systemPrompt,
+                tools,
+                messages:   [{ role: "user", content: userMessage }],
             },
             { timeout: 3500 }
         );
-        const block = msg.content.find((b) => b.type === "text");
+
+        // Se Claude chamou a tool e temos acesso ao DB
+        if (
+            firstMsg.stop_reason === "tool_use" &&
+            params.admin &&
+            params.companyId
+        ) {
+            const toolUse = firstMsg.content.find((b) => b.type === "tool_use");
+            if (toolUse && toolUse.type === "tool_use" && toolUse.name === "buscar_produto") {
+                const query   = (toolUse.input as { query: string }).query;
+                const results = await searchProductsForTool(params.admin, params.companyId, query);
+
+                // Segunda chamada — Claude gera resposta baseada APENAS no resultado real
+                const secondMsg = await client.messages.create(
+                    {
+                        model:      "claude-haiku-4-5-20251001",
+                        max_tokens: 150,
+                        system:     systemPrompt,
+                        tools,
+                        messages: [
+                            { role: "user",      content: userMessage },
+                            { role: "assistant", content: firstMsg.content },
+                            {
+                                role: "user",
+                                content: [{
+                                    type:        "tool_result" as const,
+                                    tool_use_id: toolUse.id,
+                                    content:     JSON.stringify({ results }),
+                                }],
+                            },
+                        ],
+                    },
+                    { timeout: 2000 }
+                );
+
+                const block = secondMsg.content.find((b) => b.type === "text");
+                return block && block.type === "text" ? block.text.trim() : "Como posso te ajudar? 😊";
+            }
+        }
+
+        // Sem tool use — resposta direta (chitchat, saudação, etc.)
+        const block = firstMsg.content.find((b) => b.type === "text");
         return block && block.type === "text" ? block.text.trim() : "Como posso te ajudar? 😊";
     } catch {
         // Fallback silencioso — nunca expõe erro técnico ao cliente
         return "Como posso te ajudar? 😊";
     }
+}
+
+// ─── Sanitização de resposta Claude ──────────────────────────────────────────
+
+const PRICE_RE = /R\$\s*[\d.,]+/g;
+const SAFE_REPLY = "Não encontrei esse item no nosso cardápio. Posso te mostrar o que temos disponível? 😊";
+
+/**
+ * Verifica se o texto gerado pelo Claude contém preços não catalogados.
+ * Se encontrar, substitui por resposta segura para evitar alucinação de preço.
+ */
+export function sanitizeClaudeReply(text: string, catalogPrices: number[]): string {
+    const pricesInText = text.match(PRICE_RE);
+    if (!pricesInText) return text;
+
+    for (const rawPrice of pricesInText) {
+        const numeric = parseFloat(
+            rawPrice.replace(/[R$\s]/g, "").replace(",", ".")
+        );
+        const isInCatalog = catalogPrices.some((p) => Math.abs(p - numeric) < 0.01);
+        if (!isInCatalog) return SAFE_REPLY;
+    }
+    return text;
 }
 
 // ─── Helpers locais ───────────────────────────────────────────────────────────
@@ -177,13 +274,17 @@ export async function handleLowConfidenceFallback(
 
     // Claude Haiku responde de forma natural — sem "não entendi"
     const lastBotMsg = (session.context.last_bot_question as string | undefined) ?? "";
-    const naturalReply = await claudeNaturalReply({
+    const rawReply = await claudeNaturalReply({
         input:       input + fuseHint,
         step:        session.step,
         cart:        session.cart,
         lastBotMsg,
         companyName,
+        admin,
+        companyId,
     });
+    const catalogPrices = products.map((p) => p.unitPrice);
+    const naturalReply = sanitizeClaudeReply(rawReply, catalogPrices);
 
     await reply(phoneE164, naturalReply);
     return true;
@@ -366,6 +467,8 @@ export async function handleMainMenu(
         cart:        session.cart,
         lastBotMsg:  `Como posso te ajudar no ${companyName}?`,
         companyName,
+        admin,
+        companyId,
     });
     await reply(phoneE164, naturalReply);
     await sendInteractiveButtons(

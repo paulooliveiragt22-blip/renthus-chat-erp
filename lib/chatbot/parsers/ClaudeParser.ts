@@ -197,7 +197,14 @@ REGRAS DE ACTION (só para intent=order):
    e ambígua, assuma que é continuação do pedido (ex: adicionando mais produtos).
 
 4. CONFIANÇA: Se a interpretação tiver menos de 80% de certeza,
-   use action="low_confidence" — é melhor perguntar do que agir errado.`;
+   use action="low_confidence" — é melhor perguntar do que agir errado.
+
+═══ REGRAS DE CLASSIFICAÇÃO ANTI-ALUCINAÇÃO ═══
+- Se o cliente mencionar um produto que NÃO está no catálogo acima, classifique como intent="product_question" com items=[].
+- NUNCA infira preços, quantidades ou nomes de produtos não listados no catálogo.
+- Se confidence < 0.4, retorne intent="low_confidence" — não tente adivinhar.
+- Para perguntas sobre disponibilidade de item não listado: intent="product_question", items=[].
+- items[] deve conter APENAS variantIds que existem exatamente no catálogo acima.`;
 }
 
 function buildUserMessage(
