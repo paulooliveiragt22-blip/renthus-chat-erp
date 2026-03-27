@@ -1,0 +1,511 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "CATEGORIES": ["PRODUCTS"],
+    "PRODUCTS":   ["QUANTITIES"],
+    "QUANTITIES": ["CEP_SEARCH"],
+    "CEP_SEARCH": ["ADDRESS"],
+    "ADDRESS":    ["PAYMENT"],
+    "PAYMENT":    ["SUCCESS"]
+  },
+  "screens": [
+
+    {
+      "id": "CATEGORIES",
+      "title": "Catálogo de Produtos",
+      "data": {
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id":          { "type": "string" },
+              "title":       { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [
+            { "id": "uuid-1", "title": "🍺 Cervejas",      "description": "5 produtos" },
+            { "id": "uuid-2", "title": "🥤 Refrigerantes", "description": "3 produtos" }
+          ]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "category_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "search_all",
+                "label": "Buscar produto",
+                "required": false,
+                "input-type": "text",
+                "helper-text": "Digite o nome para buscar em todo o catálogo"
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Ou escolha uma categoria:"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "category_id",
+                "label": "Categorias",
+                "required": false,
+                "data-source": "${data.categories}"
+              },
+              {
+                "type": "Footer",
+                "label": "Ver produtos →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "search_all":   "${form.search_all}",
+                    "category_id":  "${form.category_id}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "PRODUCTS",
+      "title": "Escolha os Produtos",
+      "data": {
+        "products": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id":          { "type": "string" },
+              "title":       { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [
+            { "id": "prod-1", "title": "Heineken 600ml", "description": "R$ 12,00" },
+            { "id": "prod-2", "title": "Skol 350ml",     "description": "R$ 4,50" }
+          ]
+        },
+        "category_name": {
+          "type": "string",
+          "__example__": "Cervejas"
+        },
+        "category_id_cache": {
+          "type": "string",
+          "__example__": "uuid-1"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextSubheading",
+            "text": "${data.category_name}"
+          },
+          {
+            "type": "Form",
+            "name": "products_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "search_filter",
+                "label": "Filtrar produtos",
+                "required": false,
+                "input-type": "text",
+                "helper-text": "Buscar nesta categoria"
+              },
+              {
+                "type": "CheckboxGroup",
+                "name": "selected_products",
+                "label": "Produtos disponíveis",
+                "required": false,
+                "data-source": "${data.products}"
+              },
+              {
+                "type": "Footer",
+                "label": "Continuar →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "selected_products":  "${form.selected_products}",
+                    "search_filter":      "${form.search_filter}",
+                    "category_id_cache":  "${data.category_id_cache}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "QUANTITIES",
+      "title": "Quantidades",
+      "data": {
+        "products_list": {
+          "type": "string",
+          "__example__": "1. Heineken 600ml — R$ 12,00\n2. Skol 350ml — R$ 4,50"
+        },
+        "show_qty_2": { "type": "boolean", "__example__": true  },
+        "show_qty_3": { "type": "boolean", "__example__": false },
+        "show_qty_4": { "type": "boolean", "__example__": false },
+        "show_qty_5": { "type": "boolean", "__example__": false }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextSubheading",
+            "text": "Informe as quantidades:"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.products_list}"
+          },
+          {
+            "type": "Form",
+            "name": "qty_form",
+            "init-values": {
+              "qty_1": "1",
+              "qty_2": "1",
+              "qty_3": "1",
+              "qty_4": "1",
+              "qty_5": "1"
+            },
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "qty_1",
+                "label": "Quantidade — item 1",
+                "required": true,
+                "input-type": "number"
+              },
+              {
+                "type": "If",
+                "condition": "${data.show_qty_2}",
+                "then": [
+                  {
+                    "type": "TextInput",
+                    "name": "qty_2",
+                    "label": "Quantidade — item 2",
+                    "required": true,
+                    "input-type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "If",
+                "condition": "${data.show_qty_3}",
+                "then": [
+                  {
+                    "type": "TextInput",
+                    "name": "qty_3",
+                    "label": "Quantidade — item 3",
+                    "required": true,
+                    "input-type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "If",
+                "condition": "${data.show_qty_4}",
+                "then": [
+                  {
+                    "type": "TextInput",
+                    "name": "qty_4",
+                    "label": "Quantidade — item 4",
+                    "required": true,
+                    "input-type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "If",
+                "condition": "${data.show_qty_5}",
+                "then": [
+                  {
+                    "type": "TextInput",
+                    "name": "qty_5",
+                    "label": "Quantidade — item 5",
+                    "required": true,
+                    "input-type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "Footer",
+                "label": "Informar endereço →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "qty_1": "${form.qty_1}",
+                    "qty_2": "${form.qty_2}",
+                    "qty_3": "${form.qty_3}",
+                    "qty_4": "${form.qty_4}",
+                    "qty_5": "${form.qty_5}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "CEP_SEARCH",
+      "title": "Endereço de Entrega",
+      "data": {
+        "cart_summary": {
+          "type": "string",
+          "__example__": "2x Heineken 600ml — R$ 24,00\n\n*Total: R$ 24,00*"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextSubheading",
+            "text": "🛒 Seu pedido"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.cart_summary}"
+          },
+          {
+            "type": "Form",
+            "name": "cep_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "cep",
+                "label": "CEP",
+                "required": false,
+                "input-type": "number",
+                "helper-text": "Digite seu CEP para buscar o endereço automaticamente (opcional)"
+              },
+              {
+                "type": "Footer",
+                "label": "Continuar →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "cep": "${form.cep}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "ADDRESS",
+      "title": "Endereço de Entrega",
+      "data": {
+        "rua_init": {
+          "type": "string",
+          "__example__": ""
+        },
+        "bairro_init": {
+          "type": "string",
+          "__example__": ""
+        },
+        "cart_summary": {
+          "type": "string",
+          "__example__": "2x Heineken 600ml — R$ 24,00"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "address_form",
+            "init-values": {
+              "rua":    "${data.rua_init}",
+              "bairro": "${data.bairro_init}"
+            },
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "rua",
+                "label": "Rua / Avenida",
+                "required": true,
+                "input-type": "text",
+                "helper-text": "Ex: Rua das Flores"
+              },
+              {
+                "type": "TextInput",
+                "name": "numero",
+                "label": "Número",
+                "required": true,
+                "input-type": "text",
+                "helper-text": "Ex: 123"
+              },
+              {
+                "type": "TextInput",
+                "name": "bairro",
+                "label": "Bairro",
+                "required": true,
+                "input-type": "text",
+                "helper-text": "Ex: Centro, Jardim América"
+              },
+              {
+                "type": "TextInput",
+                "name": "complemento",
+                "label": "Complemento",
+                "required": false,
+                "input-type": "text",
+                "helper-text": "Ex: Apto 2, Casa B"
+              },
+              {
+                "type": "TextInput",
+                "name": "apelido",
+                "label": "Apelido do endereço",
+                "required": true,
+                "input-type": "text",
+                "helper-text": "Ex: Casa, Trabalho, Escritório"
+              },
+              {
+                "type": "Footer",
+                "label": "Próximo →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "rua":         "${form.rua}",
+                    "numero":      "${form.numero}",
+                    "bairro":      "${form.bairro}",
+                    "complemento": "${form.complemento}",
+                    "apelido":     "${form.apelido}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "PAYMENT",
+      "title": "Forma de Pagamento",
+      "data": {
+        "address_display": {
+          "type": "string",
+          "__example__": "Rua das Flores, 123, Centro"
+        },
+        "cart_summary": {
+          "type": "string",
+          "__example__": "2x Heineken 600ml — R$ 24,00\n\nTotal: R$ 24,00"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextSubheading",
+            "text": "📍 Entrega"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.address_display}"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "🛒 Resumo"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.cart_summary}"
+          },
+          {
+            "type": "Form",
+            "name": "payment_form",
+            "children": [
+              {
+                "type": "RadioButtonsGroup",
+                "name": "payment_method",
+                "label": "Como vai pagar?",
+                "required": true,
+                "data-source": [
+                  { "id": "pix",  "title": "💸 PIX" },
+                  { "id": "card", "title": "💳 Cartão" },
+                  { "id": "cash", "title": "💵 Dinheiro" }
+                ]
+              },
+              {
+                "type": "If",
+                "condition": "${form.payment_method} == 'cash'",
+                "then": [
+                  {
+                    "type": "TextInput",
+                    "name": "troco_para",
+                    "label": "Troco para (R$)",
+                    "required": false,
+                    "input-type": "number",
+                    "helper-text": "Deixe em branco se não precisar de troco"
+                  }
+                ]
+              },
+              {
+                "type": "Footer",
+                "label": "Confirmar pedido ✅",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "payment_method": "${form.payment_method}",
+                    "troco_para":     "${form.troco_para}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "SUCCESS",
+      "title": "Pedido Recebido!",
+      "terminal": true,
+      "data": {
+        "order_code": {
+          "type": "string",
+          "__example__": "#A1B2C3D4"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "✅ Pedido confirmado!"
+          },
+          {
+            "type": "TextBody",
+            "text": "Seu pedido ${data.order_code} foi recebido. Já estamos preparando! 🍺\n\nFique de olho nas próximas mensagens para atualizações."
+          },
+          {
+            "type": "Footer",
+            "label": "Fechar",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {}
+            }
+          }
+        ]
+      }
+    }
+
+  ]
+}

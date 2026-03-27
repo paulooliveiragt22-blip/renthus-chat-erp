@@ -14,6 +14,7 @@ import {
     Lock,
     Mail,
     MapPin,
+    Package,
     Phone,
     Save,
     Shield,
@@ -45,7 +46,7 @@ type Company = {
     settings: Record<string, unknown> | null;
 };
 
-type Tab = "geral" | "delivery" | "pagamentos" | "seguranca" | "chatbot";
+type Tab = "geral" | "delivery" | "pagamentos" | "seguranca" | "chatbot" | "pedidos";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -182,6 +183,13 @@ export default function ConfiguracoesPage() {
     const [botMsg,          setBotMsg]           = useState<string | null>(null);
     const botMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // company_settings (pedidos)
+    const [requireApproval, setRequireApproval] = useState(false);
+    const [autoPrint,       setAutoPrint]       = useState(false);
+    const [settingsSaving,  setSettingsSaving]  = useState(false);
+    const [settingsMsg,     setSettingsMsg]     = useState<string | null>(null);
+    const settingsMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     // ── load company ──────────────────────────────────────────────────────────
     const loadCompany = useCallback(async () => {
         if (!companyId) return;
@@ -236,6 +244,36 @@ export default function ConfiguracoesPage() {
             })
             .catch(() => {});
     }, []);
+
+    // ── load / save company_settings ──────────────────────────────────────────
+    useEffect(() => {
+        if (!companyId) return;
+        supabase
+            .from("company_settings")
+            .select("require_order_approval, auto_print_orders")
+            .eq("company_id", companyId)
+            .maybeSingle()
+            .then(({ data }) => {
+                if (!data) return;
+                setRequireApproval(!!data.require_order_approval);
+                setAutoPrint(!!data.auto_print_orders);
+            });
+    }, [companyId, supabase]);
+
+    async function saveOrderSettings() {
+        if (!companyId) return;
+        setSettingsSaving(true); setSettingsMsg(null);
+
+        const { error } = await supabase
+            .from("company_settings")
+            .update({ require_order_approval: requireApproval, auto_print_orders: autoPrint })
+            .eq("company_id", companyId);
+
+        setSettingsMsg(error ? (error.message ?? "Erro ao salvar") : "✓ Configurações de pedidos salvas");
+        setSettingsSaving(false);
+        if (settingsMsgTimer.current) clearTimeout(settingsMsgTimer.current);
+        settingsMsgTimer.current = setTimeout(() => setSettingsMsg(null), 4000);
+    }
 
     async function saveChatbot() {
         if (!chatbotId) { setBotMsg("Nenhum chatbot encontrado para esta empresa."); return; }
@@ -303,6 +341,7 @@ export default function ConfiguracoesPage() {
         { id: "pagamentos", label: "Pagamentos",  icon: Wallet },
         { id: "seguranca",  label: "Segurança",   icon: Shield },
         { id: "chatbot",    label: "Chatbot",     icon: Bot },
+        { id: "pedidos",    label: "Pedidos",     icon: Package },
     ];
 
     // ── render ────────────────────────────────────────────────────────────────
@@ -651,6 +690,93 @@ export default function ConfiguracoesPage() {
                                     className="flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50"
                                 >
                                     {botSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                    Salvar configurações
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── ABA: PEDIDOS ────────────────────────────────────── */}
+                    {activeTab === "pedidos" && (
+                        <div className="flex flex-col gap-6">
+                            <SectionTitle icon={Package} title="Configurações de Pedidos" desc="Controle de aprovação, impressão automática e fluxo de confirmação" />
+
+                            {/* Aprovação de pedidos */}
+                            <div className="rounded-xl border border-zinc-100 dark:border-zinc-800 p-5 space-y-4">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                            Exigir aprovação manual
+                                        </p>
+                                        <p className="text-xs text-zinc-400 mt-0.5">
+                                            Pedidos do catálogo ficam em fila até serem confirmados por um operador.
+                                            Se desligado, pedidos são confirmados automaticamente ao serem recebidos.
+                                        </p>
+                                    </div>
+                                    <Toggle checked={requireApproval} onChange={setRequireApproval} />
+                                </div>
+
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                            Impressão automática
+                                        </p>
+                                        <p className="text-xs text-zinc-400 mt-0.5">
+                                            Imprime automaticamente quando um pedido é confirmado (requer Agente de Impressão instalado).
+                                            Se &quot;Aprovação manual&quot; estiver ligada, imprime após a confirmação do operador.
+                                        </p>
+                                    </div>
+                                    <Toggle checked={autoPrint} onChange={setAutoPrint} />
+                                </div>
+                            </div>
+
+                            {/* Resumo do fluxo */}
+                            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50 space-y-2">
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Fluxo de pedido (catálogo WhatsApp)</p>
+                                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 flex-wrap">
+                                    <span className="rounded-full bg-violet-100 px-2.5 py-0.5 font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+                                        Flow Catálogo
+                                    </span>
+                                    <span>→</span>
+                                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                                        Flow Checkout
+                                    </span>
+                                    <span>→</span>
+                                    <span className={`rounded-full px-2.5 py-0.5 font-semibold ${
+                                        requireApproval
+                                            ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300"
+                                            : "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300"
+                                    }`}>
+                                        {requireApproval ? "Fila de aprovação" : "Confirmado automaticamente"}
+                                    </span>
+                                    {autoPrint && (
+                                        <>
+                                            <span>→</span>
+                                            <span className="rounded-full bg-orange-100 px-2.5 py-0.5 font-semibold text-orange-700 dark:bg-orange-500/20 dark:text-orange-300">
+                                                Impressão automática
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Save feedback */}
+                            {settingsMsg && (
+                                <div className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                                    settingsMsg.startsWith("✓")
+                                        ? "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/40 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                        : "border border-red-200 bg-red-50 text-red-700 dark:border-red-700/40 dark:bg-red-900/20 dark:text-red-400"
+                                }`}>
+                                    {settingsMsg}
+                                </div>
+                            )}
+                            <div className="flex justify-end">
+                                <button
+                                    onClick={saveOrderSettings}
+                                    disabled={settingsSaving}
+                                    className="flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50"
+                                >
+                                    {settingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                     Salvar configurações
                                 </button>
                             </div>

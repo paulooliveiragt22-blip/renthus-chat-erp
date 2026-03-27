@@ -303,9 +303,9 @@ export async function routeByStep(
                     phoneE164,
                     `${reason}\n\nComo posso te ajudar?`,
                     [
-                        { id: "1", title: "🍺 Ver cardápio" },
-                        { id: "finalizar", title: "Finalizar pedido" },
-                        { id: "3", title: "🙋 Falar c/ atendente" },
+                        { id: "btn_catalog", title: "🍺 Ver cardápio" },
+                        { id: "finalizar",   title: "Finalizar pedido" },
+                        { id: "btn_support", title: "🙋 Falar c/ atendente" },
                     ]
                 );
             } else {

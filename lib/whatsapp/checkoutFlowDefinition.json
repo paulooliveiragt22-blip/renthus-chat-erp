@@ -119,9 +119,9 @@
                 "type": "TextInput",
                 "name": "apelido",
                 "label": "Apelido do endereço",
-                "required": false,
+                "required": true,
                 "input-type": "text",
-                "helper-text": "Ex: Casa, Trabalho"
+                "helper-text": "Ex: Casa, Trabalho, Escritório"
               },
               {
                 "type": "Footer",

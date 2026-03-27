@@ -1,0 +1,73 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {},
+  "screens": [
+
+    {
+      "id": "ORDER_LIST",
+      "title": "Meus Pedidos",
+      "terminal": true,
+      "data": {
+        "orders_text": {
+          "type": "string",
+          "__example__": "📦 Pedido #A1B2C3D4\n✅ Confirmado • R$ 48,00\n📍 Rua das Flores, 123\n💳 PIX\n🕐 15/03 às 20:30"
+        },
+        "total_count": {
+          "type": "string",
+          "__example__": "3 pedido(s) encontrado(s)"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextSubheading",
+            "text": "${data.total_count}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.orders_text}"
+          },
+          {
+            "type": "Footer",
+            "label": "Fechar",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {}
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "NO_ORDERS",
+      "title": "Meus Pedidos",
+      "terminal": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Nenhum pedido ainda 😊"
+          },
+          {
+            "type": "TextBody",
+            "text": "Você ainda não fez nenhum pedido por aqui. Que tal ver nosso catálogo?"
+          },
+          {
+            "type": "Footer",
+            "label": "Fechar",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {}
+            }
+          }
+        ]
+      }
+    }
+
+  ]
+}

@@ -4,6 +4,7 @@ import React, { Suspense } from "react";
 import AdminShell from "@/components/AdminShell";
 import HeaderClient from "@/components/HeaderClient";
 import ThemeProvider from "@/components/ThemeProvider";
+import { Providers } from "@/components/Providers";
 
 export const metadata = {
   title: "Renthus ERP",
@@ -35,13 +36,15 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <body>
         <ThemeProvider>
-          {/* Header (client) — o componente HeaderClient decide se mostra ou não */}
-          <HeaderClient />
+          <Providers>
+            {/* Header (client) — o componente HeaderClient decide se mostra ou não */}
+            <HeaderClient />
 
-          {/* Suspense aqui evita o erro "useSearchParams() should be wrapped in a suspense boundary" */}
-          <Suspense fallback={<div />}>
-            <AdminShell>{children}</AdminShell>
-          </Suspense>
+            {/* Suspense aqui evita o erro "useSearchParams() should be wrapped in a suspense boundary" */}
+            <Suspense fallback={<div />}>
+              <AdminShell>{children}</AdminShell>
+            </Suspense>
+          </Providers>
         </ThemeProvider>
       </body>
     </html>

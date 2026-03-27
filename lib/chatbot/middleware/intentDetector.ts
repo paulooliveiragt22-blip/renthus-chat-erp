@@ -92,9 +92,9 @@ export async function detectGlobalIntents(
     if (EXPLICIT_RESET_RE.test(normInput)) {
         await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
         await sendInteractiveButtons(phoneE164, `Como posso te ajudar no *${companyName}*? 🍺`, [
-            { id: "1", title: "🍺 Ver cardápio" },
-            { id: "2", title: "📦 Meu pedido" },
-            { id: "3", title: "🙋 Falar c/ atendente" },
+            { id: "btn_catalog", title: "🍺 Ver cardápio" },
+            { id: "btn_status",  title: "📦 Meu pedido" },
+            { id: "btn_support", title: "🙋 Falar c/ atendente" },
         ]);
         return { handled: true };
     }
@@ -106,17 +106,17 @@ export async function detectGlobalIntents(
                 phoneE164,
                 `Como posso te ajudar no *${companyName}*? 🍺\n\n_Seu carrinho foi mantido (${session.cart.length} ${session.cart.length === 1 ? "item" : "itens"})._`,
                 [
-                    { id: "1", title: "🍺 Ver cardápio" },
-                    { id: "2", title: "📦 Meu pedido" },
-                    { id: "3", title: "🙋 Falar c/ atendente" },
+                    { id: "btn_catalog", title: "🍺 Ver cardápio" },
+                    { id: "btn_status",  title: "📦 Meu pedido" },
+                    { id: "btn_support", title: "🙋 Falar c/ atendente" },
                 ]
             );
         } else {
             await saveSession(admin, threadId, companyId, { step: "main_menu", cart: [], context: {} });
             await sendInteractiveButtons(phoneE164, `Como posso te ajudar no *${companyName}*? 🍺`, [
-                { id: "1", title: "🍺 Ver cardápio" },
-                { id: "2", title: "📦 Meu pedido" },
-                { id: "3", title: "🙋 Falar c/ atendente" },
+                { id: "btn_catalog", title: "🍺 Ver cardápio" },
+                { id: "btn_status",  title: "📦 Meu pedido" },
+                { id: "btn_support", title: "🙋 Falar c/ atendente" },
             ]);
         }
         return { handled: true };
@@ -216,9 +216,9 @@ export async function detectGlobalIntents(
                 phoneE164,
                 `✅ Pedido cancelado. Como posso te ajudar no *${companyName}*?`,
                 [
-                    { id: "1", title: "🍺 Ver cardápio" },
-                    { id: "2", title: "📦 Meu pedido" },
-                    { id: "3", title: "🙋 Falar c/ atendente" },
+                    { id: "btn_catalog", title: "🍺 Ver cardápio" },
+                    { id: "btn_status",  title: "📦 Meu pedido" },
+                    { id: "btn_support", title: "🙋 Falar c/ atendente" },
                 ]
             );
         } else if (isNo) {

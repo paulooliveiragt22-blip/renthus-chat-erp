@@ -18,7 +18,7 @@ import { getCategories } from "../db/variants";
 import { getOrCreateCustomer } from "../db/orders";
 import { handleFreeTextInput } from "./handleFreeText";
 import { botReply } from "../botSend";
-import { sendInteractiveButtons, sendListMessage } from "../../whatsapp/send";
+import { sendInteractiveButtons, sendListMessage, sendFlowMessage } from "../../whatsapp/send";
 import { searchProductsForTool } from "../services/dbService";
 
 // ─── claudeNaturalReply ───────────────────────────────────────────────────────
@@ -194,9 +194,9 @@ export async function sendInteractiveMenuFallback(phoneE164: string, companyName
         phoneE164,
         `Como posso te ajudar no *${companyName}*?`,
         [
-            { id: "1", title: "Ver cardápio" },
-            { id: "2", title: "Status do pedido" },
-            { id: "3", title: "Falar com atendente" },
+            { id: "btn_catalog", title: "🍺 Ver cardápio" },
+            { id: "btn_status",  title: "📦 Meu pedido" },
+            { id: "btn_support", title: "🙋 Falar c/ atendente" },
         ]
     );
 }
@@ -211,6 +211,8 @@ export async function doHandover(
     companyName: string,
     session: Session
 ): Promise<void> {
+    const clientName = (session.context?.client_name as string | undefined) ?? null;
+
     await Promise.all([
         admin
             .from("whatsapp_threads")
@@ -219,6 +221,26 @@ export async function doHandover(
 
         saveSession(admin, threadId, companyId, { ...session, step: "handover" }),
     ]);
+
+    // Cria ticket de suporte (evita duplicata se já existe ticket aberto)
+    const { data: existing } = await admin
+        .from("support_tickets")
+        .select("id")
+        .eq("company_id",     companyId)
+        .eq("customer_phone", phoneE164)
+        .in("status",         ["open", "in_progress"])
+        .maybeSingle();
+
+    if (!existing?.id) {
+        await admin.from("support_tickets").insert({
+            company_id:     companyId,
+            customer_phone: phoneE164,
+            customer_name:  clientName,
+            message:        "Cliente solicitou atendimento humano via WhatsApp",
+            priority:       "normal",
+            status:         "open",
+        });
+    }
 
     await reply(
         admin, companyId, threadId,
@@ -358,15 +380,38 @@ export async function handleMainMenu(
             ? `Olá, *${customer!.name.trim()}*! 🍺\n\nVocê pode digitar o que precisa que já vejo pra você.`
             : `Olá! Bem-vindo(a) ao *${companyName}* 🍺\n\nVocê pode digitar o que precisa que já vejo pra você.`;
         await sendInteractiveButtons(phoneE164, greetText, [
-            { id: "1", title: "🍺 Ver cardápio" },
-            { id: "2", title: "📦 Meu pedido" },
-            { id: "3", title: "🙋 Falar c/ atendente" },
+            { id: "btn_catalog", title: "🍺 Ver cardápio" },
+            { id: "btn_status",  title: "📦 Meu pedido" },
+            { id: "btn_support", title: "🙋 Falar c/ atendente" },
         ]);
         return;
     }
 
     // Opção 1: Ver cardápio
-    if (input === "1" || matchesAny(input, ["cardapio", "produtos", "bebidas", "ver"])) {
+    if (input === "1" || input === "btn_catalog" || matchesAny(input, ["cardapio", "produtos", "bebidas", "ver"])) {
+        const catalogFlowId = process.env.WHATSAPP_CATALOG_FLOW_ID;
+
+        // Flow-first: dispara Flow Catálogo se ID configurado
+        if (catalogFlowId) {
+            await saveSession(admin, threadId, companyId, {
+                step:    "awaiting_flow",
+                context: {
+                    ...session.context,
+                    consecutive_unknown_count: 0,
+                    flow_started_at:   new Date().toISOString(),
+                    flow_repeat_count: 0,
+                },
+            });
+            await sendFlowMessage(phoneE164, {
+                flowId:    catalogFlowId,
+                flowToken: `${threadId}|${companyId}|catalog`,
+                bodyText:  `🛒 Escolha o que você quer pedir no *${companyName}*!`,
+                ctaLabel:  "Ver Catálogo",
+            });
+            return;
+        }
+
+        // Fallback texto (sem WHATSAPP_CATALOG_FLOW_ID configurado)
         const categories = await getCategories(admin, companyId);
 
         if (!categories.length) {
@@ -390,8 +435,23 @@ export async function handleMainMenu(
     }
 
     // Opção 2: Status do pedido
-    if (input === "2" || matchesAny(input, ["status", "pedido", "onde", "acompanhar"])) {
+    if (input === "2" || input === "btn_status" || matchesAny(input, ["status", "pedido", "onde", "acompanhar"])) {
         await saveSession(admin, threadId, companyId, { context: { ...session.context, consecutive_unknown_count: 0 } });
+
+        const statusFlowId = process.env.WHATSAPP_STATUS_FLOW_ID;
+
+        // Flow-first: dispara Flow Status se ID configurado
+        if (statusFlowId) {
+            await sendFlowMessage(phoneE164, {
+                flowId:    statusFlowId,
+                flowToken: `${threadId}|${companyId}|status`,
+                bodyText:  "📦 Consulte seus pedidos recentes:",
+                ctaLabel:  "Ver Pedidos",
+            });
+            return;
+        }
+
+        // Fallback texto (sem WHATSAPP_STATUS_FLOW_ID configurado)
         const customer = await getOrCreateCustomer(admin, companyId, phoneE164, profileName);
 
         if (!customer) {
@@ -417,13 +477,13 @@ export async function handleMainMenu(
         }
 
         const statusLabels: Record<string, string> = {
-            new:       "✅ Recebido",
-            confirmed: "✅ Confirmado",
-            preparing: "🔥 Em preparo",
-            delivering:"🛵 Saiu para entrega",
-            delivered: "📦 Entregue",
-            finalized: "✅ Finalizado",
-            canceled:  "❌ Cancelado",
+            new:        "✅ Recebido",
+            confirmed:  "✅ Confirmado",
+            preparing:  "🔥 Em preparo",
+            delivering: "🛵 Saiu para entrega",
+            delivered:  "📦 Entregue",
+            finalized:  "✅ Finalizado",
+            canceled:   "❌ Cancelado",
         };
 
         const label = statusLabels[lastOrder.status] ?? lastOrder.status;
@@ -436,13 +496,13 @@ export async function handleMainMenu(
             `📋 Status: ${label}\n` +
             `💰 Total: ${formatCurrency(lastOrder.total_amount)}\n` +
             `📅 Data: ${date}\n\n` +
-            `_Digite *1* para fazer um novo pedido._`
+            `_Digite *1* para ver o cardápio._`
         );
         return;
     }
 
     // Opção 3: Falar com atendente
-    if (input === "3" || matchesAny(input, ["atendente", "humano"])) {
+    if (input === "3" || input === "btn_support" || matchesAny(input, ["atendente", "humano"])) {
         await doHandover(admin, companyId, threadId, phoneE164, companyName, session);
         return;
     }
@@ -475,9 +535,9 @@ export async function handleMainMenu(
         phoneE164,
         `Como posso te ajudar no *${companyName}*?`,
         [
-            { id: "1", title: "🍺 Ver cardápio" },
-            { id: "2", title: "📦 Meu pedido" },
-            { id: "3", title: "🙋 Falar c/ atendente" },
+            { id: "btn_catalog", title: "🍺 Ver cardápio" },
+            { id: "btn_status",  title: "📦 Meu pedido" },
+            { id: "btn_support", title: "🙋 Falar c/ atendente" },
         ]
     );
 }
