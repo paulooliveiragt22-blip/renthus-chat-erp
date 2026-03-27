@@ -616,7 +616,7 @@ export default function ProdutosListaPage() {
                     const itemEstoqueMin = it.estoque_minimo ? Math.round(Number(String(it.estoque_minimo).replace(",", ".")) || 0) : null;
                     return {
                         id_sigla_comercial: it.id_sigla_comercial,
-                        descricao: it.descricao.trim() || null,
+                        descricao: it.descricao.trim().toUpperCase() || null,
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -653,7 +653,7 @@ export default function ProdutosListaPage() {
         setMsg(null);
         if (!companyId) { setMsg("Nenhuma empresa ativa."); setSaving(false); return; }
         if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
-        const nameToUse = (productName || productNameSearch || "").trim();
+        const nameToUse = (productName || productNameSearch || "").trim().toUpperCase();
         if (!nameToUse) { setMsg("Informe ou selecione o nome do produto."); setSaving(false); return; }
         const volumesWithItems = formVolumes.filter((v) => v.items.length > 0);
         if (volumesWithItems.length === 0) { setMsg("Adicione pelo menos um volume com itens."); setSaving(false); return; }
@@ -670,7 +670,7 @@ export default function ProdutosListaPage() {
                     const itemEstoqueMin = it.estoque_minimo ? Math.round(Number(String(it.estoque_minimo).replace(",", ".")) || 0) : null;
                     return {
                         id_sigla_comercial: it.id_sigla_comercial,
-                        descricao: it.descricao.trim() || null,
+                        descricao: it.descricao.trim().toUpperCase() || null,
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -1027,7 +1027,7 @@ export default function ProdutosListaPage() {
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
-                                                                <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value })} placeholder="Ex: CX 15un" className={`${inputCls} py-1.5 text-xs`} />
+                                                                <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value.toUpperCase() })} placeholder="Ex: CX 15UN" className={`${inputCls} py-1.5 text-xs uppercase`} />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>
@@ -1159,7 +1159,7 @@ export default function ProdutosListaPage() {
                         <div className="relative">
                             <input
                                 value={productName || productNameSearch}
-                                onChange={(e) => { setProductName(""); setProductNameSearch(e.target.value); setProductNameDropdownOpen(true); }}
+                                onChange={(e) => { setProductName(""); setProductNameSearch(e.target.value.toUpperCase()); setProductNameDropdownOpen(true); }}
                                 onFocus={() => setProductNameDropdownOpen(true)}
                                 placeholder="Ex: Skol, Heineken 600ml…"
                                 className={inputCls}
@@ -1171,7 +1171,7 @@ export default function ProdutosListaPage() {
                                             <button
                                                 key={opt.id}
                                                 type="button"
-                                                onClick={() => { setProductName(opt.name); setProductNameSearch(opt.name); setProductNameDropdownOpen(false); }}
+                                                onClick={() => { setProductName(opt.name.toUpperCase()); setProductNameSearch(opt.name.toUpperCase()); setProductNameDropdownOpen(false); }}
                                                 className="flex w-full px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                                             >
                                                 {opt.name}
@@ -1180,7 +1180,7 @@ export default function ProdutosListaPage() {
                                     ) : (
                                         <button
                                             type="button"
-                                            onClick={() => { setProductName(productNameSearch); setProductNameDropdownOpen(false); }}
+                                            onClick={() => { setProductName(productNameSearch.toUpperCase()); setProductNameDropdownOpen(false); }}
                                             className="flex w-full px-3 py-2 text-left text-sm text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20"
                                         >
                                             Criar novo: &quot;{productNameSearch}&quot;
@@ -1321,7 +1321,7 @@ export default function ProdutosListaPage() {
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
-                                                                <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value })} placeholder="Ex: CX 15un" className={`${inputCls} py-1.5 text-xs`} />
+                                                                <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value.toUpperCase() })} placeholder="Ex: CX 15UN" className={`${inputCls} py-1.5 text-xs uppercase`} />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>

@@ -41,7 +41,7 @@
               {
                 "type": "TextInput",
                 "name": "search_all",
-                "label": "Buscar produto",
+                "label": "Buscar",
                 "required": false,
                 "input-type": "text",
                 "helper-text": "Digite o nome para buscar em todo o catálogo"
@@ -110,13 +110,17 @@
             "text": "${data.category_name}"
           },
           {
+            "type": "TextBody",
+            "text": "Selecione os produtos desejados. No próximo passo você informa as quantidades."
+          },
+          {
             "type": "Form",
             "name": "products_form",
             "children": [
               {
                 "type": "TextInput",
                 "name": "search_filter",
-                "label": "Filtrar produtos",
+                "label": "Filtrar",
                 "required": false,
                 "input-type": "text",
                 "helper-text": "Buscar nesta categoria"
@@ -150,10 +154,11 @@
       "id": "QUANTITIES",
       "title": "Quantidades",
       "data": {
-        "products_list": {
-          "type": "string",
-          "__example__": "1. Heineken 600ml — R$ 12,00\n2. Skol 350ml — R$ 4,50"
-        },
+        "product_name_1": { "type": "string", "__example__": "HEINEKEN 600ML — R$ 12,00" },
+        "product_name_2": { "type": "string", "__example__": "SKOL 350ML — R$ 4,50"     },
+        "product_name_3": { "type": "string", "__example__": ""                           },
+        "product_name_4": { "type": "string", "__example__": ""                           },
+        "product_name_5": { "type": "string", "__example__": ""                           },
         "show_qty_2": { "type": "boolean", "__example__": true  },
         "show_qty_3": { "type": "boolean", "__example__": false },
         "show_qty_4": { "type": "boolean", "__example__": false },
@@ -165,10 +170,6 @@
           {
             "type": "TextSubheading",
             "text": "Informe as quantidades:"
-          },
-          {
-            "type": "TextBody",
-            "text": "${data.products_list}"
           },
           {
             "type": "Form",
@@ -184,7 +185,7 @@
               {
                 "type": "TextInput",
                 "name": "qty_1",
-                "label": "Quantidade — item 1",
+                "label": "${data.product_name_1}",
                 "required": true,
                 "input-type": "number"
               },
@@ -195,7 +196,7 @@
                   {
                     "type": "TextInput",
                     "name": "qty_2",
-                    "label": "Quantidade — item 2",
+                    "label": "${data.product_name_2}",
                     "required": true,
                     "input-type": "number"
                   }
@@ -208,7 +209,7 @@
                   {
                     "type": "TextInput",
                     "name": "qty_3",
-                    "label": "Quantidade — item 3",
+                    "label": "${data.product_name_3}",
                     "required": true,
                     "input-type": "number"
                   }
@@ -221,7 +222,7 @@
                   {
                     "type": "TextInput",
                     "name": "qty_4",
-                    "label": "Quantidade — item 4",
+                    "label": "${data.product_name_4}",
                     "required": true,
                     "input-type": "number"
                   }
@@ -234,7 +235,7 @@
                   {
                     "type": "TextInput",
                     "name": "qty_5",
-                    "label": "Quantidade — item 5",
+                    "label": "${data.product_name_5}",
                     "required": true,
                     "input-type": "number"
                   }

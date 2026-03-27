@@ -273,16 +273,15 @@ export async function POST(req: NextRequest) {
                 // Busca full-text na view_chat_produtos (nome, tags, etc.)
                 const { data } = await admin
                     .from("view_chat_produtos")
-                    .select("embalagem_id, nome_produto, descricao_embalagem, preco_venda, em_estoque")
+                    .select("id, product_name, descricao, preco_venda")
                     .eq("company_id", companyId)
-                    .ilike("nome_produto", `%${opts.search}%`)
-                    .order("em_estoque", { ascending: false })
+                    .ilike("product_name", `%${opts.search}%`)
                     .limit(20);
 
                 return (data ?? []).map((p: any) => ({
-                    id:          p.embalagem_id,
-                    title:       String(p.nome_produto).slice(0, 30),
-                    description: `R$ ${parseFloat(p.preco_venda ?? 0).toFixed(2).replace(".", ",")}${!p.em_estoque ? " ⚠️" : ""}`,
+                    id:          p.id,
+                    title:       String(p.product_name).toUpperCase().slice(0, 30),
+                    description: `R$ ${parseFloat(p.preco_venda ?? 0).toFixed(2).replace(".", ",")}`,
                 }));
             }
 
@@ -296,7 +295,7 @@ export async function POST(req: NextRequest) {
 
             return (data ?? []).map((p: any) => ({
                 id:          p.id,
-                title:       String(p.name).slice(0, 30),
+                title:       String(p.name).toUpperCase().slice(0, 30),
                 description: `R$ ${parseFloat(p.price).toFixed(2).replace(".", ",")}${!p.in_stock ? " ⚠️" : ""}`,
             }));
         }
@@ -458,32 +457,32 @@ export async function POST(req: NextRequest) {
                             pending_product_ids: limited.map((p) => p.id),
                             pending_prices:      limited.map((p) => parseFloat(p.preco_venda) || 0),
                             pending_names:       limited.map((p) =>
-                                [p.products.name, p.descricao].filter(Boolean).join(" ")
+                                [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase()
                             ),
                         },
                     })
                     .eq("thread_id", threadId)
                     .eq("company_id", companyId);
 
-                // Monta lista legível para a tela QUANTITIES
-                const productsList = limited
-                    .map((p, i) => {
-                        const name  = [p.products.name, p.descricao].filter(Boolean).join(" ");
-                        const price = parseFloat(p.preco_venda) || 0;
-                        return `${i + 1}. ${name} — ${formatCurrency(price)}`;
-                    })
-                    .join("\n");
+                const nameWithPrice = (p: any) => {
+                    const n = [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase();
+                    return `${n} — ${formatCurrency(parseFloat(p.preco_venda) || 0)}`;
+                };
 
                 return encryptedOk(
                     {
                         version: "3.0",
                         screen:  "QUANTITIES",
                         data: {
-                            products_list: productsList,
-                            show_qty_2:    limited.length >= 2,
-                            show_qty_3:    limited.length >= 3,
-                            show_qty_4:    limited.length >= 4,
-                            show_qty_5:    limited.length >= 5,
+                            product_name_1: nameWithPrice(limited[0]),
+                            product_name_2: limited[1] ? nameWithPrice(limited[1]) : "",
+                            product_name_3: limited[2] ? nameWithPrice(limited[2]) : "",
+                            product_name_4: limited[3] ? nameWithPrice(limited[3]) : "",
+                            product_name_5: limited[4] ? nameWithPrice(limited[4]) : "",
+                            show_qty_2:     limited.length >= 2,
+                            show_qty_3:     limited.length >= 3,
+                            show_qty_4:     limited.length >= 4,
+                            show_qty_5:     limited.length >= 5,
                         },
                     } as Record<string, unknown>,
                     aesKey, iv

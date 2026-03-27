@@ -35,9 +35,9 @@ BEGIN
                 ELSE 'Unidade'
            END)                                                                 AS description,
     pe.preco_venda                                                              AS price,
-    COALESCE(pi.url,
+    COALESCE(MAX(pi.img_url),
       'https://via.placeholder.com/200?text=' || REPLACE(p.name, ' ', '+'))    AS image_url,
-    COALESCE(pi.thumbnail_url, pi.url,
+    COALESCE(MAX(pi.img_thumb), MAX(pi.img_url),
       'https://via.placeholder.com/200?text=' || REPLACE(p.name, ' ', '+'))    AS thumbnail_url,
     COALESCE(c.name, 'Outros')                                                 AS category,
     COUNT(oi.id)                                                               AS sales_count,
@@ -50,7 +50,7 @@ BEGIN
     ), false)                                                                   AS in_stock
   FROM public.produto_embalagens pe
   INNER JOIN public.products p      ON p.id = pe.produto_id
-  LEFT  JOIN public.categories c    ON c.id = p.category_id         -- FIX: join correto
+  LEFT  JOIN public.categories c    ON c.id = p.category_id
   LEFT  JOIN public.siglas_comerciais sc ON sc.id = pe.id_sigla_comercial
   LEFT  JOIN public.unit_types ut   ON ut.id = pe.id_unit_type
   LEFT  JOIN public.order_items oi  ON oi.produto_embalagem_id = pe.id
@@ -58,9 +58,9 @@ BEGIN
           ON o.id = oi.order_id
          AND o.created_at > NOW() - (INTERVAL '1 day' * p_days)
   LEFT  JOIN LATERAL (
-    SELECT url, thumbnail_url
-    FROM   public.product_images
-    WHERE  product_id = p.id AND is_primary = true
+    SELECT pimg.url AS img_url, pimg.thumbnail_url AS img_thumb
+    FROM   public.product_images pimg
+    WHERE  pimg.product_id = p.id AND pimg.is_primary = true
     LIMIT  1
   ) pi ON true
   WHERE pe.company_id = p_company_id
@@ -68,7 +68,7 @@ BEGIN
     AND (p_category IS NULL OR c.name ILIKE p_category)
   GROUP BY pe.id, p.name, pe.descricao, pe.volume_quantidade,
            ut.sigla, sc.sigla, pe.fator_conversao, pe.preco_venda,
-           c.name, pe.product_volume_id, pi.url, pi.thumbnail_url
+           c.name, pe.product_volume_id
   ORDER BY sales_count DESC NULLS LAST, pe.preco_venda DESC
   LIMIT p_limit;
 END;
