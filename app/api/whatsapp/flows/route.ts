@@ -1130,7 +1130,7 @@ export async function POST(req: NextRequest) {
                     return encryptedError("order_creation_failed", aesKey, iv);
                 }
 
-                console.log("[flows/catalog] inserindo order_items | orderId:", order.id, "| cartLen:", cart.length, "| items:", JSON.stringify(cart));
+                console.log("[flows/catalog] inserindo order_items | orderId:", order.id, "| cartLen:", cart.length);
                 const { error: itemsErr } = await admin.from("order_items").insert(
                     cart.map((item) => ({
                         order_id:             order.id,
@@ -1139,7 +1139,6 @@ export async function POST(req: NextRequest) {
                         produto_embalagem_id: item.variantId ?? null,
                         quantity:             item.qty,
                         unit_price:           item.price,
-                        line_total:           item.price * item.qty,
                     }))
                 );
                 if (itemsErr) console.error("[flows/catalog] order_items insert error:", itemsErr.message);
@@ -1491,7 +1490,6 @@ export async function POST(req: NextRequest) {
                         produto_embalagem_id:  item.variantId ?? null,
                         quantity:              item.qty,
                         unit_price:            item.price,
-                        line_total:            item.price * item.qty,
                     }))
                 );
 
