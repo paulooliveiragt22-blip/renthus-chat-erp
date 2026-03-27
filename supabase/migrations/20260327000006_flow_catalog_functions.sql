@@ -128,6 +128,7 @@ $$ LANGUAGE plpgsql STABLE;
 
 -- ─── cleanup de sessions expiradas (substitui flow_sessions) ──────────────────
 -- chatbot_sessions já tem expires_at — limpeza usa o mesmo campo
+DROP FUNCTION IF EXISTS public.cleanup_expired_chatbot_sessions();
 CREATE OR REPLACE FUNCTION public.cleanup_expired_chatbot_sessions()
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN

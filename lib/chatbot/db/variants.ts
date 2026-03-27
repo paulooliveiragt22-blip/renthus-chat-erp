@@ -5,7 +5,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Category, Brand, VariantRow, ProductListItem, DeliveryZone } from "../types";
+import type { Category, VariantRow, ProductListItem, DeliveryZone } from "../types";
 import { normalize } from "../utils";
 import { stripCategoryPrefix } from "../textParsers";
 
@@ -83,20 +83,6 @@ export async function getProductsByCategory(
 }
 
 // ─── Variantes por categoria ──────────────────────────────────────────────────
-
-/** @deprecated Marca removida — retorna [] */
-export async function getBrandsByCategory(): Promise<Brand[]> {
-    return [];
-}
-
-export async function getVariantsByBrandAndCategory(
-    admin: SupabaseClient,
-    companyId: string,
-    _brandId: string,
-    categoryId: string
-): Promise<VariantRow[]> {
-    return getVariantsByCategory(admin, companyId, categoryId);
-}
 
 export async function getVariantsByCategory(
     admin: SupabaseClient,
