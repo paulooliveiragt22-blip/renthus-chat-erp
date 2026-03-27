@@ -551,7 +551,27 @@ export async function POST(req: NextRequest) {
                     .eq("products.is_active", true);
 
                 if (prodErr || !validProducts?.length) {
-                    return encryptedError("invalid_products", aesKey, iv);
+                    console.error("[flows/catalog] invalid_products | prodErr:", prodErr?.message, "| catIdCache:", catIdCache);
+                    let catNameFb = "";
+                    if (catIdCache) {
+                        const { data: catRowFb } = await admin
+                            .from("categories").select("name").eq("id", catIdCache).maybeSingle();
+                        catNameFb = catRowFb?.name ?? "";
+                    }
+                    const fbProducts = await fetchProducts(catIdCache ? { categoryName: catNameFb } : {});
+                    await saveCatalogScreen("PRODUCTS");
+                    return encryptedOk(
+                        {
+                            version: "3.0",
+                            screen:  "PRODUCTS",
+                            data: {
+                                products:          fbProducts,
+                                category_name:     catNameFb.toUpperCase() || "PRODUTOS",
+                                category_id_cache: catIdCache,
+                            },
+                        } as Record<string, unknown>,
+                        aesKey, iv
+                    );
                 }
 
                 const isUN = (p: any) => {
@@ -658,7 +678,10 @@ export async function POST(req: NextRequest) {
                 const pendingPrices = (context.pending_prices      as number[])  ?? [];
                 const pendingNames  = (context.pending_names        as string[])  ?? [];
 
-                if (!pendingIds.length) return encryptedError("session_expired", aesKey, iv);
+                if (!pendingIds.length) {
+                    console.error("[flows/catalog] QUANTITIES session_expired | pendingIds vazio | threadId:", threadId);
+                    return await reRenderCategories();
+                }
 
                 const qtyFields = ["qty_1", "qty_2", "qty_3", "qty_4", "qty_5"];
                 const cartItems: CartItem[] = pendingIds.map((id, i) => {
@@ -672,8 +695,10 @@ export async function POST(req: NextRequest) {
                     };
                 });
 
-                // Salva carrinho final na sessão
-                await admin
+                console.log("[flows/catalog] QUANTITIES cartItems:", JSON.stringify(cartItems));
+
+                // Salva carrinho final na sessão (sem filtro company_id — thread_id é único)
+                const { error: cartSaveErr } = await admin
                     .from("chatbot_sessions")
                     .update({
                         cart:    cartItems,
@@ -684,8 +709,11 @@ export async function POST(req: NextRequest) {
                             pending_names:       undefined,
                         },
                     })
-                    .eq("thread_id", threadId)
-                    .eq("company_id", companyId);
+                    .eq("thread_id", threadId);
+
+                if (cartSaveErr) {
+                    console.error("[flows/catalog] QUANTITIES cart save error:", cartSaveErr.message);
+                }
 
                 // Busca endereços salvos para pré-popular a tela CEP_SEARCH
                 const { data: qtySessionRow } = await admin
@@ -948,7 +976,11 @@ export async function POST(req: NextRequest) {
                 const trocoStr      = String(formData?.troco_para     ?? "").trim();
                 const changeFor     = trocoStr ? parseFloat(trocoStr.replace(",", ".")) || null : null;
 
-                if (!paymentMethod) return encryptedError("missing_payment_method", aesKey, iv);
+                if (!paymentMethod) {
+                    console.error("[flows/catalog] missing_payment_method | threadId:", threadId);
+                    await saveCatalogScreen("PAYMENT");
+                    return encryptedOk({ version: "3.0", screen: "PAYMENT", data: {} } as Record<string, unknown>, aesKey, iv);
+                }
 
                 const { data: sessionRow } = await admin
                     .from("chatbot_sessions")
@@ -963,7 +995,12 @@ export async function POST(req: NextRequest) {
                 const address = (context.delivery_address as string) ?? "";
                 let customerId = sessionRow.customer_id as string | null ?? null;
 
-                if (!address) return encryptedError("address_missing_in_session", aesKey, iv);
+                console.log("[flows/catalog] PAYMENT | cart:", JSON.stringify(cart), "| address:", address);
+
+                if (!address) {
+                    console.error("[flows/catalog] address_missing_in_session | threadId:", threadId);
+                    return encryptedError("address_missing_in_session", aesKey, iv);
+                }
 
                 // Garante que o cliente existe (cria se necessário para salvar endereço e vínculo no pedido)
                 if (!customerId) {
@@ -1093,7 +1130,8 @@ export async function POST(req: NextRequest) {
                     return encryptedError("order_creation_failed", aesKey, iv);
                 }
 
-                await admin.from("order_items").insert(
+                console.log("[flows/catalog] inserindo order_items | orderId:", order.id, "| cartLen:", cart.length, "| items:", JSON.stringify(cart));
+                const { error: itemsErr } = await admin.from("order_items").insert(
                     cart.map((item) => ({
                         order_id:             order.id,
                         company_id:           companyId,
@@ -1104,6 +1142,7 @@ export async function POST(req: NextRequest) {
                         line_total:           item.price * item.qty,
                     }))
                 );
+                if (itemsErr) console.error("[flows/catalog] order_items insert error:", itemsErr.message);
 
                 await admin
                     .from("chatbot_sessions")
