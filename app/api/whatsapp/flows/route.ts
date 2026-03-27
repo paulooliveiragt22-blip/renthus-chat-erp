@@ -1105,43 +1105,38 @@ export async function POST(req: NextRequest) {
                 const requireApproval    = settings?.require_order_approval ?? false;
                 const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
 
-                const { data: order, error: orderErr } = await admin
-                    .from("orders")
-                    .insert({
-                        company_id:                   companyId,
-                        customer_id:                  customerId,
-                        status:                       "new",
-                        confirmation_status:          confirmationStatus,
-                        source:                       "flow_catalog",
-                        channel:                      "whatsapp",
-                        total_amount:                 grandTotal,
-                        delivery_fee:                 deliveryFee,
-                        delivery_address:             address,
-                        delivery_endereco_cliente_id: deliveryEnderecoClienteId,
-                        payment_method:               paymentMethod,
-                        change_for:                   changeFor,
-                        paid:                         false,
-                    })
-                    .select("id")
-                    .single();
-
-                if (orderErr || !order) {
-                    console.error("[flows/catalog] Erro ao criar pedido:", orderErr?.message);
-                    return encryptedError("order_creation_failed", aesKey, iv);
+                if (!cart.length) {
+                    console.error("[flows/catalog] PAYMENT cart vazio ao criar pedido | threadId:", threadId);
+                    return encryptedError("empty_cart", aesKey, iv);
                 }
 
-                console.log("[flows/catalog] inserindo order_items | orderId:", order.id, "| cartLen:", cart.length);
-                const { error: itemsErr } = await admin.from("order_items").insert(
-                    cart.map((item) => ({
-                        order_id:             order.id,
-                        company_id:           companyId,
+                const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {
+                    p_company_id:                   companyId,
+                    p_customer_id:                  customerId,
+                    p_status:                       "new",
+                    p_confirmation_status:          confirmationStatus,
+                    p_source:                       "flow_catalog",
+                    p_channel:                      "whatsapp",
+                    p_total_amount:                 grandTotal,
+                    p_delivery_fee:                 deliveryFee,
+                    p_delivery_address:             address,
+                    p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
+                    p_payment_method:               paymentMethod,
+                    p_change_for:                   changeFor,
+                    p_paid:                         false,
+                    p_items: cart.map((item) => ({
                         product_name:         item.name,
                         produto_embalagem_id: item.variantId ?? null,
                         quantity:             item.qty,
                         unit_price:           item.price,
-                    }))
-                );
-                if (itemsErr) console.error("[flows/catalog] order_items insert error:", itemsErr.message);
+                    })),
+                });
+
+                if (orderErr || !orderId) {
+                    console.error("[flows/catalog] Erro ao criar pedido:", orderErr?.message);
+                    return encryptedError("order_creation_failed", aesKey, iv);
+                }
+                const order = { id: orderId as string };
 
                 await admin
                     .from("chatbot_sessions")
@@ -1455,43 +1450,34 @@ export async function POST(req: NextRequest) {
                 const requireApproval = settings?.require_order_approval ?? false;
                 const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
 
-                // Cria pedido
-                const { data: order, error: orderErr } = await admin
-                    .from("orders")
-                    .insert({
-                        company_id:                    companyId,
-                        customer_id:                   customerId,
-                        status:                        "new",
-                        confirmation_status:           confirmationStatus,
-                        source:                        "flow_catalog",
-                        channel:                       "whatsapp",
-                        total_amount:                  grandTotal,
-                        delivery_fee:                  deliveryFee,
-                        delivery_address:              address,
-                        delivery_endereco_cliente_id:  deliveryEnderecoClienteId,
-                        payment_method:                paymentMethod,
-                        change_for:                    changeFor,
-                        paid:                          false,
-                    })
-                    .select("id")
-                    .single();
+                // Cria pedido + itens atomicamente via RPC (bloqueia pedido vazio no banco)
+                const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {
+                    p_company_id:                   companyId,
+                    p_customer_id:                  customerId,
+                    p_status:                       "new",
+                    p_confirmation_status:          confirmationStatus,
+                    p_source:                       "flow_catalog",
+                    p_channel:                      "whatsapp",
+                    p_total_amount:                 grandTotal,
+                    p_delivery_fee:                 deliveryFee,
+                    p_delivery_address:             address,
+                    p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
+                    p_payment_method:               paymentMethod,
+                    p_change_for:                   changeFor,
+                    p_paid:                         false,
+                    p_items: cart.map((item) => ({
+                        product_name:         item.name,
+                        produto_embalagem_id: item.variantId ?? null,
+                        quantity:             item.qty,
+                        unit_price:           item.price,
+                    })),
+                });
 
-                if (orderErr || !order) {
+                if (orderErr || !orderId) {
                     console.error("[flows] Erro ao criar pedido:", orderErr?.message);
                     return encryptedError("order_creation_failed", aesKey, iv);
                 }
-
-                // Cria itens do pedido
-                await admin.from("order_items").insert(
-                    cart.map((item) => ({
-                        order_id:              order.id,
-                        company_id:            companyId,
-                        product_name:          item.name,
-                        produto_embalagem_id:  item.variantId ?? null,
-                        quantity:              item.qty,
-                        unit_price:            item.price,
-                    }))
-                );
+                const order = { id: orderId as string };
 
                 // Limpa sessão
                 await admin

@@ -1,6 +1,9 @@
+-- Remove trigger anterior (migration 13 criou trigger de DELETE — comportamento errado)
+DROP TRIGGER IF EXISTS trg_order_must_have_items ON public.order_items;
+DROP FUNCTION IF EXISTS public.enforce_order_has_items();
+
 -- RPC: cria pedido + itens em uma única transação.
--- Garante que nunca exista pedido sem itens no banco.
--- Lança exceção se items estiver vazio antes de qualquer INSERT.
+-- Garante atomicidade: ou cria tudo ou nada. Bloqueia pedido vazio.
 
 CREATE OR REPLACE FUNCTION public.create_order_with_items(
     p_company_id                    uuid,
