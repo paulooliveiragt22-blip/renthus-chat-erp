@@ -325,6 +325,20 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        // Salva a tela atual na sessão para fallback quando Meta enviar screen: ""
+        async function saveCatalogScreen(nextScreen: string) {
+            // Lê context atual para merge parcial (evita sobrescrever outras chaves)
+            const { data: ctxRow } = await admin
+                .from("chatbot_sessions")
+                .select("context")
+                .eq("thread_id", threadId)
+                .maybeSingle();
+            const ctx = (ctxRow?.context ?? {}) as Record<string, unknown>;
+            await admin.from("chatbot_sessions")
+                .update({ context: { ...ctx, catalog_screen: nextScreen } })
+                .eq("thread_id", threadId);
+        }
+
         // ── INIT → tela CATEGORIES ────────────────────────────────────────────
         if (action === "INIT") {
             const { data: rows, error } = await admin
@@ -352,6 +366,7 @@ export async function POST(req: NextRequest) {
                 }))
                 .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
 
+            await saveCatalogScreen("CATEGORIES");
             return encryptedOk(
                 { version: "3.0", screen: "CATEGORIES", data: { categories } } as Record<string, unknown>,
                 aesKey, iv
@@ -360,11 +375,19 @@ export async function POST(req: NextRequest) {
 
         if (action === "data_exchange") {
 
+            // Lê a tela salva na sessão como fallback (Meta pode enviar screen: "")
+            const { data: sessionForScreen } = await admin
+                .from("chatbot_sessions")
+                .select("context")
+                .eq("thread_id", threadId)
+                .maybeSingle();
+            const sessionScreen = String((sessionForScreen?.context as any)?.catalog_screen ?? "").trim().toUpperCase();
+
             // Normaliza o screen (Meta pode enviar com espaços ou caixa diferente)
             const screenNorm = screen
                 ? String(screen).trim().toUpperCase()
-                : inferCatalogScreen(formData);
-            console.log("[flows/catalog] data_exchange | screen:", JSON.stringify(screen), "| screenNorm:", screenNorm, "| dataKeys:", Object.keys(formData ?? {}));
+                : (inferCatalogScreen(formData) || sessionScreen);
+            console.log("[flows/catalog] data_exchange | screen:", JSON.stringify(screen), "| screenNorm:", screenNorm, "| sessionScreen:", sessionScreen, "| dataKeys:", Object.keys(formData ?? {}));
 
             // ── CATEGORIES → PRODUCTS (busca geral ou por categoria) ──────────
             if (screenNorm === "CATEGORIES") {
@@ -399,6 +422,7 @@ export async function POST(req: NextRequest) {
                     ? `Resultados para "${searchAll.toUpperCase()}"`
                     : catName.toUpperCase();
 
+                await saveCatalogScreen("PRODUCTS");
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -442,6 +466,7 @@ export async function POST(req: NextRequest) {
                         ? `"${searchFilter.toUpperCase()}" em ${catName.toUpperCase() || "categoria"}`
                         : `Resultados para "${searchFilter.toUpperCase()}"`;
 
+                    await saveCatalogScreen("PRODUCTS");
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -547,6 +572,7 @@ export async function POST(req: NextRequest) {
                     price:     parseFloat(p.preco_venda) || 0,
                 }));
 
+                await saveCatalogScreen("QUANTITIES");
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -635,6 +661,7 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
+                await saveCatalogScreen("CEP_SEARCH");
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -719,6 +746,7 @@ export async function POST(req: NextRequest) {
                             },
                         }).eq("thread_id", threadId);
 
+                        await saveCatalogScreen("PAYMENT");
                         return encryptedOk(
                             {
                                 version: "3.0",
@@ -761,6 +789,7 @@ export async function POST(req: NextRequest) {
 
                 const cart = ((cepSessRow?.cart ?? []) as CartItem[]);
 
+                await saveCatalogScreen("ADDRESS");
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -847,6 +876,7 @@ export async function POST(req: NextRequest) {
                     : "";
                 const cartSummary = `${formatCart(cart)}${feeText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
 
+                await saveCatalogScreen("PAYMENT");
                 return encryptedOk(
                     {
                         version: "3.0",
