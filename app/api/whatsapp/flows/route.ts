@@ -385,13 +385,39 @@ export async function POST(req: NextRequest) {
                 : (inferCatalogScreen(formData) || sessionScreen);
             console.log("[flows/catalog] data_exchange | screen:", JSON.stringify(screen), "| screenNorm:", screenNorm, "| sessionScreen:", sessionScreen, "| dataKeys:", Object.keys(formData ?? {}));
 
+            // Helper: re-renderiza a tela CATEGORIES (sem screen = bug Meta)
+            async function reRenderCategories() {
+                const { data: catRows } = await admin
+                    .from("products")
+                    .select("category_id, categories!inner(id, name)")
+                    .eq("company_id", companyId)
+                    .eq("is_active", true)
+                    .not("category_id", "is", null);
+                const counts: Record<string, { name: string; count: number }> = {};
+                for (const row of catRows ?? []) {
+                    const cat = (row as any).categories;
+                    if (!cat?.id) continue;
+                    if (!counts[cat.id]) counts[cat.id] = { name: cat.name, count: 0 };
+                    counts[cat.id].count++;
+                }
+                const categories = Object.entries(counts)
+                    .map(([id, v]) => ({ id, title: v.name.toUpperCase(), description: `${v.count} produto${v.count !== 1 ? "s" : ""}` }))
+                    .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
+                await saveCatalogScreen("CATEGORIES");
+                return encryptedOk(
+                    { version: "3.0", screen: "CATEGORIES", data: { categories } } as Record<string, unknown>,
+                    aesKey, iv
+                );
+            }
+
             // ── CATEGORIES → PRODUCTS (busca geral ou por categoria) ──────────
             if (screenNorm === "CATEGORIES") {
                 const searchAll  = String(formData?.search_all  ?? "").trim();
                 const categoryId = String(formData?.category_id ?? "").trim();
 
+                // Nenhuma opção selecionada: re-renderiza CATEGORIES
                 if (!searchAll && !categoryId) {
-                    return encryptedError("select_category_or_search", aesKey, iv);
+                    return reRenderCategories();
                 }
 
                 let catName    = "";
@@ -412,7 +438,7 @@ export async function POST(req: NextRequest) {
                         : { categoryName: catName }
                 );
 
-                if (!products.length) return encryptedError("no_products_found", aesKey, iv);
+                if (!products.length) return reRenderCategories();
 
                 const categoryLabel = searchAll
                     ? `Resultados para "${searchAll.toUpperCase()}"`
@@ -456,7 +482,15 @@ export async function POST(req: NextRequest) {
                             : { search: searchFilter }
                     );
 
-                    if (!products.length) return encryptedError("no_products_found", aesKey, iv);
+                    // Sem resultados: re-renderiza com todos os produtos da categoria
+                    if (!products.length) {
+                        const fallback = await fetchProducts(catIdCache ? { categoryName: catName } : {});
+                        await saveCatalogScreen("PRODUCTS");
+                        return encryptedOk(
+                            { version: "3.0", screen: "PRODUCTS", data: { products: fallback, category_name: catName.toUpperCase() || "PRODUTOS", category_id_cache: catIdCache } } as Record<string, unknown>,
+                            aesKey, iv
+                        );
+                    }
 
                     const label = catIdCache
                         ? `"${searchFilter.toUpperCase()}" em ${catName.toUpperCase() || "categoria"}`
@@ -477,7 +511,29 @@ export async function POST(req: NextRequest) {
                     );
                 }
 
-                if (!selectedIds.length) return encryptedError("no_products_selected", aesKey, iv);
+                // Nenhum produto selecionado: re-renderiza PRODUCTS (sem screen = bug Meta)
+                if (!selectedIds.length) {
+                    let catName2 = "";
+                    if (catIdCache) {
+                        const { data: catRow2 } = await admin
+                            .from("categories").select("name").eq("id", catIdCache).maybeSingle();
+                        catName2 = catRow2?.name ?? "";
+                    }
+                    const reProducts = await fetchProducts(catIdCache ? { categoryName: catName2 } : {});
+                    await saveCatalogScreen("PRODUCTS");
+                    return encryptedOk(
+                        {
+                            version: "3.0",
+                            screen:  "PRODUCTS",
+                            data: {
+                                products:          reProducts,
+                                category_name:     catName2.toUpperCase() || "PRODUTOS",
+                                category_id_cache: catIdCache,
+                            },
+                        } as Record<string, unknown>,
+                        aesKey, iv
+                    );
+                }
 
                 // Valida produtos selecionados (inclui sigla para agrupar na tela de qtd)
                 const { data: validProducts, error: prodErr } = await admin
