@@ -5,7 +5,7 @@
     "CATEGORIES": ["PRODUCTS"],
     "PRODUCTS":   ["QUANTITIES"],
     "QUANTITIES": ["CEP_SEARCH"],
-    "CEP_SEARCH": ["ADDRESS"],
+    "CEP_SEARCH": ["ADDRESS", "PAYMENT"],
     "ADDRESS":    ["PAYMENT"],
     "PAYMENT":    ["SUCCESS"]
   },
@@ -183,9 +183,13 @@
             },
             "children": [
               {
+                "type": "TextBody",
+                "text": "${data.product_name_1}"
+              },
+              {
                 "type": "TextInput",
                 "name": "qty_1",
-                "label": "${data.product_name_1}",
+                "label": "Quantidade",
                 "required": true,
                 "input-type": "number"
               },
@@ -194,9 +198,13 @@
                 "condition": "${data.show_qty_2}",
                 "then": [
                   {
+                    "type": "TextBody",
+                    "text": "${data.product_name_2}"
+                  },
+                  {
                     "type": "TextInput",
                     "name": "qty_2",
-                    "label": "${data.product_name_2}",
+                    "label": "Quantidade",
                     "required": true,
                     "input-type": "number"
                   }
@@ -207,9 +215,13 @@
                 "condition": "${data.show_qty_3}",
                 "then": [
                   {
+                    "type": "TextBody",
+                    "text": "${data.product_name_3}"
+                  },
+                  {
                     "type": "TextInput",
                     "name": "qty_3",
-                    "label": "${data.product_name_3}",
+                    "label": "Quantidade",
                     "required": true,
                     "input-type": "number"
                   }
@@ -220,9 +232,13 @@
                 "condition": "${data.show_qty_4}",
                 "then": [
                   {
+                    "type": "TextBody",
+                    "text": "${data.product_name_4}"
+                  },
+                  {
                     "type": "TextInput",
                     "name": "qty_4",
-                    "label": "${data.product_name_4}",
+                    "label": "Quantidade",
                     "required": true,
                     "input-type": "number"
                   }
@@ -233,9 +249,13 @@
                 "condition": "${data.show_qty_5}",
                 "then": [
                   {
+                    "type": "TextBody",
+                    "text": "${data.product_name_5}"
+                  },
+                  {
                     "type": "TextInput",
                     "name": "qty_5",
-                    "label": "${data.product_name_5}",
+                    "label": "Quantidade",
                     "required": true,
                     "input-type": "number"
                   }
@@ -268,6 +288,24 @@
         "cart_summary": {
           "type": "string",
           "__example__": "2x Heineken 600ml — R$ 24,00\n\n*Total: R$ 24,00*"
+        },
+        "has_saved_addresses": {
+          "type": "boolean",
+          "__example__": true
+        },
+        "saved_addresses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id":          { "type": "string" },
+              "title":       { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [
+            { "id": "addr-1", "title": "Casa", "description": "Rua das Flores, 123, Centro" }
+          ]
         }
       },
       "layout": {
@@ -286,12 +324,29 @@
             "name": "cep_form",
             "children": [
               {
+                "type": "If",
+                "condition": "${data.has_saved_addresses}",
+                "then": [
+                  {
+                    "type": "TextSubheading",
+                    "text": "Endereços salvos:"
+                  },
+                  {
+                    "type": "RadioButtonsGroup",
+                    "name": "selected_address_id",
+                    "label": "Selecionar endereço",
+                    "required": false,
+                    "data-source": "${data.saved_addresses}"
+                  }
+                ]
+              },
+              {
                 "type": "TextInput",
                 "name": "cep",
-                "label": "CEP",
+                "label": "Ou adicionar pelo CEP",
                 "required": false,
                 "input-type": "number",
-                "helper-text": "Digite seu CEP para buscar o endereço automaticamente (opcional)"
+                "helper-text": "Digite o CEP para preencher um novo endereço"
               },
               {
                 "type": "Footer",
@@ -299,7 +354,8 @@
                 "on-click-action": {
                   "name": "data_exchange",
                   "payload": {
-                    "cep": "${form.cep}"
+                    "cep":                 "${form.cep}",
+                    "selected_address_id": "${form.selected_address_id}"
                   }
                 }
               }

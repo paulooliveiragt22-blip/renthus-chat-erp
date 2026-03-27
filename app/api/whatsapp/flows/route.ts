@@ -427,13 +427,15 @@ export async function POST(req: NextRequest) {
 
                 if (!selectedIds.length) return encryptedError("no_products_selected", aesKey, iv);
 
-                // Valida produtos selecionados
+                // Valida produtos selecionados (inclui sigla para agrupar na tela de qtd)
                 const { data: validProducts, error: prodErr } = await admin
                     .from("produto_embalagens")
                     .select(`
                         id,
                         preco_venda,
                         descricao,
+                        id_sigla_comercial,
+                        siglas_comerciais ( sigla ),
                         products!inner ( name, is_active )
                     `)
                     .in("id", selectedIds)
@@ -444,19 +446,36 @@ export async function POST(req: NextRequest) {
                     return encryptedError("invalid_products", aesKey, iv);
                 }
 
-                // Limita a 5 produtos (máximo de inputs de quantidade na tela QUANTITIES)
-                const limited = validProducts.slice(0, 5) as any[];
+                const isUN = (p: any) => {
+                    const s = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
+                    return s === "UN" || s === "";
+                };
 
-                // Salva IDs selecionados no contexto da sessão (quantidades virão na próxima tela)
+                // Ordena: não-UN primeiro (caixa, fardo, pacote…), depois unitários
+                const sorted = [...validProducts].sort((a, b) => {
+                    if (isUN(a) === isUN(b)) return 0;
+                    return isUN(a) ? 1 : -1;
+                }).slice(0, 5) as any[];
+
+                const formatSlotName = (p: any): string => {
+                    const sigla  = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
+                    const emoji  = isUN(p) ? "🍺" : "📦";
+                    const name   = [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase();
+                    const price  = formatCurrency(parseFloat(p.preco_venda) || 0);
+                    const prefix = sigla && sigla !== "UN" ? `${sigla} • ` : "";
+                    return `${emoji} ${prefix}${name} — ${price}`;
+                };
+
+                // Salva IDs na ordem ordenada no contexto da sessão
                 await admin
                     .from("chatbot_sessions")
                     .update({
                         step:    "awaiting_flow",
                         context: {
                             source:              "flow_catalog",
-                            pending_product_ids: limited.map((p) => p.id),
-                            pending_prices:      limited.map((p) => parseFloat(p.preco_venda) || 0),
-                            pending_names:       limited.map((p) =>
+                            pending_product_ids: sorted.map((p) => p.id),
+                            pending_prices:      sorted.map((p) => parseFloat(p.preco_venda) || 0),
+                            pending_names:       sorted.map((p) =>
                                 [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase()
                             ),
                         },
@@ -464,25 +483,54 @@ export async function POST(req: NextRequest) {
                     .eq("thread_id", threadId)
                     .eq("company_id", companyId);
 
-                const nameWithPrice = (p: any) => {
-                    const n = [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase();
-                    return `${n} — ${formatCurrency(parseFloat(p.preco_venda) || 0)}`;
-                };
+                // Busca endereços salvos do cliente para pré-popular a tela CEP_SEARCH
+                const { data: sessionForAddr } = await admin
+                    .from("chatbot_sessions")
+                    .select("customer_id")
+                    .eq("thread_id", threadId)
+                    .maybeSingle();
+
+                type SavedAddr = { id: string; title: string; description: string };
+                let savedAddresses: SavedAddr[] = [];
+                if (sessionForAddr?.customer_id) {
+                    const { data: addrs } = await admin
+                        .from("enderecos_cliente")
+                        .select("id, apelido, logradouro, numero, bairro")
+                        .eq("customer_id", sessionForAddr.customer_id)
+                        .eq("company_id", companyId)
+                        .order("is_principal", { ascending: false })
+                        .limit(5);
+                    if (addrs?.length) {
+                        savedAddresses = addrs.map((a: any) => ({
+                            id:          a.id,
+                            title:       a.apelido,
+                            description: [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", "),
+                        }));
+                    }
+                }
+
+                // Monta carrinho para exibir no resumo da tela CEP_SEARCH
+                const cartForDisplay: CartItem[] = sorted.map((p, i) => ({
+                    variantId: p.id,
+                    name:      [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase(),
+                    qty:       1,
+                    price:     parseFloat(p.preco_venda) || 0,
+                }));
 
                 return encryptedOk(
                     {
                         version: "3.0",
                         screen:  "QUANTITIES",
                         data: {
-                            product_name_1: nameWithPrice(limited[0]),
-                            product_name_2: limited[1] ? nameWithPrice(limited[1]) : "",
-                            product_name_3: limited[2] ? nameWithPrice(limited[2]) : "",
-                            product_name_4: limited[3] ? nameWithPrice(limited[3]) : "",
-                            product_name_5: limited[4] ? nameWithPrice(limited[4]) : "",
-                            show_qty_2:     limited.length >= 2,
-                            show_qty_3:     limited.length >= 3,
-                            show_qty_4:     limited.length >= 4,
-                            show_qty_5:     limited.length >= 5,
+                            product_name_1:      formatSlotName(sorted[0]),
+                            product_name_2:      sorted[1] ? formatSlotName(sorted[1]) : "",
+                            product_name_3:      sorted[2] ? formatSlotName(sorted[2]) : "",
+                            product_name_4:      sorted[3] ? formatSlotName(sorted[3]) : "",
+                            product_name_5:      sorted[4] ? formatSlotName(sorted[4]) : "",
+                            show_qty_2:          sorted.length >= 2,
+                            show_qty_3:          sorted.length >= 3,
+                            show_qty_4:          sorted.length >= 4,
+                            show_qty_5:          sorted.length >= 5,
                         },
                     } as Record<string, unknown>,
                     aesKey, iv
@@ -523,7 +571,6 @@ export async function POST(req: NextRequest) {
                         cart:    cartItems,
                         context: {
                             source:              "flow_catalog",
-                            // limpa pending
                             pending_product_ids: undefined,
                             pending_prices:      undefined,
                             pending_names:       undefined,
@@ -532,20 +579,131 @@ export async function POST(req: NextRequest) {
                     .eq("thread_id", threadId)
                     .eq("company_id", companyId);
 
+                // Busca endereços salvos para pré-popular a tela CEP_SEARCH
+                const { data: qtySessionRow } = await admin
+                    .from("chatbot_sessions")
+                    .select("customer_id")
+                    .eq("thread_id", threadId)
+                    .maybeSingle();
+
+                type SavedAddrSlot = { id: string; title: string; description: string };
+                let qtySavedAddresses: SavedAddrSlot[] = [];
+                if (qtySessionRow?.customer_id) {
+                    const { data: addrs } = await admin
+                        .from("enderecos_cliente")
+                        .select("id, apelido, logradouro, numero, bairro")
+                        .eq("customer_id", qtySessionRow.customer_id)
+                        .eq("company_id", companyId)
+                        .order("is_principal", { ascending: false })
+                        .limit(5);
+                    if (addrs?.length) {
+                        qtySavedAddresses = (addrs as any[]).map((a) => ({
+                            id:          a.id,
+                            title:       a.apelido,
+                            description: [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", "),
+                        }));
+                    }
+                }
+
                 return encryptedOk(
                     {
                         version: "3.0",
                         screen:  "CEP_SEARCH",
-                        data:    { cart_summary: formatCart(cartItems) },
+                        data:    {
+                            cart_summary:        formatCart(cartItems),
+                            has_saved_addresses: qtySavedAddresses.length > 0,
+                            saved_addresses:     qtySavedAddresses,
+                        },
                     } as Record<string, unknown>,
                     aesKey, iv
                 );
             }
 
-            // ── CEP_SEARCH → busca ViaCEP → ADDRESS ──────────────────────────
+            // ── CEP_SEARCH → endereço salvo → PAYMENT | CEP → ADDRESS ─────────
             if (screen === "CEP_SEARCH") {
-                const rawCep = String(formData?.cep ?? "").replace(/\D/g, "");
+                const selectedAddressId = String(formData?.selected_address_id ?? "").trim();
+                const rawCep            = String(formData?.cep ?? "").replace(/\D/g, "");
 
+                // Helper local: lookup de zona de entrega
+                const lookupZone = async (bairro: string) => {
+                    const { data: zones } = await admin
+                        .from("delivery_zones")
+                        .select("id, label, fee, neighborhoods")
+                        .eq("company_id", companyId)
+                        .eq("is_active", true);
+                    const nb = bairro.toLowerCase();
+                    return (zones ?? []).find((z) => {
+                        if (z.label.toLowerCase().includes(nb) || nb.includes(z.label.toLowerCase())) return true;
+                        if (Array.isArray(z.neighborhoods))
+                            return z.neighborhoods.some((n: string) =>
+                                n.toLowerCase().includes(nb) || nb.includes(n.toLowerCase())
+                            );
+                        return false;
+                    }) ?? null;
+                };
+
+                // Caminho A: cliente selecionou endereço salvo → vai direto ao PAYMENT
+                if (selectedAddressId) {
+                    const { data: savedAddr } = await admin
+                        .from("enderecos_cliente")
+                        .select("id, apelido, logradouro, numero, complemento, bairro")
+                        .eq("id", selectedAddressId)
+                        .eq("company_id", companyId)
+                        .maybeSingle();
+
+                    if (savedAddr) {
+                        const bairro   = (savedAddr as any).bairro ?? "";
+                        const zoneRow  = await lookupZone(bairro);
+                        const delivFee = zoneRow ? Number(zoneRow.fee) : 0;
+                        const address  = [(savedAddr as any).logradouro, (savedAddr as any).numero,
+                                          (savedAddr as any).complemento, bairro]
+                                          .filter(Boolean).join(", ");
+
+                        const { data: sessForCart } = await admin
+                            .from("chatbot_sessions")
+                            .select("cart, context")
+                            .eq("thread_id", threadId)
+                            .maybeSingle();
+
+                        const cart    = ((sessForCart?.cart ?? []) as CartItem[]);
+                        const ctx     = (sessForCart?.context ?? {}) as Record<string, unknown>;
+                        const total   = cart.reduce((s, i) => s + i.price * i.qty, 0) + delivFee;
+                        const feeText = delivFee > 0
+                            ? `\n🛵 Taxa ${zoneRow?.label ?? bairro}: ${formatCurrency(delivFee)}`
+                            : "";
+                        const cartSummary = `${formatCart(cart)}${feeText}\n\n💰 *Total: ${formatCurrency(total)}*`;
+
+                        await admin.from("chatbot_sessions").update({
+                            context: {
+                                ...ctx,
+                                delivery_address:             address,
+                                delivery_fee:                 delivFee,
+                                delivery_zone_id:             zoneRow?.id ?? null,
+                                flow_address_done:            true,
+                                flow_apelido:                 (savedAddr as any).apelido,
+                                flow_rua:                     (savedAddr as any).logradouro,
+                                flow_numero:                  (savedAddr as any).numero,
+                                flow_complemento:             (savedAddr as any).complemento,
+                                flow_bairro_label:            bairro,
+                                delivery_endereco_cliente_id: selectedAddressId,
+                            },
+                        }).eq("thread_id", threadId);
+
+                        return encryptedOk(
+                            {
+                                version: "3.0",
+                                screen:  "PAYMENT",
+                                data:    {
+                                    address_display: `📍 ${address}`,
+                                    cart_summary:    cartSummary,
+                                },
+                            } as Record<string, unknown>,
+                            aesKey, iv
+                        );
+                    }
+                }
+
+                // Caminho B: cliente digitou CEP → ADDRESS com preenchimento automático
                 let ruaInit    = "";
                 let bairroInit = "";
 
@@ -565,13 +723,13 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
-                const { data: sessionRow } = await admin
+                const { data: cepSessRow } = await admin
                     .from("chatbot_sessions")
                     .select("cart")
                     .eq("thread_id", threadId)
                     .maybeSingle();
 
-                const cart = (sessionRow?.cart ?? []) as CartItem[];
+                const cart = ((cepSessRow?.cart ?? []) as CartItem[]);
 
                 return encryptedOk(
                     {
@@ -688,12 +846,55 @@ export async function POST(req: NextRequest) {
 
                 if (!sessionRow) return encryptedError("session_not_found", aesKey, iv);
 
-                const cart       = (sessionRow.cart    ?? []) as CartItem[];
-                const context    = (sessionRow.context ?? {}) as Record<string, unknown>;
-                const address    = (context.delivery_address as string) ?? "";
-                const customerId = sessionRow.customer_id ?? null;
+                const cart    = (sessionRow.cart    ?? []) as CartItem[];
+                const context = (sessionRow.context ?? {}) as Record<string, unknown>;
+                const address = (context.delivery_address as string) ?? "";
+                let customerId = sessionRow.customer_id as string | null ?? null;
 
                 if (!address) return encryptedError("address_missing_in_session", aesKey, iv);
+
+                // Garante que o cliente existe (cria se necessário para salvar endereço e vínculo no pedido)
+                if (!customerId) {
+                    const { data: threadPhone } = await admin
+                        .from("whatsapp_threads")
+                        .select("phone_e164, profile_name")
+                        .eq("id", threadId)
+                        .maybeSingle();
+
+                    if (threadPhone?.phone_e164) {
+                        const phoneRaw = threadPhone.phone_e164.replace(/\D/g, "");
+                        const { data: existCust } = await admin
+                            .from("customers")
+                            .select("id")
+                            .eq("company_id", companyId)
+                            .or(`phone_e164.eq.${threadPhone.phone_e164},phone.eq.${phoneRaw}`)
+                            .maybeSingle();
+
+                        if (existCust?.id) {
+                            customerId = existCust.id as string;
+                        } else {
+                            const { data: newCust } = await admin
+                                .from("customers")
+                                .insert({
+                                    company_id: companyId,
+                                    phone:      phoneRaw,
+                                    phone_e164: threadPhone.phone_e164,
+                                    name:       threadPhone.profile_name ?? null,
+                                    origem:     "flow_catalog",
+                                })
+                                .select("id")
+                                .single();
+                            if (newCust?.id) customerId = newCust.id as string;
+                        }
+
+                        if (customerId) {
+                            await admin
+                                .from("chatbot_sessions")
+                                .update({ customer_id: customerId })
+                                .eq("thread_id", threadId);
+                        }
+                    }
+                }
 
                 const deliveryFee = (context.delivery_fee as number) ?? 0;
                 const totalItems  = cart.reduce((s, i) => s + i.price * i.qty, 0);

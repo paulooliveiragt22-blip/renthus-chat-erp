@@ -317,10 +317,15 @@ export async function detectGlobalIntents(
     // ── 10.5. Regex quick-resolve (zero tokens de IA) ─────────────────────────
     if (GREETING_ONLY_RE.test(input) && GREETING_ALLOWED_STEPS.has(session.step)) {
         resetUnknownCount(session);
+        // Avança step para main_menu para evitar dupla saudação quando o cliente
+        // clicar em um botão do menu logo após receber a saudação.
+        if (session.step !== "main_menu") {
+            await saveSession(admin, threadId, companyId, { step: "main_menu" });
+        }
         await sendInteractiveButtons(phoneE164, `Como posso te ajudar no *${companyName}*? 🍺`, [
-            { id: "1", title: "🍺 Ver cardápio" },
-            { id: "2", title: "📦 Meu pedido" },
-            { id: "3", title: "🙋 Falar c/ atendente" },
+            { id: "btn_catalog", title: "🍺 Ver cardápio" },
+            { id: "btn_status",  title: "📦 Meu pedido" },
+            { id: "btn_support", title: "🙋 Falar c/ atendente" },
         ]);
         return { handled: true };
     }
