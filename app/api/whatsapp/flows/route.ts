@@ -293,11 +293,16 @@ export async function POST(req: NextRequest) {
                 p_days:       30,
             });
 
-            return (data ?? []).map((p: any) => ({
-                id:          p.id,
-                title:       String(p.name).toUpperCase().slice(0, 30),
-                description: `R$ ${parseFloat(p.price).toFixed(2).replace(".", ",")}${!p.in_stock ? " ⚠️" : ""}`,
-            }));
+            return (data ?? []).map((p: any) => {
+                const item: Record<string, unknown> = {
+                    id:          p.id,
+                    title:       String(p.name).toUpperCase().slice(0, 30),
+                    description: `R$ ${parseFloat(p.price).toFixed(2).replace(".", ",")}${!p.in_stock ? " ⚠️" : ""}`,
+                };
+                if (p.thumbnail_url) item["image-url"] = p.thumbnail_url;
+                else if (p.image_url) item["image-url"] = p.image_url;
+                return item;
+            });
         }
 
         // ── INIT → tela CATEGORIES ────────────────────────────────────────────
