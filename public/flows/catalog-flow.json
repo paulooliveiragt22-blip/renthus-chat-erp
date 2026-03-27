@@ -174,11 +174,11 @@
             "type": "Form",
             "name": "qty_form",
             "init-values": {
-              "qty_1": "1",
-              "qty_2": "1",
-              "qty_3": "1",
-              "qty_4": "1",
-              "qty_5": "1"
+              "qty_1": 1,
+              "qty_2": 1,
+              "qty_3": 1,
+              "qty_4": 1,
+              "qty_5": 1
             },
             "children": [
               {
