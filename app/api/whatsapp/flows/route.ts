@@ -268,21 +268,26 @@ export async function POST(req: NextRequest) {
         async function fetchProducts(opts: {
             categoryName?: string | null;
             search?:       string | null;
-        }): Promise<Array<{ id: string; title: string; description: string }>> {
+        }): Promise<Array<Record<string, unknown>>> {
             if (opts.search) {
                 // Busca full-text na view_chat_produtos (nome, tags, etc.)
                 const { data } = await admin
                     .from("view_chat_produtos")
-                    .select("id, product_name, descricao, preco_venda")
+                    .select("id, product_name, preco_venda, thumbnail_url, image_url")
                     .eq("company_id", companyId)
                     .ilike("product_name", `%${opts.search}%`)
                     .limit(20);
 
-                return (data ?? []).map((p: any) => ({
-                    id:          p.id,
-                    title:       String(p.product_name).toUpperCase().slice(0, 30),
-                    description: `R$ ${parseFloat(p.preco_venda ?? 0).toFixed(2).replace(".", ",")}`,
-                }));
+                return (data ?? []).map((p: any) => {
+                    const item: Record<string, unknown> = {
+                        id:          p.id,
+                        title:       String(p.product_name).toUpperCase().slice(0, 30),
+                        description: `R$ ${parseFloat(p.preco_venda ?? 0).toFixed(2).replace(".", ",")}`,
+                    };
+                    if (p.thumbnail_url) item["image-url"] = p.thumbnail_url;
+                    else if (p.image_url) item["image-url"] = p.image_url;
+                    return item;
+                });
             }
 
             // Busca por categoria via RPC (ordenada por popularidade)
@@ -327,7 +332,7 @@ export async function POST(req: NextRequest) {
             const categories = Object.entries(counts)
                 .map(([id, v]) => ({
                     id,
-                    title:       `${getCategoryEmoji(v.name)} ${v.name}`,
+                    title:       v.name.toUpperCase(),
                     description: `${v.count} produto${v.count !== 1 ? "s" : ""}`,
                 }))
                 .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
@@ -340,8 +345,12 @@ export async function POST(req: NextRequest) {
 
         if (action === "data_exchange") {
 
+            // Normaliza o screen (Meta pode enviar com espaços ou caixa diferente)
+            const screenNorm = screen ? String(screen).trim().toUpperCase() : "";
+            console.log("[flows/catalog] data_exchange | screen:", JSON.stringify(screen), "| screenNorm:", screenNorm, "| dataKeys:", Object.keys(formData ?? {}));
+
             // ── CATEGORIES → PRODUCTS (busca geral ou por categoria) ──────────
-            if (screen === "CATEGORIES") {
+            if (screenNorm === "CATEGORIES") {
                 const searchAll  = String(formData?.search_all  ?? "").trim();
                 const categoryId = String(formData?.category_id ?? "").trim();
 
@@ -370,8 +379,8 @@ export async function POST(req: NextRequest) {
                 if (!products.length) return encryptedError("no_products_found", aesKey, iv);
 
                 const categoryLabel = searchAll
-                    ? `🔍 Resultados para "${searchAll}"`
-                    : `${getCategoryEmoji(catName)} ${catName}`;
+                    ? `Resultados para "${searchAll.toUpperCase()}"`
+                    : catName.toUpperCase();
 
                 return encryptedOk(
                     {
@@ -388,7 +397,7 @@ export async function POST(req: NextRequest) {
             }
 
             // ── PRODUCTS: busca dentro da categoria OU seleciona produtos ─────
-            if (screen === "PRODUCTS") {
+            if (screenNorm === "PRODUCTS") {
                 const selectedIds   = Array.isArray(formData?.selected_products)
                     ? (formData!.selected_products as string[])
                     : [];
@@ -413,8 +422,8 @@ export async function POST(req: NextRequest) {
                     if (!products.length) return encryptedError("no_products_found", aesKey, iv);
 
                     const label = catIdCache
-                        ? `🔍 "${searchFilter}" em ${catName || "categoria"}`
-                        : `🔍 Resultados para "${searchFilter}"`;
+                        ? `"${searchFilter.toUpperCase()}" em ${catName.toUpperCase() || "categoria"}`
+                        : `Resultados para "${searchFilter.toUpperCase()}"`;
 
                     return encryptedOk(
                         {
@@ -464,11 +473,10 @@ export async function POST(req: NextRequest) {
 
                 const formatSlotName = (p: any): string => {
                     const sigla  = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
-                    const emoji  = isUN(p) ? "🍺" : "📦";
                     const name   = [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase();
                     const price  = formatCurrency(parseFloat(p.preco_venda) || 0);
                     const prefix = sigla && sigla !== "UN" ? `${sigla} • ` : "";
-                    return `${emoji} ${prefix}${name} — ${price}`;
+                    return `${prefix}${name} — ${price}`;
                 };
 
                 // Salva IDs na ordem ordenada no contexto da sessão
@@ -543,7 +551,7 @@ export async function POST(req: NextRequest) {
             }
 
             // ── QUANTITIES → aplica quantidades → salva carrinho → CEP_SEARCH ─
-            if (screen === "QUANTITIES") {
+            if (screenNorm === "QUANTITIES") {
                 const { data: sessionRow } = await admin
                     .from("chatbot_sessions")
                     .select("context")
@@ -625,7 +633,7 @@ export async function POST(req: NextRequest) {
             }
 
             // ── CEP_SEARCH → endereço salvo → PAYMENT | CEP → ADDRESS ─────────
-            if (screen === "CEP_SEARCH") {
+            if (screenNorm === "CEP_SEARCH") {
                 const selectedAddressId = String(formData?.selected_address_id ?? "").trim();
                 const rawCep            = String(formData?.cep ?? "").replace(/\D/g, "");
 
@@ -751,7 +759,7 @@ export async function POST(req: NextRequest) {
             }
 
             // ── ADDRESS → valida campos → salva endereço → PAYMENT ───────────
-            if (screen === "ADDRESS") {
+            if (screenNorm === "ADDRESS") {
                 const rua         = String(formData?.rua         ?? "").trim();
                 const numero      = String(formData?.numero      ?? "").trim();
                 const complemento = String(formData?.complemento ?? "").trim();
@@ -836,7 +844,7 @@ export async function POST(req: NextRequest) {
             }
 
             // ── PAYMENT → cria pedido → SUCCESS ───────────────────────────────
-            if (screen === "PAYMENT") {
+            if (screenNorm === "PAYMENT") {
                 const paymentMethod = String(formData?.payment_method ?? "").trim();
                 const trocoStr      = String(formData?.troco_para     ?? "").trim();
                 const changeFor     = trocoStr ? parseFloat(trocoStr.replace(",", ".")) || null : null;
@@ -1033,6 +1041,7 @@ export async function POST(req: NextRequest) {
                 );
             }
 
+            console.error("[flows/catalog] screen não reconhecido | raw:", JSON.stringify(screen), "| norm:", screenNorm, "| action:", action);
             return encryptedError("unknown_catalog_screen", aesKey, iv);
         }
 

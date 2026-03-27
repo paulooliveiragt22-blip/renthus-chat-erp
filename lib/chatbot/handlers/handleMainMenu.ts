@@ -345,8 +345,18 @@ export async function handleMainMenu(
     session: Session,
     profileName?: string | null
 ): Promise<void> {
+    // Botões do menu principal têm prioridade máxima — não enviam saudação novamente
+    if (input === "btn_catalog" || input === "btn_status" || input === "btn_support" || input === "1" || input === "2" || input === "3") {
+        // Normaliza step antes de processar o botão
+        if (session.step === "welcome") {
+            await saveSession(admin, threadId, companyId, { step: "main_menu" });
+            session.step = "main_menu";
+        }
+        // Cai para os handlers de botão abaixo
+    }
+
     // Primeira mensagem → prioriza pedido/endereço; só manda saudação se input curto ou notfound
-    if (session.step === "welcome") {
+    else if (session.step === "welcome") {
         if (!isWithinBusinessHours(settings)) {
             const msg = (settings?.closed_message as string) ??
                 "Olá! No momento estamos fechados. Volte em breve. 😊";

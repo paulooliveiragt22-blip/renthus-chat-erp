@@ -4,8 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
-    CheckCircle2, Loader2, Pencil, Plus, RefreshCw,
-    Search, ShoppingBag, ToggleLeft, ToggleRight, X,
+    Camera, CheckCircle2, Loader2, Pencil, Plus, RefreshCw,
+    Search, ShoppingBag, Trash2, ToggleLeft, ToggleRight, X,
 } from "lucide-react";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -218,6 +218,13 @@ export default function ProdutosListaPage() {
     const [acompModalOpen, setAcompModalOpen] = useState(false);
     const [acompSelected, setAcompSelected] = useState<{ id: string; name: string }[]>([]);
 
+    // product images
+    type ProductImage = { id: string; url: string; thumbnail_url: string | null; is_primary: boolean };
+    const [editImages,      setEditImages]      = useState<ProductImage[]>([]);
+    const [imageFile,       setImageFile]       = useState<File | null>(null);
+    const [createImageFile, setCreateImageFile] = useState<File | null>(null);
+    const [imageUploading,  setImageUploading]  = useState(false);
+
     // novo fluxo create: nome produto + volumes + itens
     const [productName, setProductName] = useState("");
     const [productNameSearch, setProductNameSearch] = useState("");
@@ -323,6 +330,56 @@ export default function ProdutosListaPage() {
     }
 
     useEffect(() => { load(); }, [companyId]);
+
+    async function loadProductImages(productId: string) {
+        const { data } = await supabase
+            .from("product_images")
+            .select("id, url, thumbnail_url, is_primary")
+            .eq("product_id", productId)
+            .order("is_primary", { ascending: false });
+        setEditImages(((data ?? []) as ProductImage[]));
+    }
+
+    async function uploadProductImage(productId: string, file: File) {
+        setImageUploading(true);
+        try {
+            const ext  = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+            const path = `${companyId}/${productId}/${Date.now()}.${ext}`;
+            const { error: upErr } = await supabase.storage
+                .from("product-images")
+                .upload(path, file, { upsert: false });
+            if (upErr) throw new Error(upErr.message);
+            const { data: urlData } = supabase.storage.from("product-images").getPublicUrl(path);
+            const publicUrl = urlData.publicUrl;
+            // Set current images as non-primary
+            await supabase.from("product_images").update({ is_primary: false }).eq("product_id", productId);
+            await supabase.from("product_images").insert({
+                product_id: productId,
+                url:           publicUrl,
+                thumbnail_url: publicUrl,
+                is_primary:    true,
+                file_size:     file.size,
+            });
+            await loadProductImages(productId);
+            setMsg("✓ Imagem salva.");
+        } catch (e: any) {
+            setMsg(`Erro ao enviar imagem: ${String(e?.message ?? e)}`);
+        } finally {
+            setImageUploading(false);
+            setImageFile(null);
+            setCreateImageFile(null);
+        }
+    }
+
+    async function deleteProductImage(imageId: string, productId: string) {
+        const img = editImages.find((i) => i.id === imageId);
+        if (img) {
+            const storagePath = img.url.split("/product-images/")[1];
+            if (storagePath) await supabase.storage.from("product-images").remove([storagePath]);
+        }
+        await supabase.from("product_images").delete().eq("id", imageId);
+        await loadProductImages(productId);
+    }
 
     async function searchProductsByName(q: string) {
         if (!companyId) return;
@@ -498,6 +555,8 @@ export default function ProdutosListaPage() {
         setCategoryId(r.products?.category_id ?? r.products?.categories?.id ?? "");
         setNewCategoryName("");
         setAcompSelected([]);
+        setEditImages([]);
+        setImageFile(null);
         try {
             const { data, error } = await supabase.rpc("rpc_get_product_full", {
                 p_product_id: r.product_id,
@@ -559,6 +618,7 @@ export default function ProdutosListaPage() {
                 return { id: embId, name };
             });
             setAcompSelected(sel);
+            await loadProductImages(r.product_id);
         } catch (e: any) {
             setMsg(`Erro ao carregar: ${String(e?.message ?? e)}`);
         } finally {
@@ -590,6 +650,8 @@ export default function ProdutosListaPage() {
         setProductName("");
         setProductNameSearch("");
         setFormVolumes([]);
+        setEditImages([]);
+        setCreateImageFile(null);
         setOpenCreate(true);
     }
 
@@ -642,6 +704,10 @@ export default function ProdutosListaPage() {
 
         if (error) { setMsg(`Erro: ${error.message}`); setSaving(false); return; }
 
+        if (imageFile && selected?.product_id) {
+            await uploadProductImage(selected.product_id, imageFile);
+        }
+
         setSaving(false);
         setOpen(false);
         setSelected(null);
@@ -686,7 +752,7 @@ export default function ProdutosListaPage() {
         });
 
         try {
-            const { error } = await supabase.rpc("rpc_create_product_with_items", {
+            const { data: rpcData, error } = await supabase.rpc("rpc_create_product_with_items", {
                 p_company_id: companyId,
                 p_name: nameToUse,
                 p_category_id: categoryId,
@@ -696,6 +762,11 @@ export default function ProdutosListaPage() {
             });
 
             if (error) throw new Error(error.message);
+
+            const newProductId = (rpcData as any)?.product_id as string | undefined;
+            if (createImageFile && newProductId) {
+                await uploadProductImage(newProductId, createImageFile);
+            }
 
             setSaving(false);
             setOpenCreate(false);
@@ -923,6 +994,58 @@ export default function ProdutosListaPage() {
                         <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Produto</p>
                         <p className="text-sm text-zinc-600 dark:text-zinc-400">{productName || selected?.products?.name || "—"}</p>
                     </div>
+
+                    {/* Foto do produto */}
+                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
+                        <p className="mb-3 text-xs font-bold text-zinc-700 dark:text-zinc-300">Foto do produto</p>
+                        {editImages.length > 0 && (
+                            <div className="mb-3 flex flex-wrap gap-3">
+                                {editImages.map((img) => (
+                                    <div key={img.id} className="relative">
+                                        <img
+                                            src={img.thumbnail_url ?? img.url}
+                                            alt="produto"
+                                            className={`h-20 w-20 rounded-lg object-cover border-2 ${img.is_primary ? "border-violet-500" : "border-zinc-200 dark:border-zinc-700"}`}
+                                        />
+                                        {img.is_primary && (
+                                            <span className="absolute -top-1.5 -right-1.5 rounded-full bg-violet-600 px-1.5 py-0.5 text-[9px] font-bold text-white">principal</span>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => selected && deleteProductImage(img.id, selected.product_id)}
+                                            className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-red-500 text-white shadow hover:bg-red-600"
+                                        >
+                                            <Trash2 className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-zinc-300 p-3 hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800/50">
+                            <Camera className="h-4 w-4 text-zinc-400" />
+                            <span className="text-xs text-zinc-500">
+                                {imageFile ? imageFile.name : "Selecionar foto (JPG, PNG, WEBP · max 2MB)"}
+                            </span>
+                            <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                className="hidden"
+                                onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+                            />
+                        </label>
+                        {imageFile && (
+                            <button
+                                type="button"
+                                disabled={imageUploading}
+                                onClick={() => selected && uploadProductImage(selected.product_id, imageFile)}
+                                className="mt-2 flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+                            >
+                                {imageUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                                {imageUploading ? "Enviando…" : "Enviar foto"}
+                            </button>
+                        )}
+                    </div>
+
                     {/* Categoria */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <div className="mb-3 flex items-center justify-between">
@@ -1189,6 +1312,32 @@ export default function ProdutosListaPage() {
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    {/* Foto do produto */}
+                    <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
+                        <p className="mb-3 text-xs font-bold text-zinc-700 dark:text-zinc-300">Foto do produto <span className="font-normal text-zinc-400">(opcional)</span></p>
+                        {createImageFile && (
+                            <div className="mb-3">
+                                <img
+                                    src={URL.createObjectURL(createImageFile)}
+                                    alt="preview"
+                                    className="h-20 w-20 rounded-lg object-cover border border-zinc-200 dark:border-zinc-700"
+                                />
+                            </div>
+                        )}
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-zinc-300 p-3 hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800/50">
+                            <Camera className="h-4 w-4 text-zinc-400" />
+                            <span className="text-xs text-zinc-500">
+                                {createImageFile ? createImageFile.name : "Selecionar foto (JPG, PNG, WEBP · max 2MB)"}
+                            </span>
+                            <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                className="hidden"
+                                onChange={(e) => setCreateImageFile(e.target.files?.[0] ?? null)}
+                            />
+                        </label>
                     </div>
 
                     {/* Categoria */}
