@@ -99,7 +99,8 @@ export async function detectGlobalIntents(
         return { handled: true };
     }
 
-    if (NAV_RESET_RE.test(normInput)) {
+    // No step "welcome" deixa handleMainMenu enviar a saudação personalizada
+    if (NAV_RESET_RE.test(normInput) && session.step !== "welcome") {
         if (session.cart.length > 0) {
             await saveSession(admin, threadId, companyId, { step: "main_menu" });
             await sendInteractiveButtons(

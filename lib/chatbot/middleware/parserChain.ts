@@ -361,13 +361,17 @@ export async function runParserChain(
     // ── chitchat ──────────────────────────────────────────────────────────────
     if (detectedIntent === "chitchat") {
         if (session.step === "main_menu" || session.step === "welcome" || !session.step) {
+            // Avança step para main_menu para evitar saudação dupla nas próximas mensagens
+            if (session.step !== "main_menu") {
+                await saveSession(admin, threadId, companyId, { step: "main_menu" });
+            }
             await sendInteractiveButtons(
                 phoneE164,
                 `Como posso te ajudar no *${companyName}*? 🍺`,
                 [
-                    { id: "1", title: "🍺 Ver cardápio" },
-                    { id: "2", title: "📦 Meu pedido" },
-                    { id: "3", title: "🙋 Falar c/ atendente" },
+                    { id: "btn_catalog", title: "🍺 Ver cardápio" },
+                    { id: "btn_status",  title: "📦 Meu pedido" },
+                    { id: "btn_support", title: "🙋 Falar c/ atendente" },
                 ]
             );
             return { handled: true };
