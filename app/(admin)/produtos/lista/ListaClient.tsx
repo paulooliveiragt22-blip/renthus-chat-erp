@@ -66,6 +66,9 @@ type Row = {
     case_sigla_id: string | null;
     case_codigo_interno: string | null;
     is_active:   boolean;
+    product_volume_id: string | null;
+    estoque_un:  number | null;
+    estoque_cx:  number | null;
     products:    RowProduct;
 };
 
@@ -121,6 +124,9 @@ function normalizeRowsFromView(input: unknown): Row[] {
             case_codigo_interno: r?.case_codigo_interno ?? null,
             id_unit_type: r?.id_unit_type ?? null,
             is_active:    Boolean(r?.is_active),
+            product_volume_id: r?.product_volume_id ?? null,
+            estoque_un:   r?.estoque_un != null ? Number(r.estoque_un) : null,
+            estoque_cx:   r?.estoque_cx != null ? Number(r.estoque_cx) : null,
             products: {
                 name:        r?.product_name ?? null,
                 category_id: catId ?? null,
@@ -219,11 +225,12 @@ export default function ProdutosListaPage() {
     const [acompSelected, setAcompSelected] = useState<{ id: string; name: string }[]>([]);
 
     // product images
-    type ProductImage = { id: string; url: string; thumbnail_url: string | null; is_primary: boolean };
-    const [editImages,      setEditImages]      = useState<ProductImage[]>([]);
-    const [imageFile,       setImageFile]       = useState<File | null>(null);
-    const [createImageFile, setCreateImageFile] = useState<File | null>(null);
-    const [imageUploading,  setImageUploading]  = useState(false);
+    type ProductImage = { id: string; url: string; thumbnail_url: string | null; is_primary: boolean; product_volume_id: string | null };
+    const [editImages,       setEditImages]       = useState<ProductImage[]>([]);
+    const [imageFile,        setImageFile]        = useState<File | null>(null);
+    const [volumeImageFiles, setVolumeImageFiles] = useState<Record<string, File>>({});
+    const [createImageFile,  setCreateImageFile]  = useState<File | null>(null);
+    const [imageUploading,   setImageUploading]   = useState(false);
 
     // novo fluxo create: nome produto + volumes + itens
     const [productName, setProductName] = useState("");
@@ -334,31 +341,38 @@ export default function ProdutosListaPage() {
     async function loadProductImages(productId: string) {
         const { data } = await supabase
             .from("product_images")
-            .select("id, url, thumbnail_url, is_primary")
+            .select("id, url, thumbnail_url, is_primary, product_volume_id")
             .eq("product_id", productId)
             .order("is_primary", { ascending: false });
         setEditImages(((data ?? []) as ProductImage[]));
     }
 
-    async function uploadProductImage(productId: string, file: File) {
+    async function uploadProductImage(productId: string, file: File, volumeId?: string | null) {
         setImageUploading(true);
         try {
             const ext  = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-            const path = `${companyId}/${productId}/${Date.now()}.${ext}`;
+            const folder = volumeId ? `${companyId}/${productId}/${volumeId}` : `${companyId}/${productId}`;
+            const path = `${folder}/${Date.now()}.${ext}`;
             const { error: upErr } = await supabase.storage
                 .from("product-images")
                 .upload(path, file, { upsert: false });
             if (upErr) throw new Error(upErr.message);
             const { data: urlData } = supabase.storage.from("product-images").getPublicUrl(path);
             const publicUrl = urlData.publicUrl;
-            // Set current images as non-primary
-            await supabase.from("product_images").update({ is_primary: false }).eq("product_id", productId);
+            // Set current images with the same scope (same volume or product-level) as non-primary
+            const updateQuery = supabase.from("product_images").update({ is_primary: false }).eq("product_id", productId);
+            if (volumeId) {
+                await updateQuery.eq("product_volume_id", volumeId);
+            } else {
+                await updateQuery.is("product_volume_id", null);
+            }
             await supabase.from("product_images").insert({
-                product_id: productId,
-                url:           publicUrl,
-                thumbnail_url: publicUrl,
-                is_primary:    true,
-                file_size:     file.size,
+                product_id:        productId,
+                product_volume_id: volumeId ?? null,
+                url:               publicUrl,
+                thumbnail_url:     publicUrl,
+                is_primary:        true,
+                file_size:         file.size,
             });
             await loadProductImages(productId);
             setMsg("✓ Imagem salva.");
@@ -557,6 +571,7 @@ export default function ProdutosListaPage() {
         setAcompSelected([]);
         setEditImages([]);
         setImageFile(null);
+        setVolumeImageFiles({});
         try {
             const { data, error } = await supabase.rpc("rpc_get_product_full", {
                 p_product_id: r.product_id,
@@ -651,6 +666,7 @@ export default function ProdutosListaPage() {
         setProductNameSearch("");
         setFormVolumes([]);
         setEditImages([]);
+        setVolumeImageFiles({});
         setCreateImageFile(null);
         setOpenCreate(true);
     }
@@ -705,7 +721,7 @@ export default function ProdutosListaPage() {
         if (error) { setMsg(`Erro: ${error.message}`); setSaving(false); return; }
 
         if (imageFile && selected?.product_id) {
-            await uploadProductImage(selected.product_id, imageFile);
+            await uploadProductImage(selected.product_id, imageFile, null);
         }
 
         setSaving(false);
@@ -897,10 +913,11 @@ export default function ProdutosListaPage() {
             {/* Table */}
             <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
                 {/* sticky header */}
-                <div className="grid grid-cols-[1fr_1.5fr_70px_80px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
+                <div className="grid grid-cols-[1fr_1.5fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
                     <span>Categoria</span><span>Detalhes</span>
                     <span className="text-right">Cód.</span>
                     <span className="text-right">Vol.</span>
+                    <span className="text-right">Estoque</span>
                     <span className="text-right">Venda</span>
                     <span className="text-right text-red-500">Custo</span>
                     <span>Caixa</span><span className="text-right">Cx (R$)</span>
@@ -924,7 +941,7 @@ export default function ProdutosListaPage() {
                             return (
                             <div
                                 key={r.id}
-                                className={`grid grid-cols-[1fr_1.5fr_70px_80px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
+                                className={`grid grid-cols-[1fr_1.5fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
                                     flashId === r.id
                                         ? "bg-emerald-50 dark:bg-emerald-900/15"
                                         : missingCost && r.is_active
@@ -943,6 +960,11 @@ export default function ProdutosListaPage() {
                                 </span>
                                 <span className="text-right text-xs text-zinc-500">
                                     {r.unit === "none" || r.volume_value == null ? "—" : `${r.volume_value} ${unitLabel(r.unit)}`}
+                                </span>
+                                <span className="text-right text-xs text-zinc-500">
+                                    {r.estoque_un != null
+                                        ? <span className={r.estoque_un === 0 ? "text-red-500" : ""}>{r.estoque_un} UN{r.estoque_cx != null ? ` / ${r.estoque_cx} CX` : ""}</span>
+                                        : "—"}
                                 </span>
                                 <span className="text-right text-xs font-semibold text-violet-700 dark:text-violet-400">
                                     R$ {brl(r.unit_price)}
@@ -995,12 +1017,12 @@ export default function ProdutosListaPage() {
                         <p className="text-sm text-zinc-600 dark:text-zinc-400">{productName || selected?.products?.name || "—"}</p>
                     </div>
 
-                    {/* Foto do produto */}
+                    {/* Foto do produto (nível produto, sem volume) */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
-                        <p className="mb-3 text-xs font-bold text-zinc-700 dark:text-zinc-300">Foto do produto</p>
-                        {editImages.length > 0 && (
+                        <p className="mb-3 text-xs font-bold text-zinc-700 dark:text-zinc-300">Foto do produto <span className="font-normal text-zinc-400">(geral — aparece quando não há foto de embalagem)</span></p>
+                        {editImages.filter((i) => i.product_volume_id === null).length > 0 && (
                             <div className="mb-3 flex flex-wrap gap-3">
-                                {editImages.map((img) => (
+                                {editImages.filter((i) => i.product_volume_id === null).map((img) => (
                                     <div key={img.id} className="relative">
                                         <img
                                             src={img.thumbnail_url ?? img.url}
@@ -1037,7 +1059,7 @@ export default function ProdutosListaPage() {
                             <button
                                 type="button"
                                 disabled={imageUploading}
-                                onClick={() => selected && uploadProductImage(selected.product_id, imageFile)}
+                                onClick={() => selected && uploadProductImage(selected.product_id, imageFile, null)}
                                 className="mt-2 flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-60"
                             >
                                 {imageUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
@@ -1062,23 +1084,23 @@ export default function ProdutosListaPage() {
                         </select>
                     </div>
 
-                    {/* Volumes e itens (mesma estrutura do Create) */}
+                    {/* Embalagens (mesma estrutura do Create) */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <div className="mb-3 flex items-center justify-between">
-                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Volumes e itens</p>
+                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Embalagens</p>
                             <div className="flex gap-2">
                                 <button type="button" onClick={() => setAddSiglaOpen(true)} className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">
                                     Nova sigla
                                 </button>
                                 <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
-                                    <Plus className="h-3 w-3" /> Adicionar volume
+                                    <Plus className="h-3 w-3" /> Adicionar embalagem
                                 </button>
                             </div>
                         </div>
-                        <p className="mb-3 text-[11px] text-zinc-400">Preço custo, estoque e tags por item. Botões →UN e →CX aplicam fator (custo CX÷fator=UN; estoque CX×fator=UN).</p>
+                        <p className="mb-3 text-[11px] text-zinc-400">Tamanho é opcional (produtos sem medida, ex: hambúrguer). Preço custo, estoque e tags por item. Botões →UN e →CX aplicam fator.</p>
                         {formVolumes.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-zinc-200 py-6 text-center text-sm text-zinc-400 dark:border-zinc-700">
-                                Nenhum volume. Clique em &quot;Adicionar volume&quot;.
+                                Nenhuma embalagem. Clique em &quot;Adicionar embalagem&quot;.
                             </p>
                         ) : (
                             <div className="space-y-4">
@@ -1086,7 +1108,7 @@ export default function ProdutosListaPage() {
                                     <div key={vol.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
                                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Volume</span>
+                                                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Tamanho <span className="font-normal text-zinc-400">(opcional)</span></span>
                                                 <input value={vol.volume_quantidade} onChange={(e) => updateFormVolume(vol.id, { volume_quantidade: e.target.value })} placeholder="350" className={`${inputCls} w-20 py-1.5 text-xs`} />
                                                 <select value={vol.id_unit_type ?? ""} onChange={(e) => { const val = e.target.value || null; const u = unitTypes.find((x) => x.id === val); updateFormVolume(vol.id, { id_unit_type: val, unitLabel: u?.sigla ?? "ml" }); }} className={`${selectCls} w-20 py-1.5 text-xs`}>
                                                     <option value="">—</option>
@@ -1096,6 +1118,39 @@ export default function ProdutosListaPage() {
                                             <div className="flex items-center gap-1">
                                                 <button type="button" onClick={() => addFormItem(vol.id)} className="rounded-md bg-violet-600 px-2 py-1 text-xs font-bold text-white hover:bg-violet-700"><Plus className="inline h-3 w-3" /> Item</button>
                                                 <button type="button" onClick={() => removeFormVolume(vol.id)} className="rounded-md border border-zinc-200 p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:border-zinc-700"><X className="h-4 w-4" /></button>
+                                            </div>
+                                        </div>
+                                        {/* Foto por embalagem */}
+                                        <div className="mb-3 rounded border border-dashed border-zinc-200 p-2 dark:border-zinc-700">
+                                            <p className="mb-1 text-[10px] font-semibold text-zinc-500">Foto desta embalagem (opcional)</p>
+                                            {editImages.filter((i) => i.product_volume_id === vol.id).map((img) => (
+                                                <div key={img.id} className="mb-2 flex items-center gap-2">
+                                                    <img src={img.thumbnail_url ?? img.url} alt="emb" className="h-12 w-12 rounded object-cover border border-violet-300" />
+                                                    <button type="button" onClick={() => selected && deleteProductImage(img.id, selected.product_id)} className="text-xs text-red-500 hover:underline">remover</button>
+                                                </div>
+                                            ))}
+                                            <div className="flex items-center gap-2">
+                                                <label className="flex cursor-pointer items-center gap-1.5 rounded border border-zinc-200 px-2 py-1 text-[10px] text-zinc-500 hover:bg-zinc-50 dark:border-zinc-600">
+                                                    <Camera className="h-3 w-3" />
+                                                    {volumeImageFiles[vol.id] ? volumeImageFiles[vol.id].name : "Selecionar foto"}
+                                                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                                                        onChange={(e) => {
+                                                            const f = e.target.files?.[0];
+                                                            if (f) setVolumeImageFiles((prev) => ({ ...prev, [vol.id]: f }));
+                                                        }}
+                                                    />
+                                                </label>
+                                                {volumeImageFiles[vol.id] && selected && (
+                                                    <button type="button" disabled={imageUploading}
+                                                        onClick={async () => {
+                                                            await uploadProductImage(selected.product_id, volumeImageFiles[vol.id], vol.id);
+                                                            setVolumeImageFiles((prev) => { const n = { ...prev }; delete n[vol.id]; return n; });
+                                                        }}
+                                                        className="rounded border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-700 dark:bg-violet-900/30"
+                                                    >
+                                                        {imageUploading ? "Enviando…" : "Enviar"}
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                         {vol.items.length === 0 ? (
@@ -1357,23 +1412,23 @@ export default function ProdutosListaPage() {
                         </select>
                     </div>
 
-                    {/* Volumes + Itens */}
+                    {/* Embalagens */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <div className="mb-3 flex items-center justify-between">
-                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Volumes e itens</p>
+                            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Embalagens</p>
                             <div className="flex gap-2">
                                 <button type="button" onClick={() => setAddSiglaOpen(true)} className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">
                                     Nova sigla
                                 </button>
                                 <button type="button" onClick={addFormVolume} className="flex items-center gap-1 rounded-md bg-orange-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-orange-600">
-                                    <Plus className="h-3 w-3" /> Adicionar volume
+                                    <Plus className="h-3 w-3" /> Adicionar embalagem
                                 </button>
                             </div>
                         </div>
-                        <p className="mb-3 text-[11px] text-zinc-400">Cada volume pode ter vários itens (UN, CX). Itens do mesmo volume compartilham estoque. Preencha por item; use →UN/→CX para aplicar o fator.</p>
+                        <p className="mb-3 text-[11px] text-zinc-400">Tamanho é opcional (produtos sem medida, ex: hambúrguer). Cada embalagem pode ter UN, CX, etc. Use →UN/→CX para aplicar fator.</p>
                         {formVolumes.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-zinc-200 py-6 text-center text-sm text-zinc-400 dark:border-zinc-700">
-                                Nenhum volume. Clique em &quot;Adicionar volume&quot; para começar.
+                                Nenhuma embalagem. Clique em &quot;Adicionar embalagem&quot; para começar.
                             </p>
                         ) : (
                             <div className="space-y-4">
@@ -1381,7 +1436,7 @@ export default function ProdutosListaPage() {
                                     <div key={vol.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
                                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Volume</span>
+                                                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Tamanho <span className="font-normal text-zinc-400">(opcional)</span></span>
                                                 <input
                                                     value={vol.volume_quantidade}
                                                     onChange={(e) => updateFormVolume(vol.id, { volume_quantidade: e.target.value })}

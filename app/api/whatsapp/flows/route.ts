@@ -41,6 +41,21 @@ type CartItem = {
 
 // ─── Helpers gerais ───────────────────────────────────────────────────────────
 
+/**
+ * Infere a tela do catálogo a partir das chaves do payload quando `screen` está vazio.
+ * Meta pode enviar screen="" ou omitir o campo em data_exchange.
+ */
+function inferCatalogScreen(data: Record<string, unknown> | undefined): string {
+    if (!data) return "";
+    if ("payment_method" in data) return "PAYMENT";
+    if ("rua" in data || "numero" in data) return "ADDRESS";
+    if ("cep" in data || "selected_address_id" in data) return "CEP_SEARCH";
+    if ("qty_1" in data) return "QUANTITIES";
+    if ("selected_products" in data || "search_filter" in data || "category_id_cache" in data) return "PRODUCTS";
+    if ("category_id" in data || "search_all" in data) return "CATEGORIES";
+    return "";
+}
+
 function formatCurrency(value: number): string {
     return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -346,7 +361,9 @@ export async function POST(req: NextRequest) {
         if (action === "data_exchange") {
 
             // Normaliza o screen (Meta pode enviar com espaços ou caixa diferente)
-            const screenNorm = screen ? String(screen).trim().toUpperCase() : "";
+            const screenNorm = screen
+                ? String(screen).trim().toUpperCase()
+                : inferCatalogScreen(formData);
             console.log("[flows/catalog] data_exchange | screen:", JSON.stringify(screen), "| screenNorm:", screenNorm, "| dataKeys:", Object.keys(formData ?? {}));
 
             // ── CATEGORIES → PRODUCTS (busca geral ou por categoria) ──────────
