@@ -293,16 +293,11 @@ export async function POST(req: NextRequest) {
                     .ilike("product_name", `%${opts.search}%`)
                     .limit(20);
 
-                return (data ?? []).map((p: any) => {
-                    const item: Record<string, unknown> = {
-                        id:          p.id,
-                        title:       String(p.product_name).toUpperCase().slice(0, 30),
-                        description: `R$ ${parseFloat(p.preco_venda ?? 0).toFixed(2).replace(".", ",")}`,
-                    };
-                    if (p.thumbnail_url) item["image-url"] = p.thumbnail_url;
-                    else if (p.image_url) item["image-url"] = p.image_url;
-                    return item;
-                });
+                return (data ?? []).map((p: any) => ({
+                    id:          p.id,
+                    title:       String(p.product_name ?? "").toUpperCase().slice(0, 30),
+                    description: `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`,
+                }));
             }
 
             // Busca por categoria via RPC (ordenada por popularidade)
@@ -313,16 +308,11 @@ export async function POST(req: NextRequest) {
                 p_days:       30,
             });
 
-            return (data ?? []).map((p: any) => {
-                const item: Record<string, unknown> = {
-                    id:          p.id,
-                    title:       String(p.name).toUpperCase().slice(0, 30),
-                    description: `R$ ${parseFloat(p.price).toFixed(2).replace(".", ",")}${!p.in_stock ? " ⚠️" : ""}`,
-                };
-                if (p.thumbnail_url) item["image-url"] = p.thumbnail_url;
-                else if (p.image_url) item["image-url"] = p.image_url;
-                return item;
-            });
+            return (data ?? []).map((p: any) => ({
+                id:          p.id,
+                title:       String(p.name ?? "").toUpperCase().slice(0, 30),
+                description: `R$ ${(parseFloat(p.price) || 0).toFixed(2).replace(".", ",")}${!p.in_stock ? " (indisponivel)" : ""}`,
+            }));
         }
 
         // Salva a tela atual na sessão para fallback quando Meta enviar screen: ""
@@ -382,6 +372,12 @@ export async function POST(req: NextRequest) {
                 .eq("thread_id", threadId)
                 .maybeSingle();
             const sessionScreen = String((sessionForScreen?.context as any)?.catalog_screen ?? "").trim().toUpperCase();
+
+            // Se Meta enviou payload de erro do cliente (ex: falha de renderização da tela)
+            if (formData && "error" in formData) {
+                console.error("[flows/catalog] client error payload | screen:", sessionScreen, "| error:", formData.error, "| message:", formData.error_message);
+                return encryptedError("client_render_error", aesKey, iv);
+            }
 
             // Normaliza o screen (Meta pode enviar com espaços ou caixa diferente)
             const screenNorm = screen
