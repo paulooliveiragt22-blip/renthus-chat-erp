@@ -11,12 +11,18 @@
 --      onde total = NULL → total_amount = 0 + frete (total errado no DB).
 --
 -- Correções:
---   1. Inserir também `qty` em order_items (= quantity, satisfaz o trigger)
---   2. Aceitar `p_total` (subtotal sem frete) e inserir `total` em orders
+--   1. Dropar versão antiga (14 params) antes de criar nova assinatura (15 params)
+--      para evitar overload ambíguo no GRANT.
+--   2. Inserir também `qty` em order_items (= quantity, satisfaz o trigger)
+--   3. Aceitar `p_total` (subtotal sem frete) e inserir `total` em orders.
 --      O trigger calculará total_amount = total + delivery_fee automaticamente.
---   3. p_total tem DEFAULT NULL por compatibilidade com chamadas legadas:
---      fallback para p_total_amount - p_delivery_fee.
+--   4. p_total tem DEFAULT NULL por compatibilidade: fallback = p_total_amount - p_delivery_fee.
 -- ============================================================
+
+-- Remove versão anterior (14 params) para evitar sobrecarga ambígua
+DROP FUNCTION IF EXISTS public.create_order_with_items(
+    uuid, uuid, text, text, text, text, numeric, numeric, text, uuid, text, numeric, boolean, jsonb
+);
 
 CREATE OR REPLACE FUNCTION public.create_order_with_items(
     p_company_id                    uuid,
@@ -33,7 +39,7 @@ CREATE OR REPLACE FUNCTION public.create_order_with_items(
     p_change_for                    numeric,
     p_paid                          boolean,
     p_items                         jsonb,
-    p_total                         numeric DEFAULT NULL   -- subtotal sem frete; se NULL, deriva de p_total_amount - p_delivery_fee
+    p_total                         numeric DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -52,8 +58,8 @@ BEGIN
     -- Subtotal: usa p_total se fornecido, senão deriva de p_total_amount
     v_total := COALESCE(p_total, p_total_amount - COALESCE(p_delivery_fee, 0));
 
-    -- Cria o pedido — NÃO inserir total_amount: o trigger calc_order_total_amount
-    -- calcula automaticamente como total + delivery_fee
+    -- Cria o pedido — insere `total` (subtotal sem frete); o trigger
+    -- calc_order_total_amount calcula total_amount = total + delivery_fee
     INSERT INTO public.orders (
         company_id, customer_id, status, confirmation_status,
         source, channel, total, delivery_fee, delivery_address,
@@ -65,8 +71,8 @@ BEGIN
     )
     RETURNING id INTO v_order_id;
 
-    -- Insere os itens — inclui qty (= quantity) para satisfazer o trigger sync_order_item_qty
-    -- sem qty explícito, o trigger sobrescreveria quantity com o default da coluna (1)
+    -- Insere itens com qty explícito (= quantity) para satisfazer o trigger
+    -- sync_order_item_qty e evitar que ele sobrescreva quantity com o default da coluna
     INSERT INTO public.order_items (
         order_id, company_id, product_name, produto_embalagem_id,
         quantity, qty, unit_price
@@ -77,7 +83,7 @@ BEGIN
         (item->>'product_name')::text,
         (item->>'produto_embalagem_id')::uuid,
         (item->>'quantity')::integer,
-        (item->>'quantity')::numeric,   -- qty = quantity para manter sync
+        (item->>'quantity')::numeric,
         (item->>'unit_price')::numeric
     FROM jsonb_array_elements(p_items) AS item;
 
@@ -85,4 +91,6 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.create_order_with_items TO service_role;
+GRANT EXECUTE ON FUNCTION public.create_order_with_items(
+    uuid, uuid, text, text, text, text, numeric, numeric, text, uuid, text, numeric, boolean, jsonb, numeric
+) TO service_role;
