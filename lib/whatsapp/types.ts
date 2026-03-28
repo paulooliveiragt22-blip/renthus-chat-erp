@@ -19,6 +19,7 @@ export interface Thread {
     last_message_preview?: string | null;
     unread_count?:        number | null;
     bot_active?:          boolean | null;
+    handover_at?:         string | null;
 }
 
 export interface Usage {
