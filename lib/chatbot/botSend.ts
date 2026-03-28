@@ -3,14 +3,17 @@
  *
  * Wrapper de envio de mensagens do chatbot que salva em whatsapp_messages
  * com sender_type = 'bot', tornando as mensagens visíveis no painel de chat.
+ *
+ * Todas as funções aceitam waConfig opcional para suporte multi-tenant.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendWhatsAppMessage as sendViaService } from "../whatsapp/sendMessage";
 import {
     sendInteractiveButtons as _sendInteractiveButtons,
-    sendListMessage as _sendListMessage,
+    sendListMessage        as _sendListMessage,
 } from "../whatsapp/send";
+import type { WaConfig } from "../whatsapp/send";
 
 // ─── Texto simples ─────────────────────────────────────────────────────────────
 
@@ -24,7 +27,7 @@ export async function botReply(
     const result = await sendViaService({
         admin,
         companyId,
-        toPhone: phoneE164,
+        toPhone:    phoneE164,
         text,
         threadId,
         senderType: "bot",
@@ -35,7 +38,6 @@ export async function botReply(
 }
 
 // ─── Botões interativos ────────────────────────────────────────────────────────
-// Envia os botões via send.ts (Meta API) e armazena o corpo como mensagem de bot.
 
 export async function botSendButtons(
     admin: SupabaseClient,
@@ -43,19 +45,18 @@ export async function botSendButtons(
     threadId: string,
     phoneE164: string,
     body: string,
-    buttons: { id: string; title: string }[]
+    buttons: { id: string; title: string }[],
+    waConfig?: WaConfig
 ): Promise<void> {
-    // Salva corpo da mensagem no histórico
     await sendViaService({
         admin,
         companyId,
-        toPhone: phoneE164,
-        text: body,
+        toPhone:    phoneE164,
+        text:       body,
         threadId,
         senderType: "bot",
     });
-    // Envia os botões interativos via Meta API (sem persistência adicional)
-    await _sendInteractiveButtons(phoneE164, body, buttons);
+    await _sendInteractiveButtons(phoneE164, body, buttons, waConfig);
 }
 
 // ─── Lista interativa ──────────────────────────────────────────────────────────
@@ -68,17 +69,16 @@ export async function botSendList(
     bodyText: string,
     buttonLabel: string,
     rows: Array<{ id: string; title: string; description?: string }>,
-    sectionTitle?: string
+    sectionTitle?: string,
+    waConfig?: WaConfig
 ): Promise<void> {
-    // Salva corpo da mensagem no histórico
     await sendViaService({
         admin,
         companyId,
-        toPhone: phoneE164,
-        text: bodyText,
+        toPhone:    phoneE164,
+        text:       bodyText,
         threadId,
         senderType: "bot",
     });
-    // Envia a lista interativa via Meta API
-    await _sendListMessage(phoneE164, bodyText, buttonLabel, rows, sectionTitle);
+    await _sendListMessage(phoneE164, bodyText, buttonLabel, rows, sectionTitle, waConfig);
 }
