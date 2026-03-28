@@ -843,15 +843,16 @@ export default function PedidosPage() {
 
         const { data: ord, error: ordErr } = await supabase
             .from("orders")
-            .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", confirmation_status: "confirmed", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null, driver_id: driverId || null })
+            .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null, driver_id: driverId || null })
             .select("id").single();
         if (ordErr) { setMsg(`Erro ao criar pedido: ${ordErr.message}`); setSaving(false); return; }
 
         const { error: itemsErr } = await supabase.from("order_items").insert(buildItemsPayload(ord.id, companyId, cart));
         if (itemsErr) { setMsg(`Erro ao salvar itens: ${itemsErr.message}`); setSaving(false); return; }
 
-        // confirmation_status='confirmed' já dispara o trigger enqueue_print_job_for_order
-        // não chamar callReprint aqui para evitar dupla impressão
+        // Usa reprint explícito (source='reprint') — não depende do trigger de confirmation_status
+        // para evitar dupla impressão quando trigger antigo (status='new') ainda coexiste
+        await callReprint(ord.id);
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
