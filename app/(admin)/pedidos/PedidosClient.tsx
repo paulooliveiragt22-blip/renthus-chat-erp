@@ -850,7 +850,8 @@ export default function PedidosPage() {
         const { error: itemsErr } = await supabase.from("order_items").insert(buildItemsPayload(ord.id, companyId, cart));
         if (itemsErr) { setMsg(`Erro ao salvar itens: ${itemsErr.message}`); setSaving(false); return; }
 
-        await callReprint(ord.id);
+        // confirmation_status='confirmed' já dispara o trigger enqueue_print_job_for_order
+        // não chamar callReprint aqui para evitar dupla impressão
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
