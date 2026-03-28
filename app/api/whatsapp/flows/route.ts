@@ -336,28 +336,19 @@ export async function POST(req: NextRequest) {
 
         function buildProductItems(rows: any[]): Array<Record<string, unknown>> {
             return rows.map((p: any) => {
-                const vol  = p.volume_quantidade;
-                const unit = p.unit_type_sigla ?? "";
+                const vol    = p.volume_quantidade;
+                const unit   = p.unit_type_sigla ?? "";
                 const volStr = vol && vol > 0 ? `${vol}${unit}`.trim() : "";
                 const price  = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`;
                 const desc   = [volStr, price].filter(Boolean).join(" — ");
 
-                const item: Record<string, unknown> = {
-                    id:                 p.id,
-                    title:              String(p.product_name ?? "").toUpperCase().slice(0, 30),
-                    description:        desc.slice(0, 300),
-                    // campos extras para uso nas telas QUANTITIES / CEP_SEARCH
-                    preco_venda:        p.preco_venda,
-                    volume_quantidade:  p.volume_quantidade,
-                    fator_conversao:    p.fator_conversao,
-                    id_unit_type:       p.id_unit_type,
-                    product_volume_id:  p.product_volume_id,
+                // CheckboxGroup só aceita: id, title, description, metadata, enabled, on-click-action
+                // Dados extras (preço, volume etc.) são re-buscados do DB quando o usuário seleciona
+                return {
+                    id:          p.id,
+                    title:       String(p.product_name ?? "").toUpperCase().slice(0, 30),
+                    description: desc.slice(0, 300),
                 };
-
-                const thumb = p.thumbnail_url ?? p.image_url;
-                if (thumb) item["image-url"] = thumb;
-
-                return item;
             });
         }
 
