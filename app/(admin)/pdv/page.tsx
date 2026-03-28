@@ -126,6 +126,7 @@ export default function PDVPage() {
   const fromOrderId  = searchParams.get("from_order");
   const [fromOrderBanner,  setFromOrderBanner]  = useState<string | null>(null);
   const [activeOrderId,    setActiveOrderId]    = useState<string | null>(null);
+  const [activeOrderSource, setActiveOrderSource] = useState<string | null>(null);
 
   // ── mode toggle ──────────────────────────────────────────────────────
   const [pdvMode,         setPdvMode]         = useState<"normal" | "pending">("normal");
@@ -241,6 +242,7 @@ export default function PDVPage() {
     if (newCart.length > 0) {
       setCart(newCart);
       setActiveOrderId(order.id);
+      setActiveOrderSource(order.source ?? null);
       setFromOrderBanner(`Pedido #${order.id.slice(-6).toUpperCase()}`);
     }
     setPdvMode("normal");
@@ -341,10 +343,12 @@ export default function PDVPage() {
   useEffect(() => {
     if (!fromOrderId || !companyId || variants.length === 0) return;
     (async () => {
-      const { data: items } = await supabase
-        .from("order_items")
-        .select("produto_embalagem_id, quantity, qty, product_name, unit_price")
-        .eq("order_id", fromOrderId);
+      const [{ data: items }, { data: orderRow }] = await Promise.all([
+        supabase.from("order_items")
+          .select("produto_embalagem_id, quantity, qty, product_name, unit_price")
+          .eq("order_id", fromOrderId),
+        supabase.from("orders").select("source").eq("id", fromOrderId).maybeSingle(),
+      ]);
       if (!items || items.length === 0) return;
       const newCart: CartItem[] = [];
       for (const it of items as any[]) {
@@ -357,6 +361,7 @@ export default function PDVPage() {
       if (newCart.length > 0) {
         setCart(newCart);
         setActiveOrderId(fromOrderId);
+        setActiveOrderSource((orderRow as any)?.source ?? null);
         setFromOrderBanner(`Pedido #${fromOrderId.slice(-6).toUpperCase()}`);
       }
     })();
@@ -562,7 +567,7 @@ export default function PDVPage() {
   const closeSaleAndReset = () => {
     setShowCheckout(false); setSaleOk(false);
     setSelectedCustomer(null); setCustomerQuery("");
-    setCart([]); setFromOrderBanner(null); setActiveOrderId(null);
+    setCart([]); setFromOrderBanner(null); setActiveOrderId(null); setActiveOrderSource(null);
     setTimeout(() => searchRef.current?.focus(), 100);
   };
 
@@ -585,6 +590,16 @@ export default function PDVPage() {
       const primary = [...payments].sort((a,b)=>(parseFloat(b.value)||0)-(parseFloat(a.value)||0))[0];
       const isPaid = !hasCreditPayment;
 
+      // Deriva origem da venda a partir da source do pedido de origem (se houver)
+      const src = activeOrderId ? (activeOrderSource ?? null) : null;
+      const saleOrigin = (!src || src === "pdv_direct") ? "pdv"
+        : (src === "chatbot" || src.startsWith("flow_")) ? "chatbot"
+        : src === "ui" ? "ui_order"
+        : "pdv";
+      const finEntryOrigin = saleOrigin === "chatbot" ? "chatbot"
+        : saleOrigin === "ui_order" ? "ui_order"
+        : "balcao";
+
       // payment_method normalizado: prazo genérico → subtipo
       const normMethod = (m: PayMethod): string => {
         if (m === "credit") return "credit_installment";
@@ -597,7 +612,7 @@ export default function PDVPage() {
         cash_register_id: caixa?.id ?? null,
         customer_id:      selectedCustomer?.id ?? null,
         seller_name:      sellerName || null,
-        origin:           "pdv",
+        origin:           saleOrigin,
         subtotal:         cartTotal,
         total:            cartTotal,
         status:           isPaid ? "paid" : "partial",
@@ -690,7 +705,7 @@ export default function PDVPage() {
         amount:         parseFloat(p.value) || 0,
         delivery_fee:   0,
         payment_method: normMethod(p.method),
-        origin:         "balcao",
+        origin:         finEntryOrigin,
         description:    `Venda PDV${sellerName ? " — " + sellerName : ""}`,
         occurred_at:    new Date().toISOString(),
         status:         PAY[p.method].prazo ? "pending" : "received",
@@ -720,7 +735,7 @@ export default function PDVPage() {
         } catch(e) { console.warn("[pdv] agent reprint:", e); }
       }
       setSaleOk(true);
-      setCart([]); setFromOrderBanner(null); setActiveOrderId(null);
+      setCart([]); setFromOrderBanner(null); setActiveOrderId(null); setActiveOrderSource(null);
       loadCaixa();
     } catch(err:any) {
       alert("Erro ao finalizar: "+err.message);

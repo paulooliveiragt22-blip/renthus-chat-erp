@@ -352,11 +352,22 @@ export default function FinanceiroPage() {
         }).sort((a, b) => b.total - a.total);
 
         // ── breakdown por origem ───────────────────────────────────────────────
+        const normOrigin = (raw: string | null | undefined): string => {
+            if (!raw) return "pdv";
+            if (raw === "chatbot" || raw.startsWith("flow_")) return "chatbot";
+            if (raw === "ui" || raw === "ui_order") return "ui_order";
+            return "pdv";
+        };
         const originMap: Record<string, number> = { pdv: 0, chatbot: 0, ui_order: 0 };
-        safeSales.forEach((s: any) => { originMap[s.origin ?? "pdv"] = (originMap[s.origin ?? "pdv"] ?? 0) + Number(s.total ?? 0); });
+        safeSales.forEach((s: any) => {
+            const key = normOrigin(s.origin);
+            originMap[key] = (originMap[key] ?? 0) + Number(s.total ?? 0);
+        });
         safeOrders.forEach((o: any) => {
-            const src = o.source ?? o.channel ?? "ui_order";
-            const key = src === "balcao" ? "pdv" : src === "whatsapp" || src === "chatbot" ? "chatbot" : "ui_order";
+            const src = o.source ?? o.channel ?? null;
+            const key = (!src || src === "balcao" || src === "pdv_direct") ? "pdv"
+                : (src === "whatsapp" || src === "chatbot" || src.startsWith("flow_")) ? "chatbot"
+                : "ui_order";
             originMap[key] = (originMap[key] ?? 0) + Number(o.total_amount ?? 0);
         });
 
