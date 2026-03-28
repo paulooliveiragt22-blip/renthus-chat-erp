@@ -915,22 +915,19 @@ export default function PedidosPage() {
         const cust      = (full as any).customers;
         const driver    = (full as any).drivers as { name?: string; vehicle?: string; plate?: string } | null;
 
-        // Extrai info estruturada do item (mesmo critério do ticket.js)
+        // Extrai info estruturada do item — mesma lógica do ticket.js
         function getItemInfo(it: any) {
-            const emb = it.produto_embalagens ?? null;
+            const emb = it._emb ?? null; // enriquecido via view_pdv_produtos
             if (emb) {
-                const prodName      = (emb.products?.name ?? "").toUpperCase().trim();
-                const sigla         = String(emb.siglas_comerciais?.sigla ?? "UN").toUpperCase();
-                const siglaHuman    = (emb.siglas_comerciais?.descricao ?? sigla).trim();
-                const vol           = emb.product_volumes?.volume_quantidade ?? null;
-                const volUnit       = emb.product_volumes?.unit_types?.sigla ?? "";
-                const descricao     = (emb.descricao ?? "").trim();
-                const fator         = Number(emb.fator_conversao) || null;
-                const volStr        = vol ? (volUnit ? `${vol} ${volUnit}` : String(vol)) : "";
-                // Quando não há descricao, usa sigla humanizada (ex: "Caixa") para distinguir
-                const detailPrefix  = descricao || (sigla !== "UN" ? siglaHuman : "");
-                const detail        = [detailPrefix, volStr].filter(Boolean).join(" ");
-                const unitLabel     = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
+                const prodName     = String(emb.product_name ?? "").toUpperCase().trim();
+                const sigla        = String(emb.sigla_comercial ?? "UN").toUpperCase();
+                const descricao    = (emb.descricao ?? "").trim();
+                const volStr       = (emb.volume_formatado ?? "").trim();
+                const fator        = Number(emb.fator_conversao) || null;
+                const siglaHuman   = sigla === "CX" ? "Caixa" : sigla === "FARD" ? "Fardo" : sigla === "PAC" ? "Pacote" : sigla;
+                const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
+                const detail       = [detailPrefix, volStr].filter(Boolean).join(" ");
+                const unitLabel    = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
                 return {
                     productName: prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
                     detail: detail || prodName || "Item",
