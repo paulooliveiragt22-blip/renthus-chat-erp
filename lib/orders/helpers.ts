@@ -146,11 +146,12 @@ export function labelUnit(u?: UnitType | null) {
 }
 
 export function buildVariantTexts(v: Variant) {
+    const productName = v.products?.name ?? "";
     const cat = v.products?.categories?.name ?? "";
     const vol = v.volume_value != null ? `${v.volume_value}${labelUnit(v.unit)}` : "";
-    const title = cat || "Produto";
+    const title = productName || cat || "Produto";
     const sub = [v.details ?? "", vol].filter(Boolean).join(" • ");
-    const displayName = [cat, v.details ?? "", vol].filter(Boolean).join(" • ").trim();
+    const displayName = [productName, v.details ?? "", vol].filter(Boolean).join(" • ").trim();
     return { cat, brand: "", vol, title, sub: sub || "-", displayName: displayName || "Produto" };
 }
 
