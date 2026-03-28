@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   const access = await requireCompanyAccess();
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
-  const { order_id } = await req.json().catch(() => ({}));
+  const { order_id, change } = await req.json().catch(() => ({}));
   if (!order_id) return NextResponse.json({ error: "order_id obrigatório" }, { status: 400 });
 
   const admin = createAdminClient();
@@ -55,7 +55,9 @@ export async function POST(req: Request) {
     .insert([{
       company_id: access.companyId,
       order_id:   order_id,
+      source_id:  order_id,
       printer_id: printerId,
+      payload:    { type: "receipt", orderId: order_id, change: change ?? 0 },
       status:     "pending",
       attempts:   0,
       priority:   5,

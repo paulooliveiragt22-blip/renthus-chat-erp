@@ -715,7 +715,7 @@ export default function PDVPage() {
           await fetch("/api/agent/reprint", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ order_id: oid }),
+            body: JSON.stringify({ order_id: oid, change }),
           });
         } catch(e) { console.warn("[pdv] agent reprint:", e); }
       }
