@@ -50,6 +50,10 @@ export async function POST(req: Request) {
     if (pRow?.id) printerId = pRow.id;
   }
 
+  if (!printerId) {
+    return NextResponse.json({ error: "Nenhuma impressora ativa configurada para esta empresa" }, { status: 400 });
+  }
+
   const { data: job, error: jobErr } = await admin
     .from("print_jobs")
     .insert([{

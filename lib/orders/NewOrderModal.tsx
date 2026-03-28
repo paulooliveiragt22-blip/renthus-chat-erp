@@ -20,6 +20,7 @@ export default function NewOrderModal({
     onClose,
     saving,
     onSave,
+    onSaveAndPrint,
     msg,
 
     customerName,       setCustomerName,
@@ -60,6 +61,7 @@ export default function NewOrderModal({
     onClose: () => void;
     saving: boolean;
     onSave: () => void;
+    onSaveAndPrint?: () => void;
     msg: string | null;
 
     customerName: string;       setCustomerName: (v: string) => void;
@@ -143,6 +145,15 @@ export default function NewOrderModal({
                 >
                     {saving ? "Salvando..." : "Salvar pedido"}
                 </button>
+                {onSaveAndPrint && (
+                    <button
+                        onClick={onSaveAndPrint}
+                        disabled={saving}
+                        className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {saving ? "Salvando..." : "Salvar e Imprimir"}
+                    </button>
+                )}
                 <button
                     onClick={onClose}
                     disabled={saving}

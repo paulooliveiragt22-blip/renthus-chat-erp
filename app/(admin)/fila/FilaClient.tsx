@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { Check, Clock, MessageCircle, Pencil, RefreshCcw, X } from "lucide-react";
+import { playBeep } from "@/lib/utils/playBeep";
+import { FilaOrderEditOverlay } from "@/components/fila/FilaOrderEditOverlay";
+import WhatsAppInbox from "@/components/whatsapp/WhatsAppInbox";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -31,23 +33,6 @@ interface PendingOrder {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Beep curto via Web Audio API — sem dependência de arquivo de som */
-function playBeep() {
-  try {
-    const ctx  = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.6);
-  } catch (_) { /* navegador sem suporte a AudioContext */ }
-}
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -82,13 +67,16 @@ const PM_LABELS: Record<string, string> = {
 export default function FilaClient() {
   const supabase   = useMemo(() => createClient(), []);
   const { currentCompanyId: companyId } = useWorkspace();
-  const router     = useRouter();
 
   const [orders,     setOrders]     = useState<PendingOrder[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
   const [msg,        setMsg]        = useState<{ ok: boolean; text: string } | null>(null);
   const prevCountRef = useRef(0);
+
+  // ── Overlay state ─────────────────────────────────────────────────────────
+  const [chatPhone,      setChatPhone]      = useState<string | null>(null);
+  const [editOrderId,    setEditOrderId]    = useState<string | null>(null);
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
@@ -275,6 +263,7 @@ export default function FilaClient() {
   }
 
   return (
+    <>
     <div className="min-h-screen bg-gray-50 dark:bg-zinc-900 p-4 lg:p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -434,7 +423,7 @@ export default function FilaClient() {
               <div className="px-3 pb-1 flex gap-2">
                 {phone && (
                   <button
-                    onClick={() => router.push(`/whatsapp?phone=${encodeURIComponent(toE164(phone) ?? phone)}`)}
+                    onClick={() => setChatPhone(toE164(phone) ?? phone)}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
@@ -442,7 +431,7 @@ export default function FilaClient() {
                   </button>
                 )}
                 <button
-                  onClick={() => router.push(`/pedidos?edit=${order.id}`)}
+                  onClick={() => setEditOrderId(order.id)}
                   className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
                 >
                   <Pencil className="w-3.5 h-3.5" />
@@ -474,5 +463,34 @@ export default function FilaClient() {
         })}
       </div>
     </div>
+
+    {/* ── Edit Order Overlay ─────────────────────────────────────────────── */}
+    {editOrderId && companyId && (
+      <FilaOrderEditOverlay
+        orderId={editOrderId}
+        companyId={companyId}
+        onClose={() => setEditOrderId(null)}
+        onSaved={() => { setEditOrderId(null); fetchOrders(); }}
+      />
+    )}
+
+    {/* ── WhatsApp Chat Overlay ──────────────────────────────────────────── */}
+    {chatPhone && (
+      <div className="fixed inset-0 z-[9998] flex flex-col bg-white dark:bg-zinc-900">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+          <span className="text-sm font-semibold text-zinc-900 dark:text-white">Chat WhatsApp</span>
+          <button
+            onClick={() => setChatPhone(null)}
+            className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <WhatsAppInbox initialPhone={chatPhone} />
+        </div>
+      </div>
+    )}
+  </>
   );
 }

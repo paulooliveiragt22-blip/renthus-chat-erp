@@ -476,7 +476,7 @@ export default function PedidosPage() {
     async function fetchOrderFull(orderId: string): Promise<OrderFull | null> {
         const { data: ord, error: ordErr } = await supabase
             .from("orders")
-            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )`)
+            .select(`id, status, confirmation_status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )`)
             .eq("id", orderId)
             .single();
         if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
@@ -787,6 +787,78 @@ export default function PedidosPage() {
         setMsg("✅ Pedido editado com sucesso."); setEditSaving(false); setOpenEdit(false);
         await loadOrders();
         if (viewOrder?.id === editOrder.id) setViewOrder(await fetchOrderFull(editOrder.id));
+    }
+
+    async function callReprint(orderId: string) {
+        try {
+            await fetch("/api/agent/reprint", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ order_id: orderId }),
+            });
+        } catch { /* silent — print job is best-effort */ }
+    }
+
+    async function createOrderAndPrint() {
+        if (cart.length === 0) { setMsg("Adicione pelo menos 1 item no pedido."); return; }
+        if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); return; }
+        setSaving(true); setMsg(null);
+
+        let customerId: string | null = selectedOrderCustomerId;
+        let addressForOrder = customerAddress.trim();
+
+        if (customerId) {
+            if (!customerName.trim() || !customerPhone.trim()) { setMsg("Cliente sem nome ou telefone."); setSaving(false); return; }
+            if (orderAddressMode === "saved") {
+                if (orderSavedAddresses.length === 0) { setMsg("Este cliente não tem endereço salvo."); setSaving(false); return; }
+                if (!orderSelectedAddrId) { setMsg("Selecione um endereço salvo."); setSaving(false); return; }
+                const e = orderSavedAddresses.find((a) => a.id === orderSelectedAddrId);
+                if (!e) { setMsg("Endereço selecionado não encontrado."); setSaving(false); return; }
+                addressForOrder = formatEnderecoLine(e);
+            } else if (orderAddressMode === "new") {
+                const f = newOrderAddrForm;
+                if (!f.logradouro?.trim()) { setMsg("Informe o logradouro do novo endereço."); setSaving(false); return; }
+                const { error: addrErr } = await supabase.from("enderecos_cliente").insert({
+                    company_id: companyId, customer_id: customerId,
+                    apelido: f.apelido.trim() || "Entrega", logradouro: f.logradouro.trim() || null,
+                    numero: f.numero.trim() || null, complemento: f.complemento.trim() || null,
+                    bairro: f.bairro.trim() || null, cidade: f.cidade.trim() || null,
+                    estado: f.estado.trim() || null, cep: f.cep.trim() || null,
+                    is_principal: orderSavedAddresses.length === 0,
+                });
+                if (addrErr) { setMsg(`Erro ao salvar endereço: ${addrErr.message}`); setSaving(false); return; }
+                addressForOrder = formatEnderecoLine(f);
+            }
+            await supabase.from("customers").update({ name: customerName.trim(), phone: customerPhone.trim(), address: addressForOrder || null }).eq("id", customerId);
+        } else {
+            const createdId = await upsertCustomerFromFields(customerName, customerPhone, customerAddress);
+            if (!createdId) { setSaving(false); return; }
+            customerId = createdId;
+        }
+
+        const fee    = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+        const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
+        const total  = cartSubtotal(cart) + fee;
+
+        const { data: ord, error: ordErr } = await supabase
+            .from("orders")
+            .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", confirmation_status: "confirmed", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null, driver_id: driverId || null })
+            .select("id").single();
+        if (ordErr) { setMsg(`Erro ao criar pedido: ${ordErr.message}`); setSaving(false); return; }
+
+        const { error: itemsErr } = await supabase.from("order_items").insert(buildItemsPayload(ord.id, companyId, cart));
+        if (itemsErr) { setMsg(`Erro ao salvar itens: ${itemsErr.message}`); setSaving(false); return; }
+
+        await callReprint(ord.id);
+        setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
+    }
+
+    async function saveEditAndPrint() {
+        if (!editOrder) return;
+        await saveEditOrder();
+        // saveEditOrder closes the modal on success — call reprint after
+        await callReprint(editOrder.id);
     }
 
     async function sendWhatsAppForCurrentOrder(kind: "out_for_delivery" | "delivered_message") {
@@ -1300,6 +1372,7 @@ export default function PedidosPage() {
                 onClose={() => setOpenNew(false)}
                 saving={saving}
                 onSave={createOrder}
+                onSaveAndPrint={createOrderAndPrint}
                 msg={msg}
                 customerName={customerName}            setCustomerName={setCustomerName}
                 customerPhone={customerPhone}          setCustomerPhone={setCustomerPhone}
@@ -1379,6 +1452,7 @@ export default function PedidosPage() {
                 order={editOrder}
                 canEditOrder={editOrder ? canEdit(String((editOrder as any).status)) : false}
                 onSave={saveEditOrder}
+                onSaveAndPrint={saveEditAndPrint}
                 msg={msg}
                 customerName={editCustomerName}            setCustomerName={setEditCustomerName}
                 customerPhone={editCustomerPhone}          setCustomerPhone={setEditCustomerPhone}

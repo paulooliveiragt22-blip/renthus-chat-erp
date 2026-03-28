@@ -15,6 +15,7 @@ export default function EditOrderModal({
     order,
     canEditOrder,
     onSave,
+    onSaveAndPrint,
     msg,
 
     customerName,       setCustomerName,
@@ -46,6 +47,7 @@ export default function EditOrderModal({
     order: OrderFull | null;
     canEditOrder: boolean;
     onSave: () => void;
+    onSaveAndPrint?: () => void;
     msg: string | null;
 
     customerName: string;       setCustomerName: (v: string) => void;
@@ -126,6 +128,15 @@ export default function EditOrderModal({
                         >
                             {saving ? "Salvando..." : "Salvar alterações"}
                         </button>
+                        {onSaveAndPrint && (order as any)?.confirmation_status === "confirmed" && (
+                            <button
+                                onClick={onSaveAndPrint}
+                                disabled={saving}
+                                className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {saving ? "Salvando..." : "Salvar e Reimprimir"}
+                            </button>
+                        )}
                         <button
                             onClick={onClose}
                             disabled={saving}

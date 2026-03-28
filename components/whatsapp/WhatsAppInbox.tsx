@@ -132,7 +132,7 @@ function isNearBottom(el: HTMLElement): boolean {
 
 // ─── componente principal ─────────────────────────────────────────────────────
 
-export default function WhatsAppInbox() {
+export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string | null } = {}) {
     const router = useRouter();
 
     // Single Supabase client shared between queries and realtime
@@ -333,6 +333,19 @@ export default function WhatsAppInbox() {
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
+
+    // Auto-select thread by phone when initialPhone is provided (embedded mode)
+    const initialPhoneAppliedRef = useRef(false);
+    useEffect(() => {
+        if (!initialPhone || initialPhoneAppliedRef.current || threads.length === 0) return;
+        const normalize = (p: string) => p.replace(/\D/g, "").replace(/^55/, "");
+        const target = normalize(initialPhone);
+        const match = threads.find((t) => normalize(t.phone_e164) === target);
+        if (match) {
+            setSelectedThreadId(match.id);
+            initialPhoneAppliedRef.current = true;
+        }
+    }, [threads, initialPhone]);
 
     // Load customer profile when thread changes
     useEffect(() => {
