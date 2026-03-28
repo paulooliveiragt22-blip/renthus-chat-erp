@@ -124,7 +124,8 @@ export default function PDVPage() {
   const { currentCompanyId: companyId } = useWorkspace();
   const searchParams = useSearchParams();
   const fromOrderId  = searchParams.get("from_order");
-  const [fromOrderBanner, setFromOrderBanner] = useState<string | null>(null);
+  const [fromOrderBanner,  setFromOrderBanner]  = useState<string | null>(null);
+  const [activeOrderId,    setActiveOrderId]    = useState<string | null>(null);
 
   // ── mode toggle ──────────────────────────────────────────────────────
   const [pdvMode,         setPdvMode]         = useState<"normal" | "pending">("normal");
@@ -239,6 +240,7 @@ export default function PDVPage() {
     }
     if (newCart.length > 0) {
       setCart(newCart);
+      setActiveOrderId(order.id);
       setFromOrderBanner(`Pedido #${order.id.slice(-6).toUpperCase()}`);
     }
     setPdvMode("normal");
@@ -354,6 +356,7 @@ export default function PDVPage() {
       }
       if (newCart.length > 0) {
         setCart(newCart);
+        setActiveOrderId(fromOrderId);
         setFromOrderBanner(`Pedido #${fromOrderId.slice(-6).toUpperCase()}`);
       }
     })();
@@ -559,6 +562,7 @@ export default function PDVPage() {
   const closeSaleAndReset = () => {
     setShowCheckout(false); setSaleOk(false);
     setSelectedCustomer(null); setCustomerQuery("");
+    setCart([]); setFromOrderBanner(null); setActiveOrderId(null);
     setTimeout(() => searchRef.current?.focus(), 100);
   };
 
@@ -598,6 +602,7 @@ export default function PDVPage() {
         total:            cartTotal,
         status:           isPaid ? "paid" : "partial",
         notes:            sellerName ? `Balcão — ${sellerName}` : "Balcão",
+        ...(activeOrderId ? { order_id: activeOrderId } : {}),
       }).select("id").single();
       if (saleErr) throw new Error(saleErr.message);
       const saleId = sale.id;
@@ -625,39 +630,56 @@ export default function PDVPage() {
       })));
       if (salePayErr) throw new Error(salePayErr.message);
 
-      // 4. Pedido legado (orders) linkado ao sale — mantém compatibilidade com impressão e pedidos
-      const { data: order, error: ordErr } = await supabase.from("orders").insert({
-        company_id:     companyId,
-        sale_id:        saleId,
-        source:         "pdv_direct",
-        customer_id:    selectedCustomer?.id ?? null,
-        customer_name:  selectedCustomer?.name ?? (sellerName ? `[Balcão] ${sellerName}` : "Balcão"),
-        total:          cartTotal,
-        total_amount:   cartTotal,
-        delivery_fee:   0,
-        payment_method: primary?.method ?? "pix",
-        status:               "finalized",
-        confirmation_status:  "confirmed",
-        channel:              "balcao",
-        paid:                 isPaid,
-        confirmed_at:         new Date().toISOString(),
-      }).select("id").single();
-      if (ordErr) throw new Error(ordErr.message);
-      const oid = order.id;
+      // 4. Pedido: atualiza o pedido de origem (chatbot/flow) ou cria novo (balcão direto)
+      let oid: string;
+      if (activeOrderId) {
+        // Pedido de origem (chatbot/flow): vincula ao sale e confirma
+        const { error: updErr } = await supabase.from("orders").update({
+          sale_id:             saleId,
+          status:              "finalized",
+          confirmation_status: "confirmed",
+          confirmed_at:        new Date().toISOString(),
+          // Marca como impresso agora se o PDV vai imprimir diretamente,
+          // evitando reimpressão pelo agente
+          ...(autoPrint ? { printed_at: new Date().toISOString() } : {}),
+        }).eq("id", activeOrderId);
+        if (updErr) throw new Error(updErr.message);
+        oid = activeOrderId;
+        // order_items já existem — não recriar
+      } else {
+        // Venda balcão direta: cria pedido de compatibilidade
+        const { data: order, error: ordErr } = await supabase.from("orders").insert({
+          company_id:     companyId,
+          sale_id:        saleId,
+          source:         "pdv_direct",
+          customer_id:    selectedCustomer?.id ?? null,
+          customer_name:  selectedCustomer?.name ?? (sellerName ? `[Balcão] ${sellerName}` : "Balcão"),
+          total:          cartTotal,
+          total_amount:   cartTotal,
+          delivery_fee:   0,
+          payment_method: primary?.method ?? "pix",
+          status:         "finalized",
+          channel:        "balcao",
+          paid:           isPaid,
+          confirmed_at:   new Date().toISOString(),
+        }).select("id").single();
+        if (ordErr) throw new Error(ordErr.message);
+        oid = order.id;
 
-      // 5. order_items (line_total é coluna GENERATED — não enviar)
-      const { error: itemErr } = await supabase.from("order_items").insert(cart.map(i => ({
-        company_id:           companyId,
-        order_id:             oid,
-        product_id:           i.variant.produto_id,
-        produto_embalagem_id: i.variant.id,
-        product_name:         `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
-        quantity:             i.qty,
-        qty:                  i.qty,
-        unit_type:            String(i.variant.sigla_comercial ?? "").toUpperCase() === "CX" ? "case" : "unit",
-        unit_price:           i.variant.unit_price,
-      })));
-      if (itemErr) console.error("[pdv] order_items:", itemErr.message);
+        // 5. order_items (apenas para vendas balcão diretas)
+        const { error: itemErr } = await supabase.from("order_items").insert(cart.map(i => ({
+          company_id:           companyId,
+          order_id:             oid,
+          product_id:           i.variant.produto_id,
+          produto_embalagem_id: i.variant.id,
+          product_name:         `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
+          quantity:             i.qty,
+          qty:                  i.qty,
+          unit_type:            String(i.variant.sigla_comercial ?? "").toUpperCase() === "CX" ? "case" : "unit",
+          unit_price:           i.variant.unit_price,
+        })));
+        if (itemErr) console.error("[pdv] order_items:", itemErr.message);
+      }
 
       // 6. financial_entries para dashboard legado (sale_id evita duplicação pelo trigger)
       const { error: finErr } = await supabase.from("financial_entries").insert(payments.map(p => ({
@@ -698,7 +720,7 @@ export default function PDVPage() {
         } catch(e) { console.warn("[pdv] agent reprint:", e); }
       }
       setSaleOk(true);
-      setCart([]);
+      setCart([]); setFromOrderBanner(null); setActiveOrderId(null);
       loadCaixa();
     } catch(err:any) {
       alert("Erro ao finalizar: "+err.message);
