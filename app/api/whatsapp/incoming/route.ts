@@ -121,7 +121,9 @@ export async function POST(req: Request) {
                 catalog_flow_id?: string;
             } | null;
             const waConfig: WaConfig = {
-                phoneNumberId: channel.from_identifier,
+                // Usa o phoneNumberId vindo da Meta (fonte da verdade),
+                // não o from_identifier do DB (pode estar desatualizado)
+                phoneNumberId: phoneNumberId || channel.from_identifier,
                 accessToken:   channelMeta?.access_token ?? process.env.WHATSAPP_TOKEN ?? "",
             };
             const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
