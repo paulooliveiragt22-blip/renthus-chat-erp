@@ -35,7 +35,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
                 const { data: items, error: itemsErr } = await admin
                     .from("order_items")
-                    .select("id, order_id, product_name, quantity, unit_price, line_total, product_variant_id, created_at")
+                    .select("id, order_id, product_name, unit_type, quantity, unit_price, line_total, created_at, produto_embalagem_id, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )")
                     .eq("order_id", orderId)
                     .order("created_at", { ascending: true });
 
@@ -68,7 +68,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
         const { data: items, error: itemsErr } = await admin
             .from("order_items")
-            .select("id, order_id, product_name, quantity, unit_price, line_total, product_variant_id, created_at")
+            .select("id, order_id, product_name, unit_type, quantity, unit_price, line_total, created_at, produto_embalagem_id, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )")
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
 
