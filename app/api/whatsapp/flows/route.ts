@@ -284,35 +284,66 @@ export async function POST(req: NextRequest) {
             categoryName?: string | null;
             search?:       string | null;
         }): Promise<Array<Record<string, unknown>>> {
+            const selectFields = "id, product_name, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, thumbnail_url, image_url";
+
             if (opts.search) {
-                // Busca full-text na view_chat_produtos (nome, tags, etc.)
                 const { data } = await admin
                     .from("view_chat_produtos")
-                    .select("id, product_name, preco_venda, thumbnail_url, image_url")
+                    .select(selectFields)
                     .eq("company_id", companyId)
                     .ilike("product_name", `%${opts.search}%`)
                     .limit(20);
 
-                return (data ?? []).map((p: any) => ({
-                    id:          p.id,
-                    title:       String(p.product_name ?? "").toUpperCase().slice(0, 30),
-                    description: `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`,
-                }));
+                return buildProductItems(data ?? []);
             }
 
-            // Busca por categoria via RPC (ordenada por popularidade)
-            const { data } = await admin.rpc("get_top_products_by_category", {
-                p_company_id: companyId,
-                p_category:   opts.categoryName ?? null,
-                p_limit:      20,
-                p_days:       30,
-            });
+            // Busca por categoria via view (ordenada por nome)
+            let query = admin
+                .from("view_chat_produtos")
+                .select(selectFields)
+                .eq("company_id", companyId)
+                .order("product_name");
 
-            return (data ?? []).map((p: any) => ({
-                id:          p.id,
-                title:       String(p.name ?? "").toUpperCase().slice(0, 30),
-                description: `R$ ${(parseFloat(p.price) || 0).toFixed(2).replace(".", ",")}${!p.in_stock ? " (indisponivel)" : ""}`,
-            }));
+            if (opts.categoryName) {
+                // Busca o category_id pelo nome
+                const { data: cat } = await admin
+                    .from("categories")
+                    .select("id")
+                    .eq("company_id", companyId)
+                    .ilike("name", opts.categoryName)
+                    .maybeSingle();
+                if (cat?.id) query = query.eq("category_id", cat.id);
+            }
+
+            const { data } = await query.limit(20);
+            return buildProductItems(data ?? []);
+        }
+
+        function buildProductItems(rows: any[]): Array<Record<string, unknown>> {
+            return rows.map((p: any) => {
+                const vol  = p.volume_quantidade;
+                const unit = p.unit_type_sigla ?? "";
+                const volStr = vol && vol > 0 ? `${vol}${unit}`.trim() : "";
+                const price  = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`;
+                const desc   = [volStr, price].filter(Boolean).join(" — ");
+
+                const item: Record<string, unknown> = {
+                    id:                 p.id,
+                    title:              String(p.product_name ?? "").toUpperCase().slice(0, 30),
+                    description:        desc.slice(0, 300),
+                    // campos extras para uso nas telas QUANTITIES / CEP_SEARCH
+                    preco_venda:        p.preco_venda,
+                    volume_quantidade:  p.volume_quantidade,
+                    fator_conversao:    p.fator_conversao,
+                    id_unit_type:       p.id_unit_type,
+                    product_volume_id:  p.product_volume_id,
+                };
+
+                const thumb = p.thumbnail_url ?? p.image_url;
+                if (thumb) item["image-url"] = thumb;
+
+                return item;
+            });
         }
 
         // Salva a tela atual na sessão para fallback quando Meta enviar screen: ""
@@ -587,7 +618,7 @@ export async function POST(req: NextRequest) {
 
                 const formatSlotName = (p: any): string => {
                     const sigla  = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
-                    const name   = [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase();
+                    const name   = String(p.products.name ?? "").toUpperCase();
                     const price  = formatCurrency(parseFloat(p.preco_venda) || 0);
                     const prefix = sigla && sigla !== "UN" ? `${sigla} • ` : "";
                     return `${prefix}${name} — ${price}`;
@@ -603,7 +634,7 @@ export async function POST(req: NextRequest) {
                             pending_product_ids: sorted.map((p) => p.id),
                             pending_prices:      sorted.map((p) => parseFloat(p.preco_venda) || 0),
                             pending_names:       sorted.map((p) =>
-                                [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase()
+                                String(p.products.name ?? "").toUpperCase()
                             ),
                         },
                     })
@@ -639,7 +670,7 @@ export async function POST(req: NextRequest) {
                 // Monta carrinho para exibir no resumo da tela CEP_SEARCH
                 const cartForDisplay: CartItem[] = sorted.map((p, i) => ({
                     variantId: p.id,
-                    name:      [p.products.name, p.descricao].filter(Boolean).join(" ").toUpperCase(),
+                    name:      String(p.products.name ?? "").toUpperCase(),
                     qty:       1,
                     price:     parseFloat(p.preco_venda) || 0,
                 }));
