@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
             categoryName?: string | null;
             search?:       string | null;
         }): Promise<Array<Record<string, unknown>>> {
-            const selectFields = "id, product_name, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, thumbnail_url, image_url";
+            const selectFields = "id, product_name, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, sigla_comercial, thumbnail_url, image_url";
 
             if (opts.search) {
                 const { data } = await admin
@@ -336,14 +336,23 @@ export async function POST(req: NextRequest) {
 
         function buildProductItems(rows: any[]): Array<Record<string, unknown>> {
             return rows.map((p: any) => {
-                const vol    = p.volume_quantidade;
-                const unit   = p.unit_type_sigla ?? "";
-                const volStr = vol && vol > 0 ? `${vol}${unit}`.trim() : "";
-                const price  = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`;
-                const desc   = [volStr, price].filter(Boolean).join(" — ");
+                const sigla = String(p.sigla_comercial ?? "").toUpperCase();
+                const fator = p.fator_conversao;
+                const vol   = p.volume_quantidade;
+                const unit  = p.unit_type_sigla ?? "";
+
+                // Embalagem: "CX - 12" para caixas/fardos, "600ml" para unidades com volume
+                let packStr = "";
+                if (sigla && sigla !== "UN" && fator && fator > 1) {
+                    packStr = `${sigla} - ${fator}`;
+                } else if (vol && vol > 0 && unit) {
+                    packStr = `${vol}${unit}`;
+                }
+
+                const price = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`;
+                const desc  = [packStr, price].filter(Boolean).join(" — ");
 
                 // CheckboxGroup só aceita: id, title, description, metadata, enabled, on-click-action
-                // Dados extras (preço, volume etc.) são re-buscados do DB quando o usuário seleciona
                 return {
                     id:          p.id,
                     title:       String(p.product_name ?? "").toUpperCase().slice(0, 30),
@@ -579,6 +588,7 @@ export async function POST(req: NextRequest) {
                         id,
                         preco_venda,
                         descricao,
+                        fator_conversao,
                         id_sigla_comercial,
                         siglas_comerciais ( sigla ),
                         products!inner ( name, is_active )
@@ -623,10 +633,13 @@ export async function POST(req: NextRequest) {
                 }).slice(0, 5) as any[];
 
                 const formatSlotName = (p: any): string => {
-                    const sigla  = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
-                    const name   = String(p.products.name ?? "").toUpperCase();
-                    const price  = formatCurrency(parseFloat(p.preco_venda) || 0);
-                    const prefix = sigla && sigla !== "UN" ? `${sigla} • ` : "";
+                    const sigla = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
+                    const name  = String(p.products.name ?? "").toUpperCase();
+                    const price = formatCurrency(parseFloat(p.preco_venda) || 0);
+                    const fator = p.fator_conversao;
+                    const prefix = sigla && sigla !== "UN"
+                        ? (fator && fator > 1 ? `${sigla} - ${fator} • ` : `${sigla} • `)
+                        : "";
                     return `${prefix}${name} — ${price}`;
                 };
 
@@ -720,10 +733,16 @@ export async function POST(req: NextRequest) {
                     return await reRenderCategories();
                 }
 
+                console.log("[flows/catalog] QUANTITIES formData:", JSON.stringify(formData));
+
                 const qtyFields = ["qty_1", "qty_2", "qty_3", "qty_4", "qty_5"];
                 const cartItems: CartItem[] = pendingIds.map((id, i) => {
-                    const raw = String(formData?.[qtyFields[i]] ?? "1").replace(",", ".").trim();
-                    const qty = Math.max(1, Math.floor(parseFloat(raw) || 1));
+                    const raw = formData?.[qtyFields[i]];
+                    const qty = Math.max(1, Math.round(
+                        typeof raw === "number"
+                            ? raw
+                            : parseFloat(String(raw ?? "1").replace(",", ".").trim()) || 1
+                    ));
                     return {
                         variantId: id,
                         name:      pendingNames[i] ?? id,
@@ -1191,7 +1210,7 @@ export async function POST(req: NextRequest) {
                     const pmLabel   = pmLabels[paymentMethod] ?? paymentMethod;
                     const feeText   = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
                     const chgText   = changeFor ? ` (troco para ${formatCurrency(changeFor)})` : "";
-                    const orderCode = `#${order.id.slice(0, 8).toUpperCase()}`;
+                    const orderCode = `#${order.id.replace(/-/g, "").slice(-6).toUpperCase()}`;
 
                     const msg = requireApproval
                         ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
@@ -1204,7 +1223,7 @@ export async function POST(req: NextRequest) {
                     {
                         version: "3.0",
                         screen:  "SUCCESS",
-                        data:    { order_code: `#${order.id.slice(0, 8).toUpperCase()}` },
+                        data:    { order_code: `#${order.id.replace(/-/g, "").slice(-6).toUpperCase()}` },
                     } as Record<string, unknown>,
                     aesKey, iv
                 );
@@ -1544,7 +1563,7 @@ export async function POST(req: NextRequest) {
                     {
                         version: "3.0",
                         screen:  "SUCCESS",
-                        data:    { order_code: `#${order.id.slice(0, 8).toUpperCase()}` },
+                        data:    { order_code: `#${order.id.replace(/-/g, "").slice(-6).toUpperCase()}` },
                     },
                     aesKey, iv
                 );
