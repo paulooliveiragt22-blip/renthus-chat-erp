@@ -921,8 +921,8 @@ export default function ProdutosListaPage() {
             {/* Table */}
             <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
                 {/* sticky header */}
-                <div className="grid grid-cols-[1fr_1.5fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
-                    <span>Categoria</span><span>Detalhes</span>
+                <div className="grid grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
+                    <span>Categoria</span><span>Produto</span><span>Detalhes</span>
                     <span className="text-right">Cód.</span>
                     <span className="text-right">Vol.</span>
                     <span className="text-right">Estoque</span>
@@ -949,7 +949,7 @@ export default function ProdutosListaPage() {
                             return (
                             <div
                                 key={r.id}
-                                className={`grid grid-cols-[1fr_1.5fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
+                                className={`grid grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
                                     flashId === r.id
                                         ? "bg-emerald-50 dark:bg-emerald-900/15"
                                         : missingCost && r.is_active
@@ -961,6 +961,9 @@ export default function ProdutosListaPage() {
                             >
                                 <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">
                                     {r.products?.categories?.name ?? <span className="text-zinc-300">—</span>}
+                                </span>
+                                <span className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {r.products?.name ?? <span className="text-zinc-300">—</span>}
                                 </span>
                                 <span className="truncate text-xs text-zinc-500">{r.details ?? "—"}</span>
                                 <span className="truncate text-right text-xs text-zinc-500" title={r.codigo_interno ?? ""}>
