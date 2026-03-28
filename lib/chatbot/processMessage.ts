@@ -1,84 +1,79 @@
 /**
  * lib/chatbot/processMessage.ts
  *
- * Chatbot flows-only: qualquer mensagem recebida abre o Flow Catálogo.
- * Toda a lógica de catálogo, carrinho e checkout está em app/api/whatsapp/flows/route.ts.
+ * Orquestrador do chatbot de delivery via WhatsApp + Meta Cloud API.
+ *
+ * Fluxo:
+ *   welcome → main_menu → catalog_categories → catalog_products
+ *   → cart → checkout_address → checkout_payment → checkout_confirm
+ *   → (opcional) awaiting_save_address_apelido → checkout_confirm → done
+ *                                                                     ↘ handover
+ *
+ * Delega toda a lógica para 3 camadas:
+ *   1. intentDetector  — intenções globais (reset, handover, cancelar, saudação)
+ *   2. parserChain     — cadeia Regex → Claude → Fallback
+ *   3. stepRouter      — roteamento por session.step
  */
 
+// ─── Re-exports para compatibilidade ─────────────────────────────────────────
+
+export type { ProcessMessageParams } from "./types";
+export type { CartItem, Session } from "./types";
+export type { DisplayableVariant } from "./displayHelpers";
+
+// ─── Imports ──────────────────────────────────────────────────────────────────
+
 import type { ProcessMessageParams } from "./types";
-import { getOrCreateSession, saveSession } from "./session";
-import { sendFlowMessage, sendWhatsAppMessage } from "../whatsapp/send";
+import type { CompanyConfig } from "./types";
+import { getOrCreateSession } from "./session";
+import { getCompanyInfo } from "./db/company";
+import { detectGlobalIntents } from "./middleware/intentDetector";
+import { runParserChain } from "./middleware/parserChain";
+import { routeByStep } from "./router/stepRouter";
 
-export type { ProcessMessageParams, CartItem, Session } from "./types";
-
-const HANDOVER_RE = /\b(atendente|humano|suporte|falar com pessoa)\b/iu;
+// ─── Ponto de entrada ─────────────────────────────────────────────────────────
 
 export async function processInboundMessage(
     params: ProcessMessageParams
 ): Promise<void> {
-    const { admin, companyId, threadId, phoneE164, text, profileName, waConfig, catalogFlowId } = params;
+    const { admin, companyId, threadId } = params;
 
-    const input = text.trim();
+    const input = params.text.trim();
     if (!input) return;
 
-    // ── 1. Verifica chatbot ativo ─────────────────────────────────────────────
+    // ── 1. Verifica bot ativo e carrega config ────────────────────────────────
     const { data: botRows } = await admin
         .from("chatbots")
-        .select("id")
+        .select("id, config")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .limit(1);
 
-    if (!botRows?.length) return;
-
-    // ── 2. Nome da empresa ────────────────────────────────────────────────────
-    const { data: comp } = await admin
-        .from("companies")
-        .select("name")
-        .eq("id", companyId)
-        .maybeSingle();
-    const companyName = (comp?.name as string | null) ?? "nossa loja";
-
-    // ── 3. Handover ───────────────────────────────────────────────────────────
-    if (HANDOVER_RE.test(input)) {
-        await admin
-            .from("whatsapp_threads")
-            .update({ bot_active: false, handover_at: new Date().toISOString() })
-            .eq("id", threadId);
-        await sendWhatsAppMessage(
-            phoneE164,
-            `🙋 Aguarde, transferindo para um atendente...`,
-            waConfig
-        );
+    if (!botRows?.length) {
+        console.warn("[chatbot] Nenhum chatbot ativo para company:", companyId);
         return;
     }
 
-    // ── 4. Sessão ─────────────────────────────────────────────────────────────
-    const session = await getOrCreateSession(admin, threadId, companyId);
+    const botConfig  = (botRows[0]?.config as Record<string, unknown>) ?? {};
+    const [company, session] = await Promise.all([
+        getCompanyInfo(admin, companyId),
+        getOrCreateSession(admin, threadId, companyId),
+    ]);
 
-    // Já está dentro de um flow em andamento — não envia novo CTA
-    if (session.step === "awaiting_flow") return;
+    const config: CompanyConfig = {
+        name:      company?.name ?? "nossa loja",
+        settings:  company?.settings ?? {},
+        botConfig,
+    };
 
-    // ── 5. Envia Flow CTA ─────────────────────────────────────────────────────
-    const flowId = catalogFlowId ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
-    if (!flowId) {
-        console.warn("[chatbot] WHATSAPP_CATALOG_FLOW_ID não configurado");
-        return;
-    }
+    // ── 2. Intenções globais (reset, handover, cancel, greeting) ──────────────
+    const detected = await detectGlobalIntents(params, session, config);
+    if (detected.handled) return;
 
-    const greeting = profileName
-        ? `Olá, *${profileName}*! 👋\n\nBem-vindo(a) ao *${companyName}*!\nToque no botão abaixo para ver o cardápio e fazer seu pedido.`
-        : `Olá! 👋\n\nBem-vindo(a) ao *${companyName}*!\nToque no botão abaixo para ver o cardápio e fazer seu pedido.`;
+    // ── 3. Parser chain (regex → claude → fallback) ───────────────────────────
+    const chainResult = await runParserChain(params, session, config);
+    if (chainResult.handled) return;
 
-    await sendFlowMessage(phoneE164, {
-        flowToken: `${threadId}|${companyId}|catalog`,
-        bodyText:  greeting,
-        ctaLabel:  "Ver cardápio",
-        flowId,
-    }, waConfig);
-
-    await saveSession(admin, threadId, companyId, {
-        step:    "awaiting_flow",
-        context: { flow_started_at: new Date().toISOString() },
-    });
+    // ── 4. Roteamento por step ────────────────────────────────────────────────
+    await routeByStep(params, session, config);
 }
