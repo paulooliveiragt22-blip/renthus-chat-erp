@@ -1174,6 +1174,7 @@ export async function POST(req: NextRequest) {
                     p_source:                       "flow_catalog",
                     p_channel:                      "whatsapp",
                     p_total_amount:                 grandTotal,
+                    p_total:                        totalItems,   // subtotal sem frete
                     p_delivery_fee:                 deliveryFee,
                     p_delivery_address:             address,
                     p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
@@ -1515,6 +1516,7 @@ export async function POST(req: NextRequest) {
                     p_source:                       "flow_catalog",
                     p_channel:                      "whatsapp",
                     p_total_amount:                 grandTotal,
+                    p_total:                        totalItems,   // subtotal sem frete
                     p_delivery_fee:                 deliveryFee,
                     p_delivery_address:             address,
                     p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
@@ -1553,8 +1555,8 @@ export async function POST(req: NextRequest) {
                         : "";
 
                     const msg = requireApproval
-                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.slice(0, 8).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.slice(0, 8).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
+                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replace(/-/g, "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
+                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replace(/-/g, "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
 
                     await sendWhatsAppMessage(phoneE164, msg, waConfig);
                 }
