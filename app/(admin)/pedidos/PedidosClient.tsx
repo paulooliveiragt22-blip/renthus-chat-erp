@@ -280,7 +280,7 @@ export default function PedidosPage() {
         opts.setSearching(true);
         const { data, error } = await supabase
             .from("view_pdv_produtos")
-            .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, codigo_interno, sigla_comercial, product_name, product_unit_type, product_details, category_name")
+            .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, codigo_interno, sigla_comercial, volume_formatado, product_name, product_unit_type, product_details, category_name")
             .eq("company_id", companyId)
             .limit(400);
 
@@ -322,7 +322,7 @@ export default function PedidosPage() {
                 case_price: casePack ? Number(casePack.preco_venda ?? 0) : null,
                 unit: e.unit ?? null,
                 volume_value: null,
-                details: unitPack?.descricao ?? e.products?.name ?? null,
+                details: [unitPack?.descricao, unitPack?.volume_formatado].filter(Boolean).join(" ") || e.products?.name || null,
                 tags: e.tags.filter(Boolean).join(","),
                 is_active: e.is_active,
                 codigo_interno: e.codigo_interno ?? null,
