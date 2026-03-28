@@ -636,10 +636,11 @@ export default function PDVPage() {
         total_amount:   cartTotal,
         delivery_fee:   0,
         payment_method: primary?.method ?? "pix",
-        status:         "finalized",
-        channel:        "balcao",
-        paid:           isPaid,
-        confirmed_at:   new Date().toISOString(),
+        status:               "finalized",
+        confirmation_status:  "confirmed",
+        channel:              "balcao",
+        paid:                 isPaid,
+        confirmed_at:         new Date().toISOString(),
       }).select("id").single();
       if (ordErr) throw new Error(ordErr.message);
       const oid = order.id;
