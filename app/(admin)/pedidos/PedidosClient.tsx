@@ -486,17 +486,30 @@ export default function PedidosPage() {
         if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
         const { data: items, error: itemsErr } = await supabase
             .from("order_items")
-            .select(`id, order_id, produto_embalagem_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )`)
+            .select(`id, order_id, produto_embalagem_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty`)
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
         if (itemsErr) { setMsg(`Erro ao carregar itens: ${itemsErr.message}`); return null; }
-        const mappedItems = (Array.isArray(items) ? items : []).map((it: any) => {
-            return {
-                ...it,
-                qty: it?.qty ?? it?.quantity ?? 0,
-                quantity: it?.quantity ?? it?.qty ?? 0,
-            };
-        });
+
+        const rows = Array.isArray(items) ? items : [];
+
+        // Enriquece com dados da embalagem via view_pdv_produtos
+        const embIds = [...new Set(rows.filter((i: any) => i.produto_embalagem_id).map((i: any) => i.produto_embalagem_id))];
+        let embMap = new Map<string, any>();
+        if (embIds.length > 0) {
+            const { data: embs } = await supabase
+                .from("view_pdv_produtos")
+                .select("id, product_name, descricao, sigla_comercial, volume_formatado, fator_conversao")
+                .in("id", embIds);
+            if (embs) embMap = new Map((embs as any[]).map(e => [e.id, e]));
+        }
+
+        const mappedItems = rows.map((it: any) => ({
+            ...it,
+            qty: it?.qty ?? it?.quantity ?? 0,
+            quantity: it?.quantity ?? it?.qty ?? 0,
+            _emb: embMap.get(it.produto_embalagem_id) || null,
+        }));
         return { ...(ord as any), items: mappedItems as any };
     }
 
@@ -940,16 +953,21 @@ export default function PedidosPage() {
             groups.get(info.productName)!.push({ it, info });
         }
 
+        const tdName  = `style="padding:7px 5px 2px;border-bottom:none;font-size:14px;font-weight:700;color:#111"`;
+        const tdEmb   = `style="padding:2px 5px 2px 16px;font-size:11px;font-weight:400;color:#333;border-bottom:1px solid #eee"`;
+        const tdNum   = `style="text-align:right;white-space:nowrap;font-size:12px;font-weight:500;border-bottom:1px solid #eee"`;
+        const tdSep   = `style="padding:0;height:5px;border:none"`;
+
         const itemsHtml = Array.from(groups.entries()).map(([productName, entries], gIdx) => {
-            const sep = gIdx > 0 ? `<tr><td colspan="3" style="padding:2px 0;border:none;height:6px"></td></tr>` : "";
-            const header = `<tr class="prod-header"><td colspan="3">${escapeHtml(productName)}</td></tr>`;
-            const lines = entries.map(({ it, info }) => {
+            const sep    = gIdx > 0 ? `<tr><td colspan="3" ${tdSep}></td></tr>` : "";
+            const header = `<tr><td colspan="3" ${tdName}>${escapeHtml(productName)}</td></tr>`;
+            const lines  = entries.map(({ it, info }) => {
                 const q = Number(it.quantity ?? it.qty ?? 0);
                 const p = Number(it.unit_price ?? 0);
                 const t = Number(it.line_total ?? q * p);
                 const fatorStr = info.fator ? ` c/${info.fator}` : "";
                 const qtyLabel = `${q} ${info.unitLabel}${fatorStr}`;
-                return `<tr class="detail-row"><td>${escapeHtml(info.detail)}</td><td style="text-align:right;white-space:nowrap">${escapeHtml(qtyLabel)}</td><td style="text-align:right;white-space:nowrap">R$ ${formatBRL(t)}</td></tr>`;
+                return `<tr><td ${tdEmb}>${escapeHtml(info.detail)}</td><td ${tdNum}>${escapeHtml(qtyLabel)}</td><td ${tdNum}>R$ ${formatBRL(t)}</td></tr>`;
             }).join("");
             return sep + header + lines;
         }).join("") || `<tr><td colspan="3">Sem itens</td></tr>`;
@@ -965,7 +983,7 @@ export default function PedidosPage() {
             ? `<div style="margin-top:4px"><b>Entregador:</b> <b>${escapeHtml(driver.name)}</b>${driver.vehicle ? ` • ${escapeHtml(driver.vehicle)}` : ""}${driver.plate ? ` (${escapeHtml(driver.plate)})` : ""}</div>`
             : "";
 
-        w.document.write(`<html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:12px;padding:12px;max-width:480px}table{width:100%;border-collapse:collapse;margin-top:8px}th{background:#f5f5f5;text-align:left;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:4px 5px;border-bottom:2px solid #ddd}td{border-bottom:1px solid #eee;padding:3px 5px;font-size:12px;font-weight:500}.prod-header td{padding:8px 5px 2px;border-bottom:none;font-weight:700;font-size:14px;color:#111}.detail-row td:first-child{padding-left:14px;font-size:11px;font-weight:400;color:#555}.detail-row td{font-size:12px;font-weight:500}.obs{border:1px solid #ddd;border-radius:6px;padding:6px;margin-top:8px;font-weight:700;color:${ORANGE}}h1{font-size:16px;font-weight:700;margin:6px 0}.meta{font-size:11px;margin:2px 0}.s{font-weight:700}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:4px 10px;border:1px solid #999;border-radius:6px;cursor:pointer;font-size:11px;margin-bottom:6px">Imprimir</button><h1>Pedido #${String(full.id).slice(0,8).toUpperCase()} &bull; ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div class="meta"><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div class="meta"><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} &bull; ${escapeHtml(cust?.phone ?? "")}</div><div class="meta"><b>End:</b> ${escapeHtml(cust?.address ?? "-")}</div>${driverLine}<div class="meta" style="margin-top:4px"><b>Pagamento:</b> ${escapeHtml(pmLabel)}${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><thead><tr><th>Produto / Embalagem</th><th style="text-align:right">Qtd</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemsHtml}</tbody></table><div style="margin-top:10px;font-size:11px"><div style="display:flex;justify-content:space-between;margin-bottom:2px"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div><div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:2px solid #333;padding-top:4px;margin-top:4px"><span>TOTAL</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+        w.document.write(`<html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:10px;max-width:460px}h1{font-size:16px;font-weight:700;margin:5px 0 3px}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#f5f5f5;text-align:left;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:3px 5px;border-bottom:2px solid #ddd}.obs{border:1px solid #ddd;border-radius:5px;padding:5px;margin-top:6px;font-size:10px;font-weight:700;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:3px 8px;border:1px solid #999;border-radius:5px;cursor:pointer;font-size:10px;margin-bottom:5px">Imprimir</button><h1>Pedido #${String(full.id).slice(0,8).toUpperCase()} &bull; ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div style="font-size:10px;margin:1px 0"><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div style="font-size:10px;margin:1px 0"><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} &bull; ${escapeHtml(cust?.phone ?? "")}</div><div style="font-size:10px;margin:1px 0"><b>End:</b> ${escapeHtml(cust?.address ?? "-")}</div>${driverLine}<div style="font-size:10px;margin-top:3px"><b>Pagamento:</b> ${escapeHtml(pmLabel)}${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><thead><tr><th>Produto / Embalagem</th><th style="text-align:right">Qtd</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemsHtml}</tbody></table><div style="margin-top:8px"><div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div><div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:2px solid #222;padding-top:3px;margin-top:3px"><span>TOTAL</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
         w.document.close();
     }
 
