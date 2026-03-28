@@ -536,14 +536,19 @@ export default function FinanceiroPage() {
                 setFinalizing(false);
                 return;
             }
-            const { error: prazoErr } = await supabase.from("vendas_a_prazo").insert({
-                company_id:       companyId,
-                order_id:         extratoModal.orderId,
-                customer_id:      extratoModal.customerId,
-                valor:            extratoModal.amount,
-                data_vencimento:  finalizeForm.due_date + "T12:00:00",
-                status:           "aberto",
-                notas:            finalizeForm.notes || `Pedido #${extratoModal.orderId.slice(-6).toUpperCase()}`,
+            const { error: prazoErr } = await supabase.from("bills").insert({
+                company_id:      companyId,
+                type:            "receivable",
+                order_id:        extratoModal.orderId,
+                customer_id:     extratoModal.customerId,
+                original_amount: extratoModal.amount,
+                amount:          extratoModal.amount,
+                amount_paid:     0,
+                due_date:        finalizeForm.due_date,
+                status:          "open",
+                origin:          "ui_order",
+                payment_method:  finalizeForm.payment_method,
+                description:     finalizeForm.notes || `Pedido #${extratoModal.orderId.slice(-6).toUpperCase()}`,
             });
             if (prazoErr) {
                 setFinalizeMsg("Pedido finalizado, mas erro ao lançar a prazo: " + prazoErr.message);

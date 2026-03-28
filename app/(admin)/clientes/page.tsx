@@ -48,11 +48,12 @@ interface Endereco {
 
 interface VendaPrazo {
   id: string;
-  valor: number;
-  data_vencimento: string;
-  status: "pendente" | "pago" | "atrasado";
-  notas: string | null;
-  pago_em: string | null;
+  original_amount: number;
+  saldo_devedor: number;
+  due_date: string;
+  status: "open" | "partial" | "paid" | "overdue" | "canceled";
+  description: string | null;
+  paid_at: string | null;
   order_id: string | null;
 }
 
@@ -131,10 +132,13 @@ export default function ClientesPage() {
     setEnderecos((end as Endereco[]) ?? []);
     // dividas
     const { data: div } = await supabase
-      .from("vendas_a_prazo")
-      .select("id,valor,data_vencimento,status,notas,pago_em,order_id")
+      .from("bills")
+      .select("id,original_amount,saldo_devedor,due_date,status,description,paid_at,order_id")
       .eq("customer_id", c.id)
-      .order("data_vencimento", { ascending: false });
+      .eq("type", "receivable")
+      .eq("company_id", c.company_id)
+      .neq("status", "canceled")
+      .order("due_date", { ascending: false });
     setDividas((div as VendaPrazo[]) ?? []);
   }, [supabase]);
 
@@ -257,10 +261,13 @@ export default function ClientesPage() {
 
   // ── mark debt paid ────────────────────────────────────────────────────────
   const markPaid = async (debtId: string) => {
-    const { error } = await supabase.from("vendas_a_prazo")
-      .update({ status: "pago" }).eq("id", debtId);
+    const debt = dividas.find(d => d.id === debtId);
+    if (!debt) return;
+    const { error } = await supabase.from("bills")
+      .update({ amount_paid: debt.original_amount, paid_at: new Date().toISOString() })
+      .eq("id", debtId);
     if (error) { alert("Erro: " + error.message); return; }
-    setDividas(p => p.map(d => d.id === debtId ? { ...d, status: "pago", pago_em: new Date().toISOString() } : d));
+    setDividas(p => p.map(d => d.id === debtId ? { ...d, status: "paid", saldo_devedor: 0, paid_at: new Date().toISOString() } : d));
     if (selected) {
       const novo = await supabase.from("customers")
         .select("saldo_devedor").eq("id", selected.id).single();
@@ -426,7 +433,7 @@ export default function ClientesPage() {
                       ? "border-violet-500 text-violet-600 dark:text-violet-400"
                       : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                   }`}>
-                  {tab === "info" ? "Dados" : tab === "enderecos" ? `Endereços (${enderecos.length})` : `Fiado (${dividas.filter(d=>d.status!=="pago").length})`}
+                  {tab === "info" ? "Dados" : tab === "enderecos" ? `Endereços (${enderecos.length})` : `Fiado (${dividas.filter(d=>d.status!=="paid").length})`}
                 </button>
               ))}
             </div>
@@ -509,39 +516,50 @@ export default function ClientesPage() {
               {detailTab === "dividas" && (
                 <div className="flex flex-col gap-3">
                   {dividas.length === 0 ? (
-                    <p className="text-center text-sm text-zinc-400 py-8">Sem vendas a prazo.</p>
+                    <p className="text-center text-sm text-zinc-400 py-8">Sem contas a prazo.</p>
                   ) : dividas.map(d => {
-                    const overdue = d.status === "pendente" && new Date(d.data_vencimento) < new Date();
+                    const isPaid  = d.status === "paid";
+                    const overdue = d.status === "overdue" || (!isPaid && new Date(d.due_date) < new Date());
+                    const isParcial = d.status === "partial";
                     return (
                       <div key={d.id} className={`flex items-center gap-3 rounded-xl border p-4 ${
-                        d.status === "pago"  ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/10" :
-                        overdue             ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/10" :
-                                              "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50"
+                        isPaid    ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/10" :
+                        overdue   ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/10" :
+                        isParcial ? "border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/10" :
+                                    "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50"
                       }`}>
                         <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
-                          d.status === "pago" ? "bg-emerald-100 text-emerald-600" :
-                          overdue            ? "bg-red-100 text-red-500" : "bg-orange-100 text-orange-500"
+                          isPaid    ? "bg-emerald-100 text-emerald-600" :
+                          overdue   ? "bg-red-100 text-red-500" : "bg-orange-100 text-orange-500"
                         }`}>
-                          {d.status === "pago" ? <CheckCircle2 className="h-4 w-4" /> :
-                           overdue            ? <AlertCircle className="h-4 w-4" /> :
-                                               <Clock className="h-4 w-4" />}
+                          {isPaid   ? <CheckCircle2 className="h-4 w-4" /> :
+                           overdue  ? <AlertCircle className="h-4 w-4" /> :
+                                      <Clock className="h-4 w-4" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">{brl(d.valor)}</p>
+                          <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                            {brl(d.saldo_devedor)}
+                            {isParcial && (
+                              <span className="ml-1.5 text-[11px] font-normal text-zinc-400">
+                                de {brl(d.original_amount)}
+                              </span>
+                            )}
+                          </p>
                           <p className="text-[11px] text-zinc-500">
-                            Venc. {fmtDate(d.data_vencimento)}
-                            {d.notas && ` · ${d.notas}`}
+                            Venc. {fmtDate(d.due_date)}
+                            {d.description && ` · ${d.description}`}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            d.status === "pago"  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
-                            overdue             ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                                                  "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                            isPaid    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                            overdue   ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                            isParcial ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" :
+                                        "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
                           }`}>
-                            {d.status === "pago" ? "Pago" : overdue ? "Atrasado" : "Pendente"}
+                            {isPaid ? "Pago" : overdue ? "Atrasado" : isParcial ? "Parcial" : "Pendente"}
                           </span>
-                          {d.status !== "pago" && (
+                          {!isPaid && (
                             <button onClick={() => markPaid(d.id)}
                               className="flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-600 transition-colors">
                               <CheckCircle2 className="h-3 w-3" /> Receber
