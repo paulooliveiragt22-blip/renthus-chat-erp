@@ -16,7 +16,7 @@ const HANDOVER_RE = /\b(atendente|humano|suporte|falar com pessoa)\b/iu;
 export async function processInboundMessage(
     params: ProcessMessageParams
 ): Promise<void> {
-    const { admin, companyId, threadId, phoneE164, text, profileName } = params;
+    const { admin, companyId, threadId, phoneE164, text, profileName, waConfig, catalogFlowId } = params;
 
     const input = text.trim();
     if (!input) return;
@@ -47,7 +47,8 @@ export async function processInboundMessage(
             .eq("id", threadId);
         await sendWhatsAppMessage(
             phoneE164,
-            `🙋 Aguarde, transferindo para um atendente...`
+            `🙋 Aguarde, transferindo para um atendente...`,
+            waConfig
         );
         return;
     }
@@ -59,7 +60,7 @@ export async function processInboundMessage(
     if (session.step === "awaiting_flow") return;
 
     // ── 5. Envia Flow CTA ─────────────────────────────────────────────────────
-    const flowId = process.env.WHATSAPP_CATALOG_FLOW_ID;
+    const flowId = catalogFlowId ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
     if (!flowId) {
         console.warn("[chatbot] WHATSAPP_CATALOG_FLOW_ID não configurado");
         return;
@@ -74,7 +75,7 @@ export async function processInboundMessage(
         bodyText:  greeting,
         ctaLabel:  "Ver cardápio",
         flowId,
-    });
+    }, waConfig);
 
     await saveSession(admin, threadId, companyId, {
         step:    "awaiting_flow",

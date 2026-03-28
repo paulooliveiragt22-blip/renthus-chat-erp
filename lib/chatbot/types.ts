@@ -1,13 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { WaConfig } from "../whatsapp/send";
 
 export interface ProcessMessageParams {
-    admin:       SupabaseClient;
-    companyId:   string;
-    threadId:    string;
-    messageId:   string;
-    phoneE164:   string;
-    text:        string;
-    profileName?: string | null;
+    admin:          SupabaseClient;
+    companyId:      string;
+    threadId:       string;
+    messageId:      string;
+    phoneE164:      string;
+    text:           string;
+    profileName?:   string | null;
+    /** Credenciais do canal WhatsApp da empresa (token + phoneNumberId) */
+    waConfig?:      WaConfig;
+    /** Flow ID do catálogo configurado para esta empresa */
+    catalogFlowId?: string;
 }
 
 export interface CartItem {

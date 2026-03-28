@@ -12,7 +12,7 @@
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 
 export const runtime = "nodejs";
 
@@ -56,9 +56,27 @@ export async function GET(req: Request) {
 
     let reactivated = 0;
     const errors: string[] = [];
+    const channelConfigCache = new Map<string, WaConfig>();
 
     for (const thread of threads) {
         try {
+            // Carrega config do canal (com cache por empresa)
+            if (!channelConfigCache.has(thread.company_id)) {
+                const { data: ch } = await admin
+                    .from("whatsapp_channels")
+                    .select("from_identifier, provider_metadata")
+                    .eq("company_id", thread.company_id)
+                    .eq("provider", "meta")
+                    .eq("status", "active")
+                    .maybeSingle();
+                const meta = ch?.provider_metadata as { access_token?: string } | null;
+                channelConfigCache.set(thread.company_id, {
+                    phoneNumberId: ch?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
+                    accessToken:   meta?.access_token  ?? process.env.WHATSAPP_TOKEN            ?? "",
+                });
+            }
+            const waConfig = channelConfigCache.get(thread.company_id)!;
+
             // 1. Reativa o bot
             const { error: updateErr } = await admin
                 .from("whatsapp_threads")
@@ -82,7 +100,7 @@ export async function GET(req: Request) {
 
             // 3. Envia mensagem ao cliente
             if (thread.phone_e164) {
-                const result = await sendWhatsAppMessage(thread.phone_e164, REACTIVATE_MSG);
+                const result = await sendWhatsAppMessage(thread.phone_e164, REACTIVATE_MSG, waConfig);
                 if (!result.ok) {
                     console.warn("[reactivate] Falha ao enviar msg para:", thread.phone_e164, result.error);
                 }

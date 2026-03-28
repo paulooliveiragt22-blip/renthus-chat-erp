@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptFlowRequest, encryptFlowResponse } from "@/lib/whatsapp/flowCrypto";
-import { sendWhatsAppMessage, sendListMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, sendListMessage, type WaConfig } from "@/lib/whatsapp/send";
 
 export const runtime = "nodejs";
 
@@ -163,6 +163,21 @@ export async function POST(req: NextRequest) {
     if (!ids) return encryptedError("invalid_token", aesKey, iv);
 
     const { threadId, companyId, flowType } = ids;
+
+    // ── Credenciais do canal da empresa ───────────────────────────────────────
+    const { data: channelRow } = await admin
+        .from("whatsapp_channels")
+        .select("from_identifier, provider_metadata")
+        .eq("company_id", companyId)
+        .eq("provider", "meta")
+        .eq("status", "active")
+        .maybeSingle();
+
+    const channelMeta = channelRow?.provider_metadata as { access_token?: string } | null;
+    const waConfig: WaConfig = {
+        phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
+        accessToken:   channelMeta?.access_token   ?? process.env.WHATSAPP_TOKEN            ?? "",
+    };
 
     // ═══════════════════════════════════════════════════════════════════════════
     // FLOW STATUS  (flowType === "status")
@@ -1191,7 +1206,7 @@ export async function POST(req: NextRequest) {
                         ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
                         : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${chgText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
 
-                    await sendWhatsAppMessage(threadRow.phone_e164, msg);
+                    await sendWhatsAppMessage(threadRow.phone_e164, msg, waConfig);
                 }
 
                 return encryptedOk(
@@ -1531,7 +1546,7 @@ export async function POST(req: NextRequest) {
                         ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.slice(0, 8).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
                         : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.slice(0, 8).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
 
-                    await sendWhatsAppMessage(phoneE164, msg);
+                    await sendWhatsAppMessage(phoneE164, msg, waConfig);
                 }
 
                 return encryptedOk(
@@ -1565,7 +1580,7 @@ export async function POST(req: NextRequest) {
                     `💳 Pagamento: ${paymentLabel}${changeText}\n\n` +
                     `💰 *Total: ${formatCurrency(grandTotal)}*`;
 
-                await sendWhatsAppMessage(phoneE164, summaryText);
+                await sendWhatsAppMessage(phoneE164, summaryText, waConfig);
 
                 const hasLinkedAddr = !!deliveryEnderecoClienteId;
                 const rows: Array<{ id: string; title: string; description?: string }> = [];
@@ -1581,7 +1596,7 @@ export async function POST(req: NextRequest) {
                     { id: "change_items",   title: "🔄 Alterar itens" },
                     { id: "change_address", title: "📍 Mudar endereço" }
                 );
-                await sendListMessage(phoneE164, "Escolha uma opção:", "Ver opções", rows, "Pedido");
+                await sendListMessage(phoneE164, "Escolha uma opção:", "Ver opções", rows, "Pedido", waConfig);
             }
 
             return encryptedOk(

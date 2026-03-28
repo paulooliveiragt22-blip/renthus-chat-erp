@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 
 export const runtime = "nodejs";
 
@@ -90,9 +90,23 @@ export async function POST(req: Request) {
                 .select("id, company_id, from_identifier, provider_metadata")
                 .eq("provider", "meta")
                 .eq("status", "active")
+                .eq("from_identifier", phoneNumberId)
                 .maybeSingle();
 
-            if (!channel) continue;
+            if (!channel) {
+                console.warn("[wa/incoming] canal não encontrado para phone_number_id:", phoneNumberId);
+                continue;
+            }
+
+            const channelMeta = channel.provider_metadata as {
+                access_token?:    string;
+                catalog_flow_id?: string;
+            } | null;
+            const waConfig: WaConfig = {
+                phoneNumberId: channel.from_identifier,
+                accessToken:   channelMeta?.access_token ?? process.env.WHATSAPP_TOKEN ?? "",
+            };
+            const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
 
             for (const msg of messages) {
                 const waId    = msg?.id as string | null;
@@ -203,7 +217,8 @@ export async function POST(req: Request) {
 
                     await sendWhatsAppMessage(
                         phoneE164,
-                        `⏱️ Nenhum atendente respondeu nos últimos 5 minutos.\n\nVou continuar te ajudando por aqui! 😊`
+                        `⏱️ Nenhum atendente respondeu nos últimos 5 minutos.\n\nVou continuar te ajudando por aqui! 😊`,
+                        waConfig
                     );
                     // Continua para processInboundMessage normalmente
                 }
@@ -218,6 +233,8 @@ export async function POST(req: Request) {
                         phoneE164,
                         text:        bodyText,
                         profileName,
+                        waConfig,
+                        catalogFlowId,
                     });
                 } catch (err: any) {
                     console.error("[chatbot] processInboundMessage error:", err?.message ?? err);

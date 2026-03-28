@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 
 export const runtime = "nodejs";
 
@@ -30,6 +30,21 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
+  // Carrega credenciais do canal da empresa
+  const { data: channelRow } = await admin
+    .from("whatsapp_channels")
+    .select("from_identifier, provider_metadata")
+    .eq("company_id", company_id)
+    .eq("provider", "meta")
+    .eq("status", "active")
+    .maybeSingle();
+
+  const channelMeta = channelRow?.provider_metadata as { access_token?: string } | null;
+  const waConfig: WaConfig = {
+    phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
+    accessToken:   channelMeta?.access_token   ?? process.env.WHATSAPP_TOKEN            ?? "",
+  };
+
   // Verifica se já existe ticket aberto para este cliente (evita duplicata)
   const { data: existing } = await admin
     .from("support_tickets")
@@ -43,7 +58,8 @@ export async function POST(request: NextRequest) {
     // Ticket já existe — apenas confirma pro cliente
     await sendWhatsAppMessage(
       customer_phone,
-      `📞 Você já possui um atendimento em aberto.\n\nAguarde, em breve entraremos em contato! ⏳`
+      `📞 Você já possui um atendimento em aberto.\n\nAguarde, em breve entraremos em contato! ⏳`,
+      waConfig
     );
     return NextResponse.json({ success: true, ticket_id: existing.id, existing: true });
   }
@@ -71,7 +87,8 @@ export async function POST(request: NextRequest) {
     customer_phone,
     `📞 *Transferindo para atendente...*\n\n` +
     `Ticket #${ticket.id.slice(0, 8).toUpperCase()}\n\n` +
-    `Aguarde alguns instantes. Em breve alguém irá te atender! ⏳`
+    `Aguarde alguns instantes. Em breve alguém irá te atender! ⏳`,
+    waConfig
   );
 
   return NextResponse.json({ success: true, ticket_id: ticket.id });

@@ -445,7 +445,7 @@ export default function WhatsAppInbox() {
         const v = newPhoneBR.trim();
         if (!v) return "Exemplo: 66999999999";
         const p = normalizeBrazilToE164(v);
-        return p.ok ? `Vai salvar como: ${p.e164}` : p.error;
+        return `Vai salvar como: ${p}`;
     }, [newPhoneBR]);
 
     const usageLabel = useMemo(() => {

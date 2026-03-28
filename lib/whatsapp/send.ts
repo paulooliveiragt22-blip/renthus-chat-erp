@@ -11,6 +11,15 @@
 const GRAPH_API_BASE = "https://graph.facebook.com/v20.0";
 
 /**
+ * Credenciais por empresa.
+ * Quando não fornecido, as funções caem para as variáveis de ambiente globais.
+ */
+export interface WaConfig {
+    phoneNumberId: string;
+    accessToken:   string;
+}
+
+/**
  * Garante que números brasileiros tenham o nono dígito.
  *
  * Números móveis BR chegam sem '+' e às vezes sem o 9:
@@ -35,10 +44,11 @@ function normalizeBrazilianNumber(raw: string): string {
 
 export async function sendWhatsAppMessage(
     to: string,
-    text: string
+    text: string,
+    config?: WaConfig
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-    const token         = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token         = config?.accessToken   ?? process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!token || !phoneNumberId) {
         console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
@@ -103,10 +113,11 @@ export async function sendFlowMessage(
         mode?:      "published" | "draft";
         /** Flow ID da empresa (sobrepõe WHATSAPP_FLOW_ID env var) */
         flowId?:    string;
-    }
+    },
+    config?: WaConfig
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-    const token         = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token         = config?.accessToken   ?? process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
     const flowId        = params.flowId ?? process.env.WHATSAPP_FLOW_ID;
 
     if (!token || !phoneNumberId) {
@@ -174,10 +185,11 @@ export async function sendFlowMessage(
 export async function sendInteractiveButtons(
     to: string,
     bodyText: string,
-    buttons: Array<{ id: string; title: string }>
+    buttons: Array<{ id: string; title: string }>,
+    config?: WaConfig
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-    const token         = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token         = config?.accessToken   ?? process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!token || !phoneNumberId) {
         console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
@@ -240,10 +252,11 @@ export async function sendListMessage(
     bodyText: string,
     buttonLabel: string,
     rows: Array<{ id: string; title: string; description?: string }>,
-    sectionTitle?: string
+    sectionTitle?: string,
+    config?: WaConfig
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-    const token         = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token         = config?.accessToken   ?? process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!token || !phoneNumberId) {
         console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
@@ -310,10 +323,11 @@ export async function sendListMessageSections(
     sections: Array<{
         title: string;
         rows: Array<{ id: string; title: string; description?: string }>;
-    }>
+    }>,
+    config?: WaConfig
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-    const token         = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token         = config?.accessToken   ?? process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!token || !phoneNumberId) {
         console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
