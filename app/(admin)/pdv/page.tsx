@@ -623,7 +623,7 @@ export default function PDVPage() {
         due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
         received_at:    !PAY[p.method].prazo ? new Date().toISOString() : null,
       })));
-      if (salePayErr) console.error("[pdv] sale_payments:", salePayErr.message);
+      if (salePayErr) throw new Error(salePayErr.message);
 
       // 4. Pedido legado (orders) linkado ao sale — mantém compatibilidade com impressão e pedidos
       const { data: order, error: ordErr } = await supabase.from("orders").insert({
