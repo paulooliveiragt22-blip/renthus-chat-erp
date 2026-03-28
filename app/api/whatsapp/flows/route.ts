@@ -294,6 +294,19 @@ export async function POST(req: NextRequest) {
     // ═══════════════════════════════════════════════════════════════════════════
     if (flowType === "catalog") {
 
+        // ── Telefone do cliente (para favoritos) ──────────────────────────────
+        let customerPhone: string | null = null;
+        const { data: threadPhoneRow } = await admin
+            .from("whatsapp_threads")
+            .select("phone_e164")
+            .eq("id", threadId)
+            .maybeSingle();
+        if (threadPhoneRow?.phone_e164) {
+            customerPhone = threadPhoneRow.phone_e164.startsWith("+")
+                ? threadPhoneRow.phone_e164
+                : `+${threadPhoneRow.phone_e164}`;
+        }
+
         // ── Helper: busca produtos formatados para o Flow ─────────────────────
         async function fetchProducts(opts: {
             categoryName?: string | null;
@@ -357,6 +370,25 @@ export async function POST(req: NextRequest) {
                     id:          p.id,
                     title:       String(p.product_name ?? "").toUpperCase().slice(0, 30),
                     description: desc.slice(0, 300),
+                };
+            });
+        }
+
+        // ── Helper: favoritos do cliente formatados para o Flow ───────────────
+        async function fetchFavoriteItems(): Promise<Array<Record<string, unknown>>> {
+            if (!customerPhone) return [];
+            const { data } = await admin.rpc("get_customer_favorites", {
+                p_company_id:     companyId,
+                p_customer_phone: customerPhone,
+                p_limit:          5,
+            });
+            if (!data?.length) return [];
+            return (data as any[]).map((f: any) => {
+                const price = `R$ ${(parseFloat(f.price) || 0).toFixed(2).replace(".", ",")}`;
+                return {
+                    id:          f.id,
+                    title:       `⭐ ${String(f.name ?? "").toUpperCase().slice(0, 27)}`,
+                    description: `${String(f.description ?? "")} — ${price}`.slice(0, 300),
                 };
             });
         }
@@ -484,7 +516,16 @@ export async function POST(req: NextRequest) {
                         : { categoryName: catName }
                 );
 
-                if (!products.length) return reRenderCategories();
+                // Mescla favoritos no topo (apenas quando não é busca por texto)
+                let allProducts = products;
+                if (!searchAll) {
+                    const favs    = await fetchFavoriteItems();
+                    const favIds  = new Set(favs.map((f: any) => String(f.id)));
+                    const deduped = products.filter((p: any) => !favIds.has(String(p.id)));
+                    allProducts   = [...favs, ...deduped].slice(0, 20);
+                }
+
+                if (!allProducts.length) return reRenderCategories();
 
                 const categoryLabel = searchAll
                     ? `Resultados para "${searchAll.toUpperCase()}"`
@@ -496,7 +537,7 @@ export async function POST(req: NextRequest) {
                         version: "3.0",
                         screen:  "PRODUCTS",
                         data: {
-                            products,
+                            products:           allProducts,
                             category_name:      categoryLabel,
                             category_id_cache:  catIdCache,
                         },

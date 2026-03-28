@@ -21,13 +21,29 @@ export async function middleware(
 ) {
     const pathname = request.nextUrl.pathname;
 
+    // ── Superadmin — apenas local (bloqueado em produção Vercel) ──────────────
+    if (pathname.startsWith("/superadmin") || pathname.startsWith("/api/superadmin/")) {
+        if (process.env.VERCEL_ENV) {
+            return NextResponse.rewrite(new URL("/404", request.url));
+        }
+        if (pathname === "/superadmin/login" || pathname === "/api/superadmin/login") return NextResponse.next();
+        const token  = request.cookies.get("sa_token")?.value;
+        const secret = process.env.SUPERADMIN_SECRET;
+        if (!secret || token !== secret) {
+            const url = request.nextUrl.clone();
+            url.pathname = "/superadmin/login";
+            return NextResponse.redirect(url);
+        }
+        return NextResponse.next();
+    }
+
     // Libera webhooks e endpoints técnicos sem autenticação
     if (pathname.startsWith("/api/whatsapp/")) return NextResponse.next();
     if (pathname.startsWith("/api/print/")) return NextResponse.next();
     if (pathname.startsWith("/api/billing/webhook")) return NextResponse.next();
     if (pathname === "/api/billing/signup") return NextResponse.next();
     if (pathname === "/api/billing/create-invoice-checkout") return NextResponse.next();
-    if (pathname === "/api/agent/auth") return NextResponse.next();
+    if (pathname === "/api/agent/auth" || pathname === "/api/agent/heartbeat") return NextResponse.next();
     // API pública de onboarding (GET por token — sem session)
     if (pathname === "/api/signup/complete") return NextResponse.next();
 

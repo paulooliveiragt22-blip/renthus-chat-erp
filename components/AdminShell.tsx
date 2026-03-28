@@ -27,7 +27,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         pathname === "/login" ||
         pathname === "/billing/blocked" ||
         pathname.startsWith("/signup") ||
-        pathname.startsWith("/onboarding")
+        pathname.startsWith("/onboarding") ||
+        pathname.startsWith("/superadmin")
     ) return <>{children}</>;
 
     const supabase = useMemo(() => createClient(), []);

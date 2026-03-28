@@ -685,9 +685,13 @@ export default function ProdutosListaPage() {
         const volumesPayload = volumesWithItems.map((vol) => {
             const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replace(",", ".")) : null;
             const volUnitTypeId = vol.id_unit_type || null;
+            const volEstoque = vol.estoque_atual ? Math.round(Number(vol.estoque_atual.replace(",", ".")) || 0) : 0;
+            const volEstoqueMin = vol.estoque_minimo ? Math.round(Number(vol.estoque_minimo.replace(",", ".")) || 0) : 0;
             return {
                 volume_quantidade: volQty,
                 id_unit_type: volUnitTypeId,
+                estoque_atual: volEstoque,
+                estoque_minimo: volEstoqueMin,
                 items: vol.items.map((it) => {
                     const fator = Math.max(1, it.fator_conversao);
                     const itemEstoque = it.estoque ? Math.round(Number(String(it.estoque).replace(",", ".")) || 0) : null;
@@ -743,9 +747,13 @@ export default function ProdutosListaPage() {
         const volumesPayload = volumesWithItems.map((vol) => {
             const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replace(",", ".")) : null;
             const volUnitTypeId = vol.id_unit_type || null;
+            const volEstoque = vol.estoque_atual ? Math.round(Number(vol.estoque_atual.replace(",", ".")) || 0) : 0;
+            const volEstoqueMin = vol.estoque_minimo ? Math.round(Number(vol.estoque_minimo.replace(",", ".")) || 0) : 0;
             return {
                 volume_quantidade: volQty,
                 id_unit_type: volUnitTypeId,
+                estoque_atual: volEstoque,
+                estoque_minimo: volEstoqueMin,
                 items: vol.items.map((it) => {
                     const fator = Math.max(1, it.fator_conversao);
                     const itemEstoque = it.estoque ? Math.round(Number(String(it.estoque).replace(",", ".")) || 0) : null;

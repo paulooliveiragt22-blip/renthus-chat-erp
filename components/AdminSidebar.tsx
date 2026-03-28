@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   Bike,
   Clock,
+  Headphones,
   LayoutDashboard,
   MessageCircle,
   Moon,
@@ -34,6 +35,7 @@ const adminMenu = [
   { label: "Estoque",       href: "/estoque",         icon: Package },
   { label: "Financeiro",    href: "/financeiro",      icon: Wallet },
   { label: "Impressoras",   href: "/impressoras",     icon: Printer },
+  { label: "Suporte",       href: "/suporte",         icon: Headphones },
   { label: "Configurações", href: "/configuracoes",   icon: Settings },
 ];
 
