@@ -215,12 +215,13 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
     });
 
     const filtered = variants.filter((v) => {
+      const name   = v.products?.name?.toLowerCase() ?? "";
       const cat    = v.products?.categories?.name?.toLowerCase() ?? "";
       const det    = String(v.details ?? "").toLowerCase();
       const unit   = String(v.unit ?? "").toLowerCase();
       const intern = (v.codigo_interno ?? "").toLowerCase();
       const tags   = ((v as any).tags ?? "").toLowerCase();
-      return [cat, det, unit, intern, tags].some((x) => x.includes(s));
+      return [name, cat, det, unit, intern, tags].some((x) => x.includes(s));
     });
 
     setResults(filtered.slice(0, 40));

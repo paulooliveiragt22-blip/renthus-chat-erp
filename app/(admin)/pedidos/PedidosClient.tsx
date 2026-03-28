@@ -336,12 +336,13 @@ export default function PedidosPage() {
         });
 
         const filtered = variants.filter((v) => {
+            const name  = v.products?.name?.toLowerCase() ?? "";
             const cat   = v.products?.categories?.name?.toLowerCase() ?? "";
             const det   = String(v.details ?? "").toLowerCase();
             const unit  = String(v.unit ?? "").toLowerCase();
             const internal = (v.codigo_interno ?? "").toLowerCase();
             const tags = (v.tags ?? "").toLowerCase();
-            return [cat, det, unit, internal, tags].some((x) => x.includes(s));
+            return [name, cat, det, unit, internal, tags].some((x) => x.includes(s));
         });
 
         const top = filtered.slice(0, 40);
