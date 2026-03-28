@@ -280,7 +280,7 @@ export default function PedidosPage() {
         opts.setSearching(true);
         const { data, error } = await supabase
             .from("view_pdv_produtos")
-            .select("id, produto_id, descricao, fator_conversao, preco_venda, tags, codigo_interno, sigla_comercial, volume_formatado, product_name, product_unit_type, product_details, category_name")
+            .select("id, produto_id, product_volume_id, descricao, fator_conversao, preco_venda, tags, codigo_interno, sigla_comercial, volume_formatado, product_name, product_unit_type, product_details, category_name")
             .eq("company_id", companyId)
             .limit(400);
 
@@ -288,11 +288,14 @@ export default function PedidosPage() {
 
         const s = t.toLowerCase();
 
-        const byProduto = new Map<string, any>();
+        // Group by (produto_id + product_volume_id) so each volume of a product is a separate variant
+        const byGroup = new Map<string, any>();
         for (const r of (data ?? []) as any[]) {
             const pid = String(r.produto_id);
-            const entry = byProduto.get(pid) ?? {
-                id: pid,
+            const volKey = r.product_volume_id ? String(r.product_volume_id) : "novol";
+            const groupKey = `${pid}__${volKey}`;
+            const entry = byGroup.get(groupKey) ?? {
+                id: groupKey,
                 products: { name: r.product_name ?? "", categories: { name: r.category_name ?? "" } },
                 tags: [] as string[],
                 unitPack: null as any,
@@ -308,10 +311,10 @@ export default function PedidosPage() {
             const sig = String(r.sigla_comercial ?? "").toUpperCase();
             if (sig === "UN") { entry.unitPack = r; entry.codigo_interno = r.codigo_interno ?? null; }
             if (sig === "CX") entry.casePack = r;
-            byProduto.set(pid, entry);
+            byGroup.set(groupKey, entry);
         }
 
-        const variants: Variant[] = Array.from(byProduto.values()).map((e: any) => {
+        const variants: Variant[] = Array.from(byGroup.values()).map((e: any) => {
             const unitPack = e.unitPack ?? e.casePack;
             const casePack = e.casePack;
             return {
