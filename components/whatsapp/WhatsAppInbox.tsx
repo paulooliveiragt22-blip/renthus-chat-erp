@@ -581,8 +581,7 @@ export default function WhatsAppInbox() {
 
     async function createThread() {
         const name        = newName.trim();
-        const phoneParsed = normalizeBrazilToE164(newPhoneBR);
-        if (!phoneParsed.ok) { setErr(phoneParsed.error); return; }
+        const phoneE164 = normalizeBrazilToE164(newPhoneBR);
         setCreatingThread(true);
         setErr(null);
         try {
@@ -590,7 +589,7 @@ export default function WhatsAppInbox() {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ phone_e164: phoneParsed.e164, profile_name: name || undefined }),
+                body: JSON.stringify({ phone_e164: phoneE164, profile_name: name || undefined }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) { setErr(json?.error ?? "Falha"); return; }
