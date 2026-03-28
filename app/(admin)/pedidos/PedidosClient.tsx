@@ -486,7 +486,7 @@ export default function PedidosPage() {
         if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
         const { data: items, error: itemsErr } = await supabase
             .from("order_items")
-            .select(`id, order_id, produto_embalagem_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty`)
+            .select(`id, order_id, produto_embalagem_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty, produto_embalagens ( descricao, fator_conversao, siglas_comerciais ( sigla, descricao ), product_volumes ( volume_quantidade, unit_types ( sigla ) ), products ( name ) )`)
             .eq("order_id", orderId)
             .order("created_at", { ascending: true });
         if (itemsErr) { setMsg(`Erro ao carregar itens: ${itemsErr.message}`); return null; }
@@ -906,15 +906,18 @@ export default function PedidosPage() {
         function getItemInfo(it: any) {
             const emb = it.produto_embalagens ?? null;
             if (emb) {
-                const prodName  = (emb.products?.name ?? "").toUpperCase().trim();
-                const sigla     = String(emb.siglas_comerciais?.sigla ?? "UN").toUpperCase();
-                const vol       = emb.product_volumes?.volume_quantidade ?? null;
-                const volUnit   = emb.product_volumes?.unit_types?.sigla ?? "";
-                const descricao = (emb.descricao ?? "").trim();
-                const fator     = Number(emb.fator_conversao) || null;
-                const volStr    = vol ? (volUnit ? `${vol} ${volUnit}` : String(vol)) : "";
-                const detail    = [descricao, volStr].filter(Boolean).join(" ");
-                const unitLabel = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
+                const prodName      = (emb.products?.name ?? "").toUpperCase().trim();
+                const sigla         = String(emb.siglas_comerciais?.sigla ?? "UN").toUpperCase();
+                const siglaHuman    = (emb.siglas_comerciais?.descricao ?? sigla).trim();
+                const vol           = emb.product_volumes?.volume_quantidade ?? null;
+                const volUnit       = emb.product_volumes?.unit_types?.sigla ?? "";
+                const descricao     = (emb.descricao ?? "").trim();
+                const fator         = Number(emb.fator_conversao) || null;
+                const volStr        = vol ? (volUnit ? `${vol} ${volUnit}` : String(vol)) : "";
+                // Quando não há descricao, usa sigla humanizada (ex: "Caixa") para distinguir
+                const detailPrefix  = descricao || (sigla !== "UN" ? siglaHuman : "");
+                const detail        = [detailPrefix, volStr].filter(Boolean).join(" ");
+                const unitLabel     = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
                 return {
                     productName: prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
                     detail: detail || prodName || "Item",
@@ -922,8 +925,8 @@ export default function PedidosPage() {
                     fator: sigla === "CX" && fator && fator > 1 ? fator : null,
                 };
             }
-            const raw     = String(it.product_name ?? "PRODUTO");
-            const bIdx    = raw.indexOf(" • ");
+            const raw      = String(it.product_name ?? "PRODUTO");
+            const bIdx     = raw.indexOf(" • ");
             const prodName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
             const detail   = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
             return { productName: prodName, detail, unitLabel: it.unit_type === "case" ? "cx" : "un", fator: null };
@@ -938,15 +941,15 @@ export default function PedidosPage() {
         }
 
         const itemsHtml = Array.from(groups.entries()).map(([productName, entries], gIdx) => {
-            const sep = gIdx > 0 ? `<tr><td colspan="3" style="padding:2px 0;border:none"></td></tr>` : "";
-            const header = `<tr><td colspan="3" style="padding:5px 6px 2px;border-bottom:none"><b style="font-size:13px">${escapeHtml(productName)}</b></td></tr>`;
+            const sep = gIdx > 0 ? `<tr><td colspan="3" style="padding:2px 0;border:none;height:6px"></td></tr>` : "";
+            const header = `<tr class="prod-header"><td colspan="3">${escapeHtml(productName)}</td></tr>`;
             const lines = entries.map(({ it, info }) => {
                 const q = Number(it.quantity ?? it.qty ?? 0);
                 const p = Number(it.unit_price ?? 0);
                 const t = Number(it.line_total ?? q * p);
                 const fatorStr = info.fator ? ` c/${info.fator}` : "";
                 const qtyLabel = `${q} ${info.unitLabel}${fatorStr}`;
-                return `<tr><td style="padding:2px 6px 2px 18px;color:#555">${escapeHtml(info.detail)}</td><td style="text-align:right;white-space:nowrap">${escapeHtml(qtyLabel)}</td><td style="text-align:right;white-space:nowrap">R$ ${formatBRL(t)}</td></tr>`;
+                return `<tr class="detail-row"><td>${escapeHtml(info.detail)}</td><td style="text-align:right;white-space:nowrap">${escapeHtml(qtyLabel)}</td><td style="text-align:right;white-space:nowrap">R$ ${formatBRL(t)}</td></tr>`;
             }).join("");
             return sep + header + lines;
         }).join("") || `<tr><td colspan="3">Sem itens</td></tr>`;
@@ -962,7 +965,7 @@ export default function PedidosPage() {
             ? `<div style="margin-top:4px"><b>Entregador:</b> <b>${escapeHtml(driver.name)}</b>${driver.vehicle ? ` • ${escapeHtml(driver.vehicle)}` : ""}${driver.plate ? ` (${escapeHtml(driver.plate)})` : ""}</div>`
             : "";
 
-        w.document.write(`<html><head><meta charset="utf-8"><style>body{font-family:Arial;font-size:12px;padding:12px}.s{font-weight:900}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border-bottom:1px solid #eee;padding:4px 6px}th{background:#f5f5f5;text-align:left}.obs{border:1px solid #ddd;border-radius:10px;padding:8px;margin-top:10px;font-weight:900;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:6px 8px;border:1px solid #999;border-radius:10px;cursor:pointer">Imprimir</button><h1 style="font-size:16px;margin:8px 0">Pedido • ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div><b>Cliente:</b> <b>${escapeHtml(cust?.name ?? "-")}</b> • <b>${escapeHtml(cust?.phone ?? "")}</b></div><div><b>Endereço:</b> <b>${escapeHtml(cust?.address ?? "-")}</b></div>${driverLine}<div style="margin-top:6px"><b>Pagamento:</b> <b>${escapeHtml(pmLabel)}</b>${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><thead><tr><th>Produto / Embalagem</th><th style="text-align:right">Qtd</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemsHtml}</tbody></table><div style="margin-top:10px"><div style="display:flex;justify-content:space-between"><span>Taxa entrega</span><b>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</b></div><div style="display:flex;justify-content:space-between;font-size:14px"><span>Total</span><b>R$ ${formatBRL((full as any).total_amount ?? 0)}</b></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+        w.document.write(`<html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:10px;max-width:420px}.s{font-weight:900}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border-bottom:1px solid #eee;padding:3px 5px}th{background:#f5f5f5;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.5px}.prod-header td{padding:5px 5px 1px;border-bottom:none;font-weight:700;font-size:11px}.detail-row td:first-child{padding-left:14px;color:#555}.obs{border:1px solid #ddd;border-radius:6px;padding:6px;margin-top:8px;font-weight:700;color:${ORANGE}}h1{font-size:13px;margin:6px 0}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:4px 8px;border:1px solid #999;border-radius:6px;cursor:pointer;font-size:10px">Imprimir</button><h1>Pedido • ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} • ${escapeHtml(cust?.phone ?? "")}</div><div><b>End:</b> ${escapeHtml(cust?.address ?? "-")}</div>${driverLine}<div style="margin-top:4px"><b>Pagamento:</b> ${escapeHtml(pmLabel)}${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><thead><tr><th>Produto / Embalagem</th><th style="text-align:right">Qtd</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemsHtml}</tbody></table><div style="margin-top:8px;font-size:10px"><div style="display:flex;justify-content:space-between"><span>Taxa entrega</span><b>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</b></div><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-top:2px"><span>TOTAL</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
         w.document.close();
     }
 
