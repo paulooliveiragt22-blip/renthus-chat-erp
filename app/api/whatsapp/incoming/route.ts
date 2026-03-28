@@ -85,13 +85,31 @@ export async function POST(req: Request) {
             if (!messages.length) continue;
 
             const phoneNumberId: string = value?.metadata?.phone_number_id ?? "";
-            const { data: channel } = await admin
+
+            // Busca canal por from_identifier (sem filtro de provider — pode variar por setup)
+            let { data: channel } = await admin
                 .from("whatsapp_channels")
                 .select("id, company_id, from_identifier, provider_metadata")
-                .eq("provider", "meta")
                 .eq("status", "active")
                 .eq("from_identifier", phoneNumberId)
                 .maybeSingle();
+
+            // Fallback: único canal ativo (setup single-tenant / dev)
+            if (!channel) {
+                const { data: fallback } = await admin
+                    .from("whatsapp_channels")
+                    .select("id, company_id, from_identifier, provider_metadata")
+                    .eq("status", "active")
+                    .limit(1)
+                    .maybeSingle();
+
+                if (fallback) {
+                    console.warn(
+                        `[wa/incoming] canal não encontrado por from_identifier=${phoneNumberId}, usando fallback id=${fallback.id}`
+                    );
+                    channel = fallback;
+                }
+            }
 
             if (!channel) {
                 console.warn("[wa/incoming] canal não encontrado para phone_number_id:", phoneNumberId);
