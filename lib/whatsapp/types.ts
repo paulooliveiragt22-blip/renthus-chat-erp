@@ -7,8 +7,9 @@ export interface Message {
     body:        string | null;
     status:      string | null;
     created_at:  string;
-    num_media?:  number | null;
+    num_media?:   number | null;
     raw_payload?: Record<string, unknown> | null;
+    sender_type?: string | null;
 }
 
 export interface Thread {
