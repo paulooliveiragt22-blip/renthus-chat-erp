@@ -1229,8 +1229,6 @@ export default function PedidosPage() {
                             itemGroups.get(pName)!.push(it);
                         }
                         const groupEntries = Array.from(itemGroups.entries());
-                        const MAX_GROUPS   = 2;
-                        const extraGroups  = groupEntries.length - MAX_GROUPS;
 
                         return (
                             <div
@@ -1270,30 +1268,35 @@ export default function PedidosPage() {
                                     )}
                                 </div>
 
-                                {/* ── Itens — max 2 grupos ── */}
+                                {/* ── Itens — todos os grupos, hierarquia igual à Fila ── */}
                                 {groupEntries.length > 0 && (
-                                    <div className="px-3 py-2 space-y-0.5">
-                                        {groupEntries.slice(0, MAX_GROUPS).map(([pName, grpItems]) => {
-                                            const totalQty = grpItems.reduce((s, i) => s + Number(i.quantity ?? 1), 0);
-                                            const totalVal = grpItems.reduce((s, i) => s + Number(i.line_total ?? (i.unit_price * Number(i.quantity ?? 1))), 0);
-                                            return (
-                                                <div key={pName} className="flex items-baseline justify-between gap-1">
-                                                    <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 truncate">{pName}</span>
-                                                    <span className="shrink-0 text-[10px] text-zinc-400 dark:text-zinc-500">{totalQty}× · R$ {formatBRL(totalVal)}</span>
-                                                </div>
-                                            );
-                                        })}
-                                        {extraGroups > 0 && (
-                                            <p className="text-[9px] text-zinc-400 dark:text-zinc-600 italic">+{extraGroups} produto{extraGroups > 1 ? "s" : ""}…</p>
-                                        )}
+                                    <div className="px-3 py-2 space-y-1">
+                                        {groupEntries.map(([pName, grpItems]) => (
+                                            <div key={pName}>
+                                                <p className="text-[11px] font-bold text-zinc-800 dark:text-zinc-100 leading-tight">{pName}</p>
+                                                {grpItems.map((it, i) => {
+                                                    const raw    = String(it.product_name ?? "");
+                                                    const bIdx   = raw.indexOf(" • ");
+                                                    const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : "";
+                                                    const q      = Number(it.quantity ?? 1);
+                                                    const tot    = Number(it.line_total ?? it.unit_price * q);
+                                                    return (
+                                                        <div key={i} className="flex items-center justify-between gap-2 pl-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+                                                            <span className="truncate">{detail || pName} · <b className="text-zinc-700 dark:text-zinc-300">{q} un</b></span>
+                                                            <span className="shrink-0 font-medium">R$ {formatBRL(tot)}</span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ))}
                                         {obs && (
-                                            <p className="mt-1 rounded bg-amber-50 dark:bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-700 dark:text-amber-400 italic truncate">{obs}</p>
+                                            <p className="mt-1 rounded bg-amber-50 dark:bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-700 dark:text-amber-400 italic">{obs}</p>
                                         )}
                                     </div>
                                 )}
                                 {!groupEntries.length && obs && (
                                     <div className="px-3 py-2">
-                                        <p className="rounded bg-amber-50 dark:bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-700 dark:text-amber-400 italic truncate">{obs}</p>
+                                        <p className="rounded bg-amber-50 dark:bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-700 dark:text-amber-400 italic">{obs}</p>
                                     </div>
                                 )}
 
@@ -1346,7 +1349,7 @@ export default function PedidosPage() {
                                         <button
                                             title="Fechar no PDV"
                                             onClick={() => router.push(`/pdv?from_order=${o.id}`)}
-                                            className="flex items-center gap-0.5 px-2 py-1 text-[9px] font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-md transition-colors"
+                                            className="flex items-center gap-0.5 px-2 py-1 text-[9px] font-bold text-orange-600 dark:text-orange-400 border border-orange-400 dark:border-orange-600 rounded-md hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
                                         >
                                             <ShoppingCart className="h-3 w-3" /> PDV
                                         </button>
