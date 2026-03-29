@@ -101,7 +101,9 @@ export default function FilaClient() {
   const [loading,    setLoading]    = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
   const [msg,        setMsg]        = useState<{ ok: boolean; text: string } | null>(null);
-  const prevCountRef = useRef(0);
+  const prevCountRef  = useRef(0);
+  const prevIdsRef    = useRef<Set<string>>(new Set());
+  const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
 
   // ── Overlay state ─────────────────────────────────────────────────────────
   const [chatPhone,      setChatPhone]      = useState<string | null>(null);
@@ -149,10 +151,25 @@ export default function FilaClient() {
       })),
     })) as unknown as PendingOrder[];
 
+    // Detecta pedidos novos (apareceram após o primeiro carregamento)
+    const nextIds = new Set(next.map((o) => o.id));
     if (prevCountRef.current > 0 && next.length > prevCountRef.current) {
       playBeep();
+      const addedIds = next.map((o) => o.id).filter((id) => !prevIdsRef.current.has(id));
+      if (addedIds.length > 0) {
+        setNewOrderIds((prev) => new Set([...prev, ...addedIds]));
+        // Remove o flash após 2s
+        setTimeout(() => {
+          setNewOrderIds((prev) => {
+            const copy = new Set(prev);
+            addedIds.forEach((id) => copy.delete(id));
+            return copy;
+          });
+        }, 2000);
+      }
     }
     prevCountRef.current = next.length;
+    prevIdsRef.current   = nextIds;
 
     setOrders(next);
     setLoading(false);
@@ -378,14 +395,18 @@ export default function FilaClient() {
           const pm       = PM_LABELS[order.payment_method ?? ""] ?? (order.payment_method ?? "-");
           const isBusy   = processing === order.id;
 
+          const isNew = newOrderIds.has(order.id);
+
           return (
             <div
               key={order.id}
-              className={`bg-white dark:bg-zinc-800 rounded-xl shadow-sm border-l-4 flex flex-col overflow-hidden ${
-                isFirst
-                  ? "border-yellow-400 ring-1 ring-yellow-200 dark:ring-yellow-800"
-                  : "border-gray-200 dark:border-zinc-600"
-              }`}
+              style={{ animationDelay: `${idx * 60}ms` }}
+              className={[
+                "bg-white dark:bg-zinc-800 rounded-xl shadow-sm border-l-4 flex flex-col overflow-hidden",
+                "fila-card-enter fila-card-hover",
+                isFirst ? "border-yellow-400 ring-1 ring-yellow-200 dark:ring-yellow-800 fila-card-first-pulse" : "border-gray-200 dark:border-zinc-600",
+                isNew ? "fila-card-new-flash" : "",
+              ].join(" ")}
             >
               {/* Card header */}
               <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">

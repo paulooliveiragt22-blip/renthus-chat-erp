@@ -76,3 +76,40 @@ body {
 [data-nextjs-scroll-focus-boundary] {
   background-color: var(--background);
 }
+
+/* ── Fila — Animações dos cards de pedido ─────────────────────────────────── */
+@keyframes filaSlideIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+@keyframes filaNewFlash {
+  0%   { box-shadow: 0 0 0 0   rgba(234, 179, 8, 0.5); }
+  50%  { box-shadow: 0 0 0 10px rgba(234, 179, 8, 0);  }
+  100% { box-shadow: 0 0 0 0   rgba(234, 179, 8, 0);   }
+}
+
+@keyframes filaFirstPulse {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(234, 179, 8, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(234, 179, 8, 0);   }
+}
+
+.fila-card-enter {
+  animation: filaSlideIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fila-card-new-flash {
+  animation: filaNewFlash 0.7s ease-out 2;
+}
+
+.fila-card-first-pulse {
+  animation: filaFirstPulse 2s ease-in-out infinite;
+}
+
+.fila-card-hover {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.fila-card-hover:hover {
+  transform: translateY(-2px) scale(1.005);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+}
