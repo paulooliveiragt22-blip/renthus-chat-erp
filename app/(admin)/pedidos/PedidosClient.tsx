@@ -108,10 +108,10 @@ function timeAgo(iso: string) {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-    new:       "bg-blue-100 text-blue-700",
-    delivered: "bg-emerald-100 text-emerald-700",
-    finalized: "bg-violet-100 text-violet-700",
-    canceled:  "bg-zinc-100 text-zinc-500",
+    new:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    delivered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    finalized: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+    canceled:  "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500",
 };
 
 const EMPTY_NEW_ORDER_ADDR: NewOrderAddrForm = {
@@ -126,9 +126,9 @@ const EMPTY_NEW_ORDER_ADDR: NewOrderAddrForm = {
 };
 
 const PAYMENT_BADGE: Record<string, string> = {
-    pix:  "bg-green-100 text-green-700",
-    card: "bg-purple-100 text-purple-700",
-    cash: "bg-amber-100 text-amber-700",
+    pix:  "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+    card: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+    cash: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
 };
 
 // ─── componente principal ─────────────────────────────────────────────────────
@@ -1171,9 +1171,9 @@ export default function PedidosPage() {
 
             {/* ── ORDER CARDS ── */}
             {loading ? (
-                <div className="grid gap-4 grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
                     {Array.from({ length: 8 }).map((_, i) => (
-                        <div key={i} className="h-64 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+                        <div key={i} className="h-48 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800/60" />
                     ))}
                 </div>
             ) : filteredOrders.length === 0 ? (
@@ -1182,7 +1182,7 @@ export default function PedidosPage() {
                     <p className="text-sm font-medium">Nenhum pedido encontrado</p>
                 </div>
             ) : (
-                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
                     {pagedOrders.map((o) => {
                         const st         = String(o.status);
                         const num        = orderNum(o.id);
@@ -1199,8 +1199,18 @@ export default function PedidosPage() {
                         const items      = ((o as any).order_items ?? []) as { product_name: string; quantity: number; unit_price: number; line_total: number | null }[];
 
                         const SOURCE_LABEL: Record<string, string> = { chatbot:"Chat", whatsapp:"Chat", flow_catalog:"Flow", pdv:"PDV", pdv_direct:"PDV", balcao:"PDV", ui_order:"UI", admin:"UI", ui:"UI" };
-                        const SOURCE_CLS:   Record<string, string> = { chatbot:"bg-emerald-100 text-emerald-700", whatsapp:"bg-emerald-100 text-emerald-700", flow_catalog:"bg-emerald-100 text-emerald-700", pdv:"bg-orange-100 text-orange-700", pdv_direct:"bg-orange-100 text-orange-700", balcao:"bg-orange-100 text-orange-700", ui_order:"bg-blue-100 text-blue-700", admin:"bg-blue-100 text-blue-700", ui:"bg-blue-100 text-blue-700" };
-                        const BORDER_COLOR: Record<string, string> = { new:"#f97316", delivered:"#10b981", finalized:"#8b5cf6", canceled:"#d1d5db" };
+                        const SOURCE_CLS:   Record<string, string> = {
+                            chatbot:"bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+                            whatsapp:"bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+                            flow_catalog:"bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+                            pdv:"bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+                            pdv_direct:"bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+                            balcao:"bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+                            ui_order:"bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+                            admin:"bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+                            ui:"bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+                        };
+                        const BORDER_COLOR: Record<string, string> = { new:"#f97316", delivered:"#10b981", finalized:"#8b5cf6", canceled:"#52525b" };
 
                         // Agrupa itens por produto (fallback: parse string)
                         const itemGroups = new Map<string, typeof items>();
@@ -1212,142 +1222,137 @@ export default function PedidosPage() {
                             itemGroups.get(pName)!.push(it);
                         }
                         const groupEntries = Array.from(itemGroups.entries());
-                        const MAX_GROUPS   = 3;
+                        const MAX_GROUPS   = 2;
                         const extraGroups  = groupEntries.length - MAX_GROUPS;
 
                         return (
                             <div
                                 key={o.id}
-                                className={`bg-white dark:bg-zinc-800 rounded-xl shadow-sm border-l-4 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer ${
-                                    isFlashing ? "ring-2 ring-emerald-300 dark:ring-emerald-600" : ""
+                                className={`bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-800 border-l-4 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:hover:bg-zinc-800/80 cursor-pointer divide-y divide-zinc-100 dark:divide-zinc-800 ${
+                                    isFlashing ? "ring-2 ring-emerald-400 dark:ring-emerald-600" : ""
                                 }`}
-                                style={{ borderLeftColor: BORDER_COLOR[st] ?? "#d1d5db" }}
+                                style={{ borderLeftColor: BORDER_COLOR[st] ?? "#52525b" }}
                                 onClick={() => openOrder(o.id)}
                             >
-                                {/* ── Card header ── */}
-                                <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-2">
-                                    <div className="flex flex-col gap-0.5">
-                                        <div className="flex items-center gap-1.5">
-                                            {isRecent && (
-                                                <span className="relative inline-flex h-2 w-2 shrink-0">
-                                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                                                </span>
-                                            )}
-                                            <span className="text-xs font-bold text-zinc-800 dark:text-zinc-100">#{num}</span>
-                                            {SOURCE_LABEL[source] && (
-                                                <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-bold ${SOURCE_CLS[source] ?? "bg-zinc-100 text-zinc-500"}`}>
-                                                    {SOURCE_LABEL[source]}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <span className="text-[10px] text-zinc-400">{timeAgo(o.created_at)}</span>
+                                {/* ── Header: ID + status na mesma linha ── */}
+                                <div className="px-3 py-2 flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        {isRecent && (
+                                            <span className="relative inline-flex h-1.5 w-1.5 shrink-0">
+                                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                            </span>
+                                        )}
+                                        <span className="text-xs font-bold text-zinc-800 dark:text-zinc-100">#{num}</span>
+                                        {SOURCE_LABEL[source] && (
+                                            <span className={`inline-flex rounded-full px-1.5 py-px text-[9px] font-bold ${SOURCE_CLS[source] ?? "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
+                                                {SOURCE_LABEL[source]}
+                                            </span>
+                                        )}
+                                        <span className="text-[9px] text-zinc-400 dark:text-zinc-600 truncate">{timeAgo(o.created_at)}</span>
                                     </div>
-                                    <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold ${STATUS_BADGE[st] ?? "bg-zinc-100 text-zinc-500"}`}>
+                                    <span className={`shrink-0 inline-flex rounded-full px-2 py-px text-[9px] font-bold ${STATUS_BADGE[st] ?? "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
                                         {prettyStatus(st)}
                                     </span>
                                 </div>
 
-                                {/* ── Body ── */}
-                                <div className="px-4 pb-2 space-y-2 flex-1 text-xs">
-                                    {/* Cliente */}
-                                    <div>
-                                        <p className="font-semibold text-zinc-900 dark:text-zinc-100 leading-tight">{name}</p>
-                                        {phone && <p className="text-zinc-400 text-[11px]">{phone}</p>}
-                                        {addr  && <p className="text-zinc-400 text-[11px] truncate">{addr}</p>}
-                                    </div>
-
-                                    {/* Itens agrupados */}
-                                    {groupEntries.length > 0 && (
-                                        <div className="space-y-1">
-                                            <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Itens</p>
-                                            {groupEntries.slice(0, MAX_GROUPS).map(([pName, grpItems]) => (
-                                                <div key={pName}>
-                                                    <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-[11px] leading-tight">{pName}</p>
-                                                    {grpItems.map((it, i) => {
-                                                        const raw   = String(it.product_name ?? "");
-                                                        const bIdx  = raw.indexOf(" • ");
-                                                        const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : "";
-                                                        const q      = Number(it.quantity ?? 1);
-                                                        const tot    = Number(it.line_total ?? it.unit_price * q);
-                                                        return (
-                                                            <div key={i} className="flex items-center justify-between gap-1 pl-2">
-                                                                <span className="text-zinc-500 text-[10px] truncate">{detail || raw} · <b className="text-zinc-700 dark:text-zinc-300">{q}×</b></span>
-                                                                <span className="shrink-0 text-[10px] font-medium text-zinc-600 dark:text-zinc-400">R$ {formatBRL(tot)}</span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ))}
-                                            {extraGroups > 0 && (
-                                                <p className="text-[10px] text-zinc-400 italic">+{extraGroups} produto{extraGroups > 1 ? "s" : ""}…</p>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Obs */}
-                                    {obs && (
-                                        <p className="rounded bg-amber-50 dark:bg-amber-900/20 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400 italic">{obs}</p>
+                                {/* ── Cliente ── */}
+                                <div className="px-3 py-2">
+                                    <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate leading-tight">{name}</p>
+                                    {(phone || addr) && (
+                                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate leading-tight mt-0.5">{[phone, addr].filter(Boolean).join(" · ")}</p>
                                     )}
                                 </div>
 
+                                {/* ── Itens — max 2 grupos ── */}
+                                {groupEntries.length > 0 && (
+                                    <div className="px-3 py-2 space-y-0.5">
+                                        {groupEntries.slice(0, MAX_GROUPS).map(([pName, grpItems]) => {
+                                            const totalQty = grpItems.reduce((s, i) => s + Number(i.quantity ?? 1), 0);
+                                            const totalVal = grpItems.reduce((s, i) => s + Number(i.line_total ?? (i.unit_price * Number(i.quantity ?? 1))), 0);
+                                            return (
+                                                <div key={pName} className="flex items-baseline justify-between gap-1">
+                                                    <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 truncate">{pName}</span>
+                                                    <span className="shrink-0 text-[10px] text-zinc-400 dark:text-zinc-500">{totalQty}× · R$ {formatBRL(totalVal)}</span>
+                                                </div>
+                                            );
+                                        })}
+                                        {extraGroups > 0 && (
+                                            <p className="text-[9px] text-zinc-400 dark:text-zinc-600 italic">+{extraGroups} produto{extraGroups > 1 ? "s" : ""}…</p>
+                                        )}
+                                        {obs && (
+                                            <p className="mt-1 rounded bg-amber-50 dark:bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-700 dark:text-amber-400 italic truncate">{obs}</p>
+                                        )}
+                                    </div>
+                                )}
+                                {!groupEntries.length && obs && (
+                                    <div className="px-3 py-2">
+                                        <p className="rounded bg-amber-50 dark:bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-700 dark:text-amber-400 italic truncate">{obs}</p>
+                                    </div>
+                                )}
+
                                 {/* ── Footer: pagamento + total ── */}
-                                <div className="px-4 pt-2 pb-2 border-t border-zinc-100 dark:border-zinc-700 flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-1.5">
-                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${PAYMENT_BADGE[pmKey] ?? "bg-zinc-100 text-zinc-500"}`}>
+                                <div className="px-3 py-2 flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1">
+                                        <span className={`inline-flex rounded-full px-1.5 py-px text-[9px] font-semibold ${PAYMENT_BADGE[pmKey] ?? "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
                                             {pmStr}
                                         </span>
                                         {(o as any).paid && (
-                                            <span className="text-[9px] font-bold text-emerald-600">✓ pago</span>
+                                            <span className="text-[9px] font-bold text-emerald-500 dark:text-emerald-400">✓ pago</span>
                                         )}
                                     </div>
-                                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(o.total_amount)}</span>
+                                    <span className="text-sm font-semibold text-zinc-900 dark:text-emerald-400">R$ {formatBRL(o.total_amount)}</span>
                                 </div>
 
-                                {/* ── Ações ── */}
+                                {/* ── Ações: ghost compacto ── */}
                                 <div
-                                    className="px-3 pb-3 flex flex-wrap gap-1.5"
+                                    className="px-2.5 py-2 flex items-center gap-1"
                                     onClick={(e) => e.stopPropagation()}
                                 >
+                                    {/* Ver — destaque principal */}
                                     <button
                                         title="Ver pedido"
                                         onClick={() => openOrder(o.id)}
-                                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors dark:bg-violet-900/20 dark:text-violet-300 dark:border-violet-800"
+                                        className="flex items-center gap-0.5 px-2 py-1 text-[9px] font-bold text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-800 rounded-md hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors"
                                     >
                                         <Eye className="h-3 w-3" /> Ver
                                     </button>
+                                    {/* Imprimir — ícone */}
                                     <button
                                         title="Imprimir"
                                         onClick={() => printOrder(o.id)}
-                                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-zinc-600 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-lg transition-colors dark:bg-zinc-700 dark:text-zinc-300 dark:border-zinc-600"
+                                        className="flex items-center justify-center h-6 w-6 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                                     >
-                                        <Printer className="h-3 w-3" /> Imprimir
+                                        <Printer className="h-3 w-3" />
                                     </button>
+                                    {/* Chat — ícone */}
                                     {phone && (
                                         <button
                                             title="WhatsApp"
                                             onClick={() => router.push(`/whatsapp?phone=${encodeURIComponent(phone)}`)}
-                                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800"
+                                            className="flex items-center justify-center h-6 w-6 rounded-md border border-zinc-200 dark:border-zinc-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
                                         >
-                                            <MessageCircle className="h-3 w-3" /> Chat
+                                            <MessageCircle className="h-3 w-3" />
                                         </button>
                                     )}
+                                    {/* PDV — destaque laranja */}
                                     {st === "new" && (source === "chatbot" || source === "whatsapp" || source.startsWith("flow_") || source === "ui_order" || source === "admin" || source === "ui") && (
                                         <button
                                             title="Fechar no PDV"
                                             onClick={() => router.push(`/pdv?from_order=${o.id}`)}
-                                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors"
+                                            className="flex items-center gap-0.5 px-2 py-1 text-[9px] font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-md transition-colors"
                                         >
                                             <ShoppingCart className="h-3 w-3" /> PDV
                                         </button>
                                     )}
+                                    {/* Cancelar — ícone ghost red, empurrado p/ direita */}
                                     {canCancel(st) && (
                                         <button
-                                            title="Cancelar"
+                                            title="Cancelar pedido"
                                             onClick={() => openActionModal("cancel", o.id)}
-                                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
+                                            className="ml-auto flex items-center justify-center h-6 w-6 rounded-md border border-zinc-200 dark:border-zinc-700 text-red-400 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-200 dark:hover:border-red-800 transition-colors"
                                         >
-                                            <X className="h-3 w-3" /> Cancelar
+                                            <X className="h-3 w-3" />
                                         </button>
                                     )}
                                 </div>
