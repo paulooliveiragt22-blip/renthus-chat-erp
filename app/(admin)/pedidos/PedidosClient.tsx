@@ -1228,10 +1228,9 @@ export default function PedidosPage() {
                         return (
                             <div
                                 key={o.id}
-                                className={`bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-800 border-l-4 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:hover:bg-zinc-800/80 cursor-pointer divide-y divide-zinc-100 dark:divide-zinc-800 ${
+                                className={`bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-800 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:hover:bg-zinc-800/80 cursor-pointer divide-y divide-zinc-100 dark:divide-zinc-800 ${
                                     isFlashing ? "ring-2 ring-emerald-400 dark:ring-emerald-600" : ""
                                 }`}
-                                style={{ borderLeftColor: BORDER_COLOR[st] ?? "#52525b" }}
                                 onClick={() => openOrder(o.id)}
                             >
                                 {/* ── Header: ID + status na mesma linha ── */}

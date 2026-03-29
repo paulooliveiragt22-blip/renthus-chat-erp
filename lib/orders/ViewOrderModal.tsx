@@ -24,16 +24,16 @@ import {
 
 // ── paletas de status ─────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
-    new:       "bg-blue-100 text-blue-700",
-    delivered: "bg-emerald-100 text-emerald-700",
-    finalized: "bg-violet-100 text-violet-700",
-    canceled:  "bg-zinc-100 text-zinc-500",
+    new:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    delivered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    finalized: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+    canceled:  "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
 };
 
 const PAYMENT_COLORS: Record<string, string> = {
-    pix:  "bg-green-100 text-green-700",
-    card: "bg-purple-100 text-purple-700",
-    cash: "bg-amber-100 text-amber-700",
+    pix:  "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+    card: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+    cash: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
 };
 
 function paymentLabel(pm: string) {
@@ -61,23 +61,23 @@ function PaymentBlock({
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ${PAYMENT_COLORS[pm] ?? "bg-zinc-100 text-zinc-500"}`}>
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ${PAYMENT_COLORS[pm] ?? "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
                     {label}
                 </span>
                 {paid && (
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                         <CheckCircle2 className="h-3 w-3" /> pago
                     </span>
                 )}
             </div>
             {pm === "cash" && (
-                <div className="mt-1 space-y-0.5 text-xs text-zinc-600">
-                    <p>Cliente paga com: <span className="font-semibold text-zinc-900">R$ {formatBRL(pays)}</span></p>
-                    <p>Troco a levar: <span className="font-semibold text-zinc-900">R$ {formatBRL(troco)}</span></p>
+                <div className="mt-1 space-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                    <p>Cliente paga com: <span className="font-semibold text-zinc-900 dark:text-zinc-100">R$ {formatBRL(pays)}</span></p>
+                    <p>Troco a levar: <span className="font-semibold text-zinc-900 dark:text-zinc-100">R$ {formatBRL(troco)}</span></p>
                 </div>
             )}
             {pm === "card" && (
-                <p className="mt-1 text-xs text-zinc-500">Levar maquininha</p>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Levar maquininha</p>
             )}
         </div>
     );
@@ -172,12 +172,12 @@ export default function ViewOrderModal({
                 <div className="flex flex-col gap-4 pt-1">
 
                     {/* ── TOOLBAR ── */}
-                    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-50 p-3">
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
 
                         {/* Secundários */}
                         <button
                             onClick={onPrint}
-                            className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 transition-colors"
+                            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
                         >
                             <Printer className="h-3.5 w-3.5" />
                             Imprimir
@@ -186,7 +186,7 @@ export default function ViewOrderModal({
                         {canEdit && (
                             <button
                                 onClick={onEdit}
-                                className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 transition-colors"
+                                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
                             >
                                 <Pencil className="h-3.5 w-3.5" />
                                 Editar
@@ -197,7 +197,7 @@ export default function ViewOrderModal({
                         {canDeliver && (
                             <button
                                 onClick={() => onAction("deliver")}
-                                className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-600 transition-colors"
+                                className="flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
                             >
                                 <PackageCheck className="h-3.5 w-3.5" />
                                 Marcar entregue
@@ -207,7 +207,7 @@ export default function ViewOrderModal({
                         {canFinalize && (
                             <button
                                 onClick={() => onAction("finalize")}
-                                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+                                className="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
                             >
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 Finalizar
@@ -220,7 +220,7 @@ export default function ViewOrderModal({
                                 <button
                                     onClick={onOutForDelivery}
                                     disabled={sendingOutForDelivery}
-                                    className="flex items-center gap-1.5 rounded-lg bg-green-100 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors"
+                                    className="flex items-center gap-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
                                 >
                                     <MessageCircle className="h-3.5 w-3.5" />
                                     {sendingOutForDelivery ? "Enviando..." : "Saiu pra entrega"}
@@ -229,7 +229,7 @@ export default function ViewOrderModal({
                                 <button
                                     onClick={onDeliveredMessage}
                                     disabled={sendingDeliveredMessage}
-                                    className="flex items-center gap-1.5 rounded-lg bg-green-100 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors"
+                                    className="flex items-center gap-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
                                 >
                                     <MessageCircle className="h-3.5 w-3.5" />
                                     {sendingDeliveredMessage ? "Enviando..." : "Agradecimento"}
@@ -241,7 +241,7 @@ export default function ViewOrderModal({
                         {canCancel && (
                             <button
                                 onClick={() => onAction("cancel")}
-                                className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 transition-colors"
+                                className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                             >
                                 <XCircle className="h-3.5 w-3.5" />
                                 Cancelar pedido
@@ -250,33 +250,33 @@ export default function ViewOrderModal({
                     </div>
 
                     {/* ── STATUS + CLIENTE ── */}
-                    <div className="relative rounded-xl border border-zinc-100 bg-zinc-50 p-4">
+                    <div className="relative rounded-xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4">
 
                         {/* Status badge flutuante */}
-                        <span className={`absolute right-4 top-4 inline-flex rounded-full px-3 py-1 text-xs font-bold ${STATUS_COLORS[st] ?? "bg-zinc-100 text-zinc-500"}`}>
+                        <span className={`absolute right-4 top-4 inline-flex rounded-full px-3 py-1 text-xs font-bold ${STATUS_COLORS[st] ?? "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
                             {prettyStatus(st)}
                         </span>
 
-                        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Cliente</p>
+                        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Cliente</p>
 
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center gap-2">
                                 <User className="h-4 w-4 shrink-0 text-zinc-400" />
-                                <span className="text-sm font-bold text-zinc-900">{order.customers?.name ?? "-"}</span>
+                                <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{order.customers?.name ?? "-"}</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <Phone className="h-4 w-4 shrink-0 text-zinc-400" />
-                                <span className="text-sm text-zinc-700">{order.customers?.phone ?? "-"}</span>
+                                <span className="text-sm text-zinc-700 dark:text-zinc-300">{order.customers?.phone ?? "-"}</span>
                             </div>
                             <div className="flex items-start gap-2">
                                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
-                                <span className="text-sm font-bold text-zinc-900">{order.customers?.address || "Não informado"}</span>
+                                <span className="text-sm text-zinc-700 dark:text-zinc-300">{order.customers?.address || "Não informado"}</span>
                             </div>
                         </div>
 
                         {/* Pagamento */}
-                        <div className="mt-4 border-t border-zinc-200 pt-3">
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Pagamento</p>
+                        <div className="mt-4 border-t border-zinc-200 dark:border-zinc-700 pt-3">
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Pagamento</p>
                             <PaymentBlock
                                 payment_method={order.payment_method}
                                 paid={!!order.paid}
@@ -287,15 +287,15 @@ export default function ViewOrderModal({
 
                         {/* Entregador */}
                         {(order as any).drivers?.name && (
-                            <div className="mt-3 border-t border-zinc-200 pt-3">
-                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Entregador</p>
+                            <div className="mt-3 border-t border-zinc-200 dark:border-zinc-700 pt-3">
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Entregador</p>
                                 <div className="flex items-center gap-2">
                                     <Truck className="h-4 w-4 shrink-0 text-zinc-400" />
-                                    <span className="text-sm font-bold text-zinc-900">
+                                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
                                         {(order as any).drivers.name}
                                     </span>
                                     {(order as any).drivers.vehicle && (
-                                        <span className="text-xs text-zinc-500">
+                                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
                                             · {(order as any).drivers.vehicle}
                                             {(order as any).drivers.plate ? ` (${(order as any).drivers.plate})` : ""}
                                         </span>
@@ -307,16 +307,16 @@ export default function ViewOrderModal({
 
                     {/* ── OBSERVAÇÕES ── */}
                     {order.details ? (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-500">Observações</p>
-                            <p className="text-sm font-bold text-amber-900">{order.details}</p>
+                        <div className="rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 p-4">
+                            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-500 dark:text-amber-400">Observações</p>
+                            <p className="text-sm font-bold text-amber-900 dark:text-amber-300">{order.details}</p>
                         </div>
                     ) : null}
 
                     {/* ── ITENS ── */}
-                    <div className="overflow-hidden rounded-xl border border-zinc-100">
-                        <div className="bg-zinc-50 px-4 py-2.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Itens do pedido</p>
+                    <div className="overflow-hidden rounded-xl border border-zinc-100 dark:border-zinc-800">
+                        <div className="bg-zinc-50 dark:bg-zinc-800/60 px-4 py-2.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Itens do pedido</p>
                         </div>
 
                         {order.items.length === 0 ? (
@@ -329,11 +329,11 @@ export default function ViewOrderModal({
                                 groups.get(info.productName)!.push({ it, info });
                             }
                             return (
-                                <div className="divide-y divide-zinc-100">
+                                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                                     {Array.from(groups.entries()).map(([productName, entries]) => (
                                         <div key={productName} className="py-2">
                                             {/* Nível 1 — PRODUCTS.NAME */}
-                                            <p className="px-4 pb-1 text-sm font-bold text-zinc-900 uppercase tracking-wide">
+                                            <p className="px-4 pb-1 text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wide">
                                                 {productName}
                                             </p>
                                             {/* Nível 2 — embalagens */}
@@ -344,13 +344,13 @@ export default function ViewOrderModal({
                                                 return (
                                                     <div key={(it as any).id} className="flex items-center gap-2 px-4 pl-8 py-1">
                                                         {/* descricao volume [SIGLA C/FatorUN] */}
-                                                        <span className="flex-1 text-sm text-zinc-600">{info.detail}</span>
+                                                        <span className="flex-1 text-sm text-zinc-500 dark:text-zinc-400">{info.detail}</span>
                                                         {/* qty */}
-                                                        <span className="shrink-0 inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-bold text-purple-700 whitespace-nowrap">
+                                                        <span className="shrink-0 inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2.5 py-0.5 text-xs font-bold text-purple-700 dark:text-purple-300 whitespace-nowrap">
                                                             {q} {info.unitLabel}
                                                         </span>
                                                         {/* total */}
-                                                        <span className="w-20 shrink-0 text-right text-sm font-bold text-zinc-900">
+                                                        <span className="w-20 shrink-0 text-right text-sm font-semibold text-zinc-900 dark:text-emerald-400">
                                                             R$ {formatBRL(total)}
                                                         </span>
                                                     </div>
@@ -364,16 +364,16 @@ export default function ViewOrderModal({
                     </div>
 
                     {/* ── TOTAL FOOTER ── */}
-                    <div className="rounded-xl bg-purple-50 px-5 py-4">
+                    <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800 px-5 py-4">
                         {Number(order.delivery_fee ?? 0) > 0 && (
-                            <div className="mb-2 flex items-center justify-between text-sm text-zinc-600">
+                            <div className="mb-2 flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
                                 <span>Taxa de entrega</span>
                                 <span className="font-medium">R$ {formatBRL(order.delivery_fee ?? 0)}</span>
                             </div>
                         )}
                         <div className="flex items-center justify-between">
-                            <span className="text-base font-semibold text-purple-800">Total geral</span>
-                            <span className="text-2xl font-bold text-purple-900">
+                            <span className="text-base font-semibold text-zinc-700 dark:text-zinc-300">Total geral</span>
+                            <span className="text-2xl font-bold text-zinc-900 dark:text-emerald-400">
                                 R$ {formatBRL(order.total_amount ?? 0)}
                             </span>
                         </div>
