@@ -48,12 +48,13 @@ export async function GET() {
     const [salesTodayRes, ordersCountRes, activeOrdersRes, orders24hRes, waThreadsRes, orderIds30dRes] =
         await Promise.all([
 
-            // 1. Faturamento do dia — via tabela sales (apenas vendas finalizadas)
+            // 1. Faturamento do dia — via orders (não cancelados)
             admin
-                .from("sales")
-                .select("total")
+                .from("orders")
+                .select("total_amount")
                 .eq("company_id", companyId)
-                .gte("created_at", todayStart.toISOString()),
+                .gte("created_at", todayStart.toISOString())
+                .neq("status", "canceled"),
 
             // 2. Quantidade de pedidos criados hoje (não cancelados)
             admin
@@ -96,7 +97,7 @@ export async function GET() {
         ]);
 
     // ── Métricas simples ─────────────────────────────────────────────────────
-    const salesTotal  = (salesTodayRes.data ?? []).reduce((s, r) => s + Number(r.total ?? 0), 0);
+    const salesTotal  = (salesTodayRes.data ?? []).reduce((s, r) => s + Number(r.total_amount ?? 0), 0);
     const ordersCount = ordersCountRes.count ?? 0;
     const ticketMedio = ordersCount > 0 ? salesTotal / ordersCount : 0;
     const activeOrders    = activeOrdersRes.count ?? 0;
@@ -152,10 +153,10 @@ export async function GET() {
         if (realIds.length > 0) {
             const { data: embRows } = await admin
                 .from("view_pdv_produtos")
-                .select("produto_embalagem_id, product_name")
-                .in("produto_embalagem_id", realIds);
+                .select("id, product_name")
+                .in("id", realIds);
             for (const r of embRows ?? []) {
-                canonicalNames[r.produto_embalagem_id] = r.product_name;
+                canonicalNames[r.id] = r.product_name;
             }
         }
 
