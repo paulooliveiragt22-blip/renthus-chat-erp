@@ -2,12 +2,13 @@
   "version": "7.3",
   "data_api_version": "3.0",
   "routing_model": {
-    "CATEGORIES": ["PRODUCTS"],
-    "PRODUCTS":   ["QUANTITIES"],
-    "QUANTITIES": ["CEP_SEARCH"],
-    "CEP_SEARCH": ["ADDRESS", "PAYMENT"],
-    "ADDRESS":    ["PAYMENT"],
-    "PAYMENT":    ["SUCCESS"]
+    "CATEGORIES":        ["PRODUCTS"],
+    "PRODUCTS":          ["QUANTITIES"],
+    "QUANTITIES":        ["CEP_SEARCH", "CATEGORIES_RETURN"],
+    "CATEGORIES_RETURN": ["PRODUCTS"],
+    "CEP_SEARCH":        ["ADDRESS", "PAYMENT"],
+    "ADDRESS":           ["PAYMENT"],
+    "PAYMENT":           ["SUCCESS"]
   },
   "screens": [
 
@@ -29,11 +30,21 @@
             { "id": "uuid-1", "title": "🍺 Cervejas",      "description": "5 produtos" },
             { "id": "uuid-2", "title": "🥤 Refrigerantes", "description": "3 produtos" }
           ]
-        }
+        },
+        "cart_so_far":    { "type": "string",  "__example__": "" },
+        "has_cart_so_far": { "type": "boolean", "__example__": false }
       },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
+          {
+            "type": "If",
+            "condition": "${data.has_cart_so_far}",
+            "then": [
+              { "type": "TextSubheading", "text": "🛒 Carrinho atual:" },
+              { "type": "TextBody",       "text": "${data.cart_so_far}" }
+            ]
+          },
           {
             "type": "Form",
             "name": "category_form",
@@ -41,7 +52,7 @@
               {
                 "type": "TextInput",
                 "name": "search_all",
-                "label": "Buscar",
+                "label": "Buscar produto",
                 "required": false,
                 "input-type": "text",
                 "helper-text": "Digite o nome para buscar em todo o catálogo"
@@ -65,6 +76,79 @@
                   "payload": {
                     "search_all":   "${form.search_all}",
                     "category_id":  "${form.category_id}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "CATEGORIES_RETURN",
+      "title": "Adicionar Mais Produtos",
+      "data": {
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id":          { "type": "string" },
+              "title":       { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [
+            { "id": "uuid-1", "title": "🍺 Cervejas",      "description": "5 produtos" },
+            { "id": "uuid-2", "title": "🥤 Refrigerantes", "description": "3 produtos" }
+          ]
+        },
+        "cart_so_far":     { "type": "string",  "__example__": "" },
+        "has_cart_so_far": { "type": "boolean", "__example__": true }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "If",
+            "condition": "${data.has_cart_so_far}",
+            "then": [
+              { "type": "TextSubheading", "text": "🛒 Carrinho atual:" },
+              { "type": "TextBody",       "text": "${data.cart_so_far}" }
+            ]
+          },
+          {
+            "type": "Form",
+            "name": "category_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "search_all",
+                "label": "Buscar produto",
+                "required": false,
+                "input-type": "text",
+                "helper-text": "Digite o nome para buscar em todo o catálogo"
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Ou escolha uma categoria:"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "category_id",
+                "label": "Categorias",
+                "required": false,
+                "data-source": "${data.categories}"
+              },
+              {
+                "type": "Footer",
+                "label": "Ver produtos →",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "search_all":  "${form.search_all}",
+                    "category_id": "${form.category_id}"
                   }
                 }
               }
@@ -159,14 +243,24 @@
         "product_name_3": { "type": "string", "__example__": ""                           },
         "product_name_4": { "type": "string", "__example__": ""                           },
         "product_name_5": { "type": "string", "__example__": ""                           },
-        "show_qty_2": { "type": "boolean", "__example__": true  },
-        "show_qty_3": { "type": "boolean", "__example__": false },
-        "show_qty_4": { "type": "boolean", "__example__": false },
-        "show_qty_5": { "type": "boolean", "__example__": false }
+        "show_qty_2":      { "type": "boolean", "__example__": true  },
+        "show_qty_3":      { "type": "boolean", "__example__": false },
+        "show_qty_4":      { "type": "boolean", "__example__": false },
+        "show_qty_5":      { "type": "boolean", "__example__": false },
+        "cart_so_far":     { "type": "string",  "__example__": "" },
+        "has_cart_so_far": { "type": "boolean", "__example__": false }
       },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
+          {
+            "type": "If",
+            "condition": "${data.has_cart_so_far}",
+            "then": [
+              { "type": "TextSubheading", "text": "🛒 Já no carrinho:" },
+              { "type": "TextCaption",    "text": "${data.cart_so_far}" }
+            ]
+          },
           {
             "type": "TextSubheading",
             "text": "Informe as quantidades:"
@@ -183,7 +277,7 @@
             },
             "children": [
               {
-                "type": "TextBody",
+                "type": "TextCaption",
                 "text": "${data.product_name_1}"
               },
               {
@@ -198,7 +292,7 @@
                 "condition": "${data.show_qty_2}",
                 "then": [
                   {
-                    "type": "TextBody",
+                    "type": "TextCaption",
                     "text": "${data.product_name_2}"
                   },
                   {
@@ -215,7 +309,7 @@
                 "condition": "${data.show_qty_3}",
                 "then": [
                   {
-                    "type": "TextBody",
+                    "type": "TextCaption",
                     "text": "${data.product_name_3}"
                   },
                   {
@@ -232,7 +326,7 @@
                 "condition": "${data.show_qty_4}",
                 "then": [
                   {
-                    "type": "TextBody",
+                    "type": "TextCaption",
                     "text": "${data.product_name_4}"
                   },
                   {
@@ -249,7 +343,7 @@
                 "condition": "${data.show_qty_5}",
                 "then": [
                   {
-                    "type": "TextBody",
+                    "type": "TextCaption",
                     "text": "${data.product_name_5}"
                   },
                   {
@@ -262,16 +356,23 @@
                 ]
               },
               {
+                "type": "OptIn",
+                "name": "add_more_products",
+                "label": "➕ Adicionar mais produtos ao pedido",
+                "required": false
+              },
+              {
                 "type": "Footer",
-                "label": "Informar endereço →",
+                "label": "Continuar →",
                 "on-click-action": {
                   "name": "data_exchange",
                   "payload": {
-                    "qty_1": "${form.qty_1}",
-                    "qty_2": "${form.qty_2}",
-                    "qty_3": "${form.qty_3}",
-                    "qty_4": "${form.qty_4}",
-                    "qty_5": "${form.qty_5}"
+                    "qty_1":              "${form.qty_1}",
+                    "qty_2":              "${form.qty_2}",
+                    "qty_3":              "${form.qty_3}",
+                    "qty_4":              "${form.qty_4}",
+                    "qty_5":              "${form.qty_5}",
+                    "add_more_products":  "${form.add_more_products}"
                   }
                 }
               }

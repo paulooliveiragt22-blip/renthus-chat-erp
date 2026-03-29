@@ -52,7 +52,7 @@ function inferCatalogScreen(data: Record<string, unknown> | undefined): string {
     if ("cep" in data || "selected_address_id" in data) return "CEP_SEARCH";
     if ("qty_1" in data) return "QUANTITIES";
     if ("selected_products" in data || "search_filter" in data || "category_id_cache" in data) return "PRODUCTS";
-    if ("category_id" in data || "search_all" in data) return "CATEGORIES";
+    if ("category_id" in data || "search_all" in data) return "CATEGORIES"; // also matches CATEGORIES_RETURN (same fields)
     return "";
 }
 
@@ -65,6 +65,19 @@ function formatCart(cart: CartItem[]): string {
     const lines = cart.map((i) => `${i.qty}x ${i.name} — ${formatCurrency(i.price * i.qty)}`);
     const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
     return `${lines.join("\n")}\n\n*Total: ${formatCurrency(total)}*`;
+}
+
+function mergeCartItems(existing: CartItem[], incoming: CartItem[]): CartItem[] {
+    const merged = [...existing];
+    for (const item of incoming) {
+        const idx = merged.findIndex((i) => i.variantId === item.variantId);
+        if (idx >= 0) {
+            merged[idx] = { ...merged[idx], qty: merged[idx].qty + item.qty };
+        } else {
+            merged.push(item);
+        }
+    }
+    return merged;
 }
 
 /**
@@ -485,15 +498,32 @@ export async function POST(req: NextRequest) {
                 const categories = Object.entries(counts)
                     .map(([id, v]) => ({ id, title: v.name.toUpperCase(), description: `${v.count} produto${v.count !== 1 ? "s" : ""}` }))
                     .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
+
+                // Lê accumulated_cart para exibir carrinho acumulado (caso venha de "adicionar mais")
+                const { data: accRow } = await admin
+                    .from("chatbot_sessions")
+                    .select("context")
+                    .eq("thread_id", threadId)
+                    .maybeSingle();
+                const accCart = (((accRow?.context as any)?.accumulated_cart) as CartItem[] | undefined) ?? [];
+
                 await saveCatalogScreen("CATEGORIES");
                 return encryptedOk(
-                    { version: "3.0", screen: "CATEGORIES", data: { categories } } as Record<string, unknown>,
+                    {
+                        version: "3.0",
+                        screen:  "CATEGORIES",
+                        data:    {
+                            categories,
+                            cart_so_far:     accCart.length > 0 ? formatCart(accCart) : "",
+                            has_cart_so_far: accCart.length > 0,
+                        },
+                    } as Record<string, unknown>,
                     aesKey, iv
                 );
             }
 
-            // ── CATEGORIES → PRODUCTS (busca geral ou por categoria) ──────────
-            if (screenNorm === "CATEGORIES") {
+            // ── CATEGORIES / CATEGORIES_RETURN → PRODUCTS ─────────────────────
+            if (screenNorm === "CATEGORIES" || screenNorm === "CATEGORIES_RETURN") {
                 const searchAll  = String(formData?.search_all  ?? "").trim();
                 const categoryId = String(formData?.category_id ?? "").trim();
 
@@ -700,12 +730,22 @@ export async function POST(req: NextRequest) {
                     return `${name} — ${embStr ? `${embStr} — ` : ""}${price}`;
                 };
 
-                // Salva IDs na ordem ordenada no contexto da sessão
+                // Lê context atual para preservar accumulated_cart entre rodadas de "adicionar mais"
+                const { data: ctxForUpdate } = await admin
+                    .from("chatbot_sessions")
+                    .select("context")
+                    .eq("thread_id", threadId)
+                    .maybeSingle();
+                const existingCtx = (ctxForUpdate?.context ?? {}) as Record<string, unknown>;
+                const accumulatedForQty = (existingCtx.accumulated_cart as CartItem[] | undefined) ?? [];
+
+                // Salva IDs na ordem ordenada no contexto da sessão (preservando accumulated_cart)
                 await admin
                     .from("chatbot_sessions")
                     .update({
                         step:    "awaiting_flow",
                         context: {
+                            ...existingCtx,
                             source:              "flow_catalog",
                             pending_product_ids: sorted.map((p) => p.id),
                             pending_prices:      sorted.map((p) => parseFloat(p.preco_venda) || 0),
@@ -766,6 +806,8 @@ export async function POST(req: NextRequest) {
                             show_qty_3:          sorted.length >= 3,
                             show_qty_4:          sorted.length >= 4,
                             show_qty_5:          sorted.length >= 5,
+                            cart_so_far:         accumulatedForQty.length > 0 ? formatCart(accumulatedForQty) : "",
+                            has_cart_so_far:     accumulatedForQty.length > 0,
                         },
                     } as Record<string, unknown>,
                     aesKey, iv
@@ -780,10 +822,11 @@ export async function POST(req: NextRequest) {
                     .eq("thread_id", threadId)
                     .maybeSingle();
 
-                const context      = (sessionRow?.context ?? {}) as Record<string, unknown>;
-                const pendingIds   = (context.pending_product_ids as string[])  ?? [];
-                const pendingPrices = (context.pending_prices      as number[])  ?? [];
-                const pendingNames  = (context.pending_names        as string[])  ?? [];
+                const context        = (sessionRow?.context ?? {}) as Record<string, unknown>;
+                const pendingIds     = (context.pending_product_ids as string[]) ?? [];
+                const pendingPrices  = (context.pending_prices      as number[]) ?? [];
+                const pendingNames   = (context.pending_names       as string[]) ?? [];
+                const accumulatedCart = (context.accumulated_cart   as CartItem[] | undefined) ?? [];
 
                 if (!pendingIds.length) {
                     console.error("[flows/catalog] QUANTITIES session_expired | pendingIds vazio | threadId:", threadId);
@@ -810,13 +853,75 @@ export async function POST(req: NextRequest) {
 
                 console.log("[flows/catalog] QUANTITIES cartItems:", JSON.stringify(cartItems));
 
-                // Salva carrinho final na sessão (sem filtro company_id — thread_id é único)
+                // ── "Adicionar mais produtos" ──────────────────────────────────
+                const addMore = formData?.add_more_products === true ||
+                    String(formData?.add_more_products ?? "") === "true";
+
+                if (addMore) {
+                    const validItems     = cartItems.filter((i) => i.qty > 0);
+                    const newAccumulated = mergeCartItems(accumulatedCart, validItems);
+
+                    await admin.from("chatbot_sessions")
+                        .update({
+                            context: {
+                                ...context,
+                                accumulated_cart:    newAccumulated,
+                                pending_product_ids: undefined,
+                                pending_prices:      undefined,
+                                pending_names:       undefined,
+                            },
+                        })
+                        .eq("thread_id", threadId);
+
+                    // Rebusca categorias e retorna CATEGORIES com carrinho acumulado
+                    const { data: catRowsBack } = await admin
+                        .from("products")
+                        .select("category_id, categories!inner(id, name)")
+                        .eq("company_id", companyId)
+                        .eq("is_active", true)
+                        .not("category_id", "is", null);
+
+                    const countsBack: Record<string, { name: string; count: number }> = {};
+                    for (const row of catRowsBack ?? []) {
+                        const cat = (row as any).categories;
+                        if (!cat?.id) continue;
+                        if (!countsBack[cat.id]) countsBack[cat.id] = { name: cat.name, count: 0 };
+                        countsBack[cat.id].count++;
+                    }
+                    const categoriesBack = Object.entries(countsBack)
+                        .map(([id, v]) => ({
+                            id,
+                            title:       v.name.toUpperCase(),
+                            description: `${v.count} produto${v.count !== 1 ? "s" : ""}`,
+                        }))
+                        .sort((a, b) => (countsBack[b.id]?.count ?? 0) - (countsBack[a.id]?.count ?? 0));
+
+                    await saveCatalogScreen("CATEGORIES_RETURN");
+                    return encryptedOk(
+                        {
+                            version: "3.0",
+                            screen:  "CATEGORIES_RETURN",
+                            data:    {
+                                categories:      categoriesBack,
+                                cart_so_far:     formatCart(newAccumulated),
+                                has_cart_so_far: true,
+                            },
+                        } as Record<string, unknown>,
+                        aesKey, iv
+                    );
+                }
+
+                // ── Fluxo normal: merge accumulated + current → finalCart ──────
+                const finalCart = mergeCartItems(accumulatedCart, cartItems.filter((i) => i.qty > 0));
+
                 const { error: cartSaveErr } = await admin
                     .from("chatbot_sessions")
                     .update({
-                        cart:    cartItems,
+                        cart:    finalCart,
                         context: {
+                            ...context,
                             source:              "flow_catalog",
+                            accumulated_cart:    null,
                             pending_product_ids: undefined,
                             pending_prices:      undefined,
                             pending_names:       undefined,
@@ -860,7 +965,7 @@ export async function POST(req: NextRequest) {
                         version: "3.0",
                         screen:  "CEP_SEARCH",
                         data:    {
-                            cart_summary:        formatCart(cartItems),
+                            cart_summary:        formatCart(finalCart),
                             has_saved_addresses: qtySavedAddresses.length > 0,
                             saved_addresses:     qtySavedAddresses,
                         },
