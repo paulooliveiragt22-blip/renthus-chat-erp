@@ -1208,7 +1208,7 @@ export default function PedidosPage() {
                                     : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
                             }`}
                         >
-                            {f === "all" ? `Todos (${stats.total})` : f === "new" ? `Novos (${stats.new})` : f === "delivered" ? `Entregues (${stats.delivered})` : f === "finalized" ? `Finalizados (${stats.finalized})` : `Cancelados (${stats.canceled})`}
+                            {f === "all" ? `Todos (${stats.total})` : f === "new" ? `Novos (${stats.new})` : f === "delivered" ? `Em entrega (${stats.delivered})` : f === "finalized" ? `Finalizados (${stats.finalized})` : `Cancelados (${stats.canceled})`}
                         </button>
                     ))}
                 </div>
