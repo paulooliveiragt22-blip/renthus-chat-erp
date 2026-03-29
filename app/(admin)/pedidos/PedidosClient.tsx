@@ -19,6 +19,7 @@ import {
     RefreshCcw,
     Search,
     ShoppingCart,
+    X,
 } from "lucide-react";
 
 const PAGE_SIZE = 20;
@@ -263,7 +264,7 @@ export default function PedidosPage() {
         setMsg(null);
         const { data, error } = await supabase
             .from("orders")
-            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
+            .select(`id, status, channel, source, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), order_items ( product_name, quantity, unit_price, line_total )`)
             .neq("confirmation_status", "pending_confirmation")
             .order("created_at", { ascending: false })
             .limit(500);
@@ -1168,190 +1169,193 @@ export default function PedidosPage() {
                 </div>
             </div>
 
-            {/* ── ORDER LIST ── */}
-            <div className="rounded-xl border border-zinc-100 bg-white shadow-sm overflow-hidden dark:border-zinc-800 dark:bg-zinc-900">
-                {loading ? (
-                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                        {Array.from({ length: 6 }).map((_, i) => (
-                            <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-zinc-900">
-                                <div className="h-4 w-14 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
-                                <div className="flex flex-1 flex-col gap-2">
-                                    <div className="h-4 w-40 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-                                    <div className="h-3 w-28 animate-pulse rounded bg-zinc-50 dark:bg-zinc-800/60" />
-                                </div>
-                                <div className="h-6 w-16 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
-                                <div className="h-6 w-20 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800" />
-                                <div className="h-4 w-20 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-                            </div>
-                        ))}
-                    </div>
-                ) : filteredOrders.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-zinc-400 dark:text-zinc-600">
-                        <Package className="mb-3 h-8 w-8" />
-                        <p className="text-sm font-medium">Nenhum pedido encontrado</p>
-                    </div>
-                ) : (
-                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                        {/* ── Sticky column header ── */}
-                        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-zinc-100 bg-zinc-50 px-3 py-2.5 sm:gap-4 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900/95 backdrop-blur">
-                            <div className="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                                Pedido
-                            </div>
-                            <div className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                                Cliente
-                            </div>
-                            <div className="hidden shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 sm:block">
-                                Pagamento
-                            </div>
-                            <div className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                                Status
-                            </div>
-                            <div className="w-16 shrink-0 text-right text-[10px] font-semibold uppercase tracking-wider text-zinc-400 sm:w-28 dark:text-zinc-500">
-                                Valor
-                            </div>
-                            <div className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                                Ações
-                            </div>
-                        </div>
+            {/* ── ORDER CARDS ── */}
+            {loading ? (
+                <div className="grid gap-4 grid-cols-2 xl:grid-cols-4">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                        <div key={i} className="h-64 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+                    ))}
+                </div>
+            ) : filteredOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-zinc-400 dark:text-zinc-600 rounded-xl border border-zinc-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                    <Package className="mb-3 h-10 w-10" />
+                    <p className="text-sm font-medium">Nenhum pedido encontrado</p>
+                </div>
+            ) : (
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+                    {pagedOrders.map((o) => {
+                        const st         = String(o.status);
+                        const num        = orderNum(o.id);
+                        const name       = o.customers?.name ?? "-";
+                        const phone      = o.customers?.phone ?? "";
+                        const addr       = o.customers?.address ?? "";
+                        const pmKey      = String((o as any).payment_method ?? "");
+                        const pmStr      = paymentLabel(pmKey);
+                        const obs        = ((o as any).details ?? "").trim();
+                        const recentTs   = recentOrders[o.id];
+                        const isRecent   = !!recentTs && Date.now() - recentTs < 60000;
+                        const isFlashing = flashOrders.has(o.id);
+                        const source     = String((o as any).source ?? (o as any).channel ?? "");
+                        const items      = ((o as any).order_items ?? []) as { product_name: string; quantity: number; unit_price: number; line_total: number | null }[];
 
-                        {pagedOrders.map((o) => {
-                            const st         = String(o.status);
-                            const num        = orderNum(o.id);
-                            const name       = o.customers?.name ?? "-";
-                            const phone      = o.customers?.phone ?? "";
-                            const addr       = o.customers?.address ?? "-";
-                            const pmStr      = paymentLabel(String((o as any).payment_method ?? ""));
-                            const obs        = (o.details ?? "").trim();
-                            const recentTs   = recentOrders[o.id];
-                            const isRecent   = !!recentTs && Date.now() - recentTs < 60000;
-                            const isFlashing = flashOrders.has(o.id);
-                            const source     = String((o as any).source ?? (o as any).channel ?? "");
-                            const SOURCE_BADGE: Record<string, string> = {
-                                chatbot:  "bg-emerald-100 text-emerald-700",
-                                whatsapp: "bg-emerald-100 text-emerald-700",
-                                pdv:      "bg-orange-100 text-orange-700",
-                                balcao:   "bg-orange-100 text-orange-700",
-                                ui_order: "bg-blue-100 text-blue-700",
-                                admin:    "bg-blue-100 text-blue-700",
-                            };
-                            const SOURCE_LABEL: Record<string, string> = {
-                                chatbot:  "Chat", whatsapp: "Chat",
-                                pdv:      "PDV",  balcao:   "PDV",
-                                ui_order: "UI",   admin:    "UI",
-                            };
+                        const SOURCE_LABEL: Record<string, string> = { chatbot:"Chat", whatsapp:"Chat", flow_catalog:"Flow", pdv:"PDV", pdv_direct:"PDV", balcao:"PDV", ui_order:"UI", admin:"UI", ui:"UI" };
+                        const SOURCE_CLS:   Record<string, string> = { chatbot:"bg-emerald-100 text-emerald-700", whatsapp:"bg-emerald-100 text-emerald-700", flow_catalog:"bg-emerald-100 text-emerald-700", pdv:"bg-orange-100 text-orange-700", pdv_direct:"bg-orange-100 text-orange-700", balcao:"bg-orange-100 text-orange-700", ui_order:"bg-blue-100 text-blue-700", admin:"bg-blue-100 text-blue-700", ui:"bg-blue-100 text-blue-700" };
+                        const BORDER_COLOR: Record<string, string> = { new:"#f97316", delivered:"#10b981", finalized:"#8b5cf6", canceled:"#d1d5db" };
 
-                            const pmKey = String((o as any).payment_method ?? "");
+                        // Agrupa itens por produto (fallback: parse string)
+                        const itemGroups = new Map<string, typeof items>();
+                        for (const it of items) {
+                            const raw   = String(it.product_name ?? "");
+                            const bIdx  = raw.indexOf(" • ");
+                            const pName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
+                            if (!itemGroups.has(pName)) itemGroups.set(pName, []);
+                            itemGroups.get(pName)!.push(it);
+                        }
+                        const groupEntries = Array.from(itemGroups.entries());
+                        const MAX_GROUPS   = 3;
+                        const extraGroups  = groupEntries.length - MAX_GROUPS;
 
-                            return (
-                                <div
-                                    key={o.id}
-                                    onClick={() => openOrder(o.id)}
-                                    className={`group flex cursor-pointer items-center gap-2 px-3 py-4 sm:gap-4 sm:px-5 transition-colors ${
-                                        isFlashing
-                                            ? "bg-emerald-50 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-900/20 dark:ring-emerald-700/50"
-                                            : "bg-white hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-                                    }`}
-                                >
-                                    {/* Ping + Nº + origem */}
-                                    <div className="flex w-20 shrink-0 flex-col gap-0.5">
+                        return (
+                            <div
+                                key={o.id}
+                                className={`bg-white dark:bg-zinc-800 rounded-xl shadow-sm border-l-4 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer ${
+                                    isFlashing ? "ring-2 ring-emerald-300 dark:ring-emerald-600" : ""
+                                }`}
+                                style={{ borderLeftColor: BORDER_COLOR[st] ?? "#d1d5db" }}
+                                onClick={() => openOrder(o.id)}
+                            >
+                                {/* ── Card header ── */}
+                                <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-2">
+                                    <div className="flex flex-col gap-0.5">
                                         <div className="flex items-center gap-1.5">
                                             {isRecent && (
-                                                <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
+                                                <span className="relative inline-flex h-2 w-2 shrink-0">
                                                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                                                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                                                 </span>
                                             )}
-                                            <span className="text-xs font-bold text-zinc-400">#{num}</span>
+                                            <span className="text-xs font-bold text-zinc-800 dark:text-zinc-100">#{num}</span>
+                                            {SOURCE_LABEL[source] && (
+                                                <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-bold ${SOURCE_CLS[source] ?? "bg-zinc-100 text-zinc-500"}`}>
+                                                    {SOURCE_LABEL[source]}
+                                                </span>
+                                            )}
                                         </div>
-                                        {source && SOURCE_LABEL[source] && (
-                                            <span className={`inline-flex w-fit rounded-full px-1.5 py-0.5 text-[9px] font-bold ${SOURCE_BADGE[source] ?? "bg-zinc-100 text-zinc-500"}`}>
-                                                {SOURCE_LABEL[source]}
-                                            </span>
-                                        )}
+                                        <span className="text-[10px] text-zinc-400">{timeAgo(o.created_at)}</span>
                                     </div>
+                                    <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold ${STATUS_BADGE[st] ?? "bg-zinc-100 text-zinc-500"}`}>
+                                        {prettyStatus(st)}
+                                    </span>
+                                </div>
 
+                                {/* ── Body ── */}
+                                <div className="px-4 pb-2 space-y-2 flex-1 text-xs">
                                     {/* Cliente */}
-                                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                        <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{name}</span>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span className="text-xs text-zinc-500 dark:text-zinc-400">{phone}</span>
-                                            <span className="text-[11px] text-sky-500 font-medium">{timeAgo(o.created_at)}</span>
-                                        </div>
-                                        {addr && addr !== "-" && (
-                                            <span className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">{addr}</span>
-                                        )}
-                                        {obs && (
-                                            <span className="text-[11px] font-medium text-amber-700 italic">{obs}</span>
-                                        )}
+                                    <div>
+                                        <p className="font-semibold text-zinc-900 dark:text-zinc-100 leading-tight">{name}</p>
+                                        {phone && <p className="text-zinc-400 text-[11px]">{phone}</p>}
+                                        {addr  && <p className="text-zinc-400 text-[11px] truncate">{addr}</p>}
                                     </div>
 
-                                    {/* Pagamento badge */}
-                                    <div className="hidden shrink-0 flex-col items-end gap-1 sm:flex">
-                                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${PAYMENT_BADGE[pmKey] ?? "bg-zinc-100 text-zinc-500"}`}>
+                                    {/* Itens agrupados */}
+                                    {groupEntries.length > 0 && (
+                                        <div className="space-y-1">
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Itens</p>
+                                            {groupEntries.slice(0, MAX_GROUPS).map(([pName, grpItems]) => (
+                                                <div key={pName}>
+                                                    <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-[11px] leading-tight">{pName}</p>
+                                                    {grpItems.map((it, i) => {
+                                                        const raw   = String(it.product_name ?? "");
+                                                        const bIdx  = raw.indexOf(" • ");
+                                                        const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : "";
+                                                        const q      = Number(it.quantity ?? 1);
+                                                        const tot    = Number(it.line_total ?? it.unit_price * q);
+                                                        return (
+                                                            <div key={i} className="flex items-center justify-between gap-1 pl-2">
+                                                                <span className="text-zinc-500 text-[10px] truncate">{detail || raw} · <b className="text-zinc-700 dark:text-zinc-300">{q}×</b></span>
+                                                                <span className="shrink-0 text-[10px] font-medium text-zinc-600 dark:text-zinc-400">R$ {formatBRL(tot)}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ))}
+                                            {extraGroups > 0 && (
+                                                <p className="text-[10px] text-zinc-400 italic">+{extraGroups} produto{extraGroups > 1 ? "s" : ""}…</p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Obs */}
+                                    {obs && (
+                                        <p className="rounded bg-amber-50 dark:bg-amber-900/20 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400 italic">{obs}</p>
+                                    )}
+                                </div>
+
+                                {/* ── Footer: pagamento + total ── */}
+                                <div className="px-4 pt-2 pb-2 border-t border-zinc-100 dark:border-zinc-700 flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${PAYMENT_BADGE[pmKey] ?? "bg-zinc-100 text-zinc-500"}`}>
                                             {pmStr}
                                         </span>
                                         {(o as any).paid && (
-                                            <span className="text-[10px] font-bold text-emerald-600">✓ pago</span>
+                                            <span className="text-[9px] font-bold text-emerald-600">✓ pago</span>
                                         )}
                                     </div>
-
-                                    {/* Status badge */}
-                                    <div className="shrink-0">
-                                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${STATUS_BADGE[st] ?? "bg-zinc-100 text-zinc-500"}`}>
-                                            {prettyStatus(st)}
-                                        </span>
-                                    </div>
-
-                                    {/* Total */}
-                                    <div className="w-16 shrink-0 text-right sm:w-28">
-                                        <span className="text-xs font-bold text-zinc-900 sm:text-sm dark:text-zinc-50">R$ {formatBRL(o.total_amount)}</span>
-                                    </div>
-
-                                    {/* Ações rápidas */}
-                                    <div
-                                        className="flex shrink-0 items-center gap-1"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <button
-                                            title="Ver pedido"
-                                            onClick={() => openOrder(o.id)}
-                                            className="rounded-lg p-2 text-zinc-400 hover:bg-violet-50 hover:text-violet-600 transition-colors"
-                                        >
-                                            <Eye className="h-4 w-4" />
-                                        </button>
-                                        <button
-                                            title="Imprimir"
-                                            onClick={() => printOrder(o.id)}
-                                            className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
-                                        >
-                                            <Printer className="h-4 w-4" />
-                                        </button>
-                                        {phone && (
-                                            <button
-                                                title="WhatsApp"
-                                                onClick={() => router.push(`/whatsapp?phone=${encodeURIComponent(phone)}`)}
-                                                className="rounded-lg p-2 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
-                                            >
-                                                <MessageCircle className="h-4 w-4" />
-                                            </button>
-                                        )}
-                                        {/* Fechar no PDV — apenas pedidos de chat/UI não finalizados */}
-                                        {st === "new" && (source === "chatbot" || source === "whatsapp" || source === "ui_order" || source === "admin") && (
-                                            <button
-                                                title="Fechar no PDV"
-                                                onClick={() => router.push(`/pdv?from_order=${o.id}`)}
-                                                className="flex items-center gap-1 rounded-lg bg-orange-500 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-orange-600 transition-colors sm:px-2.5"
-                                            >
-                                                <ShoppingCart className="h-3 w-3" /><span className="hidden sm:inline">PDV</span>
-                                            </button>
-                                        )}
-                                    </div>
+                                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(o.total_amount)}</span>
                                 </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+
+                                {/* ── Ações ── */}
+                                <div
+                                    className="px-3 pb-3 flex flex-wrap gap-1.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <button
+                                        title="Ver pedido"
+                                        onClick={() => openOrder(o.id)}
+                                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors dark:bg-violet-900/20 dark:text-violet-300 dark:border-violet-800"
+                                    >
+                                        <Eye className="h-3 w-3" /> Ver
+                                    </button>
+                                    <button
+                                        title="Imprimir"
+                                        onClick={() => printOrder(o.id)}
+                                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-zinc-600 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-lg transition-colors dark:bg-zinc-700 dark:text-zinc-300 dark:border-zinc-600"
+                                    >
+                                        <Printer className="h-3 w-3" /> Imprimir
+                                    </button>
+                                    {phone && (
+                                        <button
+                                            title="WhatsApp"
+                                            onClick={() => router.push(`/whatsapp?phone=${encodeURIComponent(phone)}`)}
+                                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800"
+                                        >
+                                            <MessageCircle className="h-3 w-3" /> Chat
+                                        </button>
+                                    )}
+                                    {st === "new" && (source === "chatbot" || source === "whatsapp" || source.startsWith("flow_") || source === "ui_order" || source === "admin" || source === "ui") && (
+                                        <button
+                                            title="Fechar no PDV"
+                                            onClick={() => router.push(`/pdv?from_order=${o.id}`)}
+                                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors"
+                                        >
+                                            <ShoppingCart className="h-3 w-3" /> PDV
+                                        </button>
+                                    )}
+                                    {canCancel(st) && (
+                                        <button
+                                            title="Cancelar"
+                                            onClick={() => openActionModal("cancel", o.id)}
+                                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
+                                        >
+                                            <X className="h-3 w-3" /> Cancelar
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
 
             {/* ── PAGINAÇÃO ── */}
             {!loading && filteredOrders.length > PAGE_SIZE && (

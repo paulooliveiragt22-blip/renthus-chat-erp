@@ -367,19 +367,37 @@ export default function FilaClient() {
                   </div>
                 )}
 
-                {/* Itens */}
+                {/* Itens — agrupados por produto */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Itens</p>
-                  <div className="space-y-0.5">
-                    {items.map((item, i) => (
-                      <div key={i} className="flex justify-between gap-2 text-xs text-gray-700 dark:text-gray-300">
-                        <span className="truncate">• {item.quantity ?? 1}x {item.product_name}</span>
-                        <span className="shrink-0 font-medium">
-                          R$ {Number(item.line_total ?? item.unit_price * (item.quantity ?? 1)).toFixed(2)}
-                        </span>
+                  {(() => {
+                    const groups = new Map<string, typeof items>();
+                    for (const it of items) {
+                      const raw   = String(it.product_name ?? "");
+                      const bIdx  = raw.indexOf(" • ");
+                      const pName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
+                      if (!groups.has(pName)) groups.set(pName, []);
+                      groups.get(pName)!.push(it);
+                    }
+                    return Array.from(groups.entries()).map(([pName, grpItems]) => (
+                      <div key={pName} className="mb-1">
+                        <p className="text-[11px] font-bold text-gray-800 dark:text-gray-100 leading-tight">{pName}</p>
+                        {grpItems.map((it, i) => {
+                          const raw    = String(it.product_name ?? "");
+                          const bIdx   = raw.indexOf(" • ");
+                          const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : "";
+                          const q      = Number(it.quantity ?? 1);
+                          const tot    = Number(it.line_total ?? it.unit_price * q);
+                          return (
+                            <div key={i} className="flex items-center justify-between gap-2 pl-2 text-[11px] text-gray-600 dark:text-gray-400">
+                              <span className="truncate">{detail || raw} · <b className="text-gray-700 dark:text-gray-300">{q}×</b></span>
+                              <span className="shrink-0 font-medium">R$ {tot.toFixed(2)}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    ));
+                  })()}
                 </div>
 
                 {/* Endereço */}
