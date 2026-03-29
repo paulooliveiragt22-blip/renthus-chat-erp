@@ -178,20 +178,35 @@ export async function POST(req: NextRequest) {
 
     const { threadId, companyId, flowType } = ids;
 
-    // ── Credenciais do canal da empresa ───────────────────────────────────────
-    const { data: channelRow } = await admin
-        .from("whatsapp_channels")
-        .select("from_identifier, provider_metadata")
-        .eq("company_id", companyId)
-        .eq("provider", "meta")
-        .eq("status", "active")
-        .maybeSingle();
+    // ── Credenciais do canal + thread (parallel) ─────────────────────────────
+    const needsThread = true; // todos os flows usam o telefone em algum momento
+    const [channelRes, threadEarlyRes] = await Promise.all([
+        admin
+            .from("whatsapp_channels")
+            .select("from_identifier, provider_metadata")
+            .eq("company_id", companyId)
+            .eq("provider", "meta")
+            .eq("status", "active")
+            .maybeSingle(),
+        needsThread
+            ? admin
+                .from("whatsapp_threads")
+                .select("phone_e164, profile_name")
+                .eq("id", threadId)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+    ]);
 
+    const channelRow  = channelRes.data;
     const channelMeta = channelRow?.provider_metadata as { access_token?: string } | null;
     const waConfig: WaConfig = {
         phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
         accessToken:   channelMeta?.access_token   ?? process.env.WHATSAPP_TOKEN            ?? "",
     };
+    // Dados da thread pré-carregados em paralelo com channels
+    const earlyThreadData = (threadEarlyRes as { data: { phone_e164?: string; profile_name?: string } | null }).data;
+    const earlyThreadPhone: string | null = earlyThreadData?.phone_e164 ?? null;
+    const earlyThreadProfileName: string | null = earlyThreadData?.profile_name ?? null;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // FLOW STATUS  (flowType === "status")
@@ -199,18 +214,14 @@ export async function POST(req: NextRequest) {
     if (flowType === "status") {
         if (action !== "INIT") return encryptedError("unsupported_action", aesKey, iv);
 
-        // Busca telefone da thread
-        const { data: threadRow } = await admin
-            .from("whatsapp_threads")
-            .select("phone_e164")
-            .eq("id", threadId)
-            .maybeSingle();
+        // Usa telefone pré-carregado em paralelo com channels
+        const threadPhone = earlyThreadPhone;
 
-        if (!threadRow?.phone_e164) return encryptedError("thread_not_found", aesKey, iv);
+        if (!threadPhone) return encryptedError("thread_not_found", aesKey, iv);
 
-        const phoneNorm = threadRow.phone_e164.startsWith("+")
-            ? threadRow.phone_e164
-            : `+${threadRow.phone_e164}`;
+        const phoneNorm = threadPhone.startsWith("+")
+            ? threadPhone
+            : `+${threadPhone}`;
 
         // Busca últimos 5 pedidos do cliente via customers.phone
         const { data: orders } = await admin
@@ -308,22 +319,15 @@ export async function POST(req: NextRequest) {
     // ═══════════════════════════════════════════════════════════════════════════
     if (flowType === "catalog") {
 
-        // ── Telefone do cliente (para favoritos) ──────────────────────────────
-        let customerPhone: string | null = null;
-        const { data: threadPhoneRow } = await admin
-            .from("whatsapp_threads")
-            .select("phone_e164")
-            .eq("id", threadId)
-            .maybeSingle();
-        if (threadPhoneRow?.phone_e164) {
-            customerPhone = threadPhoneRow.phone_e164.startsWith("+")
-                ? threadPhoneRow.phone_e164
-                : `+${threadPhoneRow.phone_e164}`;
-        }
+        // ── Telefone do cliente (pré-carregado acima em paralelo) ─────────────
+        const customerPhone: string | null = earlyThreadPhone
+            ? (earlyThreadPhone.startsWith("+") ? earlyThreadPhone : `+${earlyThreadPhone}`)
+            : null;
 
         // ── Helper: busca produtos formatados para o Flow ─────────────────────
         async function fetchProducts(opts: {
             categoryName?: string | null;
+            categoryId?:   string | null;   // passa direto para evitar lookup nome→id
             search?:       string | null;
         }): Promise<Array<Record<string, unknown>>> {
             const selectFields = "id, product_name, descricao, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, sigla_comercial, thumbnail_url, image_url";
@@ -346,8 +350,11 @@ export async function POST(req: NextRequest) {
                 .eq("company_id", companyId)
                 .order("product_name");
 
-            if (opts.categoryName) {
-                // Busca o category_id pelo nome
+            if (opts.categoryId) {
+                // ID já conhecido — sem DB extra
+                query = query.eq("category_id", opts.categoryId);
+            } else if (opts.categoryName) {
+                // Fallback: lookup nome → id
                 const { data: cat } = await admin
                     .from("categories")
                     .select("id")
@@ -412,14 +419,17 @@ export async function POST(req: NextRequest) {
         }
 
         // Salva a tela atual na sessão para fallback quando Meta enviar screen: ""
-        async function saveCatalogScreen(nextScreen: string) {
-            // Lê context atual para merge parcial (evita sobrescrever outras chaves)
-            const { data: ctxRow } = await admin
-                .from("chatbot_sessions")
-                .select("context")
-                .eq("thread_id", threadId)
-                .maybeSingle();
-            const ctx = (ctxRow?.context ?? {}) as Record<string, unknown>;
+        // Aceita contexto já carregado para evitar um DB read extra por transição
+        async function saveCatalogScreen(nextScreen: string, existingCtx?: Record<string, unknown>) {
+            let ctx = existingCtx;
+            if (ctx === undefined) {
+                const { data: ctxRow } = await admin
+                    .from("chatbot_sessions")
+                    .select("context")
+                    .eq("thread_id", threadId)
+                    .maybeSingle();
+                ctx = (ctxRow?.context ?? {}) as Record<string, unknown>;
+            }
             await admin.from("chatbot_sessions")
                 .update({ context: { ...ctx, catalog_screen: nextScreen } })
                 .eq("thread_id", threadId);
@@ -452,7 +462,7 @@ export async function POST(req: NextRequest) {
                 }))
                 .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
 
-            await saveCatalogScreen("CATEGORIES");
+            await saveCatalogScreen("CATEGORIES", { catalog_screen: "CATEGORIES" });
             return encryptedOk(
                 { version: "3.0", screen: "CATEGORIES", data: { categories } } as Record<string, unknown>,
                 aesKey, iv
@@ -461,13 +471,14 @@ export async function POST(req: NextRequest) {
 
         if (action === "data_exchange") {
 
-            // Lê a tela salva na sessão como fallback (Meta pode enviar screen: "")
+            // Lê sessão completa uma única vez para: screen fallback + cart + context + customer_id
             const { data: sessionForScreen } = await admin
                 .from("chatbot_sessions")
-                .select("context")
+                .select("context, cart, customer_id")
                 .eq("thread_id", threadId)
                 .maybeSingle();
-            const sessionScreen = String((sessionForScreen?.context as any)?.catalog_screen ?? "").trim().toUpperCase();
+            const sessionCtx    = (sessionForScreen?.context ?? {}) as Record<string, unknown>;
+            const sessionScreen = String(sessionCtx?.catalog_screen ?? "").trim().toUpperCase();
 
             // Se Meta enviou payload de erro do cliente (ex: falha de renderização da tela)
             if (formData && "error" in formData) {
@@ -482,6 +493,7 @@ export async function POST(req: NextRequest) {
             console.log("[flows/catalog] data_exchange | screen:", JSON.stringify(screen), "| screenNorm:", screenNorm, "| sessionScreen:", sessionScreen, "| dataKeys:", Object.keys(formData ?? {}));
 
             // Helper: re-renderiza a tela CATEGORIES (sem screen = bug Meta)
+            // Usa sessionCtx já carregado — sem DB read extra
             async function reRenderCategories() {
                 const { data: catRows } = await admin
                     .from("products")
@@ -500,15 +512,9 @@ export async function POST(req: NextRequest) {
                     .map(([id, v]) => ({ id, title: v.name.toUpperCase(), description: `${v.count} produto${v.count !== 1 ? "s" : ""}` }))
                     .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
 
-                // Lê accumulated_cart para exibir carrinho acumulado (caso venha de "adicionar mais")
-                const { data: accRow } = await admin
-                    .from("chatbot_sessions")
-                    .select("context")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-                const accCart = (((accRow?.context as any)?.accumulated_cart) as CartItem[] | undefined) ?? [];
-
-                await saveCatalogScreen("CATEGORIES");
+                const accCart = (sessionCtx?.accumulated_cart as CartItem[] | undefined) ?? [];
+                const updatedCtx = { ...sessionCtx, catalog_screen: "CATEGORIES" };
+                await saveCatalogScreen("CATEGORIES", updatedCtx);
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -531,36 +537,28 @@ export async function POST(req: NextRequest) {
                     ? (formData!.finalize_order as string[]).includes("finalize")
                     : false;
                 if (doFinalize) {
-                    const { data: finSess } = await admin
-                        .from("chatbot_sessions")
-                        .select("cart, context, customer_id")
-                        .eq("thread_id", threadId)
-                        .maybeSingle();
-
-                    const accCart    = (((finSess?.context as any)?.accumulated_cart) as CartItem[] | undefined) ?? [];
-                    const cartToShow = accCart.length > 0 ? accCart : ((finSess?.cart ?? []) as CartItem[]);
+                    // Usa sessão já carregada no início do data_exchange
+                    const accCart    = (sessionCtx?.accumulated_cart as CartItem[] | undefined) ?? [];
+                    const cartToShow = accCart.length > 0 ? accCart : ((sessionForScreen?.cart ?? []) as CartItem[]);
 
                     // Garante que accumulated_cart vire session.cart
+                    const finalizeCtxBase = accCart.length > 0
+                        ? { ...sessionCtx, accumulated_cart: null, source: "flow_catalog" }
+                        : sessionCtx;
                     if (accCart.length > 0) {
                         await admin.from("chatbot_sessions")
-                            .update({
-                                cart:    cartToShow,
-                                context: {
-                                    ...((finSess?.context ?? {}) as Record<string, unknown>),
-                                    accumulated_cart: null,
-                                    source:           "flow_catalog",
-                                },
-                            })
+                            .update({ cart: cartToShow, context: finalizeCtxBase })
                             .eq("thread_id", threadId);
                     }
 
                     type FinAddrSlot = { id: string; title: string; description: string };
                     let finAddresses: FinAddrSlot[] = [];
-                    if (finSess?.customer_id) {
+                    const finCustomerId = sessionForScreen?.customer_id as string | undefined;
+                    if (finCustomerId) {
                         const { data: addrs } = await admin
                             .from("enderecos_cliente")
                             .select("id, apelido, logradouro, numero, bairro")
-                            .eq("customer_id", finSess.customer_id)
+                            .eq("customer_id", finCustomerId)
                             .eq("company_id", companyId)
                             .order("is_principal", { ascending: false })
                             .limit(5);
@@ -573,7 +571,7 @@ export async function POST(req: NextRequest) {
                         }
                     }
 
-                    await saveCatalogScreen("CEP_SEARCH");
+                    await saveCatalogScreen("CEP_SEARCH", { ...finalizeCtxBase, catalog_screen: "CEP_SEARCH" });
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -596,31 +594,29 @@ export async function POST(req: NextRequest) {
                     return reRenderCategories();
                 }
 
-                let catName    = "";
-                let catIdCache = categoryId;
+                const catIdCache = categoryId;
 
-                if (!searchAll && categoryId) {
-                    const { data: catRow } = await admin
-                        .from("categories")
-                        .select("name")
-                        .eq("id", categoryId)
-                        .maybeSingle();
-                    catName = catRow?.name ?? "";
-                }
+                // Lookup nome da categoria para label — paralelo com produtos + favoritos
+                const [catRow, products, favs] = await Promise.all([
+                    !searchAll && categoryId
+                        ? admin.from("categories").select("name").eq("id", categoryId).maybeSingle().then(r => r.data)
+                        : Promise.resolve(null),
+                    fetchProducts(
+                        searchAll
+                            ? { search: searchAll }
+                            : { categoryId }   // passa id direto — sem double lookup
+                    ),
+                    !searchAll ? fetchFavoriteItems() : Promise.resolve([]),
+                ]);
 
-                const products = await fetchProducts(
-                    searchAll
-                        ? { search: searchAll }
-                        : { categoryName: catName }
-                );
+                const catName = (catRow as any)?.name ?? "";
 
                 // Mescla favoritos no topo (apenas quando não é busca por texto)
                 let allProducts = products;
                 if (!searchAll) {
-                    const favs    = await fetchFavoriteItems();
-                    const favIds  = new Set(favs.map((f: any) => String(f.id)));
+                    const favIds  = new Set((favs as any[]).map((f: any) => String(f.id)));
                     const deduped = products.filter((p: any) => !favIds.has(String(p.id)));
-                    allProducts   = [...favs, ...deduped].slice(0, 20);
+                    allProducts   = [...(favs as any[]), ...deduped].slice(0, 20);
                 }
 
                 if (!allProducts.length) return reRenderCategories();
@@ -629,7 +625,7 @@ export async function POST(req: NextRequest) {
                     ? `Resultados para "${searchAll.toUpperCase()}"`
                     : catName.toUpperCase();
 
-                await saveCatalogScreen("PRODUCTS");
+                await saveCatalogScreen("PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -652,36 +648,36 @@ export async function POST(req: NextRequest) {
                 const searchFilter  = String(formData?.search_filter   ?? "").trim();
                 const catIdCache    = String(formData?.category_id_cache ?? "").trim();
 
+                // Lookup do nome da categoria para label (apenas quando há catIdCache)
+                const catNameForProducts = catIdCache
+                    ? await admin.from("categories").select("name").eq("id", catIdCache).maybeSingle()
+                        .then(r => r.data?.name ?? "")
+                    : "";
+
                 // Se busca preenchida e nada selecionado → filtra e retorna PRODUCTS de novo
                 if (searchFilter && !selectedIds.length) {
-                    let catName = "";
-                    if (catIdCache) {
-                        const { data: catRow } = await admin
-                            .from("categories").select("name").eq("id", catIdCache).maybeSingle();
-                        catName = catRow?.name ?? "";
-                    }
-
                     const products = await fetchProducts(
                         catIdCache
-                            ? { categoryName: catName, search: searchFilter }
+                            ? { categoryId: catIdCache, search: searchFilter }
                             : { search: searchFilter }
                     );
 
+                    const saveCtx = { ...sessionCtx, catalog_screen: "PRODUCTS" };
                     // Sem resultados: re-renderiza com todos os produtos da categoria
                     if (!products.length) {
-                        const fallback = await fetchProducts(catIdCache ? { categoryName: catName } : {});
-                        await saveCatalogScreen("PRODUCTS");
+                        const fallback = await fetchProducts(catIdCache ? { categoryId: catIdCache } : {});
+                        await saveCatalogScreen("PRODUCTS", saveCtx);
                         return encryptedOk(
-                            { version: "3.0", screen: "PRODUCTS", data: { products: fallback, category_name: catName.toUpperCase() || "PRODUTOS", category_id_cache: catIdCache } } as Record<string, unknown>,
+                            { version: "3.0", screen: "PRODUCTS", data: { products: fallback, category_name: catNameForProducts.toUpperCase() || "PRODUTOS", category_id_cache: catIdCache } } as Record<string, unknown>,
                             aesKey, iv
                         );
                     }
 
                     const label = catIdCache
-                        ? `"${searchFilter.toUpperCase()}" em ${catName.toUpperCase() || "categoria"}`
+                        ? `"${searchFilter.toUpperCase()}" em ${catNameForProducts.toUpperCase() || "categoria"}`
                         : `Resultados para "${searchFilter.toUpperCase()}"`;
 
-                    await saveCatalogScreen("PRODUCTS");
+                    await saveCatalogScreen("PRODUCTS", saveCtx);
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -698,21 +694,15 @@ export async function POST(req: NextRequest) {
 
                 // Nenhum produto selecionado: re-renderiza PRODUCTS (sem screen = bug Meta)
                 if (!selectedIds.length) {
-                    let catName2 = "";
-                    if (catIdCache) {
-                        const { data: catRow2 } = await admin
-                            .from("categories").select("name").eq("id", catIdCache).maybeSingle();
-                        catName2 = catRow2?.name ?? "";
-                    }
-                    const reProducts = await fetchProducts(catIdCache ? { categoryName: catName2 } : {});
-                    await saveCatalogScreen("PRODUCTS");
+                    const reProducts = await fetchProducts(catIdCache ? { categoryId: catIdCache } : {});
+                    await saveCatalogScreen("PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
                     return encryptedOk(
                         {
                             version: "3.0",
                             screen:  "PRODUCTS",
                             data: {
                                 products:          reProducts,
-                                category_name:     catName2.toUpperCase() || "PRODUTOS",
+                                category_name:     catNameForProducts.toUpperCase() || "PRODUTOS",
                                 category_id_cache: catIdCache,
                             },
                         } as Record<string, unknown>,
@@ -739,21 +729,15 @@ export async function POST(req: NextRequest) {
 
                 if (prodErr || !validProducts?.length) {
                     console.error("[flows/catalog] invalid_products | prodErr:", prodErr?.message, "| catIdCache:", catIdCache);
-                    let catNameFb = "";
-                    if (catIdCache) {
-                        const { data: catRowFb } = await admin
-                            .from("categories").select("name").eq("id", catIdCache).maybeSingle();
-                        catNameFb = catRowFb?.name ?? "";
-                    }
-                    const fbProducts = await fetchProducts(catIdCache ? { categoryName: catNameFb } : {});
-                    await saveCatalogScreen("PRODUCTS");
+                    const fbProducts = await fetchProducts(catIdCache ? { categoryId: catIdCache } : {});
+                    await saveCatalogScreen("PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
                     return encryptedOk(
                         {
                             version: "3.0",
                             screen:  "PRODUCTS",
                             data: {
                                 products:          fbProducts,
-                                category_name:     catNameFb.toUpperCase() || "PRODUTOS",
+                                category_name:     catNameForProducts.toUpperCase() || "PRODUTOS",
                                 category_id_cache: catIdCache,
                             },
                         } as Record<string, unknown>,
@@ -794,13 +778,8 @@ export async function POST(req: NextRequest) {
                     return `${name} — ${embStr ? `${embStr} — ` : ""}${price}`;
                 };
 
-                // Lê context atual para preservar accumulated_cart entre rodadas de "adicionar mais"
-                const { data: ctxForUpdate } = await admin
-                    .from("chatbot_sessions")
-                    .select("context")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-                const existingCtx = (ctxForUpdate?.context ?? {}) as Record<string, unknown>;
+                // Usa sessionCtx já carregado (sem re-read)
+                const existingCtx      = sessionCtx;
                 const accumulatedForQty = (existingCtx.accumulated_cart as CartItem[] | undefined) ?? [];
 
                 // Salva IDs na ordem ordenada no contexto da sessão (preservando accumulated_cart)
@@ -821,20 +800,15 @@ export async function POST(req: NextRequest) {
                     .eq("thread_id", threadId)
                     .eq("company_id", companyId);
 
-                // Busca endereços salvos do cliente para pré-popular a tela CEP_SEARCH
-                const { data: sessionForAddr } = await admin
-                    .from("chatbot_sessions")
-                    .select("customer_id")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-
+                // Busca endereços salvos do cliente — usa customer_id já carregado na sessão
+                const sessionCustomerId = sessionForScreen?.customer_id as string | undefined;
                 type SavedAddr = { id: string; title: string; description: string };
                 let savedAddresses: SavedAddr[] = [];
-                if (sessionForAddr?.customer_id) {
+                if (sessionCustomerId) {
                     const { data: addrs } = await admin
                         .from("enderecos_cliente")
                         .select("id, apelido, logradouro, numero, bairro")
-                        .eq("customer_id", sessionForAddr.customer_id)
+                        .eq("customer_id", sessionCustomerId)
                         .eq("company_id", companyId)
                         .order("is_principal", { ascending: false })
                         .limit(5);
@@ -847,15 +821,7 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
-                // Monta carrinho para exibir no resumo da tela CEP_SEARCH
-                const cartForDisplay: CartItem[] = sorted.map((p, i) => ({
-                    variantId: p.id,
-                    name:      String(p.products.name ?? "").toUpperCase(),
-                    qty:       1,
-                    price:     parseFloat(p.preco_venda) || 0,
-                }));
-
-                await saveCatalogScreen("QUANTITIES");
+                await saveCatalogScreen("QUANTITIES", { ...existingCtx, catalog_screen: "QUANTITIES" });
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -880,13 +846,8 @@ export async function POST(req: NextRequest) {
 
             // ── QUANTITIES → aplica quantidades → salva carrinho → CEP_SEARCH ─
             if (screenNorm === "QUANTITIES") {
-                const { data: sessionRow } = await admin
-                    .from("chatbot_sessions")
-                    .select("context")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-
-                const context        = (sessionRow?.context ?? {}) as Record<string, unknown>;
+                // Usa sessionCtx já carregado no início do data_exchange — sem re-read
+                const context        = sessionCtx;
                 const pendingIds     = (context.pending_product_ids as string[]) ?? [];
                 const pendingPrices  = (context.pending_prices      as number[]) ?? [];
                 const pendingNames   = (context.pending_names       as string[]) ?? [];
@@ -926,18 +887,6 @@ export async function POST(req: NextRequest) {
                     const validItems     = cartItems.filter((i) => i.qty > 0);
                     const newAccumulated = mergeCartItems(accumulatedCart, validItems);
 
-                    await admin.from("chatbot_sessions")
-                        .update({
-                            context: {
-                                ...context,
-                                accumulated_cart:    newAccumulated,
-                                pending_product_ids: undefined,
-                                pending_prices:      undefined,
-                                pending_names:       undefined,
-                            },
-                        })
-                        .eq("thread_id", threadId);
-
                     const { data: catRowsBack } = await admin
                         .from("products")
                         .select("category_id, categories!inner(id, name)")
@@ -960,7 +909,15 @@ export async function POST(req: NextRequest) {
                         }))
                         .sort((a, b) => (countsBack[b.id]?.count ?? 0) - (countsBack[a.id]?.count ?? 0));
 
-                    await saveCatalogScreen("CATEGORIES_RETURN");
+                    const addMoreCtx = {
+                        ...context,
+                        accumulated_cart:    newAccumulated,
+                        pending_product_ids: undefined,
+                        pending_prices:      undefined,
+                        pending_names:       undefined,
+                        catalog_screen:      "CATEGORIES_RETURN",
+                    };
+                    await saveCatalogScreen("CATEGORIES_RETURN", addMoreCtx);
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -997,20 +954,15 @@ export async function POST(req: NextRequest) {
                     console.error("[flows/catalog] QUANTITIES cart save error:", cartSaveErr.message);
                 }
 
-                // Busca endereços salvos para pré-popular a tela CEP_SEARCH
-                const { data: qtySessionRow } = await admin
-                    .from("chatbot_sessions")
-                    .select("customer_id")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-
+                // Busca endereços salvos — usa customer_id já carregado na sessão
+                const qtyCustomerId = sessionForScreen?.customer_id as string | undefined;
                 type SavedAddrSlot = { id: string; title: string; description: string };
                 let qtySavedAddresses: SavedAddrSlot[] = [];
-                if (qtySessionRow?.customer_id) {
+                if (qtyCustomerId) {
                     const { data: addrs } = await admin
                         .from("enderecos_cliente")
                         .select("id, apelido, logradouro, numero, bairro")
-                        .eq("customer_id", qtySessionRow.customer_id)
+                        .eq("customer_id", qtyCustomerId)
                         .eq("company_id", companyId)
                         .order("is_principal", { ascending: false })
                         .limit(5);
@@ -1023,7 +975,16 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
-                await saveCatalogScreen("CEP_SEARCH");
+                const cepSearchCtx = {
+                    ...context,
+                    source: "flow_catalog",
+                    accumulated_cart: null,
+                    pending_product_ids: undefined,
+                    pending_prices: undefined,
+                    pending_names: undefined,
+                    catalog_screen: "CEP_SEARCH",
+                };
+                await saveCatalogScreen("CEP_SEARCH", cepSearchCtx);
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -1078,37 +1039,30 @@ export async function POST(req: NextRequest) {
                                           (savedAddr as any).complemento, bairro]
                                           .filter(Boolean).join(", ");
 
-                        const { data: sessForCart } = await admin
-                            .from("chatbot_sessions")
-                            .select("cart, context")
-                            .eq("thread_id", threadId)
-                            .maybeSingle();
-
-                        const cart    = ((sessForCart?.cart ?? []) as CartItem[]);
-                        const ctx     = (sessForCart?.context ?? {}) as Record<string, unknown>;
+                        // Usa cart + context já carregados na sessão inicial
+                        const cart    = ((sessionForScreen?.cart ?? []) as CartItem[]);
+                        const ctx     = sessionCtx;
                         const total   = cart.reduce((s, i) => s + i.price * i.qty, 0) + delivFee;
                         const feeText = delivFee > 0
                             ? `\n🛵 Taxa ${zoneRow?.label ?? bairro}: ${formatCurrency(delivFee)}`
                             : "";
                         const cartSummary = `${formatCart(cart)}${feeText}\n\n💰 *Total: ${formatCurrency(total)}*`;
 
-                        await admin.from("chatbot_sessions").update({
-                            context: {
-                                ...ctx,
-                                delivery_address:             address,
-                                delivery_fee:                 delivFee,
-                                delivery_zone_id:             zoneRow?.id ?? null,
-                                flow_address_done:            true,
-                                flow_apelido:                 (savedAddr as any).apelido,
-                                flow_rua:                     (savedAddr as any).logradouro,
-                                flow_numero:                  (savedAddr as any).numero,
-                                flow_complemento:             (savedAddr as any).complemento,
-                                flow_bairro_label:            bairro,
-                                delivery_endereco_cliente_id: selectedAddressId,
-                            },
-                        }).eq("thread_id", threadId);
-
-                        await saveCatalogScreen("PAYMENT");
+                        const paymentCtx = {
+                            ...ctx,
+                            delivery_address:             address,
+                            delivery_fee:                 delivFee,
+                            delivery_zone_id:             zoneRow?.id ?? null,
+                            flow_address_done:            true,
+                            flow_apelido:                 (savedAddr as any).apelido,
+                            flow_rua:                     (savedAddr as any).logradouro,
+                            flow_numero:                  (savedAddr as any).numero,
+                            flow_complemento:             (savedAddr as any).complemento,
+                            flow_bairro_label:            bairro,
+                            delivery_endereco_cliente_id: selectedAddressId,
+                            catalog_screen:               "PAYMENT",
+                        };
+                        await admin.from("chatbot_sessions").update({ context: paymentCtx }).eq("thread_id", threadId);
                         return encryptedOk(
                             {
                                 version: "3.0",
@@ -1131,7 +1085,7 @@ export async function POST(req: NextRequest) {
                     try {
                         const viaCepRes  = await fetch(
                             `https://viacep.com.br/ws/${rawCep}/json/`,
-                            { signal: AbortSignal.timeout(5000) }
+                            { signal: AbortSignal.timeout(3000) }
                         );
                         const viaCepData = await viaCepRes.json().catch(() => ({})) as Record<string, string>;
                         if (!viaCepData.erro) {
@@ -1143,15 +1097,9 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
-                const { data: cepSessRow } = await admin
-                    .from("chatbot_sessions")
-                    .select("cart")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-
-                const cart = ((cepSessRow?.cart ?? []) as CartItem[]);
-
-                await saveCatalogScreen("ADDRESS");
+                // Usa cart já carregado na sessão inicial
+                const cart = ((sessionForScreen?.cart ?? []) as CartItem[]);
+                await saveCatalogScreen("ADDRESS", { ...sessionCtx, catalog_screen: "ADDRESS" });
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -1204,32 +1152,24 @@ export async function POST(req: NextRequest) {
                 const deliveryFee = zoneRow ? Number(zoneRow.fee) : 0;
                 const address     = [rua, numero, complemento, bairroLabel].filter(Boolean).join(", ");
 
-                const { data: sessionRow } = await admin
-                    .from("chatbot_sessions")
-                    .select("cart, context")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
+                // Usa cart + context já carregados na sessão inicial
+                const cart    = ((sessionForScreen?.cart ?? []) as CartItem[]);
+                const context = sessionCtx;
 
-                const cart    = (sessionRow?.cart    ?? []) as CartItem[];
-                const context = (sessionRow?.context ?? {}) as Record<string, unknown>;
-
-                await admin
-                    .from("chatbot_sessions")
-                    .update({
-                        context: {
-                            ...context,
-                            delivery_address:  address,
-                            delivery_fee:      deliveryFee,
-                            delivery_zone_id:  zoneRow?.id ?? null,
-                            flow_address_done: true,
-                            flow_apelido:      apelido,
-                            flow_rua:          rua,
-                            flow_numero:       numero,
-                            flow_complemento:  complemento,
-                            flow_bairro_label: bairroLabel,
-                        },
-                    })
-                    .eq("thread_id", threadId);
+                const addrPaymentCtx = {
+                    ...context,
+                    delivery_address:  address,
+                    delivery_fee:      deliveryFee,
+                    delivery_zone_id:  zoneRow?.id ?? null,
+                    flow_address_done: true,
+                    flow_apelido:      apelido,
+                    flow_rua:          rua,
+                    flow_numero:       numero,
+                    flow_complemento:  complemento,
+                    flow_bairro_label: bairroLabel,
+                    catalog_screen:    "PAYMENT",
+                };
+                await admin.from("chatbot_sessions").update({ context: addrPaymentCtx }).eq("thread_id", threadId);
 
                 const totalItems  = cart.reduce((s, i) => s + i.price * i.qty, 0);
                 const grandTotal  = totalItems + deliveryFee;
@@ -1237,8 +1177,6 @@ export async function POST(req: NextRequest) {
                     ? `\n🛵 Taxa ${bairroLabel}: ${formatCurrency(deliveryFee)}`
                     : "";
                 const cartSummary = `${formatCart(cart)}${feeText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
-
-                await saveCatalogScreen("PAYMENT");
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -1260,7 +1198,7 @@ export async function POST(req: NextRequest) {
 
                 if (!paymentMethod) {
                     console.error("[flows/catalog] missing_payment_method | threadId:", threadId);
-                    await saveCatalogScreen("PAYMENT");
+                    await saveCatalogScreen("PAYMENT", { ...sessionCtx, catalog_screen: "PAYMENT" });
                     return encryptedOk({ version: "3.0", screen: "PAYMENT", data: {} } as Record<string, unknown>, aesKey, iv);
                 }
 
@@ -1286,19 +1224,17 @@ export async function POST(req: NextRequest) {
 
                 // Garante que o cliente existe (cria se necessário para salvar endereço e vínculo no pedido)
                 if (!customerId) {
-                    const { data: threadPhone } = await admin
-                        .from("whatsapp_threads")
-                        .select("phone_e164, profile_name")
-                        .eq("id", threadId)
-                        .maybeSingle();
+                    // Usa dados da thread pré-carregados em paralelo
+                    const threadPhoneE164 = earlyThreadPhone;
+                    const threadProfileName = earlyThreadProfileName;
 
-                    if (threadPhone?.phone_e164) {
-                        const phoneRaw = threadPhone.phone_e164.replace(/\D/g, "");
+                    if (threadPhoneE164) {
+                        const phoneRaw = threadPhoneE164.replace(/\D/g, "");
                         const { data: existCust } = await admin
                             .from("customers")
                             .select("id")
                             .eq("company_id", companyId)
-                            .or(`phone_e164.eq.${threadPhone.phone_e164},phone.eq.${phoneRaw}`)
+                            .or(`phone_e164.eq.${threadPhoneE164},phone.eq.${phoneRaw}`)
                             .maybeSingle();
 
                         if (existCust?.id) {
@@ -1309,8 +1245,8 @@ export async function POST(req: NextRequest) {
                                 .insert({
                                     company_id: companyId,
                                     phone:      phoneRaw,
-                                    phone_e164: threadPhone.phone_e164,
-                                    name:       threadPhone.profile_name ?? null,
+                                    phone_e164: threadPhoneE164,
+                                    name:       threadProfileName ?? null,
                                     origem:     "flow_catalog",
                                 })
                                 .select("id")
@@ -1426,13 +1362,8 @@ export async function POST(req: NextRequest) {
                     .update({ cart: [], step: "main_menu", context: {} })
                     .eq("thread_id", threadId);
 
-                const { data: threadRow } = await admin
-                    .from("whatsapp_threads")
-                    .select("phone_e164")
-                    .eq("id", threadId)
-                    .maybeSingle();
-
-                if (threadRow?.phone_e164) {
+                // Usa telefone pré-carregado no início (sem DB extra)
+                if (customerPhone) {
                     const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
                     const pmLabel   = pmLabels[paymentMethod] ?? paymentMethod;
                     const feeText   = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
@@ -1443,7 +1374,7 @@ export async function POST(req: NextRequest) {
                         ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
                         : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${chgText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
 
-                    await sendWhatsAppMessage(threadRow.phone_e164, msg, waConfig);
+                    await sendWhatsAppMessage(customerPhone, msg, waConfig);
                 }
 
                 return encryptedOk(
@@ -1498,7 +1429,7 @@ export async function POST(req: NextRequest) {
                 try {
                     const viaCepRes  = await fetch(
                         `https://viacep.com.br/ws/${rawCep}/json/`,
-                        { signal: AbortSignal.timeout(5000) }
+                        { signal: AbortSignal.timeout(3000) }
                     );
                     const viaCepData = await viaCepRes.json().catch(() => ({})) as Record<string, string>;
                     if (!viaCepData.erro) {
@@ -1708,14 +1639,8 @@ export async function POST(req: NextRequest) {
                 })
                 .eq("thread_id", threadId);
 
-            // Busca telefone da thread
-            const { data: threadRow } = await admin
-                .from("whatsapp_threads")
-                .select("phone_e164")
-                .eq("id", threadId)
-                .maybeSingle();
-
-            const phoneE164 = threadRow?.phone_e164 ?? null;
+            // Usa telefone pré-carregado em paralelo com channels
+            const phoneE164 = earlyThreadPhone;
 
             // ──────────────────────────────────────────────────────────────────
             // CAMINHO CATÁLOGO: cria pedido diretamente (o Flow já confirmou tudo)

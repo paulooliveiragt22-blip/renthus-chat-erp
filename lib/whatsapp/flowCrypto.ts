@@ -15,12 +15,26 @@
  * Variável de ambiente: WHATSAPP_FLOWS_PRIVATE_KEY (RSA PEM, PKCS#8)
  */
 
-import { createDecipheriv, createCipheriv, createPrivateKey, privateDecrypt, constants } from "crypto";
+import { createDecipheriv, createCipheriv, createPrivateKey, privateDecrypt, constants, KeyObject } from "crypto";
 
 export interface FlowDecryptResult {
     body:   Record<string, unknown>;
     aesKey: Buffer;
     iv:     Buffer;
+}
+
+// Cache da chave RSA parseada — evita re-parse a cada requisição no mesmo Lambda
+let _cachedPrivateKey: KeyObject | null = null;
+let _cachedPrivateKeyPem = "";
+
+function getPrivateKey(privateKeyPem: string): KeyObject {
+    if (_cachedPrivateKey && _cachedPrivateKeyPem === privateKeyPem) {
+        return _cachedPrivateKey;
+    }
+    const normalized = privateKeyPem.replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+    _cachedPrivateKey    = createPrivateKey(normalized);
+    _cachedPrivateKeyPem = privateKeyPem;
+    return _cachedPrivateKey;
 }
 
 export function decryptFlowRequest(
@@ -29,13 +43,10 @@ export function decryptFlowRequest(
     initialVector:     string,
     privateKeyPem:     string
 ): FlowDecryptResult {
-    // Normaliza quebras de linha (Vercel pode armazenar \r\n ou \\n literais)
-    const normalizedKey = privateKeyPem.replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
-
     // Etapa 1: decripta a AES key usando RSA-OAEP SHA-256
     const aesKey = privateDecrypt(
         {
-            key:      createPrivateKey(normalizedKey),
+            key:      getPrivateKey(privateKeyPem),
             padding:  constants.RSA_PKCS1_OAEP_PADDING,
             oaepHash: "sha256",
         },
