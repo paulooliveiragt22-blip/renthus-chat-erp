@@ -99,12 +99,7 @@ export default function HeaderClient({
 
     function goToSettings() {
         setMenuOpen(false);
-        router.push("/settings");
-    }
-
-    function goToUpgrade() {
-        setMenuOpen(false);
-        router.push("/billing/upgrade");
+        router.push("/configuracoes");
     }
 
     // Não renderiza o header em páginas standalone
@@ -262,22 +257,6 @@ export default function HeaderClient({
                             }}
                         >
                             Configurações
-                        </button>
-
-                        <button
-                            onClick={goToUpgrade}
-                            style={{
-                                textAlign: "left",
-                                padding: "8px 10px",
-                                borderRadius: 6,
-                                border: "1px solid " + ORANGE,
-                                background: ORANGE,
-                                color: "#fff",
-                                cursor: "pointer",
-                                fontWeight: 900,
-                            }}
-                        >
-                            Upgrade
                         </button>
 
                         <button

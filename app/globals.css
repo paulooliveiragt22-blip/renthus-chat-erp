@@ -77,6 +77,15 @@ body {
   background-color: var(--background);
 }
 
+/* ── Scrollbar invisível (scroll funciona, barra não aparece) ─────────────── */
+.scrollbar-hide {
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE / Edge legado */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;                /* Chrome / Safari / Opera */
+}
+
 /* ── Fila — Animações dos cards de pedido ─────────────────────────────────── */
 @keyframes filaSlideIn {
   from { opacity: 0; transform: translateY(20px) scale(0.97); }

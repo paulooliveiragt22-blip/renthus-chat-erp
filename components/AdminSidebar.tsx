@@ -111,7 +111,7 @@ export default function AdminSidebar({
       </div>
 
       {/* ── Navegação ───────────────────────────────────────────────────────── */}
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-4">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto scrollbar-hide px-2 py-4">
         {adminMenu.map((item) => {
           const Icon   = item.icon;
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
