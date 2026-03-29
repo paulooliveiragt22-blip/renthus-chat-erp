@@ -200,6 +200,10 @@ export default function PedidosPage() {
     const [viewLoading, setViewLoading] = useState(false);
     const [viewOrder,   setViewOrder]   = useState<OrderFull | null>(null);
 
+    // ── reprint ───────────────────────────────────────────────────────────────
+    const [reprintLoading, setReprintLoading] = useState(false);
+    const [reprintMsg,     setReprintMsg]     = useState<{ ok: boolean; text: string } | null>(null);
+
     // ── action modal ──────────────────────────────────────────────────────────
     const [openAction,    setOpenAction]    = useState(false);
     const [actionKind,       setActionKind]       = useState<ActionKind>("cancel");
@@ -992,6 +996,27 @@ export default function PedidosPage() {
         w.document.close();
     }
 
+    // ── reprint via agente ────────────────────────────────────────────────────
+    async function reprintOrder(orderId: string) {
+        setReprintLoading(true);
+        setReprintMsg(null);
+        try {
+            const res  = await fetch("/api/agent/reprint", {
+                method:  "POST",
+                headers: { "Content-Type": "application/json" },
+                body:    JSON.stringify({ order_id: orderId }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error ?? "Erro desconhecido");
+            setReprintMsg({ ok: true, text: "Pedido enviado para impressão!" });
+        } catch (e: unknown) {
+            setReprintMsg({ ok: false, text: "Erro: " + String((e as Error)?.message ?? e) });
+        } finally {
+            setReprintLoading(false);
+            setTimeout(() => setReprintMsg(null), 5000);
+        }
+    }
+
     // ── computed ──────────────────────────────────────────────────────────────
     const stats = useMemo(() => {
         const by = { new: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
@@ -1495,6 +1520,9 @@ export default function PedidosPage() {
                 loading={viewLoading}
                 order={viewOrder}
                 onPrint={() => viewOrder ? printOrder(viewOrder.id) : undefined}
+                onReprint={() => viewOrder ? reprintOrder(viewOrder.id) : undefined}
+                reprintLoading={reprintLoading}
+                reprintMsg={reprintMsg}
                 onEdit={() => viewOrder ? openEditOrder(viewOrder.id) : undefined}
                 onAction={(k) => viewOrder ? openActionModal(k, viewOrder.id) : undefined}
                 canCancel={viewOrder ? canCancel(String((viewOrder as any).status)) : false}

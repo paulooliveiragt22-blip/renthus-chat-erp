@@ -124,6 +124,9 @@ export default function ViewOrderModal({
     loading,
     order,
     onPrint,
+    onReprint,
+    reprintLoading,
+    reprintMsg,
     onEdit,
     onAction,
     canCancel,
@@ -140,6 +143,9 @@ export default function ViewOrderModal({
     loading: boolean;
     order: OrderFull | null;
     onPrint: () => void;
+    onReprint?: () => void;
+    reprintLoading?: boolean;
+    reprintMsg?: { ok: boolean; text: string } | null;
     onEdit: () => void;
     onAction: (kind: "cancel" | "deliver" | "finalize") => void;
     canCancel: boolean;
@@ -182,6 +188,17 @@ export default function ViewOrderModal({
                             <Printer className="h-3.5 w-3.5" />
                             Imprimir
                         </button>
+
+                        {onReprint && (
+                            <button
+                                onClick={onReprint}
+                                disabled={reprintLoading}
+                                className="flex items-center gap-1.5 rounded-lg border border-orange-300 dark:border-orange-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-orange-600 dark:text-orange-400 shadow-sm hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors"
+                            >
+                                <Printer className="h-3.5 w-3.5" />
+                                {reprintLoading ? "Enviando..." : "Reimprimir"}
+                            </button>
+                        )}
 
                         {canEdit && (
                             <button
@@ -248,6 +265,17 @@ export default function ViewOrderModal({
                             </button>
                         )}
                     </div>
+
+                    {/* ── FEEDBACK REIMPRIMIR ── */}
+                    {reprintMsg && (
+                        <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${
+                            reprintMsg.ok
+                                ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                                : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800"
+                        }`}>
+                            {reprintMsg.text}
+                        </div>
+                    )}
 
                     {/* ── STATUS + CLIENTE ── */}
                     <div className="relative rounded-xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4">
