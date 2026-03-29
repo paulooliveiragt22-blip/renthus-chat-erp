@@ -312,7 +312,7 @@ export async function POST(req: NextRequest) {
             categoryName?: string | null;
             search?:       string | null;
         }): Promise<Array<Record<string, unknown>>> {
-            const selectFields = "id, product_name, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, sigla_comercial, thumbnail_url, image_url";
+            const selectFields = "id, product_name, descricao, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, sigla_comercial, thumbnail_url, image_url";
 
             if (opts.search) {
                 const { data } = await admin
@@ -349,17 +349,21 @@ export async function POST(req: NextRequest) {
 
         function buildProductItems(rows: any[]): Array<Record<string, unknown>> {
             return rows.map((p: any) => {
-                const sigla = String(p.sigla_comercial ?? "").toUpperCase();
-                const fator = p.fator_conversao;
-                const vol   = p.volume_quantidade;
-                const unit  = p.unit_type_sigla ?? "";
+                const sigla    = String(p.sigla_comercial ?? "").toUpperCase();
+                const fator    = Number(p.fator_conversao ?? 0);
+                const vol      = Number(p.volume_quantidade ?? 0);
+                const unit     = String(p.unit_type_sigla ?? "").trim();
+                const descricao = String(p.descricao ?? "").trim();
 
-                // Embalagem: "CX - 12" para caixas/fardos, "600ml" para unidades com volume
+                // Monta: "LONG NECK 330ml" para UN, "LONG NECK 330ml CX C/6UN" para não-UN
+                const volPart  = vol > 0 && unit ? `${vol}${unit}` : "";
+                const detail   = [descricao, volPart].filter(Boolean).join(" ");
                 let packStr = "";
-                if (sigla && sigla !== "UN" && fator && fator > 1) {
-                    packStr = `${sigla} - ${fator}`;
-                } else if (vol && vol > 0 && unit) {
-                    packStr = `${vol}${unit}`;
+                if (sigla && sigla !== "UN") {
+                    const fatorPart = fator > 1 ? ` C/${fator}UN` : "";
+                    packStr = `${detail} ${sigla}${fatorPart}`.trim();
+                } else {
+                    packStr = detail;
                 }
 
                 const price = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`;
@@ -632,7 +636,8 @@ export async function POST(req: NextRequest) {
                         fator_conversao,
                         id_sigla_comercial,
                         siglas_comerciais ( sigla ),
-                        products!inner ( name, is_active )
+                        products!inner ( name, is_active ),
+                        product_volumes ( volume_quantidade, unit_types ( sigla ) )
                     `)
                     .in("id", selectedIds)
                     .eq("company_id", companyId)
@@ -674,14 +679,25 @@ export async function POST(req: NextRequest) {
                 }).slice(0, 5) as any[];
 
                 const formatSlotName = (p: any): string => {
-                    const sigla = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
-                    const name  = String(p.products.name ?? "").toUpperCase();
-                    const price = formatCurrency(parseFloat(p.preco_venda) || 0);
-                    const fator = p.fator_conversao;
-                    const prefix = sigla && sigla !== "UN"
-                        ? (fator && fator > 1 ? `${sigla} - ${fator} • ` : `${sigla} • `)
-                        : "";
-                    return `${prefix}${name} — ${price}`;
+                    const sigla    = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
+                    const name     = String(p.products.name ?? "").toUpperCase();
+                    const price    = formatCurrency(parseFloat(p.preco_venda) || 0);
+                    const fator    = Number(p.fator_conversao ?? 0);
+                    const descr    = String(p.descricao ?? "").trim();
+                    const vol      = Number(p.product_volumes?.volume_quantidade ?? 0);
+                    const unitSig  = String(p.product_volumes?.unit_types?.sigla ?? "").trim();
+                    const volPart  = vol > 0 && unitSig ? `${vol}${unitSig}` : "";
+                    const detail   = [descr, volPart].filter(Boolean).join(" ");
+
+                    let embStr = "";
+                    if (sigla && sigla !== "UN") {
+                        const fatorPart = fator > 1 ? ` C/${fator}UN` : "";
+                        embStr = `${detail} ${sigla}${fatorPart}`.trim();
+                    } else {
+                        embStr = detail;
+                    }
+
+                    return `${name} — ${embStr ? `${embStr} — ` : ""}${price}`;
                 };
 
                 // Salva IDs na ordem ordenada no contexto da sessão
