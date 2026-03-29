@@ -163,7 +163,7 @@ export default function ViewOrderModal({
             {loading ? (
                 <div className="flex flex-col gap-3 py-6">
                     {Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="h-4 w-full animate-pulse rounded bg-zinc-100" />
+                        <div key={i} className="h-4 w-full animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
                     ))}
                 </div>
             ) : !order ? (
@@ -314,7 +314,7 @@ export default function ViewOrderModal({
                     ) : null}
 
                     {/* ── ITENS ── */}
-                    <div className="overflow-hidden rounded-xl border border-zinc-100 dark:border-zinc-800">
+                    <div className="overflow-hidden rounded-xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
                         <div className="bg-zinc-50 dark:bg-zinc-800/60 px-4 py-2.5">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Itens do pedido</p>
                         </div>

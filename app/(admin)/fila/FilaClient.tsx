@@ -15,6 +15,35 @@ interface OrderItem {
   quantity: number;
   unit_price: number;
   line_total: number | null;
+  produto_embalagem_id?: string | null;
+  _emb?: any;
+}
+
+function getItemInfo(it: OrderItem) {
+  const emb = it._emb ?? null;
+  if (emb) {
+    const prodName  = String(emb.product_name ?? "").toUpperCase().trim();
+    const sigla     = String(emb.sigla_comercial ?? "UN").toUpperCase();
+    const descricao = (emb.descricao ?? "").trim();
+    const volStr    = (emb.volume_formatado ?? "").trim();
+    const fator     = Number(emb.fator_conversao) || null;
+    const unitLabel = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
+    let detail = [descricao, volStr].filter(Boolean).join(" ");
+    if (sigla !== "UN") {
+      const fatorPart = fator && fator > 1 ? ` C/${fator}UN` : "";
+      detail = [detail, `${sigla}${fatorPart}`].filter(Boolean).join(" ");
+    }
+    return {
+      productName: prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
+      detail: detail || prodName || "Item",
+      unitLabel,
+    };
+  }
+  const raw    = String(it.product_name ?? "PRODUTO");
+  const bIdx   = raw.indexOf(" • ");
+  const pName  = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
+  const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
+  return { productName: pName, detail, unitLabel: "un" };
 }
 
 interface PendingOrder {
@@ -89,7 +118,7 @@ export default function FilaClient() {
         id, customer_id, customer_phone, delivery_address, payment_method,
         total, total_amount, delivery_fee, change_for, created_at,
         customers ( name, phone ),
-        order_items ( product_name, quantity, unit_price, line_total )
+        order_items ( product_name, quantity, unit_price, line_total, produto_embalagem_id )
       `)
       .eq("company_id", companyId)
       .eq("confirmation_status", "pending_confirmation")
@@ -98,7 +127,27 @@ export default function FilaClient() {
 
     if (error) { console.error("[Fila] fetch error:", error); setLoading(false); return; }
 
-    const next = (data ?? []) as unknown as PendingOrder[];
+    const rawOrders = (data ?? []) as unknown as PendingOrder[];
+
+    // Enriquece itens com dados de embalagem via view_pdv_produtos
+    const allEmbIds = [...new Set(
+      rawOrders.flatMap(o => o.order_items.map((i: any) => i.produto_embalagem_id).filter(Boolean))
+    )];
+    let embMap = new Map<string, any>();
+    if (allEmbIds.length > 0) {
+      const { data: embs } = await supabase
+        .from("view_pdv_produtos")
+        .select("id, product_name, descricao, sigla_comercial, volume_formatado, fator_conversao")
+        .in("id", allEmbIds);
+      if (embs) embMap = new Map((embs as any[]).map(e => [e.id, e]));
+    }
+    const next = rawOrders.map(o => ({
+      ...o,
+      order_items: o.order_items.map((i: any) => ({
+        ...i,
+        _emb: embMap.get(i.produto_embalagem_id) ?? null,
+      })),
+    })) as unknown as PendingOrder[];
 
     if (prevCountRef.current > 0 && next.length > prevCountRef.current) {
       playBeep();
@@ -367,30 +416,27 @@ export default function FilaClient() {
                   </div>
                 )}
 
-                {/* Itens — agrupados por produto */}
+                {/* Itens — agrupados por produto (padrão hierarquia UI) */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Itens</p>
                   {(() => {
-                    const groups = new Map<string, typeof items>();
+                    const groups = new Map<string, { it: OrderItem; info: ReturnType<typeof getItemInfo> }[]>();
                     for (const it of items) {
-                      const raw   = String(it.product_name ?? "");
-                      const bIdx  = raw.indexOf(" • ");
-                      const pName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
-                      if (!groups.has(pName)) groups.set(pName, []);
-                      groups.get(pName)!.push(it);
+                      const info = getItemInfo(it);
+                      if (!groups.has(info.productName)) groups.set(info.productName, []);
+                      groups.get(info.productName)!.push({ it, info });
                     }
                     return Array.from(groups.entries()).map(([pName, grpItems]) => (
                       <div key={pName} className="mb-1">
+                        {/* Nível 1 — PRODUCTS.NAME */}
                         <p className="text-[11px] font-bold text-gray-800 dark:text-gray-100 leading-tight">{pName}</p>
-                        {grpItems.map((it, i) => {
-                          const raw    = String(it.product_name ?? "");
-                          const bIdx   = raw.indexOf(" • ");
-                          const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : "";
-                          const q      = Number(it.quantity ?? 1);
-                          const tot    = Number(it.line_total ?? it.unit_price * q);
+                        {/* Nível 2 — embalagem */}
+                        {grpItems.map(({ it, info }, i) => {
+                          const q   = Number(it.quantity ?? 1);
+                          const tot = Number(it.line_total ?? it.unit_price * q);
                           return (
-                            <div key={i} className="flex items-center justify-between gap-2 pl-2 text-[11px] text-gray-600 dark:text-gray-400">
-                              <span className="truncate">{detail || raw} · <b className="text-gray-700 dark:text-gray-300">{q}×</b></span>
+                            <div key={i} className="flex items-center justify-between gap-2 pl-2 text-[11px] text-gray-500 dark:text-gray-400">
+                              <span className="truncate">{info.detail} · <b className="text-gray-700 dark:text-gray-300">{q} {info.unitLabel}</b></span>
                               <span className="shrink-0 font-medium">R$ {tot.toFixed(2)}</span>
                             </div>
                           );

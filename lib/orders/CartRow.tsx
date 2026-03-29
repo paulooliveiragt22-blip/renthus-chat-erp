@@ -17,15 +17,24 @@ export default function CartRow({
     onRemove: () => void;
 }) {
     const { title, sub } = buildVariantTexts(item.variant);
+    // Nível 2: remove separador "•" para ficar "descricao volume" em vez de "descricao • volume"
+    const detailLine = sub ? sub.replace(/ • /g, " ") : null;
 
     return (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-800/50">
             <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-50">
-                    {title} — <span className="text-zinc-500">{item.mode === "unit" ? "Un" : "Cx"}</span>
+                {/* Nível 1 — PRODUCTS.NAME + modo */}
+                <div className="flex items-center gap-1.5">
+                    <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-50 uppercase">
+                        {title}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700 px-1.5 py-px text-[9px] font-bold text-zinc-600 dark:text-zinc-300">
+                        {item.mode === "unit" ? "UN" : "CX"}
+                    </span>
                 </div>
-                {sub && (
-                    <div className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{sub}</div>
+                {/* Nível 2 — embalagem */}
+                {detailLine && (
+                    <div className="truncate text-[11px] text-zinc-500 dark:text-zinc-400 pl-0.5">{detailLine}</div>
                 )}
                 <div className="mt-1 text-[11px] text-zinc-700 dark:text-zinc-300">
                     <span className="font-bold">{item.qty}</span>
