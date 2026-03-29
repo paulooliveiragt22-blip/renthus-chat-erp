@@ -782,46 +782,40 @@ export async function POST(req: NextRequest) {
                 const existingCtx      = sessionCtx;
                 const accumulatedForQty = (existingCtx.accumulated_cart as CartItem[] | undefined) ?? [];
 
-                // Salva IDs na ordem ordenada no contexto da sessão (preservando accumulated_cart)
-                await admin
-                    .from("chatbot_sessions")
-                    .update({
-                        step:    "awaiting_flow",
-                        context: {
-                            ...existingCtx,
-                            source:              "flow_catalog",
-                            pending_product_ids: sorted.map((p) => p.id),
-                            pending_prices:      sorted.map((p) => parseFloat(p.preco_venda) || 0),
-                            pending_names:       sorted.map((p) =>
-                                String(p.products.name ?? "").toUpperCase()
-                            ),
-                        },
-                    })
-                    .eq("thread_id", threadId)
-                    .eq("company_id", companyId);
+                // Contexto completo com pending_ids + catalog_screen numa única escrita
+                const quantitiesCtx = {
+                    ...existingCtx,
+                    source:              "flow_catalog",
+                    pending_product_ids: sorted.map((p) => p.id),
+                    pending_prices:      sorted.map((p) => parseFloat(p.preco_venda) || 0),
+                    pending_names:       sorted.map((p) => String(p.products.name ?? "").toUpperCase()),
+                    catalog_screen:      "QUANTITIES",
+                };
 
-                // Busca endereços salvos do cliente — usa customer_id já carregado na sessão
+                // Busca endereços salvos em paralelo com a escrita da sessão
                 const sessionCustomerId = sessionForScreen?.customer_id as string | undefined;
                 type SavedAddr = { id: string; title: string; description: string };
-                let savedAddresses: SavedAddr[] = [];
-                if (sessionCustomerId) {
-                    const { data: addrs } = await admin
-                        .from("enderecos_cliente")
-                        .select("id, apelido, logradouro, numero, bairro")
-                        .eq("customer_id", sessionCustomerId)
-                        .eq("company_id", companyId)
-                        .order("is_principal", { ascending: false })
-                        .limit(5);
-                    if (addrs?.length) {
-                        savedAddresses = addrs.map((a: any) => ({
-                            id:          a.id,
-                            title:       a.apelido,
-                            description: [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", "),
-                        }));
-                    }
-                }
+                const [, addrsRes] = await Promise.all([
+                    admin
+                        .from("chatbot_sessions")
+                        .update({ step: "awaiting_flow", context: quantitiesCtx })
+                        .eq("thread_id", threadId),
+                    sessionCustomerId
+                        ? admin
+                            .from("enderecos_cliente")
+                            .select("id, apelido, logradouro, numero, bairro")
+                            .eq("customer_id", sessionCustomerId)
+                            .eq("company_id", companyId)
+                            .order("is_principal", { ascending: false })
+                            .limit(5)
+                        : Promise.resolve({ data: null }),
+                ]);
 
-                await saveCatalogScreen("QUANTITIES", { ...existingCtx, catalog_screen: "QUANTITIES" });
+                const savedAddresses: SavedAddr[] = ((addrsRes as any).data ?? []).map((a: any) => ({
+                    id:          a.id,
+                    title:       a.apelido,
+                    description: [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", "),
+                }));
                 return encryptedOk(
                     {
                         version: "3.0",
