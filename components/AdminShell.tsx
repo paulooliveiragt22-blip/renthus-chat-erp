@@ -137,7 +137,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                         onToggleCollapse={() => setCollapsed((c) => !c)}
                     />
 
-                    <main className="flex flex-1 flex-col overflow-y-auto bg-zinc-100 transition-colors duration-300 dark:bg-zinc-950">
+                    <main className="relative flex flex-1 flex-col overflow-y-auto bg-zinc-100 transition-colors duration-300 dark:bg-zinc-950">
                         <div className="mx-auto w-full max-w-screen-2xl px-3 py-3 md:px-5 md:py-4">
                             {children}
                         </div>

@@ -747,7 +747,7 @@ export default function PDVPage() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     /* Root: full viewport, dark mode ativado */
-    <div className="dark fixed inset-0 left-60 flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
+    <div className="dark absolute inset-0 flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
 
       {/* ── Caixa status bar ──────────────────────────────────────────── */}
       {!caixaLoading && (
