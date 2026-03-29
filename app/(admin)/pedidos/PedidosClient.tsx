@@ -906,6 +906,19 @@ export default function PedidosPage() {
             setMsg(null);
             const res = await fetch("/api/whatsapp/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to_phone_e164: phone, kind: "text", text }) });
             if (!res.ok) { const d = await res.json().catch(() => ({})); setMsg(`Erro WhatsApp: ${d?.error || res.statusText}`); return; }
+
+            // Atualiza status do pedido para "delivered" ao marcar saiu pra entrega
+            if (kind === "out_for_delivery") {
+                await supabase
+                    .from("orders")
+                    .update({ status: "delivered" })
+                    .eq("id", ord.id);
+                // Atualiza o modal e a lista
+                const updated = await fetchOrderFull(ord.id);
+                if (updated) setViewOrder(updated);
+                await loadOrders();
+            }
+
             setMsg("✅ Mensagem enviada no WhatsApp.");
         } catch (err: any) {
             setMsg(`Erro WhatsApp: ${String(err?.message ?? err)}`);
@@ -1146,7 +1159,7 @@ export default function PedidosPage() {
                         <div>
                             <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Em entrega</p>
                             <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{summary.entregaQtd}</p>
-                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Pedidos entregues</p>
+                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Saíram pra entrega</p>
                         </div>
                         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-50 dark:bg-sky-500/10">
                             <Bike className="h-4 w-4 text-sky-600 dark:text-sky-400" />

@@ -19,7 +19,6 @@ import {
     User,
     XCircle,
     CheckCircle2,
-    PackageCheck,
 } from "lucide-react";
 
 // ── paletas de status ─────────────────────────────────────────────────────────
@@ -211,16 +210,6 @@ export default function ViewOrderModal({
                         )}
 
                         {/* Ações semânticas */}
-                        {canDeliver && (
-                            <button
-                                onClick={() => onAction("deliver")}
-                                className="flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
-                            >
-                                <PackageCheck className="h-3.5 w-3.5" />
-                                Marcar entregue
-                            </button>
-                        )}
-
                         {canFinalize && (
                             <button
                                 onClick={() => onAction("finalize")}
