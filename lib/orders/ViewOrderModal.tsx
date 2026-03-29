@@ -83,15 +83,31 @@ function PaymentBlock({
     );
 }
 
-// ── helper de qty ─────────────────────────────────────────────────────────────
-function qtyDisplay(it: any): string {
-    const q  = Number(it.quantity ?? it.qty ?? 0);
-    const ut = String(it.unit_type ?? "").toLowerCase();
-    if (ut === "unit") return `${q} ${q > 1 ? "unidades" : "unidade"}`;
-    if (ut === "case") {
-        return `cx × ${q}`;
+// ── extrai info estruturada do item (mesma lógica do ticket.js / printOrder) ──
+function getItemInfo(it: any) {
+    const emb = (it as any)._emb ?? null;
+    if (emb) {
+        const prodName     = String(emb.product_name ?? "").toUpperCase().trim();
+        const sigla        = String(emb.sigla_comercial ?? "UN").toUpperCase();
+        const descricao    = (emb.descricao ?? "").trim();
+        const volStr       = (emb.volume_formatado ?? "").trim();
+        const fator        = Number(emb.fator_conversao) || null;
+        const siglaHuman   = sigla === "CX" ? "Caixa" : sigla === "FARD" ? "Fardo" : sigla === "PAC" ? "Pacote" : sigla;
+        const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
+        const detail       = [detailPrefix, volStr].filter(Boolean).join(" ");
+        const unitLabel    = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
+        return {
+            productName: prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
+            detail: detail || prodName || "Item",
+            unitLabel,
+            fator: sigla === "CX" && fator && fator > 1 ? fator : null,
+        };
     }
-    return `${q}`;
+    const raw      = String(it.product_name ?? "PRODUTO");
+    const bIdx     = raw.indexOf(" • ");
+    const prodName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
+    const detail   = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
+    return { productName: prodName, detail, unitLabel: it.unit_type === "case" ? "cx" : "un", fator: null };
 }
 
 // ── componente principal ──────────────────────────────────────────────────────
@@ -298,39 +314,49 @@ export default function ViewOrderModal({
 
                         {order.items.length === 0 ? (
                             <p className="px-4 py-6 text-center text-sm text-zinc-400">Sem itens.</p>
-                        ) : (
-                            <div className="divide-y divide-zinc-100">
-                                {order.items.map((it) => {
-                                    const q     = Number(it.quantity ?? it.qty ?? 0);
-                                    const price = Number(it.unit_price ?? 0);
-                                    const total = Number(it.line_total ?? q * price);
-
-                                    return (
-                                        <div key={it.id} className="flex items-center gap-3 px-4 py-3">
-                                            {/* Qty pill */}
-                                            <span className="inline-flex min-w-[3rem] items-center justify-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">
-                                                {qtyDisplay(it)}
-                                            </span>
-
-                                            {/* Nome */}
-                                            <span className="flex-1 text-sm font-medium text-zinc-900">
-                                                {it.product_name ?? "Item"}
-                                            </span>
-
-                                            {/* Unitário */}
-                                            <span className="text-xs text-zinc-400">
-                                                R$ {formatBRL(price)} un.
-                                            </span>
-
-                                            {/* Subtotal */}
-                                            <span className="w-24 text-right text-sm font-bold text-zinc-900">
-                                                R$ {formatBRL(total)}
-                                            </span>
+                        ) : (() => {
+                            // Agrupa por produto
+                            const groups = new Map<string, { it: any; info: ReturnType<typeof getItemInfo> }[]>();
+                            for (const it of order.items) {
+                                const info = getItemInfo(it);
+                                if (!groups.has(info.productName)) groups.set(info.productName, []);
+                                groups.get(info.productName)!.push({ it, info });
+                            }
+                            return (
+                                <div className="divide-y divide-zinc-100">
+                                    {Array.from(groups.entries()).map(([productName, entries]) => (
+                                        <div key={productName}>
+                                            {/* Nome do produto */}
+                                            <div className="bg-zinc-50/60 px-4 py-1.5">
+                                                <span className="text-sm font-bold text-zinc-900">{productName}</span>
+                                            </div>
+                                            {/* Embalagens */}
+                                            {entries.map(({ it, info }) => {
+                                                const q     = Number((it as any).quantity ?? (it as any).qty ?? 0);
+                                                const price = Number((it as any).unit_price ?? 0);
+                                                const total = Number((it as any).line_total ?? q * price);
+                                                const fatorStr = info.fator ? ` c/${info.fator}` : "";
+                                                const qtyLabel = `${q} ${info.unitLabel}${fatorStr}`;
+                                                return (
+                                                    <div key={(it as any).id} className="flex items-center gap-3 px-4 py-2 pl-8">
+                                                        {/* Embalagem detail */}
+                                                        <span className="flex-1 text-xs text-zinc-500">{info.detail}</span>
+                                                        {/* Qty pill */}
+                                                        <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">
+                                                            {qtyLabel}
+                                                        </span>
+                                                        {/* Total */}
+                                                        <span className="w-20 text-right text-sm font-bold text-zinc-900">
+                                                            R$ {formatBRL(total)}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                                    ))}
+                                </div>
+                            );
+                        })()}
                     </div>
 
                     {/* ── TOTAL FOOTER ── */}
