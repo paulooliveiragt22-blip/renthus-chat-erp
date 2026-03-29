@@ -762,25 +762,32 @@ export default function PedidosPage() {
         const feeVal = Number((full as any).delivery_fee ?? 0);
         setEditDeliveryFeeEnabled(feeVal > 0);
         setEditDeliveryFee(formatBRL(feeVal));
-        const mapped: CartItem[] = ((full as any).items ?? []).map((it: any) => ({
-            variant: {
-                id: it.produto_embalagem_id ?? `legacy-${it.id}`,
-                unit_price: Number(it.unit_price ?? 0),
-                has_case: false,
-                case_price: null,
-                case_qty: null,
-                unit: it.unit_type ?? "none",
-                volume_value: null,
-                details: it.product_name ?? null,
-                is_active: true,
-                unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
-                case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
-                products: { categories: { name: "" } },
-            } as Variant,
-            qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
-            price: Number(it.unit_price ?? 0),
-            mode: it.unit_type === "case" ? "case" : "unit",
-        }));
+        const mapped: CartItem[] = ((full as any).items ?? []).map((it: any) => {
+            const emb = it._emb;
+            const pName   = emb?.product_name ?? it.product_name ?? null;
+            const details = emb
+                ? [emb.descricao, emb.volume_formatado].filter(Boolean).join(" ") || pName
+                : pName;
+            return {
+                variant: {
+                    id: it.produto_embalagem_id ?? `legacy-${it.id}`,
+                    unit_price: Number(it.unit_price ?? 0),
+                    has_case: false,
+                    case_price: null,
+                    case_qty: null,
+                    unit: it.unit_type ?? "none",
+                    volume_value: null,
+                    details: details ?? null,
+                    is_active: true,
+                    unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
+                    case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
+                    products: { name: pName ?? "", categories: { name: "" } },
+                } as Variant,
+                qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
+                price: Number(it.unit_price ?? 0),
+                mode: it.unit_type === "case" ? "case" : "unit",
+            };
+        });
         setEditDriverId((full as any).driver_id ?? null);
         setEditCart(mapped); setEditQ(""); setEditResults([]); setEditDraftQty({});
         setOpenEdit(true); setEditLoading(false);

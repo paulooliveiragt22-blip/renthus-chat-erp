@@ -89,10 +89,24 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
 
       if (cancelled) return;
 
-      const mappedItems = (Array.isArray(items) ? items : []).map((it: any) => ({
+      const rawItems = Array.isArray(items) ? items : [];
+
+      // Enrich with view_pdv_produtos data
+      const embIds = [...new Set(rawItems.filter((i: any) => i.produto_embalagem_id).map((i: any) => i.produto_embalagem_id))];
+      let embMap = new Map<string, any>();
+      if (embIds.length > 0) {
+        const { data: embs } = await supabase
+          .from("view_pdv_produtos")
+          .select("id, product_name, descricao, volume_formatado")
+          .in("id", embIds);
+        if (embs) embMap = new Map((embs as any[]).map((e) => [e.id, e]));
+      }
+
+      const mappedItems = rawItems.map((it: any) => ({
         ...it,
         qty: it?.qty ?? it?.quantity ?? 0,
         quantity: it?.quantity ?? it?.qty ?? 0,
+        _emb: embMap.get(it.produto_embalagem_id) || null,
       }));
 
       const full = { ...(ord as any), items: mappedItems } as OrderFull;
@@ -110,25 +124,32 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
       setDeliveryFee(formatBRL(feeVal));
       setDriverId((ord as any).driver_id ?? null);
 
-      const mapped: CartItem[] = mappedItems.map((it: any) => ({
-        variant: {
-          id: it.produto_embalagem_id ?? `legacy-${it.id}`,
-          unit_price: Number(it.unit_price ?? 0),
-          has_case: false,
-          case_price: null,
-          case_qty: null,
-          unit: it.unit_type ?? "none",
-          volume_value: null,
-          details: it.product_name ?? null,
-          is_active: true,
-          unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
-          case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
-          products: { categories: { name: "" } },
-        } as Variant,
-        qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
-        price: Number(it.unit_price ?? 0),
-        mode: it.unit_type === "case" ? "case" : "unit",
-      }));
+      const mapped: CartItem[] = mappedItems.map((it: any) => {
+        const emb = it._emb;
+        const pName   = emb?.product_name ?? it.product_name ?? null;
+        const details = emb
+          ? [emb.descricao, emb.volume_formatado].filter(Boolean).join(" ") || pName
+          : pName;
+        return {
+          variant: {
+            id: it.produto_embalagem_id ?? `legacy-${it.id}`,
+            unit_price: Number(it.unit_price ?? 0),
+            has_case: false,
+            case_price: null,
+            case_qty: null,
+            unit: it.unit_type ?? "none",
+            volume_value: null,
+            details: details ?? null,
+            is_active: true,
+            unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
+            case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
+            products: { name: pName ?? "", categories: { name: "" } },
+          } as Variant,
+          qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
+          price: Number(it.unit_price ?? 0),
+          mode: it.unit_type === "case" ? "case" : "unit",
+        };
+      });
       setCart(mapped);
       setLoading(false);
     }
