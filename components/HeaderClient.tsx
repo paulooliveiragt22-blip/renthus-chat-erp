@@ -6,8 +6,19 @@ import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
 import { ORANGE } from "@/lib/orders/helpers";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { Maximize2, Menu, Minimize2 } from "lucide-react";
 
-export default function HeaderClient() {
+interface HeaderClientProps {
+    onOpenMobileMenu?: () => void;
+    isFullscreen?: boolean;
+    onToggleFullscreen?: () => void;
+}
+
+export default function HeaderClient({
+    onOpenMobileMenu,
+    isFullscreen,
+    onToggleFullscreen,
+}: HeaderClientProps = {}) {
     const supabase = createClient();
     const router = useRouter();
     const pathname = usePathname();
@@ -123,14 +134,37 @@ export default function HeaderClient() {
                 alignItems: "center",
             }}
         >
-            {/* esquerda: retângulo para logo Renthus */}
+            {/* esquerda: hamburger (mobile) + logo */}
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {/* Hamburguer — só no mobile */}
+                {onOpenMobileMenu && (
+                    <button
+                        onClick={onOpenMobileMenu}
+                        aria-label="Abrir menu"
+                        className="lg:hidden"
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 36,
+                            height: 36,
+                            borderRadius: 8,
+                            background: "rgba(255,255,255,0.12)",
+                            border: "none",
+                            cursor: "pointer",
+                            color: "#fff",
+                            flexShrink: 0,
+                        }}
+                    >
+                        <Menu size={18} />
+                    </button>
+                )}
                 <a href="/" aria-label="Renthus" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
                     <img
                         src="/assets/renthus-logo.svg"
                         alt="Renthus"
                         style={{
-                            height: 28,        // reduzido (antes 40)
+                            height: 28,
                             width: "auto",
                             display: "block",
                             objectFit: "contain",
@@ -139,12 +173,34 @@ export default function HeaderClient() {
                 </a>
             </div>
 
-            {/* direita: nome da empresa + perfil do usuário */}
+            {/* direita: empresa + fullscreen + avatar */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
-                {/* Nome da empresa (pega do workspace). Se ainda carregando, exibe label genérica. */}
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
                     {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "Renthus Service"}
                 </div>
+
+                {/* Tela cheia */}
+                {onToggleFullscreen && (
+                    <button
+                        onClick={onToggleFullscreen}
+                        title={isFullscreen ? "Sair da tela cheia (F11)" : "Tela cheia (F11)"}
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 36,
+                            height: 36,
+                            borderRadius: 8,
+                            background: "rgba(255,255,255,0.12)",
+                            border: "none",
+                            cursor: "pointer",
+                            color: "#fff",
+                            flexShrink: 0,
+                        }}
+                    >
+                        {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
+                )}
 
                 <button
                     aria-haspopup="true"

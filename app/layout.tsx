@@ -2,7 +2,6 @@
 import "./globals.css";
 import React, { Suspense } from "react";
 import AdminShell from "@/components/AdminShell";
-import HeaderClient from "@/components/HeaderClient";
 import ThemeProvider from "@/components/ThemeProvider";
 import { Providers } from "@/components/Providers";
 
@@ -37,9 +36,6 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <Providers>
-            {/* Header (client) — o componente HeaderClient decide se mostra ou não */}
-            <HeaderClient />
-
             {/* Suspense aqui evita o erro "useSearchParams() should be wrapped in a suspense boundary" */}
             <Suspense fallback={<div />}>
               <AdminShell>{children}</AdminShell>
