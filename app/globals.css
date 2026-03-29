@@ -19,11 +19,17 @@
 
 /* ── Design Tokens — Dark Mode ───────────────────────────────────────────── */
 .dark {
-  --background:      #09090b;  /* zinc-950 — fundo escuro                       */
-  --background-card: #18181b;  /* zinc-900 — cards escuros                      */
-  --foreground:      #fafafa;  /* zinc-50  — texto claro                        */
-  --foreground-muted:#a1a1aa;  /* zinc-400 — texto secundário                   */
-  --border:          #27272a;  /* zinc-800 — bordas escuras                     */
+  --background:      #1a1a1a;  /* fundo base escuro                             */
+  --background-card: #333333;  /* cards e elementos                             */
+  --foreground:      #fafafa;  /* texto claro                                   */
+  --foreground-muted:#a1a1aa;  /* texto secundário                              */
+  --border:          #3a3a3a;  /* bordas escuras                                */
+
+  /* Remap Tailwind zinc scale para o novo paleta escuro */
+  --color-zinc-950: #1a1a1a;
+  --color-zinc-900: #222222;
+  --color-zinc-800: #333333;
+  --color-zinc-700: #3f3f3f;
 }
 
 @theme inline {
