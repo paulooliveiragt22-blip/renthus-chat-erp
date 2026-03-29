@@ -5,7 +5,7 @@
     "CATEGORIES":        ["PRODUCTS"],
     "PRODUCTS":          ["QUANTITIES"],
     "QUANTITIES":        ["CEP_SEARCH", "CATEGORIES_RETURN"],
-    "CATEGORIES_RETURN": ["PRODUCTS"],
+    "CATEGORIES_RETURN": ["PRODUCTS", "CEP_SEARCH"],
     "CEP_SEARCH":        ["ADDRESS", "PAYMENT"],
     "ADDRESS":           ["PAYMENT"],
     "PAYMENT":           ["SUCCESS"]
@@ -142,13 +142,23 @@
                 "data-source": "${data.categories}"
               },
               {
+                "type": "CheckboxGroup",
+                "name": "finalize_order",
+                "label": "Ou finalize o pedido:",
+                "required": false,
+                "data-source": [
+                  { "id": "finalize", "title": "✅ Finalizar pedido (ir para endereço)" }
+                ]
+              },
+              {
                 "type": "Footer",
-                "label": "Ver produtos →",
+                "label": "Continuar →",
                 "on-click-action": {
                   "name": "data_exchange",
                   "payload": {
-                    "search_all":  "${form.search_all}",
-                    "category_id": "${form.category_id}"
+                    "search_all":    "${form.search_all}",
+                    "category_id":   "${form.category_id}",
+                    "finalize_order": "${form.finalize_order}"
                   }
                 }
               }
@@ -356,10 +366,13 @@
                 ]
               },
               {
-                "type": "OptIn",
+                "type": "CheckboxGroup",
                 "name": "add_more_products",
-                "label": "➕ Adicionar mais produtos ao pedido",
-                "required": false
+                "label": "Deseja adicionar mais itens?",
+                "required": false,
+                "data-source": [
+                  { "id": "add_more", "title": "➕ Adicionar mais produtos ao pedido" }
+                ]
               },
               {
                 "type": "Footer",
@@ -367,12 +380,12 @@
                 "on-click-action": {
                   "name": "data_exchange",
                   "payload": {
-                    "qty_1":              "${form.qty_1}",
-                    "qty_2":              "${form.qty_2}",
-                    "qty_3":              "${form.qty_3}",
-                    "qty_4":              "${form.qty_4}",
-                    "qty_5":              "${form.qty_5}",
-                    "add_more_products":  "${form.add_more_products}"
+                    "qty_1":             "${form.qty_1}",
+                    "qty_2":             "${form.qty_2}",
+                    "qty_3":             "${form.qty_3}",
+                    "qty_4":             "${form.qty_4}",
+                    "qty_5":             "${form.qty_5}",
+                    "add_more_products": "${form.add_more_products}"
                   }
                 }
               }

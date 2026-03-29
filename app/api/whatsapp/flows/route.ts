@@ -52,6 +52,7 @@ function inferCatalogScreen(data: Record<string, unknown> | undefined): string {
     if ("cep" in data || "selected_address_id" in data) return "CEP_SEARCH";
     if ("qty_1" in data) return "QUANTITIES";
     if ("selected_products" in data || "search_filter" in data || "category_id_cache" in data) return "PRODUCTS";
+    if ("finalize_order" in data) return "CATEGORIES_RETURN";
     if ("category_id" in data || "search_all" in data) return "CATEGORIES"; // also matches CATEGORIES_RETURN (same fields)
     return "";
 }
@@ -524,6 +525,69 @@ export async function POST(req: NextRequest) {
 
             // ── CATEGORIES / CATEGORIES_RETURN → PRODUCTS ─────────────────────
             if (screenNorm === "CATEGORIES" || screenNorm === "CATEGORIES_RETURN") {
+
+                // ── "Finalizar pedido" de CATEGORIES_RETURN → CEP_SEARCH ──────
+                const doFinalize = Array.isArray(formData?.finalize_order)
+                    ? (formData!.finalize_order as string[]).includes("finalize")
+                    : false;
+                if (doFinalize) {
+                    const { data: finSess } = await admin
+                        .from("chatbot_sessions")
+                        .select("cart, context, customer_id")
+                        .eq("thread_id", threadId)
+                        .maybeSingle();
+
+                    const accCart    = (((finSess?.context as any)?.accumulated_cart) as CartItem[] | undefined) ?? [];
+                    const cartToShow = accCart.length > 0 ? accCart : ((finSess?.cart ?? []) as CartItem[]);
+
+                    // Garante que accumulated_cart vire session.cart
+                    if (accCart.length > 0) {
+                        await admin.from("chatbot_sessions")
+                            .update({
+                                cart:    cartToShow,
+                                context: {
+                                    ...((finSess?.context ?? {}) as Record<string, unknown>),
+                                    accumulated_cart: null,
+                                    source:           "flow_catalog",
+                                },
+                            })
+                            .eq("thread_id", threadId);
+                    }
+
+                    type FinAddrSlot = { id: string; title: string; description: string };
+                    let finAddresses: FinAddrSlot[] = [];
+                    if (finSess?.customer_id) {
+                        const { data: addrs } = await admin
+                            .from("enderecos_cliente")
+                            .select("id, apelido, logradouro, numero, bairro")
+                            .eq("customer_id", finSess.customer_id)
+                            .eq("company_id", companyId)
+                            .order("is_principal", { ascending: false })
+                            .limit(5);
+                        if (addrs?.length) {
+                            finAddresses = (addrs as any[]).map((a) => ({
+                                id:          a.id,
+                                title:       a.apelido,
+                                description: [a.logradouro, a.numero, a.bairro].filter(Boolean).join(", "),
+                            }));
+                        }
+                    }
+
+                    await saveCatalogScreen("CEP_SEARCH");
+                    return encryptedOk(
+                        {
+                            version: "3.0",
+                            screen:  "CEP_SEARCH",
+                            data:    {
+                                cart_summary:        formatCart(cartToShow),
+                                has_saved_addresses: finAddresses.length > 0,
+                                saved_addresses:     finAddresses,
+                            },
+                        } as Record<string, unknown>,
+                        aesKey, iv
+                    );
+                }
+
                 const searchAll  = String(formData?.search_all  ?? "").trim();
                 const categoryId = String(formData?.category_id ?? "").trim();
 
@@ -853,9 +917,10 @@ export async function POST(req: NextRequest) {
 
                 console.log("[flows/catalog] QUANTITIES cartItems:", JSON.stringify(cartItems));
 
-                // ── "Adicionar mais produtos" ──────────────────────────────────
-                const addMore = formData?.add_more_products === true ||
-                    String(formData?.add_more_products ?? "") === "true";
+                // ── "Adicionar mais produtos" (CheckboxGroup) ─────────────────
+                const addMore = Array.isArray(formData?.add_more_products)
+                    ? (formData!.add_more_products as string[]).includes("add_more")
+                    : false;
 
                 if (addMore) {
                     const validItems     = cartItems.filter((i) => i.qty > 0);
@@ -873,7 +938,6 @@ export async function POST(req: NextRequest) {
                         })
                         .eq("thread_id", threadId);
 
-                    // Rebusca categorias e retorna CATEGORIES com carrinho acumulado
                     const { data: catRowsBack } = await admin
                         .from("products")
                         .select("category_id, categories!inner(id, name)")
