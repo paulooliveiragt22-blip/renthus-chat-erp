@@ -83,31 +83,38 @@ function PaymentBlock({
     );
 }
 
-// ── extrai info estruturada do item (mesma lógica do ticket.js / printOrder) ──
+// ── extrai info estruturada do item — padrão UI:
+//   Nível 1: PRODUCTS.NAME (bold, uppercase)
+//   Nível 2: descricao volume [SIGLA C/FatorUN]  +  qty sigla  +  total
 function getItemInfo(it: any) {
     const emb = (it as any)._emb ?? null;
     if (emb) {
-        const prodName     = String(emb.product_name ?? "").toUpperCase().trim();
-        const sigla        = String(emb.sigla_comercial ?? "UN").toUpperCase();
-        const descricao    = (emb.descricao ?? "").trim();
-        const volStr       = (emb.volume_formatado ?? "").trim();
-        const fator        = Number(emb.fator_conversao) || null;
-        const siglaHuman   = sigla === "CX" ? "Caixa" : sigla === "FARD" ? "Fardo" : sigla === "PAC" ? "Pacote" : sigla;
-        const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
-        const detail       = [detailPrefix, volStr].filter(Boolean).join(" ");
-        const unitLabel    = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
+        const prodName  = String(emb.product_name ?? "").toUpperCase().trim();
+        const sigla     = String(emb.sigla_comercial ?? "UN").toUpperCase();
+        const descricao = (emb.descricao ?? "").trim();
+        const volStr    = (emb.volume_formatado ?? "").trim();
+        const fator     = Number(emb.fator_conversao) || null;
+        const unitLabel = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
+
+        // Linha de embalagem: descricao + volume + (SIGLA C/FatorUN) quando não-UN
+        let detail = [descricao, volStr].filter(Boolean).join(" ");
+        if (sigla !== "UN") {
+            const fatorPart = fator && fator > 1 ? ` C/${fator}UN` : "";
+            detail = [detail, `${sigla}${fatorPart}`].filter(Boolean).join(" ");
+        }
+
         return {
             productName: prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
             detail: detail || prodName || "Item",
             unitLabel,
-            fator: sigla === "CX" && fator && fator > 1 ? fator : null,
         };
     }
+    // Fallback: parse "ProdName • detail" armazenado em order_items.product_name
     const raw      = String(it.product_name ?? "PRODUTO");
     const bIdx     = raw.indexOf(" • ");
     const prodName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
     const detail   = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
-    return { productName: prodName, detail, unitLabel: it.unit_type === "case" ? "cx" : "un", fator: null };
+    return { productName: prodName, detail, unitLabel: it.unit_type === "case" ? "cx" : "un" };
 }
 
 // ── componente principal ──────────────────────────────────────────────────────
@@ -315,7 +322,6 @@ export default function ViewOrderModal({
                         {order.items.length === 0 ? (
                             <p className="px-4 py-6 text-center text-sm text-zinc-400">Sem itens.</p>
                         ) : (() => {
-                            // Agrupa por produto
                             const groups = new Map<string, { it: any; info: ReturnType<typeof getItemInfo> }[]>();
                             for (const it of order.items) {
                                 const info = getItemInfo(it);
@@ -325,28 +331,26 @@ export default function ViewOrderModal({
                             return (
                                 <div className="divide-y divide-zinc-100">
                                     {Array.from(groups.entries()).map(([productName, entries]) => (
-                                        <div key={productName}>
-                                            {/* Nome do produto */}
-                                            <div className="bg-zinc-50/60 px-4 py-1.5">
-                                                <span className="text-sm font-bold text-zinc-900">{productName}</span>
-                                            </div>
-                                            {/* Embalagens */}
+                                        <div key={productName} className="py-2">
+                                            {/* Nível 1 — PRODUCTS.NAME */}
+                                            <p className="px-4 pb-1 text-sm font-bold text-zinc-900 uppercase tracking-wide">
+                                                {productName}
+                                            </p>
+                                            {/* Nível 2 — embalagens */}
                                             {entries.map(({ it, info }) => {
                                                 const q     = Number((it as any).quantity ?? (it as any).qty ?? 0);
                                                 const price = Number((it as any).unit_price ?? 0);
                                                 const total = Number((it as any).line_total ?? q * price);
-                                                const fatorStr = info.fator ? ` c/${info.fator}` : "";
-                                                const qtyLabel = `${q} ${info.unitLabel}${fatorStr}`;
                                                 return (
-                                                    <div key={(it as any).id} className="flex items-center gap-3 px-4 py-2 pl-8">
-                                                        {/* Embalagem detail */}
-                                                        <span className="flex-1 text-xs text-zinc-500">{info.detail}</span>
-                                                        {/* Qty pill */}
-                                                        <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">
-                                                            {qtyLabel}
+                                                    <div key={(it as any).id} className="flex items-center gap-2 px-4 pl-8 py-1">
+                                                        {/* descricao volume [SIGLA C/FatorUN] */}
+                                                        <span className="flex-1 text-sm text-zinc-600">{info.detail}</span>
+                                                        {/* qty */}
+                                                        <span className="shrink-0 inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-bold text-purple-700 whitespace-nowrap">
+                                                            {q} {info.unitLabel}
                                                         </span>
-                                                        {/* Total */}
-                                                        <span className="w-20 text-right text-sm font-bold text-zinc-900">
+                                                        {/* total */}
+                                                        <span className="w-20 shrink-0 text-right text-sm font-bold text-zinc-900">
                                                             R$ {formatBRL(total)}
                                                         </span>
                                                     </div>
