@@ -3,7 +3,7 @@
  *
  * Rota pública — cria empresa e pedido no Pagar.me:
  *   PIX → order via API (QR na tela, sem checkout hospedado / reCAPTCHA)
- *   Cartão → checkout hosted
+ *   Cartão → token na página (chave pública) + cobrança API (sem checkout hospedado)
  *
  * Body: {
  *   company_name:   string
@@ -17,21 +17,23 @@
  *
  * Desconto PIX: 5% sobre o valor do setup (SETUP_PIX_DISCOUNT_PCT env var, padrão 5)
  *
- * Retorna: { checkout_url? | pix_qr_url?, pix_qr_code?, company_id, onboarding_token }
+ * Retorna: { pix_qr_url?, pix_qr_code?, card_paid?: boolean, company_id, onboarding_token }
  */
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-    createCheckoutOrder,
+    centsToBRL,
     createPixInvoiceOrder,
-    extractCheckoutUrl,
+    createSetupOrder,
     extractPixCode,
     extractPixUrl,
     getSetupPriceCents,
     getYearlyPriceCents,
-    centsToBRL,
+    isOrderCreditPaid,
+    type PagarmeOrder,
 } from "@/lib/billing/pagarme";
+import { processSetupOrderPaid } from "@/lib/billing/pagarmeSetupPaid";
 
 export const runtime = "nodejs";
 
@@ -58,6 +60,7 @@ export async function POST(req: Request) {
             address_city?:    string;
             address_state?:   string;
             address_zip?:     string;
+            card_token?:      string;
         };
 
         console.log("[signup] body recebido:", JSON.stringify(body));
@@ -164,12 +167,6 @@ export async function POST(req: Request) {
         console.log("[signup] onboarding_token:", onboardingToken);
 
         // URLs de retorno — montadas após ter o onboardingToken
-        const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? "https://renthus-chat-erp.vercel.app";
-        const successUrl = `${appUrl}/signup/complete?token=${onboardingToken}`;
-        const cancelUrl  = `${appUrl}/signup`;
-        console.log("[signup] successUrl:", successUrl);
-        console.log("[signup] cancelUrl:", cancelUrl);
-
         // 4. Calcula valor do checkout
         let amountCents: number;
         let orderDescription: string;
@@ -208,9 +205,10 @@ export async function POST(req: Request) {
         };
 
         let orderId: string;
-        let checkoutUrl: string | null = null;
-        let pixQrUrl: string | null     = null;
-        let pixQrCode: string | null    = null;
+        let pixQrUrl: string | null  = null;
+        let pixQrCode: string | null = null;
+        let cardPaidImmediately      = false;
+        let cardOrderResult: PagarmeOrder | null = null;
 
         if (paymentMethod === "pix") {
             // PIX via API: sem página hospedada do Pagar.me → sem reCAPTCHA no fluxo
@@ -237,32 +235,40 @@ export async function POST(req: Request) {
                 );
             }
         } else {
-            const order = await createCheckoutOrder({
+            const cardToken = body.card_token?.trim();
+            if (!cardToken) {
+                return NextResponse.json(
+                    { error: "Token do cartão ausente. Preencha os dados do cartão e tente novamente." },
+                    { status: 400 }
+                );
+            }
+
+            let zip = address_zip.replace(/\D/g, "");
+            if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
+            const line1 = `${address_street.trim()} ${address_number.trim()}`.trim();
+
+            const order = await createSetupOrder({
                 amountCents,
-                description:     orderDescription,
-                code:            orderCode,
-                maxInstallments: installments,
-                acceptPix:       false,
-                acceptCard:      true,
-                customer:        customerPayload,
-                successUrl,
-                cancelUrl,
+                description: orderDescription,
+                installments,
+                itemCode:      orderCode,
+                cardToken,
+                customer:      customerPayload,
+                billingAddress: {
+                    line_1:   line1,
+                    zip_code: zip,
+                    city:     address_city.trim(),
+                    state:    address_state.trim().toUpperCase(),
+                },
                 metadata: {
                     type:       "setup",
                     company_id: companyId,
                     plan,
                 },
             });
-            orderId     = order.id;
-            checkoutUrl = extractCheckoutUrl(order);
-            console.log("[signup] Pagar.me checkout:", orderId, "| url:", !!checkoutUrl);
-            if (!checkoutUrl) {
-                console.error("[signup] Pagar.me não retornou checkout_url. Order:", order.id);
-                return NextResponse.json(
-                    { error: "Erro ao gerar link de pagamento" },
-                    { status: 500 }
-                );
-            }
+            orderId           = order.id;
+            cardOrderResult   = order;
+            console.log("[signup] Pagar.me cartão token:", orderId, "| paid:", isOrderCreditPaid(order));
         }
 
         // 5. Registra setup_payment como pending
@@ -273,7 +279,7 @@ export async function POST(req: Request) {
             installments,
             status:              "pending",
             pagarme_order_id:    orderId,
-            pagarme_payment_url: checkoutUrl ?? pixQrUrl ?? "",
+            pagarme_payment_url: pixQrUrl ?? "",
         });
 
         // 6. Cria/atualiza subscription com status pending_setup
@@ -287,14 +293,23 @@ export async function POST(req: Request) {
             { onConflict: "company_id" }
         );
 
+        if (
+            paymentMethod === "credit_card" &&
+            cardOrderResult &&
+            isOrderCreditPaid(cardOrderResult)
+        ) {
+            await processSetupOrderPaid(admin, cardOrderResult);
+            cardPaidImmediately = true;
+        }
+
         return NextResponse.json({
-            ok:               true,
-            payment_method:   paymentMethod,
-            checkout_url:     checkoutUrl,
-            pix_qr_url:       pixQrUrl,
-            pix_qr_code:      pixQrCode,
-            company_id:       companyId,
-            onboarding_token: onboardingToken,
+            ok:                 true,
+            payment_method:     paymentMethod,
+            pix_qr_url:         pixQrUrl,
+            pix_qr_code:        pixQrCode,
+            card_paid:          paymentMethod === "credit_card" ? cardPaidImmediately : undefined,
+            company_id:         companyId,
+            onboarding_token:   onboardingToken,
         });
 
     } catch (err: any) {

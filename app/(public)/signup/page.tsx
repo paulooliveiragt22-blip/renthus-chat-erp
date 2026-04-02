@@ -53,6 +53,57 @@ type PaymentMethod = "pix" | "credit_card";
 
 const PIX_DISCOUNT = 0.05;
 
+/** Chave pública (pk_test_ / pk_live_) — cadastre o domínio no painel Pagar.me */
+const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
+
+function parseCardExpiry(raw: string): { month: string; year: string } | null {
+    const s = raw.replace(/\s/g, "");
+    const m = s.match(/^(\d{2})\/(\d{2,4})$/);
+    if (!m) return null;
+    let y = m[2];
+    if (y.length === 4) y = y.slice(-2);
+    return { month: m[1], year: y };
+}
+
+async function pagarmeCreateCardToken(
+    publicKey: string,
+    p: {
+        number: string;
+        holder_name: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_document?: string;
+    }
+): Promise<string> {
+    const res = await fetch(
+        `https://api.pagar.me/core/v5/tokens?appId=${encodeURIComponent(publicKey)}`,
+        {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({
+                type: "card",
+                card: {
+                    number:      p.number.replace(/\D/g, ""),
+                    holder_name: p.holder_name.replace(/[^a-zA-ZÀ-ÿ\s]/g, "").trim() || p.holder_name.trim(),
+                    exp_month:   p.exp_month,
+                    exp_year:    p.exp_year,
+                    cvv:         p.cvv.replace(/\D/g, ""),
+                    ...(p.holder_document && { holder_document: p.holder_document }),
+                },
+            }),
+        }
+    );
+    const data = (await res.json()) as { message?: string; id?: string };
+    if (!res.ok) {
+        throw new Error(
+            typeof data?.message === "string" ? data.message : "Não foi possível validar o cartão."
+        );
+    }
+    if (!data?.id) throw new Error("Resposta inválida do Pagar.me.");
+    return data.id;
+}
+
 function fmt(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -87,6 +138,13 @@ export default function SignupPage() {
         token: string;
     } | null>(null);
     const [pixCopied, setPixCopied] = useState(false);
+
+    const [card, setCard] = useState({
+        holder: "",
+        number: "",
+        exp:    "",
+        cvv:    "",
+    });
 
     const plan = selectedPlan ? PLANS.find((p) => p.key === selectedPlan)! : null;
 
@@ -136,20 +194,58 @@ export default function SignupPage() {
         setError(null);
         setPixCopied(false);
 
-        let payWindow: Window | null = null;
+        let cardToken: string | undefined;
+
         if (paymentMethod === "credit_card") {
-            payWindow = window.open("about:blank", "_blank");
-            if (payWindow) {
-                try {
-                    payWindow.opener = null;
-                } catch {
-                    /* ignore */
-                }
+            if (!PAGARME_PUBLIC_KEY) {
+                setError(
+                    "Pagamento com cartão indisponível: configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY " +
+                        "(chave pública do Pagar.me) e cadastre este domínio no painel Pagar.me."
+                );
+                return;
+            }
+            const exp = parseCardExpiry(card.exp);
+            if (!exp) {
+                setError("Validade do cartão: use MM/AA (ex: 08/28).");
+                return;
+            }
+            const num = card.number.replace(/\D/g, "");
+            if (num.length < 13) {
+                setError("Número do cartão inválido.");
+                return;
+            }
+            const cvv = card.cvv.replace(/\D/g, "");
+            if (cvv.length < 3) {
+                setError("CVV inválido.");
+                return;
+            }
+            const holder = card.holder.trim() || form.company_name.trim();
+            if (holder.length < 3) {
+                setError("Informe o nome impresso no cartão.");
+                return;
             }
         }
 
         setLoading(true);
         try {
+            if (paymentMethod === "credit_card" && PAGARME_PUBLIC_KEY) {
+                const exp = parseCardExpiry(card.exp)!;
+                const holder = card.holder.trim() || form.company_name.trim();
+                try {
+                    cardToken = await pagarmeCreateCardToken(PAGARME_PUBLIC_KEY, {
+                        number:          card.number.replace(/\D/g, ""),
+                        holder_name:     holder,
+                        exp_month:       exp.month,
+                        exp_year:        exp.year,
+                        cvv:             card.cvv.replace(/\D/g, ""),
+                        holder_document: form.cnpj.replace(/\D/g, "") || undefined,
+                    });
+                } catch (err) {
+                    setError(err instanceof Error ? err.message : "Cartão recusado.");
+                    return;
+                }
+            }
+
             const res = await fetch("/api/billing/signup", {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
@@ -165,11 +261,11 @@ export default function SignupPage() {
                     monthly_cents:  interval === "yearly"
                         ? Math.round(pricing.tier.annual * 100)
                         : Math.round(pricing.tier.price * 100),
+                    ...(cardToken ? { card_token: cardToken } : {}),
                 }),
             });
             const data = await res.json();
             if (!res.ok) {
-                if (payWindow && !payWindow.closed) payWindow.close();
                 setError(data.error ?? "Erro ao iniciar pagamento.");
                 return;
             }
@@ -179,7 +275,6 @@ export default function SignupPage() {
                 (data.pix_qr_code || data.pix_qr_url) &&
                 data.onboarding_token
             ) {
-                if (payWindow && !payWindow.closed) payWindow.close();
                 setPixCheckout({
                     url:   data.pix_qr_url ?? null,
                     code:  (data.pix_qr_code as string) ?? "",
@@ -188,20 +283,22 @@ export default function SignupPage() {
                 return;
             }
 
-            if (data.checkout_url) {
-                const checkoutUrl = data.checkout_url as string;
-                if (payWindow && !payWindow.closed) {
-                    payWindow.location.href = checkoutUrl;
-                } else {
-                    window.location.href = checkoutUrl;
+            if (paymentMethod === "credit_card" && data.onboarding_token) {
+                const tok = data.onboarding_token as string;
+                if (data.card_paid === true) {
+                    window.location.href = `/signup/complete?token=${encodeURIComponent(tok)}`;
+                    return;
                 }
+                const continueUrl = `${window.location.origin}/signup/complete?token=${encodeURIComponent(tok)}`;
+                setError(
+                    `Pagamento do cartão em análise. Quando for aprovado, abra: ${continueUrl} ` +
+                        "(ou aguarde o webhook; em geral leva menos de um minuto)."
+                );
                 return;
             }
 
-            if (payWindow && !payWindow.closed) payWindow.close();
             setError("Resposta inválida do servidor.");
         } catch {
-            if (payWindow && !payWindow.closed) payWindow.close();
             setError("Erro de conexão. Tente novamente.");
         } finally {
             setLoading(false);
@@ -698,6 +795,82 @@ export default function SignupPage() {
                             />
                         </div>
                     </div>
+
+                    {paymentMethod === "credit_card" && (
+                        <>
+                            <div style={S.sectionLabel}>Cartão de crédito</div>
+                            {!PAGARME_PUBLIC_KEY && (
+                                <div style={{ ...S.errorBox, marginBottom: 12 }}>
+                                    Defina NEXT_PUBLIC_PAGARME_PUBLIC_KEY (chave pública pk_… do Pagar.me) e cadastre
+                                    este domínio no painel do Pagar.me para tokenizar o cartão.
+                                </div>
+                            )}
+                            <div style={S.field}>
+                                <label style={S.label}>Nome no cartão *</label>
+                                <input
+                                    style={S.input}
+                                    type="text"
+                                    autoComplete="cc-name"
+                                    placeholder="Como impresso no cartão (ou deixe em branco para usar o nome da empresa)"
+                                    value={card.holder}
+                                    onChange={(e) => {
+                                        setError(null);
+                                        setCard((c) => ({ ...c, holder: e.target.value }));
+                                    }}
+                                />
+                            </div>
+                            <div style={S.field}>
+                                <label style={S.label}>Número *</label>
+                                <input
+                                    style={S.input}
+                                    type="text"
+                                    inputMode="numeric"
+                                    autoComplete="cc-number"
+                                    placeholder="0000 0000 0000 0000"
+                                    value={card.number}
+                                    onChange={(e) => {
+                                        setError(null);
+                                        setCard((c) => ({ ...c, number: e.target.value }));
+                                    }}
+                                />
+                            </div>
+                            <div style={{ display: "flex", gap: 14 }}>
+                                <div style={{ ...S.field, flex: 1 }}>
+                                    <label style={S.label}>Validade *</label>
+                                    <input
+                                        style={S.input}
+                                        type="text"
+                                        autoComplete="cc-exp"
+                                        placeholder="MM/AA"
+                                        value={card.exp}
+                                        onChange={(e) => {
+                                            setError(null);
+                                            setCard((c) => ({ ...c, exp: e.target.value }));
+                                        }}
+                                    />
+                                </div>
+                                <div style={{ ...S.field, flex: 1 }}>
+                                    <label style={S.label}>CVV *</label>
+                                    <input
+                                        style={S.input}
+                                        type="password"
+                                        inputMode="numeric"
+                                        autoComplete="cc-csc"
+                                        placeholder="123"
+                                        maxLength={4}
+                                        value={card.cvv}
+                                        onChange={(e) => {
+                                            setError(null);
+                                            setCard((c) => ({ ...c, cvv: e.target.value }));
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: "0 0 4px" }}>
+                                Os dados do cartão vão direto ao Pagar.me (token); não armazenamos o número completo.
+                            </p>
+                        </>
+                    )}
 
                     {error && <div style={S.errorBox}>{error}</div>}
 

@@ -142,34 +142,63 @@ export async function createSetupOrder(params: {
     amountCents: number;
     description: string;
     installments: number;
-    cardToken: string;       // token gerado pelo Pagar.me.js no frontend
+    cardToken: string;       // token gerado pelo endpoint /tokens?appId=pk_xxx (browser)
+    itemCode?: string;      // padrão "setup" — ex.: annual_bot
     customerId?: string;
     customer?: {
         name: string;
         email: string;
         document?: string;
         phone?: string;
+        address?: {
+            street:   string;
+            number:   string;
+            zipCode:  string;
+            city:     string;
+            state:    string;
+            country?: string;
+        };
+    };
+    /** Obrigatório com token de cartão (endereço não vai no token). */
+    billingAddress?: {
+        line_1:   string;
+        zip_code: string;
+        city:     string;
+        state:    string;
+        country?: string;
     };
     metadata?: Record<string, string>;
 }): Promise<PagarmeOrder> {
+    const creditCard: Record<string, unknown> = {
+        installments:         params.installments,
+        card:                 { id: params.cardToken },
+        capture:              true,
+        statement_descriptor: "RENTHUS",
+    };
+    if (params.billingAddress) {
+        creditCard.billing_address = {
+            line_1:   params.billingAddress.line_1,
+            zip_code: params.billingAddress.zip_code,
+            city:     params.billingAddress.city,
+            state:    params.billingAddress.state,
+            country:  params.billingAddress.country ?? "BR",
+        };
+    }
+
     const body: Record<string, unknown> = {
         items: [
             {
-                amount: params.amountCents,
+                amount:      params.amountCents,
                 description: params.description,
-                quantity: 1,
-                code: "setup",
+                quantity:    1,
+                code:        params.itemCode ?? "setup",
             },
         ],
         payments: [
             {
                 payment_method: "credit_card",
-                credit_card: {
-                    installments: params.installments,
-                    card: { id: params.cardToken },
-                    capture: true,
-                },
-                amount: params.amountCents,
+                credit_card:    creditCard,
+                amount:         params.amountCents,
             },
         ],
         metadata: params.metadata ?? {},
@@ -185,14 +214,36 @@ export async function createSetupOrder(params: {
             type: "company",
         };
         if (c.document) {
-            cBody.document = c.document;
-            cBody.document_type = c.document.length === 11 ? "CPF" : "CNPJ";
+            const digitsDoc = c.document.replace(/\D/g, "");
+            cBody.document      = digitsDoc;
+            cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
         }
         attachCustomerMobilePhone(cBody, c.phone);
+        if (c.address) {
+            let zip = c.address.zipCode.replace(/\D/g, "");
+            if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
+            const line1 = `${c.address.street} ${c.address.number}`.trim();
+            cBody.addresses = [
+                {
+                    line_1:   line1,
+                    zip_code: zip,
+                    city:     c.address.city,
+                    state:    c.address.state,
+                    country:  c.address.country ?? "BR",
+                },
+            ];
+        }
         body.customer = cBody;
     }
 
     return pagarmeRequest<PagarmeOrder>("/orders", "POST", body);
+}
+
+/** Cobrança de cartão aprovada na resposta síncrona do Pagar.me */
+export function isOrderCreditPaid(order: PagarmeOrder): boolean {
+    if (order.status === "paid") return true;
+    const st = order.charges?.[0]?.status;
+    return st === "paid";
 }
 
 // ---------------------------------------------------------------------------
