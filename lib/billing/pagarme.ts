@@ -414,6 +414,33 @@ export function centsToBRL(cents: number): number {
     return cents / 100;
 }
 
+/** Resumo de cartão retornado pelo Pagar.me (GET /customers/{id}/cards). */
+export type PagarmeCardSummary = {
+    id?:               string;
+    last_four_digits?: string;
+    first_six_digits?: string;
+    brand?:            string;
+    holder_name?:      string;
+    exp_month?:        number;
+    exp_year?:         number;
+    status?:           string;
+};
+
+export async function listCustomerCards(customerId: string): Promise<PagarmeCardSummary[]> {
+    const id = customerId?.trim();
+    if (!id) return [];
+    try {
+        const res = await pagarmeRequest<{ data?: PagarmeCardSummary[] }>(
+            `/customers/${encodeURIComponent(id)}/cards`,
+            "GET"
+        );
+        return Array.isArray(res?.data) ? res.data : [];
+    } catch (e) {
+        console.warn("[pagarme] listCustomerCards:", e instanceof Error ? e.message : e);
+        return [];
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Orders — Checkout Hosted (cartão + PIX, abre página hospedada do Pagar.me)
 // ---------------------------------------------------------------------------

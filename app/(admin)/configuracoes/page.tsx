@@ -23,6 +23,8 @@ import {
     Truck,
     Users,
     Wallet,
+    CircleDollarSign,
+    CalendarClock,
 } from "lucide-react";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -46,7 +48,43 @@ type Company = {
     settings: Record<string, unknown> | null;
 };
 
-type Tab = "geral" | "delivery" | "pagamentos" | "seguranca" | "chatbot" | "pedidos";
+type Tab = "geral" | "delivery" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
+
+type BillingStatusJson = {
+    ok?: boolean;
+    error?: string;
+    pagarme_subscription?: {
+        plan:             string;
+        status:           string;
+        trial_ends_at:      string | null;
+        next_billing_at:   string | null;
+        last_paid_at:      string | null;
+        activated_at:      string | null;
+    } | null;
+    pending_invoice?: {
+        pagarme_payment_url: string | null;
+        pix_qr_code:         string | null;
+        amount:              number;
+        due_at:              string;
+    } | null;
+    invoice_history?: Array<{
+        id:         string;
+        amount:     number;
+        status:     string;
+        due_at:     string;
+        paid_at:    string | null;
+        created_at: string;
+    }>;
+    saved_cards?: Array<{
+        id:        string;
+        brand:     string;
+        last_four: string;
+        holder:    string;
+        exp:       string;
+        status:    string;
+    }>;
+    monthly_prices_brl?: { bot: number; complete: number };
+};
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -190,6 +228,14 @@ export default function ConfiguracoesPage() {
     const [settingsMsg,     setSettingsMsg]     = useState<string | null>(null);
     const settingsMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const [billingLoading, setBillingLoading]     = useState(false);
+    const [billingData,    setBillingData]        = useState<BillingStatusJson | null>(null);
+    const [billingErr,     setBillingErr]         = useState<string | null>(null);
+    const [planSaving,     setPlanSaving]         = useState(false);
+    const [pixLoading,     setPixLoading]         = useState(false);
+    const [billingPix,     setBillingPix]         = useState<{ url: string | null; code: string } | null>(null);
+    const [pixCopied,      setPixCopied]          = useState(false);
+
     // ── load company ──────────────────────────────────────────────────────────
     const loadCompany = useCallback(async () => {
         if (!companyId) return;
@@ -227,6 +273,94 @@ export default function ConfiguracoesPage() {
     }, [companyId]);
 
     useEffect(() => { loadCompany(); }, [loadCompany]);
+
+    const loadBilling = useCallback(async () => {
+        if (!companyId) return;
+        setBillingLoading(true);
+        setBillingErr(null);
+        try {
+            const res = await fetch("/api/billing/status", { credentials: "include", cache: "no-store" });
+            const json = (await res.json()) as BillingStatusJson;
+            if (!res.ok) {
+                setBillingErr(json.error ?? "Não foi possível carregar a cobrança.");
+                setBillingData(null);
+                return;
+            }
+            setBillingData(json);
+        } catch {
+            setBillingErr("Erro de rede ao carregar cobrança.");
+            setBillingData(null);
+        } finally {
+            setBillingLoading(false);
+        }
+    }, [companyId]);
+
+    useEffect(() => {
+        if (activeTab === "plano" && companyId) void loadBilling();
+    }, [activeTab, companyId, loadBilling]);
+
+    async function changeRenthusPlan(plan: "bot" | "complete") {
+        setPlanSaving(true);
+        setBillingErr(null);
+        try {
+            const res = await fetch("/api/billing/change-plan", {
+                method:  "POST",
+                headers: { "Content-Type": "application/json" },
+                body:    JSON.stringify({ plan }),
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBillingErr((json as { error?: string }).error ?? "Não foi possível alterar o plano.");
+                return;
+            }
+            await loadBilling();
+        } catch {
+            setBillingErr("Erro de rede.");
+        } finally {
+            setPlanSaving(false);
+        }
+    }
+
+    async function openRenthusPix() {
+        setPixLoading(true);
+        setBillingErr(null);
+        setBillingPix(null);
+        setPixCopied(false);
+        try {
+            const res = await fetch("/api/billing/create-invoice-checkout", {
+                method:  "POST",
+                headers: { "Content-Type": "application/json" },
+                body:    JSON.stringify({}),
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBillingErr((json as { error?: string }).error ?? "Erro ao gerar PIX.");
+                return;
+            }
+            if (json.pix_qr_code || json.pix_qr_url) {
+                setBillingPix({ url: json.pix_qr_url ?? null, code: json.pix_qr_code ?? "" });
+            } else {
+                setBillingErr("PIX não retornado. Tente novamente ou fale com o suporte.");
+            }
+        } catch {
+            setBillingErr("Erro de conexão.");
+        } finally {
+            setPixLoading(false);
+        }
+    }
+
+    async function copyBillingPix() {
+        if (!billingPix?.code) return;
+        try {
+            await navigator.clipboard.writeText(billingPix.code);
+            setPixCopied(true);
+            setTimeout(() => setPixCopied(false), 2500);
+        } catch {
+            setBillingErr("Não foi possível copiar o código PIX.");
+        }
+    }
 
     // ── load chatbot config ───────────────────────────────────────────────────
     useEffect(() => {
@@ -336,12 +470,13 @@ export default function ConfiguracoesPage() {
 
     // ── tabs config ───────────────────────────────────────────────────────────
     const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-        { id: "geral",      label: "Geral",      icon: Store },
-        { id: "delivery",   label: "Delivery",   icon: Truck },
-        { id: "pagamentos", label: "Pagamentos",  icon: Wallet },
-        { id: "seguranca",  label: "Segurança",   icon: Shield },
-        { id: "chatbot",    label: "Chatbot",     icon: Bot },
-        { id: "pedidos",    label: "Pedidos",     icon: Package },
+        { id: "geral",              label: "Geral",                 icon: Store },
+        { id: "delivery",           label: "Delivery",              icon: Truck },
+        { id: "plano",              label: "Plano e pagamentos",    icon: CircleDollarSign },
+        { id: "formas_pagamento",   label: "Formas de pagamentos",  icon: Wallet },
+        { id: "seguranca",          label: "Segurança",             icon: Shield },
+        { id: "chatbot",            label: "Chatbot",               icon: Bot },
+        { id: "pedidos",            label: "Pedidos",               icon: Package },
     ];
 
     // ── render ────────────────────────────────────────────────────────────────
@@ -469,8 +604,395 @@ export default function ConfiguracoesPage() {
                         </div>
                     )}
 
-                    {/* ── ABA: PAGAMENTOS ───────────────────────────────── */}
-                    {activeTab === "pagamentos" && (
+                    {/* ── ABA: PLANO E PAGAMENTOS (RENTHUS) ─────────────── */}
+                    {activeTab === "plano" && (
+                        <div className="flex flex-col gap-6">
+                            <SectionTitle
+                                icon={CircleDollarSign}
+                                title="Plano e pagamentos Renthus"
+                                desc="Período de teste, mensalidade, PIX e cartões salvos no Pagar.me"
+                            />
+
+                            {billingLoading && (
+                                <div className="flex justify-center py-10">
+                                    <Loader2 className="h-7 w-7 animate-spin text-violet-500" />
+                                </div>
+                            )}
+
+                            {!billingLoading && billingErr && (
+                                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+                                    {billingErr}
+                                </div>
+                            )}
+
+                            {!billingLoading && billingData && (
+                                <>
+                                    {(() => {
+                                        const sub = billingData.pagarme_subscription;
+                                        const st  = sub?.status ?? "";
+                                        const plan = sub?.plan ?? "";
+                                        const trialEnd = sub?.trial_ends_at
+                                            ? new Date(sub.trial_ends_at).toLocaleString("pt-BR", {
+                                                  dateStyle: "medium",
+                                                  timeStyle: "short",
+                                              })
+                                            : null;
+                                        const nextBill = sub?.next_billing_at
+                                            ? new Date(sub.next_billing_at).toLocaleString("pt-BR", {
+                                                  dateStyle: "medium",
+                                                  timeStyle: "short",
+                                              })
+                                            : null;
+                                        const lastPaid = sub?.last_paid_at
+                                            ? new Date(sub.last_paid_at).toLocaleString("pt-BR", {
+                                                  dateStyle: "medium",
+                                                  timeStyle: "short",
+                                              })
+                                            : null;
+
+                                        const statusLabel =
+                                            st === "trial"
+                                                ? "Período de teste"
+                                                : st === "active"
+                                                  ? "Assinatura ativa"
+                                                  : st === "overdue"
+                                                    ? "Mensalidade em aberto"
+                                                    : st === "blocked"
+                                                      ? "Acesso suspenso"
+                                                      : st || "—";
+
+                                        return (
+                                            <div className="grid gap-4 sm:grid-cols-2">
+                                                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+                                                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                                        Situação
+                                                    </p>
+                                                    <p className="mt-1 text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                                                        {statusLabel}
+                                                    </p>
+                                                    <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+                                                        Plano atual:{" "}
+                                                        <span className="font-semibold">
+                                                            {plan === "complete" ? "Completo" : plan === "bot" ? "Bot" : plan || "—"}
+                                                        </span>
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+                                                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                                        <CalendarClock className="h-3.5 w-3.5" />
+                                                        Datas
+                                                    </p>
+                                                    {st === "trial" && trialEnd && (
+                                                        <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
+                                                            Teste gratuito até{" "}
+                                                            <span className="font-semibold">{trialEnd}</span>
+                                                            . Depois disso será gerada a cobrança da mensalidade (PIX).
+                                                        </p>
+                                                    )}
+                                                    {(st === "active" || st === "overdue") && nextBill && (
+                                                        <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
+                                                            Próxima cobrança prevista:{" "}
+                                                            <span className="font-semibold">{nextBill}</span>
+                                                        </p>
+                                                    )}
+                                                    {lastPaid && (
+                                                        <p className="mt-1 text-xs text-zinc-500">
+                                                            Último pagamento registrado: {lastPaid}
+                                                        </p>
+                                                    )}
+                                                    {st === "trial" && !trialEnd && (
+                                                        <p className="mt-2 text-sm text-zinc-500">Sem data de término do trial registrada.</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {billingData.pending_invoice && (
+                                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/60 dark:bg-amber-900/20">
+                                            <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                                                Fatura em aberto —{" "}
+                                                {Number(billingData.pending_invoice.amount).toLocaleString("pt-BR", {
+                                                    style:    "currency",
+                                                    currency: "BRL",
+                                                })}
+                                            </p>
+                                            <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
+                                                Vencimento:{" "}
+                                                {new Date(billingData.pending_invoice.due_at).toLocaleString("pt-BR", {
+                                                    dateStyle: "medium",
+                                                    timeStyle: "short",
+                                                })}
+                                            </p>
+                                            {(billingData.pending_invoice.pix_qr_code ||
+                                                billingData.pending_invoice.pagarme_payment_url) && (
+                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                    {billingData.pending_invoice.pagarme_payment_url?.startsWith("http") && (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img
+                                                            src={billingData.pending_invoice.pagarme_payment_url}
+                                                            alt="QR PIX"
+                                                            className="h-36 w-36 rounded-lg border border-amber-200 bg-white object-contain p-1"
+                                                        />
+                                                    )}
+                                                    {billingData.pending_invoice.pix_qr_code && (
+                                                        <textarea
+                                                            readOnly
+                                                            className="min-h-[100px] flex-1 rounded-lg border border-amber-200 bg-white p-2 font-mono text-[10px] text-zinc-800 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                                                            value={billingData.pending_invoice.pix_qr_code}
+                                                            onFocus={(e) => e.target.select()}
+                                                        />
+                                                    )}
+                                                </div>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={openRenthusPix}
+                                                disabled={pixLoading}
+                                                className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+                                            >
+                                                {pixLoading ? "Gerando…" : "Gerar / atualizar código PIX"}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {billingData.pagarme_subscription?.status === "trial" && (
+                                        <div>
+                                            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-zinc-500">
+                                                Escolha do plano (durante o teste)
+                                            </p>
+                                            <div className="grid gap-3 sm:grid-cols-2">
+                                                {(["bot", "complete"] as const).map((p) => {
+                                                    const active =
+                                                        billingData.pagarme_subscription?.plan === p;
+                                                    const mp = billingData.monthly_prices_brl ?? {
+                                                        bot:      297,
+                                                        complete: 397,
+                                                    };
+                                                    const price = p === "bot" ? mp.bot : mp.complete;
+                                                    return (
+                                                        <div
+                                                            key={p}
+                                                            className={`rounded-xl border-2 p-4 ${
+                                                                active
+                                                                    ? "border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/30"
+                                                                    : "border-zinc-200 dark:border-zinc-700"
+                                                            }`}
+                                                        >
+                                                            <p className="font-bold text-zinc-900 dark:text-zinc-100">
+                                                                {p === "bot" ? "Bot" : "Completo"}
+                                                            </p>
+                                                            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                                                                {price.toLocaleString("pt-BR", {
+                                                                    style:    "currency",
+                                                                    currency: "BRL",
+                                                                })}
+                                                                /mês após o teste
+                                                            </p>
+                                                            <button
+                                                                type="button"
+                                                                disabled={planSaving || active}
+                                                                onClick={() => void changeRenthusPlan(p)}
+                                                                className="mt-3 w-full rounded-lg bg-violet-600 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                                                            >
+                                                                {active ? "Plano atual" : "Usar este plano"}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {billingData.pagarme_subscription?.plan === "bot" &&
+                                        (billingData.pagarme_subscription?.status === "active" ||
+                                            billingData.pagarme_subscription?.status === "overdue") && (
+                                            <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-950/30">
+                                                <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                                                    Upgrade para o plano Completo
+                                                </p>
+                                                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                                                    Mais recursos de ERP e gestão. A próxima cobrança seguirá o valor do
+                                                    plano Completo (
+                                                    {(billingData.monthly_prices_brl?.complete ?? 397).toLocaleString("pt-BR", {
+                                                        style:    "currency",
+                                                        currency: "BRL",
+                                                    })}
+                                                    /mês).
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    disabled={planSaving}
+                                                    onClick={() => void changeRenthusPlan("complete")}
+                                                    className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+                                                >
+                                                    {planSaving ? "Salvando…" : "Fazer upgrade"}
+                                                </button>
+                                            </div>
+                                        )}
+
+                                    {billingData.pagarme_subscription?.plan === "complete" &&
+                                        billingData.pagarme_subscription?.status !== "trial" && (
+                                            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                                                Você já está no plano Completo.
+                                            </p>
+                                        )}
+
+                                    {(billingData.pagarme_subscription?.status === "active" ||
+                                        billingData.pagarme_subscription?.status === "overdue") &&
+                                        !billingData.pending_invoice && (
+                                            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+                                                <p className="text-sm text-zinc-700 dark:text-zinc-200">
+                                                    Sem fatura pendente no momento. Se precisar antecipar ou regenerar o
+                                                    PIX da mensalidade, use o botão abaixo.
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={openRenthusPix}
+                                                    disabled={pixLoading}
+                                                    className="mt-3 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-60"
+                                                >
+                                                    {pixLoading ? "Gerando…" : "Gerar código PIX da mensalidade"}
+                                                </button>
+                                            </div>
+                                        )}
+
+                                    {billingPix && (
+                                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
+                                            <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                                                PIX gerado
+                                            </p>
+                                            {billingPix.url?.startsWith("http") && (
+                                                // eslint-disable-next-line @next/next/no-img-element
+                                                <img
+                                                    src={billingPix.url}
+                                                    alt="QR PIX"
+                                                    className="mt-2 h-40 w-40 rounded-lg border bg-white object-contain p-1"
+                                                />
+                                            )}
+                                            {billingPix.code ? (
+                                                <>
+                                                    <textarea
+                                                        readOnly
+                                                        className="mt-2 w-full rounded-lg border border-emerald-200 bg-white p-2 font-mono text-[10px] dark:border-emerald-800 dark:bg-zinc-900"
+                                                        rows={4}
+                                                        value={billingPix.code}
+                                                        onFocus={(e) => e.target.select()}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void copyBillingPix()}
+                                                        className="mt-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
+                                                    >
+                                                        {pixCopied ? "Copiado!" : "Copiar PIX copia e cola"}
+                                                    </button>
+                                                </>
+                                            ) : null}
+                                        </div>
+                                    )}
+
+                                    <SectionTitle
+                                        icon={CreditCard}
+                                        title="Formas de pagamento (cobrança Renthus)"
+                                        desc="Como você paga a mensalidade da plataforma — não confunde com formas aceitas no delivery"
+                                    />
+                                    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">PIX</p>
+                                        <p className="mt-1 text-xs text-zinc-500">
+                                            Cobrança principal da mensalidade. Use os botões acima para gerar ou ver o
+                                            código quando houver fatura em aberto.
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                            Cartões salvos no Pagar.me
+                                        </p>
+                                        {!billingData.saved_cards?.length && (
+                                            <p className="mt-2 text-xs text-zinc-500">
+                                                Nenhum cartão cadastrado ainda. Cartões aparecem aqui após pagamentos com
+                                                cartão pelo gateway (quando o cliente existir no Pagar.me).
+                                            </p>
+                                        )}
+                                        {!!billingData.saved_cards?.length && (
+                                            <ul className="mt-3 space-y-2">
+                                                {billingData.saved_cards.map((c) => (
+                                                    <li
+                                                        key={c.id || c.last_four}
+                                                        className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/80"
+                                                    >
+                                                        <span>
+                                                            <span className="font-medium capitalize">{c.brand || "Cartão"}</span>
+                                                            {c.last_four ? ` •••• ${c.last_four}` : ""}
+                                                            {c.exp ? ` · validade ${c.exp}` : ""}
+                                                        </span>
+                                                        <span className="text-xs text-zinc-400">{c.status || "—"}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+
+                                    {!!billingData.invoice_history?.length && (
+                                        <div>
+                                            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-zinc-500">
+                                                Histórico de faturas
+                                            </p>
+                                            <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
+                                                <table className="w-full text-left text-sm">
+                                                    <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-800">
+                                                        <tr>
+                                                            <th className="px-3 py-2">Valor</th>
+                                                            <th className="px-3 py-2">Status</th>
+                                                            <th className="px-3 py-2">Vencimento</th>
+                                                            <th className="px-3 py-2">Pago em</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {billingData.invoice_history.map((inv) => (
+                                                            <tr
+                                                                key={inv.id}
+                                                                className="border-t border-zinc-100 dark:border-zinc-800"
+                                                            >
+                                                                <td className="px-3 py-2">
+                                                                    {Number(inv.amount).toLocaleString("pt-BR", {
+                                                                        style:    "currency",
+                                                                        currency: "BRL",
+                                                                    })}
+                                                                </td>
+                                                                <td className="px-3 py-2 capitalize">{inv.status}</td>
+                                                                <td className="px-3 py-2 text-xs text-zinc-600">
+                                                                    {new Date(inv.due_at).toLocaleDateString("pt-BR")}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-xs text-zinc-600">
+                                                                    {inv.paid_at
+                                                                        ? new Date(inv.paid_at).toLocaleString("pt-BR", {
+                                                                              dateStyle: "short",
+                                                                              timeStyle: "short",
+                                                                          })
+                                                                        : "—"}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => void loadBilling()}
+                                        className="text-xs font-semibold text-violet-600 hover:text-violet-700"
+                                    >
+                                        Atualizar dados
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ── ABA: FORMAS DE PAGAMENTO (CLIENTE / PDV) ──────── */}
+                    {activeTab === "formas_pagamento" && (
                         <div className="flex flex-col gap-6">
                             <SectionTitle icon={CreditCard} title="Métodos de Pagamento" desc="Escolha quais formas de pagamento seu estabelecimento aceita" />
 

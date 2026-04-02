@@ -9,8 +9,10 @@
  */
 
 import Image from "next/image";
-import { useState, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
 
 const TRIAL_DAYS = process.env.NEXT_PUBLIC_TRIAL_DAYS ?? "15";
 
@@ -51,8 +53,26 @@ function fmt(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+async function syncServerSession(session: Session | null) {
+    if (!session) return false;
+    try {
+        const response = await fetch("/api/auth/sync-session", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                access_token:  session.access_token,
+                refresh_token: session.refresh_token,
+            }),
+        });
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
 export default function SignupPage() {
-    const router = useRouter();
+    const router   = useRouter();
+    const supabase = useMemo(() => createClient(), []);
     const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -101,12 +121,48 @@ export default function SignupPage() {
                     password_confirm: form.password_confirm,
                 }),
             });
-            const data = (await res.json()) as { error?: string };
+            const data = (await res.json()) as { error?: string; company_id?: string };
             if (!res.ok) {
                 setError(data.error ?? "Não foi possível concluir o cadastro.");
                 return;
             }
-            router.push("/login?cadastro=ok");
+
+            const emailLogin = form.email.trim().toLowerCase();
+            const { data: signInData, error: signErr } = await supabase.auth.signInWithPassword({
+                email:    emailLogin,
+                password: form.password,
+            });
+            if (signErr || !signInData.session) {
+                setError(
+                    signErr?.message ??
+                        "Conta criada, mas não foi possível entrar automaticamente. Acesse a tela de login."
+                );
+                router.push("/login?cadastro=ok");
+                return;
+            }
+
+            const synced = await syncServerSession(signInData.session);
+            if (!synced) {
+                setError("Sessão não sincronizada. Faça login manualmente.");
+                router.push("/login?cadastro=ok");
+                return;
+            }
+
+            if (data.company_id) {
+                const sel = await fetch("/api/workspace/select", {
+                    method:  "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body:    JSON.stringify({ company_id: data.company_id }),
+                });
+                if (!sel.ok) {
+                    setError("Empresa criada, mas não foi possível selecionar o workspace. Faça login e escolha a empresa.");
+                    router.push("/login");
+                    return;
+                }
+            }
+
+            router.replace("/pedidos");
+            router.refresh();
         } catch {
             setError("Erro de conexão. Tente novamente.");
         } finally {
