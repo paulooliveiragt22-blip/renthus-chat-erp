@@ -8,7 +8,6 @@
  */
 
 import { useEffect, useState } from "react";
-import CheckoutModal from "@/components/billing/CheckoutModal";
 
 type StatusData = {
     company_name: string | null;
@@ -20,10 +19,8 @@ const SUPPORT_WA = "https://wa.me/5566992071285";
 export default function BillingBlockedPage() {
     const [data, setData]             = useState<StatusData>({ company_name: null, amount: null });
     const [loadingData, setLoadingData] = useState(true);
-    const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
     const [loadingCheckout, setLoadingCheckout] = useState(false);
     const [checkoutError, setCheckoutError] = useState<string | null>(null);
-    const [paid, setPaid]             = useState(false);
 
     // Busca dados da assinatura
     useEffect(() => {
@@ -56,7 +53,8 @@ export default function BillingBlockedPage() {
                 setCheckoutError(json.error ?? "Erro ao gerar link de pagamento.");
                 return;
             }
-            setCheckoutUrl(json.checkout_url);
+            // Página inteira: o checkout do Pagar.me usa reCAPTCHA, que costuma falhar dentro de iframe.
+            window.location.assign(json.checkout_url);
         } catch {
             setCheckoutError("Erro de conexão. Tente novamente.");
         } finally {
@@ -127,8 +125,9 @@ export default function BillingBlockedPage() {
 
                 <div style={S.separator} />
                 <p style={S.note}>
-                    Após o pagamento confirmado, o sistema é reativado
-                    automaticamente em até 5 minutos.
+                    Ao pagar, você será redirecionado ao site seguro do Pagar.me (reCAPTCHA e cartão
+                    precisam abrir fora do painel). Depois da confirmação, o sistema reativa em até
+                    alguns minutos.
                 </p>
             </div>
 
@@ -136,40 +135,6 @@ export default function BillingBlockedPage() {
                 © {new Date().getFullYear()} Renthus — Todos os direitos reservados
             </p>
 
-            {/* Checkout Modal */}
-            {checkoutUrl && !paid && (
-                <CheckoutModal
-                    url={checkoutUrl}
-                    onClose={() => setCheckoutUrl(null)}
-                    onSuccess={() => {
-                        setCheckoutUrl(null);
-                        setPaid(true);
-                    }}
-                />
-            )}
-
-            {/* Tela de sucesso */}
-            {paid && (
-                <div style={S.successOverlay}>
-                    <div style={S.successCard}>
-                        <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
-                        <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 800, color: "#111827" }}>
-                            Pagamento confirmado!
-                        </h2>
-                        <p style={{ margin: "0 0 24px", fontSize: 14, color: "#6b7280", lineHeight: 1.6 }}>
-                            Seu sistema está sendo reativado.
-                            <br />
-                            Isso pode levar até 5 minutos.
-                        </p>
-                        <button
-                            onClick={() => window.location.href = "/"}
-                            style={S.btnReload}
-                        >
-                            Acessar o sistema
-                        </button>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
@@ -295,35 +260,5 @@ const S = {
         marginTop: 28,
         fontSize:  12,
         color:     "rgba(255,255,255,0.35)",
-    },
-    successOverlay: {
-        position:       "fixed" as const,
-        inset:          0,
-        background:     "rgba(0,0,0,0.70)",
-        display:        "flex",
-        alignItems:     "center",
-        justifyContent: "center",
-        zIndex:         9999,
-        padding:        16,
-    },
-    successCard: {
-        background:    "#fff",
-        borderRadius:  20,
-        padding:       "48px 40px",
-        textAlign:     "center" as const,
-        maxWidth:      380,
-        width:         "100%",
-    },
-    btnReload: {
-        display:      "block",
-        width:        "100%",
-        padding:      "13px 20px",
-        background:   "#7c3aed",
-        color:        "#fff",
-        border:       "none",
-        borderRadius: 12,
-        fontWeight:   700,
-        fontSize:     15,
-        cursor:       "pointer",
     },
 };
