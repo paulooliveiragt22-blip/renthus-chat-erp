@@ -1,9 +1,8 @@
 /**
  * lib/billing/activateTrial.ts
  *
- * Ativa o trial de 30 dias para uma empresa após pagamento do setup aprovado.
- * Usado tanto pelo signup/route.ts (aprovação imediata) quanto pelo
- * webhook/route.ts (aprovação assíncrona via Pagar.me).
+ * Ativa o trial (30 dias) após pagamento do setup legado (fluxo com setup_payments).
+ * O cadastro direto em /signup usa `startFreeTrial` (TRIAL_DAYS, padrão 15) sem Pagar.me.
  */
 
 import "server-only";

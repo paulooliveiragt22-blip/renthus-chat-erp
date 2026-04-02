@@ -1,7 +1,7 @@
 // app/login/LoginClient.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
@@ -22,6 +22,12 @@ export default function LoginPage() {
     const [err,      setErr]      = useState<string | null>(null);
 
     const redirectTo = searchParams.get("redirectTo") || "/pedidos";
+
+    useEffect(() => {
+        if (searchParams.get("cadastro") === "ok") {
+            setMsg("Conta criada. Entre com o e-mail e a senha que você cadastrou.");
+        }
+    }, [searchParams]);
 
     async function syncServerSession(session: Session | null) {
         if (!session) return false;

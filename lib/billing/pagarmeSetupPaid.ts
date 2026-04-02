@@ -60,6 +60,25 @@ async function provisionUserAfterPayment(
         return;
     }
 
+    const { count: linkedUsers, error: cuCountErr } = await admin
+        .from("company_users")
+        .select("*", { count: "exact", head: true })
+        .eq("company_id", companyId);
+
+    if (!cuCountErr && (linkedUsers ?? 0) > 0) {
+        const renthusNumber = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";
+        await sendBillingNotification(
+            renthusNumber,
+            `✅ *Pagamento de ativação confirmado*\n\n` +
+                `Empresa: ${company.name}\n` +
+                `Email: ${company.email}\n` +
+                `Plano: ${plan}\n` +
+                `WhatsApp: ${company.whatsapp_phone ?? "-"}\n\n` +
+                `Conta já existente (trial/cadastro direto) — sem link de senha/onboarding.`
+        );
+        return;
+    }
+
     const tempPassword =
         Math.random().toString(36).slice(-8) +
         Math.random().toString(36).slice(-4).toUpperCase() +
