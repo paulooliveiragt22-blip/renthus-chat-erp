@@ -51,6 +51,23 @@ export async function POST(req: Request) {
                 await handleOrderPaid(admin, data);
                 break;
 
+            // Alguns ambientes enviam confirmação só em charge.* — o pedido vem em data.order
+            case "charge.paid": {
+                const d    = data as Record<string, unknown>;
+                const ord  = (d?.order ?? {}) as { id?: string; metadata?: Record<string, string> };
+                const oid  = (typeof ord?.id === "string" && ord.id) ? ord.id : (d?.order_id as string | undefined);
+                if (oid) {
+                    await handleOrderPaid(admin, {
+                        id:       oid,
+                        metadata: (ord?.metadata ?? d?.metadata ?? {}) as Record<string, string>,
+                        customer: (d?.customer ?? (ord as { customer?: unknown }).customer) as unknown,
+                    });
+                } else {
+                    console.warn("[webhook/pagarme] charge.paid sem id do pedido (order.id / order_id)");
+                }
+                break;
+            }
+
             case "order.payment_failed":
             case "charge.failed":
                 await handleOrderFailed(admin, data);
@@ -76,36 +93,35 @@ async function handleOrderPaid(
     admin: ReturnType<typeof createAdminClient>,
     order: any
 ) {
-    const orderId  = order?.id as string;
-    const metadata = order?.metadata ?? {};
-    const type     = metadata?.type as string;
-    const companyId = metadata?.company_id as string;
-
-    if (!orderId || !companyId) {
-        console.warn("[webhook/pagarme] order.paid sem orderId ou company_id");
+    const orderId = order?.id as string;
+    if (!orderId) {
+        console.warn("[webhook/pagarme] order.paid sem order.id");
         return;
     }
 
-    if (type === "setup") {
-        // ── Setup pago: ativa trial ──────────────────────────────────────
-        const { data: sp } = await admin
-            .from("setup_payments")
-            .select("id, plan")
-            .eq("pagarme_order_id", orderId)
-            .maybeSingle();
+    const metadata = (order?.metadata ?? {}) as Record<string, string>;
+    const metaType = metadata?.type as string | undefined;
+    const metaCompanyId = metadata?.company_id as string | undefined;
 
-        if (!sp) {
-            console.warn("[webhook/pagarme] setup_payment não encontrado para order:", orderId);
-            return;
-        }
+    // ── 1) Setup: localizar SEMPRE por pagarme_order_id.
+    // O exemplo público do Pagar.me para order.paid não inclui metadata no JSON;
+    // exigir company_id no metadata impedia marcar setup_payments como paid.
+    const { data: sp } = await admin
+        .from("setup_payments")
+        .select("id, plan, company_id")
+        .eq("pagarme_order_id", orderId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-        // Atualiza setup_payment
+    if (sp?.company_id) {
+        const companyId = sp.company_id as string;
+
         await admin
             .from("setup_payments")
             .update({ status: "paid", paid_at: new Date().toISOString() })
             .eq("id", sp.id);
 
-        // Ativa trial (se ainda não ativado)
         const { data: existingSub } = await admin
             .from("pagarme_subscriptions")
             .select("id, status")
@@ -125,25 +141,44 @@ async function handleOrderPaid(
             );
         }
 
-        // Garante subscription lógica (plans/subscriptions) alinhada com o plano bot/complete
         await syncLogicalSubscription(admin, companyId, sp.plan as string);
-
-        // Cria usuário no Supabase Auth e envia notificações de boas-vindas
         await provisionUserAfterPayment(admin, companyId, sp.plan as string);
+        return;
+    }
 
-    } else if (type === "invoice") {
-        // ── Invoice paga: atualiza subscription ─────────────────────────
-        const subscriptionId = metadata?.subscription_id as string;
+    if (metaType === "setup") {
+        console.warn(
+            "[webhook/pagarme] metadata.type=setup mas nenhuma linha em setup_payments para pagarme_order_id:",
+            orderId
+        );
+        return;
+    }
 
-        // Marca invoice como paga
+    // ── 2) Invoice: metadata pode faltar — usa company_id da linha em invoices
+    if (metaType === "invoice" || metaType === undefined) {
         const { data: inv } = await admin
             .from("invoices")
-            .select("id, subscription_id")
+            .select("id, subscription_id, company_id")
             .eq("pagarme_order_id", orderId)
             .maybeSingle();
 
         if (!inv) {
-            console.warn("[webhook/pagarme] invoice não encontrada para order:", orderId);
+            if (metaType === "invoice") {
+                console.warn("[webhook/pagarme] invoice não encontrada para order:", orderId);
+            } else {
+                console.warn(
+                    "[webhook/pagarme] order.paid sem setup_payment nem invoice para order:",
+                    orderId,
+                    "| metadata.type=",
+                    metaType ?? "(vazio)"
+                );
+            }
+            return;
+        }
+
+        const companyId = (inv.company_id as string) ?? metaCompanyId;
+        if (!companyId) {
+            console.warn("[webhook/pagarme] invoice sem company_id e metadata sem company_id | order:", orderId);
             return;
         }
 
@@ -154,7 +189,6 @@ async function handleOrderPaid(
             .update({ status: "paid", paid_at: paidAt.toISOString() })
             .eq("id", inv.id);
 
-        // Calcula próximo aniversário de cobrança
         const { data: sub } = await admin
             .from("pagarme_subscriptions")
             .select("id, activated_at, plan")
@@ -165,23 +199,20 @@ async function handleOrderPaid(
             ? nextBillingDate(new Date(sub.activated_at), paidAt)
             : new Date(paidAt.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-        // Atualiza subscription
         await admin
             .from("pagarme_subscriptions")
             .update({
-                status:         "active",
-                last_paid_at:   paidAt.toISOString(),
+                status:          "active",
+                last_paid_at:    paidAt.toISOString(),
                 next_billing_at: nextBillingAt.toISOString(),
             })
             .eq("id", inv.subscription_id);
 
-        // Reativa empresa (caso estivesse bloqueada)
         await admin
             .from("companies")
             .update({ is_active: true })
             .eq("id", companyId);
 
-        // Garante subscription lógica ativa para o plano atual
         if (sub?.plan) {
             await syncLogicalSubscription(admin, companyId, sub.plan as string);
         }
