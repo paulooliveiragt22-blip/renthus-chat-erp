@@ -128,6 +128,14 @@ export default function SignupPage() {
         e.preventDefault();
         if (!selectedPlan || !pricing) return;
         setError(null);
+        const payWindow = window.open("about:blank", "_blank");
+        if (payWindow) {
+            try {
+                payWindow.opener = null;
+            } catch {
+                /* ignore */
+            }
+        }
         setLoading(true);
         try {
             const res = await fetch("/api/billing/signup", {
@@ -149,13 +157,18 @@ export default function SignupPage() {
             });
             const data = await res.json();
             if (!res.ok || !data.checkout_url) {
+                if (payWindow && !payWindow.closed) payWindow.close();
                 setError(data.error ?? "Erro ao gerar link de pagamento.");
                 return;
             }
-            // Redireciona para o checkout do Pagar.me em página inteira
-            // O Pagar.me redireciona para success_url (já com o token) após o pagamento
-            window.location.href = data.checkout_url;
+            const checkoutUrl = data.checkout_url as string;
+            if (payWindow && !payWindow.closed) {
+                payWindow.location.href = checkoutUrl;
+            } else {
+                window.location.href = checkoutUrl;
+            }
         } catch {
+            if (payWindow && !payWindow.closed) payWindow.close();
             setError("Erro de conexão. Tente novamente.");
         } finally {
             setLoading(false);

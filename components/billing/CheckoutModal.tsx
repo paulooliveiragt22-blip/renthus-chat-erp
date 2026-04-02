@@ -81,7 +81,8 @@ export default function CheckoutModal({ url, onClose }: Props) {
                 <button
                     type="button"
                     onClick={() => {
-                        window.location.assign(url);
+                        const w = window.open(url, "_blank", "noopener,noreferrer");
+                        if (!w) window.location.assign(url);
                     }}
                     style={{
                         display:      "block",

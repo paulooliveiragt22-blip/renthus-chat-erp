@@ -41,6 +41,16 @@ export default function BillingBlockedPage() {
 
     async function handlePayClick() {
         setCheckoutError(null);
+        // Abre aba já no gesto do clique; depois do `await fetch` o navegador bloquearia `window.open`.
+        const payWindow = window.open("about:blank", "_blank");
+        if (payWindow) {
+            try {
+                payWindow.opener = null;
+            } catch {
+                /* ignore */
+            }
+        }
+
         setLoadingCheckout(true);
         try {
             const res  = await fetch("/api/billing/create-invoice-checkout", {
@@ -50,12 +60,19 @@ export default function BillingBlockedPage() {
             });
             const json = await res.json();
             if (!res.ok || !json.checkout_url) {
+                if (payWindow && !payWindow.closed) payWindow.close();
                 setCheckoutError(json.error ?? "Erro ao gerar link de pagamento.");
                 return;
             }
-            // Página inteira: o checkout do Pagar.me usa reCAPTCHA, que costuma falhar dentro de iframe.
-            window.location.assign(json.checkout_url);
+            const checkoutUrl = json.checkout_url as string;
+            if (payWindow && !payWindow.closed) {
+                payWindow.location.href = checkoutUrl;
+            } else {
+                // Popup bloqueado: mesma aba continua funcionando (checkout em topo, sem iframe).
+                window.location.assign(checkoutUrl);
+            }
         } catch {
+            if (payWindow && !payWindow.closed) payWindow.close();
             setCheckoutError("Erro de conexão. Tente novamente.");
         } finally {
             setLoadingCheckout(false);
@@ -125,9 +142,9 @@ export default function BillingBlockedPage() {
 
                 <div style={S.separator} />
                 <p style={S.note}>
-                    Ao pagar, você será redirecionado ao site seguro do Pagar.me (reCAPTCHA e cartão
-                    precisam abrir fora do painel). Depois da confirmação, o sistema reativa em até
-                    alguns minutos.
+                    O pagamento abre em outra aba no site do Pagar.me (reCAPTCHA e
+                    cartão precisam de página inteira). Se o navegador bloquear pop-up, usamos a mesma
+                    aba. Depois da confirmação, o sistema reativa em alguns minutos.
                 </p>
             </div>
 
