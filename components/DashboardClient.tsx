@@ -336,7 +336,7 @@ export default function DashboardClient() {
 
                         {/* link para billing */}
                         <a
-                            href="/billing"
+                            href="/configuracoes?tab=plano"
                             className="shrink-0 text-[11px] font-semibold text-violet-600 hover:text-violet-700 dark:text-violet-400"
                         >
                             Ver plano →

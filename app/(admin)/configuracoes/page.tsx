@@ -1,7 +1,8 @@
 // app/(admin)/configuracoes/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
@@ -171,8 +172,22 @@ const ALL_PAYMENTS = [
 
 // ─── main component ───────────────────────────────────────────────────────────
 
-export default function ConfiguracoesPage() {
+const TAB_QUERY_MAP: Record<string, Tab> = {
+    plano:              "plano",
+    pagamentos:         "plano",
+    cobranca:           "plano",
+    formas_pagamento:   "formas_pagamento",
+    formas:             "formas_pagamento",
+    geral:              "geral",
+    delivery:           "delivery",
+    seguranca:          "seguranca",
+    chatbot:            "chatbot",
+    pedidos:            "pedidos",
+};
+
+function ConfiguracoesPageContent() {
     const supabase = useMemo(() => createClient(), []);
+    const searchParams = useSearchParams();
     const { currentCompanyId: companyId } = useWorkspace();
 
     const [activeTab, setActiveTab] = useState<Tab>("geral");
@@ -273,6 +288,13 @@ export default function ConfiguracoesPage() {
     }, [companyId]);
 
     useEffect(() => { loadCompany(); }, [loadCompany]);
+
+    useEffect(() => {
+        const raw = searchParams.get("tab")?.trim().toLowerCase();
+        if (!raw) return;
+        const next = TAB_QUERY_MAP[raw];
+        if (next) setActiveTab(next);
+    }, [searchParams]);
 
     const loadBilling = useCallback(async () => {
         if (!companyId) return;
@@ -1307,5 +1329,20 @@ export default function ConfiguracoesPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function ConfiguracoesPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3">
+                    <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+                    <p className="text-sm text-zinc-500">Carregando configurações…</p>
+                </div>
+            }
+        >
+            <ConfiguracoesPageContent />
+        </Suspense>
     );
 }
