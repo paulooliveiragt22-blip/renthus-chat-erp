@@ -11,6 +11,40 @@ import "server-only";
 
 const BASE_URL = "https://api.pagar.me/core/v5";
 
+/**
+ * Pagar.me exige `customer.phones.mobile_phone`. Muitos usuários digitam só DDD+número (10–11 dígitos),
+ * sem 55 — antes o payload omitia `phones` e a API retornava erro de campos obrigatórios.
+ */
+function normalizeBrazilPhoneDigits(raw: string): string {
+    let d = raw.replace(/\D/g, "");
+    if (!d) return "";
+    if (d.startsWith("55") && d.length >= 12) return d;
+    while (d.startsWith("0") && d.length > 10) d = d.slice(1);
+    if (!d.startsWith("55") && d.length >= 10 && d.length <= 11) return `55${d}`;
+    return d;
+}
+
+/** Monta `phones.mobile_phone` (DDI 55 + DDD + número). */
+function pagarmeMobilePhoneBlock(digits: string): { mobile_phone: { country_code: string; area_code: string; number: string } } | null {
+    if (digits.length < 12 || !digits.startsWith("55")) return null;
+    const areaCode = digits.slice(2, 4);
+    const number   = digits.slice(4);
+    if (!/^\d{2}$/.test(areaCode) || number.length < 8 || number.length > 9) return null;
+    return {
+        mobile_phone: {
+            country_code: "55",
+            area_code:    areaCode,
+            number,
+        },
+    };
+}
+
+function attachCustomerMobilePhone(cBody: Record<string, unknown>, phoneRaw: string | undefined): void {
+    if (!phoneRaw?.trim()) return;
+    const block = pagarmeMobilePhoneBlock(normalizeBrazilPhoneDigits(phoneRaw));
+    if (block) cBody.phones = block;
+}
+
 function authHeader(): string {
     const key = process.env.PAGARME_API_KEY;
     if (!key) throw new Error("PAGARME_API_KEY não configurada");
@@ -95,18 +129,7 @@ export async function createCustomer(params: {
         body.document_type = params.document.length === 11 ? "CPF" : "CNPJ";
     }
 
-    if (params.phone) {
-        const digits = params.phone.replace(/\D/g, "");
-        if (digits.length >= 12) {
-            body.phones = {
-                mobile_phone: {
-                    country_code: digits.slice(0, 2),
-                    area_code: digits.slice(2, 4),
-                    number: digits.slice(4),
-                },
-            };
-        }
-    }
+    attachCustomerMobilePhone(body, params.phone);
 
     return pagarmeRequest<PagarmeCustomer>("/customers", "POST", body);
 }
@@ -165,18 +188,7 @@ export async function createSetupOrder(params: {
             cBody.document = c.document;
             cBody.document_type = c.document.length === 11 ? "CPF" : "CNPJ";
         }
-        if (c.phone) {
-            const digits = c.phone.replace(/\D/g, "");
-            if (digits.length >= 12) {
-                cBody.phones = {
-                    mobile_phone: {
-                        country_code: digits.slice(0, 2),
-                        area_code: digits.slice(2, 4),
-                        number: digits.slice(4),
-                    },
-                };
-            }
-        }
+        attachCustomerMobilePhone(cBody, c.phone);
         body.customer = cBody;
     }
 
@@ -234,18 +246,7 @@ export async function createPixInvoiceOrder(params: {
             cBody.document = c.document;
             cBody.document_type = c.document.length === 11 ? "CPF" : "CNPJ";
         }
-        if (c.phone) {
-            const digits = c.phone.replace(/\D/g, "");
-            if (digits.length >= 12) {
-                cBody.phones = {
-                    mobile_phone: {
-                        country_code: digits.slice(0, 2),
-                        area_code: digits.slice(2, 4),
-                        number: digits.slice(4),
-                    },
-                };
-            }
-        }
+        attachCustomerMobilePhone(cBody, c.phone);
         body.customer = cBody;
     }
 
@@ -413,20 +414,10 @@ export async function createCheckoutOrder(params: {
             cBody.document      = digitsDoc;
             cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
         }
-        if (c.phone) {
-            const digits = c.phone.replace(/\D/g, "");
-            if (digits.length >= 12) {
-                cBody.phones = {
-                    mobile_phone: {
-                        country_code: digits.slice(0, 2),
-                        area_code:    digits.slice(2, 4),
-                        number:       digits.slice(4),
-                    },
-                };
-            }
-        }
+        attachCustomerMobilePhone(cBody, c.phone);
         if (c.address) {
-            const zip = c.address.zipCode.replace(/\D/g, "");
+            let zip = c.address.zipCode.replace(/\D/g, "");
+            if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
             const line1 = `${c.address.street} ${c.address.number}`.trim();
             cBody.addresses = [
                 {
