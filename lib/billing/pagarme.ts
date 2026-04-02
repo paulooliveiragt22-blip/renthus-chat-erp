@@ -169,9 +169,10 @@ export async function createSetupOrder(params: {
     };
     metadata?: Record<string, string>;
 }): Promise<PagarmeOrder> {
+    // v5: token da rota /tokens deve ir em `card_token`, não em `card: { id }`
     const creditCard: Record<string, unknown> = {
         installments:         params.installments,
-        card:                 { id: params.cardToken },
+        card_token:           params.cardToken,
         capture:              true,
         statement_descriptor: "RENTHUS",
     };
