@@ -238,7 +238,12 @@ export async function POST(req: Request) {
             const cardToken = body.card_token?.trim();
             if (!cardToken) {
                 return NextResponse.json(
-                    { error: "Token do cartão ausente. Preencha os dados do cartão e tente novamente." },
+                    {
+                        error:
+                            "Token do cartão ausente. Com «Cartão» selecionado, preencha número, validade e CVV " +
+                            "(campos aparecem logo abaixo da forma de pagamento). " +
+                            "É necessário NEXT_PUBLIC_PAGARME_PUBLIC_KEY no ambiente.",
+                    },
                     { status: 400 }
                 );
             }

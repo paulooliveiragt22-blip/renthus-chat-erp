@@ -244,6 +244,13 @@ export default function SignupPage() {
                     setError(err instanceof Error ? err.message : "Cartão recusado.");
                     return;
                 }
+                if (!cardToken) {
+                    setError(
+                        "Não foi gerado o token do cartão. Confira número, validade (MM/AA) e CVV, " +
+                            "e se NEXT_PUBLIC_PAGARME_PUBLIC_KEY está configurada."
+                    );
+                    return;
+                }
             }
 
             const res = await fetch("/api/billing/signup", {
@@ -670,6 +677,86 @@ export default function SignupPage() {
                         </div>
                     )}
 
+                    {/* Cartão: logo após a forma de pagamento (antes do restante) para não enviar sem preencher */}
+                    {paymentMethod === "credit_card" && (
+                        <>
+                            <div style={S.sectionLabel}>Cartão de crédito</div>
+                            {!PAGARME_PUBLIC_KEY && (
+                                <div style={{ ...S.errorBox, marginBottom: 12 }}>
+                                    Defina NEXT_PUBLIC_PAGARME_PUBLIC_KEY (chave pública pk_… do Pagar.me) e cadastre
+                                    este domínio no painel do Pagar.me para tokenizar o cartão.
+                                </div>
+                            )}
+                            <div style={S.field}>
+                                <label style={S.label}>Nome no cartão</label>
+                                <input
+                                    style={S.input}
+                                    type="text"
+                                    autoComplete="cc-name"
+                                    placeholder="Como impresso no cartão (vazio = nome da empresa)"
+                                    value={card.holder}
+                                    onChange={(e) => {
+                                        setError(null);
+                                        setCard((c) => ({ ...c, holder: e.target.value }));
+                                    }}
+                                />
+                            </div>
+                            <div style={S.field}>
+                                <label style={S.label}>Número *</label>
+                                <input
+                                    style={S.input}
+                                    type="text"
+                                    inputMode="numeric"
+                                    autoComplete="cc-number"
+                                    placeholder="0000 0000 0000 0000"
+                                    value={card.number}
+                                    required
+                                    onChange={(e) => {
+                                        setError(null);
+                                        setCard((c) => ({ ...c, number: e.target.value }));
+                                    }}
+                                />
+                            </div>
+                            <div style={{ display: "flex", gap: 14 }}>
+                                <div style={{ ...S.field, flex: 1 }}>
+                                    <label style={S.label}>Validade *</label>
+                                    <input
+                                        style={S.input}
+                                        type="text"
+                                        autoComplete="cc-exp"
+                                        placeholder="MM/AA"
+                                        value={card.exp}
+                                        required
+                                        onChange={(e) => {
+                                            setError(null);
+                                            setCard((c) => ({ ...c, exp: e.target.value }));
+                                        }}
+                                    />
+                                </div>
+                                <div style={{ ...S.field, flex: 1 }}>
+                                    <label style={S.label}>CVV *</label>
+                                    <input
+                                        style={S.input}
+                                        type="password"
+                                        inputMode="numeric"
+                                        autoComplete="cc-csc"
+                                        placeholder="123"
+                                        maxLength={4}
+                                        value={card.cvv}
+                                        required
+                                        onChange={(e) => {
+                                            setError(null);
+                                            setCard((c) => ({ ...c, cvv: e.target.value }));
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: "0 0 4px" }}>
+                                Os dados do cartão vão direto ao Pagar.me (token); não armazenamos o número completo.
+                            </p>
+                        </>
+                    )}
+
                     {/* Resumo */}
                     <div style={S.resumoBox}>
                         <div style={S.resumoQuestion}>O que está sendo cobrado agora?</div>
@@ -795,82 +882,6 @@ export default function SignupPage() {
                             />
                         </div>
                     </div>
-
-                    {paymentMethod === "credit_card" && (
-                        <>
-                            <div style={S.sectionLabel}>Cartão de crédito</div>
-                            {!PAGARME_PUBLIC_KEY && (
-                                <div style={{ ...S.errorBox, marginBottom: 12 }}>
-                                    Defina NEXT_PUBLIC_PAGARME_PUBLIC_KEY (chave pública pk_… do Pagar.me) e cadastre
-                                    este domínio no painel do Pagar.me para tokenizar o cartão.
-                                </div>
-                            )}
-                            <div style={S.field}>
-                                <label style={S.label}>Nome no cartão *</label>
-                                <input
-                                    style={S.input}
-                                    type="text"
-                                    autoComplete="cc-name"
-                                    placeholder="Como impresso no cartão (ou deixe em branco para usar o nome da empresa)"
-                                    value={card.holder}
-                                    onChange={(e) => {
-                                        setError(null);
-                                        setCard((c) => ({ ...c, holder: e.target.value }));
-                                    }}
-                                />
-                            </div>
-                            <div style={S.field}>
-                                <label style={S.label}>Número *</label>
-                                <input
-                                    style={S.input}
-                                    type="text"
-                                    inputMode="numeric"
-                                    autoComplete="cc-number"
-                                    placeholder="0000 0000 0000 0000"
-                                    value={card.number}
-                                    onChange={(e) => {
-                                        setError(null);
-                                        setCard((c) => ({ ...c, number: e.target.value }));
-                                    }}
-                                />
-                            </div>
-                            <div style={{ display: "flex", gap: 14 }}>
-                                <div style={{ ...S.field, flex: 1 }}>
-                                    <label style={S.label}>Validade *</label>
-                                    <input
-                                        style={S.input}
-                                        type="text"
-                                        autoComplete="cc-exp"
-                                        placeholder="MM/AA"
-                                        value={card.exp}
-                                        onChange={(e) => {
-                                            setError(null);
-                                            setCard((c) => ({ ...c, exp: e.target.value }));
-                                        }}
-                                    />
-                                </div>
-                                <div style={{ ...S.field, flex: 1 }}>
-                                    <label style={S.label}>CVV *</label>
-                                    <input
-                                        style={S.input}
-                                        type="password"
-                                        inputMode="numeric"
-                                        autoComplete="cc-csc"
-                                        placeholder="123"
-                                        maxLength={4}
-                                        value={card.cvv}
-                                        onChange={(e) => {
-                                            setError(null);
-                                            setCard((c) => ({ ...c, cvv: e.target.value }));
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: "0 0 4px" }}>
-                                Os dados do cartão vão direto ao Pagar.me (token); não armazenamos o número completo.
-                            </p>
-                        </>
-                    )}
 
                     {error && <div style={S.errorBox}>{error}</div>}
 
