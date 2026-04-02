@@ -6,20 +6,10 @@
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
+import { computeNextBillingAt } from "@/lib/billing/computeNextBillingAt";
+import { billingLog } from "@/lib/billing/billingLog";
 
 type Admin = ReturnType<typeof createAdminClient>;
-
-export function nextBillingDate(activatedAt: Date, referenceDate: Date): Date {
-    const next = new Date(activatedAt);
-    next.setMonth(referenceDate.getMonth());
-    next.setFullYear(referenceDate.getFullYear());
-
-    if (next <= referenceDate) {
-        next.setMonth(next.getMonth() + 1);
-    }
-
-    return next;
-}
 
 export type ApplyMonthlyInvoiceResult =
     | { ok: true; alreadyPaid?: boolean }
@@ -39,6 +29,7 @@ export async function applyMonthlyInvoicePaid(
     if (!inv) return { ok: false, reason: "invoice_not_found" };
 
     if (inv.status === "paid") {
+        billingLog("invoice_paid", "skip_already_paid", { invoice_id: inv.id, order_id: orderId });
         return { ok: true, alreadyPaid: true };
     }
 
@@ -51,13 +42,11 @@ export async function applyMonthlyInvoicePaid(
 
     const { data: sub } = await admin
         .from("pagarme_subscriptions")
-        .select("id, activated_at, plan")
+        .select("id, plan")
         .eq("id", inv.subscription_id)
         .maybeSingle();
 
-    const nextBillingAt = sub?.activated_at
-        ? nextBillingDate(new Date(sub.activated_at), paidAt)
-        : new Date(paidAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const nextBillingAt = computeNextBillingAt(paidAt);
 
     const subPatch: Record<string, unknown> = {
         status:          "active",
@@ -77,9 +66,12 @@ export async function applyMonthlyInvoicePaid(
         await syncLogicalSubscription(admin, companyId, sub.plan as string);
     }
 
-    console.log(
-        `[applyMonthlyInvoicePaid] Invoice ${inv.id} paga (order ${orderId}). Próxima cobrança: ${nextBillingAt.toISOString()}`
-    );
+    billingLog("invoice_paid", "monthly invoice marked paid", {
+        invoice_id:      inv.id,
+        order_id:        orderId,
+        company_id:      companyId,
+        next_billing_at: nextBillingAt.toISOString(),
+    });
 
     return { ok: true };
 }

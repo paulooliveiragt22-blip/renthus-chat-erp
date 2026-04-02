@@ -103,35 +103,41 @@ export async function middleware(
                     fetch(
                         `${supabaseUrl}/rest/v1/companies` +
                         `?id=eq.${encodeURIComponent(companyId)}` +
-                        `&select=senha_definida,onboarding_completed_at,onboarding_token&limit=1`,
+                        `&select=senha_definida,onboarding_completed_at,onboarding_token,is_active&limit=1`,
                         { headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } }
                     ),
                 ]);
 
-                // 1. Empresa bloqueada — pagamento só na aba Configurações › Plano e pagamentos
-                if (subRes.ok) {
-                    const [sub] = (await subRes.json()) as Array<{ status: string }>;
-                    if (sub?.status === "blocked") {
-                        const isConfig =
-                            pathname === "/configuracoes" || pathname.startsWith("/configuracoes/");
-                        if (!isConfig) {
-                            const payUrl = request.nextUrl.clone();
-                            payUrl.pathname = "/configuracoes";
-                            payUrl.search    = "?tab=plano";
-                            return NextResponse.redirect(payUrl);
-                        }
+                const [sub] = subRes.ok
+                    ? ((await subRes.json()) as Array<{ status: string }>)
+                    : [];
+                const [comp] = compRes.ok
+                    ? ((await compRes.json()) as Array<{
+                          senha_definida:          boolean;
+                          onboarding_completed_at: string | null;
+                          onboarding_token:        string | null;
+                          is_active:               boolean;
+                      }>)
+                    : [];
+
+                // 1. Cobrança / bloqueio — alinhar subscription blocked com companies.is_active=false + overdue (ex.: falha parcial)
+                const billingPaywall =
+                    sub?.status === "blocked" ||
+                    (comp && comp.is_active === false && sub?.status === "overdue");
+                if (billingPaywall) {
+                    const isConfig =
+                        pathname === "/configuracoes" || pathname.startsWith("/configuracoes/");
+                    if (!isConfig) {
+                        const payUrl = request.nextUrl.clone();
+                        payUrl.pathname = "/configuracoes";
+                        payUrl.search    = "?tab=plano";
+                        return NextResponse.redirect(payUrl);
                     }
                 }
 
                 // 2. Senha ainda não definida → completar cadastro
-                if (compRes.ok) {
-                    const [comp] = (await compRes.json()) as Array<{
-                        senha_definida:          boolean;
-                        onboarding_completed_at: string | null;
-                        onboarding_token:        string | null;
-                    }>;
-
-                    if (comp && comp.senha_definida === false && comp.onboarding_token) {
+                if (comp) {
+                    if (comp.senha_definida === false && comp.onboarding_token) {
                         const completeUrl = request.nextUrl.clone();
                         completeUrl.pathname = "/signup/complete";
                         completeUrl.search   = `?token=${comp.onboarding_token}`;
@@ -139,7 +145,7 @@ export async function middleware(
                     }
 
                     // 3. Onboarding ainda não concluído → redireciona para /onboarding
-                    if (comp && comp.onboarding_completed_at === null &&
+                    if (comp.onboarding_completed_at === null &&
                         pathname !== "/onboarding") {
                         const onboardUrl = request.nextUrl.clone();
                         onboardUrl.pathname = "/onboarding";

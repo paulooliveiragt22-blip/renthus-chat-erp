@@ -17,6 +17,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhookSignature, extractOrderCustomerId, type PagarmeOrder } from "@/lib/billing/pagarme";
 import { processSetupOrderPaid } from "@/lib/billing/pagarmeSetupPaid";
 import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
+import { billingLog } from "@/lib/billing/billingLog";
+import { tryConsumePagarmeWebhookEvent } from "@/lib/billing/tryConsumePagarmeWebhookEvent";
 
 export const runtime = "nodejs";
 
@@ -40,10 +42,30 @@ export async function POST(req: Request) {
 
     const eventType: string = event?.type ?? "";
     const data              = event?.data ?? {};
+    const eventId           = typeof event?.id === "string" ? event.id : undefined;
 
-    console.log(`[webhook/pagarme] Evento: ${eventType} | Order: ${data?.id}`);
+    billingLog("webhook", "received", {
+        event_type: eventType,
+        event_id:   eventId,
+        order_id:   (data as { id?: string })?.id,
+    });
 
     const admin = createAdminClient();
+
+    try {
+        const proceed = await tryConsumePagarmeWebhookEvent(admin, eventId, eventType);
+        if (!proceed) {
+            billingLog("webhook", "duplicate_event_skipped", {
+                event_id:   eventId,
+                event_type: eventType,
+            });
+            return NextResponse.json({ ok: true, duplicate: true });
+        }
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[webhook/pagarme] idempotency:", msg);
+        return NextResponse.json({ error: "idempotency_store_failed", detail: msg }, { status: 500 });
+    }
 
     try {
         switch (eventType) {
@@ -74,10 +96,10 @@ export async function POST(req: Request) {
                 break;
 
             default:
-                console.log(`[webhook/pagarme] Evento ignorado: ${eventType}`);
+                billingLog("webhook", "event_type_ignored", { event_type: eventType });
         }
     } catch (err: any) {
-        console.error("[webhook/pagarme] Erro:", err?.message ?? err);
+        console.error("[webhook/pagarme] handler_error:", err?.message ?? err);
         // Retorna 200 para o Pagar.me não fazer retry em erros de negócio
         return NextResponse.json({ ok: false, error: err?.message ?? "Erro interno" });
     }
@@ -118,9 +140,14 @@ async function handleOrderPaid(
     // ── 2) Invoice: metadata pode faltar — localiza por pagarme_order_id em invoices
     if (metaType === "invoice" || metaType === undefined) {
         const custId = extractOrderCustomerId(order as PagarmeOrder);
-        const r      = await applyMonthlyInvoicePaid(admin, orderId, { pagarmeCustomerId: custId });
+        const r = await applyMonthlyInvoicePaid(admin, orderId, { pagarmeCustomerId: custId });
 
-        if (r.ok) return;
+        if (r.ok) {
+            if (r.alreadyPaid) {
+                billingLog("webhook", "invoice_already_paid_idempotent", { order_id: orderId });
+            }
+            return;
+        }
 
         if (metaType === "invoice") {
             console.warn("[webhook/pagarme] metadata.type=invoice mas invoice não encontrada para order:", orderId);
@@ -132,6 +159,11 @@ async function handleOrderPaid(
                 metaType ?? "(vazio)"
             );
         }
+    } else if (metaType) {
+        billingLog("webhook", "order_paid_unhandled_metadata_type", {
+            order_id: orderId,
+            meta_type: metaType,
+        });
     }
 }
 
@@ -156,6 +188,6 @@ async function handleOrderFailed(
         .eq("pagarme_order_id", orderId)
         .eq("status", "pending");
 
-    console.log(`[webhook/pagarme] Pagamento falhou para order: ${orderId}`);
+    billingLog("webhook", "payment_failed", { order_id: orderId });
 }
 

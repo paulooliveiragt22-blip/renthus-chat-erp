@@ -20,6 +20,7 @@ import {
     isOrderCreditPaid,
 } from "@/lib/billing/pagarme";
 import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
+import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 
 export const runtime = "nodejs";
 
@@ -80,14 +81,15 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Empresa não encontrada" }, { status: 404 });
         }
 
-        const cnpjDigits =
-            (company.cnpj as string | null)?.replace(/\D/g, "") ||
-            ((company.meta as { cnpj?: string } | null)?.cnpj ?? "").replace(/\D/g, "");
-
-        const displayName =
-            (company.nome_fantasia as string | null)?.trim() ||
-            (company.name as string | null)?.trim() ||
-            "Empresa";
+        const customerBase = buildPagarmeCustomerPayload({
+            id:               companyId,
+            name:             company.name as string | null,
+            nome_fantasia:    company.nome_fantasia as string | null,
+            email:            company.email as string | null,
+            whatsapp_phone:   company.whatsapp_phone as string | null,
+            cnpj:             company.cnpj as string | null,
+            meta:             (company.meta as Record<string, unknown> | null) ?? null,
+        });
 
         const metaInvoice = {
             type:            "invoice" as const,
@@ -137,14 +139,7 @@ export async function POST(req: Request) {
                 cardToken: token,
                 itemCode:  "mensalidade",
                 customerId: sub.pagarme_customer_id ?? undefined,
-                customer:    !sub.pagarme_customer_id
-                    ? {
-                          name:     displayName,
-                          email:    (company.email as string) ?? `${companyId}@renthus.com.br`,
-                          document: cnpjDigits || undefined,
-                          phone:    (company.whatsapp_phone as string) ?? undefined,
-                      }
-                    : undefined,
+                customer: !sub.pagarme_customer_id ? customerBase : undefined,
                 billingAddress: {
                     line_1:   line1,
                     line_2:   "",
@@ -221,14 +216,7 @@ export async function POST(req: Request) {
             amountCents,
             description: `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
             customerId:  sub.pagarme_customer_id ?? undefined,
-            customer:    !sub.pagarme_customer_id
-                ? {
-                      name:     displayName,
-                      email:    (company.email as string) ?? `${companyId}@renthus.com.br`,
-                      document: cnpjDigits || undefined,
-                      phone:    (company.whatsapp_phone as string) ?? undefined,
-                  }
-                : undefined,
+            customer: !sub.pagarme_customer_id ? customerBase : undefined,
             metadata: metaInvoice,
         });
 

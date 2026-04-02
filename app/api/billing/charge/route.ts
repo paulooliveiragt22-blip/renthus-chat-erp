@@ -23,6 +23,8 @@ import {
     sendBillingNotification,
     buildOverdueMessage,
 } from "@/lib/billing/sendBillingNotification";
+import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
+import { billingLog } from "@/lib/billing/billingLog";
 
 export const runtime = "nodejs";
 
@@ -54,7 +56,7 @@ export async function POST(req: Request) {
         .select(`
             id, company_id, plan, status, activated_at, next_billing_at, trial_ends_at,
             pagarme_customer_id,
-            companies ( name, email, whatsapp_phone, meta )
+            companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
         `)
         .in("status", ["trial", "active"])
         .or(
@@ -136,7 +138,13 @@ export async function POST(req: Request) {
         }
     }
 
-    console.log("[charge] Concluído:", results);
+    billingLog("charge_cron", "completed", {
+        trialsCharged: results.trialsCharged,
+        activeCharged: results.activeCharged,
+        notified:      results.notified,
+        blocked:       results.blocked,
+        error_count:   results.errors.length,
+    });
     return NextResponse.json({ ok: true, ...results });
 }
 
@@ -148,22 +156,35 @@ async function generateInvoice(
     sub: any,
     now: Date
 ) {
-    const company      = sub.companies;
-    const amountCents  = getMonthlyPriceCents(sub.plan as "bot" | "complete");
-    const cnpj: string = (company?.meta as any)?.cnpj?.replace(/\D/g, "") ?? "";
+    const company     = sub.companies as {
+        id?: string;
+        name?: string | null;
+        nome_fantasia?: string | null;
+        email?: string | null;
+        whatsapp_phone?: string | null;
+        meta?: Record<string, unknown> | null;
+        cnpj?: string | null;
+    } | null;
+    const amountCents = getMonthlyPriceCents(sub.plan as "bot" | "complete");
+
+    const customerPayload =
+        !sub.pagarme_customer_id && company
+            ? buildPagarmeCustomerPayload({
+                  id:             sub.company_id,
+                  name:           company.name ?? null,
+                  nome_fantasia:  company.nome_fantasia ?? null,
+                  email:          company.email ?? null,
+                  whatsapp_phone: company.whatsapp_phone ?? null,
+                  cnpj:           company.cnpj ?? null,
+                  meta:           company.meta ?? null,
+              })
+            : undefined;
 
     const order = await createPixInvoiceOrder({
         amountCents,
         description: `Mensalidade Renthus — Plano ${sub.plan}`,
         customerId:  sub.pagarme_customer_id ?? undefined,
-        customer:    !sub.pagarme_customer_id
-            ? {
-                  name:     company?.name ?? "Empresa",
-                  email:    company?.email ?? `${sub.company_id}@renthus.com.br`,
-                  document: cnpj || undefined,
-                  phone:    company?.whatsapp_phone ?? undefined,
-              }
-            : undefined,
+        customer:    customerPayload,
         metadata: {
             type:            "invoice",
             company_id:      sub.company_id,
@@ -222,5 +243,5 @@ async function blockCompany(
             .eq("id", companyId),
     ]);
 
-    console.log(`[charge] Empresa bloqueada: ${companyId}`);
+    billingLog("charge_cron", "company_blocked", { company_id: companyId, subscription_id: subscriptionId });
 }

@@ -12,6 +12,7 @@
   },
   "include": [
     "middleware.ts",
+    "lib/billing/computeNextBillingAt.ts",
     "tests/**/*.ts",
     "lib/chatbot/PackagingExtractor.ts",
     "lib/chatbot/OrderParserService.ts",
