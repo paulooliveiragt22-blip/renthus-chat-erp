@@ -159,9 +159,14 @@ export async function createSetupOrder(params: {
             country?: string;
         };
     };
-    /** Obrigatório com token de cartão (endereço não vai no token). */
+    /**
+     * Com `card_token`, o Pagar.me ainda exige `card.billing_address` (não só `credit_card.billing_address`),
+     * senão falha com validation_error | billing | "value" is required.
+     * @see https://github.com/pagarme/pagarme-php/issues/408
+     */
     billingAddress?: {
         line_1:   string;
+        line_2?:  string;
         zip_code: string;
         city:     string;
         state:    string;
@@ -169,20 +174,24 @@ export async function createSetupOrder(params: {
     };
     metadata?: Record<string, string>;
 }): Promise<PagarmeOrder> {
-    // v5: token da rota /tokens deve ir em `card_token`, não em `card: { id }`
     const creditCard: Record<string, unknown> = {
         installments:         params.installments,
         card_token:           params.cardToken,
         capture:              true,
+        operation_type:       "auth_and_capture",
         statement_descriptor: "RENTHUS",
     };
     if (params.billingAddress) {
-        creditCard.billing_address = {
-            line_1:   params.billingAddress.line_1,
-            zip_code: params.billingAddress.zip_code,
-            city:     params.billingAddress.city,
-            state:    params.billingAddress.state,
-            country:  params.billingAddress.country ?? "BR",
+        const b = params.billingAddress;
+        creditCard.card = {
+            billing_address: {
+                line_1:   b.line_1,
+                line_2:   b.line_2 ?? "",
+                zip_code: b.zip_code,
+                city:     b.city,
+                state:    b.state,
+                country:  b.country ?? "BR",
+            },
         };
     }
 

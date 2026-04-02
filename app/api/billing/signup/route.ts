@@ -250,7 +250,9 @@ export async function POST(req: Request) {
 
             let zip = address_zip.replace(/\D/g, "");
             if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
-            const line1 = `${address_street.trim()} ${address_number.trim()}`.trim();
+            // Formato alinhado aos exemplos Pagar.me: "número, logradouro"
+            const line1 =
+                `${address_number.trim()}, ${address_street.trim()}`.replace(/^,\s*|,\s*$/g, "").trim();
 
             const order = await createSetupOrder({
                 amountCents,
@@ -261,6 +263,7 @@ export async function POST(req: Request) {
                 customer:      customerPayload,
                 billingAddress: {
                     line_1:   line1,
+                    line_2:   "",
                     zip_code: zip,
                     city:     address_city.trim(),
                     state:    address_state.trim().toUpperCase(),
