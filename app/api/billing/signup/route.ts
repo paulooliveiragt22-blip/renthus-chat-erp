@@ -72,17 +72,24 @@ export async function POST(req: Request) {
 
         const admin = createAdminClient();
 
-        const { data: existing } = await admin
+        const { data: dupMeta } = await admin
             .from("companies")
             .select("id")
             .eq("meta->>cnpj", cnpjDigits)
             .maybeSingle();
 
-        if (existing?.id) {
+        const { data: dupCol } = await admin
+            .from("companies")
+            .select("id")
+            .eq("cnpj", cnpjDigits)
+            .maybeSingle();
+
+        const existingId = dupMeta?.id ?? dupCol?.id;
+        if (existingId) {
             const { data: sub } = await admin
                 .from("pagarme_subscriptions")
                 .select("status")
-                .eq("company_id", existing.id)
+                .eq("company_id", existingId)
                 .maybeSingle();
 
             if (sub && sub.status !== "cancelled") {
@@ -115,11 +122,14 @@ export async function POST(req: Request) {
         const userId = authData.user.id;
 
         const nowIso = new Date().toISOString();
+        const trimmedName = company_name.trim();
 
         const { data: newCompany, error: compErr } = await admin
             .from("companies")
             .insert({
-                name:                    company_name.trim(),
+                nome_fantasia:           trimmedName,
+                cnpj:                    cnpjDigits,
+                name:                    trimmedName,
                 email:                   emailNorm,
                 whatsapp_phone:          whatsappDigits.startsWith("55") ? whatsappDigits : `55${whatsappDigits}`,
                 meta:                    { cnpj: cnpjDigits },
@@ -161,7 +171,7 @@ export async function POST(req: Request) {
         await sendBillingNotification(
             RENTHUS_PHONE,
             `🆕 *Novo cadastro (trial)*\n\n` +
-                `Empresa: ${company_name.trim()}\n` +
+                `Empresa: ${trimmedName}\n` +
                 `Email: ${emailNorm}\n` +
                 `Plano: ${plan}\n` +
                 `WhatsApp: ${whatsappDigits}\n\n` +
