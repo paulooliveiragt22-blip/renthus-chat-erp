@@ -42,7 +42,6 @@ export async function middleware(
     if (pathname.startsWith("/api/print/")) return NextResponse.next();
     if (pathname.startsWith("/api/billing/webhook")) return NextResponse.next();
     if (pathname === "/api/billing/signup") return NextResponse.next();
-    if (pathname === "/api/billing/create-invoice-checkout") return NextResponse.next();
     if (pathname === "/api/agent/auth" || pathname === "/api/agent/heartbeat") return NextResponse.next();
     // API pública de onboarding (GET por token — sem session)
     if (pathname === "/api/signup/complete") return NextResponse.next();
@@ -109,13 +108,18 @@ export async function middleware(
                     ),
                 ]);
 
-                // 1. Empresa bloqueada por inadimplência
+                // 1. Empresa bloqueada — pagamento só na aba Configurações › Plano e pagamentos
                 if (subRes.ok) {
                     const [sub] = (await subRes.json()) as Array<{ status: string }>;
                     if (sub?.status === "blocked") {
-                        const blockedUrl = request.nextUrl.clone();
-                        blockedUrl.pathname = "/billing/blocked";
-                        return NextResponse.redirect(blockedUrl);
+                        const isConfig =
+                            pathname === "/configuracoes" || pathname.startsWith("/configuracoes/");
+                        if (!isConfig) {
+                            const payUrl = request.nextUrl.clone();
+                            payUrl.pathname = "/configuracoes";
+                            payUrl.search    = "?tab=plano";
+                            return NextResponse.redirect(payUrl);
+                        }
                     }
                 }
 

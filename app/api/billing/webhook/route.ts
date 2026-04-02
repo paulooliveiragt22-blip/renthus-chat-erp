@@ -14,11 +14,9 @@
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyWebhookSignature } from "@/lib/billing/pagarme";
-import {
-    processSetupOrderPaid,
-    syncLogicalSubscription,
-} from "@/lib/billing/pagarmeSetupPaid";
+import { verifyWebhookSignature, extractOrderCustomerId, type PagarmeOrder } from "@/lib/billing/pagarme";
+import { processSetupOrderPaid } from "@/lib/billing/pagarmeSetupPaid";
+import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
 
 export const runtime = "nodejs";
 
@@ -103,7 +101,6 @@ async function handleOrderPaid(
 
     const metadata = (order?.metadata ?? {}) as Record<string, string>;
     const metaType = metadata?.type as string | undefined;
-    const metaCompanyId = metadata?.company_id as string | undefined;
 
     // ── 1) Setup: localizar SEMPRE por pagarme_order_id.
     if (await processSetupOrderPaid(admin, order)) {
@@ -118,73 +115,23 @@ async function handleOrderPaid(
         return;
     }
 
-    // ── 2) Invoice: metadata pode faltar — usa company_id da linha em invoices
+    // ── 2) Invoice: metadata pode faltar — localiza por pagarme_order_id em invoices
     if (metaType === "invoice" || metaType === undefined) {
-        const { data: inv } = await admin
-            .from("invoices")
-            .select("id, subscription_id, company_id")
-            .eq("pagarme_order_id", orderId)
-            .maybeSingle();
+        const custId = extractOrderCustomerId(order as PagarmeOrder);
+        const r      = await applyMonthlyInvoicePaid(admin, orderId, { pagarmeCustomerId: custId });
 
-        if (!inv) {
-            if (metaType === "invoice") {
-                console.warn("[webhook/pagarme] invoice não encontrada para order:", orderId);
-            } else {
-                console.warn(
-                    "[webhook/pagarme] order.paid sem setup_payment nem invoice para order:",
-                    orderId,
-                    "| metadata.type=",
-                    metaType ?? "(vazio)"
-                );
-            }
-            return;
+        if (r.ok) return;
+
+        if (metaType === "invoice") {
+            console.warn("[webhook/pagarme] metadata.type=invoice mas invoice não encontrada para order:", orderId);
+        } else {
+            console.warn(
+                "[webhook/pagarme] order.paid sem setup_payment nem invoice para order:",
+                orderId,
+                "| metadata.type=",
+                metaType ?? "(vazio)"
+            );
         }
-
-        const companyId = (inv.company_id as string) ?? metaCompanyId;
-        if (!companyId) {
-            console.warn("[webhook/pagarme] invoice sem company_id e metadata sem company_id | order:", orderId);
-            return;
-        }
-
-        const paidAt = new Date();
-
-        await admin
-            .from("invoices")
-            .update({ status: "paid", paid_at: paidAt.toISOString() })
-            .eq("id", inv.id);
-
-        const { data: sub } = await admin
-            .from("pagarme_subscriptions")
-            .select("id, activated_at, plan")
-            .eq("id", inv.subscription_id)
-            .maybeSingle();
-
-        const nextBillingAt = sub?.activated_at
-            ? nextBillingDate(new Date(sub.activated_at), paidAt)
-            : new Date(paidAt.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-        await admin
-            .from("pagarme_subscriptions")
-            .update({
-                status:          "active",
-                last_paid_at:    paidAt.toISOString(),
-                next_billing_at: nextBillingAt.toISOString(),
-            })
-            .eq("id", inv.subscription_id);
-
-        await admin
-            .from("companies")
-            .update({ is_active: true })
-            .eq("id", companyId);
-
-        if (sub?.plan) {
-            await syncLogicalSubscription(admin, companyId, sub.plan as string);
-        }
-
-        console.log(
-            `[webhook/pagarme] Invoice ${inv.id} paga. ` +
-            `Próxima cobrança: ${nextBillingAt.toISOString()}`
-        );
     }
 }
 
@@ -212,17 +159,3 @@ async function handleOrderFailed(
     console.log(`[webhook/pagarme] Pagamento falhou para order: ${orderId}`);
 }
 
-// ---------------------------------------------------------------------------
-// Calcula próximo aniversário de cobrança a partir da data de ativação
-// ---------------------------------------------------------------------------
-function nextBillingDate(activatedAt: Date, referenceDate: Date): Date {
-    const next = new Date(activatedAt);
-    next.setMonth(referenceDate.getMonth());
-    next.setFullYear(referenceDate.getFullYear());
-
-    if (next <= referenceDate) {
-        next.setMonth(next.getMonth() + 1);
-    }
-
-    return next;
-}

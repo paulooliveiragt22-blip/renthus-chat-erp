@@ -34,24 +34,22 @@ export async function GET(req: Request) {
                 .then(({ data }) => data),
         ]);
 
-        // Última invoice pendente (para link de pagamento)
+        // Última fatura pendente (PIX) — qualquer status (trial, active, overdue, blocked)
         let pendingInvoice: {
             pagarme_payment_url: string | null;
             pix_qr_code:         string | null;
             amount:              number;
             due_at:              string;
         } | null = null;
-        if (pagarmeSubRaw?.status === "overdue" || pagarmeSubRaw?.status === "blocked") {
-            const { data: inv } = await admin
-                .from("invoices")
-                .select("pagarme_payment_url, pix_qr_code, amount, due_at")
-                .eq("company_id", companyId)
-                .eq("status", "pending")
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-            pendingInvoice = inv ?? null;
-        }
+        const { data: invPending } = await admin
+            .from("invoices")
+            .select("pagarme_payment_url, pix_qr_code, amount, due_at")
+            .eq("company_id", companyId)
+            .eq("status", "pending")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        pendingInvoice = invPending ?? null;
 
         const { data: invoiceRows } = await admin
             .from("invoices")

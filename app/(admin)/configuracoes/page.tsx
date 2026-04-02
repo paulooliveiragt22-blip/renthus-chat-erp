@@ -5,6 +5,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { parseCardExpiry, pagarmeCreateCardToken } from "@/lib/pagarme/cardTokenBrowser";
 import {
     BadgeCheck,
     Bike,
@@ -162,6 +163,8 @@ function SaveBar({ saving, msg, onSave }: { saving: boolean; msg: string | null;
 
 // ─── payment methods config ───────────────────────────────────────────────────
 
+const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
+
 const ALL_PAYMENTS = [
     { key: "pix",          label: "Pix",          desc: "Transferência instantânea" },
     { key: "credit_card",  label: "Cartão de Crédito", desc: "Visa, Master, Elo, etc." },
@@ -248,8 +251,17 @@ function ConfiguracoesPageContent() {
     const [billingErr,     setBillingErr]         = useState<string | null>(null);
     const [planSaving,     setPlanSaving]         = useState(false);
     const [pixLoading,     setPixLoading]         = useState(false);
-    const [billingPix,     setBillingPix]         = useState<{ url: string | null; code: string } | null>(null);
     const [pixCopied,      setPixCopied]          = useState(false);
+    const [renthusPayMode, setRenthusPayMode]     = useState<"pix" | "card">("pix");
+    const [renthusCard,    setRenthusCard]        = useState({
+        holder: "",
+        number: "",
+        exp:    "",
+        cvv:    "",
+    });
+    const [renthusInstallments, setRenthusInstallments] = useState(1);
+    const [cardPayLoading, setCardPayLoading]     = useState(false);
+    const [billingSuccessMsg, setBillingSuccessMsg] = useState<string | null>(null);
 
     // ── load company ──────────────────────────────────────────────────────────
     const loadCompany = useCallback(async () => {
@@ -347,13 +359,13 @@ function ConfiguracoesPageContent() {
     async function openRenthusPix() {
         setPixLoading(true);
         setBillingErr(null);
-        setBillingPix(null);
+        setBillingSuccessMsg(null);
         setPixCopied(false);
         try {
             const res = await fetch("/api/billing/create-invoice-checkout", {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({}),
+                body:    JSON.stringify({ payment_method: "pix" }),
                 credentials: "include",
             });
             const json = await res.json().catch(() => ({}));
@@ -362,7 +374,8 @@ function ConfiguracoesPageContent() {
                 return;
             }
             if (json.pix_qr_code || json.pix_qr_url) {
-                setBillingPix({ url: json.pix_qr_url ?? null, code: json.pix_qr_code ?? "" });
+                await loadBilling();
+                setBillingSuccessMsg("PIX gerado. Após o pagamento no banco, o plano é liberado automaticamente.");
             } else {
                 setBillingErr("PIX não retornado. Tente novamente ou fale com o suporte.");
             }
@@ -373,14 +386,81 @@ function ConfiguracoesPageContent() {
         }
     }
 
-    async function copyBillingPix() {
-        if (!billingPix?.code) return;
+    async function payRenthusCard() {
+        setBillingErr(null);
+        setBillingSuccessMsg(null);
+        if (!PAGARME_PUBLIC_KEY) {
+            setBillingErr("Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY e cadastre o domínio no Pagar.me.");
+            return;
+        }
+        const exp = parseCardExpiry(renthusCard.exp);
+        if (!exp) {
+            setBillingErr("Validade do cartão: use MM/AA.");
+            return;
+        }
+        const num = renthusCard.number.replace(/\D/g, "");
+        if (num.length < 13) {
+            setBillingErr("Número do cartão inválido.");
+            return;
+        }
+        const cvv = renthusCard.cvv.replace(/\D/g, "");
+        if (cvv.length < 3) {
+            setBillingErr("CVV inválido.");
+            return;
+        }
+        const holder = renthusCard.holder.trim() || nomeFantasia.trim();
+        if (holder.length < 3) {
+            setBillingErr("Informe o nome no cartão ou preencha o nome fantasia na aba Geral.");
+            return;
+        }
+
+        setCardPayLoading(true);
         try {
-            await navigator.clipboard.writeText(billingPix.code);
-            setPixCopied(true);
-            setTimeout(() => setPixCopied(false), 2500);
+            let cardToken: string;
+            try {
+                cardToken = await pagarmeCreateCardToken(PAGARME_PUBLIC_KEY, {
+                    number:          num,
+                    holder_name:     holder,
+                    exp_month:       exp.month,
+                    exp_year:        exp.year,
+                    cvv,
+                    holder_document: cnpj.replace(/\D/g, "") || undefined,
+                });
+            } catch (e) {
+                setBillingErr(e instanceof Error ? e.message : "Cartão recusado.");
+                return;
+            }
+
+            const res = await fetch("/api/billing/create-invoice-checkout", {
+                method:  "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    payment_method: "credit_card",
+                    card_token:     cardToken,
+                    installments:   renthusInstallments,
+                }),
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBillingErr((json as { error?: string }).error ?? "Erro ao processar cartão.");
+                return;
+            }
+            const status = (json as { payment_status?: string; message?: string }).payment_status;
+            const msg    = (json as { message?: string }).message;
+            await loadBilling();
+            if (status === "paid") {
+                setBillingSuccessMsg(msg ?? "Pagamento aprovado. Plano liberado.");
+            } else {
+                setBillingSuccessMsg(
+                    msg ??
+                        "Pagamento em análise. Quando aprovado, o plano será liberado automaticamente."
+                );
+            }
         } catch {
-            setBillingErr("Não foi possível copiar o código PIX.");
+            setBillingErr("Erro de conexão.");
+        } finally {
+            setCardPayLoading(false);
         }
     }
 
@@ -708,7 +788,7 @@ function ConfiguracoesPageContent() {
                                                         <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
                                                             Teste gratuito até{" "}
                                                             <span className="font-semibold">{trialEnd}</span>
-                                                            . Depois disso será gerada a cobrança da mensalidade (PIX).
+                                                            . Depois disso você paga a mensalidade aqui (PIX ou cartão).
                                                         </p>
                                                     )}
                                                     {(st === "active" || st === "overdue") && nextBill && (
@@ -730,53 +810,248 @@ function ConfiguracoesPageContent() {
                                         );
                                     })()}
 
-                                    {billingData.pending_invoice && (
-                                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/60 dark:bg-amber-900/20">
-                                            <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
-                                                Fatura em aberto —{" "}
-                                                {Number(billingData.pending_invoice.amount).toLocaleString("pt-BR", {
-                                                    style:    "currency",
-                                                    currency: "BRL",
-                                                })}
-                                            </p>
-                                            <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
-                                                Vencimento:{" "}
-                                                {new Date(billingData.pending_invoice.due_at).toLocaleString("pt-BR", {
-                                                    dateStyle: "medium",
-                                                    timeStyle: "short",
-                                                })}
-                                            </p>
-                                            {(billingData.pending_invoice.pix_qr_code ||
-                                                billingData.pending_invoice.pagarme_payment_url) && (
-                                                <div className="mt-3 flex flex-wrap gap-2">
-                                                    {billingData.pending_invoice.pagarme_payment_url?.startsWith("http") && (
-                                                        // eslint-disable-next-line @next/next/no-img-element
-                                                        <img
-                                                            src={billingData.pending_invoice.pagarme_payment_url}
-                                                            alt="QR PIX"
-                                                            className="h-36 w-36 rounded-lg border border-amber-200 bg-white object-contain p-1"
-                                                        />
-                                                    )}
-                                                    {billingData.pending_invoice.pix_qr_code && (
-                                                        <textarea
-                                                            readOnly
-                                                            className="min-h-[100px] flex-1 rounded-lg border border-amber-200 bg-white p-2 font-mono text-[10px] text-zinc-800 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
-                                                            value={billingData.pending_invoice.pix_qr_code}
-                                                            onFocus={(e) => e.target.select()}
-                                                        />
-                                                    )}
+                                    {(() => {
+                                        const sub = billingData.pagarme_subscription;
+                                        const st  = sub?.status ?? "";
+                                        const pend = billingData.pending_invoice;
+                                        const mp = billingData.monthly_prices_brl ?? {
+                                            bot:      297,
+                                            complete: 397,
+                                        };
+                                        const pk =
+                                            sub?.plan === "complete" ? ("complete" as const) : ("bot" as const);
+                                        const refAmount = pend ? Number(pend.amount) : mp[pk];
+                                        const pixUrl =
+                                            pend?.pagarme_payment_url?.startsWith("http")
+                                                ? pend.pagarme_payment_url
+                                                : null;
+                                        const pixCode = pend?.pix_qr_code ?? "";
+
+                                        const showPay =
+                                            st === "trial" ||
+                                            st === "active" ||
+                                            st === "overdue" ||
+                                            st === "blocked";
+
+                                        if (!showPay) return null;
+
+                                        return (
+                                            <div className="rounded-2xl border-2 border-violet-300/70 bg-gradient-to-br from-violet-50 via-white to-zinc-50 p-5 shadow-sm dark:border-violet-800 dark:from-violet-950/30 dark:via-zinc-900 dark:to-zinc-950">
+                                                {st === "blocked" && (
+                                                    <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+                                                        Acesso suspenso. Pague abaixo: cartão aprovado libera na hora;
+                                                        PIX libera quando o banco confirmar.
+                                                    </div>
+                                                )}
+                                                {st === "overdue" && st !== "blocked" && (
+                                                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                                                        Mensalidade em aberto. Escolha PIX ou cartão.
+                                                    </div>
+                                                )}
+                                                <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+                                                    Pagar mensalidade Renthus
+                                                </h3>
+                                                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                                                    Valor:{" "}
+                                                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                                                        {refAmount.toLocaleString("pt-BR", {
+                                                            style:    "currency",
+                                                            currency: "BRL",
+                                                        })}
+                                                    </span>
+                                                    {pend ? " · fatura em aberto" : " · cobrança gerada ao pagar"}
+                                                </p>
+                                                {pend && (
+                                                    <p className="mt-0.5 text-xs text-zinc-500">
+                                                        Vencimento:{" "}
+                                                        {new Date(pend.due_at).toLocaleString("pt-BR", {
+                                                            dateStyle: "medium",
+                                                            timeStyle: "short",
+                                                        })}
+                                                    </p>
+                                                )}
+
+                                                {billingSuccessMsg && (
+                                                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                                                        {billingSuccessMsg}
+                                                    </div>
+                                                )}
+
+                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setRenthusPayMode("pix")}
+                                                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                                                            renthusPayMode === "pix"
+                                                                ? "bg-violet-600 text-white"
+                                                                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+                                                        }`}
+                                                    >
+                                                        PIX
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setRenthusPayMode("card")}
+                                                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                                                            renthusPayMode === "card"
+                                                                ? "bg-violet-600 text-white"
+                                                                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+                                                        }`}
+                                                    >
+                                                        Cartão de crédito
+                                                    </button>
                                                 </div>
-                                            )}
-                                            <button
-                                                type="button"
-                                                onClick={openRenthusPix}
-                                                disabled={pixLoading}
-                                                className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
-                                            >
-                                                {pixLoading ? "Gerando…" : "Gerar / atualizar código PIX"}
-                                            </button>
-                                        </div>
-                                    )}
+
+                                                {renthusPayMode === "pix" && (
+                                                    <div className="mt-4 space-y-4">
+                                                        {(pixUrl || pixCode) && (
+                                                            <div className="flex flex-wrap gap-3">
+                                                                {pixUrl && (
+                                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                                    <img
+                                                                        src={pixUrl}
+                                                                        alt="QR PIX"
+                                                                        className="h-40 w-40 rounded-xl border border-zinc-200 bg-white object-contain p-1 dark:border-zinc-700"
+                                                                    />
+                                                                )}
+                                                                {pixCode ? (
+                                                                    <div className="min-w-[200px] flex-1">
+                                                                        <textarea
+                                                                            readOnly
+                                                                            className="w-full rounded-lg border border-zinc-200 bg-white p-2 font-mono text-[10px] dark:border-zinc-600 dark:bg-zinc-900"
+                                                                            rows={5}
+                                                                            value={pixCode}
+                                                                            onFocus={(e) => e.target.select()}
+                                                                        />
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                void navigator.clipboard
+                                                                                    .writeText(pixCode)
+                                                                                    .then(() => {
+                                                                                        setPixCopied(true);
+                                                                                        setTimeout(
+                                                                                            () => setPixCopied(false),
+                                                                                            2000
+                                                                                        );
+                                                                                    })
+                                                                                    .catch(() =>
+                                                                                        setBillingErr(
+                                                                                            "Não foi possível copiar."
+                                                                                        )
+                                                                                    )
+                                                                            }
+                                                                            className="mt-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white dark:bg-zinc-200 dark:text-zinc-900"
+                                                                        >
+                                                                            {pixCopied ? "Copiado!" : "Copiar PIX"}
+                                                                        </button>
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void openRenthusPix()}
+                                                            disabled={pixLoading}
+                                                            className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+                                                        >
+                                                            {pixLoading
+                                                                ? "Gerando…"
+                                                                : pixUrl || pixCode
+                                                                  ? "Gerar novo / atualizar PIX"
+                                                                  : "Gerar código PIX"}
+                                                        </button>
+                                                        <p className="text-xs text-zinc-500">
+                                                            O plano é liberado automaticamente quando o pagamento for
+                                                            confirmado pelo Pagar.me.
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {renthusPayMode === "card" && (
+                                                    <div className="mt-4 space-y-3">
+                                                        {!PAGARME_PUBLIC_KEY && (
+                                                            <p className="text-xs text-amber-700 dark:text-amber-300">
+                                                                Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY para pagar com
+                                                                cartão.
+                                                            </p>
+                                                        )}
+                                                        <div className="grid gap-3 sm:grid-cols-2">
+                                                            <Field
+                                                                label="Nome no cartão"
+                                                                value={renthusCard.holder}
+                                                                onChange={(v) =>
+                                                                    setRenthusCard((c) => ({ ...c, holder: v }))
+                                                                }
+                                                                placeholder={nomeFantasia || "Como no cartão"}
+                                                            />
+                                                            <Field
+                                                                label="Número"
+                                                                value={renthusCard.number}
+                                                                onChange={(v) =>
+                                                                    setRenthusCard((c) => ({ ...c, number: v }))
+                                                                }
+                                                                placeholder="0000 0000 0000 0000"
+                                                            />
+                                                            <Field
+                                                                label="Validade (MM/AA)"
+                                                                value={renthusCard.exp}
+                                                                onChange={(v) =>
+                                                                    setRenthusCard((c) => ({ ...c, exp: v }))
+                                                                }
+                                                                placeholder="08/28"
+                                                            />
+                                                            <Field
+                                                                label="CVV"
+                                                                value={renthusCard.cvv}
+                                                                onChange={(v) =>
+                                                                    setRenthusCard((c) => ({ ...c, cvv: v }))
+                                                                }
+                                                                placeholder="123"
+                                                                type="password"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                                Parcelas (valor da mensalidade)
+                                                            </label>
+                                                            <select
+                                                                value={renthusInstallments}
+                                                                onChange={(e) =>
+                                                                    setRenthusInstallments(Number(e.target.value))
+                                                                }
+                                                                className="mt-1 w-full max-w-xs rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                                                            >
+                                                                {Array.from({ length: 12 }, (_, i) => i + 1).map(
+                                                                    (n) => (
+                                                                        <option key={n} value={n}>
+                                                                            {n}x
+                                                                        </option>
+                                                                    )
+                                                                )}
+                                                            </select>
+                                                        </div>
+                                                        <p className="text-xs text-zinc-500">
+                                                            Endereço de cobrança: dados da aba Geral (CEP, endereço,
+                                                            número, cidade, UF). O cartão é tokenizado no Pagar.me.
+                                                        </p>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void payRenthusCard()}
+                                                            disabled={cardPayLoading}
+                                                            className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+                                                        >
+                                                            {cardPayLoading ? "Processando…" : "Pagar com cartão"}
+                                                        </button>
+                                                        <p className="text-xs text-zinc-500">
+                                                            Aprovado na hora = plano liberado imediatamente. Em análise =
+                                                            liberamos quando o banco confirmar (webhook).
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
 
                                     {billingData.pagarme_subscription?.status === "trial" && (
                                         <div>
@@ -860,69 +1135,19 @@ function ConfiguracoesPageContent() {
                                             </p>
                                         )}
 
-                                    {(billingData.pagarme_subscription?.status === "active" ||
-                                        billingData.pagarme_subscription?.status === "overdue") &&
-                                        !billingData.pending_invoice && (
-                                            <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                                                <p className="text-sm text-zinc-700 dark:text-zinc-200">
-                                                    Sem fatura pendente no momento. Se precisar antecipar ou regenerar o
-                                                    PIX da mensalidade, use o botão abaixo.
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    onClick={openRenthusPix}
-                                                    disabled={pixLoading}
-                                                    className="mt-3 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-60"
-                                                >
-                                                    {pixLoading ? "Gerando…" : "Gerar código PIX da mensalidade"}
-                                                </button>
-                                            </div>
-                                        )}
-
-                                    {billingPix && (
-                                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
-                                            <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
-                                                PIX gerado
-                                            </p>
-                                            {billingPix.url?.startsWith("http") && (
-                                                // eslint-disable-next-line @next/next/no-img-element
-                                                <img
-                                                    src={billingPix.url}
-                                                    alt="QR PIX"
-                                                    className="mt-2 h-40 w-40 rounded-lg border bg-white object-contain p-1"
-                                                />
-                                            )}
-                                            {billingPix.code ? (
-                                                <>
-                                                    <textarea
-                                                        readOnly
-                                                        className="mt-2 w-full rounded-lg border border-emerald-200 bg-white p-2 font-mono text-[10px] dark:border-emerald-800 dark:bg-zinc-900"
-                                                        rows={4}
-                                                        value={billingPix.code}
-                                                        onFocus={(e) => e.target.select()}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => void copyBillingPix()}
-                                                        className="mt-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
-                                                    >
-                                                        {pixCopied ? "Copiado!" : "Copiar PIX copia e cola"}
-                                                    </button>
-                                                </>
-                                            ) : null}
-                                        </div>
-                                    )}
-
                                     <SectionTitle
                                         icon={CreditCard}
                                         title="Formas de pagamento (cobrança Renthus)"
                                         desc="Como você paga a mensalidade da plataforma — não confunde com formas aceitas no delivery"
                                     />
                                     <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">PIX</p>
+                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                            PIX e cartão
+                                        </p>
                                         <p className="mt-1 text-xs text-zinc-500">
-                                            Cobrança principal da mensalidade. Use os botões acima para gerar ou ver o
-                                            código quando houver fatura em aberto.
+                                            Use o bloco &quot;Pagar mensalidade Renthus&quot; acima: PIX (QR e copia e
+                                            cola) ou cartão tokenizado no Pagar.me. Confirmação do pagamento libera o
+                                            plano automaticamente (webhook ou aprovação imediata).
                                         </p>
                                     </div>
                                     <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">

@@ -106,7 +106,13 @@ export type PagarmeOrder = {
     status: string;
     charges?: PagarmeCharge[];
     checkouts?: PagarmeCheckout[];
+    customer?: { id?: string };
 };
+
+export function extractOrderCustomerId(order: PagarmeOrder): string | null {
+    const id = order?.customer?.id;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+}
 
 // ---------------------------------------------------------------------------
 // Customers
