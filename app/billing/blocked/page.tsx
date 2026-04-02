@@ -21,6 +21,8 @@ export default function BillingBlockedPage() {
     const [loadingData, setLoadingData] = useState(true);
     const [loadingCheckout, setLoadingCheckout] = useState(false);
     const [checkoutError, setCheckoutError] = useState<string | null>(null);
+    const [pix, setPix] = useState<{ url: string | null; code: string | null } | null>(null);
+    const [copied, setCopied] = useState(false);
 
     // Busca dados da assinatura
     useEffect(() => {
@@ -41,16 +43,7 @@ export default function BillingBlockedPage() {
 
     async function handlePayClick() {
         setCheckoutError(null);
-        // Abre aba já no gesto do clique; depois do `await fetch` o navegador bloquearia `window.open`.
-        const payWindow = window.open("about:blank", "_blank");
-        if (payWindow) {
-            try {
-                payWindow.opener = null;
-            } catch {
-                /* ignore */
-            }
-        }
-
+        setCopied(false);
         setLoadingCheckout(true);
         try {
             const res  = await fetch("/api/billing/create-invoice-checkout", {
@@ -59,23 +52,33 @@ export default function BillingBlockedPage() {
                 body:    JSON.stringify({}),
             });
             const json = await res.json();
-            if (!res.ok || !json.checkout_url) {
-                if (payWindow && !payWindow.closed) payWindow.close();
-                setCheckoutError(json.error ?? "Erro ao gerar link de pagamento.");
+            if (!res.ok) {
+                setCheckoutError(json.error ?? "Erro ao gerar PIX.");
                 return;
             }
-            const checkoutUrl = json.checkout_url as string;
-            if (payWindow && !payWindow.closed) {
-                payWindow.location.href = checkoutUrl;
-            } else {
-                // Popup bloqueado: mesma aba continua funcionando (checkout em topo, sem iframe).
-                window.location.assign(checkoutUrl);
+            if (json.pix_qr_code || json.pix_qr_url) {
+                setPix({
+                    url:  json.pix_qr_url ?? null,
+                    code: json.pix_qr_code ?? null,
+                });
+                return;
             }
+            setCheckoutError("Não foi possível obter o código PIX.");
         } catch {
-            if (payWindow && !payWindow.closed) payWindow.close();
             setCheckoutError("Erro de conexão. Tente novamente.");
         } finally {
             setLoadingCheckout(false);
+        }
+    }
+
+    async function copyPixCode() {
+        if (!pix?.code) return;
+        try {
+            await navigator.clipboard.writeText(pix.code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2500);
+        } catch {
+            setCheckoutError("Não foi possível copiar. Selecione o código manualmente.");
         }
     }
 
@@ -142,9 +145,8 @@ export default function BillingBlockedPage() {
 
                 <div style={S.separator} />
                 <p style={S.note}>
-                    O pagamento abre em outra aba no site do Pagar.me (reCAPTCHA e
-                    cartão precisam de página inteira). Se o navegador bloquear pop-up, usamos a mesma
-                    aba. Depois da confirmação, o sistema reativa em alguns minutos.
+                    O PIX é gerado aqui mesmo, sem página externa do Pagar.me. Depois do pagamento, o
+                    acesso reativa em alguns minutos.
                 </p>
             </div>
 
@@ -152,6 +154,43 @@ export default function BillingBlockedPage() {
                 © {new Date().getFullYear()} Renthus — Todos os direitos reservados
             </p>
 
+            {pix && (
+                <div style={S.pixOverlay} role="dialog" aria-modal="true" aria-labelledby="pix-title">
+                    <div style={S.pixCard}>
+                        <h2 id="pix-title" style={S.pixTitle}>
+                            Pagar com PIX
+                        </h2>
+                        <p style={S.pixHint}>
+                            Escaneie o QR no app do banco ou copie o código. Não fechamos esta janela
+                            até você concluir.
+                        </p>
+                        {pix.url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={pix.url} alt="QR Code PIX" style={S.pixQr} />
+                        ) : null}
+                        {pix.code ? (
+                            <>
+                                <label style={S.pixLabel}>Pix copia e cola</label>
+                                <textarea
+                                    readOnly
+                                    value={pix.code}
+                                    rows={5}
+                                    style={S.pixTextarea}
+                                    onFocus={(e) => e.target.select()}
+                                />
+                                <button type="button" onClick={copyPixCode} style={S.pixCopyBtn}>
+                                    {copied ? "Copiado!" : "Copiar código"}
+                                </button>
+                            </>
+                        ) : (
+                            <p style={S.pixHint}>Código PIX indisponível — tente gerar de novo.</p>
+                        )}
+                        <button type="button" onClick={() => setPix(null)} style={S.pixCloseBtn}>
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -277,5 +316,86 @@ const S = {
         marginTop: 28,
         fontSize:  12,
         color:     "rgba(255,255,255,0.35)",
+    },
+    pixOverlay: {
+        position:       "fixed" as const,
+        inset:          0,
+        background:     "rgba(0,0,0,0.75)",
+        display:        "flex",
+        alignItems:     "center",
+        justifyContent: "center",
+        zIndex:         10000,
+        padding:        16,
+    },
+    pixCard: {
+        background:   "#fff",
+        borderRadius: 20,
+        padding:      "28px 22px 22px",
+        maxWidth:     400,
+        width:        "100%",
+        maxHeight:    "90vh",
+        overflow:     "auto" as const,
+        textAlign:    "center" as const,
+    },
+    pixTitle: {
+        margin:     "0 0 8px",
+        fontSize:   20,
+        fontWeight: 800,
+        color:      "#111827",
+    },
+    pixHint: {
+        margin:     "0 0 16px",
+        fontSize:   13,
+        color:      "#6b7280",
+        lineHeight: 1.5,
+    },
+    pixQr: {
+        display:   "block",
+        width:     220,
+        height:    220,
+        margin:    "0 auto 16px",
+        objectFit: "contain" as const,
+    },
+    pixLabel: {
+        display:   "block",
+        textAlign: "left" as const,
+        fontSize:  12,
+        fontWeight: 600,
+        color:     "#374151",
+        marginBottom: 6,
+    },
+    pixTextarea: {
+        width:        "100%",
+        boxSizing:    "border-box" as const,
+        fontSize:     11,
+        fontFamily:   "ui-monospace, monospace",
+        padding:      10,
+        borderRadius: 8,
+        border:       "1px solid #e5e7eb",
+        resize:       "vertical" as const,
+        marginBottom: 10,
+    },
+    pixCopyBtn: {
+        display:      "block",
+        width:        "100%",
+        padding:      "12px 16px",
+        background:   "#7c3aed",
+        color:        "#fff",
+        border:       "none",
+        borderRadius: 10,
+        fontWeight:   700,
+        fontSize:     15,
+        cursor:       "pointer",
+        marginBottom: 10,
+    },
+    pixCloseBtn: {
+        display:      "block",
+        width:        "100%",
+        padding:      "10px 16px",
+        background:   "transparent",
+        color:        "#6b7280",
+        border:       "none",
+        fontSize:     14,
+        cursor:       "pointer",
     },
 };

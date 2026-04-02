@@ -65,7 +65,6 @@ export default function SignupPage() {
     const [selectedPlan,  setSelectedPlan] = useState<PlanKey | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
     const [installments,  setInstallments] = useState(1);
-    const [success, setSuccess] = useState(false);
     const [loading,       setLoading]      = useState(false);
     const [error,         setError]        = useState<string | null>(null);
     const [form, setForm] = useState({
@@ -81,6 +80,13 @@ export default function SignupPage() {
     });
 
     const formRef = useRef<HTMLFormElement>(null);
+
+    const [pixCheckout, setPixCheckout] = useState<{
+        url:   string | null;
+        code:  string;
+        token: string;
+    } | null>(null);
+    const [pixCopied, setPixCopied] = useState(false);
 
     const plan = selectedPlan ? PLANS.find((p) => p.key === selectedPlan)! : null;
 
@@ -128,14 +134,20 @@ export default function SignupPage() {
         e.preventDefault();
         if (!selectedPlan || !pricing) return;
         setError(null);
-        const payWindow = window.open("about:blank", "_blank");
-        if (payWindow) {
-            try {
-                payWindow.opener = null;
-            } catch {
-                /* ignore */
+        setPixCopied(false);
+
+        let payWindow: Window | null = null;
+        if (paymentMethod === "credit_card") {
+            payWindow = window.open("about:blank", "_blank");
+            if (payWindow) {
+                try {
+                    payWindow.opener = null;
+                } catch {
+                    /* ignore */
+                }
             }
         }
+
         setLoading(true);
         try {
             const res = await fetch("/api/billing/signup", {
@@ -156,17 +168,38 @@ export default function SignupPage() {
                 }),
             });
             const data = await res.json();
-            if (!res.ok || !data.checkout_url) {
+            if (!res.ok) {
                 if (payWindow && !payWindow.closed) payWindow.close();
-                setError(data.error ?? "Erro ao gerar link de pagamento.");
+                setError(data.error ?? "Erro ao iniciar pagamento.");
                 return;
             }
-            const checkoutUrl = data.checkout_url as string;
-            if (payWindow && !payWindow.closed) {
-                payWindow.location.href = checkoutUrl;
-            } else {
-                window.location.href = checkoutUrl;
+
+            if (
+                paymentMethod === "pix" &&
+                (data.pix_qr_code || data.pix_qr_url) &&
+                data.onboarding_token
+            ) {
+                if (payWindow && !payWindow.closed) payWindow.close();
+                setPixCheckout({
+                    url:   data.pix_qr_url ?? null,
+                    code:  (data.pix_qr_code as string) ?? "",
+                    token: data.onboarding_token as string,
+                });
+                return;
             }
+
+            if (data.checkout_url) {
+                const checkoutUrl = data.checkout_url as string;
+                if (payWindow && !payWindow.closed) {
+                    payWindow.location.href = checkoutUrl;
+                } else {
+                    window.location.href = checkoutUrl;
+                }
+                return;
+            }
+
+            if (payWindow && !payWindow.closed) payWindow.close();
+            setError("Resposta inválida do servidor.");
         } catch {
             if (payWindow && !payWindow.closed) payWindow.close();
             setError("Erro de conexão. Tente novamente.");
@@ -175,9 +208,152 @@ export default function SignupPage() {
         }
     }
 
+    async function copySignupPix() {
+        if (!pixCheckout?.code) return;
+        try {
+            await navigator.clipboard.writeText(pixCheckout.code);
+            setPixCopied(true);
+            setTimeout(() => setPixCopied(false), 2500);
+        } catch {
+            setError("Não foi possível copiar. Selecione o código manualmente.");
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Render
     // -----------------------------------------------------------------------
+    if (pixCheckout) {
+        const completeHref = `/signup/complete?token=${encodeURIComponent(pixCheckout.token)}`;
+        return (
+            <div style={S.page}>
+                <div style={{ marginBottom: 28 }}>
+                    <Image
+                        src="/renthus_logo.png"
+                        alt="Renthus"
+                        width={148}
+                        height={44}
+                        style={{ objectFit: "contain" }}
+                        priority
+                    />
+                </div>
+                <div
+                    style={{
+                        width:          "100%",
+                        maxWidth:       440,
+                        background:     "#fff",
+                        borderRadius:   20,
+                        padding:        "32px 28px",
+                        textAlign:      "center",
+                        boxShadow:      "0 24px 64px rgba(0,0,0,0.35)",
+                    }}
+                >
+                    <h1 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 800, color: "#111827" }}>
+                        Pague o setup com PIX
+                    </h1>
+                    <p style={{ margin: "0 0 20px", fontSize: 14, color: "#6b7280", lineHeight: 1.55 }}>
+                        Sem página externa do Pagar.me. Depois de pagar, continue para criar sua senha.
+                    </p>
+                    {pixCheckout.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={pixCheckout.url}
+                            alt="QR Code PIX"
+                            style={{
+                                display:   "block",
+                                width:     220,
+                                height:    220,
+                                margin:    "0 auto 16px",
+                                objectFit: "contain",
+                            }}
+                        />
+                    ) : null}
+                    {pixCheckout.code ? (
+                        <>
+                            <label
+                                style={{
+                                    display:      "block",
+                                    textAlign:    "left",
+                                    fontSize:     12,
+                                    fontWeight:   600,
+                                    color:        "#374151",
+                                    marginBottom: 6,
+                                }}
+                            >
+                                Pix copia e cola
+                            </label>
+                            <textarea
+                                readOnly
+                                value={pixCheckout.code}
+                                rows={5}
+                                style={{
+                                    width:        "100%",
+                                    boxSizing:    "border-box",
+                                    fontSize:     11,
+                                    fontFamily:   "ui-monospace, monospace",
+                                    padding:      10,
+                                    borderRadius: 8,
+                                    border:       "1px solid #e5e7eb",
+                                    marginBottom: 10,
+                                }}
+                                onFocus={(ev) => ev.target.select()}
+                            />
+                            <button
+                                type="button"
+                                onClick={copySignupPix}
+                                style={{
+                                    display:      "block",
+                                    width:        "100%",
+                                    padding:      "12px 16px",
+                                    background:   "#7c3aed",
+                                    color:        "#fff",
+                                    border:       "none",
+                                    borderRadius: 10,
+                                    fontWeight:   700,
+                                    fontSize:     15,
+                                    cursor:       "pointer",
+                                    marginBottom: 10,
+                                }}
+                            >
+                                {pixCopied ? "Copiado!" : "Copiar código"}
+                            </button>
+                        </>
+                    ) : null}
+                    <a
+                        href={completeHref}
+                        style={{
+                            display:        "block",
+                            width:          "100%",
+                            padding:        "14px 16px",
+                            background:     "#22c55e",
+                            color:          "#fff",
+                            borderRadius:   10,
+                            fontWeight:     700,
+                            fontSize:       15,
+                            textDecoration: "none",
+                            boxSizing:      "border-box",
+                            marginBottom:   10,
+                        }}
+                    >
+                        Já paguei — continuar cadastro
+                    </a>
+                    <button
+                        type="button"
+                        onClick={() => setPixCheckout(null)}
+                        style={{
+                            background: "transparent",
+                            border:     "none",
+                            color:      "#6b7280",
+                            fontSize:   14,
+                            cursor:     "pointer",
+                        }}
+                    >
+                        Voltar
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div style={S.page}>
 

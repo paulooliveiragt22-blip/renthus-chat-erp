@@ -1,30 +1,26 @@
 /**
  * POST /api/billing/create-invoice-checkout
  *
- * Cria um checkout hosted no Pagar.me para a fatura pendente da empresa.
- * Chamado pela página /billing/blocked quando o usuário clica em "Pagar mensalidade".
+ * Devolve PIX da fatura pendente (API Pagar.me — sem checkout hospedado / reCAPTCHA).
+ * Chamado pela página /billing/blocked ao clicar em "Pagar mensalidade".
  *
  * Body: { company_id?: string }  (usa cookie renthus_company_id como fallback)
  *
- * Retorna: { checkout_url }
+ * Retorna: { ok, pix_qr_url?, pix_qr_code? }
  */
 
 import { NextResponse }      from "next/server";
 import { cookies }            from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-    createCheckoutOrder,
-    extractCheckoutUrl,
+    createPixInvoiceOrder,
+    extractPixCode,
+    extractPixUrl,
     getMonthlyPriceCents,
     centsToBRL,
 } from "@/lib/billing/pagarme";
 
 export const runtime = "nodejs";
-
-const SUCCESS_URL =
-    process.env.NEXT_PUBLIC_APP_URL
-        ? `${process.env.NEXT_PUBLIC_APP_URL}/billing/checkout-success`
-        : "https://app.renthus.com.br/billing/checkout-success";
 
 export async function POST(req: Request) {
     try {
@@ -38,7 +34,6 @@ export async function POST(req: Request) {
 
         const admin = createAdminClient();
 
-        // Busca a subscription para saber o plano
         const { data: sub } = await admin
             .from("pagarme_subscriptions")
             .select("id, plan, status, pagarme_customer_id")
@@ -49,22 +44,27 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Assinatura não encontrada" }, { status: 404 });
         }
 
-        // Busca a invoice pendente mais recente
         const { data: inv } = await admin
             .from("invoices")
-            .select("id, amount, pagarme_order_id, pagarme_payment_url")
+            .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
             .eq("company_id", companyId)
             .eq("status", "pending")
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
 
-        // Se já existe link de checkout válido, retorna sem criar novo
-        if (inv?.pagarme_payment_url && inv.pagarme_payment_url.includes("checkout.pagar.me")) {
-            return NextResponse.json({ ok: true, checkout_url: inv.pagarme_payment_url });
+        const hasHostedCheckout =
+            inv?.pagarme_payment_url?.includes("checkout.pagar.me") ?? false;
+
+        // Já temos PIX da cobrança (cron / geração anterior) — reutiliza
+        if (inv?.pagarme_order_id && inv.pagarme_payment_url && !hasHostedCheckout) {
+            return NextResponse.json({
+                ok:          true,
+                pix_qr_url:  inv.pagarme_payment_url,
+                pix_qr_code: inv.pix_qr_code ?? null,
+            });
         }
 
-        // Busca dados da empresa para o customer
         const { data: company } = await admin
             .from("companies")
             .select("name, email, whatsapp_phone, meta")
@@ -72,20 +72,16 @@ export async function POST(req: Request) {
             .maybeSingle();
 
         const amountCents = inv?.amount
-            ? Math.round(inv.amount * 100)
+            ? Math.round(Number(inv.amount) * 100)
             : getMonthlyPriceCents(sub.plan as "bot" | "complete");
 
-        const cnpj: string = (company?.meta as any)?.cnpj?.replace(/\D/g, "") ?? "";
+        const cnpj: string = (company?.meta as { cnpj?: string })?.cnpj?.replace(/\D/g, "") ?? "";
 
-        // Cria checkout order no Pagar.me (PIX + cartão, sem parcelamento para mensalidade)
-        const order = await createCheckoutOrder({
+        const order = await createPixInvoiceOrder({
             amountCents,
-            description:     `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
-            code:            "mensalidade",
-            maxInstallments: 1, // mensalidade: à vista
-            acceptPix:       true,
-            customerId:      sub.pagarme_customer_id ?? undefined,
-            customer:        !sub.pagarme_customer_id && company
+            description: `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
+            customerId:  sub.pagarme_customer_id ?? undefined,
+            customer:    !sub.pagarme_customer_id && company
                 ? {
                       name:     company.name,
                       email:    company.email ?? `${companyId}@renthus.com.br`,
@@ -93,7 +89,6 @@ export async function POST(req: Request) {
                       phone:    company.whatsapp_phone ?? undefined,
                   }
                 : undefined,
-            successUrl: SUCCESS_URL,
             metadata: {
                 type:            "invoice",
                 company_id:      companyId,
@@ -103,26 +98,26 @@ export async function POST(req: Request) {
             },
         });
 
-        const checkoutUrl = extractCheckoutUrl(order);
+        const pixUrl  = extractPixUrl(order);
+        const pixCode = extractPixCode(order);
 
-        if (!checkoutUrl) {
+        if (!pixCode && !pixUrl) {
             return NextResponse.json(
-                { error: "Erro ao gerar link de pagamento" },
+                { error: "Erro ao gerar PIX" },
                 { status: 500 }
             );
         }
 
-        // Atualiza invoice com o novo link (ou cria se não existia)
         if (inv) {
             await admin
                 .from("invoices")
                 .update({
                     pagarme_order_id:    order.id,
-                    pagarme_payment_url: checkoutUrl,
+                    pagarme_payment_url: pixUrl ?? "",
+                    pix_qr_code:         pixCode,
                 })
                 .eq("id", inv.id);
         } else {
-            // Cria invoice on-demand se não existia (empresa bloqueada sem invoice)
             await admin.from("invoices").insert({
                 company_id:          companyId,
                 subscription_id:     sub.id,
@@ -130,17 +125,19 @@ export async function POST(req: Request) {
                 status:              "pending",
                 due_at:              new Date().toISOString(),
                 pagarme_order_id:    order.id,
-                pagarme_payment_url: checkoutUrl,
+                pagarme_payment_url: pixUrl ?? "",
+                pix_qr_code:         pixCode,
             });
         }
 
-        return NextResponse.json({ ok: true, checkout_url: checkoutUrl });
-
-    } catch (err: any) {
-        console.error("[create-invoice-checkout] Erro:", err?.message ?? err);
-        return NextResponse.json(
-            { error: err?.message ?? "Erro interno" },
-            { status: 500 }
-        );
+        return NextResponse.json({
+            ok:          true,
+            pix_qr_url:  pixUrl,
+            pix_qr_code: pixCode,
+        });
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[create-invoice-checkout] Erro:", msg);
+        return NextResponse.json({ error: msg || "Erro interno" }, { status: 500 });
     }
 }

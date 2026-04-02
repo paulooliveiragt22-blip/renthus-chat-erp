@@ -202,6 +202,8 @@ export async function createSetupOrder(params: {
 export async function createPixInvoiceOrder(params: {
     amountCents: number;
     description: string;
+    /** items[0].code — padrão "mensalidade" */
+    itemCode?: string;
     expiresInSeconds?: number; // padrão: 86400 (24h)
     customerId?: string;
     customer?: {
@@ -209,6 +211,14 @@ export async function createPixInvoiceOrder(params: {
         email: string;
         document?: string;
         phone?: string;
+        address?: {
+            street:   string;
+            number:   string;
+            zipCode:  string;
+            city:     string;
+            state:    string;
+            country?: string;
+        };
     };
     metadata?: Record<string, string>;
 }): Promise<PagarmeOrder> {
@@ -218,7 +228,7 @@ export async function createPixInvoiceOrder(params: {
                 amount: params.amountCents,
                 description: params.description,
                 quantity: 1,
-                code: "mensalidade",
+                code: params.itemCode ?? "mensalidade",
             },
         ],
         payments: [
@@ -243,10 +253,25 @@ export async function createPixInvoiceOrder(params: {
             type: "company",
         };
         if (c.document) {
-            cBody.document = c.document;
-            cBody.document_type = c.document.length === 11 ? "CPF" : "CNPJ";
+            const digitsDoc = c.document.replace(/\D/g, "");
+            cBody.document      = digitsDoc;
+            cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
         }
         attachCustomerMobilePhone(cBody, c.phone);
+        if (c.address) {
+            let zip = c.address.zipCode.replace(/\D/g, "");
+            if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
+            const line1 = `${c.address.street} ${c.address.number}`.trim();
+            cBody.addresses = [
+                {
+                    line_1:   line1,
+                    zip_code: zip,
+                    city:     c.address.city,
+                    state:    c.address.state,
+                    country:  c.address.country ?? "BR",
+                },
+            ];
+        }
         body.customer = cBody;
     }
 

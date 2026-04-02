@@ -1,8 +1,9 @@
 /**
  * POST /api/billing/signup
  *
- * Rota pública — cria empresa, order de setup no Pagar.me (checkout hosted)
- * e retorna a URL do checkout para abrir no modal.
+ * Rota pública — cria empresa e pedido no Pagar.me:
+ *   PIX → order via API (QR na tela, sem checkout hospedado / reCAPTCHA)
+ *   Cartão → checkout hosted
  *
  * Body: {
  *   company_name:   string
@@ -16,14 +17,17 @@
  *
  * Desconto PIX: 5% sobre o valor do setup (SETUP_PIX_DISCOUNT_PCT env var, padrão 5)
  *
- * Retorna: { checkout_url, company_id }
+ * Retorna: { checkout_url? | pix_qr_url?, pix_qr_code?, company_id, onboarding_token }
  */
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
     createCheckoutOrder,
+    createPixInvoiceOrder,
     extractCheckoutUrl,
+    extractPixCode,
+    extractPixUrl,
     getSetupPriceCents,
     getYearlyPriceCents,
     centsToBRL,
@@ -189,44 +193,76 @@ export async function POST(req: Request) {
 
         console.log("[signup] chamando Pagar.me — amountCents:", amountCents, "| interval:", interval, "| method:", paymentMethod);
 
-        const order = await createCheckoutOrder({
-            amountCents,
-            description:     orderDescription,
-            code:            orderCode,
-            maxInstallments: installments,
-            acceptPix:       true,
-            acceptCard:      paymentMethod === "credit_card",
-            customer: {
-                name:     company_name.trim(),
-                email:    email.trim().toLowerCase(),
-                document: cnpjDigits,
-                phone:    whatsapp.replace(/\D/g, ""),
-                address: {
-                    street:  address_street.trim(),
-                    number:  address_number.trim(),
-                    zipCode: address_zip.trim(),
-                    city:    address_city.trim(),
-                    state:   address_state.trim().toUpperCase(),
+        const customerPayload = {
+            name:     company_name.trim(),
+            email:    email.trim().toLowerCase(),
+            document: cnpjDigits,
+            phone:    whatsapp.replace(/\D/g, ""),
+            address: {
+                street:  address_street.trim(),
+                number:  address_number.trim(),
+                zipCode: address_zip.trim(),
+                city:    address_city.trim(),
+                state:   address_state.trim().toUpperCase(),
+            },
+        };
+
+        let orderId: string;
+        let checkoutUrl: string | null = null;
+        let pixQrUrl: string | null     = null;
+        let pixQrCode: string | null    = null;
+
+        if (paymentMethod === "pix") {
+            // PIX via API: sem página hospedada do Pagar.me → sem reCAPTCHA no fluxo
+            const order = await createPixInvoiceOrder({
+                amountCents,
+                description: orderDescription,
+                itemCode:      orderCode,
+                customer:      customerPayload,
+                metadata: {
+                    type:       "setup",
+                    company_id: companyId,
+                    plan,
                 },
-            },
-            successUrl,
-            cancelUrl,
-            metadata: {
-                type:       "setup",
-                company_id: companyId,
-                plan,
-            },
-        });
-
-        console.log("[signup] Pagar.me order criado:", order?.id, "| status:", order?.status);
-        const checkoutUrl = extractCheckoutUrl(order);
-
-        if (!checkoutUrl) {
-            console.error("[signup] Pagar.me não retornou checkout_url. Order:", order.id);
-            return NextResponse.json(
-                { error: "Erro ao gerar link de pagamento" },
-                { status: 500 }
-            );
+            });
+            orderId    = order.id;
+            pixQrUrl   = extractPixUrl(order);
+            pixQrCode  = extractPixCode(order);
+            console.log("[signup] Pagar.me order PIX:", orderId, "| qr:", !!pixQrUrl, "| code:", !!pixQrCode);
+            if (!pixQrCode && !pixQrUrl) {
+                console.error("[signup] PIX sem QR/código. Order:", orderId);
+                return NextResponse.json(
+                    { error: "Erro ao gerar PIX. Tente cartão ou contate o suporte." },
+                    { status: 500 }
+                );
+            }
+        } else {
+            const order = await createCheckoutOrder({
+                amountCents,
+                description:     orderDescription,
+                code:            orderCode,
+                maxInstallments: installments,
+                acceptPix:       false,
+                acceptCard:      true,
+                customer:        customerPayload,
+                successUrl,
+                cancelUrl,
+                metadata: {
+                    type:       "setup",
+                    company_id: companyId,
+                    plan,
+                },
+            });
+            orderId     = order.id;
+            checkoutUrl = extractCheckoutUrl(order);
+            console.log("[signup] Pagar.me checkout:", orderId, "| url:", !!checkoutUrl);
+            if (!checkoutUrl) {
+                console.error("[signup] Pagar.me não retornou checkout_url. Order:", order.id);
+                return NextResponse.json(
+                    { error: "Erro ao gerar link de pagamento" },
+                    { status: 500 }
+                );
+            }
         }
 
         // 5. Registra setup_payment como pending
@@ -236,10 +272,8 @@ export async function POST(req: Request) {
             amount:              centsToBRL(amountCents),
             installments,
             status:              "pending",
-            pagarme_order_id:    order.id,
-            pagarme_payment_url: checkoutUrl,
-            // guarda interval para o webhook saber se é anual ou mensal
-            ...(interval === "yearly" ? { interval: "yearly" } : {}),
+            pagarme_order_id:    orderId,
+            pagarme_payment_url: checkoutUrl ?? pixQrUrl ?? "",
         });
 
         // 6. Cria/atualiza subscription com status pending_setup
@@ -255,7 +289,10 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
             ok:               true,
+            payment_method:   paymentMethod,
             checkout_url:     checkoutUrl,
+            pix_qr_url:       pixQrUrl,
+            pix_qr_code:      pixQrCode,
             company_id:       companyId,
             onboarding_token: onboardingToken,
         });
