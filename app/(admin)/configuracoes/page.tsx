@@ -262,6 +262,8 @@ function ConfiguracoesPageContent() {
     const [renthusInstallments, setRenthusInstallments] = useState(1);
     const [cardPayLoading, setCardPayLoading]     = useState(false);
     const [billingSuccessMsg, setBillingSuccessMsg] = useState<string | null>(null);
+    const [cardAddr, setCardAddr] = useState({ cep: "", endereco: "", numero: "", cidade: "", uf: "" });
+    const [cepLoading, setCepLoading] = useState(false);
 
     // ── load company ──────────────────────────────────────────────────────────
     const loadCompany = useCallback(async () => {
@@ -284,6 +286,13 @@ function ConfiguracoesPageContent() {
             setBairro(c.bairro ?? "");
             setCidade(c.cidade ?? "");
             setUf(c.uf ?? "");
+            setCardAddr({
+                cep:      c.cep ?? "",
+                endereco: c.endereco ?? "",
+                numero:   c.numero ?? "",
+                cidade:   c.cidade ?? "",
+                uf:       c.uf ?? "",
+            });
             setDeliveryEnabled(!!c.delivery_fee_enabled);
             setDeliveryFee(c.default_delivery_fee != null ? String(c.default_delivery_fee) : "0");
 
@@ -356,6 +365,29 @@ function ConfiguracoesPageContent() {
         }
     }
 
+    async function fetchViaCep(rawCep: string) {
+        const digits = rawCep.replace(/\D/g, "");
+        if (digits.length !== 8) return;
+        setCepLoading(true);
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.erro) return;
+            setCardAddr((prev) => ({
+                ...prev,
+                cep:      digits,
+                endereco: data.logradouro ?? prev.endereco,
+                cidade:   data.localidade ?? prev.cidade,
+                uf:       data.uf ?? prev.uf,
+            }));
+        } catch {
+            // silently ignore — user can fill manually
+        } finally {
+            setCepLoading(false);
+        }
+    }
+
     async function openRenthusPix() {
         setPixLoading(true);
         setBillingErr(null);
@@ -413,6 +445,15 @@ function ConfiguracoesPageContent() {
             setBillingErr("Informe o nome no cartão ou preencha o nome fantasia na aba Geral.");
             return;
         }
+        const addrCep = cardAddr.cep.replace(/\D/g, "");
+        if (!cardAddr.endereco.trim() || !cardAddr.numero.trim() || !cardAddr.cidade.trim() || cardAddr.uf.length < 2) {
+            setBillingErr("Preencha o endereço de cobrança (CEP, endereço, número, cidade e UF).");
+            return;
+        }
+        if (addrCep.length < 8) {
+            setBillingErr("CEP completo (8 dígitos) é obrigatório para pagamento com cartão.");
+            return;
+        }
 
         setCardPayLoading(true);
         try {
@@ -438,6 +479,13 @@ function ConfiguracoesPageContent() {
                     payment_method: "credit_card",
                     card_token:     cardToken,
                     installments:   renthusInstallments,
+                    billing_address: {
+                        cep:      addrCep,
+                        endereco: cardAddr.endereco.trim(),
+                        numero:   cardAddr.numero.trim(),
+                        cidade:   cardAddr.cidade.trim(),
+                        uf:       cardAddr.uf.trim().toUpperCase().slice(0, 2),
+                    },
                 }),
                 credentials: "include",
             });
@@ -1031,10 +1079,68 @@ function ConfiguracoesPageContent() {
                                                                 )}
                                                             </select>
                                                         </div>
-                                                        <p className="text-xs text-zinc-500">
-                                                            Endereço de cobrança: dados da aba Geral (CEP, endereço,
-                                                            número, cidade, UF). O cartão é tokenizado no Pagar.me.
-                                                        </p>
+                                                        <div className="border-t border-zinc-200 pt-3 dark:border-zinc-700">
+                                                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                                                Endereço de cobrança
+                                                            </p>
+                                                            <div className="grid gap-3 sm:grid-cols-2">
+                                                                <div className="flex flex-col gap-1">
+                                                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                                        CEP
+                                                                    </label>
+                                                                    <div className="flex gap-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            value={cardAddr.cep}
+                                                                            onChange={(e) =>
+                                                                                setCardAddr((a) => ({ ...a, cep: e.target.value }))
+                                                                            }
+                                                                            onBlur={(e) => void fetchViaCep(e.target.value)}
+                                                                            placeholder="00000-000"
+                                                                            maxLength={9}
+                                                                            className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                                                                        />
+                                                                        {cepLoading && (
+                                                                            <Loader2 className="mt-2 h-4 w-4 shrink-0 animate-spin text-violet-500" />
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <Field
+                                                                    label="Número"
+                                                                    value={cardAddr.numero}
+                                                                    onChange={(v) =>
+                                                                        setCardAddr((a) => ({ ...a, numero: v }))
+                                                                    }
+                                                                    placeholder="123"
+                                                                />
+                                                                <div className="sm:col-span-2">
+                                                                    <Field
+                                                                        label="Endereço (logradouro)"
+                                                                        value={cardAddr.endereco}
+                                                                        onChange={(v) =>
+                                                                            setCardAddr((a) => ({ ...a, endereco: v }))
+                                                                        }
+                                                                        placeholder="Rua Exemplo"
+                                                                    />
+                                                                </div>
+                                                                <Field
+                                                                    label="Cidade"
+                                                                    value={cardAddr.cidade}
+                                                                    onChange={(v) =>
+                                                                        setCardAddr((a) => ({ ...a, cidade: v }))
+                                                                    }
+                                                                    placeholder="São Paulo"
+                                                                />
+                                                                <Field
+                                                                    label="UF"
+                                                                    value={cardAddr.uf}
+                                                                    onChange={(v) =>
+                                                                        setCardAddr((a) => ({ ...a, uf: v.toUpperCase().slice(0, 2) }))
+                                                                    }
+                                                                    placeholder="SP"
+                                                                />
+                                                            </div>
+                                                        </div>
                                                         <button
                                                             type="button"
                                                             onClick={() => void payRenthusCard()}

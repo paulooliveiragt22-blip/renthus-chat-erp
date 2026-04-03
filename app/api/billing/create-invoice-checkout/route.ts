@@ -25,9 +25,16 @@ import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerF
 export const runtime = "nodejs";
 
 type Body = {
-    payment_method?: "pix" | "credit_card";
-    card_token?:    string;
-    installments?:  number;
+    payment_method?:  "pix" | "credit_card";
+    card_token?:      string;
+    installments?:    number;
+    billing_address?: {
+        cep:      string;
+        endereco: string;
+        numero:   string;
+        cidade:   string;
+        uf:       string;
+    };
 };
 
 export async function POST(req: Request) {
@@ -107,17 +114,18 @@ export async function POST(req: Request) {
 
             const installments = Math.max(1, Math.min(12, Number(body.installments) || 1));
 
-            const street = String(company.endereco ?? "").trim();
-            const num    = String(company.numero ?? "").trim();
-            const city   = String(company.cidade ?? "").trim();
-            const uf     = String(company.uf ?? "").trim();
-            let zip      = String(company.cep ?? "").replace(/\D/g, "");
+            const bodyAddr = body.billing_address;
+            const street = (bodyAddr?.endereco?.trim() || String(company.endereco ?? "")).trim();
+            const num    = (bodyAddr?.numero?.trim()   || String(company.numero   ?? "")).trim();
+            const city   = (bodyAddr?.cidade?.trim()   || String(company.cidade   ?? "")).trim();
+            const uf     = (bodyAddr?.uf?.trim()       || String(company.uf       ?? "")).trim();
+            let zip      = (bodyAddr?.cep ?? String(company.cep ?? "")).replace(/\D/g, "");
 
             if (!street || !num || !city || uf.length < 2) {
                 return NextResponse.json(
                     {
                         error:
-                            "Preencha endereço, número, cidade e UF na aba Geral (Configurações) para pagar com cartão.",
+                            "Preencha o endereço de cobrança (endereço, número, cidade e UF) para pagar com cartão.",
                     },
                     { status: 400 }
                 );
