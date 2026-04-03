@@ -219,6 +219,7 @@ async function generateSetupCharge(
 
     const company     = sub.companies as CompanyRow | null;
     const amountCents = getSetupPriceCents(sub.plan as "bot" | "complete");
+    const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
     const order = await createPixInvoiceOrder({
         amountCents,
@@ -226,6 +227,10 @@ async function generateSetupCharge(
         itemCode:    "setup",
         customerId:  sub.pagarme_customer_id ?? undefined,
         customer:    buildCustomerPayload(sub, company),
+        additionalInfo: [
+            { name: "Empresa", value: compLabel },
+            { name: "Tipo",    value: "Taxa de ativação" },
+        ],
         metadata: {
             type:            "setup",
             company_id:      sub.company_id,
@@ -281,12 +286,17 @@ async function generateMonthlyInvoice(
 
     const company     = sub.companies as CompanyRow | null;
     const amountCents = getMonthlyPriceCents(sub.plan as "bot" | "complete");
+    const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
     const order = await createPixInvoiceOrder({
         amountCents,
         description: `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
         customerId:  sub.pagarme_customer_id ?? undefined,
         customer:    buildCustomerPayload(sub, company),
+        additionalInfo: [
+            { name: "Empresa", value: compLabel },
+            { name: "Tipo",    value: "Mensalidade" },
+        ],
         metadata: {
             type:            "invoice",
             company_id:      sub.company_id,

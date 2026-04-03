@@ -23,20 +23,25 @@ export function extractCompanyCnpjDigits(company: CompanyRowForPagarme): string 
 }
 
 export function buildPagarmeCustomerPayload(company: CompanyRowForPagarme): {
-    name: string;
-    email: string;
-    document?: string;
-    phone?: string;
+    name:           string;
+    email:          string;
+    type:           "individual" | "company";
+    document?:      string;
+    document_type?: "CPF" | "CNPJ";
+    phone?:         string;
 } {
     const displayName =
         (company.nome_fantasia ?? "").trim() ||
         (company.name ?? "").trim() ||
         "Empresa";
     const cnpjDigits = extractCompanyCnpjDigits(company);
+    const isCpf      = cnpjDigits.length === 11;
     return {
-        name:     displayName,
-        email:    company.email ?? `${company.id}@renthus.com.br`,
-        document: cnpjDigits || undefined,
-        phone:    company.whatsapp_phone ?? undefined,
+        name:          displayName,
+        email:         company.email ?? `${company.id}@renthus.com.br`,
+        type:          isCpf ? "individual" : "company",
+        document:      cnpjDigits || undefined,
+        document_type: cnpjDigits ? (isCpf ? "CPF" : "CNPJ") : undefined,
+        phone:         company.whatsapp_phone ?? undefined,
     };
 }

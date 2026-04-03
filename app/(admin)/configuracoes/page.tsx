@@ -267,7 +267,7 @@ function ConfiguracoesPageContent() {
     const [renthusInstallments, setRenthusInstallments] = useState(1);
     const [cardPayLoading, setCardPayLoading]     = useState(false);
     const [billingSuccessMsg, setBillingSuccessMsg] = useState<string | null>(null);
-    const [cardAddr, setCardAddr] = useState({ cep: "", endereco: "", numero: "", cidade: "", uf: "" });
+    const [cardAddr, setCardAddr] = useState({ cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "" });
     const [cepLoading, setCepLoading] = useState(false);
 
     // ── load company ──────────────────────────────────────────────────────────
@@ -295,6 +295,7 @@ function ConfiguracoesPageContent() {
                 cep:      c.cep ?? "",
                 endereco: c.endereco ?? "",
                 numero:   c.numero ?? "",
+                bairro:   c.bairro ?? "",
                 cidade:   c.cidade ?? "",
                 uf:       c.uf ?? "",
             });
@@ -383,8 +384,9 @@ function ConfiguracoesPageContent() {
                 ...prev,
                 cep:      digits,
                 endereco: data.logradouro ?? prev.endereco,
+                bairro:   data.bairro     ?? prev.bairro,
                 cidade:   data.localidade ?? prev.cidade,
-                uf:       data.uf ?? prev.uf,
+                uf:       data.uf         ?? prev.uf,
             }));
         } catch {
             // silently ignore — user can fill manually
@@ -471,6 +473,15 @@ function ConfiguracoesPageContent() {
                     exp_year:        exp.year,
                     cvv,
                     holder_document: cnpj.replace(/\D/g, "") || undefined,
+                    billing_address: {
+                        street:       cardAddr.endereco.trim(),
+                        number:       cardAddr.numero.trim(),
+                        neighborhood: cardAddr.bairro.trim(),
+                        zipcode:      addrCep,
+                        city:         cardAddr.cidade.trim(),
+                        state:        cardAddr.uf.trim().toUpperCase().slice(0, 2),
+                        country:      "BR",
+                    },
                 });
             } catch (e) {
                 setBillingErr(e instanceof Error ? e.message : "Cartão recusado.");
@@ -488,6 +499,7 @@ function ConfiguracoesPageContent() {
                         cep:      addrCep,
                         endereco: cardAddr.endereco.trim(),
                         numero:   cardAddr.numero.trim(),
+                        bairro:   cardAddr.bairro.trim(),
                         cidade:   cardAddr.cidade.trim(),
                         uf:       cardAddr.uf.trim().toUpperCase().slice(0, 2),
                     },
@@ -1146,6 +1158,14 @@ function ConfiguracoesPageContent() {
                                                                         placeholder="Rua Exemplo"
                                                                     />
                                                                 </div>
+                                                                <Field
+                                                                    label="Bairro"
+                                                                    value={cardAddr.bairro}
+                                                                    onChange={(v) =>
+                                                                        setCardAddr((a) => ({ ...a, bairro: v }))
+                                                                    }
+                                                                    placeholder="Centro"
+                                                                />
                                                                 <Field
                                                                     label="Cidade"
                                                                     value={cardAddr.cidade}

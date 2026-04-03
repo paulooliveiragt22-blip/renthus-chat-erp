@@ -145,30 +145,34 @@ export async function createCustomer(params: {
 // ---------------------------------------------------------------------------
 
 export async function createSetupOrder(params: {
-    amountCents: number;
-    description: string;
-    installments: number;
-    cardToken: string;       // token gerado pelo endpoint /tokens?appId=pk_xxx (browser)
-    itemCode?: string;      // padrão "setup" — ex.: annual_bot
-    customerId?: string;
+    amountCents:    number;
+    description:    string;
+    installments:   number;
+    cardToken:      string;
+    itemCode?:      string;
+    holderDocument?: string;  // CPF/CNPJ do titular — enviado em card.holder_document
+    customerId?:    string;
     customer?: {
-        name: string;
-        email: string;
-        document?: string;
-        phone?: string;
+        name:           string;
+        email:          string;
+        type?:          "individual" | "company";
+        document?:      string;
+        document_type?: "CPF" | "CNPJ";
+        phone?:         string;
         address?: {
-            street:   string;
-            number:   string;
-            zipCode:  string;
-            city:     string;
-            state:    string;
-            country?: string;
+            street:        string;
+            number:        string;
+            neighborhood?: string;
+            zipCode:       string;
+            city:          string;
+            state:         string;
+            country?:      string;
         };
     };
     /**
-     * Com `card_token`, o Pagar.me ainda exige `card.billing_address` (não só `credit_card.billing_address`),
-     * senão falha com validation_error | billing | "value" is required.
-     * @see https://github.com/pagarme/pagarme-php/issues/408
+     * Com `card_token`, o Pagar.me ainda exige `card.billing_address`
+     * (não só `credit_card.billing_address`), senão falha com
+     * validation_error | billing | "value" is required.
      */
     billingAddress?: {
         line_1:   string;
@@ -183,13 +187,12 @@ export async function createSetupOrder(params: {
     const creditCard: Record<string, unknown> = {
         installments:         params.installments,
         card_token:           params.cardToken,
-        capture:              true,
         operation_type:       "auth_and_capture",
         statement_descriptor: "RENTHUS",
     };
     if (params.billingAddress) {
         const b = params.billingAddress;
-        creditCard.card = {
+        const cardSub: Record<string, unknown> = {
             billing_address: {
                 line_1:   b.line_1,
                 line_2:   b.line_2 ?? "",
@@ -199,6 +202,10 @@ export async function createSetupOrder(params: {
                 country:  b.country ?? "BR",
             },
         };
+        if (params.holderDocument) {
+            cardSub.holder_document = params.holderDocument.replace(/\D/g, "");
+        }
+        creditCard.card = cardSub;
     }
 
     const body: Record<string, unknown> = {
@@ -223,31 +230,31 @@ export async function createSetupOrder(params: {
     if (params.customerId) {
         body.customer_id = params.customerId;
     } else if (params.customer) {
-        const c = params.customer;
+        const c       = params.customer;
+        const docRaw  = c.document?.replace(/\D/g, "") ?? "";
+        const isCpf   = docRaw.length === 11;
         const cBody: Record<string, unknown> = {
-            name: c.name,
+            name:  c.name,
             email: c.email,
-            type: "company",
+            type:  c.type ?? (isCpf ? "individual" : "company"),
         };
-        if (c.document) {
-            const digitsDoc = c.document.replace(/\D/g, "");
-            cBody.document      = digitsDoc;
-            cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
+        if (docRaw) {
+            cBody.document      = docRaw;
+            cBody.document_type = c.document_type ?? (isCpf ? "CPF" : "CNPJ");
         }
         attachCustomerMobilePhone(cBody, c.phone);
         if (c.address) {
             let zip = c.address.zipCode.replace(/\D/g, "");
             if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
-            const line1 = `${c.address.street} ${c.address.number}`.trim();
-            cBody.addresses = [
-                {
-                    line_1:   line1,
-                    zip_code: zip,
-                    city:     c.address.city,
-                    state:    c.address.state,
-                    country:  c.address.country ?? "BR",
-                },
-            ];
+            const line1Parts = [c.address.street, c.address.number, c.address.neighborhood]
+                .map((s) => s?.trim()).filter(Boolean);
+            cBody.address = {
+                line_1:   line1Parts.join(", "),
+                zip_code: zip,
+                city:     c.address.city,
+                state:    c.address.state,
+                country:  c.address.country ?? "BR",
+            };
         }
         body.customer = cBody;
     }
@@ -267,43 +274,51 @@ export function isOrderCreditPaid(order: PagarmeOrder): boolean {
 // ---------------------------------------------------------------------------
 
 export async function createPixInvoiceOrder(params: {
-    amountCents: number;
-    description: string;
-    /** items[0].code — padrão "mensalidade" */
-    itemCode?: string;
-    expiresInSeconds?: number; // padrão: 86400 (24h)
-    customerId?: string;
+    amountCents:       number;
+    description:       string;
+    itemCode?:         string;
+    expiresInSeconds?: number;
+    customerId?:       string;
     customer?: {
-        name: string;
-        email: string;
-        document?: string;
-        phone?: string;
+        name:           string;
+        email:          string;
+        type?:          "individual" | "company";
+        document?:      string;
+        document_type?: "CPF" | "CNPJ";
+        phone?:         string;
         address?: {
-            street:   string;
-            number:   string;
-            zipCode:  string;
-            city:     string;
-            state:    string;
-            country?: string;
+            street:        string;
+            number:        string;
+            neighborhood?: string;
+            zipCode:       string;
+            city:          string;
+            state:         string;
+            country?:      string;
         };
     };
-    metadata?: Record<string, string>;
+    additionalInfo?: Array<{ name: string; value: string }>;
+    metadata?:       Record<string, string>;
 }): Promise<PagarmeOrder> {
+    const pix: Record<string, unknown> = {
+        expires_in: params.expiresInSeconds ?? 86400 * 30, // 30 dias padrão
+    };
+    if (params.additionalInfo?.length) {
+        pix.additional_information = params.additionalInfo;
+    }
+
     const body: Record<string, unknown> = {
         items: [
             {
-                amount: params.amountCents,
+                amount:      params.amountCents,
                 description: params.description,
-                quantity: 1,
-                code: params.itemCode ?? "mensalidade",
+                quantity:    1,
+                code:        params.itemCode ?? "mensalidade",
             },
         ],
         payments: [
             {
                 payment_method: "pix",
-                pix: {
-                    expires_in: params.expiresInSeconds ?? 86400 * 5, // 5 dias
-                },
+                pix,
                 amount: params.amountCents,
             },
         ],
@@ -313,31 +328,31 @@ export async function createPixInvoiceOrder(params: {
     if (params.customerId) {
         body.customer_id = params.customerId;
     } else if (params.customer) {
-        const c = params.customer;
+        const c      = params.customer;
+        const docRaw = c.document?.replace(/\D/g, "") ?? "";
+        const isCpf  = docRaw.length === 11;
         const cBody: Record<string, unknown> = {
-            name: c.name,
+            name:  c.name,
             email: c.email,
-            type: "company",
+            type:  c.type ?? (isCpf ? "individual" : "company"),
         };
-        if (c.document) {
-            const digitsDoc = c.document.replace(/\D/g, "");
-            cBody.document      = digitsDoc;
-            cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
+        if (docRaw) {
+            cBody.document      = docRaw;
+            cBody.document_type = c.document_type ?? (isCpf ? "CPF" : "CNPJ");
         }
         attachCustomerMobilePhone(cBody, c.phone);
         if (c.address) {
             let zip = c.address.zipCode.replace(/\D/g, "");
             if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
-            const line1 = `${c.address.street} ${c.address.number}`.trim();
-            cBody.addresses = [
-                {
-                    line_1:   line1,
-                    zip_code: zip,
-                    city:     c.address.city,
-                    state:    c.address.state,
-                    country:  c.address.country ?? "BR",
-                },
-            ];
+            const line1Parts = [c.address.street, c.address.number, c.address.neighborhood]
+                .map((s) => s?.trim()).filter(Boolean);
+            cBody.address = {
+                line_1:   line1Parts.join(", "),
+                zip_code: zip,
+                city:     c.address.city,
+                state:    c.address.state,
+                country:  c.address.country ?? "BR",
+            };
         }
         body.customer = cBody;
     }

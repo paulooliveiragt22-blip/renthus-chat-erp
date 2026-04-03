@@ -34,6 +34,7 @@ type Body = {
         cep:      string;
         endereco: string;
         numero:   string;
+        bairro?:  string;
         cidade:   string;
         uf:       string;
     };
@@ -137,11 +138,12 @@ export async function POST(req: Request) {
             const installments = Math.max(1, Math.min(12, Number(body.installments) || 1));
 
             const bodyAddr = body.billing_address;
-            const street = (bodyAddr?.endereco?.trim() || String(company.endereco ?? "")).trim();
-            const num    = (bodyAddr?.numero?.trim()   || String(company.numero   ?? "")).trim();
-            const city   = (bodyAddr?.cidade?.trim()   || String(company.cidade   ?? "")).trim();
-            const uf     = (bodyAddr?.uf?.trim()       || String(company.uf       ?? "")).trim();
-            let zip      = (bodyAddr?.cep ?? String(company.cep ?? "")).replace(/\D/g, "");
+            const street  = (bodyAddr?.endereco?.trim() || String(company.endereco ?? "")).trim();
+            const num     = (bodyAddr?.numero?.trim()   || String(company.numero   ?? "")).trim();
+            const bairro  = (bodyAddr?.bairro?.trim()   || String((company as any).bairro ?? "")).trim();
+            const city    = (bodyAddr?.cidade?.trim()   || String(company.cidade   ?? "")).trim();
+            const uf      = (bodyAddr?.uf?.trim()       || String(company.uf       ?? "")).trim();
+            let zip       = (bodyAddr?.cep ?? String(company.cep ?? "")).replace(/\D/g, "");
 
             if (!street || !num || !city || uf.length < 2) {
                 return NextResponse.json(
@@ -157,18 +159,22 @@ export async function POST(req: Request) {
                 );
             }
 
+            const line1Parts = [num, street, bairro].filter(Boolean);
+            const cnpjDigits = (company.cnpj as string | null ?? "").replace(/\D/g, "");
+
             const order = await createSetupOrder({
                 amountCents,
-                description:  isFirstPayment
+                description:     isFirstPayment
                     ? `Taxa de ativação Renthus — Plano ${planLabel}`
                     : `Mensalidade Renthus — Plano ${planLabel}`,
                 installments,
-                cardToken:  token,
-                itemCode:   isFirstPayment ? "setup" : "mensalidade",
-                customerId: sub.pagarme_customer_id ?? undefined,
-                customer:   !sub.pagarme_customer_id ? customerBase : undefined,
+                cardToken:       token,
+                itemCode:        isFirstPayment ? "setup" : "mensalidade",
+                holderDocument:  cnpjDigits || undefined,
+                customerId:      sub.pagarme_customer_id ?? undefined,
+                customer:        !sub.pagarme_customer_id ? customerBase : undefined,
                 billingAddress: {
-                    line_1:   `${num}, ${street}`,
+                    line_1:   line1Parts.join(", "),
                     line_2:   "",
                     zip_code: zip,
                     city,
@@ -261,6 +267,10 @@ export async function POST(req: Request) {
             });
         }
 
+        const companyLabel = (company.nome_fantasia as string | null)?.trim()
+            || (company.name as string | null)?.trim()
+            || "Renthus";
+
         const order = await createPixInvoiceOrder({
             amountCents,
             description: isFirstPayment
@@ -269,7 +279,11 @@ export async function POST(req: Request) {
             itemCode:   isFirstPayment ? "setup" : "mensalidade",
             customerId: sub.pagarme_customer_id ?? undefined,
             customer:   !sub.pagarme_customer_id ? customerBase : undefined,
-            metadata:   orderMeta,
+            additionalInfo: [
+                { name: "Empresa", value: companyLabel },
+                { name: "Tipo",    value: isFirstPayment ? "Taxa de ativação" : "Mensalidade" },
+            ],
+            metadata: orderMeta,
         });
 
         const pixUrl  = extractPixUrl(order);
