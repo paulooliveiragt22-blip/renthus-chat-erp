@@ -15,6 +15,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
     createPixInvoiceOrder,
     getMonthlyPriceCents,
+    getSetupPriceCents,
     centsToBRL,
     extractPixUrl,
     extractPixCode,
@@ -49,7 +50,7 @@ export async function POST(req: Request) {
     };
 
     // -----------------------------------------------------------------------
-    // 1 & 2. Trials e ativas vencidas → gerar invoice
+    // 1 & 2. Trials vencidos → setup_payment | Ativas vencidas → invoice
     // -----------------------------------------------------------------------
     const { data: dueSubs, error: dueErr } = await admin
         .from("pagarme_subscriptions")
@@ -70,13 +71,16 @@ export async function POST(req: Request) {
     } else {
         for (const sub of dueSubs ?? []) {
             try {
-                await generateInvoice(admin, sub, now);
-
-                if (sub.status === "trial") results.trialsCharged++;
-                else results.activeCharged++;
+                if (sub.status === "trial") {
+                    await generateSetupCharge(admin, sub, now);
+                    results.trialsCharged++;
+                } else {
+                    await generateMonthlyInvoice(admin, sub, now);
+                    results.activeCharged++;
+                }
             } catch (err: any) {
                 const msg = `sub ${sub.id}: ${err?.message ?? String(err)}`;
-                console.error("[charge] Erro ao gerar invoice:", msg);
+                console.error("[charge] Erro ao gerar cobrança:", msg);
                 results.errors.push(msg);
             }
         }
@@ -96,6 +100,13 @@ export async function POST(req: Request) {
         `)
         .eq("status", "pending")
         .lte("due_at", now.toISOString());
+
+    // Pending_setup com mais de 5 dias sem pagamento → bloquear
+    const { data: stalePendingSetups } = await admin
+        .from("pagarme_subscriptions")
+        .select("id, company_id")
+        .eq("status", "pending_setup")
+        .lte("updated_at", fiveDaysAgo.toISOString());
 
     if (ovErr) {
         console.error("[charge] Erro ao buscar invoices vencidas:", ovErr.message);
@@ -138,6 +149,16 @@ export async function POST(req: Request) {
         }
     }
 
+    // Bloquear pending_setup antigos (>5 dias sem pagar o setup)
+    for (const sub of stalePendingSetups ?? []) {
+        try {
+            await blockCompany(admin, sub.company_id, sub.id);
+            results.blocked++;
+        } catch (err: any) {
+            results.errors.push(`pending_setup_block sub ${sub.id}: ${err?.message ?? String(err)}`);
+        }
+    }
+
     billingLog("charge_cron", "completed", {
         trialsCharged: results.trialsCharged,
         activeCharged: results.activeCharged,
@@ -149,42 +170,123 @@ export async function POST(req: Request) {
 }
 
 // ---------------------------------------------------------------------------
-// generateInvoice: cria order PIX no Pagar.me + registro no banco
+// Helpers
 // ---------------------------------------------------------------------------
-async function generateInvoice(
+
+type CompanyRow = {
+    id?: string;
+    name?: string | null;
+    nome_fantasia?: string | null;
+    email?: string | null;
+    whatsapp_phone?: string | null;
+    meta?: Record<string, unknown> | null;
+    cnpj?: string | null;
+};
+
+function buildCustomerPayload(sub: any, company: CompanyRow | null) {
+    if (sub.pagarme_customer_id || !company) return undefined;
+    return buildPagarmeCustomerPayload({
+        id:             sub.company_id,
+        name:           company.name ?? null,
+        nome_fantasia:  company.nome_fantasia ?? null,
+        email:          company.email ?? null,
+        whatsapp_phone: company.whatsapp_phone ?? null,
+        cnpj:           company.cnpj ?? null,
+        meta:           company.meta ?? null,
+    });
+}
+
+// ---------------------------------------------------------------------------
+// generateSetupCharge: trial vencido → primeira cobrança é o setup fee
+// ---------------------------------------------------------------------------
+async function generateSetupCharge(
     admin: ReturnType<typeof createAdminClient>,
     sub: any,
     now: Date
 ) {
-    const company     = sub.companies as {
-        id?: string;
-        name?: string | null;
-        nome_fantasia?: string | null;
-        email?: string | null;
-        whatsapp_phone?: string | null;
-        meta?: Record<string, unknown> | null;
-        cnpj?: string | null;
-    } | null;
-    const amountCents = getMonthlyPriceCents(sub.plan as "bot" | "complete");
+    // Dedup: não criar se já existe setup_payment pendente para esta subscription
+    const { data: existing } = await admin
+        .from("setup_payments")
+        .select("id")
+        .eq("company_id", sub.company_id)
+        .eq("status", "pending")
+        .maybeSingle();
 
-    const customerPayload =
-        !sub.pagarme_customer_id && company
-            ? buildPagarmeCustomerPayload({
-                  id:             sub.company_id,
-                  name:           company.name ?? null,
-                  nome_fantasia:  company.nome_fantasia ?? null,
-                  email:          company.email ?? null,
-                  whatsapp_phone: company.whatsapp_phone ?? null,
-                  cnpj:           company.cnpj ?? null,
-                  meta:           company.meta ?? null,
-              })
-            : undefined;
+    if (existing) {
+        console.log(`[charge] setup_payment pendente já existe para sub ${sub.id}, pulando`);
+        return;
+    }
+
+    const company     = sub.companies as CompanyRow | null;
+    const amountCents = getSetupPriceCents(sub.plan as "bot" | "complete");
 
     const order = await createPixInvoiceOrder({
         amountCents,
-        description: `Mensalidade Renthus — Plano ${sub.plan}`,
+        description: `Taxa de ativação Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
+        itemCode:    "setup",
         customerId:  sub.pagarme_customer_id ?? undefined,
-        customer:    customerPayload,
+        customer:    buildCustomerPayload(sub, company),
+        metadata: {
+            type:            "setup",
+            company_id:      sub.company_id,
+            subscription_id: sub.id,
+            plan:            sub.plan,
+        },
+    });
+
+    const pixUrl  = extractPixUrl(order);
+    const pixCode = extractPixCode(order);
+
+    await admin.from("setup_payments").insert({
+        company_id:          sub.company_id,
+        plan:                sub.plan,
+        amount:              centsToBRL(amountCents),
+        installments:        1,
+        status:              "pending",
+        pagarme_order_id:    order.id,
+        pagarme_payment_url: pixUrl ?? "",
+    });
+
+    await admin
+        .from("pagarme_subscriptions")
+        .update({ status: "pending_setup" })
+        .eq("id", sub.id);
+
+    if (company?.whatsapp_phone) {
+        const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
+        if (msg) await sendBillingNotification(company.whatsapp_phone, msg);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// generateMonthlyInvoice: ativa com next_billing_at vencido → mensalidade
+// ---------------------------------------------------------------------------
+async function generateMonthlyInvoice(
+    admin: ReturnType<typeof createAdminClient>,
+    sub: any,
+    now: Date
+) {
+    // Dedup: não criar se já existe invoice pendente para esta subscription
+    const { data: existing } = await admin
+        .from("invoices")
+        .select("id")
+        .eq("subscription_id", sub.id)
+        .eq("status", "pending")
+        .maybeSingle();
+
+    if (existing) {
+        console.log(`[charge] invoice pendente já existe para sub ${sub.id}, pulando`);
+        return;
+    }
+
+    const company     = sub.companies as CompanyRow | null;
+    const amountCents = getMonthlyPriceCents(sub.plan as "bot" | "complete");
+
+    const order = await createPixInvoiceOrder({
+        amountCents,
+        description: `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
+        customerId:  sub.pagarme_customer_id ?? undefined,
+        customer:    buildCustomerPayload(sub, company),
         metadata: {
             type:            "invoice",
             company_id:      sub.company_id,
@@ -196,7 +298,6 @@ async function generateInvoice(
     const pixUrl  = extractPixUrl(order);
     const pixCode = extractPixCode(order);
 
-    // Registra invoice
     await admin.from("invoices").insert({
         company_id:          sub.company_id,
         subscription_id:     sub.id,
@@ -208,18 +309,14 @@ async function generateInvoice(
         pix_qr_code:         pixCode,
     });
 
-    // Atualiza subscription para 'overdue'
     await admin
         .from("pagarme_subscriptions")
         .update({ status: "overdue" })
         .eq("id", sub.id);
 
-    // Envia primeiro aviso imediato (dia 0 = dia do vencimento)
     if (company?.whatsapp_phone) {
         const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
-        if (msg) {
-            await sendBillingNotification(company.whatsapp_phone, msg);
-        }
+        if (msg) await sendBillingNotification(company.whatsapp_phone, msg);
     }
 }
 

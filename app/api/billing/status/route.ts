@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getActiveSubscription, getEnabledFeatures, checkLimit } from "@/lib/billing/entitlements";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getMonthlyPriceCents, listCustomerCards } from "@/lib/billing/pagarme";
+import { getMonthlyPriceCents, getSetupPriceCents, listCustomerCards } from "@/lib/billing/pagarme";
 
 export const runtime = "nodejs";
 
@@ -34,22 +34,31 @@ export async function GET(req: Request) {
                 .then(({ data }) => data),
         ]);
 
-        // Última fatura pendente (PIX) — qualquer status (trial, active, overdue, blocked)
-        let pendingInvoice: {
+        // Registros pendentes — setup_payment (primeiro pagamento) ou invoice (mensalidade)
+        const [{ data: invPending }, { data: setupPending }] = await Promise.all([
+            admin
+                .from("invoices")
+                .select("pagarme_payment_url, pix_qr_code, amount, due_at")
+                .eq("company_id", companyId)
+                .eq("status", "pending")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle(),
+            admin
+                .from("setup_payments")
+                .select("pagarme_payment_url, amount")
+                .eq("company_id", companyId)
+                .eq("status", "pending")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle(),
+        ]);
+
+        const pendingInvoice = invPending ?? null;
+        const pendingSetupPayment: {
             pagarme_payment_url: string | null;
-            pix_qr_code:         string | null;
             amount:              number;
-            due_at:              string;
-        } | null = null;
-        const { data: invPending } = await admin
-            .from("invoices")
-            .select("pagarme_payment_url, pix_qr_code, amount, due_at")
-            .eq("company_id", companyId)
-            .eq("status", "pending")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        pendingInvoice = invPending ?? null;
+        } | null = setupPending ?? null;
 
         const { data: invoiceRows } = await admin
             .from("invoices")
@@ -69,13 +78,18 @@ export async function GET(req: Request) {
             bot:      getMonthlyPriceCents("bot") / 100,
             complete: getMonthlyPriceCents("complete") / 100,
         };
+        const setupPricesBRL = {
+            bot:      getSetupPriceCents("bot") / 100,
+            complete: getSetupPriceCents("complete") / 100,
+        };
 
         return NextResponse.json({
             ok: true,
             company_id: companyId,
             subscription: sub,
             pagarme_subscription: pagarmeSubRaw ?? null,
-            pending_invoice: pendingInvoice,
+            pending_invoice:        pendingInvoice,
+            pending_setup_payment: pendingSetupPayment,
             is_blocked: pagarmeSubRaw?.status === "blocked",
             invoice_history: invoiceRows ?? [],
             saved_cards: savedCards.map((c) => ({
@@ -87,6 +101,7 @@ export async function GET(req: Request) {
                 status:           c.status ?? "",
             })),
             monthly_prices_brl: monthlyPricesBRL,
+            setup_prices_brl:   setupPricesBRL,
             enabled_features: Array.from(features.values()),
             enabled_features_count: features.size,
             usage: {

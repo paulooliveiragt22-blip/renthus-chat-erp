@@ -16,10 +16,12 @@ import {
     extractPixUrl,
     extractOrderCustomerId,
     getMonthlyPriceCents,
+    getSetupPriceCents,
     centsToBRL,
     isOrderCreditPaid,
 } from "@/lib/billing/pagarme";
 import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
+import { activateAfterSetupPayment, syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 
 export const runtime = "nodejs";
@@ -60,21 +62,40 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Assinatura não encontrada" }, { status: 404 });
         }
 
-        const { data: inv } = await admin
-            .from("invoices")
-            .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
-            .eq("company_id", companyId)
-            .eq("status", "pending")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        // Primeiro pagamento (trial / pending_setup) = taxa de setup
+        // Pagamentos seguintes (active / overdue / blocked) = mensalidade
+        const isFirstPayment =
+            sub.status === "trial" || sub.status === "pending_setup";
 
-        const hasHostedCheckout =
-            inv?.pagarme_payment_url?.includes("checkout.pagar.me") ?? false;
+        const plan = sub.plan as "bot" | "complete";
 
-        const amountCents = inv?.amount
-            ? Math.round(Number(inv.amount) * 100)
-            : getMonthlyPriceCents(sub.plan as "bot" | "complete");
+        // Busca registro pendente de acordo com o tipo de pagamento
+        const [{ data: pendingSetup }, { data: pendingInv }] = await Promise.all([
+            admin
+                .from("setup_payments")
+                .select("id, amount, pagarme_order_id, pagarme_payment_url")
+                .eq("company_id", companyId)
+                .eq("status", "pending")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle(),
+            admin
+                .from("invoices")
+                .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
+                .eq("company_id", companyId)
+                .eq("status", "pending")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle(),
+        ]);
+
+        const pendingRecord = isFirstPayment ? pendingSetup : pendingInv;
+
+        const amountCents = pendingRecord?.amount
+            ? Math.round(Number(pendingRecord.amount) * 100)
+            : isFirstPayment
+                ? getSetupPriceCents(plan)
+                : getMonthlyPriceCents(plan);
 
         const { data: company, error: compErr } = await admin
             .from("companies")
@@ -98,13 +119,14 @@ export async function POST(req: Request) {
             meta:             (company.meta as Record<string, unknown> | null) ?? null,
         });
 
-        const metaInvoice = {
-            type:            "invoice" as const,
+        const metaType = isFirstPayment ? "setup" : "invoice";
+        const orderMeta = {
+            type:            metaType,
             company_id:      companyId,
             subscription_id: sub.id,
-            invoice_id:      inv?.id ?? "",
-            plan:            String(sub.plan ?? ""),
+            plan:            String(plan),
         };
+        const planLabel = plan === "bot" ? "Bot" : "Completo";
 
         if (paymentMethod === "credit_card") {
             const token = body.card_token?.trim();
@@ -123,10 +145,7 @@ export async function POST(req: Request) {
 
             if (!street || !num || !city || uf.length < 2) {
                 return NextResponse.json(
-                    {
-                        error:
-                            "Preencha o endereço de cobrança (endereço, número, cidade e UF) para pagar com cartão.",
-                    },
+                    { error: "Preencha o endereço de cobrança (endereço, número, cidade e UF) para pagar com cartão." },
                     { status: 400 }
                 );
             }
@@ -138,60 +157,79 @@ export async function POST(req: Request) {
                 );
             }
 
-            const line1 = `${num}, ${street}`;
-
             const order = await createSetupOrder({
                 amountCents,
-                description: `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
+                description:  isFirstPayment
+                    ? `Taxa de ativação Renthus — Plano ${planLabel}`
+                    : `Mensalidade Renthus — Plano ${planLabel}`,
                 installments,
-                cardToken: token,
-                itemCode:  "mensalidade",
+                cardToken:  token,
+                itemCode:   isFirstPayment ? "setup" : "mensalidade",
                 customerId: sub.pagarme_customer_id ?? undefined,
-                customer: !sub.pagarme_customer_id ? customerBase : undefined,
+                customer:   !sub.pagarme_customer_id ? customerBase : undefined,
                 billingAddress: {
-                    line_1:   line1,
+                    line_1:   `${num}, ${street}`,
                     line_2:   "",
                     zip_code: zip,
                     city,
                     state:    uf.slice(0, 2).toUpperCase(),
                     country:  "BR",
                 },
-                metadata: metaInvoice,
+                metadata: orderMeta,
             });
 
             const custId = extractOrderCustomerId(order);
 
-            if (inv) {
-                await admin
-                    .from("invoices")
-                    .update({
+            if (isFirstPayment) {
+                // Upsert setup_payment
+                if (pendingSetup) {
+                    await admin.from("setup_payments")
+                        .update({ pagarme_order_id: order.id, pagarme_payment_url: "" })
+                        .eq("id", pendingSetup.id);
+                } else {
+                    await admin.from("setup_payments").insert({
+                        company_id:          companyId,
+                        plan,
+                        amount:              centsToBRL(amountCents),
+                        installments,
+                        status:              "pending",
+                        pagarme_order_id:    order.id,
+                        pagarme_payment_url: "",
+                    });
+                }
+            } else {
+                // Upsert invoice
+                if (pendingInv) {
+                    await admin.from("invoices")
+                        .update({ pagarme_order_id: order.id, pagarme_payment_url: "", pix_qr_code: null })
+                        .eq("id", pendingInv.id);
+                } else {
+                    await admin.from("invoices").insert({
+                        company_id:          companyId,
+                        subscription_id:     sub.id,
+                        amount:              centsToBRL(amountCents),
+                        status:              "pending",
+                        due_at:              new Date().toISOString(),
                         pagarme_order_id:    order.id,
                         pagarme_payment_url: "",
                         pix_qr_code:         null,
-                    })
-                    .eq("id", inv.id);
-            } else {
-                await admin.from("invoices").insert({
-                    company_id:          companyId,
-                    subscription_id:     sub.id,
-                    amount:              centsToBRL(amountCents),
-                    status:              "pending",
-                    due_at:              new Date().toISOString(),
-                    pagarme_order_id:    order.id,
-                    pagarme_payment_url: "",
-                    pix_qr_code:         null,
-                });
+                    });
+                }
             }
 
             if (custId) {
-                await admin
-                    .from("pagarme_subscriptions")
+                await admin.from("pagarme_subscriptions")
                     .update({ pagarme_customer_id: custId })
                     .eq("id", sub.id);
             }
 
             if (isOrderCreditPaid(order)) {
-                await applyMonthlyInvoicePaid(admin, order.id, { pagarmeCustomerId: custId });
+                if (isFirstPayment) {
+                    await activateAfterSetupPayment(admin, companyId, plan, custId ?? undefined);
+                    await syncLogicalSubscription(admin, companyId, plan);
+                } else {
+                    await applyMonthlyInvoicePaid(admin, order.id, { pagarmeCustomerId: custId });
+                }
                 return NextResponse.json({
                     ok:             true,
                     payment_method: "credit_card",
@@ -205,27 +243,33 @@ export async function POST(req: Request) {
                 payment_method: "credit_card",
                 payment_status: "pending",
                 order_id:       order.id,
-                message:
-                    "Pagamento em análise. Quando o banco aprovar, o plano será liberado automaticamente.",
+                message:        "Pagamento em análise. Quando o banco aprovar, o plano será liberado automaticamente.",
             });
         }
 
         // ── PIX ───────────────────────────────────────────────────────────
-        if (inv?.pagarme_order_id && inv.pagarme_payment_url && !hasHostedCheckout) {
+        const existingPixUrl  = pendingRecord?.pagarme_payment_url ?? null;
+        const existingPixCode = (pendingRecord as any)?.pix_qr_code ?? null;
+        const hasHostedCheckout = existingPixUrl?.includes("checkout.pagar.me") ?? false;
+
+        if (pendingRecord?.pagarme_order_id && existingPixUrl && !hasHostedCheckout) {
             return NextResponse.json({
                 ok:             true,
                 payment_method: "pix",
-                pix_qr_url:     inv.pagarme_payment_url,
-                pix_qr_code:    inv.pix_qr_code ?? null,
+                pix_qr_url:     existingPixUrl,
+                pix_qr_code:    existingPixCode,
             });
         }
 
         const order = await createPixInvoiceOrder({
             amountCents,
-            description: `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
-            customerId:  sub.pagarme_customer_id ?? undefined,
-            customer: !sub.pagarme_customer_id ? customerBase : undefined,
-            metadata: metaInvoice,
+            description: isFirstPayment
+                ? `Taxa de ativação Renthus — Plano ${planLabel}`
+                : `Mensalidade Renthus — Plano ${planLabel}`,
+            itemCode:   isFirstPayment ? "setup" : "mensalidade",
+            customerId: sub.pagarme_customer_id ?? undefined,
+            customer:   !sub.pagarme_customer_id ? customerBase : undefined,
+            metadata:   orderMeta,
         });
 
         const pixUrl  = extractPixUrl(order);
@@ -235,26 +279,39 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Erro ao gerar PIX" }, { status: 500 });
         }
 
-        if (inv) {
-            await admin
-                .from("invoices")
-                .update({
+        if (isFirstPayment) {
+            if (pendingSetup) {
+                await admin.from("setup_payments")
+                    .update({ pagarme_order_id: order.id, pagarme_payment_url: pixUrl ?? "" })
+                    .eq("id", pendingSetup.id);
+            } else {
+                await admin.from("setup_payments").insert({
+                    company_id:          companyId,
+                    plan,
+                    amount:              centsToBRL(amountCents),
+                    installments:        1,
+                    status:              "pending",
+                    pagarme_order_id:    order.id,
+                    pagarme_payment_url: pixUrl ?? "",
+                });
+            }
+        } else {
+            if (pendingInv) {
+                await admin.from("invoices")
+                    .update({ pagarme_order_id: order.id, pagarme_payment_url: pixUrl ?? "", pix_qr_code: pixCode })
+                    .eq("id", pendingInv.id);
+            } else {
+                await admin.from("invoices").insert({
+                    company_id:          companyId,
+                    subscription_id:     sub.id,
+                    amount:              centsToBRL(amountCents),
+                    status:              "pending",
+                    due_at:              new Date().toISOString(),
                     pagarme_order_id:    order.id,
                     pagarme_payment_url: pixUrl ?? "",
                     pix_qr_code:         pixCode,
-                })
-                .eq("id", inv.id);
-        } else {
-            await admin.from("invoices").insert({
-                company_id:          companyId,
-                subscription_id:     sub.id,
-                amount:              centsToBRL(amountCents),
-                status:              "pending",
-                due_at:              new Date().toISOString(),
-                pagarme_order_id:    order.id,
-                pagarme_payment_url: pixUrl ?? "",
-                pix_qr_code:         pixCode,
-            });
+                });
+            }
         }
 
         return NextResponse.json({

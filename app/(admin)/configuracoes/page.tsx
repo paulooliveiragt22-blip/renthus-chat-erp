@@ -69,6 +69,10 @@ type BillingStatusJson = {
         amount:              number;
         due_at:              string;
     } | null;
+    pending_setup_payment?: {
+        pagarme_payment_url: string | null;
+        amount:              number;
+    } | null;
     invoice_history?: Array<{
         id:         string;
         amount:     number;
@@ -86,6 +90,7 @@ type BillingStatusJson = {
         status:    string;
     }>;
     monthly_prices_brl?: { bot: number; complete: number };
+    setup_prices_brl?:   { bot: number; complete: number };
 };
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -859,26 +864,34 @@ function ConfiguracoesPageContent() {
                                     })()}
 
                                     {(() => {
-                                        const sub = billingData.pagarme_subscription;
-                                        const st  = sub?.status ?? "";
-                                        const pend = billingData.pending_invoice;
-                                        const mp = billingData.monthly_prices_brl ?? {
-                                            bot:      297,
-                                            complete: 397,
-                                        };
-                                        const pk =
-                                            sub?.plan === "complete" ? ("complete" as const) : ("bot" as const);
-                                        const refAmount = pend ? Number(pend.amount) : mp[pk];
+                                        const sub  = billingData.pagarme_subscription;
+                                        const st   = sub?.status ?? "";
+                                        const pk   = sub?.plan === "complete" ? ("complete" as const) : ("bot" as const);
+
+                                        const isFirstPayment = st === "trial" || st === "pending_setup";
+                                        const sp   = billingData.setup_prices_brl   ?? { bot: 497, complete: 997 };
+                                        const mp   = billingData.monthly_prices_brl ?? { bot: 297, complete: 397 };
+
+                                        // Pending record: setup_payment para primeiro pagamento, invoice para os demais
+                                        const pendSetup   = billingData.pending_setup_payment;
+                                        const pendInv     = billingData.pending_invoice;
+                                        const pendRecord  = isFirstPayment ? pendSetup : pendInv;
+
+                                        const refAmount = pendRecord
+                                            ? Number(pendRecord.amount)
+                                            : isFirstPayment ? sp[pk] : mp[pk];
+
                                         const pixUrl =
-                                            pend?.pagarme_payment_url?.startsWith("http")
-                                                ? pend.pagarme_payment_url
+                                            pendRecord?.pagarme_payment_url?.startsWith("http")
+                                                ? pendRecord.pagarme_payment_url
                                                 : null;
-                                        const pixCode = pend?.pix_qr_code ?? "";
+                                        const pixCode = (pendRecord as any)?.pix_qr_code ?? "";
 
                                         const showPay =
-                                            st === "trial" ||
-                                            st === "active" ||
-                                            st === "overdue" ||
+                                            st === "trial"         ||
+                                            st === "pending_setup" ||
+                                            st === "active"        ||
+                                            st === "overdue"       ||
                                             st === "blocked";
 
                                         if (!showPay) return null;
@@ -896,10 +909,20 @@ function ConfiguracoesPageContent() {
                                                         Mensalidade em aberto. Escolha PIX ou cartão.
                                                     </div>
                                                 )}
+                                                {st === "pending_setup" && (
+                                                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                                                        Taxa de ativação em aberto. Escolha PIX ou cartão para ativar.
+                                                    </div>
+                                                )}
                                                 <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
-                                                    Pagar mensalidade Renthus
+                                                    {isFirstPayment ? "Ativar plano Renthus" : "Pagar mensalidade Renthus"}
                                                 </h3>
-                                                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                                                <p className="mt-0.5 text-xs text-zinc-500">
+                                                    {isFirstPayment
+                                                        ? "Taxa de ativação única — após o pagamento as mensalidades são cobradas a cada 30 dias."
+                                                        : "Mensalidade recorrente. Próximo vencimento em 30 dias após o pagamento."}
+                                                </p>
+                                                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                                                     Valor:{" "}
                                                     <span className="font-semibold text-zinc-900 dark:text-zinc-100">
                                                         {refAmount.toLocaleString("pt-BR", {
@@ -907,12 +930,12 @@ function ConfiguracoesPageContent() {
                                                             currency: "BRL",
                                                         })}
                                                     </span>
-                                                    {pend ? " · fatura em aberto" : " · cobrança gerada ao pagar"}
+                                                    {pendRecord ? " · cobrança em aberto" : " · gerado ao confirmar"}
                                                 </p>
-                                                {pend && (
+                                                {pendInv?.due_at && !isFirstPayment && (
                                                     <p className="mt-0.5 text-xs text-zinc-500">
                                                         Vencimento:{" "}
-                                                        {new Date(pend.due_at).toLocaleString("pt-BR", {
+                                                        {new Date(pendInv.due_at).toLocaleString("pt-BR", {
                                                             dateStyle: "medium",
                                                             timeStyle: "short",
                                                         })}

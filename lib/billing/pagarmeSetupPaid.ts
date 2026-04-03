@@ -7,6 +7,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateTrial } from "@/lib/billing/activateTrial";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
+import { computeNextBillingAt } from "@/lib/billing/computeNextBillingAt";
 
 export async function syncLogicalSubscription(
     admin: ReturnType<typeof createAdminClient>,
@@ -15,12 +16,18 @@ export async function syncLogicalSubscription(
 ) {
     if (!companyId || !planKey) return;
 
-    if (planKey !== "bot" && planKey !== "complete") return;
+    // pagarme_subscriptions usa 'bot'/'complete'; plans table usa 'starter'/'pro'
+    const mappedKey =
+        planKey === "bot"      ? "starter" :
+        planKey === "complete" ? "pro"     :
+        planKey;
+
+    if (mappedKey !== "starter" && mappedKey !== "pro") return;
 
     const { data: planRow, error: planErr } = await admin
         .from("plans")
         .select("id")
-        .eq("key", planKey)
+        .eq("key", mappedKey)
         .maybeSingle();
 
     if (planErr || !planRow?.id) {
@@ -119,7 +126,53 @@ async function provisionUserAfterPayment(
 }
 
 /**
- * Se existir setup_payment pendente para este order.id, marca pago e ativa trial.
+ * Ativa a assinatura após pagamento do setup:
+ * - Se já existe sub → atualiza para active + define next_billing_at
+ * - Se não existe sub → cria nova como active
+ */
+export async function activateAfterSetupPayment(
+    admin: ReturnType<typeof createAdminClient>,
+    companyId: string,
+    plan: "bot" | "complete",
+    pagarmeCustomerId?: string
+): Promise<void> {
+    const paidAt        = new Date();
+    const nextBillingAt = computeNextBillingAt(paidAt);
+
+    const patch: Record<string, unknown> = {
+        plan,
+        status:          "active",
+        last_paid_at:    paidAt.toISOString(),
+        next_billing_at: nextBillingAt.toISOString(),
+        activated_at:    paidAt.toISOString(),
+    };
+    if (pagarmeCustomerId) patch.pagarme_customer_id = pagarmeCustomerId;
+
+    const { data: existingSub } = await admin
+        .from("pagarme_subscriptions")
+        .select("id")
+        .eq("company_id", companyId)
+        .maybeSingle();
+
+    if (existingSub) {
+        await admin
+            .from("pagarme_subscriptions")
+            .update(patch)
+            .eq("id", existingSub.id);
+    } else {
+        await admin.from("pagarme_subscriptions").insert({
+            company_id:    companyId,
+            trial_ends_at: paidAt.toISOString(), // sem trial residual
+            ...patch,
+        });
+    }
+
+    await admin.from("companies").update({ is_active: true }).eq("id", companyId);
+    console.log(`[pagarmeSetupPaid] Subscription ativada para empresa ${companyId} | plano=${plan} | next=${nextBillingAt.toISOString()}`);
+}
+
+/**
+ * Se existir setup_payment pendente para este order.id, marca pago e ativa subscription.
  * @returns true se tratou como setup pago
  */
 export async function processSetupOrderPaid(
@@ -139,31 +192,15 @@ export async function processSetupOrderPaid(
 
     if (!sp?.company_id) return false;
 
-    const companyId = sp.company_id as string;
+    const companyId         = sp.company_id as string;
+    const pagarmeCustomerId = (order?.customer?.id as string | undefined) ?? undefined;
 
     await admin
         .from("setup_payments")
         .update({ status: "paid", paid_at: new Date().toISOString() })
         .eq("id", sp.id);
 
-    const { data: existingSub } = await admin
-        .from("pagarme_subscriptions")
-        .select("id, status")
-        .eq("company_id", companyId)
-        .maybeSingle();
-
-        const st = existingSub?.status as string | undefined;
-        if (!existingSub || st === "cancelled" || st === "pending_setup") {
-            const pagarmeCustomerId: string = order?.customer?.id ?? "";
-            await activateTrial(
-                admin,
-                companyId,
-                sp.plan as "bot" | "complete",
-                pagarmeCustomerId
-            );
-            console.log(`[pagarmeSetupPaid] Trial ativado para empresa ${companyId} (plano ${sp.plan})`);
-        }
-
+    await activateAfterSetupPayment(admin, companyId, sp.plan as "bot" | "complete", pagarmeCustomerId);
     await syncLogicalSubscription(admin, companyId, sp.plan as string);
     await provisionUserAfterPayment(admin, companyId, sp.plan as string);
     return true;
