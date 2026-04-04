@@ -4,10 +4,24 @@
  */
 
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateTrial } from "@/lib/billing/activateTrial";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { computeNextBillingAt } from "@/lib/billing/computeNextBillingAt";
+
+const TEMP_PW_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+/** Senha temporária com entropia criptográfica (evita Math.random / S2245). */
+function generateTempPassword(): string {
+    const bytes = randomBytes(16);
+    let s = "";
+    for (let i = 0; i < 12; i++) {
+        const b = bytes[i] ?? 0;
+        s += TEMP_PW_ALPHABET.charAt(b % TEMP_PW_ALPHABET.length);
+    }
+    return s.slice(0, 8) + s.slice(8, 12).toUpperCase() + "1!";
+}
 
 export async function syncLogicalSubscription(
     admin: ReturnType<typeof createAdminClient>,
@@ -86,10 +100,7 @@ async function provisionUserAfterPayment(
         return;
     }
 
-    const tempPassword =
-        Math.random().toString(36).slice(-8) +
-        Math.random().toString(36).slice(-4).toUpperCase() +
-        "1!";
+    const tempPassword = generateTempPassword();
 
     const { data: authData, error: authErr } = await admin.auth.admin.createUser({
         email:         company.email,

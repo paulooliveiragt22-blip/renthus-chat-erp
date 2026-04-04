@@ -1,28 +1,26 @@
 #!/usr/bin/env node
 /**
- * Baixa todos os issues de Reliability (type=BUG) do SonarCloud, com paginação.
+ * Baixa issues do SonarCloud com paginação (SonarCloud API).
+ *
+ * Modos:
+ *   (padrão)     api/issues/search com types=BUG → bugs de Reliability (abertos)
+ *   --hotspots   api/hotspots/search             → Security Hotspots
+ *                (o parâmetro types=SECURITY_HOTSPOT não existe em issues/search no
+ *                SonarCloud: só aceita CODE_SMELL, BUG, VULNERABILITY)
  *
  * Variáveis de ambiente (obrigatórias):
- *   SONAR_TOKEN                  — token em My Account → Security (não commite)
- *   SONARCLOUD_ORGANIZATION      — chave da org (ex.: paulooliveiragt22-blip)
- *   SONARCLOUD_PROJECT_KEY       — chave do projeto (Project Information → Project Key)
+ *   SONAR_TOKEN, SONARCLOUD_ORGANIZATION, SONARCLOUD_PROJECT_KEY
+ *   (aliases: SONARQUBE_TOKEN, SONAR_ORGANIZATION, SONAR_PROJECT_KEY)
  *
  * Opcionais:
- *   SONAR_OUT                    — caminho do JSON (default: ./sonar-reliability-bugs.json)
+ *   SONAR_OUT  — caminho do JSON (default depende do modo)
  *
  * Flags:
- *   --csv                        — também grava CSV ao lado do JSON (.csv)
+ *   --csv       — também grava CSV (.csv ao lado do JSON)
+ *   --hotspots  — exporta Security Hotspots (api/hotspots/search; typeFilter no JSON = SECURITY_HOTSPOT)
  *
- * Também lê automaticamente (se existirem), sem sobrescrever o que já veio do shell:
- *   .env.sonar.local  → ideal só para token/chaves Sonar (gitignored se você adicionar)
- *   .env.local
- *   .env
- *
- * Exemplo (PowerShell — mesma janela em que roda npm):
- *   $env:SONAR_TOKEN="seu_token"
- *   $env:SONARCLOUD_ORGANIZATION="sua-org"
- *   $env:SONARCLOUD_PROJECT_KEY="sua-org_seu-repo"
- *   node scripts/fetch-sonar-reliability.mjs --csv
+ * Env files (carregados se existirem, sem sobrescrever o shell):
+ *   .env.sonar.local, .env.local, .env
  */
 
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
@@ -62,6 +60,10 @@ loadDotEnvFiles([
     resolve(root, ".env"),
 ]);
 
+const argv = process.argv.slice(2);
+const wantHotspots = argv.includes("--hotspots");
+const wantCsv = argv.includes("--csv");
+
 const token =
     process.env.SONAR_TOKEN?.trim() ||
     process.env.SONARQUBE_TOKEN?.trim();
@@ -71,8 +73,11 @@ const organization =
 const projectKey =
     process.env.SONARCLOUD_PROJECT_KEY?.trim() ||
     process.env.SONAR_PROJECT_KEY?.trim();
-const wantCsv = process.argv.includes("--csv");
-const outJson = resolve(root, process.env.SONAR_OUT?.trim() || "sonar-reliability-bugs.json");
+
+const defaultOut = wantHotspots
+    ? "sonar-security-hotspots.json"
+    : "sonar-reliability-bugs.json";
+const outJson = resolve(root, process.env.SONAR_OUT?.trim() || defaultOut);
 
 if (!token || !organization || !projectKey) {
     console.error(
@@ -91,12 +96,36 @@ function authHeader() {
     return `Basic ${b64}`;
 }
 
-async function fetchPage(page) {
+async function fetchIssuesPage(page, types) {
     const url = new URL("https://sonarcloud.io/api/issues/search");
     url.searchParams.set("organization", organization);
     url.searchParams.set("componentKeys", projectKey);
-    url.searchParams.set("types", "BUG");
-    url.searchParams.set("statuses", "OPEN");
+    url.searchParams.set("types", types);
+    url.searchParams.set("ps", "500");
+    url.searchParams.set("p", String(page));
+    if (types === "BUG") {
+        url.searchParams.set("statuses", "OPEN");
+    }
+
+    const res = await fetch(url, {
+        headers: {
+            Authorization: authHeader(),
+            Accept:        "application/json",
+        },
+    });
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`issues/search HTTP ${res.status}: ${text.slice(0, 500)}`);
+    }
+    return res.json();
+}
+
+/** Endpoint dedicado de hotspots (SonarCloud). */
+async function fetchHotspotsSearchPage(page) {
+    const url = new URL("https://sonarcloud.io/api/hotspots/search");
+    url.searchParams.set("organization", organization);
+    url.searchParams.set("projectKey", projectKey);
     url.searchParams.set("ps", "500");
     url.searchParams.set("p", String(page));
 
@@ -109,7 +138,7 @@ async function fetchPage(page) {
 
     if (!res.ok) {
         const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
+        throw new Error(`hotspots/search HTTP ${res.status}: ${text.slice(0, 500)}`);
     }
     return res.json();
 }
@@ -120,7 +149,7 @@ function issueToRow(issue) {
     return {
         key:       issue.key,
         rule:      issue.rule,
-        severity:  issue.severity,
+        severity:  issue.severity ?? "",
         type:      issue.type,
         status:    issue.status,
         message:   (issue.message ?? "").replaceAll("\n", " ").replaceAll("\r", ""),
@@ -128,11 +157,30 @@ function issueToRow(issue) {
         line:      issue.line ?? "",
         effort:    issue.effort ?? "",
         creation:  issue.creationDate ?? "",
+        source:    "issues/search",
+    };
+}
+
+function hotspotApiToRow(h) {
+    const comp = h.component ?? "";
+    const pathFromComp = comp.includes(":") ? comp.split(":").slice(1).join(":") : comp;
+    return {
+        key:       h.key,
+        rule:      h.ruleKey ?? h.category ?? "",
+        severity:  "",
+        type:      "SECURITY_HOTSPOT",
+        status:    h.status ?? "",
+        message:   (h.message ?? "").replaceAll("\n", " ").replaceAll("\r", ""),
+        file:      pathFromComp,
+        line:      h.line ?? "",
+        effort:    "",
+        creation:  h.updateDate ?? h.creationDate ?? "",
+        source:    "hotspots/search",
     };
 }
 
 function toCsv(rows) {
-    const cols = ["key", "rule", "severity", "type", "status", "file", "line", "effort", "creation", "message"];
+    const cols = ["key", "rule", "severity", "type", "status", "file", "line", "effort", "creation", "source", "message"];
     const esc = (v) => {
         const s = String(v ?? "");
         if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
@@ -143,29 +191,46 @@ function toCsv(rows) {
     return `${header}\n${body}\n`;
 }
 
-let page = 1;
-const allIssues = [];
+let rows;
 let total = null;
 
-for (;;) {
-    const data = await fetchPage(page);
-    total = data.paging?.total ?? allIssues.length;
-    const batch = data.issues ?? [];
-    allIssues.push(...batch);
+if (wantHotspots) {
+    let page = 1;
+    const fromApi = [];
+    for (;;) {
+        const data = await fetchHotspotsSearchPage(page);
+        total = data.paging?.total ?? fromApi.length;
+        const batch = data.hotspots ?? [];
+        fromApi.push(...batch);
+        process.stderr.write(`hotspots/search página ${page}: +${batch.length} (acumulado: ${fromApi.length} / ${total})\n`);
+        if (batch.length === 0) break;
+        if (fromApi.length >= total) break;
+        page += 1;
+    }
+    rows = fromApi.map(hotspotApiToRow);
+} else {
+    let page = 1;
+    const allIssues = [];
+    for (;;) {
+        const data = await fetchIssuesPage(page, "BUG");
+        total = data.paging?.total ?? allIssues.length;
+        const batch = data.issues ?? [];
+        allIssues.push(...batch);
 
-    process.stderr.write(`Página ${page}: +${batch.length} (total acumulado: ${allIssues.length} / ${total})\n`);
+        process.stderr.write(`issues/search página ${page}: +${batch.length} (acumulado: ${allIssues.length} / ${total})\n`);
 
-    if (batch.length === 0) break;
-    if (allIssues.length >= total) break;
-    page += 1;
+        if (batch.length === 0) break;
+        if (allIssues.length >= total) break;
+        page += 1;
+    }
+    rows = allIssues.map(issueToRow);
 }
 
-const rows = allIssues.map(issueToRow);
 const payload = {
     fetchedAt:  new Date().toISOString(),
     organization,
     projectKey,
-    typeFilter: "BUG",
+    typeFilter: wantHotspots ? "SECURITY_HOTSPOT" : "BUG",
     total:      rows.length,
     issues:     rows,
 };

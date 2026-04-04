@@ -10,7 +10,9 @@
     "test": "tsc --project tsconfig.test.json && node --test .tests-dist/**/*.test.js",
     "test:bot": "tsc --project tsconfig.test.json && node --test .tests-dist/tests/integration/webhook-integration.test.js",
     "sonar:export-bugs": "node scripts/fetch-sonar-reliability.mjs",
-    "sonar:export-bugs:csv": "node scripts/fetch-sonar-reliability.mjs --csv"
+    "sonar:export-bugs:csv": "node scripts/fetch-sonar-reliability.mjs --csv",
+    "sonar:export-hotspots": "node scripts/fetch-sonar-reliability.mjs --hotspots",
+    "sonar:export-hotspots:csv": "node scripts/fetch-sonar-reliability.mjs --hotspots --csv"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

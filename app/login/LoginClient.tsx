@@ -6,8 +6,18 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
+/** Validação linear (sem regex com backtracking / S5852). */
 function isValidEmail(email: string) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    const s = email.trim();
+    if (s.length === 0 || s.length > 254) return false;
+    const at = s.indexOf("@");
+    if (at <= 0) return false;
+    if (s.indexOf("@", at + 1) !== -1) return false;
+    const local = s.slice(0, at);
+    const host = s.slice(at + 1);
+    if (local.length > 64 || host.length === 0 || host.length > 253) return false;
+    if (!host.includes(".")) return false;
+    return true;
 }
 
 export default function LoginPage() {
