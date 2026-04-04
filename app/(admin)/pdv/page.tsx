@@ -421,7 +421,10 @@ export default function PDVPage() {
   };
 
   // ── derived ───────────────────────────────────────────────────────────────
-  const categories = useMemo(() => ["Todos", ...[...new Set(variants.map(v => v.category))].sort()], [variants]);
+  const categories = useMemo(
+    () => ["Todos", ...[...new Set(variants.map((v) => v.category))].sort((a, b) => a.localeCompare(b, "pt-BR"))],
+    [variants]
+  );
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();

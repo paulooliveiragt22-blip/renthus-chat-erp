@@ -167,11 +167,21 @@ const selectCls = inputCls;
 function Modal({ title, open, onClose, wide = false, children }: { title: string; open: boolean; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
     if (!open) return null;
     return (
-        <div onClick={onClose} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-            <div onClick={(e) => e.stopPropagation()} className={`w-full ${wide ? "max-w-3xl" : "max-w-md"} rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 max-h-[90vh] overflow-y-auto`}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button
+                type="button"
+                aria-label="Fechar modal"
+                onClick={onClose}
+                className="absolute inset-0 cursor-default border-0 bg-black/40"
+            />
+            <div
+                role="dialog"
+                aria-modal="true"
+                className={`relative z-10 w-full ${wide ? "max-w-3xl" : "max-w-md"} rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 max-h-[90vh] overflow-y-auto`}
+            >
                 <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
                     <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
-                    <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
+                    <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <X className="h-3.5 w-3.5" />
                     </button>
                 </div>

@@ -1293,10 +1293,18 @@ export default function PedidosPage() {
                         return (
                             <div
                                 key={o.id}
+                                role="button"
+                                tabIndex={0}
                                 className={`bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-800 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:hover:bg-zinc-800/80 cursor-pointer divide-y divide-zinc-100 dark:divide-zinc-800 ${
                                     isFlashing ? "ring-2 ring-emerald-400 dark:ring-emerald-600" : ""
                                 }`}
                                 onClick={() => openOrder(o.id)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        openOrder(o.id);
+                                    }
+                                }}
                             >
                                 {/* ── Header: ID + status na mesma linha ── */}
                                 <div className="px-3 py-2 flex items-center justify-between gap-2">
@@ -1374,22 +1382,27 @@ export default function PedidosPage() {
                                 </div>
 
                                 {/* ── Ações: ghost compacto ── */}
-                                <div
-                                    className="px-2.5 py-2 flex items-center gap-1"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
+                                <div className="px-2.5 py-2 flex items-center gap-1">
                                     {/* Ver — destaque principal */}
                                     <button
+                                        type="button"
                                         title="Ver pedido"
-                                        onClick={() => openOrder(o.id)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            openOrder(o.id);
+                                        }}
                                         className="flex items-center gap-0.5 px-2 py-1 text-[9px] font-bold text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-800 rounded-md hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors"
                                     >
                                         <Eye className="h-3 w-3" /> Ver
                                     </button>
                                     {/* Imprimir — ícone */}
                                     <button
+                                        type="button"
                                         title="Imprimir"
-                                        onClick={() => printOrder(o.id)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            printOrder(o.id);
+                                        }}
                                         className="flex items-center justify-center h-6 w-6 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                                     >
                                         <Printer className="h-3 w-3" />
@@ -1397,8 +1410,12 @@ export default function PedidosPage() {
                                     {/* Chat — ícone */}
                                     {phone && (
                                         <button
+                                            type="button"
                                             title="WhatsApp"
-                                            onClick={() => router.push(`/whatsapp?phone=${encodeURIComponent(phone)}`)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                router.push(`/whatsapp?phone=${encodeURIComponent(phone)}`);
+                                            }}
                                             className="flex items-center justify-center h-6 w-6 rounded-md border border-zinc-200 dark:border-zinc-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
                                         >
                                             <MessageCircle className="h-3 w-3" />
@@ -1407,8 +1424,12 @@ export default function PedidosPage() {
                                     {/* PDV — destaque laranja */}
                                     {st === "new" && (source === "chatbot" || source === "whatsapp" || source.startsWith("flow_") || source === "ui_order" || source === "admin" || source === "ui") && (
                                         <button
+                                            type="button"
                                             title="Fechar no PDV"
-                                            onClick={() => router.push(`/pdv?from_order=${o.id}`)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                router.push(`/pdv?from_order=${o.id}`);
+                                            }}
                                             className="flex items-center gap-0.5 px-2 py-1 text-[9px] font-bold text-orange-600 dark:text-orange-400 border border-orange-400 dark:border-orange-600 rounded-md hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
                                         >
                                             <ShoppingCart className="h-3 w-3" /> PDV
@@ -1417,8 +1438,12 @@ export default function PedidosPage() {
                                     {/* Cancelar — ícone ghost red, empurrado p/ direita */}
                                     {canCancel(st) && (
                                         <button
+                                            type="button"
                                             title="Cancelar pedido"
-                                            onClick={() => openActionModal("cancel", o.id)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openActionModal("cancel", o.id);
+                                            }}
                                             className="ml-auto flex items-center justify-center h-6 w-6 rounded-md border border-zinc-200 dark:border-zinc-700 text-red-400 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-200 dark:hover:border-red-800 transition-colors"
                                         >
                                             <X className="h-3 w-3" />

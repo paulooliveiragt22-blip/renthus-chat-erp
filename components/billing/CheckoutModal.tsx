@@ -25,11 +25,9 @@ export default function CheckoutModal({ url, onClose }: Props) {
 
     return (
         <div
-            onClick={onClose}
             style={{
                 position:       "fixed",
                 inset:          0,
-                background:     "rgba(0,0,0,0.70)",
                 display:        "flex",
                 alignItems:     "center",
                 justifyContent: "center",
@@ -37,10 +35,25 @@ export default function CheckoutModal({ url, onClose }: Props) {
                 padding:        16,
             }}
         >
+            <button
+                type="button"
+                aria-label="Fechar modal"
+                onClick={onClose}
+                style={{
+                    position:   "absolute",
+                    inset:      0,
+                    border:     "none",
+                    padding:    0,
+                    background: "rgba(0,0,0,0.70)",
+                    cursor:     "default",
+                }}
+            />
             <div
-                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
                 style={{
                     position:      "relative",
+                    zIndex:        1,
                     width:         "100%",
                     maxWidth:      420,
                     background:    "#ffffff",

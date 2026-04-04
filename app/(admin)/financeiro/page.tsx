@@ -691,7 +691,7 @@ export default function FinanceiroPage() {
             if (stats) {
                 setDreData([
                     { account_name: "Vendas à Vista",        account_type: "revenue", total: stats.revenue - stats.totalAReceber },
-                    { account_name: "Vendas a Prazo (realiz.)", account_type: "revenue", total: stats.totalAReceber > 0 ? 0 : 0 },
+                    { account_name: "Vendas a Prazo (realiz.)", account_type: "revenue", total: stats.totalAReceber },
                     { account_name: "Custo de Mercadorias",  account_type: "cost",    total: stats.cost },
                     { account_name: "Despesas Operacionais", account_type: "expense", total: stats.expensesPaid },
                 ]);
@@ -1718,8 +1718,18 @@ export default function FinanceiroPage() {
         )}
         {/* ── Modal detalhe / finalização de lançamento ──────────────────── */}
         {extratoModal && (
-            <div onClick={() => setExtratoModal(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-3xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 overflow-hidden">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <button
+                    type="button"
+                    aria-label="Fechar modal"
+                    onClick={() => setExtratoModal(null)}
+                    className="absolute inset-0 cursor-default border-0 bg-black/60 backdrop-blur-sm"
+                />
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    className="relative z-10 w-full max-w-md rounded-3xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 overflow-hidden"
+                >
                     {/* header */}
                     <div className="flex items-center gap-3 border-b border-zinc-100 px-6 py-4 dark:border-zinc-800">
                         <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${extratoModal.type === "income" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>

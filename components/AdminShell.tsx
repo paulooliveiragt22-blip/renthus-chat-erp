@@ -147,13 +147,17 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
 
             {/* ── Modal de pedido ── */}
             {open && (
-                <div
-                    onClick={() => setOpen(false)}
-                    className="fixed inset-0 z-[9999] grid place-items-center bg-black/40 p-3"
-                >
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3">
+                    <button
+                        type="button"
+                        aria-label="Fechar modal"
+                        onClick={() => setOpen(false)}
+                        className="absolute inset-0 cursor-default border-0 bg-black/40"
+                    />
                     <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-zinc-200 bg-white p-4 text-[13px] shadow-lg"
+                        role="dialog"
+                        aria-modal="true"
+                        className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-zinc-200 bg-white p-4 text-[13px] shadow-lg"
                     >
                         <div className="mb-3 flex items-center justify-between gap-3">
                             <h3 className="text-sm font-semibold">
@@ -162,6 +166,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                                     : "Pedido"}
                             </h3>
                             <button
+                                type="button"
                                 onClick={() => setOpen(false)}
                                 className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
                             >

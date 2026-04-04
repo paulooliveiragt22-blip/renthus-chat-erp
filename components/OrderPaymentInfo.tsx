@@ -9,12 +9,12 @@ export default function OrderPaymentInfo({
     paid,
     change_for,
     total_amount,
-    compact,
 }: {
     payment_method: PaymentMethod | string;
     paid: boolean;
     change_for: number | null;
     total_amount: number | null | undefined;
+    /** Reservado para layout compacto no futuro */
     compact?: boolean;
 }) {
     const pm = String(payment_method) as PaymentMethod | string;
@@ -24,7 +24,7 @@ export default function OrderPaymentInfo({
     const customerPays = Number(change_for ?? 0);
     const troco = calcTroco(total, customerPays);
 
-    const baseText: React.CSSProperties = { fontSize: compact ? 12 : 12, lineHeight: 1.2 };
+    const baseText: React.CSSProperties = { fontSize: 12, lineHeight: 1.2 };
     const muted: React.CSSProperties = { ...baseText, color: "#666" };
     const strong: React.CSSProperties = { ...baseText, fontWeight: 900, color: "#111" };
 

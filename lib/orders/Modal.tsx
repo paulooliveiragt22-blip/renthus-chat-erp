@@ -34,13 +34,17 @@ export default function Modal({
     if (!open || !mounted) return null;
 
     return createPortal(
-        <div
-            onClick={onClose}
-            className="fixed inset-0 z-[9999] grid place-items-center bg-black/50 p-3"
-        >
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3">
+            <button
+                type="button"
+                aria-label="Fechar modal"
+                onClick={onClose}
+                className="absolute inset-0 cursor-default border-0 bg-black/50"
+            />
             <div
-                onClick={(e) => e.stopPropagation()}
-                className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+                role="dialog"
+                aria-modal="true"
+                className="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
             >
                 {/* Header */}
                 <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
@@ -48,6 +52,7 @@ export default function Modal({
                         {title}
                     </h3>
                     <button
+                        type="button"
                         onClick={onClose}
                         className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
                     >

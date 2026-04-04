@@ -204,7 +204,7 @@ export async function POST(req: Request) {
         messagesMap.forEach((_v, k) => keys.add(k));
 
         Array.from(keys)
-            .sort()
+            .sort((a, b) => a.localeCompare(b, "en-CA"))
             .forEach((k) => {
                 const o = ordersMap.get(k) ?? { faturamento: 0, orders: 0 };
                 const m = messagesMap.get(k) ?? 0;

@@ -176,11 +176,22 @@ export default function ProdutoImagensPage() {
 
             {/* Drop zone */}
             <div
+                role="button"
+                tabIndex={uploading ? -1 : 0}
+                aria-disabled={uploading}
+                aria-label="Arraste imagens ou pressione Enter ou Espaço para escolher arquivos"
                 onDragEnter={onDragEnter}
                 onDragOver={(e) => e.preventDefault()}
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
                 onClick={() => !uploading && fileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                    if (uploading) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                    }
+                }}
                 className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
                     dragging
                         ? "border-violet-400 bg-violet-50 dark:bg-violet-900/20"

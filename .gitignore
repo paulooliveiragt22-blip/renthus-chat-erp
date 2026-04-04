@@ -51,3 +51,7 @@ renthus-print-agent/node_modules/
 
 # Claude Code local settings (may contain secrets; do not commit)
 .claude/
+
+# Export local do SonarCloud (npm run sonar:export-bugs)
+sonar-reliability-bugs.json
+sonar-reliability-bugs.csv
