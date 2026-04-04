@@ -284,7 +284,7 @@ export async function POST(req: NextRequest) {
             const code  = `#${o.id.slice(0, 8).toUpperCase()}`;
             const emoji = statusEmoji(o.status, o.confirmation_status ?? "");
             const label = statusText(o.status, o.confirmation_status ?? "");
-            const total = formatCurrency(parseFloat(o.total_amount ?? 0));
+            const total = formatCurrency(Number.parseFloat(o.total_amount ?? 0));
             const date  = new Date(o.created_at).toLocaleString("pt-BR", {
                 day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
             });
@@ -387,7 +387,7 @@ export async function POST(req: NextRequest) {
                     packStr = detail;
                 }
 
-                const price = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replaceAll(".", ",")}`;
+                const price = `R$ ${(Number.parseFloat(p.preco_venda) || 0).toFixed(2).replaceAll(".", ",")}`;
                 const desc  = [packStr, price].filter(Boolean).join(" — ");
 
                 // CheckboxGroup só aceita: id, title, description, metadata, enabled, on-click-action
@@ -409,7 +409,7 @@ export async function POST(req: NextRequest) {
             });
             if (!data?.length) return [];
             return (data as any[]).map((f: any) => {
-                const price = `R$ ${(parseFloat(f.price) || 0).toFixed(2).replaceAll(".", ",")}`;
+                const price = `R$ ${(Number.parseFloat(f.price) || 0).toFixed(2).replaceAll(".", ",")}`;
                 return {
                     id:          f.id,
                     title:       `⭐ ${String(f.name ?? "").toUpperCase().slice(0, 27)}`,
@@ -759,7 +759,7 @@ export async function POST(req: NextRequest) {
                 const formatSlotName = (p: any): string => {
                     const sigla    = String(p.siglas_comerciais?.sigla ?? "").toUpperCase();
                     const name     = String(p.products.name ?? "").toUpperCase();
-                    const price    = formatCurrency(parseFloat(p.preco_venda) || 0);
+                    const price    = formatCurrency(Number.parseFloat(p.preco_venda) || 0);
                     const fator    = Number(p.fator_conversao ?? 0);
                     const descr    = String(p.descricao ?? "").trim();
                     const vol      = Number(p.product_volumes?.volume_quantidade ?? 0);
@@ -787,7 +787,7 @@ export async function POST(req: NextRequest) {
                     ...existingCtx,
                     source:              "flow_catalog",
                     pending_product_ids: sorted.map((p) => p.id),
-                    pending_prices:      sorted.map((p) => parseFloat(p.preco_venda) || 0),
+                    pending_prices:      sorted.map((p) => Number.parseFloat(p.preco_venda) || 0),
                     pending_names:       sorted.map((p) => String(p.products.name ?? "").toUpperCase()),
                     catalog_screen:      "QUANTITIES",
                 };
@@ -860,7 +860,7 @@ export async function POST(req: NextRequest) {
                     const qty = Math.max(1, Math.round(
                         typeof raw === "number"
                             ? raw
-                            : parseFloat(String(raw ?? "1").replaceAll(",", ".").trim()) || 1
+                            : Number.parseFloat(String(raw ?? "1").replaceAll(",", ".").trim()) || 1
                     ));
                     return {
                         variantId: id,
@@ -1188,7 +1188,7 @@ export async function POST(req: NextRequest) {
             if (screenNorm === "PAYMENT") {
                 const paymentMethod = String(formData?.payment_method ?? "").trim();
                 const trocoStr      = String(formData?.troco_para     ?? "").trim();
-                const changeFor     = trocoStr ? parseFloat(trocoStr.replaceAll(",", ".")) || null : null;
+                const changeFor     = trocoStr ? Number.parseFloat(trocoStr.replaceAll(",", ".")) || null : null;
 
                 if (!paymentMethod) {
                     console.error("[flows/catalog] missing_payment_method | threadId:", threadId);
@@ -1547,7 +1547,7 @@ export async function POST(req: NextRequest) {
         if (screen === "PAYMENT") {
             const paymentMethod = String(formData?.payment_method ?? "").trim();
             const trocoStr      = String(formData?.troco_para     ?? "").trim();
-            const changeFor     = trocoStr ? parseFloat(trocoStr.replaceAll(",", ".")) || null : null;
+            const changeFor     = trocoStr ? Number.parseFloat(trocoStr.replaceAll(",", ".")) || null : null;
 
             if (!paymentMethod) return encryptedError("missing_payment_method", aesKey, iv);
 

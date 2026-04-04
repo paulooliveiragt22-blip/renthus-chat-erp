@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     id:          p.id,
     name:        p.name,
     description: p.description,
-    price:       parseFloat(p.price),
+    price:       Number.parseFloat(p.price),
     image_url:   p.thumbnail_url || p.image_url,
     category:    p.category,
     in_stock:    p.in_stock,

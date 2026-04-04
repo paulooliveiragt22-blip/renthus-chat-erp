@@ -289,7 +289,7 @@ export default function PDVPage() {
     const { error } = await supabase.from("cash_registers").insert({
       company_id:     companyId,
       operator_name:  abrirForm.operator.trim() || sellerName.trim() || null,
-      initial_amount: parseFloat(abrirForm.initial_amount) || 0,
+      initial_amount: Number.parseFloat(abrirForm.initial_amount) || 0,
       status:         "open",
       opened_at:      new Date().toISOString(),
     });
@@ -302,7 +302,7 @@ export default function PDVPage() {
   const handleFecharCaixa = async () => {
     if (!caixa || !companyId) return;
     setCaixaSubmitting(true);
-    const counted = parseFloat(fecharContagem) || 0;
+    const counted = Number.parseFloat(fecharContagem) || 0;
     const { error } = await supabase.from("cash_registers").update({
       status:         "closed",
       closed_at:      new Date().toISOString(),
@@ -323,7 +323,7 @@ export default function PDVPage() {
       cash_register_id: caixa.id,
       company_id:       companyId,
       type:             movForm.type,
-      amount:           parseFloat(movForm.amount) || 0,
+      amount:           Number.parseFloat(movForm.amount) || 0,
       reason:           movForm.reason.trim() || null,
       operator_name:    sellerName.trim() || null,
       occurred_at:      new Date().toISOString(),
@@ -405,7 +405,7 @@ export default function PDVPage() {
       name:            custForm.name.trim(),
       phone:           custForm.phone.trim(),
       cpf_cnpj:        custForm.cpf_cnpj.trim() || null,
-      limite_credito:  parseFloat(custForm.limite_credito) || 0,
+      limite_credito:  Number.parseFloat(custForm.limite_credito) || 0,
       origem:          "admin",
       address:         [custForm.logradouro, custForm.numero && `nº ${custForm.numero}`, custForm.bairro].filter(Boolean).join(", ") || null,
       neighborhood:    custForm.bairro || null,
@@ -473,7 +473,7 @@ export default function PDVPage() {
   };
 
   // ── payments ─────────────────────────────────────────────────────────────
-  const payTotal    = useMemo(() => payments.reduce((s,p) => s + (parseFloat(p.value)||0), 0), [payments]);
+  const payTotal    = useMemo(() => payments.reduce((s,p) => s + (Number.parseFloat(p.value)||0), 0), [payments]);
   const remaining   = useMemo(() => Math.max(0, cartTotal - payTotal), [cartTotal, payTotal]);
   const canFinalize = payTotal >= cartTotal && cartTotal > 0 && !finalizing && !!caixa;
 
@@ -495,7 +495,7 @@ export default function PDVPage() {
     const next = allMethods[0];
     if (!next) return;
     const newId      = Date.now().toString();
-    const alreadySum = payments.reduce((s, p) => s + (parseFloat(p.value) || 0), 0);
+    const alreadySum = payments.reduce((s, p) => s + (Number.parseFloat(p.value) || 0), 0);
     const autoVal    = Math.max(0, cartTotal - alreadySum).toFixed(2);
     pendingFocusId.current = newId;
     setPayments(p => [
@@ -531,7 +531,7 @@ export default function PDVPage() {
       if (payments.length === 2) {
         const peer = payments.find(p => p.id !== id);
         if (peer && !manuallyEdited.current.has(peer.id)) {
-          const peerVal = Math.max(0, cartTotal - (parseFloat(v) || 0)).toFixed(2);
+          const peerVal = Math.max(0, cartTotal - (Number.parseFloat(v) || 0)).toFixed(2);
           setPayments(p => p.map(x =>
             x.id === id   ? { ...x, value: v }         :
             x.id === peer.id ? { ...x, value: peerVal } : x
@@ -551,8 +551,8 @@ export default function PDVPage() {
   };
 
   const cashLine = payments.find(p => p.method==="cash");
-  const cashVal  = parseFloat(cashLine?.value    || "0") || 0;
-  const cashRec  = parseFloat(cashLine?.received || "0") || 0;
+  const cashVal  = Number.parseFloat(cashLine?.value    || "0") || 0;
+  const cashRec  = Number.parseFloat(cashLine?.received || "0") || 0;
   const change   = cashRec > cashVal ? cashRec - cashVal : 0;
 
   const openCheckout = useCallback(() => {
@@ -587,7 +587,7 @@ export default function PDVPage() {
     }
     setFinalizing(true);
     try {
-      const primary = [...payments].sort((a,b)=>(parseFloat(b.value)||0)-(parseFloat(a.value)||0))[0];
+      const primary = [...payments].sort((a,b)=>(Number.parseFloat(b.value)||0)-(Number.parseFloat(a.value)||0))[0];
       const isPaid = !hasCreditPayment;
 
       // Deriva origem da venda a partir da source do pedido de origem (se houver)
@@ -639,7 +639,7 @@ export default function PDVPage() {
         sale_id:        saleId,
         company_id:     companyId,
         payment_method: normMethod(p.method),
-        amount:         parseFloat(p.value) || 0,
+        amount:         Number.parseFloat(p.value) || 0,
         due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
         received_at:    !PAY[p.method].prazo ? new Date().toISOString() : null,
       })));
@@ -702,7 +702,7 @@ export default function PDVPage() {
         order_id:       oid,
         sale_id:        saleId,
         type:           "income",
-        amount:         parseFloat(p.value) || 0,
+        amount:         Number.parseFloat(p.value) || 0,
         delivery_fee:   0,
         payment_method: normMethod(p.method),
         origin:         finEntryOrigin,
@@ -721,7 +721,7 @@ export default function PDVPage() {
             (window as any).electronAPI.printOrder({
               orderId: oid, total: cartTotal, change, seller: sellerName,
               items:    cart.map(i => ({ name: `${i.variant.product_name} ${i.variant.details ?? ""}`.trim(), qty: i.qty, price: i.variant.unit_price })),
-              payments: payments.map(p => ({ method: PAY[p.method].label, value: parseFloat(p.value) || 0 })),
+              payments: payments.map(p => ({ method: PAY[p.method].label, value: Number.parseFloat(p.value) || 0 })),
             });
           } catch(e) { console.warn("[pdv] electron print:", e); }
         }
@@ -1507,9 +1507,9 @@ export default function PDVPage() {
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none" />
                 {fecharContagem && (
                   <p className={`mt-1 text-xs font-semibold ${
-                    (parseFloat(fecharContagem)||0) >= caixa.balance_expected ? "text-emerald-400" : "text-red-400"
+                    (Number.parseFloat(fecharContagem)||0) >= caixa.balance_expected ? "text-emerald-400" : "text-red-400"
                   }`}>
-                    Diferença: {brl((parseFloat(fecharContagem)||0) - caixa.balance_expected)}
+                    Diferença: {brl((Number.parseFloat(fecharContagem)||0) - caixa.balance_expected)}
                   </p>
                 )}
               </div>

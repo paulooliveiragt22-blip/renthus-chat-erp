@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     description: p.fator_conversao > 1
                    ? `${p.sigla_comercial} — ${p.fator_conversao} un`
                    : `${p.sigla_comercial || ""} — Unidade`,
-    price:       parseFloat(p.preco_venda) || 0,
+    price:       Number.parseFloat(p.preco_venda) || 0,
     in_stock:    true, // view não filtra estoque; pode ser refinado
   }));
 

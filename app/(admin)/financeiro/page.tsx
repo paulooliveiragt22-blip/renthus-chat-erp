@@ -400,7 +400,7 @@ export default function FinanceiroPage() {
             company_id:     companyId,
             category:       expForm.category,
             description:    expForm.description,
-            amount:         parseFloat(expForm.amount.replaceAll(",", ".")),
+            amount:         Number.parseFloat(expForm.amount.replaceAll(",", ".")),
             due_date:       expForm.due_date,
             payment_status: expForm.payment_status,
             ...(expForm.payment_status === "paid" ? { paid_at: new Date().toISOString() } : {}),
@@ -605,7 +605,7 @@ export default function FinanceiroPage() {
     const handlePayBill = async () => {
         if (!payBill || !companyId || !payForm.amount) return;
         setPayingBill(true);
-        const paid = parseFloat(payForm.amount) || 0;
+        const paid = Number.parseFloat(payForm.amount) || 0;
         const newAmountPaid = (payBill.original_amount - payBill.saldo_devedor) + paid;
         const { error } = await supabase.from("bills").update({
             amount_paid:  newAmountPaid,
@@ -626,9 +626,9 @@ export default function FinanceiroPage() {
             company_id:      companyId,
             type:            "payable",
             description:     newBillForm.description.trim() || null,
-            original_amount: parseFloat(newBillForm.amount) || 0,
+            original_amount: Number.parseFloat(newBillForm.amount) || 0,
             amount_paid:     0,
-            saldo_devedor:   parseFloat(newBillForm.amount) || 0,
+            saldo_devedor:   Number.parseFloat(newBillForm.amount) || 0,
             due_date:        newBillForm.due_date,
             payment_method:  newBillForm.payment_method || null,
             status:          "open",

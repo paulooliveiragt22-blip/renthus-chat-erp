@@ -139,7 +139,7 @@ export function sanitizeClaudeReply(text: string, catalogPrices: number[]): stri
     if (!pricesInText) return text;
 
     for (const rawPrice of pricesInText) {
-        const numeric = parseFloat(rawPrice.replaceAll(/[R$\s]/g, "").replaceAll(",", "."));
+        const numeric = Number.parseFloat(rawPrice.replaceAll(/[R$\s]/g, "").replaceAll(",", "."));
         const isInCatalog = catalogPrices.some((p) => Math.abs(p - numeric) < 0.01);
         if (!isInCatalog) return SAFE_REPLY;
     }

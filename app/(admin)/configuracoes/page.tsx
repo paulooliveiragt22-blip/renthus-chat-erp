@@ -1,7 +1,7 @@
 // app/(admin)/configuracoes/page.tsx
 "use client";
 
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -101,10 +101,12 @@ function Field({
     label: string; value: string; onChange: (v: string) => void;
     placeholder?: string; type?: string; hint?: string;
 }) {
+    const id = useId();
     return (
         <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{label}</label>
+            <label htmlFor={id} className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{label}</label>
             <input
+                id={id}
                 type={type}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
@@ -150,10 +152,11 @@ function SectionTitle({ icon: Icon, title, desc }: { icon: React.ElementType; ti
 function SaveBar({ saving, msg, onSave }: { saving: boolean; msg: string | null; onSave: () => void }) {
     return (
         <div className="flex items-center justify-between border-t border-zinc-100 pt-5 dark:border-zinc-800">
-            {msg
-                ? <p className={`text-xs font-medium ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>
-                : <span />
-            }
+            {msg ? (
+                <p className={`text-xs font-medium ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>
+            ) : (
+                <span />
+            )}
             <button
                 onClick={onSave}
                 disabled={saving}
@@ -345,7 +348,9 @@ function ConfiguracoesPageContent() {
     }, [companyId]);
 
     useEffect(() => {
-        if (activeTab === "plano" && companyId) void loadBilling();
+        if (activeTab === "plano" && companyId) {
+            loadBilling().catch(() => {});
+        }
     }, [activeTab, companyId, loadBilling]);
 
     async function changeRenthusPlan(plan: "bot" | "complete") {
@@ -889,15 +894,23 @@ function ConfiguracoesPageContent() {
                                         const pendInv     = billingData.pending_invoice;
                                         const pendRecord  = isFirstPayment ? pendSetup : pendInv;
 
-                                        const refAmount = pendRecord
-                                            ? Number(pendRecord.amount)
-                                            : isFirstPayment ? sp[pk] : mp[pk];
+                                        let refAmount: number;
+                                        if (pendRecord) {
+                                            refAmount = Number(pendRecord.amount);
+                                        } else if (isFirstPayment) {
+                                            refAmount = sp[pk];
+                                        } else {
+                                            refAmount = mp[pk];
+                                        }
 
                                         const pixUrl =
                                             pendRecord?.pagarme_payment_url?.startsWith("http")
                                                 ? pendRecord.pagarme_payment_url
                                                 : null;
-                                        const pixCode = (pendRecord as any)?.pix_qr_code ?? "";
+                                        const pixCode =
+                                            !isFirstPayment && billingData.pending_invoice
+                                                ? (billingData.pending_invoice.pix_qr_code ?? "")
+                                                : "";
 
                                         const showPay =
                                             st === "trial"         ||
@@ -907,6 +920,10 @@ function ConfiguracoesPageContent() {
                                             st === "blocked";
 
                                         if (!showPay) return null;
+
+                                        let pixButtonLabel = "Gerar código PIX";
+                                        if (pixLoading) pixButtonLabel = "Gerando…";
+                                        else if (pixUrl || pixCode) pixButtonLabel = "Gerar novo / atualizar PIX";
 
                                         return (
                                             <div className="rounded-2xl border-2 border-violet-300/70 bg-gradient-to-br from-violet-50 via-white to-zinc-50 p-5 shadow-sm dark:border-violet-800 dark:from-violet-950/30 dark:via-zinc-900 dark:to-zinc-950">
@@ -1008,22 +1025,22 @@ function ConfiguracoesPageContent() {
                                                                         />
                                                                         <button
                                                                             type="button"
-                                                                            onClick={() =>
-                                                                                void navigator.clipboard
-                                                                                    .writeText(pixCode)
-                                                                                    .then(() => {
-                                                                                        setPixCopied(true);
-                                                                                        setTimeout(
-                                                                                            () => setPixCopied(false),
-                                                                                            2000
-                                                                                        );
-                                                                                    })
-                                                                                    .catch(() =>
-                                                                                        setBillingErr(
-                                                                                            "Não foi possível copiar."
-                                                                                        )
-                                                                                    )
-                                                                            }
+                                                                            onClick={async () => {
+                                                                                try {
+                                                                                    await navigator.clipboard.writeText(
+                                                                                        pixCode
+                                                                                    );
+                                                                                    setPixCopied(true);
+                                                                                    setTimeout(
+                                                                                        () => setPixCopied(false),
+                                                                                        2000
+                                                                                    );
+                                                                                } catch {
+                                                                                    setBillingErr(
+                                                                                        "Não foi possível copiar."
+                                                                                    );
+                                                                                }
+                                                                            }}
                                                                             className="mt-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white dark:bg-zinc-200 dark:text-zinc-900"
                                                                         >
                                                                             {pixCopied ? "Copiado!" : "Copiar PIX"}
@@ -1034,15 +1051,13 @@ function ConfiguracoesPageContent() {
                                                         )}
                                                         <button
                                                             type="button"
-                                                            onClick={() => void openRenthusPix()}
+                                                            onClick={() => {
+                                                                openRenthusPix().catch(() => {});
+                                                            }}
                                                             disabled={pixLoading}
                                                             className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
                                                         >
-                                                            {pixLoading
-                                                                ? "Gerando…"
-                                                                : pixUrl || pixCode
-                                                                  ? "Gerar novo / atualizar PIX"
-                                                                  : "Gerar código PIX"}
+                                                            {pixButtonLabel}
                                                         </button>
                                                         <p className="text-xs text-zinc-500">
                                                             O plano é liberado automaticamente quando o pagamento for
@@ -1095,10 +1110,14 @@ function ConfiguracoesPageContent() {
                                                             />
                                                         </div>
                                                         <div>
-                                                            <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                            <label
+                                                                htmlFor="renthus-installments"
+                                                                className="text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+                                                            >
                                                                 Parcelas (valor da mensalidade)
                                                             </label>
                                                             <select
+                                                                id="renthus-installments"
                                                                 value={renthusInstallments}
                                                                 onChange={(e) =>
                                                                     setRenthusInstallments(Number(e.target.value))
@@ -1120,17 +1139,25 @@ function ConfiguracoesPageContent() {
                                                             </p>
                                                             <div className="grid gap-3 sm:grid-cols-2">
                                                                 <div className="flex flex-col gap-1">
-                                                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                                    <label
+                                                                        htmlFor="renthus-card-cep"
+                                                                        className="text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+                                                                    >
                                                                         CEP
                                                                     </label>
                                                                     <div className="flex gap-2">
                                                                         <input
+                                                                            id="renthus-card-cep"
                                                                             type="text"
                                                                             value={cardAddr.cep}
                                                                             onChange={(e) =>
                                                                                 setCardAddr((a) => ({ ...a, cep: e.target.value }))
                                                                             }
-                                                                            onBlur={(e) => void fetchViaCep(e.target.value)}
+                                                                            onBlur={(e) => {
+                                                                                fetchViaCep(e.target.value).catch(
+                                                                                    () => {}
+                                                                                );
+                                                                            }}
                                                                             placeholder="00000-000"
                                                                             maxLength={9}
                                                                             className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
@@ -1186,7 +1213,9 @@ function ConfiguracoesPageContent() {
                                                         </div>
                                                         <button
                                                             type="button"
-                                                            onClick={() => void payRenthusCard()}
+                                                            onClick={() => {
+                                                                payRenthusCard().catch(() => {});
+                                                            }}
                                                             disabled={cardPayLoading}
                                                             className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
                                                         >
@@ -1238,7 +1267,9 @@ function ConfiguracoesPageContent() {
                                                             <button
                                                                 type="button"
                                                                 disabled={planSaving || active}
-                                                                onClick={() => void changeRenthusPlan(p)}
+                                                                onClick={() => {
+                                                                changeRenthusPlan(p).catch(() => {});
+                                                            }}
                                                                 className="mt-3 w-full rounded-lg bg-violet-600 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
                                                             >
                                                                 {active ? "Plano atual" : "Usar este plano"}
@@ -1269,7 +1300,9 @@ function ConfiguracoesPageContent() {
                                                 <button
                                                     type="button"
                                                     disabled={planSaving}
-                                                    onClick={() => void changeRenthusPlan("complete")}
+                                                    onClick={() => {
+                                                    changeRenthusPlan("complete").catch(() => {});
+                                                }}
                                                     className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
                                                 >
                                                     {planSaving ? "Salvando…" : "Fazer upgrade"}
@@ -1377,7 +1410,9 @@ function ConfiguracoesPageContent() {
 
                                     <button
                                         type="button"
-                                        onClick={() => void loadBilling()}
+                                        onClick={() => {
+                                        loadBilling().catch(() => {});
+                                    }}
                                         className="text-xs font-semibold text-violet-600 hover:text-violet-700"
                                     >
                                         Atualizar dados

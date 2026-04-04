@@ -92,11 +92,14 @@ export async function POST(req: Request) {
 
         const pendingRecord = isFirstPayment ? pendingSetup : pendingInv;
 
-        const amountCents = pendingRecord?.amount
-            ? Math.round(Number(pendingRecord.amount) * 100)
-            : isFirstPayment
-                ? getSetupPriceCents(plan)
-                : getMonthlyPriceCents(plan);
+        let amountCents: number;
+        if (pendingRecord?.amount) {
+            amountCents = Math.round(Number(pendingRecord.amount) * 100);
+        } else if (isFirstPayment) {
+            amountCents = getSetupPriceCents(plan);
+        } else {
+            amountCents = getMonthlyPriceCents(plan);
+        }
 
         const { data: company, error: compErr } = await admin
             .from("companies")
@@ -187,7 +190,6 @@ export async function POST(req: Request) {
             const custId = extractOrderCustomerId(order);
 
             if (isFirstPayment) {
-                // Upsert setup_payment
                 if (pendingSetup) {
                     await admin.from("setup_payments")
                         .update({ pagarme_order_id: order.id, pagarme_payment_url: "" })
@@ -203,24 +205,21 @@ export async function POST(req: Request) {
                         pagarme_payment_url: "",
                     });
                 }
+            } else if (pendingInv) {
+                await admin.from("invoices")
+                    .update({ pagarme_order_id: order.id, pagarme_payment_url: "", pix_qr_code: null })
+                    .eq("id", pendingInv.id);
             } else {
-                // Upsert invoice
-                if (pendingInv) {
-                    await admin.from("invoices")
-                        .update({ pagarme_order_id: order.id, pagarme_payment_url: "", pix_qr_code: null })
-                        .eq("id", pendingInv.id);
-                } else {
-                    await admin.from("invoices").insert({
-                        company_id:          companyId,
-                        subscription_id:     sub.id,
-                        amount:              centsToBRL(amountCents),
-                        status:              "pending",
-                        due_at:              new Date().toISOString(),
-                        pagarme_order_id:    order.id,
-                        pagarme_payment_url: "",
-                        pix_qr_code:         null,
-                    });
-                }
+                await admin.from("invoices").insert({
+                    company_id:          companyId,
+                    subscription_id:     sub.id,
+                    amount:              centsToBRL(amountCents),
+                    status:              "pending",
+                    due_at:              new Date().toISOString(),
+                    pagarme_order_id:    order.id,
+                    pagarme_payment_url: "",
+                    pix_qr_code:         null,
+                });
             }
 
             if (custId) {
@@ -309,23 +308,21 @@ export async function POST(req: Request) {
                     pagarme_payment_url: pixUrl ?? "",
                 });
             }
+        } else if (pendingInv) {
+            await admin.from("invoices")
+                .update({ pagarme_order_id: order.id, pagarme_payment_url: pixUrl ?? "", pix_qr_code: pixCode })
+                .eq("id", pendingInv.id);
         } else {
-            if (pendingInv) {
-                await admin.from("invoices")
-                    .update({ pagarme_order_id: order.id, pagarme_payment_url: pixUrl ?? "", pix_qr_code: pixCode })
-                    .eq("id", pendingInv.id);
-            } else {
-                await admin.from("invoices").insert({
-                    company_id:          companyId,
-                    subscription_id:     sub.id,
-                    amount:              centsToBRL(amountCents),
-                    status:              "pending",
-                    due_at:              new Date().toISOString(),
-                    pagarme_order_id:    order.id,
-                    pagarme_payment_url: pixUrl ?? "",
-                    pix_qr_code:         pixCode,
-                });
-            }
+            await admin.from("invoices").insert({
+                company_id:          companyId,
+                subscription_id:     sub.id,
+                amount:              centsToBRL(amountCents),
+                status:              "pending",
+                due_at:              new Date().toISOString(),
+                pagarme_order_id:    order.id,
+                pagarme_payment_url: pixUrl ?? "",
+                pix_qr_code:         pixCode,
+            });
         }
 
         return NextResponse.json({

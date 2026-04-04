@@ -36,12 +36,16 @@ export function buildPagarmeCustomerPayload(company: CompanyRowForPagarme): {
         "Empresa";
     const cnpjDigits = extractCompanyCnpjDigits(company);
     const isCpf      = cnpjDigits.length === 11;
+    let document_type: "CPF" | "CNPJ" | undefined;
+    if (cnpjDigits) {
+        document_type = isCpf ? "CPF" : "CNPJ";
+    }
     return {
         name:          displayName,
         email:         company.email ?? `${company.id}@renthus.com.br`,
         type:          isCpf ? "individual" : "company",
         document:      cnpjDigits || undefined,
-        document_type: cnpjDigits ? (isCpf ? "CPF" : "CNPJ") : undefined,
+        document_type,
         phone:         company.whatsapp_phone ?? undefined,
     };
 }

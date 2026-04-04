@@ -80,6 +80,7 @@ COMMENT ON COLUMN bot_logs.response_time_ms IS 'Latência do parser em milissegu
 
 -- ─── 8. Atualiza config do chatbot para Claude Haiku ─────────────────────────
 
+-- WHERE true: atualização intencional de todas as linhas (Sonar: UPDATE sem WHERE)
 UPDATE chatbots
 SET config = jsonb_build_object(
   'provider',               'anthropic',
@@ -89,7 +90,8 @@ SET config = jsonb_build_object(
   'catalog_cache_ttl_min',  15,
   'max_retries',            2,
   'timeout_ms',             8000
-);
+)
+WHERE true;
 
 -- Para novos chatbots criados sem config, garante o default
 ALTER TABLE chatbots

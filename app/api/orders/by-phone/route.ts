@@ -60,15 +60,15 @@ export async function GET(request: NextRequest) {
                       }),
     status_emoji:     getStatusEmoji(o.status, o.confirmation_status),
     status_text:      getStatusText(o.status, o.confirmation_status),
-    total:            parseFloat(o.total_amount ?? 0),
+    total:            Number.parseFloat(o.total_amount ?? 0),
     delivery_address: o.delivery_address ?? "",
     payment_method:   formatPayment(o.payment_method),
-    change_for:       o.change_for ? parseFloat(o.change_for) : null,
+    change_for:       o.change_for ? Number.parseFloat(o.change_for) : null,
     items:            (o.order_items ?? []).map((i: any) => ({
                         name:       i.product_name,
                         quantity:   i.quantity,
-                        unit_price: parseFloat(i.unit_price ?? 0),
-                        subtotal:   parseFloat(i.line_total ?? 0),
+                        unit_price: Number.parseFloat(i.unit_price ?? 0),
+                        subtotal:   Number.parseFloat(i.line_total ?? 0),
                       })),
   }));
 
