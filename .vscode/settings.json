@@ -1,0 +1,8 @@
+{
+    "snyk.advanced.organization": "e9d95e31-6335-40ff-bd63-27582c321f00",
+    "snyk.advanced.autoSelectOrganization": true,
+    "sonarlint.connectedMode.project": {
+        "connectionId": "paulooliveira935068",
+        "projectKey": "paulooliveiragt22-blip_renthus-chat-erp"
+    }
+}
