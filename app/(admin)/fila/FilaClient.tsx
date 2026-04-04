@@ -1,5 +1,6 @@
 "use client";
 
+import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -44,6 +45,59 @@ function getItemInfo(it: OrderItem) {
   const pName  = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
   const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
   return { productName: pName, detail, unitLabel: "un" };
+}
+
+type GroupedOrderLine = { it: OrderItem; info: ReturnType<typeof getItemInfo> };
+
+function groupOrderItemsByProduct(items: OrderItem[]): [string, GroupedOrderLine[]][] {
+  const groups = new Map<string, GroupedOrderLine[]>();
+  for (const it of items) {
+    const info = getItemInfo(it);
+    if (!groups.has(info.productName)) groups.set(info.productName, []);
+    groups.get(info.productName)!.push({ it, info });
+  }
+  return [...groups.entries()];
+}
+
+function scheduleClearNewOrderFlash(
+  addedIds: string[],
+  setNewOrderIds: Dispatch<SetStateAction<Set<string>>>
+): void {
+  setTimeout(() => {
+    setNewOrderIds((prev) => {
+      const copy = new Set(prev);
+      for (const id of addedIds) copy.delete(id);
+      return copy;
+    });
+  }, 2000);
+}
+
+function FilaOrderItemsGrouped({ items }: { items: OrderItem[] }) {
+  const entries = groupOrderItemsByProduct(items);
+  return (
+    <>
+      {entries.map(([pName, grpItems]) => (
+        <div key={pName} className="mb-1">
+          <p className="text-[11px] font-bold text-gray-800 dark:text-gray-100 leading-tight">{pName}</p>
+          {grpItems.map(({ it, info }, i) => {
+            const q = Number(it.quantity ?? 1);
+            const tot = Number(it.line_total ?? it.unit_price * q);
+            return (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-2 pl-2 text-[11px] text-gray-500 dark:text-gray-400"
+              >
+                <span className="truncate">
+                  {info.detail} · <b className="text-gray-700 dark:text-gray-300">{q} {info.unitLabel}</b>
+                </span>
+                <span className="shrink-0 font-medium">R$ {tot.toFixed(2)}</span>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </>
+  );
 }
 
 interface PendingOrder {
@@ -158,14 +212,7 @@ export default function FilaClient() {
       const addedIds = next.map((o) => o.id).filter((id) => !prevIdsRef.current.has(id));
       if (addedIds.length > 0) {
         setNewOrderIds((prev) => new Set([...prev, ...addedIds]));
-        // Remove o flash após 2s
-        setTimeout(() => {
-          setNewOrderIds((prev) => {
-            const copy = new Set(prev);
-            addedIds.forEach((id) => copy.delete(id));
-            return copy;
-          });
-        }, 2000);
+        scheduleClearNewOrderFlash(addedIds, setNewOrderIds);
       }
     }
     prevCountRef.current = next.length;
@@ -440,31 +487,7 @@ export default function FilaClient() {
                 {/* Itens — agrupados por produto (padrão hierarquia UI) */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Itens</p>
-                  {(() => {
-                    const groups = new Map<string, { it: OrderItem; info: ReturnType<typeof getItemInfo> }[]>();
-                    for (const it of items) {
-                      const info = getItemInfo(it);
-                      if (!groups.has(info.productName)) groups.set(info.productName, []);
-                      groups.get(info.productName)!.push({ it, info });
-                    }
-                    return Array.from(groups.entries()).map(([pName, grpItems]) => (
-                      <div key={pName} className="mb-1">
-                        {/* Nível 1 — PRODUCTS.NAME */}
-                        <p className="text-[11px] font-bold text-gray-800 dark:text-gray-100 leading-tight">{pName}</p>
-                        {/* Nível 2 — embalagem */}
-                        {grpItems.map(({ it, info }, i) => {
-                          const q   = Number(it.quantity ?? 1);
-                          const tot = Number(it.line_total ?? it.unit_price * q);
-                          return (
-                            <div key={i} className="flex items-center justify-between gap-2 pl-2 text-[11px] text-gray-500 dark:text-gray-400">
-                              <span className="truncate">{info.detail} · <b className="text-gray-700 dark:text-gray-300">{q} {info.unitLabel}</b></span>
-                              <span className="shrink-0 font-medium">R$ {tot.toFixed(2)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ));
-                  })()}
+                  <FilaOrderItemsGrouped items={items} />
                 </div>
 
                 {/* Endereço */}

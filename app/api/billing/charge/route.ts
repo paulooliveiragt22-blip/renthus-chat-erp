@@ -114,33 +114,7 @@ export async function POST(req: Request) {
     } else {
         for (const inv of overdueInvoices ?? []) {
             try {
-                const sub     = (inv as any).pagarme_subscriptions;
-                const company = (inv as any).companies;
-
-                if (!sub || sub.status === "blocked" || sub.status === "cancelled") continue;
-
-                const dueAt      = new Date(inv.due_at);
-                const daysOverdue = Math.floor(
-                    (now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000)
-                );
-
-                // Bloquear após 5 dias
-                if (daysOverdue >= 5) {
-                    await blockCompany(admin, inv.company_id, inv.subscription_id);
-                    results.blocked++;
-                    continue;
-                }
-
-                // Enviar aviso nos dias 1, 3 e 5
-                const msg = buildOverdueMessage(
-                    daysOverdue === 0 ? 1 : daysOverdue,
-                    inv.pagarme_payment_url ?? inv.pix_qr_code ?? ""
-                );
-
-                if (msg && company?.whatsapp_phone) {
-                    const sent = await sendBillingNotification(company.whatsapp_phone, msg);
-                    if (sent.ok) results.notified++;
-                }
+                await processOverdueInvoiceRow(admin, inv, now, results);
             } catch (err: any) {
                 const msg = `invoice ${inv.id}: ${err?.message ?? String(err)}`;
                 console.error("[charge] Erro ao processar overdue:", msg);
@@ -327,6 +301,39 @@ async function generateMonthlyInvoice(
     if (company?.whatsapp_phone) {
         const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
         if (msg) await sendBillingNotification(company.whatsapp_phone, msg);
+    }
+}
+
+async function processOverdueInvoiceRow(
+    admin: ReturnType<typeof createAdminClient>,
+    inv: any,
+    now: Date,
+    results: { notified: number; blocked: number }
+) {
+    const sub     = inv.pagarme_subscriptions;
+    const company = inv.companies;
+
+    if (!sub || sub.status === "blocked" || sub.status === "cancelled") return;
+
+    const dueAt       = new Date(inv.due_at);
+    const daysOverdue = Math.floor(
+        (now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000)
+    );
+
+    if (daysOverdue >= 5) {
+        await blockCompany(admin, inv.company_id, inv.subscription_id);
+        results.blocked++;
+        return;
+    }
+
+    const msg = buildOverdueMessage(
+        daysOverdue === 0 ? 1 : daysOverdue,
+        inv.pagarme_payment_url ?? inv.pix_qr_code ?? ""
+    );
+
+    if (msg && company?.whatsapp_phone) {
+        const sent = await sendBillingNotification(company.whatsapp_phone, msg);
+        if (sent.ok) results.notified++;
     }
 }
 

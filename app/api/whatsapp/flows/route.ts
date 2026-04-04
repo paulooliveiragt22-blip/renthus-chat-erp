@@ -111,6 +111,53 @@ function getCategoryEmoji(name: string): string {
     return "📦";
 }
 
+function flowOrderStatusEmoji(status: string, conf: string): string {
+    if (conf === "pending_confirmation") return "⏳";
+    if (conf === "rejected") return "❌";
+    if (status === "new") return "✅";
+    if (status === "preparing") return "🔥";
+    if (status === "delivering") return "🛵";
+    if (status === "delivered") return "📦";
+    if (status === "finalized") return "✅";
+    if (status === "canceled") return "❌";
+    return "📋";
+}
+
+function flowOrderStatusText(status: string, conf: string): string {
+    if (conf === "pending_confirmation") return "Aguardando confirmação";
+    if (conf === "rejected") return "Rejeitado";
+    if (status === "new") return "Confirmado";
+    if (status === "preparing") return "Em preparo";
+    if (status === "delivering") return "Saiu para entrega";
+    if (status === "delivered") return "Entregue";
+    if (status === "finalized") return "Finalizado";
+    if (status === "canceled") return "Cancelado";
+    return "Em processamento";
+}
+
+function flowOrderPaymentLabel(m: string): string {
+    return ({ pix: "PIX", card: "Cartão", cash: "Dinheiro" } as Record<string, string>)[m] ?? m;
+}
+
+type CatalogCategoryOption = { id: string; title: string; description: string };
+
+function buildCatalogCategoriesFromProductRows(rows: any[] | null | undefined): CatalogCategoryOption[] {
+    const counts: Record<string, { name: string; count: number }> = {};
+    for (const row of rows ?? []) {
+        const cat = (row as any).categories;
+        if (!cat?.id) continue;
+        if (!counts[cat.id]) counts[cat.id] = { name: cat.name, count: 0 };
+        counts[cat.id].count++;
+    }
+    return Object.entries(counts)
+        .map(([id, v]) => ({
+            id,
+            title:       v.name.toUpperCase(),
+            description: `${v.count} produto${v.count !== 1 ? "s" : ""}`,
+        }))
+        .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
+}
+
 function encryptedError(errorCode: string, aesKey: Buffer, iv: Buffer): NextResponse {
     console.error("[flows] error:", errorCode);
     const body = encryptFlowResponse(
@@ -253,37 +300,10 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const statusEmoji = (status: string, conf: string): string => {
-            if (conf === "pending_confirmation") return "⏳";
-            if (conf === "rejected")             return "❌";
-            if (status === "new")                return "✅";
-            if (status === "preparing")          return "🔥";
-            if (status === "delivering")         return "🛵";
-            if (status === "delivered")          return "📦";
-            if (status === "finalized")          return "✅";
-            if (status === "canceled")           return "❌";
-            return "📋";
-        };
-
-        const statusText = (status: string, conf: string): string => {
-            if (conf === "pending_confirmation") return "Aguardando confirmação";
-            if (conf === "rejected")             return "Rejeitado";
-            if (status === "new")                return "Confirmado";
-            if (status === "preparing")          return "Em preparo";
-            if (status === "delivering")         return "Saiu para entrega";
-            if (status === "delivered")          return "Entregue";
-            if (status === "finalized")          return "Finalizado";
-            if (status === "canceled")           return "Cancelado";
-            return "Em processamento";
-        };
-
-        const pmLabel = (m: string): string =>
-            ({ pix: "PIX", card: "Cartão", cash: "Dinheiro" })[m] ?? m;
-
         const ordersText = (orders as any[]).map((o) => {
             const code  = `#${o.id.slice(0, 8).toUpperCase()}`;
-            const emoji = statusEmoji(o.status, o.confirmation_status ?? "");
-            const label = statusText(o.status, o.confirmation_status ?? "");
+            const emoji = flowOrderStatusEmoji(o.status, o.confirmation_status ?? "");
+            const label = flowOrderStatusText(o.status, o.confirmation_status ?? "");
             const total = formatCurrency(Number.parseFloat(o.total_amount ?? 0));
             const date  = new Date(o.created_at).toLocaleString("pt-BR", {
                 day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
@@ -446,21 +466,7 @@ export async function POST(req: NextRequest) {
 
             if (error) return encryptedError("db_error", aesKey, iv);
 
-            const counts: Record<string, { name: string; count: number }> = {};
-            for (const row of rows ?? []) {
-                const cat = (row as any).categories;
-                if (!cat?.id) continue;
-                if (!counts[cat.id]) counts[cat.id] = { name: cat.name, count: 0 };
-                counts[cat.id].count++;
-            }
-
-            const categories = Object.entries(counts)
-                .map(([id, v]) => ({
-                    id,
-                    title:       v.name.toUpperCase(),
-                    description: `${v.count} produto${v.count !== 1 ? "s" : ""}`,
-                }))
-                .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
+            const categories = buildCatalogCategoriesFromProductRows(rows ?? []);
 
             await saveCatalogScreen("CATEGORIES", { catalog_screen: "CATEGORIES" });
             return encryptedOk(
@@ -501,16 +507,7 @@ export async function POST(req: NextRequest) {
                     .eq("company_id", companyId)
                     .eq("is_active", true)
                     .not("category_id", "is", null);
-                const counts: Record<string, { name: string; count: number }> = {};
-                for (const row of catRows ?? []) {
-                    const cat = (row as any).categories;
-                    if (!cat?.id) continue;
-                    if (!counts[cat.id]) counts[cat.id] = { name: cat.name, count: 0 };
-                    counts[cat.id].count++;
-                }
-                const categories = Object.entries(counts)
-                    .map(([id, v]) => ({ id, title: v.name.toUpperCase(), description: `${v.count} produto${v.count !== 1 ? "s" : ""}` }))
-                    .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
+                const categories = buildCatalogCategoriesFromProductRows(catRows ?? []);
 
                 const accCart = (sessionCtx?.accumulated_cart as CartItem[] | undefined) ?? [];
                 const updatedCtx = { ...sessionCtx, catalog_screen: "CATEGORIES" };
@@ -1358,8 +1355,7 @@ export async function POST(req: NextRequest) {
 
                 // Usa telefone pré-carregado no início (sem DB extra)
                 if (customerPhone) {
-                    const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
-                    const pmLabel   = pmLabels[paymentMethod] ?? paymentMethod;
+                    const pmLabel = flowOrderPaymentLabel(paymentMethod);
                     const feeText   = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
                     const chgText   = changeFor ? ` (troco para ${formatCurrency(changeFor)})` : "";
                     const orderCode = `#${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}`;
@@ -1690,8 +1686,7 @@ export async function POST(req: NextRequest) {
 
                 // Envia confirmação WhatsApp
                 if (phoneE164) {
-                    const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
-                    const pmLabel = pmLabels[paymentMethod] ?? paymentMethod;
+                    const pmLabel = flowOrderPaymentLabel(paymentMethod);
                     const feeText = deliveryFee > 0
                         ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}`
                         : "";
@@ -1720,8 +1715,7 @@ export async function POST(req: NextRequest) {
             // CAMINHO CHATBOT: envia resumo + lista de confirmação (comportamento original)
             // ──────────────────────────────────────────────────────────────────
             if (phoneE164) {
-                const pmLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX", card: "Cartão" };
-                const paymentLabel = pmLabels[paymentMethod] ?? paymentMethod;
+                const paymentLabel = flowOrderPaymentLabel(paymentMethod);
                 const feeText      = deliveryFee > 0
                     ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}`
                     : "";

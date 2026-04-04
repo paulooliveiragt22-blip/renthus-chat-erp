@@ -44,6 +44,10 @@ function stockColorClass(atual: number, minimo: number) {
     return "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400";
 }
 
+function applyVolumeStockToItems(prev: StockItem[], pvid: string, nextStock: number): StockItem[] {
+    return prev.map((item) => (item.id === pvid ? { ...item, estoque_atual: nextStock } : item));
+}
+
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
@@ -133,12 +137,10 @@ export default function EstoquePage() {
         const ch = supabase
             .channel("products_estoque_realtime")
             .on("postgres_changes", { event: "UPDATE", schema: "public", table: "product_volumes" }, (p: any) => {
-                const pvid      = p?.new?.id as string;
-                const nextStock = Number(p?.new?.estoque_atual ?? 0);
+                const pvid = p?.new?.id as string | undefined;
                 if (!pvid) return;
-                setItems(prev => prev.map(item =>
-                    item.id === pvid ? { ...item, estoque_atual: nextStock } : item
-                ));
+                const nextStock = Number(p?.new?.estoque_atual ?? 0);
+                setItems((prev) => applyVolumeStockToItems(prev, pvid, nextStock));
                 flash(pvid);
             })
             .subscribe((s: string) => console.log("[Estoque Realtime] status:", s));

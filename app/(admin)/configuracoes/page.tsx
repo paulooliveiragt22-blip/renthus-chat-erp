@@ -173,6 +173,35 @@ function SaveBar({ saving, msg, onSave }: { saving: boolean; msg: string | null;
 
 const PAGARME_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY ?? "";
 
+type RenthusCardForm = { number: string; exp: string; cvv: string; holder: string };
+type RenthusBillingAddr = { cep: string; endereco: string; numero: string; bairro: string; cidade: string; uf: string };
+
+/** Retorna mensagem de erro ou dados prontos para token + checkout. */
+function validateRenthusCardCheckout(
+    renthusCard: RenthusCardForm,
+    cardAddr: RenthusBillingAddr,
+    nomeFantasia: string
+): { error: string } | { exp: { month: string; year: string }; num: string; cvv: string; holder: string; addrCep: string } {
+    const exp = parseCardExpiry(renthusCard.exp);
+    if (!exp) return { error: "Validade do cartão: use MM/AA." };
+    const num = renthusCard.number.replaceAll(/\D/g, "");
+    if (num.length < 13) return { error: "Número do cartão inválido." };
+    const cvv = renthusCard.cvv.replaceAll(/\D/g, "");
+    if (cvv.length < 3) return { error: "CVV inválido." };
+    const holder = renthusCard.holder.trim() || nomeFantasia.trim();
+    if (holder.length < 3) {
+        return { error: "Informe o nome no cartão ou preencha o nome fantasia na aba Geral." };
+    }
+    const addrCep = cardAddr.cep.replaceAll(/\D/g, "");
+    if (!cardAddr.endereco.trim() || !cardAddr.numero.trim() || !cardAddr.cidade.trim() || cardAddr.uf.length < 2) {
+        return { error: "Preencha o endereço de cobrança (CEP, endereço, número, cidade e UF)." };
+    }
+    if (addrCep.length < 8) {
+        return { error: "CEP completo (8 dígitos) é obrigatório para pagamento com cartão." };
+    }
+    return { exp, num, cvv, holder, addrCep };
+}
+
 const ALL_PAYMENTS = [
     { key: "pix",          label: "Pix",          desc: "Transferência instantânea" },
     { key: "credit_card",  label: "Cartão de Crédito", desc: "Visa, Master, Elo, etc." },
@@ -437,35 +466,12 @@ function ConfiguracoesPageContent() {
             setBillingErr("Configure NEXT_PUBLIC_PAGARME_PUBLIC_KEY e cadastre o domínio no Pagar.me.");
             return;
         }
-        const exp = parseCardExpiry(renthusCard.exp);
-        if (!exp) {
-            setBillingErr("Validade do cartão: use MM/AA.");
+        const validated = validateRenthusCardCheckout(renthusCard, cardAddr, nomeFantasia);
+        if ("error" in validated) {
+            setBillingErr(validated.error);
             return;
         }
-        const num = renthusCard.number.replaceAll(/\D/g, "");
-        if (num.length < 13) {
-            setBillingErr("Número do cartão inválido.");
-            return;
-        }
-        const cvv = renthusCard.cvv.replaceAll(/\D/g, "");
-        if (cvv.length < 3) {
-            setBillingErr("CVV inválido.");
-            return;
-        }
-        const holder = renthusCard.holder.trim() || nomeFantasia.trim();
-        if (holder.length < 3) {
-            setBillingErr("Informe o nome no cartão ou preencha o nome fantasia na aba Geral.");
-            return;
-        }
-        const addrCep = cardAddr.cep.replaceAll(/\D/g, "");
-        if (!cardAddr.endereco.trim() || !cardAddr.numero.trim() || !cardAddr.cidade.trim() || cardAddr.uf.length < 2) {
-            setBillingErr("Preencha o endereço de cobrança (CEP, endereço, número, cidade e UF).");
-            return;
-        }
-        if (addrCep.length < 8) {
-            setBillingErr("CEP completo (8 dígitos) é obrigatório para pagamento com cartão.");
-            return;
-        }
+        const { exp, num, cvv, holder, addrCep } = validated;
 
         setCardPayLoading(true);
         try {

@@ -107,6 +107,55 @@ function timeAgo(iso: string) {
     return `há ${Math.floor(h / 24)} d`;
 }
 
+type OrderPrintItemInfo = {
+    productName: string;
+    detail: string;
+    unitLabel: string;
+    fator: number | null;
+};
+
+/** Texto padrão para aviso de saiu para entrega / entregue (WhatsApp). */
+function deliveryStatusWhatsAppText(
+    kind: "out_for_delivery" | "delivered_message",
+    customerName: string
+): string {
+    const name = customerName.trim();
+    const namePart = name ? `, ${name}` : "";
+    if (kind === "out_for_delivery") {
+        return `Ótima notícia${namePart}: seu pedido já está com nosso entregador e a caminho de você! 🛵💨`;
+    }
+    return `Confirmamos que seu pedido foi entregue${namePart}! 🎉 Esperamos que tenha chegado tudo certinho. Qualquer coisa, é só chamar!`;
+}
+
+/** Mesma lógica do ticket de impressão (view_pdv_produtos / product_name). */
+function orderPrintGetItemInfo(it: any): OrderPrintItemInfo {
+    const emb = it._emb ?? null;
+    if (emb) {
+        const prodName = String(emb.product_name ?? "").toUpperCase().trim();
+        const sigla = String(emb.sigla_comercial ?? "UN").toUpperCase();
+        const descricao = (emb.descricao ?? "").trim();
+        const volStr = (emb.volume_formatado ?? "").trim();
+        const fator = Number(emb.fator_conversao) || null;
+        const siglaHuman =
+            sigla === "CX" ? "Caixa" : sigla === "FARD" ? "Fardo" : sigla === "PAC" ? "Pacote" : sigla;
+        const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
+        const detail = [detailPrefix, volStr].filter(Boolean).join(" ");
+        const unitLabel = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
+        return {
+            productName:
+                prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
+            detail: detail || prodName || "Item",
+            unitLabel,
+            fator: sigla === "CX" && fator && fator > 1 ? fator : null,
+        };
+    }
+    const raw = String(it.product_name ?? "PRODUTO");
+    const bIdx = raw.indexOf(" • ");
+    const prodName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
+    const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
+    return { productName: prodName, detail, unitLabel: it.unit_type === "case" ? "cx" : "un", fator: null };
+}
+
 const STATUS_BADGE: Record<string, string> = {
     new:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
     delivered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
@@ -892,36 +941,36 @@ export default function PedidosPage() {
         await callReprint(editOrder.id);
     }
 
+    async function syncViewOrderAfterOutForDelivery(ordId: string) {
+        await supabase.from("orders").update({ status: "delivered" }).eq("id", ordId);
+        const updated = await fetchOrderFull(ordId);
+        if (updated) setViewOrder(updated);
+        await loadOrders();
+    }
+
     async function sendWhatsAppForCurrentOrder(kind: "out_for_delivery" | "delivered_message") {
         const ord = viewOrder;
         if (!ord || !ord.customers?.phone) { setMsg("Telefone do cliente não encontrado."); return; }
         const phone = String(ord.customers.phone).trim();
         if (!phone.startsWith("+")) { setMsg("Telefone precisa estar em formato internacional (+55...)."); return; }
-        const name = (ord.customers.name || "").trim();
-        const text = kind === "out_for_delivery"
-            ? `Ótima notícia${name ? `, ${name}` : ""}: seu pedido já está com nosso entregador e a caminho de você! 🛵💨`
-            : `Confirmamos que seu pedido foi entregue${name ? `, ${name}` : ""}! 🎉 Esperamos que tenha chegado tudo certinho. Qualquer coisa, é só chamar!`;
+        const text = deliveryStatusWhatsAppText(kind, ord.customers.name || "");
         try {
             if (kind === "out_for_delivery") setSendingOutForDelivery(true); else setSendingDeliveredMessage(true);
             setMsg(null);
-            const res = await fetch("/api/whatsapp/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to_phone_e164: phone, kind: "text", text }) });
-            if (!res.ok) { const d = await res.json().catch(() => ({})); setMsg(`Erro WhatsApp: ${d?.error || res.statusText}`); return; }
-
-            // Atualiza status do pedido para "delivered" ao marcar saiu pra entrega
-            if (kind === "out_for_delivery") {
-                await supabase
-                    .from("orders")
-                    .update({ status: "delivered" })
-                    .eq("id", ord.id);
-                // Atualiza o modal e a lista
-                const updated = await fetchOrderFull(ord.id);
-                if (updated) setViewOrder(updated);
-                await loadOrders();
+            const res = await fetch("/api/whatsapp/send", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ to_phone_e164: phone, kind: "text", text }),
+            });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                setMsg(`Erro WhatsApp: ${d?.error || res.statusText}`);
+                return;
             }
-
+            if (kind === "out_for_delivery") await syncViewOrderAfterOutForDelivery(ord.id);
             setMsg("✅ Mensagem enviada no WhatsApp.");
-        } catch (err: any) {
-            setMsg(`Erro WhatsApp: ${String(err?.message ?? err)}`);
+        } catch (err: unknown) {
+            setMsg(`Erro WhatsApp: ${String((err as Error)?.message ?? err)}`);
         } finally {
             if (kind === "out_for_delivery") setSendingOutForDelivery(false); else setSendingDeliveredMessage(false);
         }
@@ -940,37 +989,10 @@ export default function PedidosPage() {
         const cust      = (full as any).customers;
         const driver    = (full as any).drivers as { name?: string; vehicle?: string; plate?: string } | null;
 
-        // Extrai info estruturada do item — mesma lógica do ticket.js
-        function getItemInfo(it: any) {
-            const emb = it._emb ?? null; // enriquecido via view_pdv_produtos
-            if (emb) {
-                const prodName     = String(emb.product_name ?? "").toUpperCase().trim();
-                const sigla        = String(emb.sigla_comercial ?? "UN").toUpperCase();
-                const descricao    = (emb.descricao ?? "").trim();
-                const volStr       = (emb.volume_formatado ?? "").trim();
-                const fator        = Number(emb.fator_conversao) || null;
-                const siglaHuman   = sigla === "CX" ? "Caixa" : sigla === "FARD" ? "Fardo" : sigla === "PAC" ? "Pacote" : sigla;
-                const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
-                const detail       = [detailPrefix, volStr].filter(Boolean).join(" ");
-                const unitLabel    = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
-                return {
-                    productName: prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
-                    detail: detail || prodName || "Item",
-                    unitLabel,
-                    fator: sigla === "CX" && fator && fator > 1 ? fator : null,
-                };
-            }
-            const raw      = String(it.product_name ?? "PRODUTO");
-            const bIdx     = raw.indexOf(" • ");
-            const prodName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
-            const detail   = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
-            return { productName: prodName, detail, unitLabel: it.unit_type === "case" ? "cx" : "un", fator: null };
-        }
-
         // Agrupa itens por produto
-        const groups = new Map<string, { it: any; info: ReturnType<typeof getItemInfo> }[]>();
+        const groups = new Map<string, { it: any; info: OrderPrintItemInfo }[]>();
         for (const it of (full.items ?? [])) {
-            const info = getItemInfo(it);
+            const info = orderPrintGetItemInfo(it);
             if (!groups.has(info.productName)) groups.set(info.productName, []);
             groups.get(info.productName)!.push({ it, info });
         }

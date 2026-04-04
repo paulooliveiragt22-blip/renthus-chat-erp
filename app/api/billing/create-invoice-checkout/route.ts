@@ -26,6 +26,109 @@ import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerF
 
 export const runtime = "nodejs";
 
+async function persistCardBillingOrder(
+    admin: ReturnType<typeof createAdminClient>,
+    p: {
+        companyId: string;
+        subId: string;
+        plan: "bot" | "complete";
+        amountCents: number;
+        installments: number;
+        orderId: string;
+        isFirstPayment: boolean;
+        pendingSetup: { id: string } | null;
+        pendingInv: { id: string } | null;
+    }
+) {
+    const brlAmount = centsToBRL(p.amountCents);
+    if (p.isFirstPayment) {
+        if (p.pendingSetup) {
+            await admin.from("setup_payments")
+                .update({ pagarme_order_id: p.orderId, pagarme_payment_url: "" })
+                .eq("id", p.pendingSetup.id);
+        } else {
+            await admin.from("setup_payments").insert({
+                company_id:          p.companyId,
+                plan:                p.plan,
+                amount:              brlAmount,
+                installments:        p.installments,
+                status:              "pending",
+                pagarme_order_id:    p.orderId,
+                pagarme_payment_url: "",
+            });
+        }
+    } else if (p.pendingInv) {
+        await admin.from("invoices")
+            .update({ pagarme_order_id: p.orderId, pagarme_payment_url: "", pix_qr_code: null })
+            .eq("id", p.pendingInv.id);
+    } else {
+        await admin.from("invoices").insert({
+            company_id:          p.companyId,
+            subscription_id:     p.subId,
+            amount:              brlAmount,
+            status:              "pending",
+            due_at:              new Date().toISOString(),
+            pagarme_order_id:    p.orderId,
+            pagarme_payment_url: "",
+            pix_qr_code:         null,
+        });
+    }
+}
+
+async function persistPixBillingOrder(
+    admin: ReturnType<typeof createAdminClient>,
+    p: {
+        companyId: string;
+        subId: string;
+        plan: "bot" | "complete";
+        amountCents: number;
+        orderId: string;
+        pixUrl: string | null;
+        pixCode: string | null;
+        isFirstPayment: boolean;
+        pendingSetup: { id: string } | null;
+        pendingInv: { id: string } | null;
+    }
+) {
+    const brlAmount = centsToBRL(p.amountCents);
+    if (p.isFirstPayment) {
+        if (p.pendingSetup) {
+            await admin.from("setup_payments")
+                .update({ pagarme_order_id: p.orderId, pagarme_payment_url: p.pixUrl ?? "" })
+                .eq("id", p.pendingSetup.id);
+        } else {
+            await admin.from("setup_payments").insert({
+                company_id:          p.companyId,
+                plan:                p.plan,
+                amount:              brlAmount,
+                installments:        1,
+                status:              "pending",
+                pagarme_order_id:    p.orderId,
+                pagarme_payment_url: p.pixUrl ?? "",
+            });
+        }
+    } else if (p.pendingInv) {
+        await admin.from("invoices")
+            .update({
+                pagarme_order_id:    p.orderId,
+                pagarme_payment_url: p.pixUrl ?? "",
+                pix_qr_code:         p.pixCode,
+            })
+            .eq("id", p.pendingInv.id);
+    } else {
+        await admin.from("invoices").insert({
+            company_id:          p.companyId,
+            subscription_id:     p.subId,
+            amount:              brlAmount,
+            status:              "pending",
+            due_at:              new Date().toISOString(),
+            pagarme_order_id:    p.orderId,
+            pagarme_payment_url: p.pixUrl ?? "",
+            pix_qr_code:         p.pixCode,
+        });
+    }
+}
+
 type Body = {
     payment_method?:  "pix" | "credit_card";
     card_token?:      string;
@@ -189,38 +292,17 @@ export async function POST(req: Request) {
 
             const custId = extractOrderCustomerId(order);
 
-            if (isFirstPayment) {
-                if (pendingSetup) {
-                    await admin.from("setup_payments")
-                        .update({ pagarme_order_id: order.id, pagarme_payment_url: "" })
-                        .eq("id", pendingSetup.id);
-                } else {
-                    await admin.from("setup_payments").insert({
-                        company_id:          companyId,
-                        plan,
-                        amount:              centsToBRL(amountCents),
-                        installments,
-                        status:              "pending",
-                        pagarme_order_id:    order.id,
-                        pagarme_payment_url: "",
-                    });
-                }
-            } else if (pendingInv) {
-                await admin.from("invoices")
-                    .update({ pagarme_order_id: order.id, pagarme_payment_url: "", pix_qr_code: null })
-                    .eq("id", pendingInv.id);
-            } else {
-                await admin.from("invoices").insert({
-                    company_id:          companyId,
-                    subscription_id:     sub.id,
-                    amount:              centsToBRL(amountCents),
-                    status:              "pending",
-                    due_at:              new Date().toISOString(),
-                    pagarme_order_id:    order.id,
-                    pagarme_payment_url: "",
-                    pix_qr_code:         null,
-                });
-            }
+            await persistCardBillingOrder(admin, {
+                companyId,
+                subId: sub.id,
+                plan,
+                amountCents,
+                installments,
+                orderId: order.id,
+                isFirstPayment,
+                pendingSetup: pendingSetup ? { id: pendingSetup.id } : null,
+                pendingInv:   pendingInv ? { id: pendingInv.id } : null,
+            });
 
             if (custId) {
                 await admin.from("pagarme_subscriptions")
@@ -292,38 +374,18 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Erro ao gerar PIX" }, { status: 500 });
         }
 
-        if (isFirstPayment) {
-            if (pendingSetup) {
-                await admin.from("setup_payments")
-                    .update({ pagarme_order_id: order.id, pagarme_payment_url: pixUrl ?? "" })
-                    .eq("id", pendingSetup.id);
-            } else {
-                await admin.from("setup_payments").insert({
-                    company_id:          companyId,
-                    plan,
-                    amount:              centsToBRL(amountCents),
-                    installments:        1,
-                    status:              "pending",
-                    pagarme_order_id:    order.id,
-                    pagarme_payment_url: pixUrl ?? "",
-                });
-            }
-        } else if (pendingInv) {
-            await admin.from("invoices")
-                .update({ pagarme_order_id: order.id, pagarme_payment_url: pixUrl ?? "", pix_qr_code: pixCode })
-                .eq("id", pendingInv.id);
-        } else {
-            await admin.from("invoices").insert({
-                company_id:          companyId,
-                subscription_id:     sub.id,
-                amount:              centsToBRL(amountCents),
-                status:              "pending",
-                due_at:              new Date().toISOString(),
-                pagarme_order_id:    order.id,
-                pagarme_payment_url: pixUrl ?? "",
-                pix_qr_code:         pixCode,
-            });
-        }
+        await persistPixBillingOrder(admin, {
+            companyId,
+            subId: sub.id,
+            plan,
+            amountCents,
+            orderId: order.id,
+            pixUrl,
+            pixCode,
+            isFirstPayment,
+            pendingSetup: pendingSetup ? { id: pendingSetup.id } : null,
+            pendingInv:   pendingInv ? { id: pendingInv.id } : null,
+        });
 
         return NextResponse.json({
             ok:             true,

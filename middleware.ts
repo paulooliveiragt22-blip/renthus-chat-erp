@@ -83,6 +83,50 @@ async function redirectForCompanyAccess(
     return null;
 }
 
+function handleSuperadminBranch(request: NextRequest, pathname: string): NextResponse | null {
+    if (!pathname.startsWith("/superadmin") && !pathname.startsWith("/api/superadmin/")) {
+        return null;
+    }
+    if (process.env.VERCEL_ENV) {
+        return NextResponse.rewrite(new URL("/404", request.url));
+    }
+    if (pathname === "/superadmin/login" || pathname === "/api/superadmin/login") {
+        return NextResponse.next();
+    }
+    const token  = request.cookies.get("sa_token")?.value;
+    const secret = process.env.SUPERADMIN_SECRET;
+    if (!secret || token !== secret) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/superadmin/login";
+        return NextResponse.redirect(url);
+    }
+    return NextResponse.next();
+}
+
+function isTechnicalApiPublic(pathname: string): boolean {
+    return (
+        pathname.startsWith("/api/whatsapp/") ||
+        pathname.startsWith("/api/print/") ||
+        pathname.startsWith("/api/billing/webhook") ||
+        pathname === "/api/billing/signup" ||
+        pathname === "/api/agent/auth" ||
+        pathname === "/api/agent/heartbeat" ||
+        pathname === "/api/signup/complete"
+    );
+}
+
+function isPublicAppRoute(pathname: string): boolean {
+    return (
+        pathname.startsWith("/login") ||
+        pathname.startsWith("/auth") ||
+        pathname.startsWith("/billing/blocked") ||
+        pathname.startsWith("/signup") ||
+        pathname.startsWith("/onboarding") ||
+        pathname.startsWith("/_next") ||
+        pathname === "/favicon.ico"
+    );
+}
+
 export async function middleware(
     request: NextRequest,
     _event?: NextFetchEvent,
@@ -90,42 +134,11 @@ export async function middleware(
 ) {
     const pathname = request.nextUrl.pathname;
 
-    // ── Superadmin — apenas local (bloqueado em produção Vercel) ──────────────
-    if (pathname.startsWith("/superadmin") || pathname.startsWith("/api/superadmin/")) {
-        if (process.env.VERCEL_ENV) {
-            return NextResponse.rewrite(new URL("/404", request.url));
-        }
-        if (pathname === "/superadmin/login" || pathname === "/api/superadmin/login") return NextResponse.next();
-        const token  = request.cookies.get("sa_token")?.value;
-        const secret = process.env.SUPERADMIN_SECRET;
-        if (!secret || token !== secret) {
-            const url = request.nextUrl.clone();
-            url.pathname = "/superadmin/login";
-            return NextResponse.redirect(url);
-        }
-        return NextResponse.next();
-    }
+    const superRes = handleSuperadminBranch(request, pathname);
+    if (superRes) return superRes;
 
-    // Libera webhooks e endpoints técnicos sem autenticação
-    if (pathname.startsWith("/api/whatsapp/")) return NextResponse.next();
-    if (pathname.startsWith("/api/print/")) return NextResponse.next();
-    if (pathname.startsWith("/api/billing/webhook")) return NextResponse.next();
-    if (pathname === "/api/billing/signup") return NextResponse.next();
-    if (pathname === "/api/agent/auth" || pathname === "/api/agent/heartbeat") return NextResponse.next();
-    // API pública de onboarding (GET por token — sem session)
-    if (pathname === "/api/signup/complete") return NextResponse.next();
-
-    // Rotas públicas (não exigem login)
-    const isPublic =
-        pathname.startsWith("/login") ||
-        pathname.startsWith("/auth") ||
-        pathname.startsWith("/billing/blocked") ||
-        pathname.startsWith("/signup") ||    // inclui /signup, /signup/complete
-        pathname.startsWith("/onboarding") ||
-        pathname.startsWith("/_next") ||
-        pathname === "/favicon.ico";
-
-    if (isPublic) return NextResponse.next();
+    if (isTechnicalApiPublic(pathname)) return NextResponse.next();
+    if (isPublicAppRoute(pathname)) return NextResponse.next();
 
     const response = NextResponse.next();
 

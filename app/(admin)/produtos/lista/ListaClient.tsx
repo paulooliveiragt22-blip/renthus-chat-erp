@@ -136,6 +136,29 @@ function normalizeRowsFromView(input: unknown): Row[] {
     });
 }
 
+function volumesWithFormItemAppended(prev: FormVolume[], volId: string, newItem: FormItem): FormVolume[] {
+    return prev.map((v) => (v.id === volId ? { ...v, items: [...v.items, newItem] } : v));
+}
+
+function volumesWithFormItemRemoved(prev: FormVolume[], volId: string, itemId: string): FormVolume[] {
+    return prev.map((v) =>
+        v.id === volId ? { ...v, items: v.items.filter((i) => i.id !== itemId) } : v
+    );
+}
+
+function volumesWithFormItemUpdated(
+    prev: FormVolume[],
+    volId: string,
+    itemId: string,
+    updates: Partial<FormItem>
+): FormVolume[] {
+    return prev.map((v) =>
+        v.id === volId
+            ? { ...v, items: v.items.map((i) => (i.id === itemId ? { ...i, ...updates } : i)) }
+            : v
+    );
+}
+
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
@@ -449,21 +472,15 @@ export default function ProdutosListaPage() {
             estoque: "",
             estoque_minimo: "",
         };
-        setFormVolumes((prev) => prev.map((v) =>
-            v.id === volId ? { ...v, items: [...v.items, newItem] } : v
-        ));
+        setFormVolumes((prev) => volumesWithFormItemAppended(prev, volId, newItem));
     }
 
     function removeFormItem(volId: string, itemId: string) {
-        setFormVolumes((prev) => prev.map((v) =>
-            v.id === volId ? { ...v, items: v.items.filter((i) => i.id !== itemId) } : v
-        ));
+        setFormVolumes((prev) => volumesWithFormItemRemoved(prev, volId, itemId));
     }
 
     function updateFormItem(volId: string, itemId: string, updates: Partial<FormItem>) {
-        setFormVolumes((prev) => prev.map((v) =>
-            v.id === volId ? { ...v, items: v.items.map((i) => (i.id === itemId ? { ...i, ...updates } : i)) } : v
-        ));
+        setFormVolumes((prev) => volumesWithFormItemUpdated(prev, volId, itemId, updates));
     }
 
     const isUnSigla = (sigla: string) => (sigla ?? "").toUpperCase() === "UN" || (sigla ?? "").toUpperCase() === "UNIDADE";

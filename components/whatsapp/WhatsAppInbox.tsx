@@ -130,6 +130,27 @@ function isNearBottom(el: HTMLElement): boolean {
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 }
 
+/** INSERT realtime: mescla mensagem e scroll suave se perto do fim. Retorna true se tratado. */
+function applyInboundMessageRealtime(
+    payload: { eventType?: string; new?: unknown },
+    setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+    messagesAreaRef: React.RefObject<HTMLDivElement | null>
+): boolean {
+    if (payload.eventType !== "INSERT" || !payload.new) return false;
+    const newMsg = payload.new as Message;
+    setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+    });
+    requestAnimationFrame(() => {
+        const a = messagesAreaRef.current;
+        if (a && isNearBottom(a)) {
+            a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
+        }
+    });
+    return true;
+}
+
 // ─── componente principal ─────────────────────────────────────────────────────
 
 export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string | null } = {}) {
@@ -419,19 +440,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         filter: `thread_id=eq.${selectedThreadId}`,
                     },
                     (payload: any) => {
-                        if (payload.eventType === "INSERT" && payload.new) {
-                            const newMsg = payload.new as Message;
-                            setMessages((prev) => {
-                                if (prev.some((m) => m.id === newMsg.id)) return prev;
-                                return [...prev, newMsg];
-                            });
-                            requestAnimationFrame(() => {
-                                const a = messagesAreaRef.current;
-                                if (a && isNearBottom(a)) {
-                                    a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
-                                }
-                            });
-                        } else {
+                        if (!applyInboundMessageRealtime(payload, setMessages, messagesAreaRef)) {
                             loadMessages(selectedThreadId);
                         }
                     }

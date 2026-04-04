@@ -48,6 +48,48 @@ interface AdminSidebarProps {
   onToggleCollapse?: () => void;
 }
 
+function SidebarNavItem({
+  item,
+  pathname,
+  collapsed,
+}: {
+  item: (typeof adminMenu)[number];
+  pathname: string | null;
+  collapsed: boolean;
+}) {
+  const Icon   = item.icon;
+  const active = pathname === item.href || (pathname?.startsWith(item.href + "/") ?? false);
+
+  return (
+    <Link
+      href={item.href}
+      title={collapsed ? item.label : undefined}
+      className={[
+        "group relative flex items-center rounded-lg py-2.5 text-xs font-medium transition-all duration-150",
+        collapsed ? "justify-center px-0" : "gap-3 px-3",
+        active
+          ? "bg-white/15 text-white shadow-sm"
+          : "text-white/70 hover:bg-white/[0.08] hover:text-white",
+      ].join(" ")}
+    >
+      {active && (
+        <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-accent shadow-[0_0_10px_rgba(249,115,22,0.8)]" />
+      )}
+      <div
+        className={[
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+          active
+            ? "bg-white/20 text-white"
+            : "bg-white/5 text-white/60 group-hover:bg-white/10 group-hover:text-white",
+        ].join(" ")}
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+      {!collapsed && <span>{item.label}</span>}
+    </Link>
+  );
+}
+
 export default function AdminSidebar({
   isOpen,
   onClose,
@@ -112,38 +154,9 @@ export default function AdminSidebar({
 
       {/* ── Navegação ───────────────────────────────────────────────────────── */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto scrollbar-hide px-2 py-4">
-        {adminMenu.map((item) => {
-          const Icon   = item.icon;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={collapsed ? item.label : undefined}
-              className={[
-                "group relative flex items-center rounded-lg py-2.5 text-xs font-medium transition-all duration-150",
-                collapsed ? "justify-center px-0" : "gap-3 px-3",
-                active
-                  ? "bg-white/15 text-white shadow-sm"
-                  : "text-white/70 hover:bg-white/[0.08] hover:text-white",
-              ].join(" ")}
-            >
-              {active && (
-                <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-accent shadow-[0_0_10px_rgba(249,115,22,0.8)]" />
-              )}
-              <div className={[
-                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
-                active
-                  ? "bg-white/20 text-white"
-                  : "bg-white/5 text-white/60 group-hover:bg-white/10 group-hover:text-white",
-              ].join(" ")}>
-                <Icon className="h-3.5 w-3.5" />
-              </div>
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          );
-        })}
+        {adminMenu.map((item) => (
+          <SidebarNavItem key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
+        ))}
       </nav>
 
       {/* ── Rodapé ──────────────────────────────────────────────────────────── */}
