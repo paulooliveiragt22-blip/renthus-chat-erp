@@ -3,10 +3,11 @@
  * Baixa issues do SonarCloud com paginação (SonarCloud API).
  *
  * Modos:
- *   (padrão)     api/issues/search com types=BUG → bugs de Reliability (abertos)
- *   --hotspots   api/hotspots/search             → Security Hotspots
- *                (o parâmetro types=SECURITY_HOTSPOT não existe em issues/search no
- *                SonarCloud: só aceita CODE_SMELL, BUG, VULNERABILITY)
+ *   (padrão)        api/issues/search types=BUG → Reliability (abertos)
+ *   --code-smell    types=CODE_SMELL → Maintainability / code smells (abertos)
+ *   --quality       types=BUG,CODE_SMELL → Reliability + Maintainability num único JSON
+ *   --hotspots      api/hotspots/search → Security Hotspots
+ *                (SECURITY_HOTSPOT não existe em issues/search; só CODE_SMELL, BUG, VULNERABILITY)
  *
  * Variáveis de ambiente (obrigatórias):
  *   SONAR_TOKEN, SONARCLOUD_ORGANIZATION, SONARCLOUD_PROJECT_KEY
@@ -17,7 +18,9 @@
  *
  * Flags:
  *   --csv       — também grava CSV (.csv ao lado do JSON)
- *   --hotspots  — exporta Security Hotspots (api/hotspots/search; typeFilter no JSON = SECURITY_HOTSPOT)
+ *   --hotspots     — Security Hotspots (api/hotspots/search)
+ *   --code-smell   — code smells abertos (Maintainability)
+ *   --quality      — BUG + CODE_SMELL abertos (um arquivo)
  *
  * Env files (carregados se existirem, sem sobrescrever o shell):
  *   .env.sonar.local, .env.local, .env
@@ -62,6 +65,8 @@ loadDotEnvFiles([
 
 const argv = process.argv.slice(2);
 const wantHotspots = argv.includes("--hotspots");
+const wantCodeSmell = argv.includes("--code-smell");
+const wantQuality = argv.includes("--quality");
 const wantCsv = argv.includes("--csv");
 
 const token =
@@ -76,7 +81,11 @@ const projectKey =
 
 const defaultOut = wantHotspots
     ? "sonar-security-hotspots.json"
-    : "sonar-reliability-bugs.json";
+    : wantQuality
+      ? "sonar-open-quality-issues.json"
+      : wantCodeSmell
+        ? "sonar-code-smells.json"
+        : "sonar-reliability-bugs.json";
 const outJson = resolve(root, process.env.SONAR_OUT?.trim() || defaultOut);
 
 if (!token || !organization || !projectKey) {
@@ -101,11 +110,9 @@ async function fetchIssuesPage(page, types) {
     url.searchParams.set("organization", organization);
     url.searchParams.set("componentKeys", projectKey);
     url.searchParams.set("types", types);
+    url.searchParams.set("statuses", "OPEN");
     url.searchParams.set("ps", "500");
     url.searchParams.set("p", String(page));
-    if (types === "BUG") {
-        url.searchParams.set("statuses", "OPEN");
-    }
 
     const res = await fetch(url, {
         headers: {
@@ -191,6 +198,15 @@ function toCsv(rows) {
     return `${header}\n${body}\n`;
 }
 
+/** BUG | CODE_SMELL | BUG,CODE_SMELL */
+const issueTypesParam = wantHotspots
+    ? ""
+    : wantQuality
+      ? "BUG,CODE_SMELL"
+      : wantCodeSmell
+        ? "CODE_SMELL"
+        : "BUG";
+
 let rows;
 let total = null;
 
@@ -212,12 +228,14 @@ if (wantHotspots) {
     let page = 1;
     const allIssues = [];
     for (;;) {
-        const data = await fetchIssuesPage(page, "BUG");
+        const data = await fetchIssuesPage(page, issueTypesParam);
         total = data.paging?.total ?? allIssues.length;
         const batch = data.issues ?? [];
         allIssues.push(...batch);
 
-        process.stderr.write(`issues/search página ${page}: +${batch.length} (acumulado: ${allIssues.length} / ${total})\n`);
+        process.stderr.write(
+            `issues/search [${issueTypesParam}] página ${page}: +${batch.length} (acumulado: ${allIssues.length} / ${total})\n`
+        );
 
         if (batch.length === 0) break;
         if (allIssues.length >= total) break;
@@ -230,7 +248,7 @@ const payload = {
     fetchedAt:  new Date().toISOString(),
     organization,
     projectKey,
-    typeFilter: wantHotspots ? "SECURITY_HOTSPOT" : "BUG",
+    typeFilter: wantHotspots ? "SECURITY_HOTSPOT" : issueTypesParam,
     total:      rows.length,
     issues:     rows,
 };

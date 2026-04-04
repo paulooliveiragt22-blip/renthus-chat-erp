@@ -12,7 +12,11 @@
     "sonar:export-bugs": "node scripts/fetch-sonar-reliability.mjs",
     "sonar:export-bugs:csv": "node scripts/fetch-sonar-reliability.mjs --csv",
     "sonar:export-hotspots": "node scripts/fetch-sonar-reliability.mjs --hotspots",
-    "sonar:export-hotspots:csv": "node scripts/fetch-sonar-reliability.mjs --hotspots --csv"
+    "sonar:export-hotspots:csv": "node scripts/fetch-sonar-reliability.mjs --hotspots --csv",
+    "sonar:export-smells": "node scripts/fetch-sonar-reliability.mjs --code-smell",
+    "sonar:export-smells:csv": "node scripts/fetch-sonar-reliability.mjs --code-smell --csv",
+    "sonar:export-quality": "node scripts/fetch-sonar-reliability.mjs --quality",
+    "sonar:export-quality:csv": "node scripts/fetch-sonar-reliability.mjs --quality --csv"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

@@ -84,17 +84,14 @@ function formatBRLInput(raw: string) {
 }
 
 function brlToNumber(v: string) {
-    const n = Number(v.replaceAll(/\./g, "").replaceAll(",", "."));
-    return isNaN(n) ? 0 : n;
+    const n = Number(v.replaceAll(".", "").replaceAll(",", "."));
+    return Number.isNaN(n) ? 0 : n;
 }
 
 function unitLabel(u: Unit) {
-    if (u === "l") return "L"; if (u === "none") return ""; return u;
-}
-
-function firstOrNull<T>(v: T | T[] | null | undefined): T | null {
-    if (!v) return null;
-    return Array.isArray(v) ? (v[0] ?? null) : v;
+    if (u === "l") return "L";
+    if (u === "none") return "";
+    return u;
 }
 
 /** Normaliza linhas da view_produtos_lista (estrutura flat) para Row */
@@ -164,30 +161,47 @@ function volumesWithFormItemUpdated(
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
 const selectCls = inputCls;
 
-function Modal({ title, open, onClose, wide = false, children }: { title: string; open: boolean; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
-    if (!open) return null;
+function Modal({
+    title,
+    open,
+    onClose,
+    wide = false,
+    children,
+}: {
+    title: string;
+    open: boolean;
+    onClose: () => void;
+    wide?: boolean;
+    children: React.ReactNode;
+}) {
+    const ref = useRef<HTMLDialogElement>(null);
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        if (open) {
+            if (!el.open) el.showModal();
+        } else if (el.open) {
+            el.close();
+        }
+    }, [open]);
+
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <button
-                type="button"
-                aria-label="Fechar modal"
-                onClick={onClose}
-                className="absolute inset-0 cursor-default border-0 bg-black/40"
-            />
-            <div
-                role="dialog"
-                aria-modal="true"
-                className={`relative z-10 w-full ${wide ? "max-w-3xl" : "max-w-md"} rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 max-h-[90vh] overflow-y-auto`}
-            >
-                <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
-                    <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
-                        <X className="h-3.5 w-3.5" />
-                    </button>
-                </div>
-                <div className="p-5">{children}</div>
+        <dialog
+            ref={ref}
+            className={`fixed left-1/2 top-1/2 z-50 w-full max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/40 dark:border-zinc-700 dark:bg-zinc-900 ${wide ? "max-w-3xl" : "max-w-md"}`}
+            onCancel={(e) => {
+                e.preventDefault();
+                onClose();
+            }}
+        >
+            <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
+                <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
+                    <X className="h-3.5 w-3.5" />
+                </button>
             </div>
-        </div>
+            <div className="p-5">{children}</div>
+        </dialog>
     );
 }
 
@@ -222,32 +236,15 @@ export default function ProdutosListaPage() {
     const [saving,   setSaving]   = useState(false);
     const [editLoading, setEditLoading] = useState(false);
 
-    // edit fields — variant
-    const [details,     setDetails]     = useState("");
-    const [hasVolume,   setHasVolume]   = useState(false);
-        const [volumeValue, setVolumeValue] = useState("");
-    const [unit,        setUnit]        = useState<Unit>("none");
-    const [unitPrice,   setUnitPrice]   = useState("0,00");
-    const [costPrice,   setCostPrice]   = useState("0,00");
-    const [hasCase,     setHasCase]     = useState(false);
-    const [caseQty,     setCaseQty]     = useState("");
-    const [casePrice,   setCasePrice]   = useState("0,00");
-    const [caseDetails, setCaseDetails] = useState("");
     const [isActive,    setIsActive]    = useState(true);
-    const [tags,        setTags]        = useState("");
-    const [ean,         setEan]         = useState("");
     const [isAccomp,    setIsAccomp]    = useState(false);
-    const [codigoInterno, setCodigoInterno] = useState<string | null>(null);
-    const [codigoLoading, setCodigoLoading] = useState(false);
-    const [codigoCaixa, setCodigoCaixa] = useState<string | null>(null);
-    const [codigoCaixaLoading, setCodigoCaixaLoading] = useState(false);
 
     // edit fields — product base
     const [categoryId,       setCategoryId]       = useState("");
     const [newCategoryName,  setNewCategoryName]  = useState("");
     const [addCategoryOpen,  setAddCategoryOpen]  = useState(false);
-    const [siglaUnId, setSiglaUnId] = useState<string | null>(null);
-    const [siglaCxId, setSiglaCxId] = useState<string | null>(null);
+    const [_siglaUnId, setSiglaUnId] = useState<string | null>(null);
+    const [_siglaCxId, setSiglaCxId] = useState<string | null>(null);
     const [siglas, setSiglas] = useState<{ id: string; sigla: string }[]>([]);
     const [unitTypes, setUnitTypes] = useState<{ id: string; sigla: string }[]>([]);
     const [siglaExtraId, setSiglaExtraId] = useState<string | null>(null);
@@ -334,12 +331,6 @@ export default function ProdutosListaPage() {
             setUnitTypes((unitTypesData as any[]).map((u) => ({ id: String(u.id), sigla: String(u.sigla ?? "") })));
         }
         setLoading(false);
-    }
-
-    function getIdUnitType(unit: Unit): string | null {
-        if (unit === "none") return null;
-        const sigla = unit === "l" ? "L" : unit;
-        return unitTypes.find((u) => u.sigla.toLowerCase() === sigla.toLowerCase())?.id ?? null;
     }
 
     async function reloadCategories() {
@@ -671,22 +662,8 @@ export default function ProdutosListaPage() {
     function openNew() {
         setSelected(null);
         setMsg(null);
-        setDetails("");
-        setHasVolume(false);
-        setVolumeValue("");
-        setUnit("none");
-        setUnitPrice("0,00");
-        setCostPrice("0,00");
-        setHasCase(false);
-        setCaseQty("");
-        setCasePrice("0,00");
-        setCaseDetails("");
         setIsActive(true);
-        setTags("");
-        setEan("");
         setIsAccomp(false);
-        setCodigoInterno(null);
-        setCodigoCaixa(null);
         setAcompSelected([]);
         setCategoryId("");
         setProductName("");
@@ -825,36 +802,6 @@ export default function ProdutosListaPage() {
         } catch (e: any) {
             setMsg(`Erro: ${String(e?.message ?? e)}`);
             setSaving(false);
-        }
-    }
-
-    async function gerarCodigoInterno() {
-        if (!companyId) return;
-        setCodigoLoading(true);
-        setMsg(null);
-        try {
-            const { data, error } = await supabase.rpc("gerar_proximo_codigo_interno", { p_company_id: companyId });
-            if (error) throw new Error(error.message);
-            setCodigoInterno(String(data ?? ""));
-        } catch (e: any) {
-            setMsg(`Erro ao gerar código interno: ${String(e?.message ?? e)}`);
-        } finally {
-            setCodigoLoading(false);
-        }
-    }
-
-    async function gerarCodigoCaixa() {
-        if (!companyId) return;
-        setCodigoCaixaLoading(true);
-        setMsg(null);
-        try {
-            const { data, error } = await supabase.rpc("gerar_proximo_codigo_interno", { p_company_id: companyId });
-            if (error) throw new Error(error.message);
-            setCodigoCaixa(String(data ?? ""));
-        } catch (e: any) {
-            setMsg(`Erro ao gerar código interno da embalagem: ${String(e?.message ?? e)}`);
-        } finally {
-            setCodigoCaixaLoading(false);
         }
     }
 
