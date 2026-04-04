@@ -14,7 +14,7 @@ import { describe, it } from "node:test";
 // ─── Regex copiadas dos módulos (para isolar do runtime) ──────────────────────
 // Fonte: lib/chatbot/processMessage.ts
 
-const GREETING_ONLY_RE    = /^(bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|como\s+vai|como\s+voce|feliz\s+ano|feliz\s+natal|obrigad[oa]|obg|valeu|vlw|tchau|ate\s+mais)\s*[!?.,]?\s*$/iu;
+const GREETING_ONLY_RE    = /^(bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|como\s+vai|como\s+voce|feliz\s+ano|feliz\s+natal|obrigad[oa]|obg|valeu|vlw|tchau|ate\s+mais)\s{0,40}[!?.,]?\s{0,40}$/iu;
 const ORDER_STATUS_RE     = /(?:(?<!\w)cad[eê](?!\w)|onde\s+est[aá]\b|onde\s+ficou\b|\bstatus\s+d[oe]\s+pedido\b|\bmeu\s+pedido\b|\bacompanhar\s+pedido\b|\bquanto\s+tempo\s+(?:falta|vai|leva)\b|\bprevis[aã]o\s+de\s+entrega\b)/iu;
 const CANCELAR_TEST_RE    = /\b(cancelar|cancela)\b/iu;
 const AWAIT_CANCEL_YES_RE = /(?<![a-záàâãéèêíïóôõúüç])\b(sim|yes|pode|confirm|cancela|cancelo)\b(?![a-záàâãéèêíïóôõúüç])/iu;
@@ -56,13 +56,13 @@ function affirmativeConfidence(input: string): "confirm" | "clarify" | "passthro
 
 // Fonte: lib/chatbot/textParsers.ts
 const REMOVE_INTENT_RE = /\b(retira|retire|remove|remova|tira|tire|diminui|diminuir|deleta|exclui|excluir|menos|retirar|tirar)\b/iu;
-const PAY_1_RE         = /^\s*1\s*$/u;
-const PAY_2_RE         = /^\s*2\s*$/u;
-const PAY_3_RE         = /^\s*3\s*$/u;
+const PAY_1_RE         = /^\s{0,12}1\s{0,12}$/u;
+const PAY_2_RE         = /^\s{0,12}2\s{0,12}$/u;
+const PAY_3_RE         = /^\s{0,12}3\s{0,12}$/u;
 const PIX_RE           = /\bpix\b/iu;
 const CARD_RE          = /\b(cartao|cartão|card|credito|crédito|debito|débito|maquina|maquininha)\b/iu;
 const CASH_RE          = /\b(dinheiro|cash|especie|espécie)\b/iu;
-const GREET_STRIP_RE   = /^(bom\s+dia|boa\s+tarde|boa\s+noite|oi+|ol[aá]|e\s*a[ií]|ei+|hey|hello|opa)[,!\s]+/iu;
+const GREET_STRIP_RE   = /^(bom\s+dia|boa\s+tarde|boa\s+noite|oi+|ol[aá]|e\s*a[ií]|ei+|hey|hello|opa)[,!\s]{1,80}/iu;
 
 // Fonte: lib/chatbot/handlers/handleCatalog.ts
 const MAIS_PRODUTOS_RE = /\bmais\s+produtos\b/iu;

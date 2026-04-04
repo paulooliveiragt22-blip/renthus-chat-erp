@@ -17,7 +17,7 @@ import { sendInteractiveButtons } from "../../whatsapp/send";
 import { normalize } from "../utils";
 
 const EXPLICIT_RESET_RE = /\b(?:limpar|reiniciar|esvaziar|comecar|recomecar)\b/iu;
-const CLIENT_NAME_RE    = /\b(?:me\s+chamo|meu\s+nome\s+[eé]|sou\s+(?:o|a)\s+|pode\s+me\s+chamar\s+de)\s+([A-ZÀ-Úa-zà-ú]{2,}(?:\s+[A-ZÀ-Úa-zà-ú]{2,})?)/iu;
+const CLIENT_NAME_RE    = /\b(?:me\s{1,24}chamo|meu\s{1,24}nome\s{1,24}[eé]|sou\s{1,24}(?:o|a)\s{1,24}|pode\s{1,24}me\s{1,24}chamar\s{1,24}de)\s{1,24}([A-ZÀ-Úa-zà-ú]{2,64}(?:\s{1,24}[A-ZÀ-Úa-zà-ú]{2,64}){0,12})/iu;
 
 async function sendWelcomeButtons(
     phoneE164: string,

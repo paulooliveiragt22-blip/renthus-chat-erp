@@ -7,6 +7,13 @@
 
 import type { CartItem } from "./types";
 
+/** Limite antes de regex de intenção (ReDoS + custo). WhatsApp ~4096 caracteres. */
+export const MAX_CHATBOT_REGEX_INPUT = 2048;
+
+export function clampChatbotInputForRegex(s: string): string {
+    return s.length <= MAX_CHATBOT_REGEX_INPUT ? s : s.slice(0, MAX_CHATBOT_REGEX_INPUT);
+}
+
 // ─── Normalização de texto ────────────────────────────────────────────────────
 
 export function normalize(s: string): string {

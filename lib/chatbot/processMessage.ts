@@ -34,7 +34,7 @@ import {
     sendFlowMessage,
     sendInteractiveButtons,
 } from "../whatsapp/send";
-import { isWithinBusinessHours }     from "./utils";
+import { clampChatbotInputForRegex, isWithinBusinessHours } from "./utils";
 
 // ─── Ponto de entrada ─────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ export async function processInboundMessage(
     params: ProcessMessageParams
 ): Promise<void> {
     const { admin, companyId, threadId, waConfig, catalogFlowId, profileName } = params;
-    const input = params.text.trim();
+    const input = clampChatbotInputForRegex(params.text.trim());
     if (!input) return;
 
     // ── 1. Verifica bot ativo e carrega config ────────────────────────────────
@@ -80,12 +80,21 @@ export async function processInboundMessage(
     if (session.step === "handover") return;
 
     // ── 3. Intenções globais por regex (reset, nome) ──────────────────────────
-    const detected = await detectGlobalIntents(params, session, config);
+    const detected = await detectGlobalIntents(
+        { ...params, text: input },
+        session,
+        config
+    );
     if (detected.handled) return;
 
     // ── 4. awaiting_flow — formulário aberto ─────────────────────────────────
     if (session.step === "awaiting_flow") {
-        await handleAwaitingFlow(params, session, config, effectiveCatalogId);
+        await handleAwaitingFlow(
+            { ...params, text: input },
+            session,
+            config,
+            effectiveCatalogId
+        );
         return;
     }
 

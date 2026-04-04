@@ -9,7 +9,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { normalize } from "../utils";
+import { clampChatbotInputForRegex, normalize } from "../utils";
 
 export type MessageIntent =
     | "order_intent"
@@ -21,11 +21,12 @@ export type MessageIntent =
 
 // ── Regex Level 1 ──────────────────────────────────────────────────────────────
 
-const ORDER_RE = /\b(?:cardapio|catalogo|produtos?|bebidas?|ver\s+(?:card|cat|prod)|pedir|comprar|quero\s+(?:pedir|comprar|ver|um|uma|dois?)|mandar?\s+|traz(?:er)?|quero\s+pedir|fazer\s+pedido)\b/iu;
-const STATUS_RE  = /\b(?:meu\s+pedido|status|cad[eê]|onde\s+est[aá]|acompanhar|previs[aã]o\s+de\s+entrega|quando\s+(?:chega|chegar|vai|vai\s+chegar))\b/iu;
-const HUMAN_RE   = /\b(?:atendente|humano|pessoa|suporte|ajuda|falar\s+com|chamar\s+atendente|preciso\s+de\s+ajuda)\b/iu;
-const GREETING_RE = /^(?:oi|ol[aá]|bom\s+dia|boa\s+tarde|boa\s+noite|al[oô]|hey|hi|e\s+a[ií]|boa|ola|hello)\s*[!?.,]?\s*$/iu;
-const FAQ_RE     = /\b(?:qual|quanto|como|onde|quando|tem\s+|voc[eê]s?\s+(?:t[eê]m|vendem|entregam|aceitam|funcionam)|aceita[mn]?|entreg[am]?|hora[rs]\s+de|funciona[mn]?|disponivel|valor\s+d[oa]|pre[cç]o\s+d[oa]|me\s+diz|saber\s+se)\b/iu;
+// Quantificadores limitados (S5852 / ReDoS): \s{1,N} em vez de \s+ ilimitado
+const ORDER_RE = /\b(?:cardapio|catalogo|produtos?|bebidas?|ver\s{1,24}(?:card|cat|prod)|pedir|comprar|quero\s{1,24}(?:pedir|comprar|ver|um|uma|dois?)|mandar?\s{1,24}|traz(?:er)?|quero\s{1,24}pedir|fazer\s{1,24}pedido)\b/iu;
+const STATUS_RE  = /\b(?:meu\s{1,24}pedido|status|cad[eê]|onde\s{1,24}est[aá]|acompanhar|previs[aã]o\s{1,24}de\s{1,24}entrega|quando\s{1,24}(?:chega|chegar|vai|vai\s{1,24}chegar))\b/iu;
+const HUMAN_RE   = /\b(?:atendente|humano|pessoa|suporte|ajuda|falar\s{1,24}com|chamar\s{1,24}atendente|preciso\s{1,24}de\s{1,24}ajuda)\b/iu;
+const GREETING_RE = /^(?:oi|ol[aá]|bom\s+dia|boa\s+tarde|boa\s+noite|al[oô]|hey|hi|e\s+a[ií]|boa|ola|hello)\s{0,40}[!?.,]?\s{0,40}$/iu;
+const FAQ_RE     = /\b(?:qual|quanto|como|onde|quando|tem\s{1,24}|voc[eê]s?\s{1,24}(?:t[eê]m|vendem|entregam|aceitam|funcionam)|aceita[mn]?|entreg[am]?|hora[rs]\s{1,24}de|funciona[mn]?|disponivel|valor\s{1,24}d[oa]|pre[cç]o\s{1,24}d[oa]|me\s{1,24}diz|saber\s{1,24}se)\b/iu;
 
 // IDs de botão do menu principal
 const BTN_CATALOG = new Set(["btn_catalog", "1"]);
@@ -43,7 +44,7 @@ export async function classifyIntent(
     _step: string,
     model = "claude-haiku-4-5-20251001"
 ): Promise<MessageIntent> {
-    const trimmed = text.trim();
+    const trimmed = clampChatbotInputForRegex(text.trim());
     const norm    = normalize(trimmed);
 
     // Botões exatos do menu (string fixa, sem ambiguidade)
