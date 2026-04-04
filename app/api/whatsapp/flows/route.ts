@@ -17,6 +17,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptFlowRequest, encryptFlowResponse } from "@/lib/whatsapp/flowCrypto";
 import { sendWhatsAppMessage, sendListMessage, type WaConfig } from "@/lib/whatsapp/send";
+import type { CartItem } from "@/lib/whatsapp/flows/flowCartTypes";
+import {
+    buildCatalogCategoriesFromProductRows,
+    fetchFlowCatalogProducts,
+    fetchFlowFavoriteItems,
+    saveCatalogFlowScreen,
+} from "@/lib/whatsapp/flows/catalogFlowHelpers";
 
 export const runtime = "nodejs";
 
@@ -29,15 +36,6 @@ interface FlowRequestBody {
     screen?:    string;
     data?:      Record<string, unknown>;
 }
-
-type CartItem = {
-    name:       string;
-    qty:        number;
-    price:      number;
-    variantId?: string;
-    productId?: string;
-    isCase?:    boolean;
-};
 
 // ─── Helpers gerais ───────────────────────────────────────────────────────────
 
@@ -137,25 +135,6 @@ function flowOrderStatusText(status: string, conf: string): string {
 
 function flowOrderPaymentLabel(m: string): string {
     return ({ pix: "PIX", card: "Cartão", cash: "Dinheiro" } as Record<string, string>)[m] ?? m;
-}
-
-type CatalogCategoryOption = { id: string; title: string; description: string };
-
-function buildCatalogCategoriesFromProductRows(rows: any[] | null | undefined): CatalogCategoryOption[] {
-    const counts: Record<string, { name: string; count: number }> = {};
-    for (const row of rows ?? []) {
-        const cat = (row as any).categories;
-        if (!cat?.id) continue;
-        if (!counts[cat.id]) counts[cat.id] = { name: cat.name, count: 0 };
-        counts[cat.id].count++;
-    }
-    return Object.entries(counts)
-        .map(([id, v]) => ({
-            id,
-            title:       v.name.toUpperCase(),
-            description: `${v.count} produto${v.count !== 1 ? "s" : ""}`,
-        }))
-        .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
 }
 
 function encryptedError(errorCode: string, aesKey: Buffer, iv: Buffer): NextResponse {
@@ -344,117 +323,6 @@ export async function POST(req: NextRequest) {
             ? (earlyThreadPhone.startsWith("+") ? earlyThreadPhone : `+${earlyThreadPhone}`)
             : null;
 
-        // ── Helper: busca produtos formatados para o Flow ─────────────────────
-        async function fetchProducts(opts: {
-            categoryName?: string | null;
-            categoryId?:   string | null;   // passa direto para evitar lookup nome→id
-            search?:       string | null;
-        }): Promise<Array<Record<string, unknown>>> {
-            const selectFields = "id, product_name, descricao, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, sigla_comercial, thumbnail_url, image_url";
-
-            if (opts.search) {
-                const { data } = await admin
-                    .from("view_chat_produtos")
-                    .select(selectFields)
-                    .eq("company_id", companyId)
-                    .ilike("product_name", `%${opts.search}%`)
-                    .limit(20);
-
-                return buildProductItems(data ?? []);
-            }
-
-            // Busca por categoria via view (ordenada por nome)
-            let query = admin
-                .from("view_chat_produtos")
-                .select(selectFields)
-                .eq("company_id", companyId)
-                .order("product_name");
-
-            if (opts.categoryId) {
-                // ID já conhecido — sem DB extra
-                query = query.eq("category_id", opts.categoryId);
-            } else if (opts.categoryName) {
-                // Fallback: lookup nome → id
-                const { data: cat } = await admin
-                    .from("categories")
-                    .select("id")
-                    .eq("company_id", companyId)
-                    .ilike("name", opts.categoryName)
-                    .maybeSingle();
-                if (cat?.id) query = query.eq("category_id", cat.id);
-            }
-
-            const { data } = await query.limit(20);
-            return buildProductItems(data ?? []);
-        }
-
-        function buildProductItems(rows: any[]): Array<Record<string, unknown>> {
-            return rows.map((p: any) => {
-                const sigla    = String(p.sigla_comercial ?? "").toUpperCase();
-                const fator    = Number(p.fator_conversao ?? 0);
-                const vol      = Number(p.volume_quantidade ?? 0);
-                const unit     = String(p.unit_type_sigla ?? "").trim();
-                const descricao = String(p.descricao ?? "").trim();
-
-                // Monta: "LONG NECK 330ml" para UN, "LONG NECK 330ml CX C/6UN" para não-UN
-                const volPart  = vol > 0 && unit ? `${vol}${unit}` : "";
-                const detail   = [descricao, volPart].filter(Boolean).join(" ");
-                let packStr = "";
-                if (sigla && sigla !== "UN") {
-                    const fatorPart = fator > 1 ? ` C/${fator}UN` : "";
-                    packStr = `${detail} ${sigla}${fatorPart}`.trim();
-                } else {
-                    packStr = detail;
-                }
-
-                const price = `R$ ${(Number.parseFloat(p.preco_venda) || 0).toFixed(2).replaceAll(".", ",")}`;
-                const desc  = [packStr, price].filter(Boolean).join(" — ");
-
-                // CheckboxGroup só aceita: id, title, description, metadata, enabled, on-click-action
-                return {
-                    id:          p.id,
-                    title:       String(p.product_name ?? "").toUpperCase().slice(0, 30),
-                    description: desc.slice(0, 300),
-                };
-            });
-        }
-
-        // ── Helper: favoritos do cliente formatados para o Flow ───────────────
-        async function fetchFavoriteItems(): Promise<Array<Record<string, unknown>>> {
-            if (!customerPhone) return [];
-            const { data } = await admin.rpc("get_customer_favorites", {
-                p_company_id:     companyId,
-                p_customer_phone: customerPhone,
-                p_limit:          5,
-            });
-            if (!data?.length) return [];
-            return (data as any[]).map((f: any) => {
-                const price = `R$ ${(Number.parseFloat(f.price) || 0).toFixed(2).replaceAll(".", ",")}`;
-                return {
-                    id:          f.id,
-                    title:       `⭐ ${String(f.name ?? "").toUpperCase().slice(0, 27)}`,
-                    description: `${String(f.description ?? "")} — ${price}`.slice(0, 300),
-                };
-            });
-        }
-
-        // Salva a tela atual na sessão para fallback quando Meta enviar screen: ""
-        // Aceita contexto já carregado para evitar um DB read extra por transição
-        async function saveCatalogScreen(nextScreen: string, existingCtx?: Record<string, unknown>) {
-            let ctx = existingCtx;
-            if (ctx === undefined) {
-                const { data: ctxRow } = await admin
-                    .from("chatbot_sessions")
-                    .select("context")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-                ctx = (ctxRow?.context ?? {}) as Record<string, unknown>;
-            }
-            await admin.from("chatbot_sessions")
-                .update({ context: { ...ctx, catalog_screen: nextScreen } })
-                .eq("thread_id", threadId);
-        }
-
         // ── INIT → tela CATEGORIES ────────────────────────────────────────────
         if (action === "INIT") {
             const { data: rows, error } = await admin
@@ -468,7 +336,7 @@ export async function POST(req: NextRequest) {
 
             const categories = buildCatalogCategoriesFromProductRows(rows ?? []);
 
-            await saveCatalogScreen("CATEGORIES", { catalog_screen: "CATEGORIES" });
+            await saveCatalogFlowScreen(admin, threadId, "CATEGORIES", { catalog_screen: "CATEGORIES" });
             return encryptedOk(
                 { version: "3.0", screen: "CATEGORIES", data: { categories } } as Record<string, unknown>,
                 aesKey, iv
@@ -511,7 +379,7 @@ export async function POST(req: NextRequest) {
 
                 const accCart = (sessionCtx?.accumulated_cart as CartItem[] | undefined) ?? [];
                 const updatedCtx = { ...sessionCtx, catalog_screen: "CATEGORIES" };
-                await saveCatalogScreen("CATEGORIES", updatedCtx);
+                await saveCatalogFlowScreen(admin, threadId, "CATEGORIES", updatedCtx);
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -568,7 +436,7 @@ export async function POST(req: NextRequest) {
                         }
                     }
 
-                    await saveCatalogScreen("CEP_SEARCH", { ...finalizeCtxBase, catalog_screen: "CEP_SEARCH" });
+                    await saveCatalogFlowScreen(admin, threadId, "CEP_SEARCH", { ...finalizeCtxBase, catalog_screen: "CEP_SEARCH" });
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -598,12 +466,12 @@ export async function POST(req: NextRequest) {
                     !searchAll && categoryId
                         ? admin.from("categories").select("name").eq("id", categoryId).maybeSingle().then(r => r.data)
                         : Promise.resolve(null),
-                    fetchProducts(
+                    fetchFlowCatalogProducts(admin, companyId,
                         searchAll
                             ? { search: searchAll }
                             : { categoryId }   // passa id direto — sem double lookup
                     ),
-                    !searchAll ? fetchFavoriteItems() : Promise.resolve([]),
+                    !searchAll ? fetchFlowFavoriteItems(admin, companyId, customerPhone) : Promise.resolve([]),
                 ]);
 
                 const catName = (catRow as any)?.name ?? "";
@@ -622,7 +490,7 @@ export async function POST(req: NextRequest) {
                     ? `Resultados para "${searchAll.toUpperCase()}"`
                     : catName.toUpperCase();
 
-                await saveCatalogScreen("PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
+                await saveCatalogFlowScreen(admin, threadId, "PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -653,7 +521,7 @@ export async function POST(req: NextRequest) {
 
                 // Se busca preenchida e nada selecionado → filtra e retorna PRODUCTS de novo
                 if (searchFilter && !selectedIds.length) {
-                    const products = await fetchProducts(
+                    const products = await fetchFlowCatalogProducts(admin, companyId,
                         catIdCache
                             ? { categoryId: catIdCache, search: searchFilter }
                             : { search: searchFilter }
@@ -662,8 +530,8 @@ export async function POST(req: NextRequest) {
                     const saveCtx = { ...sessionCtx, catalog_screen: "PRODUCTS" };
                     // Sem resultados: re-renderiza com todos os produtos da categoria
                     if (!products.length) {
-                        const fallback = await fetchProducts(catIdCache ? { categoryId: catIdCache } : {});
-                        await saveCatalogScreen("PRODUCTS", saveCtx);
+                        const fallback = await fetchFlowCatalogProducts(admin, companyId, catIdCache ? { categoryId: catIdCache } : {});
+                        await saveCatalogFlowScreen(admin, threadId, "PRODUCTS", saveCtx);
                         return encryptedOk(
                             { version: "3.0", screen: "PRODUCTS", data: { products: fallback, category_name: catNameForProducts.toUpperCase() || "PRODUTOS", category_id_cache: catIdCache } } as Record<string, unknown>,
                             aesKey, iv
@@ -674,7 +542,7 @@ export async function POST(req: NextRequest) {
                         ? `"${searchFilter.toUpperCase()}" em ${catNameForProducts.toUpperCase() || "categoria"}`
                         : `Resultados para "${searchFilter.toUpperCase()}"`;
 
-                    await saveCatalogScreen("PRODUCTS", saveCtx);
+                    await saveCatalogFlowScreen(admin, threadId, "PRODUCTS", saveCtx);
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -691,8 +559,8 @@ export async function POST(req: NextRequest) {
 
                 // Nenhum produto selecionado: re-renderiza PRODUCTS (sem screen = bug Meta)
                 if (!selectedIds.length) {
-                    const reProducts = await fetchProducts(catIdCache ? { categoryId: catIdCache } : {});
-                    await saveCatalogScreen("PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
+                    const reProducts = await fetchFlowCatalogProducts(admin, companyId, catIdCache ? { categoryId: catIdCache } : {});
+                    await saveCatalogFlowScreen(admin, threadId, "PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -726,8 +594,8 @@ export async function POST(req: NextRequest) {
 
                 if (prodErr || !validProducts?.length) {
                     console.error("[flows/catalog] invalid_products | prodErr:", prodErr?.message, "| catIdCache:", catIdCache);
-                    const fbProducts = await fetchProducts(catIdCache ? { categoryId: catIdCache } : {});
-                    await saveCatalogScreen("PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
+                    const fbProducts = await fetchFlowCatalogProducts(admin, companyId, catIdCache ? { categoryId: catIdCache } : {});
+                    await saveCatalogFlowScreen(admin, threadId, "PRODUCTS", { ...sessionCtx, catalog_screen: "PRODUCTS" });
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -885,20 +753,7 @@ export async function POST(req: NextRequest) {
                         .eq("is_active", true)
                         .not("category_id", "is", null);
 
-                    const countsBack: Record<string, { name: string; count: number }> = {};
-                    for (const row of catRowsBack ?? []) {
-                        const cat = (row as any).categories;
-                        if (!cat?.id) continue;
-                        if (!countsBack[cat.id]) countsBack[cat.id] = { name: cat.name, count: 0 };
-                        countsBack[cat.id].count++;
-                    }
-                    const categoriesBack = Object.entries(countsBack)
-                        .map(([id, v]) => ({
-                            id,
-                            title:       v.name.toUpperCase(),
-                            description: `${v.count} produto${v.count !== 1 ? "s" : ""}`,
-                        }))
-                        .sort((a, b) => (countsBack[b.id]?.count ?? 0) - (countsBack[a.id]?.count ?? 0));
+                    const categoriesBack = buildCatalogCategoriesFromProductRows(catRowsBack ?? []);
 
                     const addMoreCtx = {
                         ...context,
@@ -908,7 +763,7 @@ export async function POST(req: NextRequest) {
                         pending_names:       undefined,
                         catalog_screen:      "CATEGORIES_RETURN",
                     };
-                    await saveCatalogScreen("CATEGORIES_RETURN", addMoreCtx);
+                    await saveCatalogFlowScreen(admin, threadId, "CATEGORIES_RETURN", addMoreCtx);
                     return encryptedOk(
                         {
                             version: "3.0",
@@ -975,7 +830,7 @@ export async function POST(req: NextRequest) {
                     pending_names: undefined,
                     catalog_screen: "CEP_SEARCH",
                 };
-                await saveCatalogScreen("CEP_SEARCH", cepSearchCtx);
+                await saveCatalogFlowScreen(admin, threadId, "CEP_SEARCH", cepSearchCtx);
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -1090,7 +945,7 @@ export async function POST(req: NextRequest) {
 
                 // Usa cart já carregado na sessão inicial
                 const cart = ((sessionForScreen?.cart ?? []) as CartItem[]);
-                await saveCatalogScreen("ADDRESS", { ...sessionCtx, catalog_screen: "ADDRESS" });
+                await saveCatalogFlowScreen(admin, threadId, "ADDRESS", { ...sessionCtx, catalog_screen: "ADDRESS" });
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -1189,7 +1044,7 @@ export async function POST(req: NextRequest) {
 
                 if (!paymentMethod) {
                     console.error("[flows/catalog] missing_payment_method | threadId:", threadId);
-                    await saveCatalogScreen("PAYMENT", { ...sessionCtx, catalog_screen: "PAYMENT" });
+                    await saveCatalogFlowScreen(admin, threadId, "PAYMENT", { ...sessionCtx, catalog_screen: "PAYMENT" });
                     return encryptedOk({ version: "3.0", screen: "PAYMENT", data: {} } as Record<string, unknown>, aesKey, iv);
                 }
 

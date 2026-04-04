@@ -1,7 +1,7 @@
 // app/(admin)/entregadores/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
@@ -38,13 +38,25 @@ const emptyForm: FormState = { name: "", phone: "", vehicle: "", plate: "", note
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
 
 function Modal({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {
+    const titleId = React.useId();
     if (!open) return null;
     return (
-        <div onClick={onClose} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <button
+                type="button"
+                className="absolute inset-0 cursor-default border-0 bg-transparent"
+                aria-label="Fechar modal"
+                onClick={onClose}
+            />
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                className="relative z-10 w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+            >
                 <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
-                    <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
+                    <h3 id={titleId} className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
+                    <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <X className="h-3.5 w-3.5" />
                     </button>
                 </div>
@@ -59,10 +71,11 @@ function Skeleton() {
 }
 
 function Field({ label, value, onChange, placeholder = "", hint }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; hint?: string }) {
+    const id = React.useId();
     return (
         <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{label}</label>
-            <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={inputCls} />
+            <label htmlFor={id} className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{label}</label>
+            <input id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={inputCls} />
             {hint && <p className="text-[11px] text-zinc-400">{hint}</p>}
         </div>
     );
@@ -73,6 +86,7 @@ function Field({ label, value, onChange, placeholder = "", hint }: { label: stri
 export default function EntregadoresPage() {
     const supabase = useMemo(() => createClient(), []);
     const { currentCompanyId: companyId } = useWorkspace();
+    const notesFieldId = useId();
 
     const [drivers,  setDrivers]  = useState<Driver[]>([]);
     const [loading,  setLoading]  = useState(true);
@@ -232,10 +246,10 @@ export default function EntregadoresPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
+                    <button type="button" onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                     </button>
-                    <button onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600">
+                    <button type="button" onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600">
                         <Plus className="h-3.5 w-3.5" /> Novo Entregador
                     </button>
                 </div>
@@ -317,15 +331,15 @@ export default function EntregadoresPage() {
 
                             {/* Actions */}
                             <div className="flex items-center gap-1.5 shrink-0 ml-3">
-                                <button onClick={() => toggleActive(d)} title={d.is_active ? "Desativar" : "Ativar"}>
+                                <button type="button" onClick={() => toggleActive(d)} title={d.is_active ? "Desativar" : "Ativar"}>
                                     {d.is_active
                                         ? <ToggleRight className="h-6 w-6 text-violet-600" />
                                         : <ToggleLeft  className="h-6 w-6 text-zinc-400" />}
                                 </button>
-                                <button onClick={() => openEdit(d)} className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-600 dark:border-zinc-700">
+                                <button type="button" onClick={() => openEdit(d)} className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-600 dark:border-zinc-700">
                                     <Pencil className="h-3.5 w-3.5" />
                                 </button>
-                                <button onClick={() => setDelId(d.id)} className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-400 hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-zinc-700">
+                                <button type="button" onClick={() => setDelId(d.id)} className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-400 hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-zinc-700">
                                     <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                             </div>
@@ -343,20 +357,20 @@ export default function EntregadoresPage() {
                         <Field label="Placa" value={form.plate} onChange={(v) => setField("plate", v)} placeholder="ABC-1234" />
                     </div>
                     <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Observações</label>
-                        <textarea value={form.notes} onChange={(e) => setField("notes", e.target.value)} rows={2} placeholder="Ex: Região norte, preferência noite…"
+                        <label htmlFor={notesFieldId} className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Observações</label>
+                        <textarea id={notesFieldId} value={form.notes} onChange={(e) => setField("notes", e.target.value)} rows={2} placeholder="Ex: Região norte, preferência noite…"
                             className="w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm placeholder-zinc-400 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
                     </div>
 
                     {formMsg && <p className="text-xs font-semibold text-red-600">{formMsg}</p>}
 
                     <div className="flex gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                        <button onClick={save} disabled={saving}
+                        <button type="button" onClick={save} disabled={saving}
                             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
                             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                             {saving ? "Salvando…" : editing ? "Salvar alterações" : "Cadastrar entregador"}
                         </button>
-                        <button onClick={() => setOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
+                        <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
                     </div>
                 </div>
             </Modal>
@@ -365,12 +379,12 @@ export default function EntregadoresPage() {
             <Modal title="Confirmar exclusão" open={!!delId} onClose={() => setDelId(null)}>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">Esta ação removerá permanentemente o entregador. Pedidos vinculados manterão o histórico, mas perderão o vínculo.</p>
                 <div className="mt-5 flex gap-2">
-                    <button onClick={confirmDelete} disabled={deleting}
+                    <button type="button" onClick={confirmDelete} disabled={deleting}
                         className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-red-600 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60">
                         {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         {deleting ? "Excluindo…" : "Sim, excluir"}
                     </button>
-                    <button onClick={() => setDelId(null)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
+                    <button type="button" onClick={() => setDelId(null)} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
                 </div>
             </Modal>
         </div>
