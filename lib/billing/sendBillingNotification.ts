@@ -14,7 +14,7 @@ import "server-only";
 const GRAPH_API_BASE = "https://graph.facebook.com/v20.0";
 
 function normalizeBrazilianNumber(raw: string): string {
-    const digits = raw.replace(/^\+/, "").trim();
+    const digits = raw.replaceAll(/^\+/g, "").trim();
     if (/^55\d{10}$/.test(digits)) {
         const ddd    = digits.slice(2, 4);
         const number = digits.slice(4);

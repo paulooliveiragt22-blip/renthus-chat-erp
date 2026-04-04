@@ -16,7 +16,7 @@ const BASE_URL = "https://api.pagar.me/core/v5";
  * sem 55 — antes o payload omitia `phones` e a API retornava erro de campos obrigatórios.
  */
 function normalizeBrazilPhoneDigits(raw: string): string {
-    let d = raw.replace(/\D/g, "");
+    let d = raw.replaceAll(/\D/g, "");
     if (!d) return "";
     if (d.startsWith("55") && d.length >= 12) return d;
     while (d.startsWith("0") && d.length > 10) d = d.slice(1);
@@ -203,7 +203,7 @@ export async function createSetupOrder(params: {
             },
         };
         if (params.holderDocument) {
-            cardSub.holder_document = params.holderDocument.replace(/\D/g, "");
+            cardSub.holder_document = params.holderDocument.replaceAll(/\D/g, "");
         }
         creditCard.card = cardSub;
     }
@@ -231,7 +231,7 @@ export async function createSetupOrder(params: {
         body.customer_id = params.customerId;
     } else if (params.customer) {
         const c       = params.customer;
-        const docRaw  = c.document?.replace(/\D/g, "") ?? "";
+        const docRaw  = c.document?.replaceAll(/\D/g, "") ?? "";
         const isCpf   = docRaw.length === 11;
         const cBody: Record<string, unknown> = {
             name:  c.name,
@@ -244,7 +244,7 @@ export async function createSetupOrder(params: {
         }
         attachCustomerMobilePhone(cBody, c.phone);
         if (c.address) {
-            let zip = c.address.zipCode.replace(/\D/g, "");
+            let zip = c.address.zipCode.replaceAll(/\D/g, "");
             if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
             const line1Parts = [c.address.street, c.address.number, c.address.neighborhood]
                 .map((s) => s?.trim()).filter(Boolean);
@@ -329,7 +329,7 @@ export async function createPixInvoiceOrder(params: {
         body.customer_id = params.customerId;
     } else if (params.customer) {
         const c      = params.customer;
-        const docRaw = c.document?.replace(/\D/g, "") ?? "";
+        const docRaw = c.document?.replaceAll(/\D/g, "") ?? "";
         const isCpf  = docRaw.length === 11;
         const cBody: Record<string, unknown> = {
             name:  c.name,
@@ -342,7 +342,7 @@ export async function createPixInvoiceOrder(params: {
         }
         attachCustomerMobilePhone(cBody, c.phone);
         if (c.address) {
-            let zip = c.address.zipCode.replace(/\D/g, "");
+            let zip = c.address.zipCode.replaceAll(/\D/g, "");
             if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
             const line1Parts = [c.address.street, c.address.number, c.address.neighborhood]
                 .map((s) => s?.trim()).filter(Boolean);
@@ -544,13 +544,13 @@ export async function createCheckoutOrder(params: {
             type:  "company",
         };
         if (c.document) {
-            const digitsDoc = c.document.replace(/\D/g, "");
+            const digitsDoc = c.document.replaceAll(/\D/g, "");
             cBody.document      = digitsDoc;
             cBody.document_type = digitsDoc.length === 11 ? "CPF" : "CNPJ";
         }
         attachCustomerMobilePhone(cBody, c.phone);
         if (c.address) {
-            let zip = c.address.zipCode.replace(/\D/g, "");
+            let zip = c.address.zipCode.replaceAll(/\D/g, "");
             if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
             const line1 = `${c.address.street} ${c.address.number}`.trim();
             cBody.addresses = [

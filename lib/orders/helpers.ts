@@ -9,13 +9,13 @@ export function formatBRL(n: number | null | undefined) {
 }
 
 export function formatBRLInput(raw: string) {
-    const digits = raw.replace(/\D/g, "");
+    const digits = raw.replaceAll(/\D/g, "");
     const num = Number(digits) / 100;
     return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function brlToNumber(v: string) {
-    const cleaned = v.replace(/\./g, "").replace(",", ".");
+    const cleaned = v.replaceAll(/\./g, "").replaceAll(",", ".");
     const n = Number(cleaned);
     return isNaN(n) ? 0 : n;
 }
@@ -156,7 +156,7 @@ export function buildVariantTexts(v: Variant) {
 }
 
 export function toQtyInt(v: string) {
-    const n = parseInt((v ?? "").replace(/\D/g, ""), 10);
+    const n = parseInt((v ?? "").replaceAll(/\D/g, ""), 10);
     return Number.isFinite(n) ? n : 0;
 }
 
@@ -221,7 +221,7 @@ export function formatEnderecoLine(e: {
     ]
         .filter(Boolean)
         .join(", ");
-    const cep = e.cep?.replace(/\D/g, "");
+    const cep = e.cep?.replaceAll(/\D/g, "");
     const cepFmt = cep && cep.length === 8 ? `${cep.slice(0, 5)}-${cep.slice(5)}` : e.cep?.trim();
     const parts = [line, cepFmt ? `CEP ${cepFmt}` : null].filter(Boolean);
     return parts.join(" · ");

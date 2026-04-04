@@ -16,10 +16,10 @@ export type CompanyRowForPagarme = {
 };
 
 export function extractCompanyCnpjDigits(company: CompanyRowForPagarme): string {
-    const fromCol = (company.cnpj ?? "").replace(/\D/g, "");
+    const fromCol = (company.cnpj ?? "").replaceAll(/\D/g, "");
     if (fromCol) return fromCol;
     const meta = company.meta as { cnpj?: string } | null | undefined;
-    return (meta?.cnpj ?? "").replace(/\D/g, "");
+    return (meta?.cnpj ?? "").replaceAll(/\D/g, "");
 }
 
 export function buildPagarmeCustomerPayload(company: CompanyRowForPagarme): {

@@ -74,7 +74,7 @@ const FINALIZAR_RE     = /\bfinalizar\b/iu;
 
 /** Testa regex sem risco de lastIndex residual (para regex com /g eventual) */
 function test(re: RegExp, input: string): boolean {
-    const clone = new RegExp(re.source, re.flags.replace("g", ""));
+    const clone = new RegExp(re.source, re.flags.replaceAll("g", ""));
     return clone.test(input);
 }
 

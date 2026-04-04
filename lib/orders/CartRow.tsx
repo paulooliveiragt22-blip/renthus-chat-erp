@@ -18,7 +18,7 @@ export default function CartRow({
 }) {
     const { title, sub } = buildVariantTexts(item.variant);
     // Nível 2: remove separador "•" para ficar "descricao volume" em vez de "descricao • volume"
-    const detailLine = sub ? sub.replace(/ • /g, " ") : null;
+    const detailLine = sub ? sub.replaceAll(/ • /g, " ") : null;
 
     return (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-800/50">

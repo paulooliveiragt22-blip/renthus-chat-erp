@@ -74,7 +74,7 @@ function formatDate(iso: string): string {
 }
 
 function formatPhone(phone: string): string {
-    const digits = phone.replace(/\D/g, "");
+    const digits = phone.replaceAll(/\D/g, "");
     if (digits.length === 13) {
         return `+${digits.slice(0, 2)} (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
     }
@@ -290,7 +290,7 @@ function TicketCard({
                     {ticket.customer_name ?? "Cliente"}
                 </span>
                 <a
-                    href={`https://wa.me/${ticket.customer_phone.replace(/\D/g, "")}`}
+                    href={`https://wa.me/${ticket.customer_phone.replaceAll(/\D/g, "")}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-sm text-green-600 hover:underline"

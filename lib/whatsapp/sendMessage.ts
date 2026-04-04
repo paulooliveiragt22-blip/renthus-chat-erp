@@ -108,7 +108,7 @@ export async function sendWhatsAppMessage(
             },
             body: JSON.stringify({
                 messaging_product: "whatsapp",
-                to: toPhone.replace(/^\+/, "").replace(/^55(\d{2})(\d{8})$/, "55$19$2"),
+                to: toPhone.replaceAll(/^\+/g, "").replace(/^55(\d{2})(\d{8})$/, "55$19$2"),
                 type: "text",
                 text: { body: text },
             }),

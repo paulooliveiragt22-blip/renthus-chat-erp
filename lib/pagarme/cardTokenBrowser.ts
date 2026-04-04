@@ -4,7 +4,7 @@
  */
 
 export function parseCardExpiry(raw: string): { month: string; year: string } | null {
-    const s = raw.replace(/\s/g, "");
+    const s = raw.replaceAll(/\s/g, "");
     const m = s.match(/^(\d{2})\/(\d{2,4})$/);
     if (!m) return null;
     let y = m[2];
@@ -33,15 +33,15 @@ export async function pagarmeCreateCardToken(
     }
 ): Promise<string> {
     const card: Record<string, unknown> = {
-        number:      p.number.replace(/\D/g, ""),
-        holder_name: p.holder_name.replace(/[^a-zA-ZÀ-ÿ\s]/g, "").trim() || p.holder_name.trim(),
+        number:      p.number.replaceAll(/\D/g, ""),
+        holder_name: p.holder_name.replaceAll(/[^a-zA-ZÀ-ÿ\s]/g, "").trim() || p.holder_name.trim(),
         exp_month:   Number(p.exp_month),
         exp_year:    Number(p.exp_year),
-        cvv:         p.cvv.replace(/\D/g, ""),
+        cvv:         p.cvv.replaceAll(/\D/g, ""),
     };
 
     if (p.holder_document) {
-        card.holder_document = p.holder_document.replace(/\D/g, "");
+        card.holder_document = p.holder_document.replaceAll(/\D/g, "");
     }
 
     if (p.billing_address) {
@@ -50,7 +50,7 @@ export async function pagarmeCreateCardToken(
             street:       b.street,
             number:       b.number,
             neighborhood: b.neighborhood,
-            zipcode:      b.zipcode.replace(/\D/g, ""),
+            zipcode:      b.zipcode.replaceAll(/\D/g, ""),
             city:         b.city,
             state:        b.state,
             country:      b.country ?? "BR",

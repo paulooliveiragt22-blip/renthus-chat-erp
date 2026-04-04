@@ -512,7 +512,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                                         >
                                             {plans.map((p: any) => (
                                                 <option key={p.id} value={p.id}>
-                                                    {p.name} — R$ {(p.price_cents / 100).toFixed(2).replace(".", ",")}
+                                                    {p.name} — R$ {(p.price_cents / 100).toFixed(2).replaceAll(".", ",")}
                                                 </option>
                                             ))}
                                         </select>
@@ -679,7 +679,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                                         <tr key={o.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
                                             <td className="px-4 py-3">
                                                 <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] font-mono dark:bg-zinc-800">
-                                                    #{o.id.replace(/-/g, "").slice(-6).toUpperCase()}
+                                                    #{o.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}
                                                 </code>
                                             </td>
                                             <td className="px-4 py-3 text-xs font-semibold text-zinc-900 dark:text-zinc-100">

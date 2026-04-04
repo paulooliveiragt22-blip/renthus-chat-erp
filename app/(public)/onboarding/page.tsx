@@ -234,12 +234,12 @@ export default function OnboardingPage() {
                             <div style={{ ...S.successNote }}>✅ Número salvo!</div>
                         ) : (
                             <button
-                                disabled={savingWA || whatsappNumber.replace(/\D/g, "").length < 10}
+                                disabled={savingWA || whatsappNumber.replaceAll(/\D/g, "").length < 10}
                                 onClick={saveWhatsapp}
                                 style={{
                                     ...S.btn,
                                     marginTop: 16,
-                                    opacity: savingWA || whatsappNumber.replace(/\D/g, "").length < 10 ? 0.4 : 1,
+                                    opacity: savingWA || whatsappNumber.replaceAll(/\D/g, "").length < 10 ? 0.4 : 1,
                                 }}>
                                 {savingWA ? "Salvando..." : "Salvar número e continuar →"}
                             </button>

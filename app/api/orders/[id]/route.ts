@@ -12,7 +12,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         if (!orderId) return NextResponse.json({ error: "order_id required" }, { status: 400 });
 
         // 1) If Authorization header present try agent auth first
-        const authHeader = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+        const authHeader = (req.headers.get("authorization") || "").replaceAll(/^Bearer\s+/gi, "").trim();
         if (authHeader) {
             const agent = await verifyAgentByApiKey(authHeader);
             if (agent) {

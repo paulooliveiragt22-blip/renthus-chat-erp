@@ -104,7 +104,7 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 };
 
 function getCategoryEmoji(name: string): string {
-    const key = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const key = name.toLowerCase().normalize("NFD").replaceAll(/[\u0300-\u036f]/g, "");
     for (const [k, emoji] of Object.entries(CATEGORY_EMOJIS)) {
         if (key.includes(k)) return emoji;
     }
@@ -387,7 +387,7 @@ export async function POST(req: NextRequest) {
                     packStr = detail;
                 }
 
-                const price = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replace(".", ",")}`;
+                const price = `R$ ${(parseFloat(p.preco_venda) || 0).toFixed(2).replaceAll(".", ",")}`;
                 const desc  = [packStr, price].filter(Boolean).join(" — ");
 
                 // CheckboxGroup só aceita: id, title, description, metadata, enabled, on-click-action
@@ -409,7 +409,7 @@ export async function POST(req: NextRequest) {
             });
             if (!data?.length) return [];
             return (data as any[]).map((f: any) => {
-                const price = `R$ ${(parseFloat(f.price) || 0).toFixed(2).replace(".", ",")}`;
+                const price = `R$ ${(parseFloat(f.price) || 0).toFixed(2).replaceAll(".", ",")}`;
                 return {
                     id:          f.id,
                     title:       `⭐ ${String(f.name ?? "").toUpperCase().slice(0, 27)}`,
@@ -860,7 +860,7 @@ export async function POST(req: NextRequest) {
                     const qty = Math.max(1, Math.round(
                         typeof raw === "number"
                             ? raw
-                            : parseFloat(String(raw ?? "1").replace(",", ".").trim()) || 1
+                            : parseFloat(String(raw ?? "1").replaceAll(",", ".").trim()) || 1
                     ));
                     return {
                         variantId: id,
@@ -996,7 +996,7 @@ export async function POST(req: NextRequest) {
             // ── CEP_SEARCH → endereço salvo → PAYMENT | CEP → ADDRESS ─────────
             if (screenNorm === "CEP_SEARCH") {
                 const selectedAddressId = String(formData?.selected_address_id ?? "").trim();
-                const rawCep            = String(formData?.cep ?? "").replace(/\D/g, "");
+                const rawCep            = String(formData?.cep ?? "").replaceAll(/\D/g, "");
 
                 // Helper local: lookup de zona de entrega
                 const lookupZone = async (bairro: string) => {
@@ -1188,7 +1188,7 @@ export async function POST(req: NextRequest) {
             if (screenNorm === "PAYMENT") {
                 const paymentMethod = String(formData?.payment_method ?? "").trim();
                 const trocoStr      = String(formData?.troco_para     ?? "").trim();
-                const changeFor     = trocoStr ? parseFloat(trocoStr.replace(",", ".")) || null : null;
+                const changeFor     = trocoStr ? parseFloat(trocoStr.replaceAll(",", ".")) || null : null;
 
                 if (!paymentMethod) {
                     console.error("[flows/catalog] missing_payment_method | threadId:", threadId);
@@ -1223,7 +1223,7 @@ export async function POST(req: NextRequest) {
                     const threadProfileName = earlyThreadProfileName;
 
                     if (threadPhoneE164) {
-                        const phoneRaw = threadPhoneE164.replace(/\D/g, "");
+                        const phoneRaw = threadPhoneE164.replaceAll(/\D/g, "");
                         const { data: existCust } = await admin
                             .from("customers")
                             .select("id")
@@ -1362,7 +1362,7 @@ export async function POST(req: NextRequest) {
                     const pmLabel   = pmLabels[paymentMethod] ?? paymentMethod;
                     const feeText   = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
                     const chgText   = changeFor ? ` (troco para ${formatCurrency(changeFor)})` : "";
-                    const orderCode = `#${order.id.replace(/-/g, "").slice(-6).toUpperCase()}`;
+                    const orderCode = `#${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}`;
 
                     const msg = requireApproval
                         ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
@@ -1375,7 +1375,7 @@ export async function POST(req: NextRequest) {
                     {
                         version: "3.0",
                         screen:  "SUCCESS",
-                        data:    { order_code: `#${order.id.replace(/-/g, "").slice(-6).toUpperCase()}` },
+                        data:    { order_code: `#${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}` },
                     } as Record<string, unknown>,
                     aesKey, iv
                 );
@@ -1414,7 +1414,7 @@ export async function POST(req: NextRequest) {
 
         // ── CEP_SEARCH → busca ViaCEP → navega para ADDRESS ──────────────────
         if (screen === "CEP_SEARCH") {
-            const rawCep = String(formData?.cep ?? "").replace(/\D/g, "");
+            const rawCep = String(formData?.cep ?? "").replaceAll(/\D/g, "");
 
             let ruaInit    = "";
             let bairroInit = "";
@@ -1547,7 +1547,7 @@ export async function POST(req: NextRequest) {
         if (screen === "PAYMENT") {
             const paymentMethod = String(formData?.payment_method ?? "").trim();
             const trocoStr      = String(formData?.troco_para     ?? "").trim();
-            const changeFor     = trocoStr ? parseFloat(trocoStr.replace(",", ".")) || null : null;
+            const changeFor     = trocoStr ? parseFloat(trocoStr.replaceAll(",", ".")) || null : null;
 
             if (!paymentMethod) return encryptedError("missing_payment_method", aesKey, iv);
 
@@ -1700,8 +1700,8 @@ export async function POST(req: NextRequest) {
                         : "";
 
                     const msg = requireApproval
-                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replace(/-/g, "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replace(/-/g, "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
+                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
+                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
 
                     await sendWhatsAppMessage(phoneE164, msg, waConfig);
                 }
@@ -1710,7 +1710,7 @@ export async function POST(req: NextRequest) {
                     {
                         version: "3.0",
                         screen:  "SUCCESS",
-                        data:    { order_code: `#${order.id.replace(/-/g, "").slice(-6).toUpperCase()}` },
+                        data:    { order_code: `#${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}` },
                     },
                     aesKey, iv
                 );

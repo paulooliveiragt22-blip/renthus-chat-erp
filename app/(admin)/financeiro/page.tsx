@@ -400,7 +400,7 @@ export default function FinanceiroPage() {
             company_id:     companyId,
             category:       expForm.category,
             description:    expForm.description,
-            amount:         parseFloat(expForm.amount.replace(",", ".")),
+            amount:         parseFloat(expForm.amount.replaceAll(",", ".")),
             due_date:       expForm.due_date,
             payment_status: expForm.payment_status,
             ...(expForm.payment_status === "paid" ? { paid_at: new Date().toISOString() } : {}),

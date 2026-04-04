@@ -75,7 +75,7 @@ function timeAgo(iso: string): string {
 
 function formatPhone(phone: string | null): string {
   if (!phone) return "-";
-  const d = phone.replace(/\D/g, "").replace(/^55/, "");
+  const d = phone.replaceAll(/\D/g, "").replaceAll(/^55/g, "");
   if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
   return phone;
@@ -257,7 +257,7 @@ export default function FilaClient() {
 
       const order   = orders.find((o) => o.id === orderId);
       const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;
-      const shortId = orderId.replace(/-/g, "").slice(-6).toUpperCase();
+      const shortId = orderId.replaceAll(/-/g, "").slice(-6).toUpperCase();
       const total   = Number(order?.total_amount || order?.total || 0)
         .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -300,7 +300,7 @@ export default function FilaClient() {
 
       const order   = orders.find((o) => o.id === orderId);
       const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;
-      const shortId = orderId.replace(/-/g, "").slice(-6).toUpperCase();
+      const shortId = orderId.replaceAll(/-/g, "").slice(-6).toUpperCase();
 
       await sendWhatsApp(phone,
         `❌ Infelizmente seu pedido não pôde ser confirmado.\n\n` +
@@ -387,7 +387,7 @@ export default function FilaClient() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {orders.map((order, idx) => {
           const isFirst  = idx === 0;
-          const shortId  = order.id.replace(/-/g, "").slice(-6).toUpperCase();
+          const shortId  = order.id.replaceAll(/-/g, "").slice(-6).toUpperCase();
           const total    = Number(order.total_amount || order.total || 0);
           const items    = order.order_items ?? [];
           const phone    = order.customer_phone ?? order.customers?.phone ?? null;

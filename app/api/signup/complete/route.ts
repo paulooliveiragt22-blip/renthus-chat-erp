@@ -121,7 +121,7 @@ export async function POST(req: Request) {
 
         // Atualiza dados complementares da empresa
         const addressMeta: Record<string, string> = {};
-        if (body.cep)        addressMeta.cep        = body.cep.replace(/\D/g, "");
+        if (body.cep)        addressMeta.cep        = body.cep.replaceAll(/\D/g, "");
         if (body.endereco)   addressMeta.logradouro  = body.endereco.trim();
         if (body.numero)     addressMeta.numero       = body.numero.trim();
         if (body.complemento) addressMeta.complemento = body.complemento.trim();

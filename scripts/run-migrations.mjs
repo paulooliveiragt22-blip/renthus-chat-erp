@@ -12,7 +12,10 @@ const { Client } = pkg;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DB_URL = "postgresql://postgres.zwcfuvohxmvlxhdfbgxo:CTX6gfhdeeQWr6lF@aws-1-sa-east-1.pooler.supabase.com:5432/postgres";
+const DB_URL = process.env.SUPABASE_MIGRATIONS_DB_URL;
+if (!DB_URL) {
+  throw new Error('SUPABASE_MIGRATIONS_DB_URL environment variable not set');
+}
 
 const MIGRATIONS_DIR = join(__dirname, '..', 'supabase', 'migrations');
 

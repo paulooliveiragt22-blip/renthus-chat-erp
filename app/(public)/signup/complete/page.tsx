@@ -61,7 +61,7 @@ export default function SignupCompletePage() {
 
     // Busca CEP via ViaCEP
     useEffect(() => {
-        const digits = cep.replace(/\D/g, "");
+        const digits = cep.replaceAll(/\D/g, "");
         if (digits.length !== 8 || digits === cepRef.current) return;
         cepRef.current = digits;
         fetch(`https://viacep.com.br/ws/${digits}/json/`)

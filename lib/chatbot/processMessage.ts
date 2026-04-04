@@ -175,7 +175,7 @@ async function sendWelcomeMenu(
     await saveSession(admin, threadId, companyId, { step: "main_menu" });
 
     // Saudação personalizada se cliente já conhecido
-    const phoneClean = phoneE164.replace(/\D/g, "");
+    const phoneClean = phoneE164.replaceAll(/\D/g, "");
     const { data: customer } = await admin
         .from("customers")
         .select("id, name")

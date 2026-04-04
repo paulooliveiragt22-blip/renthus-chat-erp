@@ -153,7 +153,7 @@ export default function EstoquePage() {
 
     async function saveMovement() {
         if (!movItem || !companyId) return;
-        const qty = Number(movQty.replace(",", "."));
+        const qty = Number(movQty.replaceAll(",", "."));
         if (!qty || qty <= 0) { setMovMsg("Informe uma quantidade válida."); return; }
         setMovSaving(true); setMovMsg(null);
         const cur  = movItem.estoque_atual;
@@ -393,12 +393,12 @@ export default function EstoquePage() {
                                 inputMode="numeric"
                                 autoFocus
                             />
-                            {movType !== "ajuste" && movQty && !isNaN(Number(movQty.replace(",", "."))) && (
+                            {movType !== "ajuste" && movQty && !isNaN(Number(movQty.replaceAll(",", "."))) && (
                                 <p className="mt-1 text-xs text-zinc-400">
                                     Novo saldo: <strong className="text-zinc-700 dark:text-zinc-300">
                                         {movType === "entrada"
-                                            ? movItem.estoque_atual + Number(movQty.replace(",", "."))
-                                            : Math.max(0, movItem.estoque_atual - Number(movQty.replace(",", ".")))}
+                                            ? movItem.estoque_atual + Number(movQty.replaceAll(",", "."))
+                                            : Math.max(0, movItem.estoque_atual - Number(movQty.replaceAll(",", ".")))}
                                     </strong>
                                 </p>
                             )}

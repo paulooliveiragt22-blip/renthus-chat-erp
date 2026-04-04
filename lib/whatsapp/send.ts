@@ -30,7 +30,7 @@ export interface WaConfig {
  * Qualquer outro formato passa sem alteração.
  */
 function normalizeBrazilianNumber(raw: string): string {
-    const digits = raw.replace(/^\+/, "").trim();
+    const digits = raw.replaceAll(/^\+/g, "").trim();
 
     // Número BR sem nono dígito: 55 + 2 DDD + 8 número = 12 dígitos
     if (/^55\d{10}$/.test(digits)) {

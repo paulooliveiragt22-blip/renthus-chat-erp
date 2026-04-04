@@ -59,13 +59,13 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Plano inválido. Use 'bot' ou 'complete'" }, { status: 400 });
         }
 
-        const cnpjDigits = cnpj.replace(/\D/g, "");
+        const cnpjDigits = cnpj.replaceAll(/\D/g, "");
         if (cnpjDigits.length !== 14) {
             return NextResponse.json({ error: "CNPJ inválido" }, { status: 400 });
         }
 
         const emailNorm = email.trim().toLowerCase();
-        const whatsappDigits = whatsapp.replace(/\D/g, "");
+        const whatsappDigits = whatsapp.replaceAll(/\D/g, "");
         if (whatsappDigits.length < 10) {
             return NextResponse.json({ error: "WhatsApp inválido" }, { status: 400 });
         }

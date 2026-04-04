@@ -58,7 +58,7 @@ export async function POST(req: Request) {
             .maybeSingle();
 
         if (body.action === "save_whatsapp") {
-            const digits = (body.whatsapp ?? "").replace(/\D/g, "");
+            const digits = (body.whatsapp ?? "").replaceAll(/\D/g, "");
             if (digits.length < 10) {
                 return NextResponse.json({ error: "Número inválido" }, { status: 400 });
             }

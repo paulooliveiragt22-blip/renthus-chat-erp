@@ -3,7 +3,7 @@ export function getInitials(nameOrPhone: string | null | undefined): string {
     if (!nameOrPhone) return "?";
     const s = nameOrPhone.trim();
     // Se parece número, retorna os últimos 2 dígitos
-    if (/^\+?\d[\d\s\-()]+$/.test(s)) return s.replace(/\D/g, "").slice(-2);
+    if (/^\+?\d[\d\s\-()]+$/.test(s)) return s.replaceAll(/\D/g, "").slice(-2);
     const parts = s.split(/\s+/).filter(Boolean);
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -14,7 +14,7 @@ export function getInitials(nameOrPhone: string | null | undefined): string {
  * Aceita formatos: (66) 99228-5005, 66992285005, +5566992285005, etc.
  */
 export function normalizeBrazilToE164(raw: string): string {
-    const digits = raw.replace(/\D/g, "");
+    const digits = raw.replaceAll(/\D/g, "");
     if (digits.startsWith("55")) {
         const local = digits.slice(2);
         // DDD (2) + 8 dígitos sem o 9 → inserir 9

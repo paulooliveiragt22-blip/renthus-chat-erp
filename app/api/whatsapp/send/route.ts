@@ -189,14 +189,14 @@ export async function POST(req: Request) {
                 const text = ((payload as any).text ?? "").trim();
                 bodyPayload = {
                     messaging_product: "whatsapp",
-                    to: toPhone.replace("+", ""),
+                    to: toPhone.replaceAll("+", ""),
                     type: "text",
                     text: { body: text },
                 };
             } else if (kind === "image") {
                 bodyPayload = {
                     messaging_product: "whatsapp",
-                    to: toPhone.replace("+", ""),
+                    to: toPhone.replaceAll("+", ""),
                     type: "image",
                     image: {
                         link: (payload as any).media_url,
@@ -206,7 +206,7 @@ export async function POST(req: Request) {
             } else if (kind === "video") {
                 bodyPayload = {
                     messaging_product: "whatsapp",
-                    to: toPhone.replace("+", ""),
+                    to: toPhone.replaceAll("+", ""),
                     type: "video",
                     video: {
                         link: (payload as any).media_url,
@@ -216,7 +216,7 @@ export async function POST(req: Request) {
             } else if (kind === "audio") {
                 bodyPayload = {
                     messaging_product: "whatsapp",
-                    to: toPhone.replace("+", ""),
+                    to: toPhone.replaceAll("+", ""),
                     type: "audio",
                     audio: {
                         link: (payload as any).media_url,
@@ -226,7 +226,7 @@ export async function POST(req: Request) {
                 // document
                 bodyPayload = {
                     messaging_product: "whatsapp",
-                    to: toPhone.replace("+", ""),
+                    to: toPhone.replaceAll("+", ""),
                     type: "document",
                     document: {
                         link: (payload as any).media_url,

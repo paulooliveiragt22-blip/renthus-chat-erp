@@ -23,7 +23,7 @@ export async function getOrCreateCustomer(
     phoneE164: string,
     name?: string | null
 ): Promise<Customer | null> {
-    const phoneClean = phoneE164.replace(/\D/g, "");
+    const phoneClean = phoneE164.replaceAll(/\D/g, "");
 
     const { data: existing } = await admin
         .from("customers")

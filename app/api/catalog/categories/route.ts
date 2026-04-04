@@ -30,9 +30,9 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 };
 
 function getEmoji(name: string): string {
-  const key = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const key = name.toLowerCase().normalize("NFD").replaceAll(/[\u0300-\u036f]/g, "");
   for (const [k, emoji] of Object.entries(CATEGORY_EMOJIS)) {
-    const kNorm = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const kNorm = k.normalize("NFD").replaceAll(/[\u0300-\u036f]/g, "");
     if (key.includes(kNorm)) return emoji;
   }
   return "📦";

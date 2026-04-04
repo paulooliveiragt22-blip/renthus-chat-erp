@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const signature = (req as any).headers?.get?.("x-hub-signature") ?? "";
 
     // Verifica assinatura (ignora em dev se PAGARME_WEBHOOK_SECRET não estiver setado)
-    const valid = await verifyWebhookSignature(rawBody, signature.replace("sha256=", ""));
+    const valid = await verifyWebhookSignature(rawBody, signature.replaceAll("sha256=", ""));
     if (!valid) {
         return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
     }

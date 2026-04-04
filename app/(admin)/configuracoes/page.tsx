@@ -372,7 +372,7 @@ function ConfiguracoesPageContent() {
     }
 
     async function fetchViaCep(rawCep: string) {
-        const digits = rawCep.replace(/\D/g, "");
+        const digits = rawCep.replaceAll(/\D/g, "");
         if (digits.length !== 8) return;
         setCepLoading(true);
         try {
@@ -437,12 +437,12 @@ function ConfiguracoesPageContent() {
             setBillingErr("Validade do cartão: use MM/AA.");
             return;
         }
-        const num = renthusCard.number.replace(/\D/g, "");
+        const num = renthusCard.number.replaceAll(/\D/g, "");
         if (num.length < 13) {
             setBillingErr("Número do cartão inválido.");
             return;
         }
-        const cvv = renthusCard.cvv.replace(/\D/g, "");
+        const cvv = renthusCard.cvv.replaceAll(/\D/g, "");
         if (cvv.length < 3) {
             setBillingErr("CVV inválido.");
             return;
@@ -452,7 +452,7 @@ function ConfiguracoesPageContent() {
             setBillingErr("Informe o nome no cartão ou preencha o nome fantasia na aba Geral.");
             return;
         }
-        const addrCep = cardAddr.cep.replace(/\D/g, "");
+        const addrCep = cardAddr.cep.replaceAll(/\D/g, "");
         if (!cardAddr.endereco.trim() || !cardAddr.numero.trim() || !cardAddr.cidade.trim() || cardAddr.uf.length < 2) {
             setBillingErr("Preencha o endereço de cobrança (CEP, endereço, número, cidade e UF).");
             return;
@@ -472,7 +472,7 @@ function ConfiguracoesPageContent() {
                     exp_month:       exp.month,
                     exp_year:        exp.year,
                     cvv,
-                    holder_document: cnpj.replace(/\D/g, "") || undefined,
+                    holder_document: cnpj.replaceAll(/\D/g, "") || undefined,
                     billing_address: {
                         street:       cardAddr.endereco.trim(),
                         number:       cardAddr.numero.trim(),

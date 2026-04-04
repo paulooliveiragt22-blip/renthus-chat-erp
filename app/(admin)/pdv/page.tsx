@@ -22,7 +22,7 @@ function brl(v: number) {
 
 function brlSplit(v: number) {
   const full = v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  const value = full.replace(/^R\$\s*/i, "").trim();
+  const value = full.replaceAll(/^R\$\s*/gi, "").trim();
   return { prefix: "R$", value };
 }
 
@@ -90,7 +90,7 @@ const PAY: Record<PayMethod, { label:string; icon:React.ElementType; color:strin
 };
 
 async function fetchCep(cep: string) {
-  const clean = cep.replace(/\D/g,"");
+  const clean = cep.replaceAll(/\D/g,"");
   if (clean.length!==8) return null;
   try {
     const r = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
@@ -388,7 +388,7 @@ export default function PDVPage() {
   // ── CEP for new customer ─────────────────────────────────────────────
   const handleNewCustCep = async (val: string) => {
     setCustForm(p => ({ ...p, cep: val }));
-    if (val.replace(/\D/g,"").length === 8) {
+    if (val.replaceAll(/\D/g,"").length === 8) {
       setCepLoading(true);
       const d = await fetchCep(val);
       if (d) setCustForm(p => ({ ...p, logradouro: d.logradouro, bairro: d.bairro, cidade: d.cidade, estado: d.estado }));
@@ -429,10 +429,10 @@ export default function PDVPage() {
       const mc = activeCat === "Todos" || v.category === activeCat;
       if (!q) return mc;
 
-      const qDigits = q.replace(/\D/g, "");
+      const qDigits = q.replaceAll(/\D/g, "");
       const internalOk = Boolean(v.codigo_interno) && String(v.codigo_interno).toLowerCase().includes(q);
       const eanRaw = v.codigo_barras_ean ?? "";
-      const eanDigits = String(eanRaw).replace(/\D/g, "");
+      const eanDigits = String(eanRaw).replaceAll(/\D/g, "");
       const eanOk = qDigits.length >= 8 && eanDigits && eanDigits === qDigits;
 
       const textOk =

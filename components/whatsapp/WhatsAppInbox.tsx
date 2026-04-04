@@ -338,7 +338,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const initialPhoneAppliedRef = useRef(false);
     useEffect(() => {
         if (!initialPhone || initialPhoneAppliedRef.current || threads.length === 0) return;
-        const normalize = (p: string) => p.replace(/\D/g, "").replace(/^55/, "");
+        const normalize = (p: string) => p.replaceAll(/\D/g, "").replaceAll(/^55/g, "");
         const target = normalize(initialPhone);
         const match = threads.find((t) => normalize(t.phone_e164) === target);
         if (match) {

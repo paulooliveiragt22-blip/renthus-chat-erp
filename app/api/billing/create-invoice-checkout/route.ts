@@ -143,7 +143,7 @@ export async function POST(req: Request) {
             const bairro  = (bodyAddr?.bairro?.trim()   || String((company as any).bairro ?? "")).trim();
             const city    = (bodyAddr?.cidade?.trim()   || String(company.cidade   ?? "")).trim();
             const uf      = (bodyAddr?.uf?.trim()       || String(company.uf       ?? "")).trim();
-            let zip       = (bodyAddr?.cep ?? String(company.cep ?? "")).replace(/\D/g, "");
+            let zip       = (bodyAddr?.cep ?? String(company.cep ?? "")).replaceAll(/\D/g, "");
 
             if (!street || !num || !city || uf.length < 2) {
                 return NextResponse.json(
@@ -160,7 +160,7 @@ export async function POST(req: Request) {
             }
 
             const line1Parts = [num, street, bairro].filter(Boolean);
-            const cnpjDigits = (company.cnpj as string | null ?? "").replace(/\D/g, "");
+            const cnpjDigits = (company.cnpj as string | null ?? "").replaceAll(/\D/g, "");
 
             const order = await createSetupOrder({
                 amountCents,

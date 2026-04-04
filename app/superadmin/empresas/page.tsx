@@ -95,7 +95,7 @@ function NovaEmpresaModal({
                         >
                             {plans.map((p: any) => (
                                 <option key={p.id} value={p.id}>
-                                    {p.name} — R$ {(p.price_cents / 100).toFixed(2).replace(".", ",")}
+                                    {p.name} — R$ {(p.price_cents / 100).toFixed(2).replaceAll(".", ",")}
                                 </option>
                             ))}
                         </select>
