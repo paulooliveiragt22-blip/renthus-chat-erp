@@ -16,7 +16,9 @@
     "sonar:export-smells": "node scripts/fetch-sonar-reliability.mjs --code-smell",
     "sonar:export-smells:csv": "node scripts/fetch-sonar-reliability.mjs --code-smell --csv",
     "sonar:export-quality": "node scripts/fetch-sonar-reliability.mjs --quality",
-    "sonar:export-quality:csv": "node scripts/fetch-sonar-reliability.mjs --quality --csv"
+    "sonar:export-quality:csv": "node scripts/fetch-sonar-reliability.mjs --quality --csv",
+    "sonar:export-quality:new": "node scripts/fetch-sonar-reliability.mjs --quality --new-code",
+    "sonar:export-quality:new:csv": "node scripts/fetch-sonar-reliability.mjs --quality --new-code --csv"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

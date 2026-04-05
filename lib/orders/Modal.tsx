@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -9,63 +9,62 @@ export default function Modal({
     open,
     onClose,
     children,
-}: {
+}: Readonly<{
     title: string;
     open: boolean;
     onClose: () => void;
     children: React.ReactNode;
-}) {
+}>) {
     const [mounted, setMounted] = useState(false);
+    const dialogRef = useRef<HTMLDialogElement>(null);
 
     useEffect(() => setMounted(true), []);
 
     useEffect(() => {
         if (!open) return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-        window.addEventListener("keydown", onKey);
         const prev = document.body.style.overflow;
         document.body.style.overflow = "hidden";
         return () => {
-            window.removeEventListener("keydown", onKey);
             document.body.style.overflow = prev;
         };
-    }, [open, onClose]);
+    }, [open]);
 
-    if (!open || !mounted) return null;
+    useEffect(() => {
+        const el = dialogRef.current;
+        if (!el) return;
+        if (open) {
+            if (!el.open) el.showModal();
+        } else if (el.open) {
+            el.close();
+        }
+    }, [open, mounted]);
+
+    if (!mounted) return null;
 
     return createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3">
-            <button
-                type="button"
-                aria-label="Fechar modal"
-                onClick={onClose}
-                className="absolute inset-0 cursor-default border-0 bg-black/50"
-            />
-            <div
-                role="dialog"
-                aria-modal="true"
-                className="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
-            >
-                {/* Header */}
-                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-50 line-clamp-1">
-                        {title}
-                    </h3>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-                    >
-                        <X className="h-3.5 w-3.5" />
-                    </button>
-                </div>
-
-                {/* Body */}
-                <div className="overflow-y-auto px-5 py-4 text-zinc-900 dark:text-zinc-50">
-                    {children}
-                </div>
+        <dialog
+            ref={dialogRef}
+            className="fixed left-1/2 top-1/2 z-[9999] flex max-h-[90vh] w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl backdrop:bg-black/50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
+            onCancel={(e) => {
+                e.preventDefault();
+                onClose();
+            }}
+        >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
+                <h3 className="line-clamp-1 text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                    {title}
+                </h3>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                >
+                    <X className="h-3.5 w-3.5" />
+                </button>
             </div>
-        </div>,
+
+            <div className="overflow-y-auto px-5 py-4 text-zinc-900 dark:text-zinc-50">{children}</div>
+        </dialog>,
         document.body
     );
 }

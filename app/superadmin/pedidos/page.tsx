@@ -102,7 +102,7 @@ export default function PedidosPage() {
                                             <tr key={o.id} className="group hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
                                                 <td className="px-4 py-3">
                                                     <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] font-mono dark:bg-zinc-800">
-                                                        #{o.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}
+                                                        #{o.id.replaceAll("-", "").slice(-6).toUpperCase()}
                                                     </code>
                                                 </td>
                                                 <td className="px-4 py-3 text-xs font-medium text-zinc-700 dark:text-zinc-300">

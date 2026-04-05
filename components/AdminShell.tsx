@@ -1,7 +1,7 @@
 // components/AdminShell.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
@@ -65,6 +65,17 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(false);
     const [order, setOrder]     = useState<any | null>(null);
     const [msg, setMsg]         = useState<string | null>(null);
+    const orderDialogRef        = useRef<HTMLDialogElement>(null);
+
+    useEffect(() => {
+        const el = orderDialogRef.current;
+        if (!el) return;
+        if (open) {
+            if (!el.open) el.showModal();
+        } else if (el.open) {
+            el.close();
+        }
+    }, [open]);
 
     async function fetchOrderFull(orderId: string) {
         setMsg(null);
@@ -146,19 +157,14 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* ── Modal de pedido ── */}
-            {open && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3">
-                    <button
-                        type="button"
-                        aria-label="Fechar modal"
-                        onClick={() => setOpen(false)}
-                        className="absolute inset-0 cursor-default border-0 bg-black/40"
-                    />
-                    <div
-                        role="dialog"
-                        aria-modal="true"
-                        className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-zinc-200 bg-white p-4 text-[13px] shadow-lg"
-                    >
+            <dialog
+                ref={orderDialogRef}
+                className="fixed left-1/2 top-1/2 z-[9999] max-h-[90vh] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-zinc-200 bg-white p-4 text-[13px] shadow-lg backdrop:bg-black/40"
+                onCancel={(e) => {
+                    e.preventDefault();
+                    setOpen(false);
+                }}
+            >
                         <div className="mb-3 flex items-center justify-between gap-3">
                             <h3 className="text-sm font-semibold">
                                 {order
@@ -248,9 +254,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                                 </div>
                             )}
                         </div>
-                    </div>
-                </div>
-            )}
+            </dialog>
         </AdminOrdersProvider>
     );
 }

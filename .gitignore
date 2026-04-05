@@ -61,3 +61,9 @@ sonar-code-smells.json
 sonar-code-smells.csv
 sonar-open-quality-issues.json
 sonar-open-quality-issues.csv
+sonar-new-code-quality-issues.json
+sonar-new-code-quality-issues.csv
+sonar-new-code-smells.json
+sonar-new-code-smells.csv
+sonar-new-code-bugs.json
+sonar-new-code-bugs.csv

@@ -471,7 +471,7 @@ export async function POST(req: NextRequest) {
                             ? { search: searchAll }
                             : { categoryId }   // passa id direto — sem double lookup
                     ),
-                    !searchAll ? fetchFlowFavoriteItems(admin, companyId, customerPhone) : Promise.resolve([]),
+                    searchAll ? Promise.resolve([]) : fetchFlowFavoriteItems(admin, companyId, customerPhone),
                 ]);
 
                 const catName = (catRow as any)?.name ?? "";
@@ -1213,7 +1213,7 @@ export async function POST(req: NextRequest) {
                     const pmLabel = flowOrderPaymentLabel(paymentMethod);
                     const feeText   = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
                     const chgText   = changeFor ? ` (troco para ${formatCurrency(changeFor)})` : "";
-                    const orderCode = `#${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}`;
+                    const orderCode = `#${order.id.replaceAll("-", "").slice(-6).toUpperCase()}`;
 
                     const msg = requireApproval
                         ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
@@ -1226,7 +1226,7 @@ export async function POST(req: NextRequest) {
                     {
                         version: "3.0",
                         screen:  "SUCCESS",
-                        data:    { order_code: `#${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}` },
+                        data:    { order_code: `#${order.id.replaceAll("-", "").slice(-6).toUpperCase()}` },
                     } as Record<string, unknown>,
                     aesKey, iv
                 );
@@ -1550,8 +1550,8 @@ export async function POST(req: NextRequest) {
                         : "";
 
                     const msg = requireApproval
-                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
+                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
+                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
 
                     await sendWhatsAppMessage(phoneE164, msg, waConfig);
                 }
@@ -1560,7 +1560,7 @@ export async function POST(req: NextRequest) {
                     {
                         version: "3.0",
                         screen:  "SUCCESS",
-                        data:    { order_code: `#${order.id.replaceAll(/-/g, "").slice(-6).toUpperCase()}` },
+                        data:    { order_code: `#${order.id.replaceAll("-", "").slice(-6).toUpperCase()}` },
                     },
                     aesKey, iv
                 );

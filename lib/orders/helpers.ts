@@ -15,7 +15,7 @@ export function formatBRLInput(raw: string) {
 }
 
 export function brlToNumber(v: string) {
-    const cleaned = v.replaceAll(/\./g, "").replaceAll(",", ".");
+    const cleaned = v.replaceAll(".", "").replaceAll(",", ".");
     const n = Number(cleaned);
     return isNaN(n) ? 0 : n;
 }

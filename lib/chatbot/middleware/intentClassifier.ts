@@ -20,13 +20,82 @@ export type MessageIntent =
     | "unknown";
 
 // ── Regex Level 1 ──────────────────────────────────────────────────────────────
+// Vários padrões pequenos (S5843) em vez de um único regex com alta complexidade.
+// Quantificadores limitados (S5852 / ReDoS): \s{1,N} em vez de \s+ ilimitado.
 
-// Quantificadores limitados (S5852 / ReDoS): \s{1,N} em vez de \s+ ilimitado
-const ORDER_RE = /\b(?:cardapio|catalogo|produtos?|bebidas?|ver\s{1,24}(?:card|cat|prod)|pedir|comprar|quero\s{1,24}(?:pedir|comprar|ver|um|uma|dois?)|mandar?\s{1,24}|traz(?:er)?|quero\s{1,24}pedir|fazer\s{1,24}pedido)\b/iu;
-const STATUS_RE  = /\b(?:meu\s{1,24}pedido|status|cad[eê]|onde\s{1,24}est[aá]|acompanhar|previs[aã]o\s{1,24}de\s{1,24}entrega|quando\s{1,24}(?:chega|chegar|vai|vai\s{1,24}chegar))\b/iu;
-const HUMAN_RE   = /\b(?:atendente|humano|pessoa|suporte|ajuda|falar\s{1,24}com|chamar\s{1,24}atendente|preciso\s{1,24}de\s{1,24}ajuda)\b/iu;
-const GREETING_RE = /^(?:oi|ol[aá]|bom\s+dia|boa\s+tarde|boa\s+noite|al[oô]|hey|hi|e\s+a[ií]|boa|ola|hello)\s{0,40}[!?.,]?\s{0,40}$/iu;
-const FAQ_RE     = /\b(?:qual|quanto|como|onde|quando|tem\s{1,24}|voc[eê]s?\s{1,24}(?:t[eê]m|vendem|entregam|aceitam|funcionam)|aceita[mn]?|entreg[am]?|hora[rs]\s{1,24}de|funciona[mn]?|disponivel|valor\s{1,24}d[oa]|pre[cç]o\s{1,24}d[oa]|me\s{1,24}diz|saber\s{1,24}se)\b/iu;
+function anyPattern(s: string, patterns: RegExp[]): boolean {
+    return patterns.some((re) => re.test(s));
+}
+
+const ORDER_PATTERNS: RegExp[] = [
+    /\bcardapio\b/iu,
+    /\bcatalogo\b/iu,
+    /\bprodutos?\b/iu,
+    /\bbebidas?\b/iu,
+    /\bver\s{1,24}(?:card|cat|prod)\b/iu,
+    /\bpedir\b/iu,
+    /\bcomprar\b/iu,
+    /\bquero\s{1,24}(?:pedir|comprar|ver|um|uma|dois?)\b/iu,
+    /\bmandar?\s{1,24}/iu,
+    /\btraz(?:er)?\b/iu,
+    /\bquero\s{1,24}pedir\b/iu,
+    /\bfazer\s{1,24}pedido\b/iu,
+];
+
+const STATUS_PATTERNS: RegExp[] = [
+    /\bmeu\s{1,24}pedido\b/iu,
+    /\bstatus\b/iu,
+    /\bcad[eê]\b/iu,
+    /\bonde\s{1,24}est[aá]\b/iu,
+    /\bacompanhar\b/iu,
+    /\bprevis[aã]o\s{1,24}de\s{1,24}entrega\b/iu,
+    /\bquando\s{1,24}(?:chega|chegar|vai|vai\s{1,24}chegar)\b/iu,
+];
+
+const HUMAN_PATTERNS: RegExp[] = [
+    /\batendente\b/iu,
+    /\bhumano\b/iu,
+    /\bpessoa\b/iu,
+    /\bsuporte\b/iu,
+    /\bajuda\b/iu,
+    /\bfalar\s{1,24}com\b/iu,
+    /\bchamar\s{1,24}atendente\b/iu,
+    /\bpreciso\s{1,24}de\s{1,24}ajuda\b/iu,
+];
+
+const GREETING_PATTERNS: RegExp[] = [
+    /^oi\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^ol[aá]\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^bom\s+dia\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^boa\s+tarde\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^boa\s+noite\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^al[oô]\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^hey\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^hi\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^e\s+a[ií]\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^boa\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^ola\s{0,40}[!?.,]?\s{0,40}$/iu,
+    /^hello\s{0,40}[!?.,]?\s{0,40}$/iu,
+];
+
+const FAQ_PATTERNS: RegExp[] = [
+    /\bqual\b/iu,
+    /\bquanto\b/iu,
+    /\bcomo\b/iu,
+    /\bonde\b/iu,
+    /\bquando\b/iu,
+    /\btem\s{1,24}/iu,
+    /\bvoc[eê]s?\s{1,24}(?:t[eê]m|vendem|entregam|aceitam|funcionam)\b/iu,
+    /\baceita[mn]?\b/iu,
+    /\bentreg[am]?\b/iu,
+    /\bhora[rs]\s{1,24}de\b/iu,
+    /\bfunciona[mn]?\b/iu,
+    /\bdisponivel\b/iu,
+    /\bvalor\s{1,24}d[oa]\b/iu,
+    /\bpre[cç]o\s{1,24}d[oa]\b/iu,
+    /\bme\s{1,24}diz\b/iu,
+    /\bsaber\s{1,24}se\b/iu,
+];
 
 // IDs de botão do menu principal
 const BTN_CATALOG = new Set(["btn_catalog", "1"]);
@@ -53,11 +122,11 @@ export async function classifyIntent(
     if (BTN_SUPPORT.has(trimmed)) return "human_intent";
 
     // Regex shortcuts (sem custo de IA)
-    if (GREETING_RE.test(trimmed)) return "greeting";
-    if (STATUS_RE.test(norm))      return "status_intent";
-    if (HUMAN_RE.test(norm))       return "human_intent";
-    if (FAQ_RE.test(norm))         return "faq";
-    if (ORDER_RE.test(norm))       return "order_intent";
+    if (anyPattern(trimmed, GREETING_PATTERNS)) return "greeting";
+    if (anyPattern(norm, STATUS_PATTERNS))      return "status_intent";
+    if (anyPattern(norm, HUMAN_PATTERNS))       return "human_intent";
+    if (anyPattern(norm, FAQ_PATTERNS))         return "faq";
+    if (anyPattern(norm, ORDER_PATTERNS))       return "order_intent";
 
     // Mensagens muito curtas sem match → provavelmente saudação ou desconhecido
     if (trimmed.length <= 3) return "greeting";

@@ -72,19 +72,20 @@ function scheduleClearNewOrderFlash(
   }, 2000);
 }
 
-function FilaOrderItemsGrouped({ items }: { items: OrderItem[] }) {
+function FilaOrderItemsGrouped({ items }: Readonly<{ items: OrderItem[] }>) {
   const entries = groupOrderItemsByProduct(items);
   return (
     <>
       {entries.map(([pName, grpItems]) => (
         <div key={pName} className="mb-1">
           <p className="text-[11px] font-bold text-gray-800 dark:text-gray-100 leading-tight">{pName}</p>
-          {grpItems.map(({ it, info }, i) => {
+          {grpItems.map(({ it, info }) => {
             const q = Number(it.quantity ?? 1);
             const tot = Number(it.line_total ?? it.unit_price * q);
+            const lineKey = `${it.product_name}\0${q}\0${it.unit_price}\0${it.line_total ?? ""}\0${it.produto_embalagem_id ?? ""}`;
             return (
               <div
-                key={i}
+                key={lineKey}
                 className="flex items-center justify-between gap-2 pl-2 text-[11px] text-gray-500 dark:text-gray-400"
               >
                 <span className="truncate">
@@ -304,7 +305,7 @@ export default function FilaClient() {
 
       const order   = orders.find((o) => o.id === orderId);
       const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;
-      const shortId = orderId.replaceAll(/-/g, "").slice(-6).toUpperCase();
+      const shortId = orderId.replaceAll("-", "").slice(-6).toUpperCase();
       const total   = Number(order?.total_amount || order?.total || 0)
         .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -347,7 +348,7 @@ export default function FilaClient() {
 
       const order   = orders.find((o) => o.id === orderId);
       const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;
-      const shortId = orderId.replaceAll(/-/g, "").slice(-6).toUpperCase();
+      const shortId = orderId.replaceAll("-", "").slice(-6).toUpperCase();
 
       await sendWhatsApp(phone,
         `❌ Infelizmente seu pedido não pôde ser confirmado.\n\n` +
@@ -434,7 +435,7 @@ export default function FilaClient() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {orders.map((order, idx) => {
           const isFirst  = idx === 0;
-          const shortId  = order.id.replaceAll(/-/g, "").slice(-6).toUpperCase();
+          const shortId  = order.id.replaceAll("-", "").slice(-6).toUpperCase();
           const total    = Number(order.total_amount || order.total || 0);
           const items    = order.order_items ?? [];
           const phone    = order.customer_phone ?? order.customers?.phone ?? null;

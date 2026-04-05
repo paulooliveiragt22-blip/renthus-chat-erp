@@ -21,6 +21,7 @@
  *   --hotspots     — Security Hotspots (api/hotspots/search)
  *   --code-smell   — code smells abertos (Maintainability)
  *   --quality      — BUG + CODE_SMELL abertos (um arquivo)
+ *   --new-code     — escopo New Code (somente com issues/search)
  *
  * Env files (carregados se existirem, sem sobrescrever o shell):
  *   .env.sonar.local, .env.local, .env
@@ -77,7 +78,15 @@ const argSet = new Set(process.argv.slice(2));
 const wantHotspots = argSet.has("--hotspots");
 const wantCodeSmell = argSet.has("--code-smell");
 const wantQuality = argSet.has("--quality");
+const wantNewCode = argSet.has("--new-code");
 const wantCsv = argSet.has("--csv");
+
+if (wantHotspots && wantNewCode) {
+    console.error(
+        "A flag --new-code não se aplica a --hotspots. Rode hotspots sem --new-code, ou use issues/search: padrão (bugs), --code-smell ou --quality com --new-code."
+    );
+    process.exit(1);
+}
 
 const token =
     process.env.SONAR_TOKEN?.trim() ||
@@ -91,9 +100,13 @@ const projectKey =
 
 function defaultOutputBasename() {
     if (wantHotspots) return "sonar-security-hotspots.json";
-    if (wantQuality) return "sonar-open-quality-issues.json";
-    if (wantCodeSmell) return "sonar-code-smells.json";
-    return "sonar-reliability-bugs.json";
+    if (wantQuality) {
+        return wantNewCode ? "sonar-new-code-quality-issues.json" : "sonar-open-quality-issues.json";
+    }
+    if (wantCodeSmell) {
+        return wantNewCode ? "sonar-new-code-smells.json" : "sonar-code-smells.json";
+    }
+    return wantNewCode ? "sonar-new-code-bugs.json" : "sonar-reliability-bugs.json";
 }
 
 const outJson = resolve(root, process.env.SONAR_OUT?.trim() || defaultOutputBasename());
@@ -123,6 +136,9 @@ async function fetchIssuesPage(page, types) {
     url.searchParams.set("statuses", "OPEN");
     url.searchParams.set("ps", "500");
     url.searchParams.set("p", String(page));
+    if (wantNewCode) {
+        url.searchParams.set("sinceLeakPeriod", "true");
+    }
 
     const res = await fetch(url, {
         headers: {
@@ -243,8 +259,9 @@ async function fetchAllIssueRows(types) {
         total = data.paging?.total ?? allIssues.length;
         const batch = data.issues ?? [];
         allIssues.push(...batch);
+        const scope = wantNewCode ? "new-code" : "all";
         process.stderr.write(
-            `issues/search [${types}] página ${page}: +${batch.length} (acumulado: ${allIssues.length} / ${total})\n`
+            `issues/search [${types}] [${scope}] página ${page}: +${batch.length} (acumulado: ${allIssues.length} / ${total})\n`
         );
         if (batch.length === 0) break;
         if (allIssues.length >= total) break;
@@ -258,12 +275,13 @@ const rows = wantHotspots
     : await fetchAllIssueRows(issueTypesParam);
 
 const payload = {
-    fetchedAt:  new Date().toISOString(),
+    fetchedAt:    new Date().toISOString(),
     organization,
     projectKey,
-    typeFilter: wantHotspots ? "SECURITY_HOTSPOT" : issueTypesParam,
-    total:      rows.length,
-    issues:     rows,
+    typeFilter:   wantHotspots ? "SECURITY_HOTSPOT" : issueTypesParam,
+    newCodeOnly:  wantNewCode,
+    total:        rows.length,
+    issues:       rows,
 };
 
 mkdirSync(dirname(outJson), { recursive: true });

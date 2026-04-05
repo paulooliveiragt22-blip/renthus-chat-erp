@@ -2,9 +2,9 @@
  * Aplica supabase/migrations/20260320400001_starter_pro_plans_meta_only.sql
  * só se a versão ainda não estiver em supabase_migrations.schema_migrations.
  */
-import { readFileSync, existsSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { readFileSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import pkg from "pg";
 
 const { Client } = pkg;
@@ -72,7 +72,9 @@ async function main() {
     await client.end();
 }
 
-main().catch((e) => {
+try {
+    await main();
+} catch (e) {
     console.error(e.message || e);
     process.exit(1);
-});
+}

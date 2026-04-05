@@ -148,20 +148,28 @@ function unitLabelFromSiglaForPrint(sigla: string): string {
     return sigla.toLowerCase();
 }
 
+/** Evita S6551: `String` em objeto vira "[object Object]"; aqui só primitivos viram texto. */
+function printScalarToString(value: unknown, fallback: string): string {
+    if (value == null) return fallback;
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    return fallback;
+}
+
 function orderPrintItemFromEmb(
     it: { product_name?: unknown; _emb?: PrintEmb },
     emb: PrintEmb
 ): OrderPrintItemInfo {
-    const prodName = String(emb.product_name ?? "").toUpperCase().trim();
-    const sigla = String(emb.sigla_comercial ?? "UN").toUpperCase();
-    const descricao = String(emb.descricao ?? "").trim();
-    const volStr = String(emb.volume_formatado ?? "").trim();
+    const prodName = printScalarToString(emb.product_name, "").toUpperCase().trim();
+    const sigla = printScalarToString(emb.sigla_comercial, "UN").toUpperCase();
+    const descricao = printScalarToString(emb.descricao, "").trim();
+    const volStr = printScalarToString(emb.volume_formatado, "").trim();
     const fator = Number(emb.fator_conversao) || null;
     const siglaHuman = siglaDisplayNameForPrint(sigla);
     const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
     const detail = [detailPrefix, volStr].filter(Boolean).join(" ");
     const unitLabel = unitLabelFromSiglaForPrint(sigla);
-    const fallbackName = String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim();
+    const fallbackName = printScalarToString(it.product_name, "PRODUTO").split(" • ")[0].toUpperCase().trim();
     return {
         productName: prodName || fallbackName,
         detail:      detail || prodName || "Item",
@@ -171,7 +179,7 @@ function orderPrintItemFromEmb(
 }
 
 function orderPrintItemFromFlat(it: { product_name?: unknown; unit_type?: unknown }): OrderPrintItemInfo {
-    const raw = String(it.product_name ?? "PRODUTO");
+    const raw = printScalarToString(it.product_name, "PRODUTO");
     const bIdx = raw.indexOf(" • ");
     const prodName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
     const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
@@ -1327,19 +1335,18 @@ export default function PedidosPage() {
                         return (
                             <div
                                 key={o.id}
-                                tabIndex={0}
-                                aria-label={`Abrir pedido ${num}`}
-                                className={`bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-800 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:hover:bg-zinc-800/80 cursor-pointer divide-y divide-zinc-100 dark:divide-zinc-800 ${
+                                className={`relative bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-800 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:hover:bg-zinc-800/80 divide-y divide-zinc-100 dark:divide-zinc-800 ${
                                     isFlashing ? "ring-2 ring-emerald-400 dark:ring-emerald-600" : ""
                                 }`}
-                                onClick={() => openOrder(o.id)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        openOrder(o.id);
-                                    }
-                                }}
                             >
+                                <button
+                                    type="button"
+                                    className="absolute inset-0 z-[1] rounded-xl border-0 bg-transparent p-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900"
+                                    aria-label={`Abrir pedido ${num}`}
+                                    onClick={() => openOrder(o.id)}
+                                />
+                                <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
+                                <div className="flex flex-col pointer-events-none divide-y divide-zinc-100 dark:divide-zinc-800">
                                 {/* ── Header: ID + status na mesma linha ── */}
                                 <div className="px-3 py-2 flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-1.5 min-w-0">
@@ -1414,9 +1421,10 @@ export default function PedidosPage() {
                                     </div>
                                     <span className="text-sm font-semibold text-zinc-900 dark:text-emerald-400">R$ {formatBRL(o.total_amount)}</span>
                                 </div>
+                                </div>
 
                                 {/* ── Ações: ghost compacto ── */}
-                                <div className="px-2.5 py-2 flex items-center gap-1">
+                                <div className="relative z-[2] flex items-center gap-1 border-t border-zinc-100 px-2.5 py-2 dark:border-zinc-800 pointer-events-auto">
                                     {/* Ver — destaque principal */}
                                     <button
                                         type="button"
@@ -1483,6 +1491,7 @@ export default function PedidosPage() {
                                             <X className="h-3 w-3" />
                                         </button>
                                     )}
+                                </div>
                                 </div>
                             </div>
                         );

@@ -12,7 +12,7 @@ export function buildCatalogCategoriesFromProductRows(
 ): CatalogCategoryOption[] {
     const counts: Record<string, { name: string; count: number }> = {};
     for (const row of rows ?? []) {
-        const cat = (row as any).categories;
+        const cat = row.categories;
         if (!cat?.id) continue;
         if (!counts[cat.id]) counts[cat.id] = { name: cat.name, count: 0 };
         counts[cat.id].count++;
@@ -21,7 +21,7 @@ export function buildCatalogCategoriesFromProductRows(
         .map(([id, v]) => ({
             id,
             title:       v.name.toUpperCase(),
-            description: `${v.count} produto${v.count !== 1 ? "s" : ""}`,
+            description: `${v.count} produto${v.count === 1 ? "" : "s"}`,
         }))
         .sort((a, b) => (counts[b.id]?.count ?? 0) - (counts[a.id]?.count ?? 0));
 }

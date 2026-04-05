@@ -14,8 +14,6 @@ export default function OrderPaymentInfo({
     paid: boolean;
     change_for: number | null;
     total_amount: number | null | undefined;
-    /** Reservado para layout compacto no futuro */
-    compact?: boolean;
 }) {
     const pm = String(payment_method) as PaymentMethod | string;
     const label = pm === "pix" ? "PIX" : pm === "card" ? "Cartão" : pm === "cash" ? "Dinheiro" : pm;

@@ -37,32 +37,37 @@ const emptyForm: FormState = { name: "", phone: "", vehicle: "", plate: "", note
 
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
 
-function Modal({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {
+function Modal({ title, open, onClose, children }: Readonly<{ title: string; open: boolean; onClose: () => void; children: React.ReactNode }>) {
     const titleId = React.useId();
-    if (!open) return null;
+    const ref = useRef<HTMLDialogElement>(null);
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        if (open) {
+            if (!el.open) el.showModal();
+        } else if (el.open) {
+            el.close();
+        }
+    }, [open]);
+
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <button
-                type="button"
-                className="absolute inset-0 cursor-default border-0 bg-transparent"
-                aria-label="Fechar modal"
-                onClick={onClose}
-            />
-            <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={titleId}
-                className="relative z-10 w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
-            >
-                <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                    <h3 id={titleId} className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
-                    <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
-                        <X className="h-3.5 w-3.5" />
-                    </button>
-                </div>
-                <div className="p-5">{children}</div>
+        <dialog
+            ref={ref}
+            aria-labelledby={titleId}
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/40 dark:border-zinc-700 dark:bg-zinc-900"
+            onCancel={(e) => {
+                e.preventDefault();
+                onClose();
+            }}
+        >
+            <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                <h3 id={titleId} className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h3>
+                <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
+                    <X className="h-3.5 w-3.5" />
+                </button>
             </div>
-        </div>
+            <div className="p-5">{children}</div>
+        </dialog>
     );
 }
 

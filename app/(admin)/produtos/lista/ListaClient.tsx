@@ -263,13 +263,13 @@ function Modal({
     onClose,
     wide = false,
     children,
-}: {
+}: Readonly<{
     title: string;
     open: boolean;
     onClose: () => void;
     wide?: boolean;
     children: React.ReactNode;
-}) {
+}>) {
     const ref = useRef<HTMLDialogElement>(null);
     useEffect(() => {
         const el = ref.current;
@@ -339,8 +339,6 @@ export default function ProdutosListaPage() {
     const [categoryId,       setCategoryId]       = useState("");
     const [newCategoryName,  setNewCategoryName]  = useState("");
     const [addCategoryOpen,  setAddCategoryOpen]  = useState(false);
-    const [_siglaUnId, setSiglaUnId] = useState<string | null>(null);
-    const [_siglaCxId, setSiglaCxId] = useState<string | null>(null);
     const [siglas, setSiglas] = useState<{ id: string; sigla: string }[]>([]);
     const [unitTypes, setUnitTypes] = useState<{ id: string; sigla: string }[]>([]);
     const [siglaExtraId, setSiglaExtraId] = useState<string | null>(null);
@@ -415,11 +413,8 @@ export default function ProdutosListaPage() {
                 sigla: String(s.sigla ?? "").toUpperCase(),
             }));
             setSiglas(mappedSiglas);
-            const un = mappedSiglas.find((s) => s.sigla === "UN");
             const cx = mappedSiglas.find((s) => s.sigla === "CX");
-            if (un) setSiglaUnId(un.id);
             if (cx) {
-                setSiglaCxId(cx.id);
                 setSiglaExtraId((prev) => prev ?? cx.id);
             }
         }
@@ -451,7 +446,6 @@ export default function ProdutosListaPage() {
         }
         const created = { id: String(data), sigla: sigla.trim().toUpperCase() };
         setSiglas((prev) => [...prev, created]);
-        if (created.sigla === "UN") setSiglaUnId(created.id);
         if (!siglaExtraId) setSiglaExtraId(created.id);
         return created.id;
     }
@@ -652,7 +646,7 @@ export default function ProdutosListaPage() {
         if (!companyId) return;
         const ch = subscribeProductListRealtime(supabase, load);
         return () => {
-            void supabase.removeChannel(ch);
+            Promise.resolve(supabase.removeChannel(ch)).catch(() => {});
         };
     }, [supabase, companyId]);
 

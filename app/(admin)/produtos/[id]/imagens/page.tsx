@@ -1,7 +1,7 @@
 // app/(admin)/produtos/[id]/imagens/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
@@ -33,6 +33,7 @@ export default function ProdutoImagensPage() {
     const [loading,    setLoading]    = useState(true);
     const [uploading,  setUploading]  = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const fileInputId                 = useId();
     const fileInputRef                = useRef<HTMLInputElement>(null);
     const dragCounterRef              = useRef(0);
     const [dragging,   setDragging]   = useState(false);
@@ -176,36 +177,40 @@ export default function ProdutoImagensPage() {
 
             {/* Drop zone */}
             <div
-                role="button"
-                tabIndex={uploading ? -1 : 0}
-                aria-disabled={uploading}
-                aria-label="Arraste imagens ou pressione Enter ou Espaço para escolher arquivos"
                 onDragEnter={onDragEnter}
                 onDragOver={(e) => e.preventDefault()}
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
-                onClick={() => !uploading && fileInputRef.current?.click()}
-                onKeyDown={(e) => {
-                    if (uploading) return;
-                    if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        fileInputRef.current?.click();
-                    }
-                }}
-                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                className={`rounded-xl border-2 border-dashed transition-colors ${
                     dragging
                         ? "border-violet-400 bg-violet-50 dark:bg-violet-900/20"
                         : "border-zinc-200 dark:border-zinc-700 hover:border-violet-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                 }`}
             >
                 <input
+                    id={fileInputId}
                     ref={fileInputRef}
                     type="file"
                     accept="image/*"
                     multiple
-                    className="hidden"
+                    className="sr-only"
                     onChange={handleFileInput}
                 />
+                <button
+                    type="button"
+                    disabled={uploading}
+                    aria-controls={fileInputId}
+                    aria-label="Arraste imagens ou pressione para escolher arquivos"
+                    onClick={() => fileInputRef.current?.click()}
+                    onKeyDown={(e) => {
+                        if (uploading) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            fileInputRef.current?.click();
+                        }
+                    }}
+                    className="w-full cursor-pointer rounded-[10px] border-0 bg-transparent p-8 text-center transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                >
                 {uploading ? (
                     <div className="flex flex-col items-center gap-2 text-violet-600">
                         <Loader2 className="w-8 h-8 animate-spin" />
@@ -220,6 +225,7 @@ export default function ProdutoImagensPage() {
                         <p className="text-xs">PNG, JPG, WEBP — máx. 10 MB por arquivo</p>
                     </div>
                 )}
+                </button>
             </div>
 
             {/* Image grid */}

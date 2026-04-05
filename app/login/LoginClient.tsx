@@ -12,7 +12,7 @@ function isValidEmail(email: string) {
     if (s.length === 0 || s.length > 254) return false;
     const at = s.indexOf("@");
     if (at <= 0) return false;
-    if (s.indexOf("@", at + 1) !== -1) return false;
+    if (s.includes("@", at + 1)) return false;
     const local = s.slice(0, at);
     const host = s.slice(at + 1);
     if (local.length > 64 || host.length === 0 || host.length > 253) return false;

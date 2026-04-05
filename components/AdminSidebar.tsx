@@ -52,11 +52,11 @@ function SidebarNavItem({
   item,
   pathname,
   collapsed,
-}: {
+}: Readonly<{
   item: (typeof adminMenu)[number];
   pathname: string | null;
   collapsed: boolean;
-}) {
+}>) {
   const Icon   = item.icon;
   const active = pathname === item.href || (pathname?.startsWith(item.href + "/") ?? false);
 
