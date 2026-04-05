@@ -33,26 +33,36 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 
+function stripQuotes(val) {
+    if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+    ) {
+        return val.slice(1, -1);
+    }
+    return val;
+}
+
+/** Uma linha chave=valor do .env (já trimada na entrada). */
+function applyEnvLine(line) {
+    if (!line || line.startsWith("#")) return;
+    let s = line;
+    if (s.startsWith("export ")) s = s.slice(7).trim();
+    const eq = s.indexOf("=");
+    if (eq <= 0) return;
+    const key = s.slice(0, eq).trim();
+    let val = s.slice(eq + 1).trim();
+    val = stripQuotes(val);
+    if (process.env[key] === undefined) process.env[key] = val;
+}
+
 /** Dotenv mínimo: não substitui variáveis já definidas no ambiente (ex.: PowerShell). */
 function loadDotEnvFiles(paths) {
     for (const filePath of paths) {
         if (!existsSync(filePath)) continue;
         const text = readFileSync(filePath, "utf8");
         for (let line of text.split(/\r?\n/)) {
-            line = line.trim();
-            if (!line || line.startsWith("#")) continue;
-            if (line.startsWith("export ")) line = line.slice(7).trim();
-            const eq = line.indexOf("=");
-            if (eq <= 0) continue;
-            const key = line.slice(0, eq).trim();
-            let val = line.slice(eq + 1).trim();
-            if (
-                (val.startsWith('"') && val.endsWith('"')) ||
-                (val.startsWith("'") && val.endsWith("'"))
-            ) {
-                val = val.slice(1, -1);
-            }
-            if (process.env[key] === undefined) process.env[key] = val;
+            applyEnvLine(line.trim());
         }
     }
 }
@@ -63,11 +73,11 @@ loadDotEnvFiles([
     resolve(root, ".env"),
 ]);
 
-const argv = process.argv.slice(2);
-const wantHotspots = argv.includes("--hotspots");
-const wantCodeSmell = argv.includes("--code-smell");
-const wantQuality = argv.includes("--quality");
-const wantCsv = argv.includes("--csv");
+const argSet = new Set(process.argv.slice(2));
+const wantHotspots = argSet.has("--hotspots");
+const wantCodeSmell = argSet.has("--code-smell");
+const wantQuality = argSet.has("--quality");
+const wantCsv = argSet.has("--csv");
 
 const token =
     process.env.SONAR_TOKEN?.trim() ||
@@ -79,14 +89,14 @@ const projectKey =
     process.env.SONARCLOUD_PROJECT_KEY?.trim() ||
     process.env.SONAR_PROJECT_KEY?.trim();
 
-const defaultOut = wantHotspots
-    ? "sonar-security-hotspots.json"
-    : wantQuality
-      ? "sonar-open-quality-issues.json"
-      : wantCodeSmell
-        ? "sonar-code-smells.json"
-        : "sonar-reliability-bugs.json";
-const outJson = resolve(root, process.env.SONAR_OUT?.trim() || defaultOut);
+function defaultOutputBasename() {
+    if (wantHotspots) return "sonar-security-hotspots.json";
+    if (wantQuality) return "sonar-open-quality-issues.json";
+    if (wantCodeSmell) return "sonar-code-smells.json";
+    return "sonar-reliability-bugs.json";
+}
+
+const outJson = resolve(root, process.env.SONAR_OUT?.trim() || defaultOutputBasename());
 
 if (!token || !organization || !projectKey) {
     console.error(
@@ -198,21 +208,19 @@ function toCsv(rows) {
     return `${header}\n${body}\n`;
 }
 
-/** BUG | CODE_SMELL | BUG,CODE_SMELL */
-const issueTypesParam = wantHotspots
-    ? ""
-    : wantQuality
-      ? "BUG,CODE_SMELL"
-      : wantCodeSmell
-        ? "CODE_SMELL"
-        : "BUG";
+function resolveIssueTypesParam() {
+    if (wantHotspots) return "";
+    if (wantQuality) return "BUG,CODE_SMELL";
+    if (wantCodeSmell) return "CODE_SMELL";
+    return "BUG";
+}
 
-let rows;
-let total = null;
+const issueTypesParam = resolveIssueTypesParam();
 
-if (wantHotspots) {
+async function fetchAllHotspotsRows() {
     let page = 1;
     const fromApi = [];
+    let total = null;
     for (;;) {
         const data = await fetchHotspotsSearchPage(page);
         total = data.paging?.total ?? fromApi.length;
@@ -223,26 +231,31 @@ if (wantHotspots) {
         if (fromApi.length >= total) break;
         page += 1;
     }
-    rows = fromApi.map(hotspotApiToRow);
-} else {
+    return fromApi.map(hotspotApiToRow);
+}
+
+async function fetchAllIssueRows(types) {
     let page = 1;
     const allIssues = [];
+    let total = null;
     for (;;) {
-        const data = await fetchIssuesPage(page, issueTypesParam);
+        const data = await fetchIssuesPage(page, types);
         total = data.paging?.total ?? allIssues.length;
         const batch = data.issues ?? [];
         allIssues.push(...batch);
-
         process.stderr.write(
-            `issues/search [${issueTypesParam}] página ${page}: +${batch.length} (acumulado: ${allIssues.length} / ${total})\n`
+            `issues/search [${types}] página ${page}: +${batch.length} (acumulado: ${allIssues.length} / ${total})\n`
         );
-
         if (batch.length === 0) break;
         if (allIssues.length >= total) break;
         page += 1;
     }
-    rows = allIssues.map(issueToRow);
+    return allIssues.map(issueToRow);
 }
+
+const rows = wantHotspots
+    ? await fetchAllHotspotsRows()
+    : await fetchAllIssueRows(issueTypesParam);
 
 const payload = {
     fetchedAt:  new Date().toISOString(),

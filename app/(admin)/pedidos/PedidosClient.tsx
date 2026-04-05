@@ -127,33 +127,67 @@ function deliveryStatusWhatsAppText(
     return `Confirmamos que seu pedido foi entregue${namePart}! 🎉 Esperamos que tenha chegado tudo certinho. Qualquer coisa, é só chamar!`;
 }
 
-/** Mesma lógica do ticket de impressão (view_pdv_produtos / product_name). */
-function orderPrintGetItemInfo(it: any): OrderPrintItemInfo {
-    const emb = it._emb ?? null;
-    if (emb) {
-        const prodName = String(emb.product_name ?? "").toUpperCase().trim();
-        const sigla = String(emb.sigla_comercial ?? "UN").toUpperCase();
-        const descricao = (emb.descricao ?? "").trim();
-        const volStr = (emb.volume_formatado ?? "").trim();
-        const fator = Number(emb.fator_conversao) || null;
-        const siglaHuman =
-            sigla === "CX" ? "Caixa" : sigla === "FARD" ? "Fardo" : sigla === "PAC" ? "Pacote" : sigla;
-        const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
-        const detail = [detailPrefix, volStr].filter(Boolean).join(" ");
-        const unitLabel = sigla === "CX" ? "cx" : sigla === "UN" ? "un" : sigla.toLowerCase();
-        return {
-            productName:
-                prodName || String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim(),
-            detail: detail || prodName || "Item",
-            unitLabel,
-            fator: sigla === "CX" && fator && fator > 1 ? fator : null,
-        };
-    }
+type PrintEmb = {
+    product_name?: unknown;
+    sigla_comercial?: unknown;
+    descricao?: unknown;
+    volume_formatado?: unknown;
+    fator_conversao?: unknown;
+};
+
+function siglaDisplayNameForPrint(sigla: string): string {
+    if (sigla === "CX") return "Caixa";
+    if (sigla === "FARD") return "Fardo";
+    if (sigla === "PAC") return "Pacote";
+    return sigla;
+}
+
+function unitLabelFromSiglaForPrint(sigla: string): string {
+    if (sigla === "CX") return "cx";
+    if (sigla === "UN") return "un";
+    return sigla.toLowerCase();
+}
+
+function orderPrintItemFromEmb(
+    it: { product_name?: unknown; _emb?: PrintEmb },
+    emb: PrintEmb
+): OrderPrintItemInfo {
+    const prodName = String(emb.product_name ?? "").toUpperCase().trim();
+    const sigla = String(emb.sigla_comercial ?? "UN").toUpperCase();
+    const descricao = String(emb.descricao ?? "").trim();
+    const volStr = String(emb.volume_formatado ?? "").trim();
+    const fator = Number(emb.fator_conversao) || null;
+    const siglaHuman = siglaDisplayNameForPrint(sigla);
+    const detailPrefix = descricao || (sigla !== "UN" ? siglaHuman : "");
+    const detail = [detailPrefix, volStr].filter(Boolean).join(" ");
+    const unitLabel = unitLabelFromSiglaForPrint(sigla);
+    const fallbackName = String(it.product_name ?? "PRODUTO").split(" • ")[0].toUpperCase().trim();
+    return {
+        productName: prodName || fallbackName,
+        detail:      detail || prodName || "Item",
+        unitLabel,
+        fator:       sigla === "CX" && fator && fator > 1 ? fator : null,
+    };
+}
+
+function orderPrintItemFromFlat(it: { product_name?: unknown; unit_type?: unknown }): OrderPrintItemInfo {
     const raw = String(it.product_name ?? "PRODUTO");
     const bIdx = raw.indexOf(" • ");
     const prodName = bIdx >= 0 ? raw.slice(0, bIdx).toUpperCase().trim() : raw.toUpperCase().trim();
     const detail = bIdx >= 0 ? raw.slice(bIdx + 3).trim() : raw.trim();
-    return { productName: prodName, detail, unitLabel: it.unit_type === "case" ? "cx" : "un", fator: null };
+    return {
+        productName: prodName,
+        detail,
+        unitLabel:   it.unit_type === "case" ? "cx" : "un",
+        fator:       null,
+    };
+}
+
+/** Mesma lógica do ticket de impressão (view_pdv_produtos / product_name). */
+function orderPrintGetItemInfo(it: { product_name?: unknown; unit_type?: unknown; _emb?: PrintEmb }): OrderPrintItemInfo {
+    const emb = it._emb ?? null;
+    if (emb) return orderPrintItemFromEmb(it, emb);
+    return orderPrintItemFromFlat(it);
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -1293,8 +1327,8 @@ export default function PedidosPage() {
                         return (
                             <div
                                 key={o.id}
-                                role="button"
                                 tabIndex={0}
+                                aria-label={`Abrir pedido ${num}`}
                                 className={`bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-800 flex flex-col overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:hover:bg-zinc-800/80 cursor-pointer divide-y divide-zinc-100 dark:divide-zinc-800 ${
                                     isFlashing ? "ring-2 ring-emerald-400 dark:ring-emerald-600" : ""
                                 }`}

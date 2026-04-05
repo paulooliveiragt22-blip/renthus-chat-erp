@@ -156,6 +156,102 @@ function volumesWithFormItemUpdated(
     );
 }
 
+function mapVolumesApplyCodigo(prev: FormVolume[], itemId: string, codigo: string): FormVolume[] {
+    return prev.map((v) => ({
+        ...v,
+        items: v.items.map((i) => (i.id === itemId ? { ...i, codigo_interno: codigo } : i)),
+    }));
+}
+
+function productRowGridClassName(r: Row, flashId: string | null): string {
+    const base =
+        "grid grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors";
+    const missingCost = r.cost_price == null || r.cost_price === 0;
+    if (flashId === r.id) {
+        return `${base} bg-emerald-50 dark:bg-emerald-900/15`;
+    }
+    if (missingCost && r.is_active) {
+        return `${base} border-l-2 border-red-400 bg-red-50/40 hover:bg-red-50/70 dark:bg-red-950/20 dark:hover:bg-red-950/30`;
+    }
+    if (r.is_active) {
+        return `${base} hover:bg-zinc-50 dark:hover:bg-zinc-800/50`;
+    }
+    return `${base} bg-zinc-50/60 opacity-60 dark:bg-zinc-800/30`;
+}
+
+type ProductListRowProps = {
+    readonly r: Row;
+    readonly flashId: string | null;
+    readonly onToggleActive: (row: Row) => void;
+    readonly onOpenEdit: (row: Row) => void;
+};
+
+function ProductListRow({ r, flashId, onToggleActive, onOpenEdit }: ProductListRowProps) {
+    const missingCost = r.cost_price == null || r.cost_price === 0;
+    return (
+        <div className={productRowGridClassName(r, flashId)}>
+            <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                {r.products?.categories?.name ?? <span className="text-zinc-300">—</span>}
+            </span>
+            <span className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                {r.products?.name ?? <span className="text-zinc-300">—</span>}
+            </span>
+            <span className="truncate text-xs text-zinc-500">{r.details ?? "—"}</span>
+            <span className="truncate text-right text-xs text-zinc-500" title={r.codigo_interno ?? ""}>
+                {r.codigo_interno ?? "—"}
+            </span>
+            <span className="text-right text-xs text-zinc-500">
+                {r.unit === "none" || r.volume_value == null ? "—" : `${r.volume_value} ${unitLabel(r.unit)}`}
+            </span>
+            <span className="text-right text-xs text-zinc-500">
+                {r.estoque_un != null
+                    ? <span className={r.estoque_un === 0 ? "text-red-500" : ""}>{r.estoque_un} UN{r.estoque_cx != null ? ` / ${r.estoque_cx} CX` : ""}</span>
+                    : "—"}
+            </span>
+            <span className="text-right text-xs font-semibold text-violet-700 dark:text-violet-400">
+                R$ {brl(r.unit_price)}
+            </span>
+            <span className={`text-right text-xs font-semibold ${
+                missingCost
+                    ? "text-red-500 dark:text-red-400"
+                    : "text-emerald-600 dark:text-emerald-400"
+            }`}>
+                {missingCost
+                    ? <span className="flex items-center justify-end gap-0.5"><span>⚠</span><span>—</span></span>
+                    : `R$ ${brl(r.cost_price!)}`
+                }
+            </span>
+            <span className="text-xs text-zinc-500">{r.has_case ? `cx ${r.case_qty ?? "?"}` : "—"}</span>
+            <span className="text-right text-xs text-zinc-500">
+                {r.has_case ? `R$ ${brl(r.case_price ?? 0)}` : "—"}
+            </span>
+            <div className="flex justify-center">
+                <button type="button" onClick={() => onToggleActive(r)}>
+                    {r.is_active
+                        ? <ToggleRight className="h-5 w-5 text-violet-600" />
+                        : <ToggleLeft  className="h-5 w-5 text-zinc-400" />}
+                </button>
+            </div>
+            <div className="flex justify-center">
+                <button type="button" onClick={() => onOpenEdit(r)} className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-600 dark:border-zinc-700">
+                    <Pencil className="h-3.5 w-3.5" />
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function subscribeProductListRealtime(
+    client: ReturnType<typeof createClient>,
+    onReload: () => void
+) {
+    return client
+        .channel("products_realtime_v2")
+        .on("postgres_changes", { event: "*", schema: "public", table: "products" }, onReload)
+        .on("postgres_changes", { event: "*", schema: "public", table: "produto_embalagens" }, onReload)
+        .subscribe();
+}
+
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
@@ -542,10 +638,7 @@ export default function ProdutosListaPage() {
             const { data, error } = await supabase.rpc("gerar_proximo_codigo_interno", { p_company_id: companyId });
             if (error) throw new Error(error.message);
             const codigo = String(data ?? "");
-            setFormVolumes((prev) => prev.map((v) => ({
-                ...v,
-                items: v.items.map((i) => (i.id === itemId ? { ...i, codigo_interno: codigo } : i)),
-            })));
+            setFormVolumes((prev) => mapVolumesApplyCodigo(prev, itemId, codigo));
         } catch (e: any) {
             setMsg(`Erro ao gerar código: ${String(e?.message ?? e)}`);
         } finally {
@@ -557,17 +650,10 @@ export default function ProdutosListaPage() {
 
     useEffect(() => {
         if (!companyId) return;
-        const ch = supabase
-            .channel("products_realtime_v2")
-            .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
-                load();
-            })
-            .on("postgres_changes", { event: "*", schema: "public", table: "produto_embalagens" }, () => {
-                load();
-            })
-            .subscribe();
-
-        return () => { supabase.removeChannel(ch); };
+        const ch = subscribeProductListRealtime(supabase, load);
+        return () => {
+            void supabase.removeChannel(ch);
+        };
     }, [supabase, companyId]);
 
     // ── toggle active ─────────────────────────────────────────────────────────
@@ -918,72 +1004,15 @@ export default function ProdutosListaPage() {
                                 <p className="text-sm text-zinc-400">{search ? "Nenhum resultado." : "Nenhum produto cadastrado."}</p>
                             </div>
                         )
-                        : filtered.map((r) => {
-                            const missingCost = r.cost_price == null || r.cost_price === 0;
-                            return (
-                            <div
+                        : filtered.map((r) => (
+                            <ProductListRow
                                 key={r.id}
-                                className={`grid grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors ${
-                                    flashId === r.id
-                                        ? "bg-emerald-50 dark:bg-emerald-900/15"
-                                        : missingCost && r.is_active
-                                        ? "border-l-2 border-red-400 bg-red-50/40 hover:bg-red-50/70 dark:bg-red-950/20 dark:hover:bg-red-950/30"
-                                        : r.is_active
-                                        ? "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                                        : "bg-zinc-50/60 opacity-60 dark:bg-zinc-800/30"
-                                }`}
-                            >
-                                <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                                    {r.products?.categories?.name ?? <span className="text-zinc-300">—</span>}
-                                </span>
-                                <span className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                                    {r.products?.name ?? <span className="text-zinc-300">—</span>}
-                                </span>
-                                <span className="truncate text-xs text-zinc-500">{r.details ?? "—"}</span>
-                                <span className="truncate text-right text-xs text-zinc-500" title={r.codigo_interno ?? ""}>
-                                    {r.codigo_interno ?? "—"}
-                                </span>
-                                <span className="text-right text-xs text-zinc-500">
-                                    {r.unit === "none" || r.volume_value == null ? "—" : `${r.volume_value} ${unitLabel(r.unit)}`}
-                                </span>
-                                <span className="text-right text-xs text-zinc-500">
-                                    {r.estoque_un != null
-                                        ? <span className={r.estoque_un === 0 ? "text-red-500" : ""}>{r.estoque_un} UN{r.estoque_cx != null ? ` / ${r.estoque_cx} CX` : ""}</span>
-                                        : "—"}
-                                </span>
-                                <span className="text-right text-xs font-semibold text-violet-700 dark:text-violet-400">
-                                    R$ {brl(r.unit_price)}
-                                </span>
-                                {/* Cost price column */}
-                                <span className={`text-right text-xs font-semibold ${
-                                    missingCost
-                                        ? "text-red-500 dark:text-red-400"
-                                        : "text-emerald-600 dark:text-emerald-400"
-                                }`}>
-                                    {missingCost
-                                        ? <span className="flex items-center justify-end gap-0.5"><span>⚠</span><span>—</span></span>
-                                        : `R$ ${brl(r.cost_price!)}`
-                                    }
-                                </span>
-                                <span className="text-xs text-zinc-500">{r.has_case ? `cx ${r.case_qty ?? "?"}` : "—"}</span>
-                                <span className="text-right text-xs text-zinc-500">
-                                    {r.has_case ? `R$ ${brl(r.case_price ?? 0)}` : "—"}
-                                </span>
-                                <div className="flex justify-center">
-                                    <button onClick={() => toggleActive(r)}>
-                                        {r.is_active
-                                            ? <ToggleRight className="h-5 w-5 text-violet-600" />
-                                            : <ToggleLeft  className="h-5 w-5 text-zinc-400" />}
-                                    </button>
-                                </div>
-                                <div className="flex justify-center">
-                                    <button onClick={() => openEdit(r)} className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-600 dark:border-zinc-700">
-                                        <Pencil className="h-3.5 w-3.5" />
-                                    </button>
-                                </div>
-                            </div>
-                            );
-                        })}
+                                r={r}
+                                flashId={flashId}
+                                onToggleActive={toggleActive}
+                                onOpenEdit={openEdit}
+                            />
+                        ))}
                 </div>
             </div>
 

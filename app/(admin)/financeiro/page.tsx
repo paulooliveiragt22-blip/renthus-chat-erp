@@ -1,7 +1,7 @@
 // app/(admin)/financeiro/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     ResponsiveContainer, Cell, PieChart, Pie, Legend,
@@ -155,6 +155,7 @@ export default function FinanceiroPage() {
     const [finalizeForm,  setFinalizeForm]  = useState({ payment_method: "pix", due_date: isoDate(new Date()), notes: "" });
     const [finalizing,    setFinalizing]    = useState(false);
     const [finalizeMsg,   setFinalizeMsg]   = useState<string | null>(null);
+    const extratoDialogRef = useRef<HTMLDialogElement>(null);
 
     // Contas a Receber / Pagar
     const [bills,        setBills]        = useState<Bill[]>([]);
@@ -200,6 +201,16 @@ export default function FinanceiroPage() {
         }
         return { from: isoDate(new Date(Date.now() - 29 * 86400000)), to: today, days: 30 };
     }, [period, customFrom, customTo]);
+
+    useEffect(() => {
+        const el = extratoDialogRef.current;
+        if (!el) return;
+        if (extratoModal) {
+            if (!el.open) el.showModal();
+        } else if (el.open) {
+            el.close();
+        }
+    }, [extratoModal]);
 
     // ── load (fonte primária: sales + sale_payments; fallback: orders) ───────
     const load = useCallback(async () => {
@@ -1717,19 +1728,16 @@ export default function FinanceiroPage() {
             </div>
         )}
         {/* ── Modal detalhe / finalização de lançamento ──────────────────── */}
-        {extratoModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <button
-                    type="button"
-                    aria-label="Fechar modal"
-                    onClick={() => setExtratoModal(null)}
-                    className="absolute inset-0 cursor-default border-0 bg-black/60 backdrop-blur-sm"
-                />
-                <div
-                    role="dialog"
-                    aria-modal="true"
-                    className="relative z-10 w-full max-w-md rounded-3xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 overflow-hidden"
-                >
+        <dialog
+            ref={extratoDialogRef}
+            className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm dark:border-zinc-700 dark:bg-zinc-900"
+            onCancel={(e) => {
+                e.preventDefault();
+                setExtratoModal(null);
+            }}
+        >
+            {extratoModal && (
+                <>
                     {/* header */}
                     <div className="flex items-center gap-3 border-b border-zinc-100 px-6 py-4 dark:border-zinc-800">
                         <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${extratoModal.type === "income" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
@@ -1819,14 +1827,14 @@ export default function FinanceiroPage() {
                     </div>
 
                     <div className="border-t border-zinc-100 px-6 py-3 dark:border-zinc-800">
-                        <button onClick={() => setExtratoModal(null)}
+                        <button type="button" onClick={() => setExtratoModal(null)}
                             className="w-full rounded-xl border border-zinc-200 py-2 text-xs font-semibold text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
                             Fechar
                         </button>
                     </div>
-                </div>
-            </div>
-        )}
+                </>
+            )}
+        </dialog>
         </>
     );
 }
