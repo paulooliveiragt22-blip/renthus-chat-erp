@@ -175,42 +175,39 @@ export default function ProdutoImagensPage() {
                 </div>
             </div>
 
-            {/* Drop zone */}
-            <div
+            {/* Drop zone: drag no <button> — evita div “interativo” (S6848); input fora do botão (HTML válido). */}
+            <input
+                id={fileInputId}
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={handleFileInput}
+            />
+            <button
+                type="button"
+                disabled={uploading}
+                aria-controls={fileInputId}
+                aria-label="Arraste imagens ou pressione para escolher arquivos"
                 onDragEnter={onDragEnter}
                 onDragOver={(e) => e.preventDefault()}
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
-                className={`rounded-xl border-2 border-dashed transition-colors ${
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                    if (uploading) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                    }
+                }}
+                className={`w-full cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     dragging
                         ? "border-violet-400 bg-violet-50 dark:bg-violet-900/20"
                         : "border-zinc-200 dark:border-zinc-700 hover:border-violet-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                 }`}
             >
-                <input
-                    id={fileInputId}
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="sr-only"
-                    onChange={handleFileInput}
-                />
-                <button
-                    type="button"
-                    disabled={uploading}
-                    aria-controls={fileInputId}
-                    aria-label="Arraste imagens ou pressione para escolher arquivos"
-                    onClick={() => fileInputRef.current?.click()}
-                    onKeyDown={(e) => {
-                        if (uploading) return;
-                        if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            fileInputRef.current?.click();
-                        }
-                    }}
-                    className="w-full cursor-pointer rounded-[10px] border-0 bg-transparent p-8 text-center transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
-                >
                 {uploading ? (
                     <div className="flex flex-col items-center gap-2 text-violet-600">
                         <Loader2 className="w-8 h-8 animate-spin" />
@@ -225,8 +222,7 @@ export default function ProdutoImagensPage() {
                         <p className="text-xs">PNG, JPG, WEBP — máx. 10 MB por arquivo</p>
                     </div>
                 )}
-                </button>
-            </div>
+            </button>
 
             {/* Image grid */}
             {loading ? (

@@ -31,7 +31,7 @@ function getPrivateKey(privateKeyPem: string): KeyObject {
     if (_cachedPrivateKey && _cachedPrivateKeyPem === privateKeyPem) {
         return _cachedPrivateKey;
     }
-    const normalized = privateKeyPem.replaceAll("\\n", "\n").replaceAll("\r\n", "\n");
+    const normalized = privateKeyPem.replaceAll(String.raw`\n`, "\n").replaceAll("\r\n", "\n");
     _cachedPrivateKey    = createPrivateKey(normalized);
     _cachedPrivateKeyPem = privateKeyPem;
     return _cachedPrivateKey;
