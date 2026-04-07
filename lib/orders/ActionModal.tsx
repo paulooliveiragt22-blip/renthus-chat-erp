@@ -51,7 +51,7 @@ export default function ActionModal({
     }
 
     return (
-        <Modal title={actionTitle(kind)} open={open} onClose={onClose}>
+        <Modal title={actionTitle(kind)} open={open} onClose={onClose} zClass="z-[10050]">
             <div className="grid gap-4">
 
                 {showPayment && (

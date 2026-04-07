@@ -335,6 +335,8 @@ export default function PedidosPage() {
     // ── refs for realtime ─────────────────────────────────────────────────────
     const viewOrderIdRef = useRef<string | null>(null);
     const editOrderIdRef = useRef<string | null>(null);
+    /** Incrementa a cada fechamento/troca de modal — descarta fetch async antigo (evita reabrir modal errado). */
+    const modalSessionRef = useRef(0);
 
     useEffect(() => { viewOrderIdRef.current = openView  ? viewOrder?.id ?? null : null; }, [openView,  viewOrder?.id]);
     useEffect(() => { editOrderIdRef.current = openEdit  ? editOrder?.id ?? null : null; }, [openEdit,  editOrder?.id]);
@@ -611,12 +613,18 @@ export default function PedidosPage() {
 
     async function openOrder(orderId: string, alsoCleanUrl?: boolean) {
         closeAllPedidosModals();
+        const session = modalSessionRef.current;
         setViewLoading(true);
         setMsg(null);
         const full = await fetchOrderFull(orderId);
+        if (session !== modalSessionRef.current) return;
+        setViewLoading(false);
+        if (!full) {
+            setMsg("Pedido não encontrado.");
+            return;
+        }
         setViewOrder(full);
         setOpenView(true);
-        setViewLoading(false);
         if (alsoCleanUrl) router.replace("/pedidos");
     }
 
@@ -712,10 +720,15 @@ export default function PedidosPage() {
 
     /** Vários `<dialog>.showModal()` empilham; só um modal “grande” pode ficar aberto por vez. */
     function closeAllPedidosModals() {
+        modalSessionRef.current += 1;
         setOpenNew(false);
         setOpenView(false);
         setOpenAction(false);
         setOpenEdit(false);
+        setViewOrder(null);
+        setEditOrder(null);
+        setViewLoading(false);
+        setEditLoading(false);
     }
 
     function openPedidosNewModal() {
@@ -725,8 +738,11 @@ export default function PedidosPage() {
     }
 
     function openActionModal(kind: ActionKind, orderId: string) {
+        modalSessionRef.current += 1;
         setOpenNew(false);
         setOpenEdit(false);
+        setEditOrder(null);
+        setEditLoading(false);
         // Pre-fill payment method from the order if available
         const ord = orders.find(o => o.id === orderId);
         setActionPayMethod((ord as any)?.payment_method ?? "pix");
@@ -862,9 +878,18 @@ export default function PedidosPage() {
 
     async function openEditOrder(orderId: string) {
         closeAllPedidosModals();
+        const session = modalSessionRef.current;
         setEditLoading(true); setMsg(null);
         const full = await fetchOrderFull(orderId);
-        if (!full) { setEditLoading(false); return; }
+        if (session !== modalSessionRef.current) {
+            setEditLoading(false);
+            return;
+        }
+        if (!full) {
+            setEditLoading(false);
+            setMsg("Pedido não encontrado.");
+            return;
+        }
         setEditOrder(full);
         setEditCustomerName((full as any).customers?.name ?? "");
         setEditCustomerPhone((full as any).customers?.phone ?? "");
@@ -1639,8 +1664,11 @@ export default function PedidosPage() {
             <ViewOrderModal
                 open={openView}
                 onClose={() => {
+                    modalSessionRef.current += 1;
                     setOpenAction(false);
                     setOpenView(false);
+                    setViewLoading(false);
+                    setViewOrder(null);
                 }}
                 loading={viewLoading}
                 order={viewOrder}
@@ -1676,8 +1704,11 @@ export default function PedidosPage() {
             <EditOrderModal
                 open={openEdit}
                 onClose={() => {
+                    modalSessionRef.current += 1;
                     setOpenAction(false);
                     setOpenEdit(false);
+                    setEditLoading(false);
+                    setEditOrder(null);
                 }}
                 loading={editLoading}
                 saving={editSaving}

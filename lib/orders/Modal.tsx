@@ -9,11 +9,14 @@ export default function Modal({
     open,
     onClose,
     children,
+    zClass = "z-[9999]",
 }: Readonly<{
     title: string;
     open: boolean;
     onClose: () => void;
     children: React.ReactNode;
+    /** Camadas empilhadas (ex.: confirmação sobre “Ver pedido”) precisam de z-index maior. */
+    zClass?: string;
 }>) {
     const [mounted, setMounted] = useState(false);
     const dialogRef = useRef<HTMLDialogElement>(null);
@@ -29,24 +32,23 @@ export default function Modal({
         };
     }, [open]);
 
-    // useLayoutEffect: ref do <dialog> já está definido antes do paint — evita showModal/close perdidos no effect assíncrono.
+    // Só monta o <dialog> quando open — evita vários elementos modal no DOM com showModal() “preso”.
     useLayoutEffect(() => {
-        if (!mounted) return;
+        if (!open || !mounted) return;
         const el = dialogRef.current;
         if (!el) return;
-        if (open) {
-            if (!el.open) el.showModal();
-        } else if (el.open) {
-            el.close();
-        }
+        if (!el.open) el.showModal();
+        return () => {
+            if (el.open) el.close();
+        };
     }, [open, mounted]);
 
-    if (!mounted) return null;
+    if (!mounted || !open) return null;
 
     return createPortal(
         <dialog
             ref={dialogRef}
-            className="fixed left-1/2 top-1/2 z-[9999] flex max-h-[90vh] w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl backdrop:bg-black/50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
+            className={`fixed left-1/2 top-1/2 ${zClass} flex max-h-[90vh] w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl backdrop:bg-black/50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50`}
             onCancel={(e) => {
                 e.preventDefault();
                 onClose();
