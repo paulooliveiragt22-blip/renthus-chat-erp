@@ -70,6 +70,17 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "missing_thread_or_phone" }, { status: 400 });
     }
 
+    // Defesa contra IDOR: thread informada deve pertencer à empresa resolvida.
+    const { data: threadOwned } = await admin
+        .from("whatsapp_threads")
+        .select("id")
+        .eq("id", threadId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+    if (!threadOwned) {
+        return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
+    }
+
     // ── Verifica se há bot ativo ──────────────────────────────────────────────
     const { data: bots } = await admin
         .from("chatbots")

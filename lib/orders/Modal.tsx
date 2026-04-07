@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -29,7 +29,9 @@ export default function Modal({
         };
     }, [open]);
 
-    useEffect(() => {
+    // useLayoutEffect: ref do <dialog> já está definido antes do paint — evita showModal/close perdidos no effect assíncrono.
+    useLayoutEffect(() => {
+        if (!mounted) return;
         const el = dialogRef.current;
         if (!el) return;
         if (open) {

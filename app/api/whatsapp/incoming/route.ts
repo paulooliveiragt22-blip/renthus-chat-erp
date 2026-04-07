@@ -19,8 +19,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const runtime = "nodejs";
+
+function isValidMetaSignature(rawBody: string, signatureHeader: string | null): boolean {
+    const appSecret = process.env.WHATSAPP_APP_SECRET;
+    if (!appSecret) return false;
+    if (!signatureHeader?.startsWith("sha256=")) return false;
+
+    const receivedHex = signatureHeader.slice("sha256=".length).trim();
+    if (!receivedHex) return false;
+
+    const expectedHex = createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
+    const receivedBuf = Buffer.from(receivedHex, "hex");
+    const expectedBuf = Buffer.from(expectedHex, "hex");
+    if (receivedBuf.length !== expectedBuf.length) return false;
+    return timingSafeEqual(receivedBuf, expectedBuf);
+}
 
 // ─── GET — verificação do webhook ─────────────────────────────────────────────
 
@@ -50,9 +66,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: Request) {
     const admin = createAdminClient();
 
+    const rawBody = await req.text();
+    const signatureHeader = req.headers.get("x-hub-signature-256");
+    if (!isValidMetaSignature(rawBody, signatureHeader)) {
+        return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
+    }
+
     let body: any;
     try {
-        body = await req.json();
+        body = JSON.parse(rawBody);
     } catch {
         return NextResponse.json({ error: "invalid_json" }, { status: 400 });
     }

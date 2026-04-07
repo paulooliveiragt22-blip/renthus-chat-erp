@@ -610,6 +610,7 @@ export default function PedidosPage() {
     }
 
     async function openOrder(orderId: string, alsoCleanUrl?: boolean) {
+        closeAllPedidosModals();
         setViewLoading(true);
         setMsg(null);
         const full = await fetchOrderFull(orderId);
@@ -709,7 +710,23 @@ export default function PedidosPage() {
         setDriverId(null);
     }
 
+    /** Vários `<dialog>.showModal()` empilham; só um modal “grande” pode ficar aberto por vez. */
+    function closeAllPedidosModals() {
+        setOpenNew(false);
+        setOpenView(false);
+        setOpenAction(false);
+        setOpenEdit(false);
+    }
+
+    function openPedidosNewModal() {
+        closeAllPedidosModals();
+        resetNewOrder();
+        setOpenNew(true);
+    }
+
     function openActionModal(kind: ActionKind, orderId: string) {
+        setOpenNew(false);
+        setOpenEdit(false);
         // Pre-fill payment method from the order if available
         const ord = orders.find(o => o.id === orderId);
         setActionPayMethod((ord as any)?.payment_method ?? "pix");
@@ -844,6 +861,7 @@ export default function PedidosPage() {
     }
 
     async function openEditOrder(orderId: string) {
+        closeAllPedidosModals();
         setEditLoading(true); setMsg(null);
         const full = await fetchOrderFull(orderId);
         if (!full) { setEditLoading(false); return; }
@@ -1165,7 +1183,8 @@ export default function PedidosPage() {
                         Recarregar
                     </button>
                     <button
-                        onClick={() => { resetNewOrder(); setOpenNew(true); }}
+                        type="button"
+                        onClick={() => { openPedidosNewModal(); }}
                         className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-orange-600 transition-colors"
                     >
                         <Plus className="h-3.5 w-3.5" />
@@ -1619,7 +1638,10 @@ export default function PedidosPage() {
 
             <ViewOrderModal
                 open={openView}
-                onClose={() => setOpenView(false)}
+                onClose={() => {
+                    setOpenAction(false);
+                    setOpenView(false);
+                }}
                 loading={viewLoading}
                 order={viewOrder}
                 onPrint={() => viewOrder ? printOrder(viewOrder.id) : undefined}
@@ -1653,7 +1675,10 @@ export default function PedidosPage() {
 
             <EditOrderModal
                 open={openEdit}
-                onClose={() => setOpenEdit(false)}
+                onClose={() => {
+                    setOpenAction(false);
+                    setOpenEdit(false);
+                }}
                 loading={editLoading}
                 saving={editSaving}
                 order={editOrder}

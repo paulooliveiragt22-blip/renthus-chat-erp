@@ -219,6 +219,7 @@ export async function POST(req: NextRequest) {
                 .from("whatsapp_threads")
                 .select("phone_e164, profile_name")
                 .eq("id", threadId)
+                .eq("company_id", companyId)
                 .maybeSingle()
             : Promise.resolve({ data: null }),
     ]);
