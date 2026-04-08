@@ -33,9 +33,10 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Job não encontrado" }, { status: 404 });
         }
 
+        // Enum job_status no Postgres: pending | processing | done | failed (não existe "completed")
         const { error: jobUpErr } = await admin
             .from("print_jobs")
-            .update({ status: "completed", processed_at: new Date().toISOString() })
+            .update({ status: "done", processed_at: new Date().toISOString() })
             .eq("id", jobId);
 
         if (jobUpErr) {
