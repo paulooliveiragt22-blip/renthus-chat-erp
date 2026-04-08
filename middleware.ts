@@ -109,8 +109,8 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||
-        pathname === "/api/agent/auth" ||
-        pathname === "/api/agent/heartbeat" ||
+        /** Print agent (api_key nas rotas) + painel /api/agent/keys|settings (exige sessão na própria rota) */
+        pathname.startsWith("/api/agent/") ||
         pathname === "/api/signup/complete"
     );
 }
