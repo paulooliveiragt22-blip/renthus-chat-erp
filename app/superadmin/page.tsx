@@ -90,6 +90,7 @@ export default function SuperAdminDashboard() {
                         { label: "Ver todas as empresas", href: "/superadmin/empresas" },
                         { label: "Ver canais WA",         href: "/superadmin/canais"   },
                         { label: "Ver pedidos",           href: "/superadmin/pedidos"  },
+                        { label: "Segurança / ambiente",   href: "/superadmin/seguranca" },
                     ].map((a) => (
                         <Link
                             key={a.href}

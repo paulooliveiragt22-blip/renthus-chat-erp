@@ -11,6 +11,7 @@ import {
     MessageSquare,
     Moon,
     Receipt,
+    Shield,
     Sun,
     X,
 } from "lucide-react";
@@ -20,6 +21,7 @@ const saMenu = [
     { label: "Empresas",   href: "/superadmin/empresas",  icon: Building2       },
     { label: "Canais WA",  href: "/superadmin/canais",    icon: MessageSquare   },
     { label: "Pedidos",    href: "/superadmin/pedidos",   icon: Receipt         },
+    { label: "Segurança",  href: "/superadmin/seguranca", icon: Shield          },
 ];
 
 interface Props {

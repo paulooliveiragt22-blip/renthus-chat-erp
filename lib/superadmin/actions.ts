@@ -2,6 +2,66 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
+function envNonEmpty(name: string): boolean {
+    const v = process.env[name];
+    return typeof v === "string" && v.trim().length > 0;
+}
+
+/** Diagnóstico operacional (apenas presença de variáveis, nunca valores). */
+export async function getSecurityOpsStatus() {
+    const vercelEnv = process.env.VERCEL_ENV ?? null;
+    const nodeEnv   = process.env.NODE_ENV ?? "development";
+    const isProd =
+        process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+
+    const checks = [
+        {
+            key:   "WHATSAPP_APP_SECRET",
+            label: "WHATSAPP_APP_SECRET",
+            ok:    envNonEmpty("WHATSAPP_APP_SECRET"),
+            hint:  "Assinatura HMAC dos webhooks Meta; sem isto /api/whatsapp/incoming responde 500.",
+        },
+        {
+            key:   "WHATSAPP_WEBHOOK_VERIFY_TOKEN",
+            label: "WHATSAPP_WEBHOOK_VERIFY_TOKEN",
+            ok:    envNonEmpty("WHATSAPP_WEBHOOK_VERIFY_TOKEN"),
+            hint:  "Usado no GET de verificação do webhook na Meta.",
+        },
+        {
+            key:   "CRON_SECRET",
+            label: "CRON_SECRET",
+            ok:    !isProd || envNonEmpty("CRON_SECRET"),
+            hint:  "Em produção os crons exigem Authorization: Bearer; ausente ⇒ 500 server_misconfigured.",
+        },
+        {
+            key:   "SUPERADMIN_SECRET",
+            label: "SUPERADMIN_SECRET",
+            ok:    envNonEmpty("SUPERADMIN_SECRET"),
+            hint:  "Segredo do cookie sa_token; login do superadmin.",
+        },
+        {
+            key:   "SUPABASE_SERVICE_ROLE_KEY",
+            label: "SUPABASE_SERVICE_ROLE_KEY",
+            ok:    envNonEmpty("SUPABASE_SERVICE_ROLE_KEY"),
+            hint:  "Chave service role do Supabase (server).",
+        },
+        {
+            key:   "NEXT_PUBLIC_SUPABASE_URL",
+            label: "NEXT_PUBLIC_SUPABASE_URL",
+            ok:    envNonEmpty("NEXT_PUBLIC_SUPABASE_URL"),
+            hint:  "URL do projeto Supabase.",
+        },
+        {
+            key:   "WHATSAPP_TOKEN",
+            label: "WHATSAPP_TOKEN",
+            ok:    envNonEmpty("WHATSAPP_TOKEN"),
+            hint:  "Fallback global quando o canal não tem access_token no banco.",
+        },
+    ] as const;
+
+    return { vercelEnv, nodeEnv, isProd, checks: [...checks] };
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export async function getDashboardStats() {
