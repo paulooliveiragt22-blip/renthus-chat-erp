@@ -7,14 +7,31 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
+const RL_LIMIT = 120;
+const RL_WINDOW_MS = 60_000;
+
+function getRequesterIp(req: NextRequest): string {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  return req.headers.get("x-real-ip")?.trim() || req.ip || "unknown";
+}
 
 export async function GET(request: NextRequest) {
+  const rl = checkRateLimit(`catalog_search:${getRequesterIp(request)}`, RL_LIMIT, RL_WINDOW_MS);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "rate_limit_exceeded" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const companyId = searchParams.get("company_id");
   const query     = searchParams.get("q")?.trim() ?? "";
-  const limit     = Math.min(parseInt(searchParams.get("limit") ?? "20"), 50);
+  const limit     = Math.min(Number.parseInt(searchParams.get("limit") ?? "20", 10), 50);
 
   if (!companyId || !query) {
     return NextResponse.json({ error: "company_id and q required" }, { status: 400 });

@@ -7,8 +7,17 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
+const RL_LIMIT = 120;
+const RL_WINDOW_MS = 60_000;
+
+function getRequesterIp(req: NextRequest): string {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  return req.headers.get("x-real-ip")?.trim() || req.ip || "unknown";
+}
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   cervejas:      "🍺",
@@ -39,6 +48,14 @@ function getEmoji(name: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const rl = checkRateLimit(`catalog_categories:${getRequesterIp(request)}`, RL_LIMIT, RL_WINDOW_MS);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "rate_limit_exceeded" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const companyId = searchParams.get("company_id");
   const search    = searchParams.get("search")?.trim() ?? "";

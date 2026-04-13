@@ -20,8 +20,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { checkRateLimit } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
+
+const INCOMING_RATE_LIMIT = 180;
+const INCOMING_RATE_WINDOW_MS = 60_000;
 
 function isValidMetaSignature(rawBody: string, signatureHeader: string | null): boolean {
     const appSecret = process.env.WHATSAPP_APP_SECRET;
@@ -36,6 +40,18 @@ function isValidMetaSignature(rawBody: string, signatureHeader: string | null): 
     const expectedBuf = Buffer.from(expectedHex, "hex");
     if (receivedBuf.length !== expectedBuf.length) return false;
     return timingSafeEqual(receivedBuf, expectedBuf);
+}
+
+function getRequesterIp(req: NextRequest): string {
+    const xff = req.headers.get("x-forwarded-for");
+    if (xff) return xff.split(",")[0].trim();
+    return req.headers.get("x-real-ip")?.trim() || req.ip || "unknown";
+}
+
+function maskIdentifier(value: string): string {
+    if (!value) return "(empty)";
+    if (value.length <= 6) return `${value.slice(0, 1)}***`;
+    return `${value.slice(0, 3)}***${value.slice(-3)}`;
 }
 
 // ─── GET — verificação do webhook ─────────────────────────────────────────────
@@ -63,8 +79,31 @@ export async function GET(req: NextRequest) {
 
 // ─── POST — mensagens inbound ──────────────────────────────────────────────────
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
     const admin = createAdminClient();
+
+    const requesterIp = getRequesterIp(req);
+    const rl = checkRateLimit(
+        `wa_incoming:${requesterIp}`,
+        INCOMING_RATE_LIMIT,
+        INCOMING_RATE_WINDOW_MS
+    );
+    if (!rl.allowed) {
+        return NextResponse.json(
+            { error: "rate_limit_exceeded" },
+            {
+                status: 429,
+                headers: {
+                    "Retry-After": String(rl.retryAfterSeconds),
+                },
+            }
+        );
+    }
+
+    if (!process.env.WHATSAPP_APP_SECRET) {
+        console.error("[wa/incoming] WHATSAPP_APP_SECRET não definida no ambiente.");
+        return NextResponse.json({ error: "server_misconfigured" }, { status: 500 });
+    }
 
     const rawBody = await req.text();
     const signatureHeader = req.headers.get("x-hub-signature-256");
@@ -116,25 +155,10 @@ export async function POST(req: Request) {
                 .eq("from_identifier", phoneNumberId)
                 .maybeSingle();
 
-            // Fallback: único canal ativo (setup single-tenant / dev)
             if (!channel) {
-                const { data: fallback } = await admin
-                    .from("whatsapp_channels")
-                    .select("id, company_id, from_identifier, provider_metadata")
-                    .eq("status", "active")
-                    .limit(1)
-                    .maybeSingle();
-
-                if (fallback) {
-                    console.warn(
-                        `[wa/incoming] canal não encontrado por from_identifier=${phoneNumberId}, usando fallback id=${fallback.id}`
-                    );
-                    channel = fallback;
-                }
-            }
-
-            if (!channel) {
-                console.warn("[wa/incoming] canal não encontrado para phone_number_id:", phoneNumberId);
+                console.warn(
+                    `[wa/incoming] canal não encontrado para phone_number_id=${maskIdentifier(phoneNumberId)}`
+                );
                 continue;
             }
 

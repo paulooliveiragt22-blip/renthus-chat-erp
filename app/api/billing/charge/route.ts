@@ -12,6 +12,7 @@
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import {
     createPixInvoiceOrder,
     getMonthlyPriceCents,
@@ -30,13 +31,9 @@ import { billingLog } from "@/lib/billing/billingLog";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-    // Verifica CRON_SECRET (Vercel envia automaticamente quando configurado)
-    const authHeader = (req as any).headers?.get?.("authorization") ?? "";
-    const cronSecret = process.env.CRON_SECRET ?? "";
-
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const authHeader = req.headers.get("authorization");
+    const authError = validateCronAuthorization(authHeader);
+    if (authError) return authError;
 
     const admin = createAdminClient();
     const now   = new Date();

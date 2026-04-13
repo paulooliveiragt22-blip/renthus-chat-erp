@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
+import { validateCronAuthorization } from "@/lib/security/cronAuth";
 
 export const runtime = "nodejs";
 
@@ -22,14 +23,9 @@ const REACTIVATE_MSG =
     "Digite qualquer mensagem para continuar seu pedido.";
 
 export async function GET(req: Request) {
-    // Autenticação simples por header para evitar chamadas não autorizadas
-    const authHeader = req.headers ? (req as any).headers.get?.("authorization") ?? "" : "";
-    const cronSecret = process.env.CRON_SECRET ?? "";
-
-    // Vercel envia o header "Authorization: Bearer <CRON_SECRET>" nos cron jobs
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const authHeader = req.headers.get("authorization");
+    const authError = validateCronAuthorization(authHeader);
+    if (authError) return authError;
 
     const admin = createAdminClient();
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
