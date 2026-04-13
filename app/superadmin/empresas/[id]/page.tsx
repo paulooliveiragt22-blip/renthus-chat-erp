@@ -162,12 +162,11 @@ function EditarCredenciaisModal({
 }) {
     const queryClient = useQueryClient();
     const companyId   = channel.company_id as string;
-    const meta        = (channel.provider_metadata ?? {}) as Record<string, string>;
 
     const [form, setForm] = useState({
         phone_number_id: channel.from_identifier ?? "",
         access_token:    "",
-        waba_id:         meta.waba_id ?? "",
+        waba_id:         (channel.waba_id as string) ?? "",
     });
 
     const save = useMutation({
@@ -214,7 +213,8 @@ function EditarCredenciaisModal({
                         placeholder="105xxxxxxxxx"
                     />
                     <p className="text-[11px] text-zinc-400">
-                        Access Token atual: {meta.access_token ? `${meta.access_token.slice(0, 12)}…` : "(não configurado)"}
+                        Access Token atual:{" "}
+                        {channel.hasAccessToken ? "(configurado)" : "(não configurado)"}
                     </p>
                 </div>
 
@@ -598,7 +598,6 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                                 </thead>
                                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                                     {channels.map((ch: any) => {
-                                        const meta = (ch.provider_metadata ?? {}) as Record<string, string>;
                                         return (
                                             <tr key={ch.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
                                                 <td className="px-4 py-3">
@@ -607,8 +606,8 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                                                     </code>
                                                 </td>
                                                 <td className="hidden px-4 py-3 text-xs text-zinc-400 sm:table-cell">
-                                                    {meta.access_token
-                                                        ? <code className="text-[11px] font-mono">{meta.access_token.slice(0, 16)}…</code>
+                                                    {ch.hasAccessToken
+                                                        ? <span className="text-emerald-600 dark:text-emerald-400">configurado</span>
                                                         : <span className="text-amber-500">não configurado</span>}
                                                 </td>
                                                 <td className="hidden px-4 py-3 text-xs text-zinc-400 sm:table-cell">

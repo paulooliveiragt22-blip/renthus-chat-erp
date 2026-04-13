@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
 
@@ -33,16 +34,15 @@ export async function POST(request: NextRequest) {
   // Carrega credenciais do canal da empresa
   const { data: channelRow } = await admin
     .from("whatsapp_channels")
-    .select("from_identifier, provider_metadata")
+    .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
     .eq("company_id", company_id)
     .eq("provider", "meta")
     .eq("status", "active")
     .maybeSingle();
 
-  const channelMeta = channelRow?.provider_metadata as { access_token?: string } | null;
   const waConfig: WaConfig = {
     phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-    accessToken:   channelMeta?.access_token   ?? process.env.WHATSAPP_TOKEN            ?? "",
+    accessToken:   channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
   };
 
   // Verifica se já existe ticket aberto para este cliente (evita duplicata)

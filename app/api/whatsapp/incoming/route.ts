@@ -21,6 +21,7 @@ import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
 
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
             // Busca canal por from_identifier (sem filtro de provider — pode variar por setup)
             let { data: channel } = await admin
                 .from("whatsapp_channels")
-                .select("id, company_id, from_identifier, provider_metadata")
+                .select("id, company_id, from_identifier, provider_metadata, encrypted_access_token, waba_id")
                 .eq("status", "active")
                 .eq("from_identifier", phoneNumberId)
                 .maybeSingle();
@@ -163,14 +164,13 @@ export async function POST(req: NextRequest) {
             }
 
             const channelMeta = channel.provider_metadata as {
-                access_token?:    string;
                 catalog_flow_id?: string;
             } | null;
             const waConfig: WaConfig = {
                 // Usa o phoneNumberId vindo da Meta (fonte da verdade),
                 // não o from_identifier do DB (pode estar desatualizado)
                 phoneNumberId: phoneNumberId || channel.from_identifier,
-                accessToken:   channelMeta?.access_token ?? process.env.WHATSAPP_TOKEN ?? "",
+                accessToken:   resolveChannelAccessToken(channel),
             };
             const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
 

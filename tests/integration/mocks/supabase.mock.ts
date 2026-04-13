@@ -227,6 +227,8 @@ export function baseAdmin(sessionOverrides: Record<string, unknown> = {}): MockA
         whatsapp_channels: [{
             id: "chan-1", company_id: "company-1",
             from_identifier: "+556500000000", provider_metadata: {},
+            encrypted_access_token: null,
+            waba_id:                null,
         }],
     });
 }

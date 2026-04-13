@@ -1,6 +1,12 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+    encryptWaAccessToken,
+    sanitizeWhatsappChannelForClient,
+    stripProviderMetadataSecrets,
+} from "@/lib/whatsapp/channelCredentials";
+import { invalidateWaConfig } from "@/lib/whatsapp/waConfigCache";
 
 function envNonEmpty(name: string): boolean {
     const v = process.env[name];
@@ -56,6 +62,12 @@ export async function getSecurityOpsStatus() {
             label: "WHATSAPP_TOKEN",
             ok:    envNonEmpty("WHATSAPP_TOKEN"),
             hint:  "Fallback global quando o canal não tem access_token no banco.",
+        },
+        {
+            key:   "CREDENTIALS_ENCRYPTION_KEY",
+            label: "CREDENTIALS_ENCRYPTION_KEY",
+            ok:    !isProd || envNonEmpty("CREDENTIALS_ENCRYPTION_KEY"),
+            hint:  "Em produção, recomendado: base64 de 32 bytes (AES-256); tokens gravados em encrypted_access_token.",
         },
     ] as const;
 
@@ -159,7 +171,7 @@ export async function getCompany(id: string) {
             .maybeSingle(),
         admin
             .from("whatsapp_channels")
-            .select("id, from_identifier, status, provider_metadata, created_at")
+            .select("id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at")
             .eq("company_id", id)
             .order("created_at", { ascending: false }),
         admin
@@ -180,10 +192,12 @@ export async function getCompany(id: string) {
     const company = compRes.data as any;
     const sub = Array.isArray(company.subscriptions) ? company.subscriptions[0] : null;
 
+    const rawChannels = channelsRes.data ?? [];
+
     return {
         company:  { ...company, subscriptions: undefined },
         sub,
-        channels: channelsRes.data ?? [],
+        channels: rawChannels.map((row: any) => sanitizeWhatsappChannelForClient(row)),
         orders:   ordersRes.data   ?? [],
         users:    usersRes.data    ?? [],
     };
@@ -271,22 +285,31 @@ export async function getAllChannels() {
     const { data, error } = await admin
         .from("whatsapp_channels")
         .select(`
-            id, from_identifier, status, provider_metadata, created_at,
+            id, company_id, from_identifier, status, provider_metadata, encrypted_access_token, waba_id, created_at,
             companies ( id, name )
         `)
         .order("created_at", { ascending: false });
 
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return (data ?? []).map((row: any) => ({
+        ...sanitizeWhatsappChannelForClient(row),
+        companies: row.companies,
+    }));
 }
 
 export async function updateChannelIdentifier(channelId: string, fromIdentifier: string) {
     const admin = createAdminClient();
+    const { data: row } = await admin
+        .from("whatsapp_channels")
+        .select("company_id")
+        .eq("id", channelId)
+        .maybeSingle();
     const { error } = await admin
         .from("whatsapp_channels")
         .update({ from_identifier: fromIdentifier })
         .eq("id", channelId);
     if (error) throw new Error(error.message);
+    if (row?.company_id) invalidateWaConfig(row.company_id as string);
 }
 
 export async function createChannel(companyId: string, data: {
@@ -297,19 +320,46 @@ export async function createChannel(companyId: string, data: {
 }) {
     const admin = createAdminClient();
 
-    const { phone_number_id, access_token, waba_id, whatsapp_phone } = data;
+    const phone_number_id = data.phone_number_id.trim();
+    const access_token    = data.access_token.trim();
+    const waba_id         = data.waba_id?.trim() || null;
+    const whatsapp_phone  = data.whatsapp_phone;
 
-    const { error: chErr } = await admin
+    if (!phone_number_id || !access_token) {
+        throw new Error("Phone Number ID e Access Token são obrigatórios.");
+    }
+
+    const enc = encryptWaAccessToken(access_token);
+    const provider_metadata = enc
+        ? {}
+        : { access_token, ...(waba_id ? { waba_id } : {}) };
+
+    const { data: inserted, error: chErr } = await admin
         .from("whatsapp_channels")
         .insert({
-            company_id:        companyId,
-            provider:          "meta",
-            status:            "active",
-            from_identifier:   phone_number_id,
-            provider_metadata: { access_token, ...(waba_id ? { waba_id } : {}) },
-        });
+            company_id:             companyId,
+            provider:               "meta",
+            status:                 "active",
+            from_identifier:        phone_number_id,
+            encrypted_access_token: enc,
+            waba_id,
+            provider_metadata,
+        })
+        .select("id")
+        .single();
 
     if (chErr) throw new Error(chErr.message);
+
+    if (inserted?.id) {
+        await admin.from("whatsapp_channel_credential_audit").insert({
+            channel_id: inserted.id,
+            company_id: companyId,
+            action:     "create_channel",
+            actor:      "superadmin_service",
+        });
+    }
+
+    invalidateWaConfig(companyId);
 
     if (whatsapp_phone) {
         await admin
@@ -326,24 +376,48 @@ export async function updateChannelCredentials(channelId: string, data: {
 }) {
     const admin = createAdminClient();
 
+    const { data: ch, error: loadErr } = await admin
+        .from("whatsapp_channels")
+        .select("company_id, provider_metadata, encrypted_access_token")
+        .eq("id", channelId)
+        .single();
+
+    if (loadErr || !ch) throw new Error(loadErr?.message ?? "Canal não encontrado");
+
+    const companyId = ch.company_id as string;
     const updates: Record<string, unknown> = {};
 
-    if (data.phone_number_id) updates.from_identifier = data.phone_number_id;
-
-    if (data.access_token || data.waba_id) {
-        const { data: ch } = await admin
-            .from("whatsapp_channels")
-            .select("provider_metadata")
-            .eq("id", channelId)
-            .single();
-
-        const current = (ch?.provider_metadata as Record<string, unknown>) ?? {};
-        updates.provider_metadata = {
-            ...current,
-            ...(data.access_token ? { access_token: data.access_token } : {}),
-            ...(data.waba_id      ? { waba_id:      data.waba_id      } : {}),
-        };
+    if (data.phone_number_id?.trim()) {
+        updates.from_identifier = data.phone_number_id.trim();
     }
+
+    const tokenIn = data.access_token?.trim() ?? "";
+    const metaNeedsTouch = Boolean(tokenIn) || data.waba_id !== undefined;
+
+    if (metaNeedsTouch) {
+        const current = (ch.provider_metadata as Record<string, unknown>) ?? {};
+        const cleaned = stripProviderMetadataSecrets(current);
+
+        if (tokenIn) {
+            const enc = encryptWaAccessToken(tokenIn);
+            if (enc) {
+                updates.encrypted_access_token = enc;
+                updates.provider_metadata      = cleaned;
+            } else {
+                updates.encrypted_access_token = null;
+                updates.provider_metadata      = { ...cleaned, access_token: tokenIn };
+            }
+        } else {
+            updates.provider_metadata = cleaned;
+        }
+    }
+
+    if (data.waba_id !== undefined) {
+        const w = data.waba_id.trim();
+        updates.waba_id = w || null;
+    }
+
+    if (Object.keys(updates).length === 0) return;
 
     const { error } = await admin
         .from("whatsapp_channels")
@@ -351,6 +425,15 @@ export async function updateChannelCredentials(channelId: string, data: {
         .eq("id", channelId);
 
     if (error) throw new Error(error.message);
+
+    await admin.from("whatsapp_channel_credential_audit").insert({
+        channel_id: channelId,
+        company_id: companyId,
+        action:     "update_credentials",
+        actor:      "superadmin_service",
+    });
+
+    invalidateWaConfig(companyId);
 }
 
 // ─── Pedidos (cross-empresa) ──────────────────────────────────────────────────
@@ -376,9 +459,15 @@ export async function getAllOrders(page = 0, limit = 50) {
 
 export async function updateChannelStatus(channelId: string, status: "active" | "inactive") {
     const admin = createAdminClient();
+    const { data: row } = await admin
+        .from("whatsapp_channels")
+        .select("company_id")
+        .eq("id", channelId)
+        .maybeSingle();
     const { error } = await admin
         .from("whatsapp_channels")
         .update({ status })
         .eq("id", channelId);
     if (error) throw new Error(error.message);
+    if (row?.company_id) invalidateWaConfig(row.company_id as string);
 }

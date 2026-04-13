@@ -6,6 +6,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveChannelAccessToken } from "./channelCredentials";
 import type { WaConfig } from "./send";
 
 const cache = new Map<string, { config: WaConfig; expiresAt: number }>();
@@ -24,18 +25,17 @@ export async function getWaConfig(
 
     const { data: channel } = await admin
         .from("whatsapp_channels")
-        .select("from_identifier, provider_metadata")
+        .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
         .eq("company_id", companyId)
-        .eq("is_active", true)
+        .eq("status", "active")
         .limit(1)
         .maybeSingle();
 
     if (!channel) return null;
 
-    const pm = (channel.provider_metadata as { access_token?: string } | null) ?? {};
     const config: WaConfig = {
         phoneNumberId: channel.from_identifier as string,
-        accessToken:   pm.access_token ?? process.env.WHATSAPP_TOKEN ?? "",
+        accessToken:   resolveChannelAccessToken(channel),
     };
 
     cache.set(companyId, { config, expiresAt: Date.now() + TTL_MS });

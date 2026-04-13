@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
 
@@ -60,15 +61,14 @@ export async function GET(req: Request) {
             if (!channelConfigCache.has(thread.company_id)) {
                 const { data: ch } = await admin
                     .from("whatsapp_channels")
-                    .select("from_identifier, provider_metadata")
+                    .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
                     .eq("company_id", thread.company_id)
                     .eq("provider", "meta")
                     .eq("status", "active")
                     .maybeSingle();
-                const meta = ch?.provider_metadata as { access_token?: string } | null;
                 channelConfigCache.set(thread.company_id, {
                     phoneNumberId: ch?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-                    accessToken:   meta?.access_token  ?? process.env.WHATSAPP_TOKEN            ?? "",
+                    accessToken:   ch ? resolveChannelAccessToken(ch) : (process.env.WHATSAPP_TOKEN ?? ""),
                 });
             }
             const waConfig = channelConfigCache.get(thread.company_id)!;

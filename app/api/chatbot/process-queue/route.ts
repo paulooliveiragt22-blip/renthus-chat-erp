@@ -17,6 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -163,15 +164,15 @@ async function processJob(
     // Carrega credenciais do canal da empresa
     const { data: channelRow } = await admin
         .from("whatsapp_channels")
-        .select("from_identifier, provider_metadata")
+        .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
         .eq("company_id", company_id)
         .eq("provider", "meta")
         .eq("status", "active")
         .maybeSingle();
-    const channelMeta = channelRow?.provider_metadata as { access_token?: string; catalog_flow_id?: string } | null;
+    const channelMeta = channelRow?.provider_metadata as { catalog_flow_id?: string } | null;
     const waConfig: WaConfig = {
         phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-        accessToken:   channelMeta?.access_token   ?? process.env.WHATSAPP_TOKEN            ?? "",
+        accessToken:   channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
     };
     const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
 

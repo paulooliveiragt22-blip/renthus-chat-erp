@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptFlowRequest, encryptFlowResponse } from "@/lib/whatsapp/flowCrypto";
 import { sendWhatsAppMessage, sendListMessage, type WaConfig } from "@/lib/whatsapp/send";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import type { CartItem } from "@/lib/whatsapp/flows/flowCartTypes";
 import {
     buildCatalogCategoriesFromProductRows,
@@ -209,7 +210,7 @@ export async function POST(req: NextRequest) {
     const [channelRes, threadEarlyRes] = await Promise.all([
         admin
             .from("whatsapp_channels")
-            .select("from_identifier, provider_metadata")
+            .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
             .eq("company_id", companyId)
             .eq("provider", "meta")
             .eq("status", "active")
@@ -225,10 +226,9 @@ export async function POST(req: NextRequest) {
     ]);
 
     const channelRow  = channelRes.data;
-    const channelMeta = channelRow?.provider_metadata as { access_token?: string } | null;
     const waConfig: WaConfig = {
         phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-        accessToken:   channelMeta?.access_token   ?? process.env.WHATSAPP_TOKEN            ?? "",
+        accessToken:   channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
     };
     // Dados da thread pré-carregados em paralelo com channels
     const earlyThreadData = (threadEarlyRes as { data: { phone_e164?: string; profile_name?: string } | null }).data;

@@ -12,6 +12,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export interface SendMessageParams {
     admin: SupabaseClient;
@@ -38,7 +39,7 @@ export async function sendWhatsAppMessage(
     // 1. Canal ativo da empresa
     const { data: channel, error: chErr } = await admin
         .from("whatsapp_channels")
-        .select("id, provider, from_identifier, provider_metadata")
+        .select("id, provider, from_identifier, provider_metadata, encrypted_access_token, waba_id")
         .eq("company_id", companyId)
         .eq("status", "active")
         .maybeSingle();
@@ -63,7 +64,11 @@ export async function sendWhatsAppMessage(
 
     // 3. Insere registro pendente
     const pm = (channel as any).provider_metadata ?? {};
-    const phoneNumberId = pm.phone_number_id ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+    const phoneNumberId =
+        (pm.phone_number_id as string | undefined)
+        ?? (channel as any).from_identifier
+        ?? process.env.WHATSAPP_PHONE_NUMBER_ID
+        ?? "";
     const fromPlaceholder = String(channel.from_identifier ?? `whatsapp:${phoneNumberId}`);
     const { data: msgRow, error: insErr } = await admin
         .from("whatsapp_messages")
@@ -96,7 +101,7 @@ export async function sendWhatsAppMessage(
     let toAddr = "";
 
     try {
-        const token = pm.access_token ?? process.env.WHATSAPP_TOKEN!;
+        const token = resolveChannelAccessToken(channel as any);
         const baseUrl = pm.base_url ?? process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
         const effectivePhoneNumberId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID!;
 

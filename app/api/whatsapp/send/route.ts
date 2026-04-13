@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { checkLimit, requireFeature } from "@/lib/billing/entitlements";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
 
@@ -115,7 +116,7 @@ export async function POST(req: Request) {
         // 2) Channel & thread
         const { data: channel, error: chErr } = await admin
             .from("whatsapp_channels")
-            .select("id, provider, from_identifier, provider_metadata")
+            .select("id, provider, from_identifier, provider_metadata, encrypted_access_token, waba_id")
             .eq("company_id", companyId)
             .eq("status", "active")
             .maybeSingle();
@@ -178,8 +179,11 @@ export async function POST(req: Request) {
 
         try {
             const pm = (channel as any).provider_metadata ?? {};
-            const token = pm.access_token ?? process.env.WHATSAPP_TOKEN!;
-            const phoneNumberId = pm.phone_number_id ?? process.env.WHATSAPP_PHONE_NUMBER_ID!;
+            const token         = resolveChannelAccessToken(channel as any);
+            const phoneNumberId =
+                (pm.phone_number_id as string | undefined)
+                ?? (channel as any).from_identifier
+                ?? process.env.WHATSAPP_PHONE_NUMBER_ID!;
             const baseUrl = pm.base_url ?? process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
 
             const url = `${baseUrl}/${phoneNumberId}/messages`;
