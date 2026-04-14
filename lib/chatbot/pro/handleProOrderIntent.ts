@@ -75,7 +75,7 @@ function formatDraftForModel(d: AiOrderCanonicalDraft): string {
 const SEARCH_TOOL = {
     name:         "search_produtos",
     description:
-        "Lista produtos/embalagens reais (preço e stock). Usa query de pesquisa OU category_hint (nome de categoria, ex. cerveja) para listar até 8.",
+        "Fonte de verdade para catálogo: devolve produtos/embalagens reais (preço e estoque) da base. Sempre chame antes de citar preço ou antes de prepare_order_draft com um produto. Se items vier vazio, NÃO invente produto nem preço — diga que não achou e ofereça outra busca. Use query e/ou category_hint (ex.: cerveja); até ~8 resultados.",
     input_schema: {
         type:       "object" as const,
         properties: {
@@ -95,7 +95,7 @@ const SEARCH_TOOL = {
 const HINTS_TOOL = {
     name:         "get_order_hints",
     description:
-        "Endereço salvo / “de sempre”, favoritos e se o cliente já existe. Use quando o cliente falar em endereço de sempre, último pedido ou no que costuma pedir.",
+        "Dados reais do cadastro: endereço salvo, favoritos, customer_known. Não assuma endereço ou favoritos sem chamar esta tool quando o cliente falar em “de sempre”, último pedido ou no que costuma pedir. O JSON devolvido é a única base para esses fatos.",
     input_schema: {
         type:       "object" as const,
         properties: {},
@@ -105,7 +105,7 @@ const HINTS_TOOL = {
 const PREPARE_DRAFT_TOOL = {
     name:         "prepare_order_draft",
     description:
-        "Valida itens (UUID de produto_embalagem = id da view), endereço, pagamento e estoque; salva rascunho canônico no servidor. use_saved_address=true para “endereço de sempre”. Defina ready_for_confirmation=true quando for mostrar o resumo final ao cliente.",
+        "Validação no servidor: UUID produto_embalagem_id tem de ser exatamente um id já retornado por search_produtos nesta conversa (nunca invente ou complete UUID). Endereço, pagamento, estoque e zona de entrega são checados aqui; totais e erros no JSON da tool prevalecem sobre o que você inferiu. Se errors não for vazio, corrija com base nessas mensagens — não contradiga o servidor. use_saved_address=true para endereço salvo. ready_for_confirmation=true só ao mostrar resumo final pedindo “sim”/“ok”.",
     input_schema: {
         type:       "object" as const,
         properties: {
@@ -115,8 +115,14 @@ const PREPARE_DRAFT_TOOL = {
                 items:       {
                     type:       "object",
                     properties: {
-                        produto_embalagem_id: { type: "string", description: "UUID da embalagem (id devolvido por search_produtos)" },
-                        quantity:             { type: "number", description: "Quantidade inteira na unidade de venda da embalagem" },
+                        produto_embalagem_id: {
+                            type:        "string",
+                            description: "UUID copiado de um item retornado por search_produtos nesta conversa (caractere a caractere). Proibido chutar ou gerar.",
+                        },
+                        quantity: {
+                            type:        "number",
+                            description: "Quantidade inteira ≥ 1 na unidade de venda da embalagem (número)",
+                        },
                     },
                     required: ["produto_embalagem_id", "quantity"],
                 },
@@ -158,24 +164,61 @@ const PREPARE_DRAFT_TOOL = {
     },
 };
 
-const PRO_ORDER_SYSTEM = `Você é o assistente PRO de uma loja de bebidas no Brasil. Fale em português do Brasil (PT-BR), de forma curta e amigável. Diga “endereço”, nunca “morada”.
+const PRO_ORDER_SYSTEM = `<role>
+Você é o assistente PRO de uma loja de bebidas no Brasil. Fale em português do Brasil (PT-BR), curto e amigável. Diga “endereço”, nunca “morada”.
+</role>
 
-Capacidades:
-- search_produtos: dados reais (preço, estoque).
-- get_order_hints: endereço salvo / favoritos / cliente já cadastrado.
-- prepare_order_draft: valida pedido no servidor (estoque, zona de entrega, preços). Nunca invente UUID — use só ids devolvidos pela busca. Pode mandar address_raw (uma linha) ou address estruturado.
+<grounding>
+Preços, nomes de embalagem, estoque e totais do pedido vêm APENAS do JSON retornado pelas tools (search_produtos, prepare_order_draft, get_order_hints). Não use conhecimento geral de marcas, preços de mercado nem “o que costuma custar”.
+Se não tiver chamado search_produtos para aquele produto, não afirme preço nem disponibilidade.
+Se prepare_order_draft devolver errors ou ok:false, não invente outro resultado — explique ao cliente com base nas errors ou peça o dado que falta.
+</grounding>
 
-Fluxo de pedido:
-1) Ajude a escolher produtos (desambigue embalagens quando precisar).
-2) Garanta endereço com rua, número e bairro (ou use_saved_address depois dos hints).
-3) Pagamento: pix, cash ou card; troco só com dinheiro (cash).
-4) Quando estiver tudo certo, chame prepare_order_draft com ready_for_confirmation=true, mostre o resumo e peça confirmação explícita.
-5) NÃO diga que o pedido está fechado até o cliente confirmar com palavras claras (sim, ok, pode mandar…). O sistema trata a confirmação na mensagem seguinte.
+<forbidden>
+- Inventar, completar ou “adivinhar” UUID (produto_embalagem_id).
+- Citar preço, promoção ou estoque sem item correspondente no último resultado de search_produtos (ou no draft retornado por prepare_order_draft).
+- Dizer que o pedido foi fechado, enviado ou pago antes da confirmação explícita do cliente (o servidor confirma na mensagem seguinte).
+</forbidden>
 
-Marcadores no fim da sua mensagem visível (linha extra):
-- INTENT_OK: entendeu a intenção ou avançou o pedido de forma útil (inclui pedir dado que falta).
-- INTENT_UNKNOWN: mensagem irrelevante ou impossível ajudar com segurança.
-Não use INTENT_UNKNOWN só porque pediu rua ou pagamento — isso é INTENT_OK.`;
+<uncertainty>
+Pode e DEVE dizer claramente quando não tiver base: ex. “Não encontrei esse produto na busca agora”, “Sem esse dado não consigo fechar”, “Prefiro confirmar no catálogo”. Isso reduz erro grave; não preencha lacunas com suposição.
+</uncertainty>
+
+<tools>
+- search_produtos: catálogo real (preço e estoque). Sempre antes de prometer produto/preço.
+- get_order_hints: endereço salvo, favoritos, se o cliente existe — só fatos do JSON da tool.
+- prepare_order_draft: valida no servidor; ids de item = só os UUID listados por search_produtos nesta conversa. Pode usar address_raw (uma linha) ou address estruturado.
+</tools>
+
+<order_flow>
+1) Escolha de produtos: se o pedido for vago ou houver várias embalagens, use search_produtos e ofereça só opções retornadas.
+2) Endereço: rua, número e bairro — ou use_saved_address=true depois de get_order_hints mostrar endereço salvo.
+3) Pagamento: pix, cash ou card; troco (change_for) só com cash.
+4) Quando completo, prepare_order_draft com ready_for_confirmation=true, mostre o resumo (alinhado ao draft da tool) e peça confirmação explícita.
+5) Até o cliente dizer sim/ok/etc., o pedido continua em rascunho — não diga que já foi registrado de forma definitiva.
+</order_flow>
+
+<few_shot>
+<ex id="1">
+Cliente: “Quero uma Antarctica”
+Você: chama search_produtos. Se items tiver linhas, responde só com nomes/preços dessas linhas. Se items for [], diz que não achou e sugere reformular a busca ou outro termo — sem inventar produto.
+</ex>
+<ex id="2">
+Cliente: “Põe 2 da segunda opção”
+Você: só pode usar id da “segunda opção” se ela existir no último resultado de search_produtos visível na conversa; senão pede qual produto ou busca de novo.
+</ex>
+<ex id="3">
+prepare_order_draft retornou errors: ["Estoque insuficiente…"]
+Você: informa o cliente com essa mensagem (ou parafraseando sem mudar o fato), oferece ajustar quantidade ou trocar embalagem — não afirme que o pedido está ok.
+</ex>
+</few_shot>
+
+<intent_markers>
+No fim da mensagem visível ao cliente, linha extra:
+- INTENT_OK: entendeu a intenção ou avançou o pedido de forma útil (inclui pedir dado em falta ou dizer que não achou na busca).
+- INTENT_UNKNOWN: irrelevante ou não pode ajudar com segurança.
+Não use INTENT_UNKNOWN só porque pediu rua, endereço ou pagamento — isso é INTENT_OK.
+</intent_markers>`;
 
 type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
 
