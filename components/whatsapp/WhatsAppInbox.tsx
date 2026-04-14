@@ -33,6 +33,7 @@ import type {
     Usage,
 } from "@/lib/whatsapp/types";
 import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
+import { extractMediaFromWaPayload } from "@/lib/whatsapp/extractMediaFromWaPayload";
 import { BillingModal } from "./BillingModal";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -912,8 +913,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                 const isOut     = m.direction === "out" || m.direction === "outbound";
                                 const isBot     = m.sender_type === "bot";
                                 const isSending = m.id.startsWith("opt_");
-                                const rawMedia  = (m.raw_payload && (m.raw_payload as any)._media) || null;
-                                const hasRawMedia = (m.num_media ?? 0) > 0 && rawMedia;
+                                const rawMedia = extractMediaFromWaPayload(m.raw_payload ?? null);
+                                const hasRawMedia = Boolean(rawMedia);
                                 const bodyMedia = !hasRawMedia ? detectBodyMedia(m.body) : null;
                                 const displayText = bodyMedia ? null : m.body;
 
@@ -935,7 +936,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                                 : "rounded-bl-sm bg-white text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
                                         }`}>
                                             {/* Mídia do payload (Meta) */}
-                                            {hasRawMedia && (
+                                            {hasRawMedia && rawMedia ? (
                                                 <div className="mb-2">
                                                     {rawMedia.type === "image" ? (
                                                         <img
@@ -959,7 +960,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                                         </a>
                                                     )}
                                                 </div>
-                                            )}
+                                            ) : null}
 
                                             {/* Mídia detectada no body */}
                                             {bodyMedia && (

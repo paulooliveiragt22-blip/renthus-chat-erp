@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+import { getWhatsAppConfig } from "@/lib/whatsapp/getConfig";
 
 // Proxy para download de mídia da WhatsApp Cloud API (Meta).
-// Usa o canal WhatsApp ativo da empresa da sessão; se a Meta recusar, tenta
-// WHATSAPP_TOKEN (legado / mesmo WABA) uma vez — evita 502 quando o canal no DB
-// está vazio ou o token cifrado não decifra em produção.
+// Tenta tokens de todos os canais ativos + company_integrations + WHATSAPP_TOKEN,
+// com a mesma base URL do Graph que o envio usa por canal (provider_metadata.base_url).
 
 export const runtime = "nodejs";
 
@@ -13,14 +13,21 @@ function graphBase(): string {
     return (process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0").replace(/\/$/, "");
 }
 
+function graphBaseFromChannelPm(pm: Record<string, unknown> | null | undefined): string {
+    const fromPm = pm && typeof pm.base_url === "string" ? pm.base_url.trim() : "";
+    if (fromPm) return fromPm.replace(/\/$/, "");
+    return graphBase();
+}
+
 async function proxyMediaOnce(
     mediaId: string,
-    bearer: string
+    bearer: string,
+    graphRoot: string
 ): Promise<
     | { ok: true; response: Response }
     | { ok: false; step: "meta" | "download" | "empty"; status: number; detail: unknown }
 > {
-    const baseUrl = graphBase();
+    const baseUrl = graphRoot.replace(/\/$/, "");
     const metaRes   = await fetch(
         `${baseUrl}/${encodeURIComponent(mediaId)}?fields=url,mime_type`,
         { headers: { Authorization: `Bearer ${bearer}` } }
@@ -84,23 +91,47 @@ export async function GET(
         return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
     }
 
-    const { data: channel } = await admin
+    const { data: channelRows } = await admin
         .from("whatsapp_channels")
         .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
         .eq("company_id", companyId)
-        .eq("status", "active")
-        .maybeSingle();
+        .eq("status", "active");
 
-    const channelToken = channel ? resolveChannelAccessToken(channel) : "";
-    const envToken     = process.env.WHATSAPP_TOKEN?.trim() ?? "";
+    const integrationCfg = await getWhatsAppConfig(admin, companyId);
+    const envToken         = process.env.WHATSAPP_TOKEN?.trim() ?? "";
 
-    const candidates = [...new Set([channelToken, envToken].filter((t) => t.length > 0))];
+    type Attempt = { bearer: string; graphRoot: string };
+    const attempts: Attempt[] = [];
 
-    if (candidates.length === 0) {
+    for (const row of channelRows ?? []) {
+        const bearer = resolveChannelAccessToken(row);
+        if (!bearer) continue;
+        const pm = (row.provider_metadata ?? {}) as Record<string, unknown>;
+        attempts.push({ bearer, graphRoot: graphBaseFromChannelPm(pm) });
+    }
+
+    const intTok = integrationCfg.token?.trim() ?? "";
+    if (intTok) {
+        attempts.push({ bearer: intTok, graphRoot: graphBase() });
+    }
+    if (envToken) {
+        attempts.push({ bearer: envToken, graphRoot: graphBase() });
+    }
+
+    const seen     = new Set<string>();
+    const unique: Attempt[] = [];
+    for (const a of attempts) {
+        const key = `${a.graphRoot}\n${a.bearer}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(a);
+    }
+
+    if (unique.length === 0) {
         return NextResponse.json(
             {
                 error: "no_channel_token",
-                hint:  "Configure o canal WhatsApp da empresa ou WHATSAPP_TOKEN na Vercel.",
+                hint:  "Configure whatsapp_channels, company_integrations (WhatsApp) ou WHATSAPP_TOKEN na Vercel.",
             },
             { status: 500 }
         );
@@ -108,9 +139,9 @@ export async function GET(
 
     let lastFail: { step: string; status: number; detail: unknown } | null = null;
 
-    for (const bearer of candidates) {
+    for (const { bearer, graphRoot } of unique) {
         try {
-            const out = await proxyMediaOnce(mediaId, bearer);
+            const out = await proxyMediaOnce(mediaId, bearer, graphRoot);
             if (out.ok) return out.response;
             lastFail = { step: out.step, status: out.status, detail: out.detail };
             if (process.env.NODE_ENV !== "production") {
@@ -126,10 +157,15 @@ export async function GET(
             ? (lastFail.detail as any).code
             : undefined;
     if (lastFail?.step === "meta") {
-        console.warn("[whatsapp/media] meta falhou após tentar", candidates.length, "token(s)", {
+        const metaMsg =
+            lastFail.detail && typeof (lastFail.detail as any).message === "string"
+                ? (lastFail.detail as any).message
+                : undefined;
+        console.warn("[whatsapp/media] meta falhou após tentar", unique.length, "combinação(ões) token+Graph", {
             mediaId: mediaId.slice(0, 8) + "…",
             status:  lastFail.status,
             code,
+            metaMsg,
         });
     }
 
