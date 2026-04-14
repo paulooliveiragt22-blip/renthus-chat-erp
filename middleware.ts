@@ -105,7 +105,9 @@ function handleSuperadminBranch(request: NextRequest, pathname: string): NextRes
 
 function isTechnicalApiPublic(pathname: string): boolean {
     return (
-        pathname.startsWith("/api/whatsapp/") ||
+        /** Webhook + Flows: chamados pela Meta sem cookie de sessão. Demais /api/whatsapp/* exigem login aqui. */
+        pathname.startsWith("/api/whatsapp/incoming") ||
+        pathname.startsWith("/api/whatsapp/flows") ||
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||

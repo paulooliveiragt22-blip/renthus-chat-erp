@@ -13,7 +13,8 @@ export type RateLimitResult = {
 
 /**
  * Simple in-memory fixed-window rate limiter.
- * Good enough for baseline protection; can be replaced by Redis later.
+ * Good enough for baseline protection; em várias instâncias serverless o limite dilui-se.
+ * Para APIs críticas em produção, complementar com Upstash Redis, Cloudflare ou WAF.
  */
 export function checkRateLimit(
     key: string,

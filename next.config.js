@@ -40,65 +40,44 @@ const withPWA = require("@ducanh2912/next-pwa").default({
           expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 7 },
         },
       },
-      // Dashboard stats — NetworkFirst (dados frescos prioritários)
-      {
-        urlPattern: /\/api\/dashboard\/stats/i,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "api-dashboard",
-          networkTimeoutSeconds: 10,
-          expiration: { maxEntries: 10, maxAgeSeconds: 60 * 5 },
-        },
-      },
-      // Lista de pedidos
-      {
-        urlPattern: /\/api\/orders\/list/i,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "api-orders",
-          networkTimeoutSeconds: 10,
-          expiration: { maxEntries: 5, maxAgeSeconds: 60 * 2 },
-        },
-      },
-      // Detalhe de pedido
-      {
-        urlPattern: /\/api\/orders\/[^/]+$/i,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "api-order-detail",
-          networkTimeoutSeconds: 10,
-          expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
-        },
-      },
-      // Relatórios
-      {
-        urlPattern: /\/api\/reports\/.*/i,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "api-reports",
-          networkTimeoutSeconds: 10,
-          expiration: { maxEntries: 20, maxAgeSeconds: 60 * 10 },
-        },
-      },
-      // WhatsApp threads (leitura)
-      {
-        urlPattern: /\/api\/whatsapp\/threads/i,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "api-threads",
-          networkTimeoutSeconds: 10,
-          expiration: { maxEntries: 10, maxAgeSeconds: 60 * 2 },
-        },
-      },
+      // APIs sensíveis (pedidos, relatórios, WhatsApp): não cachear no SW — evita dados em disco partilhado
     ],
   },
 });
+
+const isProd =
+  process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key:   "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+  },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+];
+
+if (isProd) {
+  securityHeaders.push({
+    key:   "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  });
+}
 
 const nextConfig = {
   outputFileTracingIncludes: {
     "/api/print/download-agent": [
       "./app/api/print/download-agent/RenthusPrintAgentInstaller-v1.0.0.exe",
     ],
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: securityHeaders,
+      },
+    ];
   },
 };
 

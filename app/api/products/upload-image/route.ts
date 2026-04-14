@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { assertUploadAllowed } from "@/lib/security/uploadGuards";
 import sharp from "sharp";
 
 export const runtime = "nodejs";
@@ -38,6 +39,11 @@ export async function POST(request: NextRequest) {
 
   if (!productId || !file) {
     return NextResponse.json({ error: "product_id and file required" }, { status: 400 });
+  }
+
+  const guard = assertUploadAllowed(file, "product_image");
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
 
   // Valida que o produto pertence à empresa do usuário

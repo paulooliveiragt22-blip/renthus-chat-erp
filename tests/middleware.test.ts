@@ -38,7 +38,7 @@ describe("middleware auth routing", () => {
 
     it("exempts webhook and print endpoints", async () => {
         const response = await middleware(
-            createRequest("/api/whatsapp/inbound"),
+            createRequest("/api/whatsapp/incoming"),
             undefined,
             { createClient: factory }
         );

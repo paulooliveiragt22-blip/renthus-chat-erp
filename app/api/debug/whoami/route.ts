@@ -4,7 +4,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
+function whoamiDisabledInProd(): boolean {
+    const prod =
+        process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+    return prod && process.env.DEBUG_WHOAMI_ENABLED !== "true";
+}
+
 export async function GET() {
+    if (whoamiDisabledInProd()) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
     const supabase = await createServerClient();
     const { data: u, error } = await supabase.auth.getUser();
 

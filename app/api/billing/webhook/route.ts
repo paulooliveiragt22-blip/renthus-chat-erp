@@ -19,11 +19,36 @@ import { processSetupOrderPaid } from "@/lib/billing/pagarmeSetupPaid";
 import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
 import { billingLog } from "@/lib/billing/billingLog";
 import { tryConsumePagarmeWebhookEvent } from "@/lib/billing/tryConsumePagarmeWebhookEvent";
+import { checkRateLimit } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
+const BILLING_WEBHOOK_RL_LIMIT  = 120;
+const BILLING_WEBHOOK_RL_WINDOW = 60_000;
+
+function clientIp(req: Request): string {
+    const xff = req.headers.get("x-forwarded-for");
+    if (xff) return xff.split(",")[0]?.trim() || "unknown";
+    return req.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
 // Pagar.me não envia autenticação de rota — usa assinatura HMAC no body
 export async function POST(req: Request) {
+    const rl = checkRateLimit(
+        `billing_webhook:${clientIp(req)}`,
+        BILLING_WEBHOOK_RL_LIMIT,
+        BILLING_WEBHOOK_RL_WINDOW
+    );
+    if (!rl.allowed) {
+        return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    }
+
+    const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+    if (isProd && !process.env.PAGARME_WEBHOOK_SECRET?.trim()) {
+        console.error("[billing/webhook] PAGARME_WEBHOOK_SECRET obrigatório em produção");
+        return NextResponse.json({ error: "server_misconfigured" }, { status: 500 });
+    }
+
     const rawBody  = await req.text();
     const signature = (req as any).headers?.get?.("x-hub-signature") ?? "";
 

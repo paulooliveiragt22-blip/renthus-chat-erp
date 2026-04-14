@@ -12,6 +12,9 @@ import { getWhatsAppConfig } from "@/lib/whatsapp/getConfig";
 
 export const runtime = "nodejs";
 
+/** IDs de mídia Cloud API são numéricos; evita path odd / SSRF-ish em `encodeURIComponent`. */
+const META_MEDIA_ID_RE = /^\d{6,64}$/;
+
 function graphBase(): string {
     return (process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0").replace(/\/$/, "");
 }
@@ -71,7 +74,11 @@ async function proxyMediaOnce(
         response: new Response(body, {
             status: 200,
             headers: {
-                "Content-Type": contentType,
+                "Content-Type":                     contentType,
+                "Cache-Control":                    "private, max-age=300",
+                "X-Content-Type-Options":           "nosniff",
+                "Referrer-Policy":                  "no-referrer",
+                "Cross-Origin-Resource-Policy":     "same-site",
                 ...(contentLength ? { "Content-Length": contentLength } : {}),
             },
         }),
@@ -97,8 +104,8 @@ export async function GET(
     const { admin, companyId } = ctx;
     const mediaId              = params.mediaId;
 
-    if (!mediaId) {
-        return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
+    if (!mediaId || !META_MEDIA_ID_RE.test(mediaId)) {
+        return NextResponse.json({ error: "invalid_media_id" }, { status: 400 });
     }
 
     const channelIdHint = new URL(req.url).searchParams.get("channel_id")?.trim() ?? "";

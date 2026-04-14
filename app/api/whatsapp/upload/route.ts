@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertUploadAllowed } from "@/lib/security/uploadGuards";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,11 @@ export async function POST(req: Request) {
 
     const file = formData.get("file");
     if (!file || !(file instanceof File)) return NextResponse.json({ error: "file is required" }, { status: 400 });
+
+    const guard = assertUploadAllowed(file, "whatsapp_outbound");
+    if (!guard.ok) {
+        return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
 
     const admin = createAdminClient();
     const ext = file.name.split(".").pop() || "bin";
