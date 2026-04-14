@@ -5,7 +5,7 @@ O motor de mensagens inbound (`lib/chatbot/processMessage.ts`) escolhe o pipelin
 | Plano (`plans.key`) | Motor | Ficheiros principais |
 |---------------------|--------|------------------------|
 | **`starter`** (ou sem subscrição ativa) | **Chatbot Starter** — comportamento **flow-first** existente: `order_intent` abre o WhatsApp Flow de catálogo. | `lib/chatbot/inboundPipeline.ts` (`starterOrderFlow`) |
-| **`pro`** | **Chatbot PRO** — IA (Claude Haiku) com **tool use** `search_produtos` sobre `view_chat_produtos`; após **4** `INTENT_UNKNOWN` consecutivos, envia o mesmo Flow de catálogo. | `lib/chatbot/pro/handleProOrderIntent.ts` |
+| **`pro`** | **Chatbot PRO** — IA (Haiku) com tools `search_produtos`, `get_order_hints`, `prepare_order_draft`; morada “de sempre”; stock/preço no servidor; confirmação PT-BR; RPC `create_order_with_items` (`ai_chat_pro`); após **4** `INTENT_UNKNOWN`, Flow de catálogo. | `lib/chatbot/pro/*.ts` (ver `CHATBOT_AI_FIRST_ORDER_SPEC.md` §9) |
 
 Resolução do plano: `lib/chatbot/tier.ts` → `getChatbotProductTier()`.
 

@@ -86,6 +86,7 @@ export async function runInboundChatbotPipeline(
                     companyName,
                     model,
                     waConfig,
+                    profileName: params.profileName,
                 });
             } else {
                 await starterOrderFlow(params, session, config, effectiveCatalogId, companyName);

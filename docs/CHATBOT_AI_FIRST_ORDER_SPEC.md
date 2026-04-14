@@ -1,6 +1,6 @@
 # Especificação — Pedido com IA primeiro, Flow após falhas (estrutura)
 
-Documento de desenho e **fases de implementação**. A **Fase 1** já está no código: plano `pro` usa `handleProOrderIntent` (tool `search_produtos` + contador `pro_misunderstanding_streak` + Flow após 4× `INTENT_UNKNOWN`); plano `starter` mantém o flow-first. As secções abaixo descrevem o produto alvo completo.
+Documento de desenho e **fases de implementação**. **Fase 1 + fecho de pedido (PRO)** no código: plano `pro` usa `handleProOrderIntent` com tools `search_produtos`, `get_order_hints`, `prepare_order_draft`; rascunho canónico em `context.ai_order_canonical`; confirmação PT-BR validada no servidor (`confirmationPt.ts`); criação via RPC `create_order_with_items` (`p_source`: `ai_chat_pro`); stock/preço revalidados no finalize; plano `starter` mantém o flow-first. As secções abaixo descrevem o produto alvo e alinhamento contínuo.
 
 ---
 
@@ -110,21 +110,28 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 
 ## 8. Checklist de implementação (para quando for codar)
 
-- [ ] Definir na BD/queries: agrupamento por `products.name`, joins `produto_embalagens`, `fator_conversao`, unidade.
-- [ ] Serviço “resolver endereço de sempre / último / mais frequente”.
-- [ ] Detector de confirmação (gírias PT-BR) + resumo obrigatório pré-`create_order`.
-- [ ] Contador conforme secção 2 (só incrementa nos casos certos).
-- [ ] Integração Anthropic com tool use; **nunca** confiar em preço/stock vindo só do modelo.
-- [ ] Testes: frases reais, multi-embalagem, >5 produtos na categoria, “endereço de sempre”, recusa/confirmação.
+- [x] Definir na BD/queries: `view_chat_produtos` + `product_volumes` (stock) + `fator_conversao` na validação do rascunho.
+- [x] Serviço “resolver endereço de sempre / último” (`resolveSavedAddress.ts` — principal, depois último pedido entregue).
+- [x] Detector de confirmação (gírias PT-BR) + resumo via `prepare_order_draft` antes de `create_order`.
+- [ ] Contador conforme secção 2 (hoje: marcadores `INTENT_OK` / `UNKNOWN` pelo modelo — refinável).
+- [x] Integração Anthropic com tool use; preço/stock validados no servidor (`prepareOrderDraft` / `finalizeAiOrder`).
+- [ ] Testes automatizados extensivos (hoje: cobertura manual / futuros testes de integração).
 
 ---
 
-## 9. Implementação no repositório (Fase 1)
+## 9. Implementação no repositório (Fase 1 + pedido PRO)
 
 - `lib/chatbot/tier.ts` — `getChatbotProductTier` (Starter vs PRO pelo `plans.key`).
 - `lib/chatbot/processMessage.ts` — router para `runInboundChatbotPipeline`.
-- `lib/chatbot/inboundPipeline.ts` — lógica comum; `order_intent` ramifica Starter vs PRO.
-- `lib/chatbot/pro/handleProOrderIntent.ts` — Haiku + tool `search_produtos`; marcadores `INTENT_OK` / `INTENT_UNKNOWN`; contexto `pro_misunderstanding_streak`.
+- `lib/chatbot/inboundPipeline.ts` — lógica comum; `order_intent` ramifica Starter vs PRO; passa `profileName` ao PRO.
+- `lib/chatbot/pro/handleProOrderIntent.ts` — Haiku + tools; histórico `pro_anthropic_messages`; marcadores `INTENT_OK` / `INTENT_UNKNOWN`; `pro_misunderstanding_streak`; Flow após 4× `unknown`.
+- `lib/chatbot/pro/searchProdutos.ts` — busca + `estoque_unidades` via `product_volumes`.
+- `lib/chatbot/pro/orderHints.ts` — morada guardada + `get_customer_favorites`.
+- `lib/chatbot/pro/resolveSavedAddress.ts` — prioridade principal / último pedido entregue.
+- `lib/chatbot/pro/resolveDeliveryZone.ts` — paridade com Flow (`delivery_zones` + `neighborhoods`).
+- `lib/chatbot/pro/prepareOrderDraft.ts` — valida itens, stock, morada, pagamento; grava `ai_order_canonical`.
+- `lib/chatbot/pro/confirmationPt.ts` — confirmação/recusa sem regex (frases normalizadas).
+- `lib/chatbot/pro/finalizeAiOrder.ts` — revalidação + `create_order_with_items` + upsert `enderecos_cliente`.
 
 Ver também `docs/CHATBOT_TIERS.md`.
 
