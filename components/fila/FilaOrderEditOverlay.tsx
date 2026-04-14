@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import React, { useEffect, useState } from "react";
 import EditOrderModal from "@/lib/orders/EditOrderModal";
 import type {
   CartItem,
@@ -27,8 +26,6 @@ interface Props {
 }
 
 export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: Props) {
-  const supabase = useMemo(() => createClient(), []);
-
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [order, setOrder]       = useState<OrderFull | null>(null);
@@ -73,43 +70,22 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
     async function load() {
       setLoading(true);
 
-      const { data: ord, error: ordErr } = await supabase
-        .from("orders")
-        .select(`id, status, confirmation_status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )`)
-        .eq("id", orderId)
-        .single();
+      const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, { credentials: "include", cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      const ord = json.order as Record<string, unknown> | undefined;
+      if (!res.ok || !ord) { setLoading(false); return; }
+      if (cancelled) { setLoading(false); return; }
 
-      if (ordErr || !ord || cancelled) { setLoading(false); return; }
-
-      const { data: items } = await supabase
-        .from("order_items")
-        .select(`id, order_id, produto_embalagem_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty`)
-        .eq("order_id", orderId)
-        .order("created_at", { ascending: true });
-
-      if (cancelled) return;
-
-      const rawItems = Array.isArray(items) ? items : [];
-
-      // Enrich with view_pdv_produtos data
-      const embIds = [...new Set(rawItems.filter((i: any) => i.produto_embalagem_id).map((i: any) => i.produto_embalagem_id))];
-      let embMap = new Map<string, any>();
-      if (embIds.length > 0) {
-        const { data: embs } = await supabase
-          .from("view_pdv_produtos")
-          .select("id, product_name, descricao, volume_formatado")
-          .in("id", embIds);
-        if (embs) embMap = new Map((embs as any[]).map((e) => [e.id, e]));
-      }
+      const rawItems = Array.isArray(ord.items) ? (ord.items as Record<string, unknown>[]) : [];
 
       const mappedItems = rawItems.map((it: any) => ({
         ...it,
         qty: it?.qty ?? it?.quantity ?? 0,
         quantity: it?.quantity ?? it?.qty ?? 0,
-        _emb: embMap.get(it.produto_embalagem_id) || null,
+        _emb: it?._emb ?? null,
       }));
 
-      const full = { ...(ord as any), items: mappedItems } as OrderFull;
+      const full = { ...ord, items: mappedItems } as unknown as OrderFull;
       setOrder(full);
 
       // populate form
@@ -130,9 +106,12 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
         const details = emb
           ? [emb.descricao, emb.volume_formatado].filter(Boolean).join(" ") || pName
           : pName;
+        const embId = it.produto_embalagem_id ? String(it.produto_embalagem_id) : null;
+        const mode = it.unit_type === "case" ? "case" : "unit";
+        const lineKey = embId ? `${embId}-${mode}` : `row:${String(it.id)}`;
         return {
           variant: {
-            id: it.produto_embalagem_id ?? `legacy-${it.id}`,
+            id: lineKey,
             unit_price: Number(it.unit_price ?? 0),
             has_case: false,
             case_price: null,
@@ -141,13 +120,13 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
             volume_value: null,
             details: details ?? null,
             is_active: true,
-            unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
-            case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
+            unit_embalagem_id: mode === "unit" ? embId : null,
+            case_embalagem_id: mode === "case" ? embId : null,
             products: { name: pName ?? "", categories: { name: "" } },
           } as Variant,
           qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
           price: Number(it.unit_price ?? 0),
-          mode: it.unit_type === "case" ? "case" : "unit",
+          mode,
         };
       });
       setCart(mapped);
@@ -162,13 +141,12 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
   // ── load drivers ──────────────────────────────────────────────────────────
 
   useEffect(() => {
-    supabase
-      .from("drivers")
-      .select("id, company_id, name, phone, vehicle, plate, is_active")
-      .eq("company_id", companyId)
-      .eq("is_active", true)
-      .order("name")
-      .then(({ data }) => { if (data) setDrivers(data as Driver[]); });
+    (async () => {
+      const res = await fetch("/api/admin/drivers", { credentials: "include", cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      const list = (j.drivers ?? []) as Driver[];
+      setDrivers(list.filter((d) => d.is_active));
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
@@ -180,72 +158,14 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
     if (t.length < 2) { setResults([]); return; }
     setSearching(true);
 
-    const { data, error } = await supabase
-      .from("view_pdv_produtos")
-      .select("id, produto_id, product_volume_id, descricao, fator_conversao, preco_venda, tags, codigo_interno, sigla_comercial, volume_formatado, product_name, product_unit_type, product_details, category_name")
-      .eq("company_id", companyId)
-      .limit(400);
-
-    if (error) { setResults([]); setSearching(false); return; }
-
-    const s = t.toLowerCase();
-    // Group by (produto_id + product_volume_id) so each volume of a product is a separate variant
-    const byGroup = new Map<string, any>();
-    for (const r of (data ?? []) as any[]) {
-      const pid = String(r.produto_id);
-      const volKey = r.product_volume_id ? String(r.product_volume_id) : "novol";
-      const groupKey = `${pid}__${volKey}`;
-      const entry = byGroup.get(groupKey) ?? {
-        id: groupKey,
-        products: { name: r.product_name ?? "", categories: { name: r.category_name ?? "" } },
-        tags: [] as string[],
-        unitPack: null,
-        casePack: null,
-        unit_price: 0,
-        details: null as string | null,
-        unit: r.product_unit_type ?? null,
-        is_active: true,
-        codigo_interno: null as string | null,
-      };
-      if (r.tags) entry.tags.push(String(r.tags));
-      const sig = String(r.sigla_comercial ?? "").toUpperCase();
-      if (sig === "UN") { entry.unitPack = r; entry.codigo_interno = r.codigo_interno ?? null; }
-      if (sig === "CX") entry.casePack = r;
-      byGroup.set(groupKey, entry);
-    }
-
-    const variants: Variant[] = Array.from(byGroup.values()).map((e: any) => {
-      const unitPack = e.unitPack ?? e.casePack;
-      const casePack = e.casePack;
-      return {
-        id: String(e.id),
-        unit_price: Number(unitPack?.preco_venda ?? 0),
-        has_case: Boolean(casePack),
-        case_qty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
-        case_price: casePack ? Number(casePack.preco_venda ?? 0) : null,
-        unit: e.unit ?? null,
-        volume_value: null,
-        details: [unitPack?.descricao, unitPack?.volume_formatado].filter(Boolean).join(" ") || e.products?.name || null,
-        tags: e.tags.filter(Boolean).join(","),
-        is_active: e.is_active,
-        codigo_interno: e.codigo_interno ?? null,
-        unit_embalagem_id: unitPack?.id ? String(unitPack.id) : null,
-        case_embalagem_id: casePack?.id ? String(casePack.id) : null,
-        products: e.products,
-      };
+    const res = await fetch(`/api/admin/products/search?q=${encodeURIComponent(t)}`, {
+      credentials: "include",
+      cache: "no-store",
     });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { setResults([]); setSearching(false); return; }
 
-    const filtered = variants.filter((v) => {
-      const name   = v.products?.name?.toLowerCase() ?? "";
-      const cat    = v.products?.categories?.name?.toLowerCase() ?? "";
-      const det    = String(v.details ?? "").toLowerCase();
-      const unit   = String(v.unit ?? "").toLowerCase();
-      const intern = (v.codigo_interno ?? "").toLowerCase();
-      const tags   = ((v as any).tags ?? "").toLowerCase();
-      return [name, cat, det, unit, intern, tags].some((x) => x.includes(s));
-    });
-
-    setResults(filtered.slice(0, 40));
+    setResults((json.variants ?? []) as Variant[]);
     setSearching(false);
   }
 
@@ -278,42 +198,49 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
     if (!phone || phone.length < 8) { setMsg("Informe um telefone válido."); setSaving(false); return; }
     if (!name) { setMsg("Informe o nome do cliente."); setSaving(false); return; }
 
-    const { data: existingCust } = await supabase
-      .from("customers")
-      .select("id")
-      .eq("company_id", companyId)
-      .eq("phone", phone)
-      .maybeSingle();
-
-    let customerId: string | null = existingCust?.id ?? null;
-
-    if (customerId) {
-      await supabase.from("customers").update({ name, phone, address: address || null }).eq("id", customerId);
-    } else {
-      const { data: newCust, error: custErr } = await supabase
-        .from("customers")
-        .insert({ company_id: companyId, name, phone, address: address || null })
-        .select("id")
-        .single();
-      if (custErr) { setMsg(`Erro ao criar cliente: ${custErr.message}`); setSaving(false); return; }
-      customerId = newCust.id;
-    }
+    const custRes = await fetch("/api/admin/order-customers", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, phone, address }),
+    });
+    const custJson = await custRes.json().catch(() => ({}));
+    if (!custRes.ok) { setMsg(`Erro ao salvar cliente: ${custJson?.error ?? "falha"}`); setSaving(false); return; }
+    const customerId = String(custJson.customer_id ?? "");
 
     const feeVal   = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
     const change   = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
     const total    = cartSubtotal(cart) + feeVal;
 
-    const { error: upErr } = await supabase
-      .from("orders")
-      .update({ customer_id: customerId, payment_method: paymentMethod, paid, change_for: change, delivery_fee: feeVal, total_amount: total, driver_id: driverId || null })
-      .eq("id", order.id);
-    if (upErr) { setMsg(`Erro ao atualizar pedido: ${upErr.message}`); setSaving(false); return; }
+    const upRes = await fetch("/api/admin/orders", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: order.id,
+        customer_id: customerId,
+        payment_method: paymentMethod,
+        paid,
+        change_for: change,
+        delivery_fee: feeVal,
+        total_amount: total,
+        driver_id: driverId || null,
+      }),
+    });
+    const upJson = await upRes.json().catch(() => ({}));
+    if (!upRes.ok) { setMsg(`Erro ao atualizar pedido: ${upJson?.error ?? "falha"}`); setSaving(false); return; }
 
-    const { error: delErr } = await supabase.from("order_items").delete().eq("order_id", order.id);
-    if (delErr) { setMsg(`Erro ao apagar itens: ${delErr.message}`); setSaving(false); return; }
-
-    const { error: insErr } = await supabase.from("order_items").insert(buildItemsPayload(order.id, companyId, cart));
-    if (insErr) { setMsg(`Erro ao inserir itens: ${insErr.message}`); setSaving(false); return; }
+    const itemsRes = await fetch("/api/admin/orders/items", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order_id: order.id,
+        items: buildItemsPayload(order.id, companyId, cart),
+      }),
+    });
+    const itemsJson = await itemsRes.json().catch(() => ({}));
+    if (!itemsRes.ok) { setMsg(`Erro ao inserir itens: ${itemsJson?.error ?? "falha"}`); setSaving(false); return; }
 
     setMsg("✅ Pedido editado com sucesso.");
     setSaving(false);

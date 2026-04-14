@@ -6,7 +6,6 @@ import {
   Home, Mail, MapPin, Phone, Plus, Search, Trash2, User, Users, X,
   CreditCard, Clock, TrendingDown, FileText,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -511,7 +510,6 @@ function AddressFormModal({
 
 // ─── page ────────────────────────────────────────────────────────────────────
 export default function ClientesPage() {
-  const supabase   = useMemo(() => createClient(), []);
   const { currentCompanyId: companyId } = useWorkspace();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -535,37 +533,25 @@ export default function ClientesPage() {
   const load = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
-    const { data } = await supabase
-      .from("customers")
-      .select("id,company_id,name,phone,phone_e164,address,neighborhood,cpf_cnpj,tipo_pessoa,limite_credito,saldo_devedor,origem,email,notes,is_adult,created_at")
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false })
-      .limit(500);
-    setCustomers((data as Customer[]) ?? []);
+    const res = await fetch("/api/admin/customers", { credentials: "include", cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    setCustomers((json.customers as Customer[]) ?? []);
     setLoading(false);
-  }, [companyId, supabase]);
+  }, [companyId]);
 
   useEffect(() => { load(); }, [load]);
 
   const loadDetail = useCallback(async (c: Customer) => {
     setSelected(c);
     setDetailTab("info");
-    const { data: end } = await supabase
-      .from("enderecos_cliente")
-      .select("id,apelido,logradouro,numero,complemento,bairro,cidade,estado,cep,is_principal")
-      .eq("customer_id", c.id)
-      .order("is_principal", { ascending: false });
-    setEnderecos((end as Endereco[]) ?? []);
-    const { data: div } = await supabase
-      .from("bills")
-      .select("id,original_amount,saldo_devedor,due_date,status,description,paid_at,order_id")
-      .eq("customer_id", c.id)
-      .eq("type", "receivable")
-      .eq("company_id", c.company_id)
-      .neq("status", "canceled")
-      .order("due_date", { ascending: false });
-    setDividas((div as VendaPrazo[]) ?? []);
-  }, [supabase]);
+    const res = await fetch(`/api/admin/customers/${encodeURIComponent(c.id)}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const json = await res.json().catch(() => ({}));
+    setEnderecos((json.addresses as Endereco[]) ?? []);
+    setDividas((json.bills as VendaPrazo[]) ?? []);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -620,17 +606,26 @@ export default function ClientesPage() {
       notes:          form.notes.trim() || null,
     };
     if (editingId) {
-      const { error } = await supabase.from("customers").update(payload).eq("id", editingId);
-      if (error) { alert("Erro: " + error.message); setSaving(false); return; }
+      const res = await fetch("/api/admin/customers", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingId, ...payload }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); setSaving(false); return; }
       setCustomers(p => p.map(c => c.id === editingId ? { ...c, ...payload } : c));
       if (selected?.id === editingId) setSelected(prev => prev ? { ...prev, ...payload } : prev);
     } else {
-      const { data, error } = await supabase.from("customers")
-        .insert({ ...payload, company_id: companyId, origem: "admin" })
-        .select("id,company_id,name,phone,phone_e164,address,neighborhood,cpf_cnpj,tipo_pessoa,limite_credito,saldo_devedor,origem,email,notes,is_adult,created_at")
-        .single();
-      if (error) { alert("Erro: " + error.message); setSaving(false); return; }
-      setCustomers(p => [data as Customer, ...p]);
+      const res = await fetch("/api/admin/customers", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); setSaving(false); return; }
+      setCustomers(p => [json.customer as Customer, ...p]);
     }
     setSaving(false);
     setShowForm(false);
@@ -638,7 +633,7 @@ export default function ClientesPage() {
 
   const deleteCustomer = async (id: string) => {
     if (!confirm("Excluir este cliente? Pedidos existentes não serão afetados.")) return;
-    await supabase.from("customers").delete().eq("id", id);
+    await fetch(`/api/admin/customers?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
     setCustomers(p => p.filter(c => c.id !== id));
     if (selected?.id === id) setSelected(null);
   };
@@ -655,20 +650,24 @@ export default function ClientesPage() {
 
   const saveAddress = async () => {
     if (!selected || !companyId) return;
-    const { error } = await supabase.from("enderecos_cliente").insert({
-      company_id:  companyId,
-      customer_id: selected.id,
-      apelido:     addrForm.apelido || "Endereço",
-      logradouro:  addrForm.logradouro || null,
-      numero:      addrForm.numero || null,
-      complemento: addrForm.complemento || null,
-      bairro:      addrForm.bairro || null,
-      cidade:      addrForm.cidade || null,
-      estado:      addrForm.estado || null,
-      cep:         addrForm.cep || null,
-      is_principal: enderecos.length === 0,
+    const res = await fetch(`/api/admin/customers/${encodeURIComponent(selected.id)}/addresses`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apelido: addrForm.apelido || "Endereço",
+        logradouro: addrForm.logradouro || null,
+        numero: addrForm.numero || null,
+        complemento: addrForm.complemento || null,
+        bairro: addrForm.bairro || null,
+        cidade: addrForm.cidade || null,
+        estado: addrForm.estado || null,
+        cep: addrForm.cep || null,
+        is_principal: enderecos.length === 0,
+      }),
     });
-    if (error) { alert("Erro: " + error.message); return; }
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
     setAddrForm(EMPTY_ADDR);
     setShowAddrForm(false);
     await loadDetail(selected);
@@ -676,28 +675,48 @@ export default function ClientesPage() {
 
   const setPrincipal = async (addrId: string) => {
     if (!selected) return;
-    await supabase.from("enderecos_cliente").update({ is_principal: true }).eq("id", addrId);
+    await fetch(`/api/admin/customers/${encodeURIComponent(selected.id)}/addresses`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address_id: addrId, action: "set_principal" }),
+    });
     await loadDetail(selected);
   };
 
   const deleteAddr = async (addrId: string) => {
-    await supabase.from("enderecos_cliente").delete().eq("id", addrId);
+    if (!selected) return;
+    await fetch(
+      `/api/admin/customers/${encodeURIComponent(selected.id)}/addresses?address_id=${encodeURIComponent(addrId)}`,
+      { method: "DELETE", credentials: "include" }
+    );
     setEnderecos(p => p.filter(e => e.id !== addrId));
   };
 
   const markPaid = async (debtId: string) => {
     const debt = dividas.find(d => d.id === debtId);
     if (!debt) return;
-    const { error } = await supabase.from("bills")
-      .update({ amount_paid: debt.original_amount, paid_at: new Date().toISOString() })
-      .eq("id", debtId);
-    if (error) { alert("Erro: " + error.message); return; }
+    const res = await fetch("/api/admin/financeiro/bills", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: debtId,
+        pay_amount: debt.saldo_devedor,
+        original_amount: debt.original_amount,
+        saldo_devedor: debt.saldo_devedor,
+        payment_method: "pix",
+        received_at: new Date().toISOString().slice(0, 10),
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
     setDividas(p => p.map(d => d.id === debtId ? { ...d, status: "paid", saldo_devedor: 0, paid_at: new Date().toISOString() } : d));
     if (selected) {
-      const novo = await supabase.from("customers")
-        .select("saldo_devedor").eq("id", selected.id).single();
-      if (novo.data) {
-        const sd = novo.data.saldo_devedor;
+      const r2 = await fetch(`/api/admin/customers/${encodeURIComponent(selected.id)}`, { credentials: "include", cache: "no-store" });
+      const j2 = await r2.json().catch(() => ({}));
+      if (r2.ok && j2.saldo_devedor != null) {
+        const sd = Number(j2.saldo_devedor);
         setSelected(p => p ? { ...p, saldo_devedor: sd } : p);
         setCustomers(p => p.map(c => c.id === selected.id ? { ...c, saldo_devedor: sd } : c));
       }

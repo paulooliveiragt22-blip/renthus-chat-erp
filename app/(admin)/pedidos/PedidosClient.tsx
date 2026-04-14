@@ -3,7 +3,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     AlertTriangle,
@@ -53,7 +52,6 @@ import {
     escapeHtml,
     formatBRL,
     formatEnderecoLine,
-    formatDT,
     ORANGE,
     prettyStatus,
 } from "@/lib/orders/helpers";
@@ -225,7 +223,6 @@ const PAYMENT_BADGE: Record<string, string> = {
 // ─── componente principal ─────────────────────────────────────────────────────
 
 export default function PedidosPage() {
-    const supabase   = useMemo(() => createClient(), []);
     const searchParams = useSearchParams();
     const router       = useRouter();
     const { currentCompanyId: companyId } = useWorkspace();
@@ -241,6 +238,7 @@ export default function PedidosPage() {
     const [recentOrders, setRecentOrders] = useState<Record<string, number>>({});
     // IDs com flash ativo (ring verde por ~2s após INSERT ou UPDATE via realtime)
     const [flashOrders,  setFlashOrders]  = useState<Set<string>>(new Set());
+    const ordersSnapshotRef = useRef<Record<string, { status: string; total: number }>>({});
 
     // restore filter from URL or localStorage
     useEffect(() => {
@@ -360,7 +358,36 @@ export default function PedidosPage() {
         const res = await fetch("/api/admin/orders", { cache: "no-store", credentials: "include" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { setMsg(`Erro ao carregar pedidos: ${json?.error ?? "falha desconhecida"}`); setOrders([]); setLoading(false); return; }
-        setOrders((Array.isArray(json.orders) ? json.orders : []) as any);
+        const incoming = (Array.isArray(json.orders) ? json.orders : []) as OrderRow[];
+        const nextSnapshot: Record<string, { status: string; total: number }> = {};
+        const toFlash: string[] = [];
+        const now = Date.now();
+        setRecentOrders((prev) => {
+            const next = { ...prev };
+            for (const o of incoming) {
+                nextSnapshot[o.id] = { status: String(o.status ?? ""), total: Number(o.total_amount ?? 0) };
+                const old = ordersSnapshotRef.current[o.id];
+                if (!old) {
+                    next[o.id] = now;
+                    toFlash.push(o.id);
+                } else if (old.status !== nextSnapshot[o.id].status || old.total !== nextSnapshot[o.id].total) {
+                    toFlash.push(o.id);
+                }
+            }
+            return next;
+        });
+        ordersSnapshotRef.current = nextSnapshot;
+        if (toFlash.length > 0) {
+            setFlashOrders((prev) => new Set([...prev, ...toFlash]));
+            globalThis.setTimeout(() => {
+                setFlashOrders((prev) => {
+                    const next = new Set(prev);
+                    for (const id of toFlash) next.delete(id);
+                    return next;
+                });
+            }, 2000);
+        }
+        setOrders(incoming as any);
         setLoading(false);
     }
 
@@ -370,74 +397,19 @@ export default function PedidosPage() {
         setMsg(null);
         if (t.length < 2) { opts.setResults([]); return; }
         opts.setSearching(true);
-        const { data, error } = await supabase
-            .from("view_pdv_produtos")
-            .select("id, produto_id, product_volume_id, descricao, fator_conversao, preco_venda, tags, codigo_interno, sigla_comercial, volume_formatado, product_name, product_unit_type, product_details, category_name")
-            .eq("company_id", companyId)
-            .limit(400);
-
-        if (error) { setMsg(`Erro na busca: ${error.message}`); opts.setResults([]); opts.setSearching(false); return; }
-
-        const s = t.toLowerCase();
-
-        // Group by (produto_id + product_volume_id) so each volume of a product is a separate variant
-        const byGroup = new Map<string, any>();
-        for (const r of (data ?? []) as any[]) {
-            const pid = String(r.produto_id);
-            const volKey = r.product_volume_id ? String(r.product_volume_id) : "novol";
-            const groupKey = `${pid}__${volKey}`;
-            const entry = byGroup.get(groupKey) ?? {
-                id: groupKey,
-                products: { name: r.product_name ?? "", categories: { name: r.category_name ?? "" } },
-                tags: [] as string[],
-                unitPack: null as any,
-                casePack: null as any,
-                unit_price: 0,
-                details: null as string | null,
-                unit: r.product_unit_type ?? null,
-                is_active: true,
-                codigo_interno: null as string | null,
-            };
-
-            if (r.tags) entry.tags.push(String(r.tags));
-            const sig = String(r.sigla_comercial ?? "").toUpperCase();
-            if (sig === "UN") { entry.unitPack = r; entry.codigo_interno = r.codigo_interno ?? null; }
-            if (sig === "CX") entry.casePack = r;
-            byGroup.set(groupKey, entry);
+        const res = await fetch(`/api/admin/products/search?q=${encodeURIComponent(t)}`, {
+            cache: "no-store",
+            credentials: "include",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setMsg(`Erro na busca: ${json?.error ?? "falha desconhecida"}`);
+            opts.setResults([]);
+            opts.setSearching(false);
+            return;
         }
 
-        const variants: Variant[] = Array.from(byGroup.values()).map((e: any) => {
-            const unitPack = e.unitPack ?? e.casePack;
-            const casePack = e.casePack;
-            return {
-                id: String(e.id),
-                unit_price: Number(unitPack?.preco_venda ?? 0),
-                has_case: Boolean(casePack),
-                case_qty: casePack ? Number(casePack.fator_conversao ?? 1) : null,
-                case_price: casePack ? Number(casePack.preco_venda ?? 0) : null,
-                unit: e.unit ?? null,
-                volume_value: null,
-                details: [unitPack?.descricao, unitPack?.volume_formatado].filter(Boolean).join(" ") || e.products?.name || null,
-                tags: e.tags.filter(Boolean).join(","),
-                is_active: e.is_active,
-                codigo_interno: e.codigo_interno ?? null,
-                unit_embalagem_id: unitPack?.id ? String(unitPack.id) : null,
-                case_embalagem_id: casePack?.id ? String(casePack.id) : null,
-                products: e.products,
-            };
-        });
-
-        const filtered = variants.filter((v) => {
-            const name  = v.products?.name?.toLowerCase() ?? "";
-            const cat   = v.products?.categories?.name?.toLowerCase() ?? "";
-            const det   = String(v.details ?? "").toLowerCase();
-            const unit  = String(v.unit ?? "").toLowerCase();
-            const internal = (v.codigo_interno ?? "").toLowerCase();
-            const tags = (v.tags ?? "").toLowerCase();
-            return [name, cat, det, unit, internal, tags].some((x) => x.includes(s));
-        });
-
-        const top = filtered.slice(0, 40);
+        const top = (json.variants ?? []) as Variant[];
         opts.setResults(top);
         opts.ensureDraft(top.map((x) => x.id));
         opts.setSearching(false);
@@ -451,12 +423,17 @@ export default function PedidosPage() {
     }
 
     async function fetchOrderSavedAddresses(customerId: string) {
-        const { data } = await supabase
-            .from("enderecos_cliente")
-            .select("id,apelido,logradouro,numero,complemento,bairro,cidade,estado,cep,is_principal")
-            .eq("customer_id", customerId)
-            .order("is_principal", { ascending: false });
-        const list = (data as SavedCustomerAddress[]) ?? [];
+        const res = await fetch(`/api/admin/order-addresses?customer_id=${encodeURIComponent(customerId)}`, {
+            cache: "no-store",
+            credentials: "include",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setMsg(`Erro ao buscar endereços: ${json?.error ?? "falha desconhecida"}`);
+            setOrderSavedAddresses([]);
+            return;
+        }
+        const list = (json.addresses ?? []) as SavedCustomerAddress[];
         setOrderSavedAddresses(list);
         if (list.length > 0) {
             setOrderAddressMode("saved");
@@ -484,7 +461,7 @@ export default function PedidosPage() {
             setNewOrderAddrForm(EMPTY_NEW_ORDER_ADDR);
             return;
         }
-        const { data: row } = await supabase.from("customers").select("name,phone").eq("id", id).maybeSingle();
+        const row = orderCustomers.find((c) => c.id === id) ?? null;
         if (row) {
             setCustomerName(row.name ?? "");
             setCustomerPhone(row.phone ?? "");
@@ -497,21 +474,22 @@ export default function PedidosPage() {
         let cancelled = false;
         (async () => {
             setOrderCustomersLoading(true);
-            const { data } = await supabase
-                .from("customers")
-                .select("id,name,phone")
-                .eq("company_id", companyId)
-                .order("name", { ascending: true, nullsFirst: false })
-                .limit(500);
+            const res = await fetch("/api/admin/order-customers", { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
             if (!cancelled) {
-                setOrderCustomers((data as OrderCustomerPick[]) ?? []);
+                if (!res.ok) {
+                    setMsg(`Erro ao carregar clientes: ${json?.error ?? "falha desconhecida"}`);
+                    setOrderCustomers([]);
+                } else {
+                    setOrderCustomers((json.customers ?? []) as OrderCustomerPick[]);
+                }
                 setOrderCustomersLoading(false);
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [openNew, companyId, supabase]);
+    }, [openNew, companyId]);
 
     useEffect(() => {
         if (selectedOrderCustomerId && orderAddressMode === "saved" && orderSelectedAddrId) {
@@ -526,80 +504,30 @@ export default function PedidosPage() {
         const address = addressRaw.trim();
         if (!phone || phone.length < 8) { setMsg("Informe um telefone válido."); return null; }
         if (!name) { setMsg("Informe o nome do cliente."); return null; }
-        const { data: found, error: findErr } = await supabase
-            .from("customers")
-            .select("id,name,phone,address")
-            .eq("company_id", companyId as string)
-            .eq("phone", phone)
-            .limit(1)
-            .maybeSingle();
-        if (findErr) { setMsg(`Erro ao buscar cliente: ${findErr.message}`); return null; }
-        if (found?.id) {
-            const { error: upErr } = await supabase.from("customers").update({ name, address: address || null }).eq("id", found.id);
-            if (upErr) { setMsg(`Erro ao atualizar cliente: ${upErr.message}`); return null; }
-            return found.id as string;
-        }
-        const { data: created, error: insErr } = await supabase.from("customers").insert({ name, phone, address: address || null, company_id: companyId }).select("id").single();
-        if (insErr) { setMsg(`Erro ao criar cliente: ${insErr.message}`); return null; }
-        return created.id as string;
-    }
-
-    /** Acende o ring verde numa linha por 2 segundos e depois apaga */
-    function flashRow(orderId: string) {
-        setFlashOrders((prev) => new Set([...prev, orderId]));
-        setTimeout(() => {
-            setFlashOrders((prev) => {
-                const next = new Set(prev);
-                next.delete(orderId);
-                return next;
-            });
-        }, 2000);
-    }
-
-    /** Busca uma única linha de pedido (sem itens) para update cirúrgico na lista */
-    async function fetchOrderRow(orderId: string): Promise<OrderRow | null> {
-        const { data } = await supabase
-            .from("orders")
-            .select(`id, status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address )`)
-            .eq("id", orderId)
-            .maybeSingle();
-        return data as OrderRow | null;
+        const res = await fetch("/api/admin/order-customers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ name, phone, address }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { setMsg(`Erro ao salvar cliente: ${json?.error ?? "falha desconhecida"}`); return null; }
+        return String(json.customer_id ?? "");
     }
 
     async function fetchOrderFull(orderId: string): Promise<OrderFull | null> {
-        const { data: ord, error: ordErr } = await supabase
-            .from("orders")
-            .select(`id, status, confirmation_status, channel, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )`)
-            .eq("id", orderId)
-            .single();
-        if (ordErr) { setMsg(`Erro ao carregar pedido: ${ordErr.message}`); return null; }
-        const { data: items, error: itemsErr } = await supabase
-            .from("order_items")
-            .select(`id, order_id, produto_embalagem_id, product_name, quantity, unit_type, unit_price, line_total, created_at, qty`)
-            .eq("order_id", orderId)
-            .order("created_at", { ascending: true });
-        if (itemsErr) { setMsg(`Erro ao carregar itens: ${itemsErr.message}`); return null; }
-
-        const rows = Array.isArray(items) ? items : [];
-
-        // Enriquece com dados da embalagem via view_pdv_produtos
-        const embIds = [...new Set(rows.filter((i: any) => i.produto_embalagem_id).map((i: any) => i.produto_embalagem_id))];
-        let embMap = new Map<string, any>();
-        if (embIds.length > 0) {
-            const { data: embs } = await supabase
-                .from("view_pdv_produtos")
-                .select("id, product_name, descricao, sigla_comercial, volume_formatado, fator_conversao")
-                .in("id", embIds);
-            if (embs) embMap = new Map((embs as any[]).map(e => [e.id, e]));
-        }
-
+        const res = await fetch(`/api/admin/orders/${orderId}`, { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { setMsg(`Erro ao carregar pedido: ${json?.error ?? "falha desconhecida"}`); return null; }
+        const order = (json.order ?? {}) as any;
+        const rows = Array.isArray(order.items) ? order.items : [];
         const mappedItems = rows.map((it: any) => ({
             ...it,
             qty: it?.qty ?? it?.quantity ?? 0,
             quantity: it?.quantity ?? it?.qty ?? 0,
-            _emb: embMap.get(it.produto_embalagem_id) || null,
+            _emb: it?._emb ?? null,
         }));
-        return { ...(ord as any), items: mappedItems as any };
+        return { ...order, items: mappedItems as any };
     }
 
     async function openOrder(orderId: string, alsoCleanUrl?: boolean) {
@@ -644,57 +572,16 @@ export default function PedidosPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 
-    // ── realtime ──────────────────────────────────────────────────────────────
+    // ── auto refresh ──────────────────────────────────────────────────────────
     useEffect(() => {
-        const ch = supabase
-            .channel("realtime-orders-admin-v3")
-
-            // ── orders: INSERT → topo da lista | UPDATE → substituição cirúrgica
-            .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async (payload: any) => {
-                console.log("Mudança detectada no Realtime [orders]:", payload);
-                try {
-                    const eventType = payload.eventType as string;
-                    const orderId   = (payload?.new?.id ?? payload?.old?.id ?? null) as string | null;
-                    if (!orderId) return;
-
-                    if (eventType === "INSERT") {
-                        const row = await fetchOrderRow(orderId);
-                        if (row) {
-                            setOrders((prev) => [row, ...prev]);
-                            setRecentOrders((prev) => ({ ...prev, [orderId]: Date.now() }));
-                            flashRow(orderId);
-                        }
-                    } else if (eventType === "UPDATE") {
-                        const row = await fetchOrderRow(orderId);
-                        if (row) {
-                            setOrders((prev) => prev.map((o) => o.id === orderId ? row : o));
-                            flashRow(orderId);
-                        }
-                        // Re-hidrata modais abertos para o mesmo pedido
-                        if (viewOrderIdRef.current === orderId) setViewOrder(await fetchOrderFull(orderId));
-                        if (editOrderIdRef.current === orderId) setEditOrder(await fetchOrderFull(orderId));
-                    }
-                } catch { /* ignore */ }
-            })
-
-            // ── order_items: só atualiza modais abertos (não toca na lista)
-            .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, async (payload: any) => {
-                console.log("Mudança detectada no Realtime [order_items]:", payload);
-                try {
-                    const orderId = (payload?.new?.order_id ?? payload?.old?.order_id ?? null) as string | null;
-                    if (!orderId) return;
-                    if (viewOrderIdRef.current === orderId) setViewOrder(await fetchOrderFull(orderId));
-                    if (editOrderIdRef.current === orderId) setEditOrder(await fetchOrderFull(orderId));
-                } catch { /* ignore */ }
-            })
-
-            .subscribe((status) => {
-                console.log("[Pedidos Realtime] status do canal:", status);
-            });
-
-        return () => { supabase.removeChannel(ch); };
+        const timer = setInterval(() => {
+            void loadOrders();
+            if (viewOrderIdRef.current) void fetchOrderFull(viewOrderIdRef.current).then((full) => full && setViewOrder(full));
+            if (editOrderIdRef.current) void fetchOrderFull(editOrderIdRef.current).then((full) => full && setEditOrder(full));
+        }, 12000);
+        return () => clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [supabase]);
+    }, []);
 
     // ── order actions ─────────────────────────────────────────────────────────
     function resetNewOrder() {
@@ -766,16 +653,21 @@ export default function PedidosPage() {
             const ord = orders.find(o => o.id === orderId);
             const totalAmt = Number((ord as any)?.total_amount ?? 0);
             if (totalAmt > 0) {
-                const { error: feErr } = await supabase.from("financial_entries").insert({
-                    company_id:     companyId,
-                    order_id:       orderId,
-                    type:           "income",
-                    amount:         totalAmt,
-                    payment_method: actionPayMethod || (ord as any)?.payment_method || "pix",
-                    description:    `Pedido #${orderId.slice(0,8)} — ${note || ""}`.trim().replace(/— $/, ""),
-                    reference_date: new Date().toISOString().slice(0, 10),
+                const feRes = await fetch("/api/admin/financial-entries", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({
+                        order_id: orderId,
+                        type: "income",
+                        amount: totalAmt,
+                        payment_method: actionPayMethod || (ord as any)?.payment_method || "pix",
+                        description: `Pedido #${orderId.slice(0,8)} — ${note || ""}`.trim().replace(/— $/, ""),
+                        reference_date: new Date().toISOString().slice(0, 10),
+                    }),
                 });
-                if (feErr) console.warn("[runAction] financial_entries:", feErr.message);
+                const feJson = await feRes.json().catch(() => ({}));
+                if (!feRes.ok) console.warn("[runAction] financial_entries:", feJson?.error ?? "falha desconhecida");
             }
         }
 
@@ -825,36 +717,45 @@ export default function PedidosPage() {
                     setSaving(false);
                     return;
                 }
-                const { error: addrErr } = await supabase.from("enderecos_cliente").insert({
-                    company_id:  companyId,
-                    customer_id: customerId,
-                    apelido:     f.apelido.trim() || "Entrega",
-                    logradouro:  f.logradouro.trim() || null,
-                    numero:      f.numero.trim() || null,
-                    complemento: f.complemento.trim() || null,
-                    bairro:      f.bairro.trim() || null,
-                    cidade:      f.cidade.trim() || null,
-                    estado:      f.estado.trim() || null,
-                    cep:         f.cep.trim() || null,
-                    is_principal: orderSavedAddresses.length === 0,
+                const addrRes = await fetch("/api/admin/order-addresses", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({
+                        customer_id: customerId,
+                        apelido: f.apelido.trim() || "Entrega",
+                        logradouro: f.logradouro.trim() || null,
+                        numero: f.numero.trim() || null,
+                        complemento: f.complemento.trim() || null,
+                        bairro: f.bairro.trim() || null,
+                        cidade: f.cidade.trim() || null,
+                        estado: f.estado.trim() || null,
+                        cep: f.cep.trim() || null,
+                        is_principal: orderSavedAddresses.length === 0,
+                    }),
                 });
-                if (addrErr) {
-                    setMsg(`Erro ao salvar endereço: ${addrErr.message}`);
+                const addrJson = await addrRes.json().catch(() => ({}));
+                if (!addrRes.ok) {
+                    setMsg(`Erro ao salvar endereço: ${addrJson?.error ?? "falha desconhecida"}`);
                     setSaving(false);
                     return;
                 }
                 addressForOrder = formatEnderecoLine(f);
             }
-            const { error: upErr } = await supabase
-                .from("customers")
-                .update({
+            const customerRes = await fetch("/api/admin/order-customers", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    id: customerId,
                     name: customerName.trim(),
                     phone: customerPhone.trim(),
                     address: addressForOrder || null,
-                })
-                .eq("id", customerId);
-            if (upErr) {
-                setMsg(`Erro ao atualizar cliente: ${upErr.message}`);
+                }),
+            });
+            const customerJson = await customerRes.json().catch(() => ({}));
+            if (!customerRes.ok) {
+                setMsg(`Erro ao atualizar cliente: ${customerJson?.error ?? "falha desconhecida"}`);
                 setSaving(false);
                 return;
             }
@@ -866,13 +767,26 @@ export default function PedidosPage() {
         const fee    = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
         const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
         const total  = cartSubtotal(cart) + fee;
-        const { data: ord, error: ordErr } = await supabase
-            .from("orders")
-            .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null, driver_id: driverId || null })
-            .select("id").single();
-        if (ordErr) { setMsg(`Erro ao criar pedido: ${ordErr.message}`); setSaving(false); return; }
-        const { error: itemsErr } = await supabase.from("order_items").insert(buildItemsPayload(ord.id, companyId, cart));
-        if (itemsErr) { setMsg(`Erro ao salvar itens: ${itemsErr.message}`); setSaving(false); return; }
+        const createRes = await fetch("/api/admin/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                customer_id: customerId,
+                channel: "admin",
+                status: "new",
+                payment_method: paymentMethod,
+                paid,
+                change_for: change,
+                delivery_fee: fee,
+                total_amount: total,
+                details: null,
+                driver_id: driverId || null,
+                items: buildItemsPayload("temp", companyId, cart),
+            }),
+        });
+        const createJson = await createRes.json().catch(() => ({}));
+        if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
@@ -906,9 +820,12 @@ export default function PedidosPage() {
             const details = emb
                 ? [emb.descricao, emb.volume_formatado].filter(Boolean).join(" ") || pName
                 : pName;
+            const embId = it.produto_embalagem_id ? String(it.produto_embalagem_id) : null;
+            const mode = it.unit_type === "case" ? "case" : "unit";
+            const lineKey = embId ? `${embId}-${mode}` : `row:${String(it.id)}`;
             return {
                 variant: {
-                    id: it.produto_embalagem_id ?? `legacy-${it.id}`,
+                    id: lineKey,
                     unit_price: Number(it.unit_price ?? 0),
                     has_case: false,
                     case_price: null,
@@ -917,13 +834,13 @@ export default function PedidosPage() {
                     volume_value: null,
                     details: details ?? null,
                     is_active: true,
-                    unit_embalagem_id: it.unit_type === "unit" ? (it.produto_embalagem_id ?? null) : null,
-                    case_embalagem_id: it.unit_type === "case" ? (it.produto_embalagem_id ?? null) : null,
+                    unit_embalagem_id: mode === "unit" ? embId : null,
+                    case_embalagem_id: mode === "case" ? embId : null,
                     products: { name: pName ?? "", categories: { name: "" } },
                 } as Variant,
                 qty: Math.max(1, Number(it.quantity ?? it.qty ?? 1)),
                 price: Number(it.unit_price ?? 0),
-                mode: it.unit_type === "case" ? "case" : "unit",
+                mode,
             };
         });
         setEditDriverId((full as any).driver_id ?? null);
@@ -940,13 +857,35 @@ export default function PedidosPage() {
         const fee    = editDeliveryFeeEnabled ? brlToNumber(editDeliveryFee) : 0;
         const change = editPaymentMethod === "cash" ? brlToNumber(editChangeFor) : null;
         const total  = cartSubtotal(editCart) + fee;
-        const { error: upErr } = await supabase.from("orders").update({ customer_id: customerId, payment_method: editPaymentMethod, paid: editPaid, change_for: change, delivery_fee: fee, total_amount: total, driver_id: editDriverId || null }).eq("id", editOrder.id);
-        if (upErr) { setMsg(`Erro ao atualizar pedido: ${upErr.message}`); setEditSaving(false); return; }
-        const { error: delErr } = await supabase.from("order_items").delete().eq("order_id", editOrder.id);
-        if (delErr) { setMsg(`Erro ao apagar itens: ${delErr.message}`); setEditSaving(false); return; }
+        const orderRes = await fetch("/api/admin/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                id: editOrder.id,
+                customer_id: customerId,
+                payment_method: editPaymentMethod,
+                paid: editPaid,
+                change_for: change,
+                delivery_fee: fee,
+                total_amount: total,
+                driver_id: editDriverId || null,
+            }),
+        });
+        const orderJson = await orderRes.json().catch(() => ({}));
+        if (!orderRes.ok) { setMsg(`Erro ao atualizar pedido: ${orderJson?.error ?? "falha desconhecida"}`); setEditSaving(false); return; }
         if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); setEditSaving(false); return; }
-        const { error: insErr } = await supabase.from("order_items").insert(buildItemsPayload(editOrder.id, companyId, editCart));
-        if (insErr) { setMsg(`Erro ao inserir itens: ${insErr.message}`); setEditSaving(false); return; }
+        const itemsRes = await fetch("/api/admin/orders/items", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                order_id: editOrder.id,
+                items: buildItemsPayload(editOrder.id, companyId, editCart),
+            }),
+        });
+        const itemsJson = await itemsRes.json().catch(() => ({}));
+        if (!itemsRes.ok) { setMsg(`Erro ao inserir itens: ${itemsJson?.error ?? "falha desconhecida"}`); setEditSaving(false); return; }
         setMsg("✅ Pedido editado com sucesso."); setEditSaving(false); setOpenEdit(false);
         await loadOrders();
         if (viewOrder?.id === editOrder.id) setViewOrder(await fetchOrderFull(editOrder.id));
@@ -982,18 +921,40 @@ export default function PedidosPage() {
             } else if (orderAddressMode === "new") {
                 const f = newOrderAddrForm;
                 if (!f.logradouro?.trim()) { setMsg("Informe o logradouro do novo endereço."); setSaving(false); return; }
-                const { error: addrErr } = await supabase.from("enderecos_cliente").insert({
-                    company_id: companyId, customer_id: customerId,
-                    apelido: f.apelido.trim() || "Entrega", logradouro: f.logradouro.trim() || null,
-                    numero: f.numero.trim() || null, complemento: f.complemento.trim() || null,
-                    bairro: f.bairro.trim() || null, cidade: f.cidade.trim() || null,
-                    estado: f.estado.trim() || null, cep: f.cep.trim() || null,
-                    is_principal: orderSavedAddresses.length === 0,
+                const addrRes = await fetch("/api/admin/order-addresses", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({
+                        customer_id: customerId,
+                        apelido: f.apelido.trim() || "Entrega",
+                        logradouro: f.logradouro.trim() || null,
+                        numero: f.numero.trim() || null,
+                        complemento: f.complemento.trim() || null,
+                        bairro: f.bairro.trim() || null,
+                        cidade: f.cidade.trim() || null,
+                        estado: f.estado.trim() || null,
+                        cep: f.cep.trim() || null,
+                        is_principal: orderSavedAddresses.length === 0,
+                    }),
                 });
-                if (addrErr) { setMsg(`Erro ao salvar endereço: ${addrErr.message}`); setSaving(false); return; }
+                const addrJson = await addrRes.json().catch(() => ({}));
+                if (!addrRes.ok) { setMsg(`Erro ao salvar endereço: ${addrJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
                 addressForOrder = formatEnderecoLine(f);
             }
-            await supabase.from("customers").update({ name: customerName.trim(), phone: customerPhone.trim(), address: addressForOrder || null }).eq("id", customerId);
+            const customerRes = await fetch("/api/admin/order-customers", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    id: customerId,
+                    name: customerName.trim(),
+                    phone: customerPhone.trim(),
+                    address: addressForOrder || null,
+                }),
+            });
+            const customerJson = await customerRes.json().catch(() => ({}));
+            if (!customerRes.ok) { setMsg(`Erro ao atualizar cliente: ${customerJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
         } else {
             const createdId = await upsertCustomerFromFields(customerName, customerPhone, customerAddress);
             if (!createdId) { setSaving(false); return; }
@@ -1004,18 +965,30 @@ export default function PedidosPage() {
         const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
         const total  = cartSubtotal(cart) + fee;
 
-        const { data: ord, error: ordErr } = await supabase
-            .from("orders")
-            .insert({ company_id: companyId, customer_id: customerId, channel: "admin", status: "new", payment_method: paymentMethod, paid, change_for: change, delivery_fee: fee, total_amount: total, details: null, driver_id: driverId || null })
-            .select("id").single();
-        if (ordErr) { setMsg(`Erro ao criar pedido: ${ordErr.message}`); setSaving(false); return; }
-
-        const { error: itemsErr } = await supabase.from("order_items").insert(buildItemsPayload(ord.id, companyId, cart));
-        if (itemsErr) { setMsg(`Erro ao salvar itens: ${itemsErr.message}`); setSaving(false); return; }
+        const createRes = await fetch("/api/admin/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                customer_id: customerId,
+                channel: "admin",
+                status: "new",
+                payment_method: paymentMethod,
+                paid,
+                change_for: change,
+                delivery_fee: fee,
+                total_amount: total,
+                details: null,
+                driver_id: driverId || null,
+                items: buildItemsPayload("temp", companyId, cart),
+            }),
+        });
+        const createJson = await createRes.json().catch(() => ({}));
+        if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
 
         // Usa reprint explícito (source='reprint') — não depende do trigger de confirmation_status
         // para evitar dupla impressão quando trigger antigo (status='new') ainda coexiste
-        await callReprint(ord.id);
+        await callReprint(String(createJson?.order_id ?? ""));
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
@@ -1027,7 +1000,12 @@ export default function PedidosPage() {
     }
 
     async function syncViewOrderAfterOutForDelivery(ordId: string) {
-        await supabase.from("orders").update({ status: "delivered" }).eq("id", ordId);
+        await fetch("/api/admin/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ id: ordId, status: "delivered" }),
+        });
         const updated = await fetchOrderFull(ordId);
         if (updated) setViewOrder(updated);
         await loadOrders();

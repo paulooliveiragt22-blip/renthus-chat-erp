@@ -11,7 +11,6 @@ import {
   UserPlus, UserCheck, Lock, Unlock, ArrowDownLeft, ArrowUpRight,
   FileText, TrendingDown, TrendingUp, Clock,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -120,7 +119,6 @@ function useF2(cb: () => void) {
 // ─── page ─────────────────────────────────────────────────────────────────────
 
 export default function PDVPage() {
-  const supabase     = useMemo(() => createClient(), []);
   const { currentCompanyId: companyId } = useWorkspace();
   const searchParams = useSearchParams();
   const fromOrderId  = searchParams.get("from_order");
@@ -180,13 +178,12 @@ export default function PDVPage() {
   const loadVariants = useCallback(async () => {
     if (!companyId) return;
     setLoadingProd(true);
-    const { data, error } = await supabase
-      .from("view_pdv_produtos")
-      .select("id, produto_id, descricao, fator_conversao, preco_venda, codigo_interno, codigo_barras_ean, tags, volume_quantidade, sigla_comercial, sigla_humanizada, volume_formatado, sales_count, product_name, product_unit_type, product_details, category_name")
-      .eq("company_id", companyId);
-    if (error) console.error("[pdv] loadVariants:", error.message);
+    const res = await fetch("/api/admin/pdv/products", { credentials: "include", cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) console.error("[pdv] loadVariants:", json?.error ?? res.statusText);
 
-    setVariants((data ?? []).map((r: any) => {
+    const rows = (json.rows ?? []) as any[];
+    setVariants(rows.map((r: any) => {
       const sigla = String(r.sigla_comercial ?? "UN").toUpperCase();
       return {
         id: String(r.id),
@@ -210,30 +207,27 @@ export default function PDVPage() {
       };
     }));
     setLoadingProd(false);
-  }, [companyId, supabase]);
+  }, [companyId]);
 
   // ── pending orders ────────────────────────────────────────────────────────
   const loadPendingOrders = useCallback(async () => {
     if (!companyId) return;
     setLoadingPending(true);
-    const { data, error } = await supabase
-      .from("orders")
-      .select("id, customer_name, total_amount, status, created_at, source, channel")
-      .eq("company_id", companyId)
-      .in("status", ["new", "confirmed", "preparing", "delivering"])
-      .is("sale_id", null)
-      .order("created_at", { ascending: false });
-    if (error) console.error("[pdv] pendingOrders:", error.message);
-    setPendingOrders((data ?? []) as PendingOrder[]);
+    const res = await fetch("/api/admin/pdv/pending-orders", { credentials: "include", cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) console.error("[pdv] pendingOrders:", json?.error ?? res.statusText);
+    setPendingOrders((json.orders ?? []) as PendingOrder[]);
     setLoadingPending(false);
-  }, [companyId, supabase]);
+  }, [companyId]);
 
   const loadOrderIntoCart = useCallback(async (order: PendingOrder) => {
-    const { data: items } = await supabase
-      .from("order_items")
-      .select("produto_embalagem_id, quantity, qty, product_name, unit_price")
-      .eq("order_id", order.id);
-    if (!items || items.length === 0) return;
+    const res = await fetch(`/api/admin/pdv/order-import?order_id=${encodeURIComponent(order.id)}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const json = await res.json().catch(() => ({}));
+    const items = json.items as any[] | undefined;
+    if (!res.ok || !items || items.length === 0) return;
     const newCart: CartItem[] = [];
     for (const it of items as any[]) {
       const v = variants.find(v => v.id === String(it.produto_embalagem_id));
@@ -246,55 +240,39 @@ export default function PDVPage() {
       setFromOrderBanner(`Pedido #${order.id.slice(-6).toUpperCase()}`);
     }
     setPdvMode("normal");
-  }, [supabase, variants]);
+  }, [variants]);
 
   // ── caixa ops ─────────────────────────────────────────────────────────────
   const loadCaixa = useCallback(async () => {
     if (!companyId) return;
     setCaixaLoading(true);
-    const { data } = await supabase
-      .from("cash_registers")
-      .select("id, opened_at, operator_name, initial_amount")
-      .eq("company_id", companyId)
-      .eq("status", "open")
-      .maybeSingle();
-
-    if (!data) { setCaixa(null); setCaixaLoading(false); return; }
-
-    // Totaliza entradas/saídas do dia via cash_movements + sales
-    const [movRes, salesRes] = await Promise.all([
-      supabase.from("cash_movements").select("type, amount").eq("cash_register_id", data.id),
-      supabase.from("sale_payments")
-        .select("amount, payment_method")
-        .eq("company_id", companyId)
-        .gte("created_at", data.opened_at),
-    ]);
-
-    const movements = (movRes.data ?? []) as { type: string; amount: number }[];
-    const salePayments = (salesRes.data ?? []) as { amount: number; payment_method: string }[];
-
-    const totalIn  = salePayments.filter(p => !["credit","boleto","cheque","promissoria","credit_installment"].includes(p.payment_method))
-                                  .reduce((s, p) => s + Number(p.amount), 0)
-                   + movements.filter(m => m.type === "suprimento").reduce((s, m) => s + Number(m.amount), 0)
-                   + Number(data.initial_amount ?? 0);
-    const totalOut = movements.filter(m => m.type === "sangria").reduce((s, m) => s + Number(m.amount), 0);
-
-    setCaixa({ ...data, total_in: totalIn, total_out: totalOut, balance_expected: totalIn - totalOut });
+    const res = await fetch("/api/admin/pdv/cash-register", { credentials: "include", cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error("[pdv] loadCaixa:", json?.error ?? res.statusText);
+      setCaixa(null);
+      setCaixaLoading(false);
+      return;
+    }
+    setCaixa((json.caixa as CaixaInfo | null) ?? null);
     setCaixaLoading(false);
-  }, [companyId, supabase]);
+  }, [companyId]);
 
   const handleAbrirCaixa = async () => {
     if (!companyId) return;
     setCaixaSubmitting(true);
-    const { error } = await supabase.from("cash_registers").insert({
-      company_id:     companyId,
-      operator_name:  abrirForm.operator.trim() || sellerName.trim() || null,
-      initial_amount: Number.parseFloat(abrirForm.initial_amount) || 0,
-      status:         "open",
-      opened_at:      new Date().toISOString(),
+    const res = await fetch("/api/admin/pdv/cash-register", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operator_name: abrirForm.operator.trim() || sellerName.trim() || null,
+        initial_amount: Number.parseFloat(abrirForm.initial_amount) || 0,
+      }),
     });
+    const json = await res.json().catch(() => ({}));
     setCaixaSubmitting(false);
-    if (error) { alert("Erro ao abrir caixa: " + error.message); return; }
+    if (!res.ok) { alert("Erro ao abrir caixa: " + (json?.error ?? "falha")); return; }
     setShowAbrirCaixa(false);
     await loadCaixa();
   };
@@ -303,14 +281,19 @@ export default function PDVPage() {
     if (!caixa || !companyId) return;
     setCaixaSubmitting(true);
     const counted = Number.parseFloat(fecharContagem) || 0;
-    const { error } = await supabase.from("cash_registers").update({
-      status:         "closed",
-      closed_at:      new Date().toISOString(),
-      closing_amount: counted,
-      difference:     counted - caixa.balance_expected,
-    }).eq("id", caixa.id);
+    const res = await fetch("/api/admin/pdv/cash-register", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: caixa.id,
+        closing_amount: counted,
+        balance_expected: caixa.balance_expected,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
     setCaixaSubmitting(false);
-    if (error) { alert("Erro ao fechar caixa: " + error.message); return; }
+    if (!res.ok) { alert("Erro ao fechar caixa: " + (json?.error ?? "falha")); return; }
     setShowFecharCaixa(false);
     setFecharContagem("");
     setCaixa(null);
@@ -319,17 +302,21 @@ export default function PDVPage() {
   const handleMovimento = async () => {
     if (!caixa || !companyId || !movForm.amount) return;
     setCaixaSubmitting(true);
-    const { error } = await supabase.from("cash_movements").insert({
-      cash_register_id: caixa.id,
-      company_id:       companyId,
-      type:             movForm.type,
-      amount:           Number.parseFloat(movForm.amount) || 0,
-      reason:           movForm.reason.trim() || null,
-      operator_name:    sellerName.trim() || null,
-      occurred_at:      new Date().toISOString(),
+    const res = await fetch("/api/admin/pdv/cash-movements", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cash_register_id: caixa.id,
+        type: movForm.type,
+        amount: Number.parseFloat(movForm.amount) || 0,
+        reason: movForm.reason.trim() || null,
+        operator_name: sellerName.trim() || null,
+      }),
     });
+    const json = await res.json().catch(() => ({}));
     setCaixaSubmitting(false);
-    if (error) { alert("Erro: " + error.message); return; }
+    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
     setShowMovimento(false);
     setMovForm({ type: "sangria", amount: "", reason: "" });
     await loadCaixa();
@@ -343,13 +330,13 @@ export default function PDVPage() {
   useEffect(() => {
     if (!fromOrderId || !companyId || variants.length === 0) return;
     (async () => {
-      const [{ data: items }, { data: orderRow }] = await Promise.all([
-        supabase.from("order_items")
-          .select("produto_embalagem_id, quantity, qty, product_name, unit_price")
-          .eq("order_id", fromOrderId),
-        supabase.from("orders").select("source").eq("id", fromOrderId).maybeSingle(),
-      ]);
-      if (!items || items.length === 0) return;
+      const res = await fetch(`/api/admin/pdv/order-import?order_id=${encodeURIComponent(fromOrderId)}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      const items = json.items as any[] | undefined;
+      if (!res.ok || !items || items.length === 0) return;
       const newCart: CartItem[] = [];
       for (const it of items as any[]) {
         const embId = it.produto_embalagem_id;
@@ -361,27 +348,26 @@ export default function PDVPage() {
       if (newCart.length > 0) {
         setCart(newCart);
         setActiveOrderId(fromOrderId);
-        setActiveOrderSource((orderRow as any)?.source ?? null);
+        setActiveOrderSource(json.source ?? null);
         setFromOrderBanner(`Pedido #${fromOrderId.slice(-6).toUpperCase()}`);
       }
     })();
-  }, [fromOrderId, companyId, variants, supabase]);
+  }, [fromOrderId, companyId, variants]);
 
   // ── customer search (debounced) ──────────────────────────────────────
   useEffect(() => {
     const q = customerQuery.trim();
     if (!q || !companyId) { setCustomerResults([]); return; }
     const timer = setTimeout(async () => {
-      const { data } = await supabase
-        .from("customers")
-        .select("id,name,phone,limite_credito,saldo_devedor")
-        .eq("company_id", companyId)
-        .or(`name.ilike.%${q}%,phone.ilike.%${q}%`)
-        .limit(8);
-      setCustomerResults((data as CustomerSummary[]) ?? []);
+      const res = await fetch(`/api/admin/pdv/customers?q=${encodeURIComponent(q)}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      setCustomerResults((json.customers as CustomerSummary[]) ?? []);
     }, 280);
     return () => clearTimeout(timer);
-  }, [customerQuery, companyId, supabase]);
+  }, [customerQuery, companyId]);
 
   // creditAvailable / canUseCredit computed after cartTotal (line ~202)
 
@@ -400,19 +386,24 @@ export default function PDVPage() {
   const saveNewCustomer = async () => {
     if (!companyId || !custForm.name.trim() || !custForm.phone.trim()) return;
     setSavingCust(true);
-    const { data, error } = await supabase.from("customers").insert({
-      company_id:      companyId,
-      name:            custForm.name.trim(),
-      phone:           custForm.phone.trim(),
-      cpf_cnpj:        custForm.cpf_cnpj.trim() || null,
-      limite_credito:  Number.parseFloat(custForm.limite_credito) || 0,
-      origem:          "admin",
-      address:         [custForm.logradouro, custForm.numero && `nº ${custForm.numero}`, custForm.bairro].filter(Boolean).join(", ") || null,
-      neighborhood:    custForm.bairro || null,
-    }).select("id,name,phone,limite_credito,saldo_devedor").single();
+    const res = await fetch("/api/admin/pdv/customers", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: custForm.name.trim(),
+        phone: custForm.phone.trim(),
+        cpf_cnpj: custForm.cpf_cnpj.trim() || null,
+        limite_credito: custForm.limite_credito,
+        logradouro: custForm.logradouro,
+        numero: custForm.numero,
+        bairro: custForm.bairro,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
     setSavingCust(false);
-    if (error) { alert("Erro: " + error.message); return; }
-    const c = data as CustomerSummary;
+    if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
+    const c = json.customer as CustomerSummary;
     setSelectedCustomer(c);
     setCustomerQuery(c.name ?? "");
     setShowNewCust(false);
@@ -590,132 +581,37 @@ export default function PDVPage() {
     }
     setFinalizing(true);
     try {
-      const primary = [...payments].sort((a,b)=>(Number.parseFloat(b.value)||0)-(Number.parseFloat(a.value)||0))[0];
-      const isPaid = !hasCreditPayment;
-
-      // Deriva origem da venda a partir da source do pedido de origem (se houver)
-      const src = activeOrderId ? (activeOrderSource ?? null) : null;
-      const saleOrigin = (!src || src === "pdv_direct") ? "pdv"
-        : (src === "chatbot" || src.startsWith("flow_")) ? "chatbot"
-        : src === "ui" ? "ui_order"
-        : "pdv";
-      const finEntryOrigin = saleOrigin === "chatbot" ? "chatbot"
-        : saleOrigin === "ui_order" ? "ui_order"
-        : "balcao";
-
-      // payment_method normalizado: prazo genérico → subtipo
-      const normMethod = (m: PayMethod): string => {
-        if (m === "credit") return "credit_installment";
-        return m;
-      };
-
-      // 1. Criar sale (registro financeiro da venda)
-      const { data: sale, error: saleErr } = await supabase.from("sales").insert({
-        company_id:       companyId,
-        cash_register_id: caixa?.id ?? null,
-        customer_id:      selectedCustomer?.id ?? null,
-        seller_name:      sellerName || null,
-        origin:           saleOrigin,
-        subtotal:         cartTotal,
-        total:            cartTotal,
-        status:           isPaid ? "paid" : "partial",
-        notes:            sellerName ? `Balcão — ${sellerName}` : "Balcão",
-        ...(activeOrderId ? { order_id: activeOrderId } : {}),
-      }).select("id").single();
-      if (saleErr) throw new Error(saleErr.message);
-      const saleId = sale.id;
-
-      // 2. sale_items (snapshot de custo zero — sem controle de estoque ainda)
-      const { error: saleItemErr } = await supabase.from("sale_items").insert(cart.map(i => ({
-        sale_id:             saleId,
-        company_id:          companyId,
-        produto_embalagem_id: i.variant.id,
-        product_name:        `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
-        qty:                 i.qty,
-        unit_price:          i.variant.unit_price,
-        unit_cost:           0,
-      })));
-      if (saleItemErr) console.error("[pdv] sale_items:", saleItemErr.message);
-
-      // 3. sale_payments — dispara trigger que cria bills para pagamentos a prazo
-      const { error: salePayErr } = await supabase.from("sale_payments").insert(payments.map(p => ({
-        sale_id:        saleId,
-        company_id:     companyId,
-        payment_method: normMethod(p.method),
-        amount:         Number.parseFloat(p.value) || 0,
-        due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
-        received_at:    !PAY[p.method].prazo ? new Date().toISOString() : null,
-      })));
-      if (salePayErr) throw new Error(salePayErr.message);
-
-      // 4. Pedido: atualiza o pedido de origem (chatbot/flow) ou cria novo (balcão direto)
-      let oid: string;
-      if (activeOrderId) {
-        // Pedido de origem (chatbot/flow): vincula ao sale e confirma
-        const { error: updErr } = await supabase.from("orders").update({
-          sale_id:             saleId,
-          status:              "finalized",
-          confirmation_status: "confirmed",
-          confirmed_at:        new Date().toISOString(),
-          // Marca como impresso agora se o PDV vai imprimir diretamente,
-          // evitando reimpressão pelo agente
-          ...(autoPrint ? { printed_at: new Date().toISOString() } : {}),
-        }).eq("id", activeOrderId);
-        if (updErr) throw new Error(updErr.message);
-        oid = activeOrderId;
-        // order_items já existem — não recriar
-      } else {
-        // Venda balcão direta: cria pedido de compatibilidade
-        const { data: order, error: ordErr } = await supabase.from("orders").insert({
-          company_id:     companyId,
-          sale_id:        saleId,
-          source:         "pdv_direct",
-          customer_id:    selectedCustomer?.id ?? null,
-          customer_name:  selectedCustomer?.name ?? (sellerName ? `[Balcão] ${sellerName}` : "Balcão"),
-          total:          cartTotal,
-          total_amount:   cartTotal,
-          delivery_fee:   0,
-          payment_method: primary?.method ?? "pix",
-          status:         "finalized",
-          channel:        "balcao",
-          paid:           isPaid,
-          confirmed_at:   new Date().toISOString(),
-        }).select("id").single();
-        if (ordErr) throw new Error(ordErr.message);
-        oid = order.id;
-
-        // 5. order_items (apenas para vendas balcão diretas)
-        const { error: itemErr } = await supabase.from("order_items").insert(cart.map(i => ({
-          company_id:           companyId,
-          order_id:             oid,
-          product_id:           i.variant.produto_id,
-          produto_embalagem_id: i.variant.id,
-          product_name:         `${i.variant.product_name}${i.variant.details ? " " + i.variant.details : ""}`,
-          quantity:             i.qty,
-          qty:                  i.qty,
-          unit_type:            String(i.variant.sigla_comercial ?? "").toUpperCase() === "CX" ? "case" : "unit",
-          unit_price:           i.variant.unit_price,
-        })));
-        if (itemErr) console.error("[pdv] order_items:", itemErr.message);
-      }
-
-      // 6. financial_entries para dashboard legado (sale_id evita duplicação pelo trigger)
-      const { error: finErr } = await supabase.from("financial_entries").insert(payments.map(p => ({
-        company_id:     companyId,
-        order_id:       oid,
-        sale_id:        saleId,
-        type:           "income",
-        amount:         Number.parseFloat(p.value) || 0,
-        delivery_fee:   0,
-        payment_method: normMethod(p.method),
-        origin:         finEntryOrigin,
-        description:    `Venda PDV${sellerName ? " — " + sellerName : ""}`,
-        occurred_at:    new Date().toISOString(),
-        status:         PAY[p.method].prazo ? "pending" : "received",
-        due_date:       p.due_date ? new Date(p.due_date + "T12:00:00").toISOString() : null,
-        received_at:    !PAY[p.method].prazo ? new Date().toISOString() : null,
-      })));
-      if (finErr) console.error("[pdv] financial_entries:", finErr.message);
+      const res = await fetch("/api/admin/pdv/finalize", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cash_register_id: caixa.id,
+          seller_name: sellerName,
+          customer_id: selectedCustomer?.id ?? null,
+          customer_name: selectedCustomer?.name ?? null,
+          cart: cart.map((i) => ({
+            variant_id: i.variant.id,
+            produto_id: i.variant.produto_id,
+            product_name: i.variant.product_name,
+            details: i.variant.details,
+            unit_price: i.variant.unit_price,
+            qty: i.qty,
+            sigla_comercial: i.variant.sigla_comercial,
+          })),
+          payments: payments.map((p) => ({
+            method: p.method,
+            value: Number.parseFloat(p.value) || 0,
+            due_date: p.due_date ?? null,
+          })),
+          active_order_id: activeOrderId,
+          active_order_source: activeOrderSource,
+          auto_print: autoPrint,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? "Falha ao finalizar");
+      const oid = String(json.order_id ?? "");
 
       if (autoPrint) {
         // Electron (desktop): impressão direta via IPC

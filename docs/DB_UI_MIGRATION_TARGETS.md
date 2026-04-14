@@ -6,11 +6,11 @@ Data: 2026-04-14
 
 | Arquivo | Acesso atual (cru) | Alvo recomendado |
 |---|---|---|
-| `app/(admin)/pedidos/PedidosClient.tsx` | `orders`, `order_items`, `customers`, `enderecos_cliente`, `drivers`, `companies` via `from()` | Mover para API server-side: `GET /api/orders/list`, `PATCH /api/orders/[id]`, RPC de atualização de pedido com itens |
-| `app/(admin)/pdv/page.tsx` | `orders`, `order_items`, `customers`, `sales`, `sale_items`, `sale_payments`, `cash_*`, `financial_entries` | APIs por domínio PDV + RPC transacional para fechamento de venda/pedido |
-| `app/(admin)/financeiro/page.tsx` | `sales`, `orders`, `sale_*`, `expenses`, `bills`, `cash_*` | APIs server-side de financeiro com queries agregadas + RPC de baixa/lançamento |
-| `app/(admin)/clientes/page.tsx` | `customers`, `enderecos_cliente`, `bills` | API de clientes (`list/create/update/delete`) + API de endereços + API de contas a receber |
-| `app/(admin)/fila/FilaClient.tsx` | `orders`, `view_pdv_produtos` | API de fila com mutações server-side |
+| `app/(admin)/pedidos/PedidosClient.tsx` | ✅ Migrado para API server-side (`/api/admin/orders*`, `/order-customers`, `/order-addresses`, `/products/search`, `/financial-entries`) | Próximo passo opcional: consolidar mutações em RPC transacional de domínio |
+| `app/(admin)/pdv/page.tsx` | ✅ Migrado para `/api/admin/pdv/*` (produtos, pedidos pendentes, importação de pedido, caixa, clientes, finalização) | Opcional: RPC transacional única (`rpc_finalize_pdv_sale`) para atomicidade total |
+| `app/(admin)/financeiro/page.tsx` | ✅ Migrado para `/api/admin/financeiro/*` (dashboard, extrato, despesas, contas, caixa, DRE, finalização) | Opcional: RPC transacional para baixa/lançamento |
+| `app/(admin)/clientes/page.tsx` | ✅ Migrado para `/api/admin/customers*`, dívidas via `/api/admin/financeiro/bills` | Opcional: `rpc_upsert_customer_with_primary_address` |
+| `app/(admin)/fila/FilaClient.tsx` | ✅ Migrado para `/api/admin/fila/*`, `/api/admin/orders/[id]`, drivers, busca de produtos, `order-customers`, itens do pedido | Overlay de edição: `components/fila/FilaOrderEditOverlay.tsx` via mesmas APIs (sem Supabase no browser) |
 | `app/(admin)/entregadores/page.tsx` | `drivers` CRUD direto | ✅ Migrado para `/api/admin/drivers` |
 | `app/(admin)/configuracoes/page.tsx` | `company_settings` direto | ✅ Migrado para `/api/admin/company-settings` |
 

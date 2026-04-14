@@ -1,8 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { Check, Clock, MessageCircle, Pencil, RefreshCcw, X } from "lucide-react";
 import { playBeep } from "@/lib/utils/playBeep";
@@ -149,7 +148,6 @@ const PM_LABELS: Record<string, string> = {
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function FilaClient() {
-  const supabase   = useMemo(() => createClient(), []);
   const { currentCompanyId: companyId } = useWorkspace();
 
   const [orders,     setOrders]     = useState<PendingOrder[]>([]);
@@ -166,45 +164,14 @@ export default function FilaClient() {
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
-  const fetchOrders = useMemo(() => async () => {
+  const fetchOrders = useCallback(async () => {
     if (!companyId) { setLoading(false); return; }
 
-    const { data, error } = await supabase
-      .from("orders")
-      .select(`
-        id, customer_id, customer_phone, delivery_address, payment_method,
-        total, total_amount, delivery_fee, change_for, created_at,
-        customers ( name, phone ),
-        order_items ( product_name, quantity, unit_price, line_total, produto_embalagem_id )
-      `)
-      .eq("company_id", companyId)
-      .eq("confirmation_status", "pending_confirmation")
-      .order("created_at", { ascending: true })
-      .limit(50);
+    const res = await fetch("/api/admin/fila/pending-orders", { credentials: "include", cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { console.error("[Fila] fetch error:", json?.error ?? res.statusText); setLoading(false); return; }
 
-    if (error) { console.error("[Fila] fetch error:", error); setLoading(false); return; }
-
-    const rawOrders = (data ?? []) as unknown as PendingOrder[];
-
-    // Enriquece itens com dados de embalagem via view_pdv_produtos
-    const allEmbIds = [...new Set(
-      rawOrders.flatMap(o => o.order_items.map((i: any) => i.produto_embalagem_id).filter(Boolean))
-    )];
-    let embMap = new Map<string, any>();
-    if (allEmbIds.length > 0) {
-      const { data: embs } = await supabase
-        .from("view_pdv_produtos")
-        .select("id, product_name, descricao, sigla_comercial, volume_formatado, fator_conversao")
-        .in("id", allEmbIds);
-      if (embs) embMap = new Map((embs as any[]).map(e => [e.id, e]));
-    }
-    const next = rawOrders.map(o => ({
-      ...o,
-      order_items: o.order_items.map((i: any) => ({
-        ...i,
-        _emb: embMap.get(i.produto_embalagem_id) ?? null,
-      })),
-    })) as unknown as PendingOrder[];
+    const next = (json.orders ?? []) as PendingOrder[];
 
     // Detecta pedidos novos (apareceram após o primeiro carregamento)
     const nextIds = new Set(next.map((o) => o.id));
@@ -221,7 +188,7 @@ export default function FilaClient() {
 
     setOrders(next);
     setLoading(false);
-  }, [companyId, supabase]);
+  }, [companyId]);
 
   // ── Realtime + polling ────────────────────────────────────────────────────
 
@@ -231,27 +198,10 @@ export default function FilaClient() {
     fetchOrders();
     const poll = setInterval(fetchOrders, 8000);
 
-    const channel = supabase
-      .channel(`fila-pending-${companyId}`)
-      .on("postgres_changes", {
-        event:  "INSERT",
-        schema: "public",
-        table:  "orders",
-        filter: `company_id=eq.${companyId}`,
-      }, () => fetchOrders())
-      .on("postgres_changes", {
-        event:  "UPDATE",
-        schema: "public",
-        table:  "orders",
-        filter: `company_id=eq.${companyId}`,
-      }, () => fetchOrders())
-      .subscribe();
-
     return () => {
       clearInterval(poll);
-      supabase.removeChannel(channel);
     };
-  }, [companyId, fetchOrders, supabase]);
+  }, [companyId, fetchOrders]);
 
   // ── Atalhos de teclado ────────────────────────────────────────────────────
 
@@ -293,15 +243,14 @@ export default function FilaClient() {
     if (processing) return;
     setProcessing(orderId);
     try {
-      const { error } = await supabase
-        .from("orders")
-        .update({
-          confirmation_status: "confirmed",
-          confirmed_at:        new Date().toISOString(),
-        })
-        .eq("id", orderId);
-
-      if (error) throw error;
+      const res = await fetch(`/api/admin/fila/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "confirm" }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error ?? "falha");
 
       const order   = orders.find((o) => o.id === orderId);
       const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;
@@ -335,16 +284,14 @@ export default function FilaClient() {
 
     setProcessing(orderId);
     try {
-      const { error } = await supabase
-        .from("orders")
-        .update({
-          confirmation_status: "rejected",
-          confirmed_at:        new Date().toISOString(),
-          status:              "canceled",
-        })
-        .eq("id", orderId);
-
-      if (error) throw error;
+      const res = await fetch(`/api/admin/fila/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject" }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error ?? "falha");
 
       const order   = orders.find((o) => o.id === orderId);
       const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;

@@ -7,7 +7,6 @@ import {
     ResponsiveContainer, Cell, PieChart, Pie, Legend,
 } from "recharts";
 import { useTheme } from "next-themes";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     BadgeDollarSign, ShoppingCart, TrendingUp, TrendingDown,
@@ -130,7 +129,6 @@ function BarTooltip({ active, payload, label }: any) {
 // ─── page ─────────────────────────────────────────────────────────────────────
 
 export default function FinanceiroPage() {
-    const supabase   = useMemo(() => createClient(), []);
     const { currentCompanyId: companyId } = useWorkspace();
     const { resolvedTheme } = useTheme();
     const isDark = resolvedTheme === "dark";
@@ -212,194 +210,28 @@ export default function FinanceiroPage() {
         }
     }, [extratoModal]);
 
-    // ── load (fonte primária: sales + sale_payments; fallback: orders) ───────
+    // ── load (agregação no servidor) ───────────────────────────────────────────
     const load = useCallback(async () => {
         if (!companyId) return;
         setLoading(true);
-
-        const fromIso = dateRange.from + "T00:00:00.000Z";
-        const toIso   = dateRange.to   + "T23:59:59.999Z";
-
-        // 1. Sales no período (fonte nova — pós Sprint1)
-        const { data: salesRaw } = await supabase
-            .from("sales")
-            .select("id, created_at, total, subtotal, origin, status")
-            .eq("company_id", companyId)
-            .neq("status", "canceled")
-            .gte("created_at", fromIso)
-            .lte("created_at", toIso)
-            .order("created_at", { ascending: true });
-
-        // 1b. Fallback: orders (antes do Sprint1 ou canais que não passam por sales)
-        const { data: ordersRaw } = await supabase
-            .from("orders")
-            .select("id, created_at, total_amount, delivery_fee, payment_method, status, source")
-            .eq("company_id", companyId)
-            .in("status", ["finalized", "delivered"])
-            .is("sale_id", null)          // só os que NÃO têm sale (legado)
-            .gte("created_at", fromIso)
-            .lte("created_at", toIso)
-            .order("created_at", { ascending: true });
-
-        const safeSales  = (salesRaw  ?? []) as any[];
-        const safeOrders = (ordersRaw ?? []) as any[];
-
-        // 2. sale_payments para breakdown por forma de pagamento
-        const saleIds = safeSales.map((s: any) => s.id);
-        let salePayments: any[] = [];
-        if (saleIds.length > 0) {
-            const { data: spRows } = await supabase
-                .from("sale_payments")
-                .select("sale_id, payment_method, amount")
-                .in("sale_id", saleIds)
-                .not("payment_method", "in", '("credit_installment","boleto","cheque","promissoria")');
-            salePayments = spRows ?? [];
+        const qs = new URLSearchParams({
+            from: dateRange.from,
+            to: dateRange.to,
+            days: String(dateRange.days),
+        });
+        const res = await fetch(`/api/admin/financeiro/dashboard?${qs}`, { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            console.error("[financeiro] dashboard:", json?.error ?? res.statusText);
+            setStats(null);
+            setExpenses([]);
+            setLoading(false);
+            return;
         }
-
-        // 3. Custo real via sale_items (para sales) e order_items (fallback)
-        const costBySale: Record<string, number> = {};
-        if (saleIds.length > 0) {
-            const { data: siRows } = await supabase
-                .from("sale_items")
-                .select("sale_id, qty, unit_cost")
-                .in("sale_id", saleIds);
-            (siRows ?? []).forEach((si: any) => {
-                costBySale[si.sale_id] = (costBySale[si.sale_id] ?? 0) + Number(si.qty) * Number(si.unit_cost ?? 0);
-            });
-        }
-
-        const costByOrder: Record<string, number> = {};
-        const orderIds = safeOrders.map((o: any) => o.id);
-        if (orderIds.length > 0) {
-            const { data: items } = await supabase
-                .from("order_items")
-                .select("order_id, quantity, qty, produto_embalagem_id")
-                .in("order_id", orderIds);
-            const embIds = [...new Set((items ?? []).map((it: any) => it.produto_embalagem_id).filter(Boolean))];
-            let embCostMap: Record<string, { baseCost: number; fator: number }> = {};
-            if (embIds.length > 0) {
-                const { data: embRows } = await supabase
-                    .from("view_pdv_produtos")
-                    .select("id, fator_conversao, product_preco_custo")
-                    .eq("company_id", companyId)
-                    .in("id", embIds);
-                (embRows ?? []).forEach((e: any) => {
-                    embCostMap[e.id] = { baseCost: Number(e.product_preco_custo ?? 0), fator: Number(e.fator_conversao ?? 1) };
-                });
-            }
-            (items ?? []).forEach((it: any) => {
-                const q  = Number(it.quantity ?? it.qty ?? 1);
-                const em = embCostMap[it.produto_embalagem_id];
-                costByOrder[it.order_id] = (costByOrder[it.order_id] ?? 0) + (em ? em.baseCost * em.fator * q : 0);
-            });
-        }
-
-        // 4. Despesas no período
-        const { data: expData } = await supabase
-            .from("expenses")
-            .select("id, category, description, amount, due_date, payment_status")
-            .eq("company_id", companyId)
-            .gte("due_date", dateRange.from)
-            .lte("due_date", dateRange.to)
-            .order("due_date", { ascending: false });
-        const safeExp = (expData ?? []) as Expense[];
-        setExpenses(safeExp);
-
-        // 5. A receber pendente (bills) — para o card clicável
-        const { data: billsOpen } = await supabase
-            .from("bills")
-            .select("saldo_devedor, status")
-            .eq("company_id", companyId)
-            .eq("type", "receivable")
-            .in("status", ["open", "partial", "overdue"]);
-        const totalAReceber = (billsOpen ?? []).reduce((s: number, b: any) => s + Number(b.saldo_devedor ?? 0), 0);
-
-        // ── aggregate by day ──────────────────────────────────────────────────
-        const dayMap: Record<string, DaySummary> = {};
-        for (let i = 0; i < dateRange.days; i++) {
-            const d   = new Date(Date.now() - (dateRange.days - 1 - i) * 86400000);
-            const iso = isoDate(d);
-            dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
-        }
-        safeSales.forEach((s: any) => {
-            const iso = (s.created_at as string).slice(0, 10);
-            if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
-            dayMap[iso].revenue += Number(s.total ?? 0);
-            dayMap[iso].cost    += costBySale[s.id] ?? 0;
-            dayMap[iso].orders  += 1;
-        });
-        safeOrders.forEach((o: any) => {
-            const iso = (o.created_at as string).slice(0, 10);
-            if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
-            dayMap[iso].revenue += Number(o.total_amount ?? 0);
-            dayMap[iso].cost    += costByOrder[o.id] ?? 0;
-            dayMap[iso].orders  += 1;
-        });
-        safeExp.forEach((e) => {
-            if (e.payment_status !== "paid") return;
-            const iso = e.due_date;
-            if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
-            dayMap[iso].expensesDay += Number(e.amount);
-        });
-        const byDay = Object.values(dayMap).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
-
-        // ── breakdown por forma de pagamento (sale_payments + orders legado) ──
-        const payMap: Record<string, { total: number; count: number }> = {};
-        salePayments.forEach((sp: any) => {
-            const m = sp.payment_method ?? "outros";
-            if (!payMap[m]) payMap[m] = { total: 0, count: 0 };
-            payMap[m].total += Number(sp.amount ?? 0);
-            payMap[m].count += 1;
-        });
-        safeOrders.forEach((o: any) => {
-            const m = (o.payment_method ?? "outros") as string;
-            if (!payMap[m]) payMap[m] = { total: 0, count: 0 };
-            payMap[m].total += Number(o.total_amount ?? 0);
-            payMap[m].count += 1;
-        });
-        const byPay: PaySummary[] = Object.entries(payMap).map(([method, v]) => {
-            const meta = PAY_META[method] ?? { label: method, color: "#a1a1aa" };
-            return { method, ...meta, ...v };
-        }).sort((a, b) => b.total - a.total);
-
-        // ── breakdown por origem ───────────────────────────────────────────────
-        const normOrigin = (raw: string | null | undefined): string => {
-            if (!raw) return "pdv";
-            if (raw === "chatbot" || raw.startsWith("flow_")) return "chatbot";
-            if (raw === "ui" || raw === "ui_order") return "ui_order";
-            return "pdv";
-        };
-        const originMap: Record<string, number> = { pdv: 0, chatbot: 0, ui_order: 0 };
-        safeSales.forEach((s: any) => {
-            const key = normOrigin(s.origin);
-            originMap[key] = (originMap[key] ?? 0) + Number(s.total ?? 0);
-        });
-        safeOrders.forEach((o: any) => {
-            const src = o.source ?? o.channel ?? null;
-            const key = (!src || src === "balcao" || src === "pdv_direct") ? "pdv"
-                : (src === "whatsapp" || src === "chatbot" || src.startsWith("flow_")) ? "chatbot"
-                : "ui_order";
-            originMap[key] = (originMap[key] ?? 0) + Number(o.total_amount ?? 0);
-        });
-
-        // ── totals ────────────────────────────────────────────────────────────
-        const revenue      = byDay.reduce((s, d) => s + d.revenue, 0);
-        const cost         = byDay.reduce((s, d) => s + d.cost,    0);
-        const expensesPaid = safeExp.filter(e => e.payment_status === "paid").reduce((s, e) => s + Number(e.amount), 0);
-        const orders       = byDay.reduce((s, d) => s + d.orders,  0);
-
-        setStats({
-            revenue, cost, expensesPaid,
-            profit:       revenue - cost,
-            realProfit:   revenue - cost - expensesPaid,
-            orders,
-            ticket:       orders > 0 ? revenue / orders : 0,
-            byDay, byPay,
-            byOrigin:     originMap,
-            totalAReceber,
-        });
+        setStats(json.stats as Stats);
+        setExpenses((json.expenses ?? []) as Expense[]);
         setLoading(false);
-    }, [companyId, supabase, dateRange]);
+    }, [companyId, dateRange]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -407,16 +239,19 @@ export default function FinanceiroPage() {
     const saveExpense = async () => {
         if (!companyId || !expForm.amount || !expForm.due_date) return;
         setSaving(true);
-        const { error } = await supabase.from("expenses").insert({
-            company_id:     companyId,
-            category:       expForm.category,
-            description:    expForm.description,
-            amount:         Number.parseFloat(expForm.amount.replaceAll(",", ".")),
-            due_date:       expForm.due_date,
-            payment_status: expForm.payment_status,
-            ...(expForm.payment_status === "paid" ? { paid_at: new Date().toISOString() } : {}),
+        const res = await fetch("/api/admin/financeiro/expenses", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                category: expForm.category,
+                description: expForm.description,
+                amount: expForm.amount.replaceAll(",", "."),
+                due_date: expForm.due_date,
+                payment_status: expForm.payment_status,
+            }),
         });
-        if (!error) {
+        if (res.ok) {
             setExpForm({ category: "Fornecedor de Bebidas", description: "", amount: "", due_date: isoDate(new Date()), payment_status: "pending" });
             setShowExpModal(false);
             load();
@@ -425,13 +260,18 @@ export default function FinanceiroPage() {
     };
 
     const deleteExpense = async (id: string) => {
-        await supabase.from("expenses").delete().eq("id", id);
+        await fetch(`/api/admin/financeiro/expenses?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
         setExpenses((p) => p.filter((e) => e.id !== id));
         load();
     };
 
     const markPaid = async (id: string) => {
-        await supabase.from("expenses").update({ payment_status: "paid", paid_at: new Date().toISOString() }).eq("id", id);
+        await fetch("/api/admin/financeiro/expenses", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, action: "mark_paid" }),
+        });
         load();
     };
 
@@ -439,95 +279,22 @@ export default function FinanceiroPage() {
     const loadExtrato = useCallback(async () => {
         if (!companyId) return;
         setExtratoLoading(true);
-        const fromIso = dateRange.from + "T00:00:00.000Z";
-        const toIso   = dateRange.to   + "T23:59:59.999Z";
-
-        const lines: ExtratoLine[] = [];
-
-        // 1. sale_payments (fonte nova — pós Sprint1)
-        const { data: spRows } = await supabase
-            .from("sale_payments")
-            .select("id, created_at, amount, payment_method, status, sale_id, sales(origin, notes, customer_id, customers(name))")
-            .eq("company_id", companyId)
-            .gte("created_at", fromIso)
-            .lte("created_at", toIso)
-            .order("created_at", { ascending: false })
-            .limit(500);
-
-        (spRows ?? []).forEach((sp: any) => {
-            const sale    = sp.sales as any;
-            const origin  = sale?.origin ?? "pdv";
-            const channel = origin === "chatbot" ? "whatsapp" : origin === "ui_order" ? "admin" : "pdv";
-            lines.push({
-                id:             `sp-${sp.id}`,
-                date:           sp.created_at,
-                type:           "income",
-                source:         "financial_entry",
-                description:    `Venda — ${sale?.notes ?? origin}`,
-                customer:       sale?.customers?.name ?? "—",
-                channel,
-                payment_method: sp.payment_method ?? "—",
-                amount:         Number(sp.amount ?? 0),
-                status:         sp.status === "received" ? "recebido" : sp.status === "pending" ? "pendente" : sp.status,
-                orderId:        null,
-                saleId:         sp.sale_id ?? null,
-                customerId:     (sale as any)?.customer_id ?? null,
-                orderStatus:    null,
-            });
+        const qs = new URLSearchParams({
+            from: dateRange.from,
+            to: dateRange.to,
+            days: String(dateRange.days),
         });
-
-        // 2. Orders legados (sem sale_id) — somente finalizados/entregues (não contar abertos)
-        const { data: ordRows } = await supabase
-            .from("orders")
-            .select("id, created_at, total_amount, payment_method, status, channel, source, customer_id, customers(name)")
-            .eq("company_id", companyId)
-            .in("status", ["finalized", "delivered", "confirmed", "preparing", "delivering"])
-            .is("sale_id", null)
-            .gte("created_at", fromIso)
-            .lte("created_at", toIso)
-            .order("created_at", { ascending: false })
-            .limit(300);
-
-        (ordRows ?? []).forEach((o: any) => {
-            lines.push({
-                id:             `ord-${o.id}`,
-                date:           o.created_at,
-                type:           "income",
-                source:         "order",
-                description:    `Pedido #${(o.id as string).slice(-6).toUpperCase()}`,
-                customer:       o.customers?.name ?? "—",
-                channel:        o.source ?? o.channel ?? "admin",
-                payment_method: o.payment_method ?? "—",
-                amount:         Number(o.total_amount ?? 0),
-                status:         o.status,
-                orderId:        o.id,
-                saleId:         null,
-                customerId:     o.customer_id ?? null,
-                orderStatus:    o.status,
-            });
-        });
-
-        // 3. Despesas no período
-        (expenses).forEach((e) => {
-            lines.push({
-                id:             `exp-${e.id}`,
-                date:           e.due_date + "T12:00:00",
-                type:           "expense",
-                source:         "expense",
-                description:    `${e.category}${e.description ? ` — ${e.description}` : ""}`,
-                customer:       "—",
-                channel:        "despesa",
-                payment_method: "—",
-                amount:         Number(e.amount ?? 0),
-                status:         e.payment_status === "paid" ? "pago" : "pendente",
-            });
-        });
-
-        lines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setExtrato(lines);
+        const res = await fetch(`/api/admin/financeiro/extrato?${qs}`, { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            console.error("[financeiro] extrato:", json?.error ?? res.statusText);
+            setExtrato([]);
+        } else {
+            setExtrato((json.lines ?? []) as ExtratoLine[]);
+        }
         setExtratoPage(1);
         setExtratoLoading(false);
-    }, [companyId, supabase, dateRange, expenses]);
+    }, [companyId, dateRange]);
 
     useEffect(() => {
         if (activeTab === "extrato") loadExtrato();
@@ -538,47 +305,25 @@ export default function FinanceiroPage() {
         if (!extratoModal?.orderId || !companyId) return;
         setFinalizing(true);
         setFinalizeMsg(null);
-        const isPrazo = A_PRAZO_METHODS.has(finalizeForm.payment_method);
-
-        const { error: orderErr } = await supabase
-            .from("orders")
-            .update({ status: "finalized", payment_method: finalizeForm.payment_method, paid: !isPrazo })
-            .eq("id", extratoModal.orderId)
-            .eq("company_id", companyId);
-
-        if (orderErr) {
-            setFinalizeMsg("Erro: " + orderErr.message);
+        const res = await fetch("/api/admin/financeiro/finalize-order", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                order_id: extratoModal.orderId,
+                payment_method: finalizeForm.payment_method,
+                due_date: finalizeForm.due_date,
+                notes: finalizeForm.notes,
+                customer_id: extratoModal.customerId,
+                amount: extratoModal.amount,
+            }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setFinalizeMsg("Erro: " + (json?.error ?? "falha"));
             setFinalizing(false);
             return;
         }
-
-        if (isPrazo) {
-            if (!extratoModal.customerId) {
-                setFinalizeMsg("Cliente não identificado — não foi possível lançar a prazo.");
-                setFinalizing(false);
-                return;
-            }
-            const { error: prazoErr } = await supabase.from("bills").insert({
-                company_id:      companyId,
-                type:            "receivable",
-                order_id:        extratoModal.orderId,
-                customer_id:     extratoModal.customerId,
-                original_amount: extratoModal.amount,
-                amount:          extratoModal.amount,
-                amount_paid:     0,
-                due_date:        finalizeForm.due_date,
-                status:          "open",
-                origin:          "ui_order",
-                payment_method:  finalizeForm.payment_method,
-                description:     finalizeForm.notes || `Pedido #${extratoModal.orderId.slice(-6).toUpperCase()}`,
-            });
-            if (prazoErr) {
-                setFinalizeMsg("Pedido finalizado, mas erro ao lançar a prazo: " + prazoErr.message);
-                setFinalizing(false);
-                return;
-            }
-        }
-
         setFinalizing(false);
         setExtratoModal(null);
         loadExtrato();
@@ -588,25 +333,13 @@ export default function FinanceiroPage() {
     const loadBills = useCallback(async (type: "receivable" | "payable") => {
         if (!companyId) return;
         setBillsLoading(true);
-        let q = supabase
-            .from("bills")
-            .select(`
-                id, type, description, original_amount, saldo_devedor,
-                due_date, status, payment_method, sale_id, order_id,
-                customers(name)
-            `)
-            .eq("company_id", companyId)
-            .eq("type", type)
-            .order("due_date", { ascending: true });
-        if (billFilter !== "all") q = q.eq("status", billFilter);
-        const { data, error } = await q;
-        if (error) console.error("[financeiro] bills:", error.message);
-        setBills((data ?? []).map((b: any) => ({
-            ...b,
-            customer_name: b.customers?.name ?? null,
-        })));
+        const qs = new URLSearchParams({ type, status: billFilter });
+        const res = await fetch(`/api/admin/financeiro/bills?${qs}`, { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) console.error("[financeiro] bills:", json?.error ?? res.statusText);
+        setBills((json.bills ?? []) as Bill[]);
         setBillsLoading(false);
-    }, [companyId, supabase, billFilter]);
+    }, [companyId, billFilter]);
 
     useEffect(() => {
         if (activeTab === "receber") loadBills("receivable");
@@ -617,14 +350,22 @@ export default function FinanceiroPage() {
         if (!payBill || !companyId || !payForm.amount) return;
         setPayingBill(true);
         const paid = Number.parseFloat(payForm.amount) || 0;
-        const newAmountPaid = (payBill.original_amount - payBill.saldo_devedor) + paid;
-        const { error } = await supabase.from("bills").update({
-            amount_paid:  newAmountPaid,
-            payment_method: payForm.payment_method,
-            paid_at:      newAmountPaid >= payBill.original_amount ? new Date(payForm.received_at + "T12:00:00").toISOString() : undefined,
-        }).eq("id", payBill.id);
+        const res = await fetch("/api/admin/financeiro/bills", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                id: payBill.id,
+                pay_amount: paid,
+                original_amount: payBill.original_amount,
+                saldo_devedor: payBill.saldo_devedor,
+                payment_method: payForm.payment_method,
+                received_at: payForm.received_at,
+            }),
+        });
+        const json = await res.json().catch(() => ({}));
         setPayingBill(false);
-        if (error) { alert("Erro: " + error.message); return; }
+        if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
         setPayBill(null);
         setPayForm({ amount: "", payment_method: "pix", received_at: isoDate(new Date()) });
         loadBills(payBill.type);
@@ -633,20 +374,21 @@ export default function FinanceiroPage() {
     const handleNewBill = async () => {
         if (!companyId || !newBillForm.amount || !newBillForm.due_date) return;
         setSavingBill(true);
-        const { error } = await supabase.from("bills").insert({
-            company_id:      companyId,
-            type:            "payable",
-            description:     newBillForm.description.trim() || null,
-            original_amount: Number.parseFloat(newBillForm.amount) || 0,
-            amount_paid:     0,
-            saldo_devedor:   Number.parseFloat(newBillForm.amount) || 0,
-            due_date:        newBillForm.due_date,
-            payment_method:  newBillForm.payment_method || null,
-            status:          "open",
-            notes:           newBillForm.notes.trim() || null,
+        const res = await fetch("/api/admin/financeiro/bills", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                description: newBillForm.description.trim() || null,
+                amount: Number.parseFloat(newBillForm.amount) || 0,
+                due_date: newBillForm.due_date,
+                payment_method: newBillForm.payment_method || null,
+                notes: newBillForm.notes.trim() || null,
+            }),
         });
+        const json = await res.json().catch(() => ({}));
         setSavingBill(false);
-        if (error) { alert("Erro: " + error.message); return; }
+        if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
         setShowNewBill(false);
         setNewBillForm({ description: "", amount: "", due_date: isoDate(new Date()), payment_method: "pix", notes: "" });
         loadBills("payable");
@@ -656,25 +398,21 @@ export default function FinanceiroPage() {
     const loadCaixaList = useCallback(async () => {
         if (!companyId) return;
         setCaixaListLoading(true);
-        const { data } = await supabase
-            .from("cash_registers")
-            .select("id, opened_at, closed_at, operator_name, initial_amount, closing_amount, difference, status")
-            .eq("company_id", companyId)
-            .order("opened_at", { ascending: false })
-            .limit(30);
-        setCaixaList((data ?? []) as any[]);
+        const res = await fetch("/api/admin/financeiro/cash-registers", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        setCaixaList((json.registers ?? []) as CaixaReg[]);
         setCaixaListLoading(false);
-    }, [companyId, supabase]);
+    }, [companyId]);
 
     const loadCaixaMovs = useCallback(async (caixaId: string) => {
-        const { data } = await supabase
-            .from("cash_movements")
-            .select("id, type, amount, reason, operator_name, occurred_at")
-            .eq("cash_register_id", caixaId)
-            .order("occurred_at", { ascending: true });
-        setCaixaMovs((data ?? []) as any[]);
+        const res = await fetch(`/api/admin/financeiro/cash-movements?register_id=${encodeURIComponent(caixaId)}`, {
+            credentials: "include",
+            cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        setCaixaMovs((json.movements ?? []) as any[]);
         setSelectedCaixa(caixaId);
-    }, [supabase]);
+    }, []);
 
     useEffect(() => {
         if (activeTab === "caixa") loadCaixaList();
@@ -684,32 +422,22 @@ export default function FinanceiroPage() {
     const loadDRE = useCallback(async () => {
         if (!companyId) return;
         setDreLoading(true);
-        // period_start/period_end são colunas tipo date (mensal) — usar apenas YYYY-MM-DD
-        // Selecionar todos os meses que se sobreponham ao intervalo selecionado
-        const fromMonth = dateRange.from.slice(0, 7) + "-01";
-        const toMonth   = dateRange.to.slice(0, 7)   + "-01";
-        // Tenta carregar da view v_dre (pós Sprint1); fallback: agrega manualmente
-        const { data: dreRows, error } = await supabase
-            .from("v_dre")
-            .select("account_name, account_type, total")
-            .eq("company_id", companyId)
-            .lte("period_start", toMonth)
-            .gte("period_end",   fromMonth);
-        if (!error && dreRows && dreRows.length > 0) {
-            setDreData(dreRows as DRELine[]);
-        } else {
-            // Fallback sintético a partir do stats já carregado
-            if (stats) {
-                setDreData([
-                    { account_name: "Vendas à Vista",        account_type: "revenue", total: stats.revenue - stats.totalAReceber },
-                    { account_name: "Vendas a Prazo (realiz.)", account_type: "revenue", total: stats.totalAReceber },
-                    { account_name: "Custo de Mercadorias",  account_type: "cost",    total: stats.cost },
-                    { account_name: "Despesas Operacionais", account_type: "expense", total: stats.expensesPaid },
-                ]);
-            }
+        const qs = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
+        const res = await fetch(`/api/admin/financeiro/dre?${qs}`, { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        const dreRows = json.rows as DRELine[] | undefined;
+        if (res.ok && dreRows && dreRows.length > 0) {
+            setDreData(dreRows);
+        } else if (stats) {
+            setDreData([
+                { account_name: "Vendas à Vista",        account_type: "revenue", total: stats.revenue - stats.totalAReceber },
+                { account_name: "Vendas a Prazo (realiz.)", account_type: "revenue", total: stats.totalAReceber },
+                { account_name: "Custo de Mercadorias",  account_type: "cost",    total: stats.cost },
+                { account_name: "Despesas Operacionais", account_type: "expense", total: stats.expensesPaid },
+            ]);
         }
         setDreLoading(false);
-    }, [companyId, supabase, dateRange, stats]);
+    }, [companyId, dateRange, stats]);
 
     useEffect(() => {
         if (activeTab === "dre") loadDRE();

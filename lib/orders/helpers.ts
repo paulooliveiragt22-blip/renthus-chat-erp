@@ -185,10 +185,10 @@ export function buildItemsPayload(orderId: string, companyId: string, list: Cart
         const price = Number(item.price ?? 0);
         const name = buildVariantTexts(item.variant).displayName;
 
-        const embalagemId =
-            item.mode === "unit" ? (item.variant.unit_embalagem_id ?? item.variant.id) :
-            item.mode === "case" ? (item.variant.case_embalagem_id ?? item.variant.id) :
-            (item.variant.unit_embalagem_id ?? item.variant.id);
+        let embalagemId: string | null = null;
+        if (item.mode === "unit") embalagemId = item.variant.unit_embalagem_id ?? null;
+        else if (item.mode === "case") embalagemId = item.variant.case_embalagem_id ?? null;
+        else embalagemId = item.variant.unit_embalagem_id ?? item.variant.case_embalagem_id ?? null;
 
         return {
             order_id: orderId,
