@@ -6,19 +6,15 @@
     "moduleResolution": "node",
     "outDir": ".tests-dist",
     "types": ["node"],
-    "target": "ES2020",
-    "lib": ["es2020", "dom"],
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM"],
     "allowJs": true
   },
   "include": [
     "middleware.ts",
     "lib/billing/computeNextBillingAt.ts",
     "tests/**/*.ts",
-    "lib/chatbot/PackagingExtractor.ts",
-    "lib/chatbot/OrderParserService.ts",
-    "lib/chatbot/displayHelpers.ts",
     "lib/chatbot/processMessage.ts",
-    "lib/chatbot/TextParserService.ts",
     "lib/whatsapp/send.ts"
   ]
 }

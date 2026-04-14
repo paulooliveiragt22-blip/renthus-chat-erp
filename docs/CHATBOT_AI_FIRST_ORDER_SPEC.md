@@ -113,7 +113,7 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 - [x] Definir na BD/queries: `view_chat_produtos` + `product_volumes` (stock) + `fator_conversao` na validação do rascunho.
 - [x] Serviço “resolver endereço de sempre / último” (`resolveSavedAddress.ts` — principal, depois último pedido entregue).
 - [x] Detector de confirmação (gírias PT-BR) + resumo via `prepare_order_draft` antes de `create_order`.
-- [ ] Contador conforme secção 2 (hoje: marcadores `INTENT_OK` / `UNKNOWN` pelo modelo — refinável).
+- [x] Contador conforme secção 2 (base: `INTENT_UNKNOWN` do modelo + supressão servidor em `orderProgressHeuristic.ts`: dados de morada/pagamento/quantidade, resposta longa após tools).
 - [x] Integração Anthropic com tool use; preço/stock validados no servidor (`prepareOrderDraft` / `finalizeAiOrder`).
 - [ ] Testes automatizados extensivos (hoje: cobertura manual / futuros testes de integração).
 
@@ -132,6 +132,7 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 - `lib/chatbot/pro/prepareOrderDraft.ts` — valida itens, stock, morada, pagamento; grava `ai_order_canonical`.
 - `lib/chatbot/pro/confirmationPt.ts` — confirmação/recusa sem regex (frases normalizadas).
 - `lib/chatbot/pro/finalizeAiOrder.ts` — revalidação + `create_order_with_items` + upsert `enderecos_cliente`.
+- `lib/chatbot/pro/orderProgressHeuristic.ts` — suprime incremento do streak em `INTENT_UNKNOWN` quando o input parece dado de pedido ou a resposta veio após tools com texto longo (§2).
 
 Ver também `docs/CHATBOT_TIERS.md`.
 

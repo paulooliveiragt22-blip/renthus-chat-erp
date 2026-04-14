@@ -18,6 +18,7 @@ import type { AiOrderCanonicalDraft } from "./typesAiOrder";
 import { prepareOrderDraftFromTool, type PrepareDraftToolInput } from "./prepareOrderDraft";
 import { runSearchProdutos } from "./searchProdutos";
 import { buildOrderHintsPayload } from "./orderHints";
+import { shouldIncrementProMisunderstandingStreak } from "./orderProgressHeuristic";
 
 const MAX_MISUNDERSTANDING = 4;
 const MAX_TOOL_ROUNDS      = 6;
@@ -351,9 +352,9 @@ export async function handleProOrderIntent(params: {
         messages,
     });
 
-    let rounds = 0;
-    while (response.stop_reason === "tool_use" && rounds < MAX_TOOL_ROUNDS) {
-        rounds++;
+    let toolRoundsUsed = 0;
+    while (response.stop_reason === "tool_use" && toolRoundsUsed < MAX_TOOL_ROUNDS) {
+        toolRoundsUsed++;
         const assistantBlocks = response.content;
         const toolResults: Array<{ type: "tool_result"; tool_use_id: string; content: string }> = [];
 
@@ -404,8 +405,17 @@ export async function handleProOrderIntent(params: {
     const rawText   = textParts.map((b) => b.text).join("\n").trim();
     const { visible, mark } = stripIntentMarker(rawText);
 
-    if (mark === "unknown") streak += 1;
-    else if (mark === "ok") streak = 0;
+    if (mark === "unknown") {
+        if (shouldIncrementProMisunderstandingStreak({
+            userInput:    input,
+            toolRoundsUsed,
+            visibleReply: visible,
+        })) {
+            streak += 1;
+        }
+    } else if (mark === "ok") {
+        streak = 0;
+    }
 
     messages = [...messages, { role: "assistant" as const, content: response.content }].slice(
         -MAX_STORED_MESSAGES
