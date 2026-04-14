@@ -31,6 +31,8 @@ export interface AiOrderCanonicalDraft {
     delivery_fee:           number;
     delivery_zone_id:       string | null;
     delivery_address_text:  string | null;
+    delivery_min_order:     number | null;
+    delivery_eta_min:       number | null;
     total_items:            number;
     grand_total:            number;
     pending_confirmation:   boolean;

@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiOrderCanonicalDraft, AiOrderAddress, AiOrderItem } from "./typesAiOrder";
-import { lookupDeliveryZone } from "./resolveDeliveryZone";
 import { resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
 import { parsePtQuantity } from "./parseQtyPt";
 import { tryParseAddressOneLine } from "./parseAddressLoosePt";
 import { roundBrl } from "../utils";
+import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 
 export interface PrepareDraftToolInput {
     items: Array<{ produto_embalagem_id: string; quantity: number | string }>;
@@ -195,22 +195,29 @@ export async function prepareOrderDraftFromTool(
     let delivery_zone_id: string | null = null;
     let bairroLabel           = "";
     let delivery_address_text: string | null = null;
+    let delivery_min_order: number | null = null;
+    let delivery_eta_min: number | null = null;
 
     if (address && !errors.some((e) => e.includes("Endereço incompleto"))) {
-        const zone = await lookupDeliveryZone(admin, companyId, address.bairro);
-        if (!zone) {
-            errors.push(`Não encontrei zona de entrega para o bairro "${address.bairro}". Confira o bairro ou outra grafia.`);
+        const resolved = await resolveDeliveryForNeighborhood(admin, companyId, address.bairro);
+        if (!resolved.served) {
+            errors.push(resolved.reason ?? `Bairro "${address.bairro}" fora da área de atendimento.`);
         } else {
-            delivery_fee         = zone.fee;
-            delivery_zone_id     = zone.id;
-            bairroLabel          = zone.label;
-            address.bairro_label = zone.label;
+            delivery_fee         = resolved.fee;
+            delivery_zone_id     = resolved.matched_rule_id;
+            bairroLabel          = resolved.label;
+            address.bairro_label = resolved.label;
             delivery_address_text = buildAddressText(address, bairroLabel);
+            delivery_min_order   = resolved.min_order;
+            delivery_eta_min     = resolved.eta_min;
         }
     }
 
     const total_items = roundBrl(itemsOut.reduce((s, i) => s + i.unit_price * i.quantity, 0));
     const grand_total = roundBrl(total_items + delivery_fee);
+    if (delivery_min_order != null && grand_total < delivery_min_order) {
+        errors.push(`Pedido mínimo para entrega: R$ ${delivery_min_order.toFixed(2).replace(".", ",")}.`);
+    }
 
     const baseErrors = [...errors];
     const draft: AiOrderCanonicalDraft | null =
@@ -223,6 +230,8 @@ export async function prepareOrderDraftFromTool(
                 delivery_fee,
                 delivery_zone_id,
                 delivery_address_text,
+                delivery_min_order,
+                delivery_eta_min,
                 total_items,
                 grand_total,
                 pending_confirmation: Boolean(body.ready_for_confirmation),

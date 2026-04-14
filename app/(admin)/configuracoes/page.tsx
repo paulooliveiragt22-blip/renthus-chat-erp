@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { parseCardExpiry, pagarmeCreateCardToken } from "@/lib/pagarme/cardTokenBrowser";
+import { lookupCep } from "@/lib/address/cepLookup";
 import {
     BadgeCheck,
     Bike,
@@ -48,6 +49,15 @@ type Company = {
     delivery_fee_enabled: boolean;
     default_delivery_fee: number | null;
     settings: Record<string, unknown> | null;
+};
+
+type DeliveryRuleUi = {
+    neighborhood: string;
+    is_served: boolean;
+    fee_override: string;
+    min_order_override: string;
+    eta_override_min: string;
+    is_active: boolean;
 };
 
 type Tab = "geral" | "delivery" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
@@ -132,6 +142,61 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
         >
             <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`} />
         </button>
+    );
+}
+
+function ConfirmDialog({
+    open,
+    title,
+    description,
+    confirmLabel,
+    cancelLabel = "Cancelar",
+    onCancel,
+    onConfirm,
+}: {
+    open: boolean;
+    title: string;
+    description?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    onCancel: () => void;
+    onConfirm: () => void;
+}) {
+    if (!open) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+            <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{title}</h3>
+                {description && <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{description}</p>}
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                        {cancelLabel}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onConfirm}
+                        className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                        {confirmLabel ?? "Confirmar"}
+                    </button>
+                </div>
+            </div>
+            <ConfirmDialog
+                open={confirmDeleteOpen}
+                title="Excluir bairro da regra?"
+                description={pendingDeleteNeighborhood ? `O bairro "${pendingDeleteNeighborhood}" será removido das regras de atendimento.` : ""}
+                confirmLabel="Excluir bairro"
+                onCancel={() => {
+                    setConfirmDeleteOpen(false);
+                    setPendingDeleteNeighborhood(null);
+                }}
+                onConfirm={confirmDeleteNeighborhood}
+            />
+        </div>
     );
 }
 
@@ -255,6 +320,17 @@ function ConfiguracoesPageContent() {
     const [minOrder,         setMinOrder]         = useState("");
     const [deliveryRadius,   setDeliveryRadius]   = useState("");
     const [estTime,          setEstTime]          = useState("");
+    const [serviceByZone,    setServiceByZone]    = useState(false);
+    const [serviceCity,      setServiceCity]      = useState("");
+    const [serviceState,     setServiceState]     = useState("");
+    const [zoneMode,         setZoneMode]         = useState<"all_city" | "allow_list" | "deny_list">("all_city");
+    const [cityNeighborhoods, setCityNeighborhoods] = useState<string[]>([]);
+    const [ruleDraft,        setRuleDraft]        = useState<DeliveryRuleUi[]>([]);
+    const [customNeighborhood, setCustomNeighborhood] = useState("");
+    const [deliveryPolicyMsg, setDeliveryPolicyMsg] = useState<string | null>(null);
+    const [deliveryPolicyLoading, setDeliveryPolicyLoading] = useState(false);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [pendingDeleteNeighborhood, setPendingDeleteNeighborhood] = useState<string | null>(null);
 
     // pagamentos
     const [enabledPayments,  setEnabledPayments]  = useState<Record<string, boolean>>({
@@ -348,6 +424,138 @@ function ConfiguracoesPageContent() {
 
     useEffect(() => { loadCompany(); }, [loadCompany]);
 
+    const loadDeliveryPolicy = useCallback(async () => {
+        if (!companyId) return;
+        setDeliveryPolicyLoading(true);
+        setDeliveryPolicyMsg(null);
+        try {
+            const res = await fetch("/api/delivery/policy", { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setDeliveryPolicyMsg(json?.error ?? "Erro ao carregar política de entrega.");
+                return;
+            }
+            const p = json.policy ?? {};
+            const city = String(p.service_city ?? json.company?.cidade ?? "");
+            const state = String(p.service_state ?? json.company?.uf ?? "");
+            setServiceCity(city);
+            setServiceState(state);
+            setServiceByZone(Boolean(p.service_by_zone));
+            const mode = String(p.default_mode ?? "all_city");
+            setZoneMode(mode === "allow_list" || mode === "deny_list" ? mode : "all_city");
+            setCityNeighborhoods(Array.isArray(json.city_neighborhoods) ? json.city_neighborhoods as string[] : []);
+            const mapped: DeliveryRuleUi[] = (Array.isArray(json.rules) ? json.rules : []).map((r: Record<string, unknown>) => ({
+                neighborhood: String(r.neighborhood ?? ""),
+                is_served: Boolean(r.is_served),
+                fee_override: r.fee_override != null ? String(r.fee_override) : "",
+                min_order_override: r.min_order_override != null ? String(r.min_order_override) : "",
+                eta_override_min: r.eta_override_min != null ? String(r.eta_override_min) : "",
+                is_active: r.is_active !== false,
+            }));
+            setRuleDraft(mapped);
+        } finally {
+            setDeliveryPolicyLoading(false);
+        }
+    }, [companyId]);
+
+    useEffect(() => { loadDeliveryPolicy().catch(() => {}); }, [loadDeliveryPolicy]);
+
+    async function refreshNeighborhoodsFromIbge() {
+        if (!serviceCity.trim()) {
+            setDeliveryPolicyMsg("Preencha a cidade de atendimento para carregar bairros.");
+            return;
+        }
+        const stateQ = serviceState.trim();
+        const q = new URLSearchParams({
+            city: serviceCity.trim(),
+            ...(stateQ ? { state: stateQ } : {}),
+            refresh: "1",
+        });
+        const res = await fetch(`/api/delivery/neighborhoods?${q.toString()}`, { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setDeliveryPolicyMsg(json?.error ?? "Erro ao atualizar bairros da cidade.");
+            return;
+        }
+        const neighborhoods = Array.isArray(json.neighborhoods) ? json.neighborhoods as string[] : [];
+        setCityNeighborhoods(neighborhoods);
+        setDeliveryPolicyMsg(neighborhoods.length ? "Bairros atualizados." : "Nenhum bairro encontrado para a cidade informada.");
+    }
+
+    function upsertNeighborhoodRule(neighborhood: string, served: boolean) {
+        const label = neighborhood.trim();
+        if (!label) return;
+        setRuleDraft((prev) => {
+            const idx = prev.findIndex((r) => r.neighborhood.toLowerCase() === label.toLowerCase());
+            if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = { ...next[idx], is_served: served, is_active: true };
+                return next;
+            }
+            return [...prev, {
+                neighborhood: label,
+                is_served: served,
+                fee_override: "",
+                min_order_override: "",
+                eta_override_min: "",
+                is_active: true,
+            }];
+        });
+    }
+
+    function requestDeleteNeighborhood(neighborhood: string) {
+        setPendingDeleteNeighborhood(neighborhood);
+        setConfirmDeleteOpen(true);
+    }
+
+    function confirmDeleteNeighborhood() {
+        const n = pendingDeleteNeighborhood;
+        if (!n) return;
+        setRuleDraft((prev) => prev.filter((r) => r.neighborhood.toLowerCase() !== n.toLowerCase()));
+        setConfirmDeleteOpen(false);
+        setPendingDeleteNeighborhood(null);
+    }
+
+    async function saveDeliveryPolicy() {
+        setSaving(true);
+        setDeliveryPolicyMsg(null);
+        const parsedRules = ruleDraft.map((r) => ({
+            neighborhood: r.neighborhood,
+            is_served: r.is_served,
+            fee_override: r.fee_override.trim() ? Number(r.fee_override) : null,
+            min_order_override: r.min_order_override.trim() ? Number(r.min_order_override) : null,
+            eta_override_min: r.eta_override_min.trim() ? Number(r.eta_override_min) : null,
+            is_active: r.is_active,
+        }));
+        const res = await fetch("/api/delivery/policy", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                service_city: serviceCity.trim(),
+                service_state: serviceState.trim().toUpperCase(),
+                service_by_zone: serviceByZone,
+                default_mode: zoneMode,
+                rules: parsedRules,
+                delivery_fee_enabled: deliveryEnabled,
+                default_delivery_fee: Number(deliveryFee) || 0,
+                delivery_min_order: minOrder ? Number(minOrder) : null,
+                delivery_radius_km: deliveryRadius ? Number(deliveryRadius) : null,
+                delivery_est_minutes: estTime ? Number(estTime) : null,
+                delivery_free_above: freeAbove ? Number(freeAbove) : null,
+            }),
+        });
+        const json = await res.json().catch(() => ({}));
+        setSaving(false);
+        if (!res.ok) {
+            setDeliveryPolicyMsg(json?.error ?? "Erro ao salvar política de entrega.");
+            return;
+        }
+        setDeliveryPolicyMsg("✓ Política de entrega salva.");
+        await loadCompany();
+        await loadDeliveryPolicy();
+    }
+
     useEffect(() => {
         const raw = searchParams.get("tab")?.trim().toLowerCase();
         if (!raw) return;
@@ -410,20 +618,16 @@ function ConfiguracoesPageContent() {
         if (digits.length !== 8) return;
         setCepLoading(true);
         try {
-            const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
-            if (!res.ok) return;
-            const data = await res.json();
-            if (data.erro) return;
+            const data = await lookupCep(digits, 3000);
+            if (!data) return;
             setCardAddr((prev) => ({
                 ...prev,
-                cep:      digits,
-                endereco: data.logradouro ?? prev.endereco,
-                bairro:   data.bairro     ?? prev.bairro,
-                cidade:   data.localidade ?? prev.cidade,
-                uf:       data.uf         ?? prev.uf,
+                cep: data.cep,
+                endereco: data.logradouro || prev.endereco,
+                bairro: data.bairro || prev.bairro,
+                cidade: data.localidade || prev.cidade,
+                uf: data.uf || prev.uf,
             }));
-        } catch {
-            // silently ignore — user can fill manually
         } finally {
             setCepLoading(false);
         }
@@ -728,7 +932,7 @@ function ConfiguracoesPageContent() {
                     {/* ── ABA: DELIVERY ─────────────────────────────────── */}
                     {activeTab === "delivery" && (
                         <div className="flex flex-col gap-6">
-                            <SectionTitle icon={Bike} title="Configurações de Delivery" desc="Taxas, raio e estimativa de entrega" />
+                            <SectionTitle icon={Bike} title="Configurações de Delivery" desc="Cidade atendida, bairros, taxas e estimativa de entrega" />
 
                             <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
                                 <div>
@@ -739,6 +943,18 @@ function ConfiguracoesPageContent() {
                             </div>
 
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <Field
+                                    label="Cidade de atendimento"
+                                    value={serviceCity}
+                                    onChange={setServiceCity}
+                                    placeholder="Ex: Sorriso"
+                                />
+                                <Field
+                                    label="UF"
+                                    value={serviceState}
+                                    onChange={setServiceState}
+                                    placeholder="Ex: MT"
+                                />
                                 <Field
                                     label="Taxa de entrega padrão (R$)"
                                     value={deliveryFee}
@@ -778,7 +994,108 @@ function ConfiguracoesPageContent() {
                                 />
                             </div>
 
-                            <SaveBar saving={saving} msg={msg} onSave={save} />
+                            <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
+                                <div>
+                                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Atende por zona (bairro)?</p>
+                                    <p className="text-xs text-zinc-400">
+                                        Se desativado, atende a cidade inteira (usando taxa padrão).
+                                    </p>
+                                </div>
+                                <Toggle checked={serviceByZone} onChange={setServiceByZone} />
+                            </div>
+
+                            {serviceByZone && (
+                                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
+                                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setZoneMode("allow_list")}
+                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${zoneMode === "allow_list" ? "bg-violet-600 text-white" : "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"}`}
+                                        >
+                                            Só bairros atendidos
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setZoneMode("deny_list")}
+                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${zoneMode === "deny_list" ? "bg-violet-600 text-white" : "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"}`}
+                                        >
+                                            Cidade toda, exceto bloqueados
+                                        </button>
+                                    </div>
+
+                                    <div className="mb-3 flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={refreshNeighborhoodsFromIbge}
+                                            className="rounded-lg border border-violet-300 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300 dark:hover:bg-violet-900/20"
+                                        >
+                                            Carregar bairros da cidade (IBGE)
+                                        </button>
+                                        <input
+                                            value={customNeighborhood}
+                                            onChange={(e) => setCustomNeighborhood(e.target.value)}
+                                            placeholder="Adicionar bairro manualmente"
+                                            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const n = customNeighborhood.trim();
+                                                if (!n) return;
+                                                setCityNeighborhoods((prev) => [...new Set([...prev, n])].sort((a, b) => a.localeCompare(b)));
+                                                upsertNeighborhoodRule(n, zoneMode === "allow_list");
+                                                setCustomNeighborhood("");
+                                            }}
+                                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                        >
+                                            Adicionar
+                                        </button>
+                                    </div>
+
+                                    <div className="max-h-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                                        <p className="mb-2 text-xs font-semibold text-zinc-500">Bairros da cidade (chips)</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {cityNeighborhoods.map((n) => {
+                                                const existing = ruleDraft.find((r) => r.neighborhood.toLowerCase() === n.toLowerCase());
+                                                const served = existing ? existing.is_served : zoneMode !== "deny_list";
+                                                return (
+                                                    <div key={n} className="inline-flex items-center gap-1 rounded-full border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700">
+                                                        <span className={served ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}>{n}</span>
+                                                        <button type="button" onClick={() => upsertNeighborhoodRule(n, true)} className="rounded bg-emerald-100 px-1 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Atende</button>
+                                                        <button type="button" onClick={() => upsertNeighborhoodRule(n, false)} className="rounded bg-red-100 px-1 text-red-700 dark:bg-red-900/30 dark:text-red-300">Não atende</button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {ruleDraft.length > 0 && (
+                                        <div className="mt-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                                            <p className="mb-2 text-xs font-semibold text-zinc-500">Regras selecionadas</p>
+                                            <div className="flex flex-col gap-2">
+                                                {ruleDraft.map((r) => (
+                                                    <div key={r.neighborhood} className="grid grid-cols-1 gap-2 rounded-lg border border-zinc-100 p-2 sm:grid-cols-6 dark:border-zinc-800">
+                                                        <div className="sm:col-span-2">
+                                                            <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{r.neighborhood}</p>
+                                                            <p className={`text-[11px] ${r.is_served ? "text-emerald-600" : "text-red-600"}`}>{r.is_served ? "Atende" : "Não atende"}</p>
+                                                        </div>
+                                                        <input value={r.fee_override} onChange={(e) => setRuleDraft((prev) => prev.map((x) => x.neighborhood === r.neighborhood ? { ...x, fee_override: e.target.value } : x))} placeholder="Taxa" className="rounded border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+                                                        <input value={r.min_order_override} onChange={(e) => setRuleDraft((prev) => prev.map((x) => x.neighborhood === r.neighborhood ? { ...x, min_order_override: e.target.value } : x))} placeholder="Mínimo" className="rounded border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+                                                        <input value={r.eta_override_min} onChange={(e) => setRuleDraft((prev) => prev.map((x) => x.neighborhood === r.neighborhood ? { ...x, eta_override_min: e.target.value } : x))} placeholder="Min" className="rounded border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900" />
+                                                        <button type="button" onClick={() => requestDeleteNeighborhood(r.neighborhood)} className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/20">
+                                                            Excluir
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {deliveryPolicyLoading && <p className="text-xs text-zinc-500">Carregando política de entrega…</p>}
+                            {deliveryPolicyMsg && <p className="text-xs text-zinc-500">{deliveryPolicyMsg}</p>}
+                            <SaveBar saving={saving} msg={deliveryPolicyMsg ?? msg} onSave={saveDeliveryPolicy} />
                         </div>
                     )}
 

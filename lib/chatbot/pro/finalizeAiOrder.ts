@@ -149,6 +149,12 @@ export async function tryFinalizeAiOrderFromDraft(params: {
     const feeText  = draft.delivery_fee > 0
         ? `\n🛵 Taxa de entrega: ${formatCurrency(draft.delivery_fee)}`
         : "";
+    const minOrderText = draft.delivery_min_order != null
+        ? `\n📌 Pedido mínimo da região: ${formatCurrency(draft.delivery_min_order)}`
+        : "";
+    const etaText = draft.delivery_eta_min != null
+        ? `\n⏱️ Previsão: ${Math.max(0, Math.floor(draft.delivery_eta_min))} min`
+        : "";
     const chgText  = draft.change_for ? ` (troco para ${formatCurrency(draft.change_for)})` : "";
     let pmLabel = "Dinheiro";
     if (draft.payment_method === "pix") pmLabel = "PIX";
@@ -158,7 +164,7 @@ export async function tryFinalizeAiOrderFromDraft(params: {
 
     const customerMessage = requireApproval
         ? `✅ *Pedido recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(draft.grand_total)}\n\nEstamos confirmando — já voltamos com você! 🍺`
-        : `✅ *Pedido confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cartLike)}${feeText}\n📍 ${addressText}\n💳 ${pmLabel}${chgText}\n\nObrigado! 🍺`;
+        : `✅ *Pedido confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cartLike)}${feeText}${minOrderText}${etaText}\n📍 ${addressText}\n💳 ${pmLabel}${chgText}\n\nObrigado! 🍺`;
 
     return {
         ok:              true,

@@ -25,6 +25,8 @@ import {
     fetchFlowFavoriteItems,
     saveCatalogFlowScreen,
 } from "@/lib/whatsapp/flows/catalogFlowHelpers";
+import { resolveDeliveryForNeighborhood, buildDeliveryExpectationText } from "@/lib/delivery/policy";
+import { lookupCep } from "@/lib/address/cepLookup";
 
 export const runtime = "nodejs";
 
@@ -851,24 +853,6 @@ export async function POST(req: NextRequest) {
                 const selectedAddressId = String(formData?.selected_address_id ?? "").trim();
                 const rawCep            = String(formData?.cep ?? "").replaceAll(/\D/g, "");
 
-                // Helper local: lookup de zona de entrega
-                const lookupZone = async (bairro: string) => {
-                    const { data: zones } = await admin
-                        .from("delivery_zones")
-                        .select("id, label, fee, neighborhoods")
-                        .eq("company_id", companyId)
-                        .eq("is_active", true);
-                    const nb = bairro.toLowerCase();
-                    return (zones ?? []).find((z) => {
-                        if (z.label.toLowerCase().includes(nb) || nb.includes(z.label.toLowerCase())) return true;
-                        if (Array.isArray(z.neighborhoods))
-                            return z.neighborhoods.some((n: string) =>
-                                n.toLowerCase().includes(nb) || nb.includes(n.toLowerCase())
-                            );
-                        return false;
-                    }) ?? null;
-                };
-
                 // Caminho A: cliente selecionou endereço salvo → vai direto ao PAYMENT
                 if (selectedAddressId) {
                     const { data: savedAddr } = await admin
@@ -880,32 +864,40 @@ export async function POST(req: NextRequest) {
 
                     if (savedAddr) {
                         const bairro   = (savedAddr as any).bairro ?? "";
-                        const zoneRow  = await lookupZone(bairro);
-                        const delivFee = zoneRow ? Number(zoneRow.fee) : 0;
+                        const delivery  = await resolveDeliveryForNeighborhood(admin, companyId, bairro);
+                        if (!delivery.served) {
+                            return encryptedError("outside_delivery_area", aesKey, iv);
+                        }
+                        const delivFee = delivery.fee;
                         const address  = [(savedAddr as any).logradouro, (savedAddr as any).numero,
-                                          (savedAddr as any).complemento, bairro]
+                                          (savedAddr as any).complemento, delivery.label]
                                           .filter(Boolean).join(", ");
 
                         // Usa cart + context já carregados na sessão inicial
                         const cart    = ((sessionForScreen?.cart ?? []) as CartItem[]);
                         const ctx     = sessionCtx;
                         const total   = cart.reduce((s, i) => s + i.price * i.qty, 0) + delivFee;
+                        const expectation = buildDeliveryExpectationText({
+                            minOrder: delivery.min_order,
+                            etaMin: delivery.eta_min,
+                        });
                         const feeText = delivFee > 0
-                            ? `\n🛵 Taxa ${zoneRow?.label ?? bairro}: ${formatCurrency(delivFee)}`
+                            ? `\n🛵 Taxa ${delivery.label}: ${formatCurrency(delivFee)}`
                             : "";
-                        const cartSummary = `${formatCart(cart)}${feeText}\n\n💰 *Total: ${formatCurrency(total)}*`;
+                        const expectationText = expectation ? `\n${expectation}` : "";
+                        const cartSummary = `${formatCart(cart)}${feeText}${expectationText}\n\n💰 *Total: ${formatCurrency(total)}*`;
 
                         const paymentCtx = {
                             ...ctx,
                             delivery_address:             address,
                             delivery_fee:                 delivFee,
-                            delivery_zone_id:             zoneRow?.id ?? null,
+                            delivery_zone_id:             delivery.matched_rule_id ?? null,
                             flow_address_done:            true,
                             flow_apelido:                 (savedAddr as any).apelido,
                             flow_rua:                     (savedAddr as any).logradouro,
                             flow_numero:                  (savedAddr as any).numero,
                             flow_complemento:             (savedAddr as any).complemento,
-                            flow_bairro_label:            bairro,
+                            flow_bairro_label:            delivery.label,
                             delivery_endereco_cliente_id: selectedAddressId,
                             catalog_screen:               "PAYMENT",
                         };
@@ -929,17 +921,11 @@ export async function POST(req: NextRequest) {
                 let bairroInit = "";
 
                 if (rawCep.length === 8) {
-                    try {
-                        const viaCepRes  = await fetch(
-                            `https://viacep.com.br/ws/${rawCep}/json/`,
-                            { signal: AbortSignal.timeout(3000) }
-                        );
-                        const viaCepData = await viaCepRes.json().catch(() => ({})) as Record<string, string>;
-                        if (!viaCepData.erro) {
-                            ruaInit    = viaCepData.logradouro ?? "";
-                            bairroInit = viaCepData.bairro     ?? "";
-                        }
-                    } catch {
+                    const viaCepData = await lookupCep(rawCep, 3000);
+                    if (viaCepData) {
+                        ruaInit    = viaCepData.logradouro ?? "";
+                        bairroInit = viaCepData.bairro ?? "";
+                    } else {
                         console.warn("[flows/catalog] ViaCEP falhou para CEP:", rawCep);
                     }
                 }
@@ -973,30 +959,12 @@ export async function POST(req: NextRequest) {
                     return encryptedError("missing_address_fields", aesKey, iv);
                 }
 
-                // Lookup delivery zone
-                const { data: allZones } = await admin
-                    .from("delivery_zones")
-                    .select("id, label, fee, neighborhoods")
-                    .eq("company_id", companyId)
-                    .eq("is_active", true);
-
-                const normalizedBairro = bairroText.toLowerCase();
-                const zoneRow = (allZones ?? []).find((z) => {
-                    if (
-                        z.label.toLowerCase().includes(normalizedBairro) ||
-                        normalizedBairro.includes(z.label.toLowerCase())
-                    ) return true;
-                    if (Array.isArray(z.neighborhoods)) {
-                        return z.neighborhoods.some((n: string) =>
-                            n.toLowerCase().includes(normalizedBairro) ||
-                            normalizedBairro.includes(n.toLowerCase())
-                        );
-                    }
-                    return false;
-                }) ?? null;
-
-                const bairroLabel = zoneRow?.label ?? bairroText;
-                const deliveryFee = zoneRow ? Number(zoneRow.fee) : 0;
+                const delivery = await resolveDeliveryForNeighborhood(admin, companyId, bairroText);
+                if (!delivery.served) {
+                    return encryptedError("outside_delivery_area", aesKey, iv);
+                }
+                const bairroLabel = delivery.label;
+                const deliveryFee = delivery.fee;
                 const address     = [rua, numero, complemento, bairroLabel].filter(Boolean).join(", ");
 
                 // Usa cart + context já carregados na sessão inicial
@@ -1007,7 +975,7 @@ export async function POST(req: NextRequest) {
                     ...context,
                     delivery_address:  address,
                     delivery_fee:      deliveryFee,
-                    delivery_zone_id:  zoneRow?.id ?? null,
+                    delivery_zone_id:  delivery.matched_rule_id ?? null,
                     flow_address_done: true,
                     flow_apelido:      apelido,
                     flow_rua:          rua,
@@ -1023,7 +991,12 @@ export async function POST(req: NextRequest) {
                 const feeText     = deliveryFee > 0
                     ? `\n🛵 Taxa ${bairroLabel}: ${formatCurrency(deliveryFee)}`
                     : "";
-                const cartSummary = `${formatCart(cart)}${feeText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
+                const expectation = buildDeliveryExpectationText({
+                    minOrder: delivery.min_order,
+                    etaMin: delivery.eta_min,
+                });
+                const expectationText = expectation ? `\n${expectation}` : "";
+                const cartSummary = `${formatCart(cart)}${feeText}${expectationText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
                 return encryptedOk(
                     {
                         version: "3.0",
@@ -1272,17 +1245,11 @@ export async function POST(req: NextRequest) {
             let bairroInit = "";
 
             if (rawCep.length === 8) {
-                try {
-                    const viaCepRes  = await fetch(
-                        `https://viacep.com.br/ws/${rawCep}/json/`,
-                        { signal: AbortSignal.timeout(3000) }
-                    );
-                    const viaCepData = await viaCepRes.json().catch(() => ({})) as Record<string, string>;
-                    if (!viaCepData.erro) {
-                        ruaInit    = viaCepData.logradouro ?? "";
-                        bairroInit = viaCepData.bairro     ?? "";
-                    }
-                } catch {
+                const viaCepData = await lookupCep(rawCep, 3000);
+                if (viaCepData) {
+                    ruaInit    = viaCepData.logradouro ?? "";
+                    bairroInit = viaCepData.bairro ?? "";
+                } else {
                     console.warn("[flows] ViaCEP falhou para CEP:", rawCep);
                 }
             }
@@ -1321,30 +1288,12 @@ export async function POST(req: NextRequest) {
                 return encryptedError("missing_address_fields", aesKey, iv);
             }
 
-            // Busca zona de entrega
-            const { data: allZones } = await admin
-                .from("delivery_zones")
-                .select("id, label, fee, neighborhoods")
-                .eq("company_id", companyId)
-                .eq("is_active", true);
-
-            const normalizedBairro = bairroText.toLowerCase();
-            const zoneRow = (allZones ?? []).find((z) => {
-                if (
-                    z.label.toLowerCase().includes(normalizedBairro) ||
-                    normalizedBairro.includes(z.label.toLowerCase())
-                ) return true;
-                if (Array.isArray(z.neighborhoods)) {
-                    return z.neighborhoods.some((n: string) =>
-                        n.toLowerCase().includes(normalizedBairro) ||
-                        normalizedBairro.includes(n.toLowerCase())
-                    );
-                }
-                return false;
-            }) ?? null;
-
-            const bairroLabel = zoneRow?.label ?? bairroText;
-            const deliveryFee = zoneRow ? Number(zoneRow.fee) : 0;
+            const delivery = await resolveDeliveryForNeighborhood(admin, companyId, bairroText);
+            if (!delivery.served) {
+                return encryptedError("outside_delivery_area", aesKey, iv);
+            }
+            const bairroLabel = delivery.label;
+            const deliveryFee = delivery.fee;
             const address     = [rua, numero, complemento, bairroLabel].filter(Boolean).join(", ");
 
             // Carrega sessão e salva endereço no contexto
@@ -1364,7 +1313,7 @@ export async function POST(req: NextRequest) {
                         ...context,
                         delivery_address:  address,
                         delivery_fee:      deliveryFee,
-                        delivery_zone_id:  zoneRow?.id ?? null,
+                        delivery_zone_id:  delivery.matched_rule_id ?? null,
                         flow_address_done: true,
                         flow_apelido:      apelido,
                         flow_rua:          rua,
@@ -1380,7 +1329,12 @@ export async function POST(req: NextRequest) {
             const feeText       = deliveryFee > 0
                 ? `\n🛵 Taxa ${bairroLabel}: ${formatCurrency(deliveryFee)}`
                 : "";
-            const cartSummary   = `${formatCart(cart)}${feeText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
+            const expectation = buildDeliveryExpectationText({
+                minOrder: delivery.min_order,
+                etaMin: delivery.eta_min,
+            });
+            const expectationText = expectation ? `\n${expectation}` : "";
+            const cartSummary   = `${formatCart(cart)}${feeText}${expectationText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
 
             return encryptedOk(
                 {

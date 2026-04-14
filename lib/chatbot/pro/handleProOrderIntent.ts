@@ -54,6 +54,10 @@ function formatDraftForModel(d: AiOrderCanonicalDraft): string {
     if (d.payment_method === "pix") pm = "PIX";
     else if (d.payment_method === "card") pm = "Cartão";
     const fee = d.delivery_fee > 0 ? `\n🛵 Entrega: ${formatCurrency(d.delivery_fee)}` : "";
+    const eta = d.delivery_eta_min != null ? `\n⏱️ Previsão: ${Math.max(0, Math.floor(d.delivery_eta_min))} min` : "";
+    const minOrder = d.delivery_min_order != null
+        ? `\n📌 Pedido mínimo: ${formatCurrency(d.delivery_min_order)}`
+        : "";
     const chg = d.change_for ? `\n💵 Troco para: ${formatCurrency(d.change_for)}` : "";
     const stateNote = d.pending_confirmation
         ? "\n(Estado: aguardando confirmação explícita do cliente — peça “sim” / “ok” para fechar.)"
@@ -63,6 +67,8 @@ function formatDraftForModel(d: AiOrderCanonicalDraft): string {
         "",
         `Subtotal itens: ${formatCurrency(d.total_items)}`,
         fee || null,
+        minOrder || null,
+        eta || null,
         `*Total: ${formatCurrency(d.grand_total)}*`,
         addrLine,
         `💳 ${pm}${chg}`,

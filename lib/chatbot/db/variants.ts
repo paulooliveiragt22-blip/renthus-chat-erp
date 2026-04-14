@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Category } from "../types";
+import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 
 // ─── Categorias ───────────────────────────────────────────────────────────────
 
@@ -32,14 +33,7 @@ export async function findDeliveryZone(
     companyId: string,
     neighborhood: string
 ): Promise<{ id: string; label: string; fee: number } | null> {
-    const { data } = await admin
-        .from("delivery_zones")
-        .select("id, label, fee")
-        .eq("company_id", companyId)
-        .ilike("label", `%${neighborhood}%`)
-        .limit(1)
-        .maybeSingle();
-
-    if (!data) return null;
-    return { id: data.id as string, label: data.label as string, fee: Number(data.fee ?? 0) };
+    const r = await resolveDeliveryForNeighborhood(admin, companyId, neighborhood);
+    if (!r.served) return null;
+    return { id: r.matched_rule_id ?? `city-wide:${companyId}`, label: r.label, fee: r.fee };
 }
