@@ -185,17 +185,6 @@ function ConfirmDialog({
                     </button>
                 </div>
             </div>
-            <ConfirmDialog
-                open={confirmDeleteOpen}
-                title="Excluir bairro da regra?"
-                description={pendingDeleteNeighborhood ? `O bairro "${pendingDeleteNeighborhood}" será removido das regras de atendimento.` : ""}
-                confirmLabel="Excluir bairro"
-                onCancel={() => {
-                    setConfirmDeleteOpen(false);
-                    setPendingDeleteNeighborhood(null);
-                }}
-                onConfirm={confirmDeleteNeighborhood}
-            />
         </div>
     );
 }
@@ -2059,6 +2048,17 @@ function ConfiguracoesPageContent() {
                         </div>
                     )}
                 </div>
+                <ConfirmDialog
+                    open={confirmDeleteOpen}
+                    title="Excluir bairro da regra?"
+                    description={pendingDeleteNeighborhood ? `O bairro "${pendingDeleteNeighborhood}" será removido das regras de atendimento.` : ""}
+                    confirmLabel="Excluir bairro"
+                    onCancel={() => {
+                        setConfirmDeleteOpen(false);
+                        setPendingDeleteNeighborhood(null);
+                    }}
+                    onConfirm={confirmDeleteNeighborhood}
+                />
             </div>
         </div>
     );
