@@ -1,8 +1,7 @@
 // app/(admin)/entregadores/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     Bike, CheckCircle2, Loader2, Pencil, Phone,
@@ -89,7 +88,6 @@ function Field({ label, value, onChange, placeholder = "", hint }: { label: stri
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 export default function EntregadoresPage() {
-    const supabase = useMemo(() => createClient(), []);
     const { currentCompanyId: companyId } = useWorkspace();
     const notesFieldId = useId();
 
@@ -123,44 +121,14 @@ export default function EntregadoresPage() {
     const load = useCallback(async () => {
         if (!companyId) return;
         setLoading(true);
-        const { data, error } = await supabase
-            .from("drivers")
-            .select("*")
-            .eq("company_id", companyId)
-            .order("name");
-        if (error) { setMsg(`Erro: ${error.message}`); setLoading(false); return; }
-        setDrivers((data as Driver[]) ?? []);
+        const res = await fetch("/api/admin/drivers", { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { setMsg(`Erro: ${json?.error ?? "falha ao carregar entregadores"}`); setLoading(false); return; }
+        setDrivers((json.drivers as Driver[]) ?? []);
         setLoading(false);
-    }, [companyId, supabase]);
+    }, [companyId]);
 
     useEffect(() => { load(); }, [load]);
-
-    // ── realtime ─────────────────────────────────────────────────────────────
-
-    useEffect(() => {
-        if (!companyId) return;
-        const ch = supabase
-            .channel("drivers_realtime")
-            .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, async (p: any) => {
-                console.log("[Entregadores Realtime]:", p);
-                const id = (p?.new?.id ?? p?.old?.id) as string;
-                if (p.eventType === "DELETE") {
-                    setDrivers((prev) => prev.filter((d) => d.id !== id));
-                } else {
-                    // reload single row
-                    const { data } = await supabase.from("drivers").select("*").eq("id", id).maybeSingle();
-                    if (data) {
-                        setDrivers((prev) => {
-                            const exists = prev.some((d) => d.id === id);
-                            return exists ? prev.map((d) => d.id === id ? data as Driver : d) : [data as Driver, ...prev];
-                        });
-                        flash(id);
-                    }
-                }
-            })
-            .subscribe((s: string) => console.log("[Entregadores Realtime] status:", s));
-        return () => { supabase.removeChannel(ch); };
-    }, [companyId, supabase]);
 
     // ── form helpers ──────────────────────────────────────────────────────────
 
@@ -184,26 +152,38 @@ export default function EntregadoresPage() {
         setSaving(true); setFormMsg(null);
 
         if (editing) {
-            const { error } = await supabase.from("drivers").update({
-                name:    form.name.trim(),
-                phone:   form.phone.trim()   || null,
-                vehicle: form.vehicle.trim() || null,
-                plate:   form.plate.trim()   || null,
-                notes:   form.notes.trim()   || null,
-            }).eq("id", editing.id);
-            if (error) { setFormMsg(`Erro: ${error.message}`); setSaving(false); return; }
+            const res = await fetch("/api/admin/drivers", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    id: editing.id,
+                    name: form.name.trim(),
+                    phone: form.phone.trim() || null,
+                    vehicle: form.vehicle.trim() || null,
+                    plate: form.plate.trim() || null,
+                    notes: form.notes.trim() || null,
+                }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) { setFormMsg(`Erro: ${json?.error ?? "falha ao salvar"}`); setSaving(false); return; }
         } else {
-            const { data, error } = await supabase.from("drivers").insert({
-                company_id: companyId,
-                name:       form.name.trim(),
-                phone:      form.phone.trim()   || null,
-                vehicle:    form.vehicle.trim() || null,
-                plate:      form.plate.trim()   || null,
-                notes:      form.notes.trim()   || null,
-                is_active:  true,
-            }).select("id").single();
-            if (error) { setFormMsg(`Erro: ${error.message}`); setSaving(false); return; }
-            if (data) flash(String((data as any).id));
+            const res = await fetch("/api/admin/drivers", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    name: form.name.trim(),
+                    phone: form.phone.trim() || null,
+                    vehicle: form.vehicle.trim() || null,
+                    plate: form.plate.trim() || null,
+                    notes: form.notes.trim() || null,
+                    is_active: true,
+                }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) { setFormMsg(`Erro: ${json?.error ?? "falha ao cadastrar"}`); setSaving(false); return; }
+            if (json?.driver?.id) flash(String(json.driver.id));
         }
 
         setSaving(false); setOpen(false); load();
@@ -214,7 +194,12 @@ export default function EntregadoresPage() {
     async function toggleActive(d: Driver) {
         const next = !d.is_active;
         setDrivers((prev) => prev.map((x) => x.id === d.id ? { ...x, is_active: next } : x));
-        await supabase.from("drivers").update({ is_active: next }).eq("id", d.id);
+        await fetch("/api/admin/drivers", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ id: d.id, is_active: next }),
+        });
         flash(d.id);
     }
 
@@ -223,7 +208,12 @@ export default function EntregadoresPage() {
     async function confirmDelete() {
         if (!delId) return;
         setDeleting(true);
-        await supabase.from("drivers").delete().eq("id", delId);
+        await fetch("/api/admin/drivers", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ id: delId }),
+        });
         setDrivers((prev) => prev.filter((d) => d.id !== delId));
         setDelId(null); setDeleting(false);
     }

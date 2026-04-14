@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     CheckCircle2,
@@ -85,7 +84,6 @@ function formatPhone(phone: string): string {
 
 export default function SuporteClient() {
     const { currentCompanyId: companyId } = useWorkspace();
-    const supabase       = createClient();
 
     const [tickets,    setTickets]    = useState<Ticket[]>([]);
     const [loading,    setLoading]    = useState(true);
@@ -98,61 +96,30 @@ export default function SuporteClient() {
         if (!companyId) return;
         setLoading(true);
 
-        let query = supabase
-            .from("support_tickets")
-            .select("*")
-            .eq("company_id", companyId)
-            .order("created_at", { ascending: false })
-            .limit(100);
-
-        if (statusFilter !== "all") {
-            query = query.eq("status", statusFilter);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
+        const q = new URLSearchParams({ status: statusFilter }).toString();
+        const res = await fetch(`/api/admin/support-tickets?${q}`, { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
             toast.error("Erro ao carregar tickets");
         } else {
-            setTickets((data ?? []) as Ticket[]);
+            setTickets((json.tickets ?? []) as Ticket[]);
         }
         setLoading(false);
-    }, [companyId, statusFilter, supabase]);
+    }, [companyId, statusFilter]);
 
     useEffect(() => { fetchTickets(); }, [fetchTickets]);
-
-    // ── Realtime ───────────────────────────────────────────────────────────────
-
-    useEffect(() => {
-        if (!companyId) return;
-
-        const channel = supabase
-            .channel("support_tickets_realtime")
-            .on(
-                "postgres_changes",
-                {
-                    event:  "*",
-                    schema: "public",
-                    table:  "support_tickets",
-                    filter: `company_id=eq.${companyId}`,
-                },
-                () => { fetchTickets(); }
-            )
-            .subscribe();
-
-        return () => { supabase.removeChannel(channel); };
-    }, [companyId, fetchTickets, supabase]);
 
     // ── Actions ────────────────────────────────────────────────────────────────
 
     async function updateStatus(ticketId: string, newStatus: TicketStatus) {
         setUpdating(ticketId);
-        const { error } = await supabase
-            .from("support_tickets")
-            .update({ status: newStatus })
-            .eq("id", ticketId);
-
-        if (error) {
+        const res = await fetch("/api/admin/support-tickets", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ id: ticketId, status: newStatus }),
+        });
+        if (!res.ok) {
             toast.error("Erro ao atualizar ticket");
         } else {
             toast.success(`Ticket ${STATUS_LABELS[newStatus].toLowerCase()}`);

@@ -343,11 +343,9 @@ export default function PedidosPage() {
 
     // ── data fetching ─────────────────────────────────────────────────────────
     async function loadCompanySettings(cid: string) {
-        const { data: comp } = await supabase
-            .from("companies")
-            .select("delivery_fee_enabled, default_delivery_fee")
-            .eq("id", cid)
-            .maybeSingle();
+        const res = await fetch("/api/companies/update", { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        const comp = json?.company ?? null;
         if (comp) {
             setDeliveryFeeEnabled(!!comp.delivery_fee_enabled);
             setDeliveryFee(formatBRL(Number(comp.default_delivery_fee ?? 0)));
@@ -359,14 +357,10 @@ export default function PedidosPage() {
     async function loadOrders() {
         setLoading(true);
         setMsg(null);
-        const { data, error } = await supabase
-            .from("orders")
-            .select(`id, status, channel, source, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), order_items ( product_name, quantity, unit_price, line_total )`)
-            .neq("confirmation_status", "pending_confirmation")
-            .order("created_at", { ascending: false })
-            .limit(500);
-        if (error) { setMsg(`Erro ao carregar pedidos: ${error.message}`); setOrders([]); setLoading(false); return; }
-        setOrders((Array.isArray(data) ? data : []) as any);
+        const res = await fetch("/api/admin/orders", { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { setMsg(`Erro ao carregar pedidos: ${json?.error ?? "falha desconhecida"}`); setOrders([]); setLoading(false); return; }
+        setOrders((Array.isArray(json.orders) ? json.orders : []) as any);
         setLoading(false);
     }
 
@@ -450,13 +444,10 @@ export default function PedidosPage() {
     }
 
     async function loadDrivers(cid: string) {
-        const { data } = await supabase
-            .from("drivers")
-            .select("id, company_id, name, phone, vehicle, plate, is_active")
-            .eq("company_id", cid)
-            .eq("is_active", true)
-            .order("name");
-        if (data) setDrivers(data as Driver[]);
+        const res = await fetch("/api/admin/drivers", { cache: "no-store", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        const data = (json.drivers ?? []) as Driver[];
+        setDrivers(data.filter((d) => d.is_active));
     }
 
     async function fetchOrderSavedAddresses(customerId: string) {
@@ -756,10 +747,19 @@ export default function PedidosPage() {
         if (!note && actionKind === "cancel") { setMsg("Informe uma observação para essa ação."); return; }
         setActionSaving(true); setMsg(null);
         const newStatus: OrderStatus = actionKind === "cancel" ? "canceled" : actionKind === "deliver" ? "delivered" : "finalized";
-        const { error } = await supabase.from("orders")
-            .update({ status: newStatus, details: note || null, ...(actionPayMethod ? { payment_method: actionPayMethod } : {}) })
-            .eq("id", orderId);
-        if (error) { setMsg(`Erro ao atualizar status: ${error.message}`); setActionSaving(false); return; }
+        const res = await fetch("/api/admin/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                id: orderId,
+                status: newStatus,
+                details: note || null,
+                ...(actionPayMethod ? { payment_method: actionPayMethod } : {}),
+            }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { setMsg(`Erro ao atualizar status: ${json?.error ?? "falha desconhecida"}`); setActionSaving(false); return; }
 
         // Registrar em financial_entries ao finalizar ou entregar
         if ((actionKind === "finalize" || actionKind === "deliver") && companyId) {

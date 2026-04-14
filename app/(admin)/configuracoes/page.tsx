@@ -753,28 +753,29 @@ function ConfiguracoesPageContent() {
     // ── load / save company_settings ──────────────────────────────────────────
     useEffect(() => {
         if (!companyId) return;
-        supabase
-            .from("company_settings")
-            .select("require_order_approval, auto_print_orders")
-            .eq("company_id", companyId)
-            .maybeSingle()
-            .then(({ data }) => {
+        fetch("/api/admin/company-settings", { cache: "no-store", credentials: "include" })
+            .then((r) => r.json())
+            .then((json) => {
+                const data = json?.settings;
                 if (!data) return;
                 setRequireApproval(!!data.require_order_approval);
                 setAutoPrint(!!data.auto_print_orders);
-            });
+            })
+            .catch(() => {});
     }, [companyId, supabase]);
 
     async function saveOrderSettings() {
         if (!companyId) return;
         setSettingsSaving(true); setSettingsMsg(null);
 
-        const { error } = await supabase
-            .from("company_settings")
-            .update({ require_order_approval: requireApproval, auto_print_orders: autoPrint })
-            .eq("company_id", companyId);
-
-        setSettingsMsg(error ? (error.message ?? "Erro ao salvar") : "✓ Configurações de pedidos salvas");
+        const res = await fetch("/api/admin/company-settings", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ require_order_approval: requireApproval, auto_print_orders: autoPrint }),
+        });
+        const json = await res.json().catch(() => ({}));
+        setSettingsMsg(res.ok ? "✓ Configurações de pedidos salvas" : (json?.error ?? "Erro ao salvar"));
         setSettingsSaving(false);
         if (settingsMsgTimer.current) clearTimeout(settingsMsgTimer.current);
         settingsMsgTimer.current = setTimeout(() => setSettingsMsg(null), 4000);

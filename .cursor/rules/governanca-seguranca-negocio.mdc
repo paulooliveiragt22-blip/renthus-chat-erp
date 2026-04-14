@@ -1,0 +1,22 @@
+---
+description: Regra central de negócio e segurança de dados
+alwaysApply: true
+---
+
+# Governança central (negócio + segurança)
+
+## Regra 1 (obrigatória)
+- Nunca acessar tabelas cruas diretamente no frontend/browser.
+- SELECT somente por views de domínio aprovadas.
+- INSERT, UPDATE e DELETE somente por RPCs/APIs server-side aprovadas.
+
+## Regras de implementação
+- Todo acesso a banco no client deve ser substituído por chamada HTTP para `app/api/*`.
+- APIs devem aplicar validação de empresa/usuário antes de consultar ou mutar dados.
+- Em mutações críticas, preferir RPC transacional no banco.
+- Evitar duplicar regra de negócio no frontend; manter canônico no servidor.
+
+## Regras de negócio (delivery e pedidos)
+- Entrega deve respeitar política ativa da empresa (cidade, modo e regras por bairro).
+- Ao confirmar pedido, incluir taxa, pedido mínimo e previsão quando definidos.
+- Mensagens ao cliente devem ficar em português do Brasil.
