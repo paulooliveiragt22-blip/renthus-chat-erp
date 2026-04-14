@@ -109,7 +109,7 @@ function buildTags(orders: CustomerOrder[]): string[] {
     return tags.slice(0, 5);
 }
 
-function detectBodyMedia(body: string | null): DetectedMedia | null {
+function detectBodyMedia(body: string | null, channelQuery = ""): DetectedMedia | null {
     if (!body) return null;
     const t = body.trim();
     if (t.startsWith("http://") || t.startsWith("https://")) {
@@ -122,7 +122,9 @@ function detectBodyMedia(body: string | null): DetectedMedia | null {
             if (url.hostname.includes("supabase"))               return { kind: "file", url: t, name: p.split("/").pop() ?? "arquivo" };
         } catch { /* não é URL válida */ }
     }
-    if (/^[0-9a-f]{20,}$/i.test(t)) return { kind: "file", url: `/api/whatsapp/media/${t}`, name: "arquivo" };
+    if (/^[0-9a-f]{20,}$/i.test(t)) {
+        return { kind: "file", url: `/api/whatsapp/media/${t}${channelQuery}`, name: "arquivo" };
+    }
     return null;
 }
 
@@ -463,6 +465,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         () => threads.find((t) => t.id === selectedThreadId) ?? null,
         [threads, selectedThreadId]
     );
+
+    /** Prioriza o token do canal que recebeu a thread na rota /api/whatsapp/media. */
+    const waMediaChannelQs = useMemo(() => {
+        const id = selectedThread?.channel_id?.trim();
+        return id ? `?channel_id=${encodeURIComponent(id)}` : "";
+    }, [selectedThread?.channel_id]);
 
     const phoneHint = useMemo(() => {
         const v = newPhoneBR.trim();
@@ -915,7 +923,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                 const isSending = m.id.startsWith("opt_");
                                 const rawMedia = extractMediaFromWaPayload(m.raw_payload ?? null);
                                 const hasRawMedia = Boolean(rawMedia);
-                                const bodyMedia = !hasRawMedia ? detectBodyMedia(m.body) : null;
+                                const bodyMedia = !hasRawMedia ? detectBodyMedia(m.body, waMediaChannelQs) : null;
                                 const displayText = bodyMedia ? null : m.body;
 
                                 return (
@@ -940,18 +948,18 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                                 <div className="mb-2">
                                                     {rawMedia.type === "image" ? (
                                                         <img
-                                                            src={`/api/whatsapp/media/${rawMedia.id}`}
+                                                            src={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`}
                                                             alt={rawMedia.caption || "Imagem"}
                                                             loading="lazy"
                                                             className="max-h-60 max-w-full rounded-xl object-cover"
                                                         />
                                                     ) : rawMedia.type === "video" ? (
-                                                        <video controls src={`/api/whatsapp/media/${rawMedia.id}`} className="max-h-52 max-w-full rounded-xl" />
+                                                        <video controls src={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`} className="max-h-52 max-w-full rounded-xl" />
                                                     ) : rawMedia.type === "audio" ? (
-                                                        <audio controls src={`/api/whatsapp/media/${rawMedia.id}`} className="w-52" />
+                                                        <audio controls src={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`} className="w-52" />
                                                     ) : (
                                                         <a
-                                                            href={`/api/whatsapp/media/${rawMedia.id}`}
+                                                            href={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`}
                                                             target="_blank" rel="noreferrer"
                                                             className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold underline ${isOut ? "text-white/90" : "text-primary"}`}
                                                         >

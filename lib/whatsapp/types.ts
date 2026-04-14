@@ -21,6 +21,8 @@ export interface Thread {
     unread_count?:        number | null;
     bot_active?:          boolean | null;
     handover_at?:         string | null;
+    /** Canal WhatsApp que recebeu/enviou a thread — usado para baixar mídia com o token certo. */
+    channel_id?:          string | null;
 }
 
 export interface Usage {
