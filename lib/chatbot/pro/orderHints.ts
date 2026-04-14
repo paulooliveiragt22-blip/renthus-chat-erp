@@ -12,7 +12,7 @@ export async function buildOrderHintsPayload(params: {
 
     const customer = await getOrCreateCustomer(admin, companyId, phoneE164, name ?? null);
     if (!customer?.id) {
-        return { customer_known: false, hint: "Primeiro pedido: pergunta morada completa (rua, número, bairro)." };
+        return { customer_known: false, hint: "Primeiro pedido: pergunte o endereço completo (rua, número, bairro)." };
     }
 
     const saved = await resolveDefaultAddressForCustomer(admin, companyId, customer.id);

@@ -56,8 +56,8 @@ function formatDraftForModel(d: AiOrderCanonicalDraft): string {
     const fee = d.delivery_fee > 0 ? `\n🛵 Entrega: ${formatCurrency(d.delivery_fee)}` : "";
     const chg = d.change_for ? `\n💵 Troco para: ${formatCurrency(d.change_for)}` : "";
     const stateNote = d.pending_confirmation
-        ? "\n(Estado: aguardando confirmação explícita do cliente — pede “sim” / “ok” para fechar.)"
-        : "\n(Estado: rascunho guardado — apresenta resumo e pede confirmação.)";
+        ? "\n(Estado: aguardando confirmação explícita do cliente — peça “sim” / “ok” para fechar.)"
+        : "\n(Estado: rascunho salvo — apresente o resumo e peça confirmação.)";
     return [
         itemLines.join("\n"),
         "",
@@ -81,7 +81,7 @@ const SEARCH_TOOL = {
         properties: {
             query: {
                 type:        "string",
-                description: "Termo de busca (nome ou descrição). Pode ser vazio se usares só category_hint.",
+                description: "Termo de busca (nome ou descrição). Pode ficar vazio se usar só category_hint.",
             },
             category_hint: {
                 type:        "string",
@@ -95,7 +95,7 @@ const SEARCH_TOOL = {
 const HINTS_TOOL = {
     name:         "get_order_hints",
     description:
-        "Morada guardada / “de sempre”, favoritos e se o cliente já existe. Chama quando o cliente falar em endereço de sempre, último pedido, ou “o que costumo pedir”.",
+        "Endereço salvo / “de sempre”, favoritos e se o cliente já existe. Use quando o cliente falar em endereço de sempre, último pedido ou no que costuma pedir.",
     input_schema: {
         type:       "object" as const,
         properties: {},
@@ -105,7 +105,7 @@ const HINTS_TOOL = {
 const PREPARE_DRAFT_TOOL = {
     name:         "prepare_order_draft",
     description:
-        "Valida itens (UUID de produto_embalagem = id da view), morada, pagamento e stock; grava rascunho canónico no servidor. Usa use_saved_address=true para “morada de sempre”. Define ready_for_confirmation=true quando mostrares resumo final ao cliente.",
+        "Valida itens (UUID de produto_embalagem = id da view), endereço, pagamento e estoque; salva rascunho canônico no servidor. use_saved_address=true para “endereço de sempre”. Defina ready_for_confirmation=true quando for mostrar o resumo final ao cliente.",
     input_schema: {
         type:       "object" as const,
         properties: {
@@ -123,7 +123,7 @@ const PREPARE_DRAFT_TOOL = {
             },
             address: {
                 type:        "object",
-                description: "Morada; omitir se use_saved_address",
+                description: "Endereço (rua, número, bairro); omitir se use_saved_address ou address_raw",
                 properties: {
                     logradouro:  { type: "string" },
                     numero:      { type: "string" },
@@ -132,9 +132,14 @@ const PREPARE_DRAFT_TOOL = {
                     apelido:     { type: "string" },
                 },
             },
+            address_raw: {
+                type:        "string",
+                description:
+                    "Opcional: uma linha só (ex.: Rua Tangará 850 São Mateus). O servidor tenta separar logradouro, número e bairro.",
+            },
             use_saved_address: {
                 type:        "boolean",
-                description: "Quando true, preenche morada a partir do cadastro / último pedido",
+                description: "Quando true, preenche o endereço a partir do cadastro ou do último pedido",
             },
             payment_method: {
                 type:        "string",
@@ -153,24 +158,24 @@ const PREPARE_DRAFT_TOOL = {
     },
 };
 
-const PRO_ORDER_SYSTEM = `És o assistente PRO de uma loja de bebidas (Brasil). Português do Brasil, curto e amigável.
+const PRO_ORDER_SYSTEM = `Você é o assistente PRO de uma loja de bebidas no Brasil. Fale em português do Brasil (PT-BR), de forma curta e amigável. Diga “endereço”, nunca “morada”.
 
 Capacidades:
-- search_produtos: dados reais (preço, stock).
-- get_order_hints: morada guardada / favoritos.
-- prepare_order_draft: valida pedido no servidor (stock, zona de entrega, preços). Nunca inventes UUID — usa ids devolvidos pela busca.
+- search_produtos: dados reais (preço, estoque).
+- get_order_hints: endereço salvo / favoritos / cliente já cadastrado.
+- prepare_order_draft: valida pedido no servidor (estoque, zona de entrega, preços). Nunca invente UUID — use só ids devolvidos pela busca. Pode mandar address_raw (uma linha) ou address estruturado.
 
 Fluxo de pedido:
-1) Ajuda a escolher produtos (desambigua embalagens quando necessário).
-2) Garante morada com rua, número e bairro (ou use_saved_address após hints).
-3) Pagamento: pix, cash ou card; troco só faz sentido com cash.
-4) Quando tudo fechado, chama prepare_order_draft com ready_for_confirmation=true, mostra o resumo ao cliente e pede confirmação explícita.
-5) NÃO digas que o pedido está fechado até o cliente confirmar com palavras claras (sim, ok, manda ver…). O sistema trata a confirmação na mensagem seguinte.
+1) Ajude a escolher produtos (desambigue embalagens quando precisar).
+2) Garanta endereço com rua, número e bairro (ou use_saved_address depois dos hints).
+3) Pagamento: pix, cash ou card; troco só com dinheiro (cash).
+4) Quando estiver tudo certo, chame prepare_order_draft com ready_for_confirmation=true, mostre o resumo e peça confirmação explícita.
+5) NÃO diga que o pedido está fechado até o cliente confirmar com palavras claras (sim, ok, pode mandar…). O sistema trata a confirmação na mensagem seguinte.
 
-Marcadores no fim da tua mensagem visível (linha extra):
-- INTENT_OK: percebeste a intenção ou avançaste o pedido de forma útil (inclui pedir dado em falta).
+Marcadores no fim da sua mensagem visível (linha extra):
+- INTENT_OK: entendeu a intenção ou avançou o pedido de forma útil (inclui pedir dado que falta).
 - INTENT_UNKNOWN: mensagem irrelevante ou impossível ajudar com segurança.
-Não uses INTENT_UNKNOWN só porque pediste rua ou pagamento — isso é INTENT_OK.`;
+Não use INTENT_UNKNOWN só porque pediu rua ou pagamento — isso é INTENT_OK.`;
 
 type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
 
@@ -211,6 +216,7 @@ async function runProTool(params: {
         const body: PrepareDraftToolInput = {
             items:                    (input.items as PrepareDraftToolInput["items"]) ?? [],
             address:                  (input.address as PrepareDraftToolInput["address"]) ?? null,
+            address_raw:              input.address_raw != null ? String(input.address_raw) : null,
             use_saved_address:        Boolean(input.use_saved_address),
             payment_method:           input.payment_method != null ? String(input.payment_method) : null,
             change_for:               input.change_for != null ? Number(input.change_for) : null,
@@ -285,7 +291,7 @@ export async function handleProOrderIntent(params: {
                     pro_misunderstanding_streak: 0,
                 },
             });
-            await botReply(admin, companyId, threadId, phoneE164, "Tudo bem — cancelei esse pedido. Quando quiseres, diz o que precisas. 😊");
+            await botReply(admin, companyId, threadId, phoneE164, "Tudo bem — cancelei esse pedido. Quando quiser, é só dizer o que precisa. 😊");
             return;
         }
         if (isPortugueseOrderConfirmation(input)) {
@@ -331,7 +337,7 @@ export async function handleProOrderIntent(params: {
                 {
                     flowId:    effectiveCatalogId,
                     flowToken: `${threadId}|${companyId}|catalog`,
-                    bodyText:  `Para montar o teu pedido com tudo certinho, usa o catálogo do *${companyName}* aqui em baixo. 😊`,
+                    bodyText:  `Para montar seu pedido certinho, use o catálogo do *${companyName}* aqui abaixo. 😊`,
                     ctaLabel:  "Ver Catálogo",
                 },
                 waConfig
@@ -429,7 +435,7 @@ export async function handleProOrderIntent(params: {
         },
     });
 
-    const reply = visible.length > 0 ? visible : "Não consegui perceber bem — diz-me o que queres pedir ou escolhe uma opção do menu. 😊";
+    const reply = visible.length > 0 ? visible : "Não entendi direito — me diga o que quer pedir ou escolha uma opção do menu. 😊";
     await botReply(admin, companyId, threadId, phoneE164, reply);
 
     if (streak >= MAX_MISUNDERSTANDING && effectiveCatalogId) {

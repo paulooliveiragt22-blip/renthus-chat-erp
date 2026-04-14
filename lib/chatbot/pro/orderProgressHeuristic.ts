@@ -1,6 +1,6 @@
 /**
  * Heurísticas servidor-side alinhadas à spec §2 (contador de “falhas interpretativas”):
- * não contar como falha quando o cliente está a fornecer dado de pedido / morada / pagamento,
+ * não contar como falha quando o cliente está fornecendo dado de pedido / endereço / pagamento,
  * ou quando a IA já usou ferramentas e produziu resposta substantiva (evita punir INTENT_UNKNOWN erróneo).
  */
 
@@ -21,7 +21,7 @@ function looksLikeHouseNumberFragment(t: string): boolean {
     return n.length <= 12 && /^\d{1,5}\s*[a-zA-Z]?$/.test(n);
 }
 
-/** Cliente a enviar morada, pagamento ou ajuste de pedido — não é “falha de interpretação”. */
+/** Cliente enviando endereço, pagamento ou ajuste de pedido — não é “falha de interpretação”. */
 export function userLikelySupplyingOrderData(userInput: string): boolean {
     const n = norm(userInput);
     if (n.length < 2 || n.length > 220) return false;
@@ -83,7 +83,7 @@ export function userLikelySupplyingOrderData(userInput: string): boolean {
     ];
     if (dataTokens.some((k) => n.includes(norm(k)))) return true;
 
-    // Linha com vírgulas e dígitos costuma ser morada por extenso.
+    // Linha com vírgulas e dígitos costuma ser endereço por extenso.
     if (userInput.includes(",") && /\d/.test(userInput) && n.length <= 180) return true;
 
     return false;

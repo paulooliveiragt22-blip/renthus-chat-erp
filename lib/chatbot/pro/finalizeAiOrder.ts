@@ -13,19 +13,19 @@ export async function revalidateDraftAgainstDb(
     for (const it of draft.items) {
         const loaded = await loadPackRowForValidation(admin, companyId, it.produto_embalagem_id);
         if (!loaded) {
-            return { ok: false, message: "Um produto deixou de estar disponível. Atualiza o pedido." };
+            return { ok: false, message: "Um produto deixou de estar disponível. Ajuste o pedido no chat, por favor." };
         }
         const priceOk = Math.abs(loaded.row.preco_venda - it.unit_price) < 0.02;
         if (!priceOk) {
-            return { ok: false, message: "O preço de um item mudou; manda o resumo outra vez." };
+            return { ok: false, message: "O preço de um item mudou. Peça um novo resumo no chat, por favor." };
         }
         const need = it.quantity * loaded.row.fator_conversao;
         if (loaded.estoque < need) {
-            return { ok: false, message: `Stock insuficiente para "${it.product_name}".` };
+            return { ok: false, message: `Estoque insuficiente para "${it.product_name}".` };
         }
     }
     if (!draft.address?.logradouro || !draft.address?.numero || !draft.address?.bairro) {
-        return { ok: false, message: "Morada incompleta." };
+        return { ok: false, message: "Endereço incompleto." };
     }
     return { ok: true };
 }
@@ -57,7 +57,7 @@ export async function tryFinalizeAiOrderFromDraft(params: {
 
     const customer = await getOrCreateCustomer(admin, companyId, phoneE164, profileName ?? null);
     if (!customer?.id) {
-        return { ok: false, customerMessage: "Não consegui registar o cliente. Tenta de novo daqui a pouco." };
+        return { ok: false, customerMessage: "Não consegui cadastrar o cliente. Tente de novo daqui a pouco." };
     }
 
     if (!draft.address) {
@@ -142,7 +142,7 @@ export async function tryFinalizeAiOrderFromDraft(params: {
 
     if (orderErr || !orderId) {
         console.error("[chatbot/pro] create_order_with_items:", orderErr?.message);
-        return { ok: false, customerMessage: "Não consegui gravar o pedido. Tenta outra vez ou usa o catálogo. 😊" };
+        return { ok: false, customerMessage: "Não consegui salvar o pedido. Tente de novo ou use o catálogo. 😊" };
     }
 
     const cartLike = draftToCartItems(draft);
@@ -157,7 +157,7 @@ export async function tryFinalizeAiOrderFromDraft(params: {
     const orderCode = `#${String(orderId).replaceAll("-", "").slice(-6).toUpperCase()}`;
 
     const customerMessage = requireApproval
-        ? `✅ *Pedido recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(draft.grand_total)}\n\nEstamos a confirmar — já voltamos contigo! 🍺`
+        ? `✅ *Pedido recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(draft.grand_total)}\n\nEstamos confirmando — já voltamos com você! 🍺`
         : `✅ *Pedido confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cartLike)}${feeText}\n📍 ${addressText}\n💳 ${pmLabel}${chgText}\n\nObrigado! 🍺`;
 
     return {

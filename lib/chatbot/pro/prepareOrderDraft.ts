@@ -2,9 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiOrderCanonicalDraft, AiOrderAddress, AiOrderItem } from "./typesAiOrder";
 import { lookupDeliveryZone } from "./resolveDeliveryZone";
 import { resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
+import { parsePtQuantity } from "./parseQtyPt";
+import { tryParseAddressOneLine } from "./parseAddressLoosePt";
+import { roundBrl } from "../utils";
 
 export interface PrepareDraftToolInput {
-    items: Array<{ produto_embalagem_id: string; quantity: number }>;
+    items: Array<{ produto_embalagem_id: string; quantity: number | string }>;
     address: {
         logradouro:  string;
         numero:      string;
@@ -12,7 +15,9 @@ export interface PrepareDraftToolInput {
         complemento?: string | null;
         apelido?:    string | null;
     } | null;
-    /** Quando true, preenche morada a partir do cadastro / último pedido (cliente já identificado). */
+    /** Linha única (ex.: "Rua Tangará 850 São Mateus") — o servidor separa rua/número/bairro. */
+    address_raw?: string | null;
+    /** Quando true, preenche o endereço a partir do cadastro / último pedido (cliente já identificado). */
     use_saved_address?: boolean;
     payment_method?:   string | null;
     change_for?:       number | null;
@@ -80,7 +85,7 @@ export async function loadPackRowForValidation(
         row: {
             id:                pe.id as string,
             product_name:      String((pe as { product_name: string }).product_name ?? ""),
-            preco_venda:       Number.parseFloat(String((pe as { preco_venda: unknown }).preco_venda ?? "0")),
+            preco_venda:       roundBrl(Number.parseFloat(String((pe as { preco_venda: unknown }).preco_venda ?? "0"))),
             fator_conversao:   Number.parseFloat(String((pe as { fator_conversao: unknown }).fator_conversao ?? "1")) || 1,
             product_volume_id: productVolumeId,
         },
@@ -106,7 +111,7 @@ export async function prepareOrderDraftFromTool(
 }> {
     const errors: string[] = [];
 
-    if (!body.items?.length) errors.push("Inclui pelo menos um item com produto_embalagem_id e quantity.");
+    if (!body.items?.length) errors.push("Inclua pelo menos um item com produto_embalagem_id e quantity.");
 
     let address: AiOrderAddress | null = body.address
         ? {
@@ -118,15 +123,29 @@ export async function prepareOrderDraftFromTool(
         }
         : null;
 
+    const rawLine = body.address_raw?.trim();
+    if (rawLine) {
+        const parsed = tryParseAddressOneLine(rawLine);
+        if (parsed) {
+            address = {
+                logradouro:  address?.logradouro?.trim() || parsed.logradouro,
+                numero:      address?.numero?.trim() || parsed.numero,
+                bairro:      address?.bairro?.trim() || parsed.bairro,
+                complemento: address?.complemento ?? null,
+                apelido:     address?.apelido ?? null,
+            };
+        }
+    }
+
     let addressNote: string | null = null;
 
     if (body.use_saved_address) {
         if (!customerId) {
-            errors.push("Não há cliente identificado pelo telefone para usar morada guardada.");
+            errors.push("Não há cliente identificado pelo telefone para usar endereço salvo.");
         } else {
             const resolved = await resolveDefaultAddressForCustomer(admin, companyId, customerId);
             if (!resolved) {
-                errors.push("Não encontrei morada guardada; pede rua, número e bairro.");
+                errors.push("Não encontrei endereço salvo; peça rua, número e bairro.");
             } else {
                 address     = resolved.address;
                 addressNote = resolved.note;
@@ -135,17 +154,17 @@ export async function prepareOrderDraftFromTool(
     }
 
     if (address && (!address.logradouro || !address.numero || !address.bairro)) {
-        errors.push("Morada incompleta: obrigatório rua, número e bairro.");
+        errors.push("Endereço incompleto: obrigatório rua, número e bairro.");
     }
 
     const pm = normPm(body.payment_method ?? null);
-    if (!pm) errors.push("Define payment_method: pix, cash ou card.");
+    if (!pm) errors.push("Informe payment_method: pix, cash ou card.");
 
     const itemsOut: AiOrderItem[] = [];
     for (const line of body.items ?? []) {
-        const qty = Math.floor(Number(line.quantity));
-        if (!line.produto_embalagem_id || qty < 1) {
-            errors.push("Cada item precisa de produto_embalagem_id (UUID) e quantity inteira ≥ 1.");
+        const qty = parsePtQuantity(line.quantity);
+        if (!line.produto_embalagem_id || qty == null) {
+            errors.push("Cada item precisa de produto_embalagem_id (UUID) e quantity inteira ≥ 1 (número ou por extenso).");
             continue;
         }
         const loaded = await loadPackRowForValidation(admin, companyId, line.produto_embalagem_id);
@@ -157,7 +176,7 @@ export async function prepareOrderDraftFromTool(
         const need = qty * row.fator_conversao;
         if (estoque < need) {
             errors.push(
-                `Stock insuficiente para "${row.product_name}" (pediste ${qty}; disponível ~${Math.floor(estoque / row.fator_conversao)} na unidade de venda).`
+                `Estoque insuficiente para "${row.product_name}" (pediu ${qty}; disponível ~${Math.floor(estoque / row.fator_conversao)} na unidade de venda).`
             );
             continue;
         }
@@ -177,10 +196,10 @@ export async function prepareOrderDraftFromTool(
     let bairroLabel           = "";
     let delivery_address_text: string | null = null;
 
-    if (address && !errors.some((e) => e.includes("Morada incompleta"))) {
+    if (address && !errors.some((e) => e.includes("Endereço incompleto"))) {
         const zone = await lookupDeliveryZone(admin, companyId, address.bairro);
         if (!zone) {
-            errors.push(`Não encontrei zona de entrega para o bairro "${address.bairro}". Confirma o bairro ou usa outra grafia.`);
+            errors.push(`Não encontrei zona de entrega para o bairro "${address.bairro}". Confira o bairro ou outra grafia.`);
         } else {
             delivery_fee         = zone.fee;
             delivery_zone_id     = zone.id;
@@ -190,8 +209,8 @@ export async function prepareOrderDraftFromTool(
         }
     }
 
-    const total_items = itemsOut.reduce((s, i) => s + i.unit_price * i.quantity, 0);
-    const grand_total = total_items + delivery_fee;
+    const total_items = roundBrl(itemsOut.reduce((s, i) => s + i.unit_price * i.quantity, 0));
+    const grand_total = roundBrl(total_items + delivery_fee);
 
     const baseErrors = [...errors];
     const draft: AiOrderCanonicalDraft | null =

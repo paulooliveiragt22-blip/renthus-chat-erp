@@ -6,8 +6,8 @@ Documento de desenho e **fases de implementação**. **Fase 1 + fecho de pedido 
 
 ## 1. Objetivo do produto
 
-1. O cliente fala em **linguagem natural** (ex.: pedido + morada na mesma frase).
-2. A **IA (Claude Haiku / Anthropic)** tenta **montar e fechar o pedido** com dados da base (produto/embalagem, stock, endereço).
+1. O cliente fala em **linguagem natural** (ex.: pedido + endereço na mesma frase).
+2. A **IA (Claude Haiku / Anthropic)** tenta **montar e fechar o pedido** com dados da base (produto/embalagem, estoque, endereço).
 3. Só **depois de esgotar tentativas válidas** é enviado o **WhatsApp Flow** de catálogo, com mensagem amigável.
 4. **Primeiro contacto** pode ser **já com IA** (não é obrigatório forçar Flow na primeira vez).
 
@@ -96,7 +96,7 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 
 ---
 
-## 7. Melhorias de produto (ajustadas à tua decisão)
+## 7. Melhorias de produto (ajustadas à sua decisão)
 
 | Melhoria | Nota |
 |----------|------|
@@ -113,7 +113,7 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 - [x] Definir na BD/queries: `view_chat_produtos` + `product_volumes` (stock) + `fator_conversao` na validação do rascunho.
 - [x] Serviço “resolver endereço de sempre / último” (`resolveSavedAddress.ts` — principal, depois último pedido entregue).
 - [x] Detector de confirmação (gírias PT-BR) + resumo via `prepare_order_draft` antes de `create_order`.
-- [x] Contador conforme secção 2 (base: `INTENT_UNKNOWN` do modelo + supressão servidor em `orderProgressHeuristic.ts`: dados de morada/pagamento/quantidade, resposta longa após tools).
+- [x] Contador conforme secção 2 (base: `INTENT_UNKNOWN` do modelo + supressão servidor em `orderProgressHeuristic.ts`: dados de endereço/pagamento/quantidade, resposta longa após tools).
 - [x] Integração Anthropic com tool use; preço/stock validados no servidor (`prepareOrderDraft` / `finalizeAiOrder`).
 - [ ] Testes automatizados extensivos (hoje: cobertura manual / futuros testes de integração).
 
@@ -126,10 +126,10 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 - `lib/chatbot/inboundPipeline.ts` — lógica comum; `order_intent` ramifica Starter vs PRO; passa `profileName` ao PRO.
 - `lib/chatbot/pro/handleProOrderIntent.ts` — Haiku + tools; histórico `pro_anthropic_messages`; marcadores `INTENT_OK` / `INTENT_UNKNOWN`; `pro_misunderstanding_streak`; Flow após 4× `unknown`.
 - `lib/chatbot/pro/searchProdutos.ts` — busca + `estoque_unidades` via `product_volumes`.
-- `lib/chatbot/pro/orderHints.ts` — morada guardada + `get_customer_favorites`.
+- `lib/chatbot/pro/orderHints.ts` — endereço salvo + `get_customer_favorites`.
 - `lib/chatbot/pro/resolveSavedAddress.ts` — prioridade principal / último pedido entregue.
 - `lib/chatbot/pro/resolveDeliveryZone.ts` — paridade com Flow (`delivery_zones` + `neighborhoods`).
-- `lib/chatbot/pro/prepareOrderDraft.ts` — valida itens, stock, morada, pagamento; grava `ai_order_canonical`.
+- `lib/chatbot/pro/prepareOrderDraft.ts` — valida itens, estoque, endereço, pagamento; grava `ai_order_canonical`.
 - `lib/chatbot/pro/confirmationPt.ts` — confirmação/recusa sem regex (frases normalizadas).
 - `lib/chatbot/pro/finalizeAiOrder.ts` — revalidação + `create_order_with_items` + upsert `enderecos_cliente`.
 - `lib/chatbot/pro/orderProgressHeuristic.ts` — suprime incremento do streak em `INTENT_UNKNOWN` quando o input parece dado de pedido ou a resposta veio após tools com texto longo (§2).

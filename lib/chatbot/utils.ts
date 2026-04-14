@@ -65,6 +65,11 @@ export const QUANTITY_WORDS_NORM: Record<string, number> = {
 
 // ─── Formatação ───────────────────────────────────────────────────────────────
 
+/** Arredonda valor monetário a 2 casas (evita drift de float em totais). */
+export function roundBrl(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 export function formatCurrency(value: number): string {
     return new Intl.NumberFormat("pt-BR", {
         style: "currency",
