@@ -210,25 +210,7 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
 
     const feeVal   = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
     const change   = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
-    const total    = cartSubtotal(cart) + feeVal;
-
-    const upRes = await fetch("/api/admin/orders", {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: order.id,
-        customer_id: customerId,
-        payment_method: paymentMethod,
-        paid,
-        change_for: change,
-        delivery_fee: feeVal,
-        total_amount: total,
-        driver_id: driverId || null,
-      }),
-    });
-    const upJson = await upRes.json().catch(() => ({}));
-    if (!upRes.ok) { setMsg(`Erro ao atualizar pedido: ${upJson?.error ?? "falha"}`); setSaving(false); return; }
+    const o        = order as Record<string, unknown>;
 
     const itemsRes = await fetch("/api/admin/orders/items", {
       method: "PUT",
@@ -236,6 +218,17 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         order_id: order.id,
+        customer_id: customerId,
+        channel: o.channel != null ? String(o.channel) : null,
+        status: o.status != null ? String(o.status) : null,
+        confirmation_status: o.confirmation_status != null ? String(o.confirmation_status) : null,
+        source: o.source != null ? String(o.source) : null,
+        payment_method: paymentMethod,
+        paid,
+        change_for: change,
+        delivery_fee: feeVal,
+        details: o.details === undefined || o.details === null ? undefined : String(o.details),
+        driver_id: driverId || null,
         items: buildItemsPayload(order.id, companyId, cart),
       }),
     });

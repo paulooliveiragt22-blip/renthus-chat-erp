@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { enqueuePrintJob } from "@/lib/server/print/enqueuePrintJob";
 
 export const runtime = "nodejs";
 
@@ -28,48 +29,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
   }
 
-  // Busca impressora padrão da empresa (company_printers.is_default) ou a primeira com auto_print
-  let printerId: string | null = null;
-  const { data: cpRow } = await admin
-    .from("company_printers")
-    .select("printer_id")
-    .eq("company_id", access.companyId)
-    .eq("is_default", true)
-    .maybeSingle();
-  if (cpRow?.printer_id) {
-    printerId = cpRow.printer_id;
-  } else {
-    const { data: pRow } = await admin
-      .from("printers")
-      .select("id")
-      .eq("company_id", access.companyId)
-      .eq("is_active", true)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (pRow?.id) printerId = pRow.id;
-  }
-
-  if (!printerId) {
-    return NextResponse.json({ error: "Nenhuma impressora ativa configurada para esta empresa" }, { status: 400 });
-  }
-
-  const { data: job, error: jobErr } = await admin
-    .from("print_jobs")
-    .insert([{
-      company_id: access.companyId,
-      order_id:   order_id,
-      source_id:  order_id,
-      printer_id: printerId,
-      payload:    { type: "receipt", orderId: order_id, change: change ?? 0 },
-      status:     "pending",
-      attempts:   0,
-      priority:   5,
-      source:     "reprint",
-    }])
-    .select("id")
-    .single();
-
-  if (jobErr) return NextResponse.json({ error: jobErr.message }, { status: 500 });
-  return NextResponse.json({ ok: true, job_id: job.id });
+  const queued = await enqueuePrintJob({
+    admin,
+    companyId: access.companyId,
+    orderId: String(order_id),
+    source: "reprint",
+    change: typeof change === "number" ? change : Number(change ?? 0),
+    priority: 5,
+  });
+  if (!queued.ok) return NextResponse.json({ error: queued.error }, { status: 500 });
+  return NextResponse.json({ ok: true, job_id: queued.jobId });
 }

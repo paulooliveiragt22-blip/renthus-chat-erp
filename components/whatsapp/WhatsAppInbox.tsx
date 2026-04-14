@@ -34,6 +34,8 @@ import type {
 } from "@/lib/whatsapp/types";
 import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 import { extractMediaFromWaPayload } from "@/lib/whatsapp/extractMediaFromWaPayload";
+import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
+import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsapp/mediaIdPath";
 import { BillingModal } from "./BillingModal";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -115,6 +117,7 @@ function detectBodyMedia(body: string | null, channelQuery = ""): DetectedMedia 
     if (t.startsWith("http://") || t.startsWith("https://")) {
         try {
             const url = new URL(t);
+            if (url.protocol !== "http:" && url.protocol !== "https:") return null;
             const p   = url.pathname.toLowerCase();
             if (/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/.test(p)) return { kind: "image", url: t };
             if (/\.(mp4|webm|mov|avi)(\?|$)/.test(p))           return { kind: "video", url: t };
@@ -122,7 +125,7 @@ function detectBodyMedia(body: string | null, channelQuery = ""): DetectedMedia 
             if (url.hostname.includes("supabase"))               return { kind: "file", url: t, name: p.split("/").pop() ?? "arquivo" };
         } catch { /* não é URL válida */ }
     }
-    if (/^[0-9a-f]{20,}$/i.test(t)) {
+    if (META_MEDIA_ID_PATH_RE.test(t)) {
         return { kind: "file", url: `/api/whatsapp/media/${t}${channelQuery}`, name: "arquivo" };
     }
     return null;
@@ -167,7 +170,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [threads,          setThreads]          = useState<Thread[]>([]);
     const [selectedThreadId, setSelectedThreadId] = useState<string | null>(() => {
         if (typeof window === "undefined") return null;
-        return new URLSearchParams(window.location.search).get("t");
+        return parseOptionalUuid(new URLSearchParams(window.location.search).get("t"));
     });
     const [messages,         setMessages]         = useState<Message[]>([]);
     const [q,                setQ]                = useState("");
@@ -468,7 +471,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
 
     /** Prioriza o token do canal que recebeu a thread na rota /api/whatsapp/media. */
     const waMediaChannelQs = useMemo(() => {
-        const id = selectedThread?.channel_id?.trim();
+        const id = parseOptionalUuid(selectedThread?.channel_id?.trim() ?? null);
         return id ? `?channel_id=${encodeURIComponent(id)}` : "";
     }, [selectedThread?.channel_id]);
 
@@ -922,7 +925,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                 const isBot     = m.sender_type === "bot";
                                 const isSending = m.id.startsWith("opt_");
                                 const rawMedia = extractMediaFromWaPayload(m.raw_payload ?? null);
-                                const hasRawMedia = Boolean(rawMedia);
+                                const safeRawMediaId = rawMedia ? sanitizeWhatsAppMediaPathId(rawMedia.id) : null;
+                                const hasRawMedia = Boolean(rawMedia && safeRawMediaId);
                                 const bodyMedia = !hasRawMedia ? detectBodyMedia(m.body, waMediaChannelQs) : null;
                                 const displayText = bodyMedia ? null : m.body;
 
@@ -944,22 +948,22 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                                 : "rounded-bl-sm bg-white text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
                                         }`}>
                                             {/* Mídia do payload (Meta) */}
-                                            {hasRawMedia && rawMedia ? (
+                                            {hasRawMedia && rawMedia && safeRawMediaId ? (
                                                 <div className="mb-2">
                                                     {rawMedia.type === "image" ? (
                                                         <img
-                                                            src={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`}
+                                                            src={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`}
                                                             alt={rawMedia.caption || "Imagem"}
                                                             loading="lazy"
                                                             className="max-h-60 max-w-full rounded-xl object-cover"
                                                         />
                                                     ) : rawMedia.type === "video" ? (
-                                                        <video controls src={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`} className="max-h-52 max-w-full rounded-xl" />
+                                                        <video controls src={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`} className="max-h-52 max-w-full rounded-xl" />
                                                     ) : rawMedia.type === "audio" ? (
-                                                        <audio controls src={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`} className="w-52" />
+                                                        <audio controls src={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`} className="w-52" />
                                                     ) : (
                                                         <a
-                                                            href={`/api/whatsapp/media/${rawMedia.id}${waMediaChannelQs}`}
+                                                            href={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`}
                                                             target="_blank" rel="noreferrer"
                                                             className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold underline ${isOut ? "text-white/90" : "text-primary"}`}
                                                         >
@@ -968,6 +972,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                                         </a>
                                                     )}
                                                 </div>
+                                            ) : rawMedia && !safeRawMediaId ? (
+                                                <p className={`mb-2 text-xs ${isOut ? "text-white/70" : "text-zinc-500"}`}>Mídia indisponível (identificador inválido).</p>
                                             ) : null}
 
                                             {/* Mídia detectada no body */}

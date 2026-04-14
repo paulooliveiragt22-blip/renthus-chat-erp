@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { orderItemsForAdminRpc } from "@/lib/server/orders/rpcAdminOrderItems";
 
 export const runtime = "nodejs";
 
@@ -72,6 +73,7 @@ export async function POST(req: Request) {
         customer_id?: string;
         channel?: string;
         status?: string;
+        confirmation_status?: string;
         payment_method?: string;
         paid?: boolean;
         change_for?: number | null;
@@ -79,37 +81,40 @@ export async function POST(req: Request) {
         total_amount?: number;
         details?: string | null;
         driver_id?: string | null;
+        source?: string | null;
         items?: Array<Record<string, unknown>>;
     };
 
     const customerId = String(body.customer_id ?? "").trim();
     if (!customerId) return NextResponse.json({ error: "customer_id_required" }, { status: 400 });
 
-    const { data: order, error: ordErr } = await admin
-        .from("orders")
-        .insert({
-            company_id: companyId,
-            customer_id: customerId,
-            channel: body.channel ?? "admin",
-            status: body.status ?? "new",
-            payment_method: body.payment_method ?? "pix",
-            paid: !!body.paid,
-            change_for: body.change_for ?? null,
-            delivery_fee: Number(body.delivery_fee ?? 0),
-            total_amount: Number(body.total_amount ?? 0),
-            details: body.details ?? null,
-            driver_id: body.driver_id ?? null,
-        })
-        .select("id")
-        .single();
-    if (ordErr) return NextResponse.json({ error: ordErr.message }, { status: 500 });
-
     const items = Array.isArray(body.items) ? body.items : [];
-    if (items.length > 0) {
-        const payload = items.map((it) => ({ ...it, order_id: order.id, company_id: companyId }));
-        const { error: itemsErr } = await admin.from("order_items").insert(payload);
-        if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
+    if (items.length === 0) {
+        return NextResponse.json({ error: "items_required" }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, order_id: order.id as string });
+    const rpcItems = orderItemsForAdminRpc(items);
+    const driverId = String(body.driver_id ?? "").trim() || null;
+
+    const { data: orderId, error: rpcErr } = await admin.rpc("rpc_admin_upsert_order_with_items", {
+        p_company_id: companyId,
+        p_order_id: null,
+        p_customer_id: customerId,
+        p_channel: body.channel ?? "admin",
+        p_status: body.status ?? "new",
+        p_confirmation_status: body.confirmation_status ?? "confirmed",
+        p_payment_method: body.payment_method ?? "pix",
+        p_paid: !!body.paid,
+        p_change_for: body.change_for ?? null,
+        p_delivery_fee: Number(body.delivery_fee ?? 0),
+        p_details: body.details != null ? String(body.details) : null,
+        p_driver_id: driverId,
+        p_source: body.source != null && String(body.source).trim() !== "" ? String(body.source).trim() : null,
+        p_items: rpcItems,
+    });
+
+    if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
+    if (!orderId) return NextResponse.json({ error: "order_create_failed" }, { status: 500 });
+
+    return NextResponse.json({ ok: true, order_id: orderId as string });
 }

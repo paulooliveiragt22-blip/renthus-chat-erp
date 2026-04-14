@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     CheckCircle2,
@@ -125,7 +124,6 @@ function Skeleton({ className = "" }: { className?: string }) {
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function ImpressorasPage() {
-    const supabase = useMemo(() => createClient(), []);
     const { currentCompanyId: companyId } = useWorkspace();
 
     // ── agent state ───────────────────────────────────────────────────────────
@@ -166,46 +164,28 @@ export default function ImpressorasPage() {
 
     // ── data loaders ──────────────────────────────────────────────────────────
     const loadAgents = useCallback(async () => {
-        const res = await fetch("/api/agent/keys");
+        const res = await fetch("/api/agent/keys", { credentials: "include", cache: "no-store" });
         if (res.ok) setAgents((await res.json()).agents ?? []);
     }, []);
 
-    // Usa orders.printed_at como fonte de verdade — é o campo que o agent preenche ao imprimir
+    // Fila agregada no servidor a partir de print_jobs + orders.
     const loadJobs = useCallback(async () => {
         if (!companyId) return;
         setLoadingJobs(true);
-        const { data } = await supabase
-            .from("orders")
-            .select("id, printed_at, status, total_amount, customers(name)")
-            .eq("company_id", companyId)
-            .not("printed_at", "is", null)
-            .order("printed_at", { ascending: false })
-            .limit(10);
-
-        if (!data) { setLoadingJobs(false); return; }
-
-        setJobs(data.map((o: any) => {
-            const custName = Array.isArray(o.customers)
-                ? o.customers[0]?.name ?? null
-                : o.customers?.name ?? null;
-            return {
-                id:            o.id,
-                order_id:      o.id,
-                printed_at:    o.printed_at,
-                status:        "done",
-                total_amount:  o.total_amount != null ? Number(o.total_amount) : null,
-                customer_name: custName,
-            };
-        }));
+        const res = await fetch("/api/admin/impressoras/jobs", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok) setJobs((json.jobs ?? []) as PrintJob[]);
         setLoadingJobs(false);
-    }, [companyId, supabase]);
+    }, [companyId]);
 
     const loadSettings = useCallback(async () => {
         setLoadingSettings(true);
-        const res = await fetch("/api/agent/settings");
+        const res = await fetch("/api/agent/settings", { credentials: "include", cache: "no-store" });
         if (res.ok) {
             const json = await res.json();
-            setSettings((prev) => ({ ...prev, ...(json.settings ?? {}) }));
+            if (json.settings && typeof json.settings === "object") {
+                setSettings((prev) => ({ ...prev, ...json.settings }));
+            }
         }
         setLoadingSettings(false);
     }, []);
@@ -217,30 +197,20 @@ export default function ImpressorasPage() {
         loadSettings();
     }, [companyId, loadAgents, loadJobs, loadSettings]);
 
-    // ── realtime: print_agents + print_jobs ───────────────────────────────────
+    // ── polling leve para status online e jobs ────────────────────────────────
     useEffect(() => {
         if (!companyId) return;
-        const ch1 = supabase
-            .channel("print_agents_realtime")
-            .on("postgres_changes", { event: "*", schema: "public", table: "print_agents" }, () => loadAgents())
-            .subscribe();
-        const ch2 = supabase
-            .channel("printed_orders_realtime")
-            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, (payload: any) => {
-                // Só recarrega se o evento tocou no campo printed_at
-                if (payload?.new?.printed_at) loadJobs();
-            })
-            .subscribe();
-        return () => {
-            supabase.removeChannel(ch1);
-            supabase.removeChannel(ch2);
-        };
-    }, [companyId, supabase, loadAgents, loadJobs]);
+        const id = setInterval(() => {
+            void loadAgents();
+            void loadJobs();
+        }, 8000);
+        return () => clearInterval(id);
+    }, [companyId, loadAgents, loadJobs]);
 
     // ── agent key management ──────────────────────────────────────────────────
     async function generateKey() {
         setGenerating(true); setAgentErr(null); setNewApiKey(null);
-        const res = await fetch("/api/agent/keys", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const res = await fetch("/api/agent/keys", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: "{}" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { setAgentErr(json?.error ?? "Erro ao gerar chave"); }
         else { setNewApiKey(json.api_key); loadAgents(); }
@@ -249,7 +219,7 @@ export default function ImpressorasPage() {
 
     async function revokeAgent(id: string) {
         if (!confirm("Desativar este agente?")) return;
-        await fetch("/api/agent/keys", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_id: id }) });
+        await fetch("/api/agent/keys", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ agent_id: id }) });
         loadAgents();
     }
 
@@ -264,7 +234,7 @@ export default function ImpressorasPage() {
         if (!job.order_id) return;
         setReprintingId(job.id);
         setReprintMsg(null);
-        const res = await fetch("/api/agent/reprint", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_id: job.order_id }) });
+        const res = await fetch("/api/agent/reprint", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ order_id: job.order_id }) });
         const json = await res.json().catch(() => ({}));
         setReprintMsg(res.ok ? "✓ Job de reimpressão criado" : (json?.error ?? "Erro ao reimprimir"));
         setReprintingId(null);
@@ -274,7 +244,7 @@ export default function ImpressorasPage() {
     // ── settings save ─────────────────────────────────────────────────────────
     async function saveSettings() {
         setSavingSettings(true); setSettingsMsg(null);
-        const res = await fetch("/api/agent/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) });
+        const res = await fetch("/api/agent/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(settings) });
         const json = await res.json().catch(() => ({}));
         setSettingsMsg(res.ok ? "✓ Configurações salvas" : (json?.error ?? "Erro ao salvar"));
         setSavingSettings(false);
@@ -290,13 +260,10 @@ export default function ImpressorasPage() {
     async function testPrint() {
         if (!companyId) return;
         setTestLoading(true); setTestMsg(null);
-        const { data: ord, error } = await supabase
-            .from("orders")
-            .insert([{ company_id: companyId, channel: "admin", status: "new", total_amount: 0 }])
-            .select("id").single();
-        if (error) { setTestMsg("Erro: " + error.message); setTestLoading(false); return; }
-        await supabase.from("order_items").insert([{ order_id: ord.id, company_id: companyId, product_name: "Teste Cupom", quantity: 1, unit_price: 0 }]);
-        setTestMsg("Pedido de teste criado. O agente deve imprimir em instantes.");
+        const res = await fetch("/api/admin/impressoras/test-order", { method: "POST", credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { setTestMsg(`Erro: ${json?.error ?? "falha"}`); setTestLoading(false); return; }
+        setTestMsg("Pedido de teste criado e enviado para a fila.");
         setTestLoading(false);
         setTimeout(() => { setTestMsg(null); loadJobs(); }, 5000);
     }

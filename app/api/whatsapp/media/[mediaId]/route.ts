@@ -5,15 +5,14 @@ import {
     type WhatsappChannelSecretRow,
 } from "@/lib/whatsapp/channelCredentials";
 import { getWhatsAppConfig } from "@/lib/whatsapp/getConfig";
+import { META_MEDIA_ID_PATH_RE } from "@/lib/whatsapp/mediaIdPath";
+import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 
 // Proxy para download de mídia da WhatsApp Cloud API (Meta).
 // Tenta tokens de todos os canais ativos + company_integrations + WHATSAPP_TOKEN,
 // com a mesma base URL do Graph que o envio usa por canal (provider_metadata.base_url).
 
 export const runtime = "nodejs";
-
-/** IDs de mídia Cloud API são numéricos; evita path odd / SSRF-ish em `encodeURIComponent`. */
-const META_MEDIA_ID_RE = /^\d{6,64}$/;
 
 function graphBase(): string {
     return (process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0").replace(/\/$/, "");
@@ -89,9 +88,6 @@ function attemptKey(a: { bearer: string; graphRoot: string }) {
     return `${a.graphRoot}\n${a.bearer}`;
 }
 
-const UUID_RE =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export async function GET(
     req: Request,
     { params }: { params: { mediaId: string } }
@@ -104,7 +100,7 @@ export async function GET(
     const { admin, companyId } = ctx;
     const mediaId              = params.mediaId;
 
-    if (!mediaId || !META_MEDIA_ID_RE.test(mediaId)) {
+    if (!mediaId || !META_MEDIA_ID_PATH_RE.test(mediaId)) {
         return NextResponse.json({ error: "invalid_media_id" }, { status: 400 });
     }
 
@@ -117,11 +113,12 @@ export async function GET(
         .eq("status", "active");
 
     let preferredChannel: WhatsappChannelSecretRow | null = null;
-    if (channelIdHint && UUID_RE.test(channelIdHint)) {
+    const channelIdParsed = parseOptionalUuid(channelIdHint);
+    if (channelIdParsed) {
         const { data: pref } = await admin
             .from("whatsapp_channels")
             .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
-            .eq("id", channelIdHint)
+            .eq("id", channelIdParsed)
             .eq("company_id", companyId)
             .eq("status", "active")
             .maybeSingle();

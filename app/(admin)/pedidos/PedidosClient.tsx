@@ -856,24 +856,7 @@ export default function PedidosPage() {
         if (!customerId) { setEditSaving(false); return; }
         const fee    = editDeliveryFeeEnabled ? brlToNumber(editDeliveryFee) : 0;
         const change = editPaymentMethod === "cash" ? brlToNumber(editChangeFor) : null;
-        const total  = cartSubtotal(editCart) + fee;
-        const orderRes = await fetch("/api/admin/orders", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-                id: editOrder.id,
-                customer_id: customerId,
-                payment_method: editPaymentMethod,
-                paid: editPaid,
-                change_for: change,
-                delivery_fee: fee,
-                total_amount: total,
-                driver_id: editDriverId || null,
-            }),
-        });
-        const orderJson = await orderRes.json().catch(() => ({}));
-        if (!orderRes.ok) { setMsg(`Erro ao atualizar pedido: ${orderJson?.error ?? "falha desconhecida"}`); setEditSaving(false); return; }
+        const eo     = editOrder as Record<string, unknown>;
         if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); setEditSaving(false); return; }
         const itemsRes = await fetch("/api/admin/orders/items", {
             method: "PUT",
@@ -881,6 +864,17 @@ export default function PedidosPage() {
             credentials: "include",
             body: JSON.stringify({
                 order_id: editOrder.id,
+                customer_id: customerId,
+                channel: eo.channel != null ? String(eo.channel) : null,
+                status: eo.status != null ? String(eo.status) : null,
+                confirmation_status: eo.confirmation_status != null ? String(eo.confirmation_status) : null,
+                source: eo.source != null ? String(eo.source) : null,
+                payment_method: editPaymentMethod,
+                paid: editPaid,
+                change_for: change,
+                delivery_fee: fee,
+                details: eo.details === undefined || eo.details === null ? undefined : String(eo.details),
+                driver_id: editDriverId || null,
                 items: buildItemsPayload(editOrder.id, companyId, editCart),
             }),
         });
