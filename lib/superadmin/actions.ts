@@ -59,9 +59,11 @@ export async function getSecurityOpsStatus() {
         },
         {
             key:   "WHATSAPP_TOKEN",
-            label: "WHATSAPP_TOKEN",
-            ok:    envNonEmpty("WHATSAPP_TOKEN"),
-            hint:  "Fallback global quando o canal não tem access_token no banco.",
+            label: "WHATSAPP_TOKEN / plataforma",
+            ok:    !isProd
+                || envNonEmpty("PLATFORM_WHATSAPP_COMPANY_ID")
+                || (envNonEmpty("WHATSAPP_TOKEN") && envNonEmpty("WHATSAPP_PHONE_NUMBER_ID")),
+            hint:  "Em prod: canal por empresa no DB; ou PLATFORM_WHATSAPP_COMPANY_ID; ou par WHATSAPP_TOKEN + WHATSAPP_PHONE_NUMBER_ID para billing/legado.",
         },
         {
             key:   "CREDENTIALS_ENCRYPTION_KEY",

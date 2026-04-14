@@ -89,6 +89,7 @@ async function provisionUserAfterPayment(
     if (!cuCountErr && (linkedUsers ?? 0) > 0) {
         const renthusNumber = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";
         await sendBillingNotification(
+            companyId,
             renthusNumber,
             `✅ *Pagamento de ativação confirmado*\n\n` +
                 `Empresa: ${company.name}\n` +
@@ -126,6 +127,7 @@ async function provisionUserAfterPayment(
 
     const renthusNumber = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";
     await sendBillingNotification(
+        companyId,
         renthusNumber,
         `🎉 *Novo cliente!*\n\n` +
             `Empresa: ${company.name}\n` +

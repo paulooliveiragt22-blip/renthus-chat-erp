@@ -71,6 +71,7 @@ export async function POST(req: Request) {
                 .eq("id", companyId);
 
             await sendBillingNotification(
+                companyId,
                 RENTHUS_PHONE,
                 `🔔 *Novo cliente aguarda ativação:*\n\n` +
                 `Empresa: ${company?.name}\n` +
@@ -95,6 +96,7 @@ export async function POST(req: Request) {
                 .single();
 
             await sendBillingNotification(
+                companyId,
                 RENTHUS_PHONE,
                 `🚀 *SOLICITAÇÃO DE ATIVAÇÃO:*\n\n` +
                 `Empresa: ${company?.name}\n` +

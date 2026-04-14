@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 // Proxy para download de mídia da WhatsApp Cloud API (Meta).
-// Usa WHATSAPP_TOKEN e WHATSAPP_BASE_URL / v20.0 para buscar o binário.
+// Usa o canal WhatsApp ativo da empresa da sessão (cookie de workspace).
 
 export const runtime = "nodejs";
 
@@ -9,23 +11,38 @@ export async function GET(
     _req: Request,
     { params }: { params: { mediaId: string } }
 ) {
-    const mediaId = params.mediaId;
+    const ctx = await requireCompanyAccess();
+    if (!ctx.ok) {
+        return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    }
+
+    const { admin, companyId } = ctx;
+    const mediaId              = params.mediaId;
 
     if (!mediaId) {
         return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
     }
 
-    const token = process.env.WHATSAPP_TOKEN;
-    const baseUrl = process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
+    const { data: channel } = await admin
+        .from("whatsapp_channels")
+        .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .maybeSingle();
 
+    const token = channel ? resolveChannelAccessToken(channel) : "";
     if (!token) {
-        return NextResponse.json({ error: "WHATSAPP_TOKEN not configured" }, { status: 500 });
+        return NextResponse.json(
+            { error: "no_channel_token", hint: "Configure o canal WhatsApp da empresa no superadmin." },
+            { status: 500 }
+        );
     }
 
+    const baseUrl = process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
+
     try {
-        // 1) Primeiro busca metadata da mídia para obter URL real
         const metaRes = await fetch(
-            `${baseUrl}/${encodeURIComponent(mediaId)}?fields=url,mime_type`,
+            `${baseUrl.replace(/\/$/, "")}/${encodeURIComponent(mediaId)}?fields=url,mime_type`,
             {
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -37,9 +54,9 @@ export async function GET(
         if (!metaRes.ok || !metaJson?.url) {
             return NextResponse.json(
                 {
-                    error: "meta_media_meta_failed",
+                    error:  "meta_media_meta_failed",
                     status: metaRes.status,
-                    body: metaJson,
+                    body:   metaJson,
                 },
                 { status: 502 }
             );
@@ -47,7 +64,6 @@ export async function GET(
 
         const mediaUrl: string = metaJson.url;
 
-        // 2) Baixa o binário da URL retornada
         const res = await fetch(mediaUrl, {
             headers: {
                 Authorization: `Bearer ${token}`,
@@ -58,9 +74,9 @@ export async function GET(
             const text = await res.text().catch(() => "");
             return NextResponse.json(
                 {
-                    error: "meta_media_fetch_failed",
+                    error:  "meta_media_fetch_failed",
                     status: res.status,
-                    body: text,
+                    body:   text,
                 },
                 { status: 502 }
             );
@@ -91,4 +107,3 @@ export async function GET(
         );
     }
 }
-

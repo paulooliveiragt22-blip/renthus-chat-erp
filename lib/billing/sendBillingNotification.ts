@@ -1,17 +1,54 @@
 /**
  * lib/billing/sendBillingNotification.ts
  *
- * Envia avisos de cobrança via WhatsApp usando o número da RENTHUS
- * (não o número do disk bebidas cliente).
- *
- * Variáveis de ambiente necessárias:
- *   WHATSAPP_TOKEN          — Bearer token da Meta (mesmo do sistema)
- *   WHATSAPP_PHONE_NUMBER_ID — Phone Number ID cadastrado no Meta Business (Renthus)
+ * Envia avisos de cobrança / operação via WhatsApp Cloud API.
+ * Credenciais vêm do canal ativo da empresa (`companyId`); se não houver token,
+ * tenta `PLATFORM_WHATSAPP_COMPANY_ID` (empresa “Renthus” com canal no superadmin);
+ * por último usa `WHATSAPP_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` (legado).
  */
 
 import "server-only";
 
-const GRAPH_API_BASE = "https://graph.facebook.com/v20.0";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+
+const GRAPH_API_BASE = process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
+
+type SenderConfig = { token: string; phoneNumberId: string };
+
+async function resolveBillingSender(
+    admin: ReturnType<typeof createAdminClient>,
+    companyId: string
+): Promise<SenderConfig | null> {
+    const load = async (cid: string): Promise<SenderConfig | null> => {
+        const { data: ch } = await admin
+            .from("whatsapp_channels")
+            .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
+            .eq("company_id", cid)
+            .eq("status", "active")
+            .maybeSingle();
+        if (!ch) return null;
+        const token         = resolveChannelAccessToken(ch);
+        const phoneNumberId = (ch.from_identifier ?? "").trim();
+        if (token && phoneNumberId) return { token, phoneNumberId };
+        return null;
+    };
+
+    let cfg = await load(companyId);
+    if (cfg) return cfg;
+
+    const platform = process.env.PLATFORM_WHATSAPP_COMPANY_ID?.trim();
+    if (platform && platform !== companyId) {
+        cfg = await load(platform);
+        if (cfg) return cfg;
+    }
+
+    const token         = process.env.WHATSAPP_TOKEN?.trim() ?? "";
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ?? "";
+    if (token && phoneNumberId) return { token, phoneNumberId };
+
+    return null;
+}
 
 function normalizeBrazilianNumber(raw: string): string {
     const digits = raw.replaceAll(/^\+/g, "").trim();
@@ -23,28 +60,34 @@ function normalizeBrazilianNumber(raw: string): string {
     return digits;
 }
 
+/**
+ * @param companyId Empresa cujo canal Meta será usado para enviar (ou fallback plataforma / env).
+ * @param to Destino E.164 sem + ou com + (normalizado).
+ */
 export async function sendBillingNotification(
+    companyId: string,
     to: string,
     text: string
 ): Promise<{ ok: boolean; error?: string }> {
-    const token         = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const admin = createAdminClient();
+    const cfg   = await resolveBillingSender(admin, companyId);
 
-    if (!token || !phoneNumberId) {
+    if (!cfg) {
         console.error(
-            "[billing-notify] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados"
+            "[billing-notify] Sem credenciais de envio: configure canal WhatsApp da empresa, " +
+                "PLATFORM_WHATSAPP_COMPANY_ID ou WHATSAPP_TOKEN + WHATSAPP_PHONE_NUMBER_ID."
         );
-        return { ok: false, error: "missing_env_vars" };
+        return { ok: false, error: "missing_sender_credentials" };
     }
 
     const toNormalized = normalizeBrazilianNumber(to);
-    const url          = `${GRAPH_API_BASE}/${phoneNumberId}/messages`;
+    const url          = `${GRAPH_API_BASE.replace(/\/$/, "")}/${cfg.phoneNumberId}/messages`;
 
     try {
         const res = await fetch(url, {
             method:  "POST",
             headers: {
-                Authorization:  `Bearer ${token}`,
+                Authorization:  `Bearer ${cfg.token}`,
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({

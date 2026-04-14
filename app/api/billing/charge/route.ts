@@ -230,7 +230,7 @@ async function generateSetupCharge(
 
     if (company?.whatsapp_phone) {
         const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
-        if (msg) await sendBillingNotification(company.whatsapp_phone, msg);
+        if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
     }
 }
 
@@ -297,7 +297,7 @@ async function generateMonthlyInvoice(
 
     if (company?.whatsapp_phone) {
         const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
-        if (msg) await sendBillingNotification(company.whatsapp_phone, msg);
+        if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
     }
 }
 
@@ -329,7 +329,7 @@ async function processOverdueInvoiceRow(
     );
 
     if (msg && company?.whatsapp_phone) {
-        const sent = await sendBillingNotification(company.whatsapp_phone, msg);
+        const sent = await sendBillingNotification(inv.company_id, company.whatsapp_phone, msg);
         if (sent.ok) results.notified++;
     }
 }

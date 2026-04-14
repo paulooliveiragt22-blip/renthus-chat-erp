@@ -169,6 +169,7 @@ export async function POST(req: Request) {
 
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
         await sendBillingNotification(
+            companyId,
             RENTHUS_PHONE,
             `🆕 *Novo cadastro (trial)*\n\n` +
                 `Empresa: ${trimmedName}\n` +
