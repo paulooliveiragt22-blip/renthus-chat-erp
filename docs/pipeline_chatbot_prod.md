@@ -85,7 +85,7 @@ Numeração contínua do pedido HTTP até resposta ao cliente.
 
 ### Bloco 0 — Transporte e persistência mínima (só entrada A ou job enfileirado)
 
-**Estado atual (A):** o webhook faz este bloco **e** o Bloco 3 no mesmo request.
+**Estado atual (A):** com `CHATBOT_QUEUE_ENABLED=1`, o webhook faz só este bloco e enfileira.
 
 **Alvo produção:** o webhook faz só Bloco 0 + enqueue; Bloco 3 corre no worker (B).
 
@@ -102,14 +102,16 @@ Numeração contínua do pedido HTTP até resposta ao cliente.
 | 0.9 | Insert `whatsapp_messages` | `incoming/route.ts` | Dedup: **23505** em `provider_message_id` → mensagem já vista, **fim** (correto). Outro erro → log + skip. |
 | 0.10 | Atualizar preview da thread | `incoming/route.ts` | Best-effort. |
 | 0.11 | Texto vazio | `incoming/route.ts` | `continue` — **sem** motor. |
-| 0.12 | `bot_active` + handover | `incoming/route.ts` | Se handover recente → **skip** (sem motor). Se timeout → reativar bot + mensagem fixa + **continua** para motor. |
+| 0.12 | `bot_active` + handover | `incoming/route.ts` | Se handover recente → **skip**. Se timeout → reativar bot + mensagem fixa + segue para enqueue. |
+| 0.13 | Dedup inbound curta janela | `incoming/route.ts` | Coalescing por `thread_id + phone + normalized_text` (text-only) antes de inserir na fila. |
 
 **Entrada B (`processJob`) antes do motor:**
 
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
 | 0.B.1 | Carregar canal Meta | `process-queue/route.ts` | `waConfig`, `catalogFlowId`; canal ausente usa env fallback (risco multi-tenant). |
-| 0.B.2 | `bot_active` / handover | `process-queue/route.ts` | Handover ativo → **return** (job pode marcar-se `done` sem `processInboundMessage` — ver código); expirado → reativa + opcional mensagem + **apaga** `chatbot_sessions` (atenção a efeitos colaterais). |
+| 0.B.2 | `bot_active` / handover | `process-queue/route.ts` | Handover ativo → **return** (job pode marcar-se `done` sem `processInboundMessage`); expirado → reativa + opcional mensagem + **apaga** `chatbot_sessions`. |
+| 0.B.3 | Claim RPC fail-fast | `process-queue/route.ts` | Em produção: se RPC de claim falhar → **503 + alerta** (sem fallback concorrente inseguro). |
 
 **Falhas típicas (Bloco 0):** rede Meta duplicada (ok com 0.9), secret errado (401), DB indisponível (500 ou skip silencioso), canal desconfigurado (mensagem ignorada).
 
@@ -259,16 +261,16 @@ Depende de `intent` e `tier`:
 | 4 | Pedido rejeitado | RPC negócio (zona, mínimo, estoque) |
 | 5 | Utilizador sem mensagem | Falha Graph API após DB gravado ou não |
 
-**Idempotência obrigatória de fila (decisão):**
+**Idempotência obrigatória de fila (estado atual):**
 - índice único parcial em **`(company_id, message_id)`** quando `message_id IS NOT NULL`.
-- objetivo: replay seguro por tenant sem acoplamento indevido entre empresas.
-- remover índice legado apenas em `message_id` após validação da migração nova.
+- replay seguro por tenant sem acoplamento indevido entre empresas.
+- índice legado em `message_id` isolado foi removido.
 
 ---
 
 ## Execução — o que alinhar com `CHATBOT_PROD`
 
-1. **Fase 1:** mover execução pesada para fila/worker (webhook não aguarda motor) sem alterar UX do Starter — ver checklist em [`structure_chatbot_prod.md`](./structure_chatbot_prod.md).  
+1. **Fase 1:** já ativo no caminho padrão (`CHATBOT_QUEUE_ENABLED=1`): webhook enfileira e worker processa sem alterar UX do Starter.  
 2. **Fase 2 (PRO only):** reduzir tokens e risco 400 em **4.P.1** (histórico `pro_anthropic_*`) independentemente da fila.  
 3. **Métricas:** instrumentar 3e (latência/erro classificador), 4.P (rounds tools), 5 (falhas envio), segmentadas por `tier`.  
 4. **Guarda de regressão Starter:** validar respostas padrão (saudação/botões/catálogo/status/atendente) antes de merge.

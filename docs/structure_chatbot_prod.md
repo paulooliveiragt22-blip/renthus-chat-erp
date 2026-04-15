@@ -200,19 +200,15 @@ tests/integration/
 
 ## 4. Fluxo entre módulos
 
-### 4.1 Estado atual (síncrono no webhook)
+### 4.1 Estado atual (assíncrono por padrão no webhook)
 
 ```
 Meta POST
   → app/api/whatsapp/incoming/route.ts
        → createAdminClient (lib/supabase/admin.ts)
        → upsert thread, insert whatsapp_messages (dedup 23505 em provider_message_id)
-       → await processInboundMessage (lib/chatbot/processMessage.ts)
-            → getChatbotProductTier (lib/chatbot/tier.ts)
-            → runInboundChatbotPipeline (lib/chatbot/inboundPipeline.ts)
-                 → session, middleware, handlers/, pro/
-                 → botSend.ts / lib/whatsapp/send.ts
-  → NextResponse 200 (após o motor)
+       → enqueue chatbot_queue (dedup/coalescing inbound em janela curta)
+  → NextResponse 200 rápido
 ```
 
 ### 4.2 Caminho assíncrono já existente (cron)
@@ -285,9 +281,9 @@ Cruzar com checkboxes em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 
 | Item | Situação |
 |------|----------|
-| Webhook aguarda motor | `incoming/route.ts` ainda faz `await processInboundMessage` — contradiz princípio 1 do `CHATBOT_PROD.md` até a Fase 1 estar fechada. |
-| Unique na fila | Migração atual: único em `message_id` (onde não nulo). **Decisão deste documento:** migrar para escopo **(company_id, message_id)** para robustez multi-tenant e replay por tenant. |
-| Fallback do claim | Se RPC falhar, `runFallbackProcessing` não tem a mesma garantia entre instâncias — em produção deve operar em **fail-fast + alerta crítico**, sem consumo por fallback. |
+| Webhook aguarda motor | **Resolvido**: com `CHATBOT_QUEUE_ENABLED=1` o webhook só enfileira e responde rápido. |
+| Unique na fila | **Resolvido**: unique parcial em `(company_id, message_id)` (`message_id IS NOT NULL`) aplicado; índice legado em `message_id` isolado removido. |
+| Fallback do claim | Parcial: fail-fast em produção implementado por default; fallback fica restrito a dev/teste (ou env explícita). |
 
 ---
 

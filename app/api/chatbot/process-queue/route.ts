@@ -25,6 +25,9 @@ export const maxDuration = 60;
 const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 3;
 const INBOUND_COALESCE_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
+const ALLOW_CLAIM_FALLBACK =
+    process.env.CHATBOT_QUEUE_ALLOW_CLAIM_FALLBACK === "1"
+    || process.env.NODE_ENV !== "production";
 
 const REACTIVATE_MSG =
     "😔 No momento não há atendentes disponíveis.\n" +
@@ -48,9 +51,7 @@ export async function GET(req: Request) {
     );
 
     if (claimErr) {
-        // RPC não existe ainda → fallback simples (sem concorrência garantida)
-        console.warn("[process-queue] RPC claim_chatbot_queue_jobs não encontrada, usando fallback:", claimErr.message);
-        return runFallbackProcessing(admin, t0);
+        return handleClaimError(admin, t0, claimErr);
     }
 
     const jobIds: string[] = (claimed ?? []).map((r: any) => r.id);
@@ -422,4 +423,24 @@ async function emitQueueMetrics(counts: { processed: number; failed: number; coa
     }
 
     console.info("[metric] chatbot_process_queue", payload);
+}
+
+async function handleClaimError(
+    admin: ReturnType<typeof createAdminClient>,
+    t0: number,
+    claimErr: { message?: string } | null
+) {
+    const message = claimErr?.message ?? "claim rpc unavailable";
+    if (!ALLOW_CLAIM_FALLBACK) {
+        console.error("[process-queue] RPC claim_chatbot_queue_jobs indisponível em modo fail-fast:", message);
+        await emitQueueMetrics({ processed: 0, failed: 1, coalesced: 0 });
+        return NextResponse.json(
+            { ok: false, error: "claim_rpc_unavailable", failed: 1, ms: Date.now() - t0 },
+            { status: 503 }
+        );
+    }
+
+    // Fallback só para ambientes de teste/dev ou quando explicitamente habilitado.
+    console.warn("[process-queue] RPC claim_chatbot_queue_jobs não encontrada, usando fallback:", message);
+    return runFallbackProcessing(admin, t0);
 }

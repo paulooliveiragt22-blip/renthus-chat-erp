@@ -15,16 +15,21 @@ function formatCurrency(v: number) {
 export default function SuperAdminDashboard() {
     const [periodMinutes, setPeriodMinutes] = useState(15);
     const [sortBy, setSortBy] = useState<QueueSortBy>("severity");
+    const [autoRefresh, setAutoRefresh] = useState(true);
 
-    const { data, isLoading } = useQuery({
+    const { data, isLoading, dataUpdatedAt: dashboardUpdatedAt } = useQuery({
         queryKey: ["sa", "dashboard"],
         queryFn:  () => getDashboardStats(),
         staleTime: 60_000,
+        refetchInterval: autoRefresh ? 30_000 : false,
+        refetchIntervalInBackground: true,
     });
-    const { data: queueHealthRaw, isLoading: isQueueLoading } = useQuery({
+    const { data: queueHealthRaw, isLoading: isQueueLoading, dataUpdatedAt: queueUpdatedAt } = useQuery({
         queryKey: ["sa", "queue-health", periodMinutes],
         queryFn: () => getQueueHealthStats(periodMinutes),
         staleTime: 30_000,
+        refetchInterval: autoRefresh ? 30_000 : false,
+        refetchIntervalInBackground: true,
     });
     const queueHealth = useMemo(() => {
         if (!queueHealthRaw) return queueHealthRaw;
@@ -76,6 +81,7 @@ export default function SuperAdminDashboard() {
             color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
         },
     ];
+    const lastUpdatedAt = Math.max(dashboardUpdatedAt, queueUpdatedAt);
 
     return (
         <div className="space-y-6">
@@ -123,6 +129,12 @@ export default function SuperAdminDashboard() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setAutoRefresh((v) => !v)}
+                            className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        >
+                            {autoRefresh ? "Pausar auto-refresh" : "Retomar auto-refresh"}
+                        </button>
                         <select
                             value={String(periodMinutes)}
                             onChange={(e) => setPeriodMinutes(Number(e.target.value))}
@@ -143,6 +155,14 @@ export default function SuperAdminDashboard() {
                         </select>
                     </div>
                 </div>
+                <p className="mb-3 text-[11px] text-zinc-400">
+                    Última atualização: {formatLastUpdated(lastUpdatedAt)} {autoRefresh ? "(auto 30s ativo)" : "(auto pausado)"}
+                </p>
+                {queueHealth && (
+                    <div className={`mb-4 rounded-lg border px-3 py-2 text-xs ${alertBoxStyle(queueHealth.summary)}`}>
+                        {alertBoxMessage(queueHealth.summary, formatPeriodLabel(periodMinutes))}
+                    </div>
+                )}
 
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <MiniStat
@@ -302,4 +322,35 @@ function formatPeriodLabel(minutes: number): string {
     if (minutes === 60) return "1h";
     if (minutes === 1440) return "24h";
     return `${minutes}m`;
+}
+
+function formatLastUpdated(ts: number): string {
+    if (!ts) return "—";
+    return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function alertBoxMessage(
+    summary: { failureRate: number; pendingNow: number; failed15m: number },
+    period: string
+): string {
+    if (summary.failureRate > 0.05) {
+        return `Crítico: failure rate acima de 5% na janela ${period}. Investigue imediatamente.`;
+    }
+    if (summary.pendingNow > 1000) {
+        return `Crítico: backlog de fila acima de 1000 jobs pendentes.`;
+    }
+    if (summary.failureRate > 0.02 || summary.pendingNow > 200) {
+        return `Atenção: failure rate > 2% ou backlog > 200 (failed=${summary.failed15m}, pending=${summary.pendingNow}).`;
+    }
+    return "Saúde estável: sem alertas ativos pelos thresholds padrão.";
+}
+
+function alertBoxStyle(summary: { failureRate: number; pendingNow: number }): string {
+    if (summary.failureRate > 0.05 || summary.pendingNow > 1000) {
+        return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-900/10 dark:text-red-400";
+    }
+    if (summary.failureRate > 0.02 || summary.pendingNow > 200) {
+        return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-400";
+    }
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/10 dark:text-emerald-400";
 }
