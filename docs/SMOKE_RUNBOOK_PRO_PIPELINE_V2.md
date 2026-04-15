@@ -1,5 +1,7 @@
 # Smoke Runbook - PRO Pipeline V2
 
+Decisões de arquitetura (Hobby vs escala, wake + scheduler, limites honestos): [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
+
 ## Objetivo
 Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `incoming` enfileira rápido
@@ -13,10 +15,12 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `CRON_SECRET` configurado
 - `ANTHROPIC_API_KEY` válido
 - `INBOUND_DEDUP_WINDOW_SECONDS` (opcional, default `20`)
+- **Wake (local):** `NEXT_PUBLIC_APP_URL` (ex.: `http://localhost:3000`) ou `CHATBOT_QUEUE_WAKE_URL`; em Vercel usa-se `VERCEL_URL` automaticamente. Opcional: `CHATBOT_QUEUE_WAKE_ENABLED=0` para forçar só scheduler.
 - rota `GET /api/chatbot/process-queue` acessível com header:
   - `Authorization: Bearer <CRON_SECRET>`
 
 ## Modo Hobby (sem cron por minuto)
+- **Wake:** com `CHATBOT_QUEUE_ENABLED=1` e wake ligado (default), o `incoming` agenda `GET /api/chatbot/process-queue` após responder ao Meta (`after()`). Defina **`NEXT_PUBLIC_APP_URL`** (ou `CHATBOT_QUEUE_WAKE_URL` / deploy na Vercel com `VERCEL_URL`) e **`CRON_SECRET`** para o wake funcionar em dev/local.
 - No plano Hobby, execute o worker manualmente:
   - chamar `GET /api/chatbot/process-queue` apos cada mensagem de teste.
 - Para operação contínua no Hobby, use scheduler externo (cron-job.org/UptimeRobot) chamando:

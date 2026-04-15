@@ -8,7 +8,7 @@ Este ficheiro descreve **a estrutura real do repositório**, **fluxo entre módu
 
 | Ficheiro | Uso |
 |----------|-----|
-| [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | Princípios, fases 0–3, tetos externos, critérios de aceite |
+| [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | **Decisões canónicas:** princípios, arquitetura por horizonte (Hobby / médio prazo / escala), gatilho wake + scheduler, fases 0–3, tetos externos, limites honestos |
 | Este ficheiro | Árvore de código, responsabilidades, fluxo atual vs alvo, checklist por ficheiro |
 
 ---
@@ -46,7 +46,7 @@ Revisar e dividir ownership antes do primeiro cliente real em produção.
 | Item | Responsible | Accountable | Consulted | Informed |
 |------|-------------|-------------|-----------|----------|
 | Migração idempotência fila `(company_id, message_id)` | Backend Plataforma | Backend Plataforma (Tech Lead) | Produto Chatbot, SRE/DevOps | Suporte/CS |
-| Cron/worker produção (`process-queue`) | Backend Plataforma | SRE/DevOps (Tech Lead) | Produto Chatbot | Suporte/CS |
+| Cron/worker produção (`process-queue`) + **wake** pós-enqueue (quando implementado) | Backend Plataforma | SRE/DevOps (Tech Lead) | Produto Chatbot | Suporte/CS |
 | Alertas e thresholds | SRE/DevOps | SRE/DevOps (Tech Lead) | Backend Plataforma | Produto Chatbot |
 | Regressão Starter (gate de merge) | Produto Chatbot | Produto Chatbot (Lead) | Backend Plataforma | Suporte/CS |
 | Go/No-Go de release | Backend Plataforma | Produto Chatbot (Lead) | SRE/DevOps | Suporte/CS |

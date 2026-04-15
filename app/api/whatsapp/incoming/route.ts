@@ -4,18 +4,20 @@
  * Webhook da Meta WhatsApp Cloud API.
  *
  * GET  → verificação do webhook (hub.challenge)
- * POST → processa mensagens com await e retorna 200 após processamento.
- *        processInboundMessage é aguardado para garantir que o Lambda
- *        não seja congelado antes de concluir o fluxo do chatbot.
+ * POST → valida assinatura, persiste inbound e responde **200** ao Meta.
+ *        Com `CHATBOT_QUEUE_ENABLED=1`, enfileira em `chatbot_queue` e agenda
+ *        **wake** (`after()` → `GET /api/chatbot/process-queue`) para não depender
+ *        só do scheduler. Sem fila, ainda chama `processInboundMessage` inline.
  *
  * Deduplicação: INSERT em whatsapp_messages com unique index em provider_message_id.
  * Se o Meta reenviar o mesmo waId (retry), o INSERT falha com 23505 e é ignorado.
  *
  * Pipeline assíncrono PRO: quando `CHATBOT_QUEUE_ENABLED=1`, o inbound é enfileirado
- * em `chatbot_queue` e processado pelo worker/cron com retry automático.
+ * em `chatbot_queue` e processado pelo worker (wake imediato + cron/scheduler backup).
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
@@ -25,6 +27,8 @@ import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
 const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
+/** `CHATBOT_QUEUE_WAKE_ENABLED=0` desliga o disparo assíncrono do worker (ex.: testes). */
+const CHATBOT_QUEUE_WAKE_ENABLED = process.env.CHATBOT_QUEUE_WAKE_ENABLED !== "0";
 const INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
 
 const INCOMING_RATE_LIMIT = 180;
@@ -81,6 +85,60 @@ function getPositiveIntEnv(name: string, fallback: number): number {
     const value = Number(raw);
     if (!Number.isFinite(value) || value < 1) return fallback;
     return Math.floor(value);
+}
+
+/**
+ * Base URL para o wake HTTP do worker (`GET /api/chatbot/process-queue`).
+ * Ordem: `CHATBOT_QUEUE_WAKE_URL` → `APP_INTERNAL_URL` → `NEXT_PUBLIC_APP_URL` → `VERCEL_URL` (só em deploy Vercel).
+ */
+function resolveQueueWorkerWakeOrigin(): string | null {
+    const direct =
+        process.env.CHATBOT_QUEUE_WAKE_URL?.trim() ||
+        process.env.APP_INTERNAL_URL?.trim() ||
+        process.env.NEXT_PUBLIC_APP_URL?.trim();
+    if (direct) {
+        const trimmed = direct.replace(/\/+$/, "");
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        return `https://${trimmed}`;
+    }
+    const vercel = process.env.VERCEL_URL?.trim();
+    if (!vercel) return null;
+    const host = vercel.replace(/^https?:\/\//, "").split("/")[0]?.replace(/\/+$/, "") ?? "";
+    return host ? `https://${host}` : null;
+}
+
+/**
+ * Agenda `GET /api/chatbot/process-queue` após a resposta ao Meta (`after()`), para não depender só do scheduler.
+ */
+function scheduleQueueWorkerWake(): void {
+    if (!CHATBOT_QUEUE_WAKE_ENABLED) return;
+
+    const origin = resolveQueueWorkerWakeOrigin();
+    const secret = process.env.CRON_SECRET?.trim();
+    if (!origin || !secret) {
+        if (process.env.NODE_ENV === "development") {
+            console.warn(
+                "[wa/incoming] wake skipped: define CRON_SECRET e uma base URL " +
+                    "(CHATBOT_QUEUE_WAKE_URL | APP_INTERNAL_URL | NEXT_PUBLIC_APP_URL ou deploy na Vercel com VERCEL_URL)"
+            );
+        }
+        return;
+    }
+
+    const url = `${origin}/api/chatbot/process-queue`;
+    after(async () => {
+        try {
+            const res = await fetch(url, {
+                method: "GET",
+                headers: { authorization: `Bearer ${secret}` },
+            });
+            if (!res.ok) {
+                console.warn("[wa/incoming] wake HTTP", res.status, res.statusText);
+            }
+        } catch (err: unknown) {
+            console.warn("[wa/incoming] wake fetch failed:", err instanceof Error ? err.message : err);
+        }
+    });
 }
 
 async function emitInboundDedupMetric(companyId: string, threadId: string, reason: string) {
@@ -505,6 +563,11 @@ async function enqueueInboundIfNeeded(params: {
 
     if (queueErr && (queueErr as { code?: string }).code !== "23505") {
         console.error("[wa/incoming] queue insert error:", queueErr.message);
+        return;
+    }
+
+    if (!queueErr) {
+        scheduleQueueWorkerWake();
     }
 }
 

@@ -112,6 +112,7 @@ before(() => {
     process.env.WHATSAPP_APP_SECRET = "test-app-secret";
     process.env.CRON_SECRET = "cron-test-secret";
     process.env.CHATBOT_QUEUE_ENABLED = "1";
+    process.env.CHATBOT_QUEUE_WAKE_ENABLED = "0";
 
     const root = join(__dirname, "..", "..");
     const adminPath = join(root, "lib", "supabase", "admin.js");

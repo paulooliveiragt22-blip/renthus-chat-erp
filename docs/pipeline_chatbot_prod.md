@@ -15,6 +15,16 @@ Relacionado: [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (fases, SLOs), [`structure_c
 
 Todas convergem em **`processInboundMessage`** (`lib/chatbot/processMessage.ts`).
 
+### Gatilho do worker (decisão alinhada a [`CHATBOT_PROD.md`](./CHATBOT_PROD.md))
+
+| Peça | Função |
+|------|--------|
+| **Wake imediato** (alvo) | Após `enqueue` bem-sucedido no webhook, disparar **assíncrono** o `GET /api/chatbot/process-queue` com `Authorization: Bearer <CRON_SECRET>` para reduzir latência sem esperar o scheduler. |
+| **Scheduler** | **Backup**: Vercel Cron (frequência conforme plano) e/ou serviço externo no Hobby; cobre falha do wake, burst e jobs presos. |
+| **Worker** | Uma invocação deve **processar em loop limitado** (batch + tempo) até esgotar `maxDuration` ou fila vazia no lote claimado. |
+
+*Nota:* o wake está em `incoming/route.ts` (`scheduleQueueWorkerWake`); se URL/secret faltarem, o scheduler continua sendo o único gatilho útil — ver runbook.
+
 ---
 
 ## Escopo desta execução

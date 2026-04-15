@@ -2,6 +2,8 @@
 
 Documento de decisão e checklist para o time executar. Alinhado ao código atual (`processInboundMessage`, `chatbot_queue`, motor em `lib/chatbot/`).
 
+**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → fases 0–3 → riscos e limites honestos.
+
 ---
 
 ## Objetivo
@@ -12,9 +14,66 @@ Suportar **muitas empresas e muitos pedidos em paralelo** sem acoplar o webhook 
 
 ---
 
+## Arquitetura alvo (referência) — Webhook → fila → worker → pipeline → resposta
+
+Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
+
+1. **Webhook** (`POST` Meta): validação, persistência mínima, **dedup** de curta janela (texto), **enqueue** em `chatbot_queue`, **200** rápido.
+2. **Fila:** Postgres (`chatbot_queue`) com **claim exclusivo** (RPC / equivalente) e idempotência **`(company_id, message_id)`** onde aplicável.
+3. **Worker** (`GET /api/chatbot/process-queue` autenticado): claim → **loop limitado** (batch + tempo dentro do `maxDuration`) → `processInboundMessage` → estado `done` / `failed` / retry.
+4. **Pipeline:** `lib/chatbot/processMessage.ts` (PRO V2 quando flags ativas; senão legado).
+5. **Resposta:** envio WhatsApp dentro do pipeline / camadas já existentes; manter idempotência de **efeito** (pedido, outbound).
+
+**Gatilho do worker (decisão de produto, não detalhe de deploy):**
+
+| Modo | Papel |
+|------|--------|
+| **Caminho feliz** | **Wake imediato** após enqueue (HTTP interno assíncrono / fire-and-forget para `process-queue` com o mesmo `CRON_SECRET`) para não depender do próximo tick do scheduler. |
+| **Rede de segurança** | **Scheduler** (Vercel Cron quando o plano permitir frequência útil, ou serviço externo no Hobby) para jobs presos, falhas intermitentes do wake, ou burst. |
+
+*Estado da implementação:* wake pós-enqueue está em `app/api/whatsapp/incoming/route.ts` via `after()` → `GET /api/chatbot/process-queue` com `Authorization: Bearer <CRON_SECRET>`. O scheduler externo/cron continua como **rede de segurança**. Desligar: `CHATBOT_QUEUE_WAKE_ENABLED=0`.
+
+---
+
+## Arquitetura por horizonte (decisão)
+
+### Agora — **Vercel Hobby** (melhor esforço, uma pessoa)
+
+- Manter **Postgres como fila** (`chatbot_queue`).
+- **Worker HTTP** (`process-queue`) com **auth forte** (`CRON_SECRET`), **fail-fast** em claim crítico em produção quando aplicável.
+- **Scheduler externo** (ex.: cron-job.org) na **menor cadência que o plano permitir** como **backup** obrigatório enquanto o cron nativo não for viável a cada minuto.
+- **Loop limitado** no worker: drenar só o que couber em **tempo + batch** por invocação (nunca “loop infinito” num único request serverless).
+- **Concorrência:** claim atômico obrigatório; múltiplas invocações (wake + cron) são **esperadas** — idempotência + lock no claim são o que evita custo/efeito duplicado.
+- **Expectativa honesta:** Hobby não entrega SLA de chat “tempo real”; entrega **arquitetura correta com latência limitada pelo gatilho + IA**.
+
+### Médio prazo — tráfego real / saída do Hobby
+
+- Introduzir **wake imediato** após enqueue (caminho feliz).
+- Preferir **cron Vercel com frequência útil** quando o plano Pro permitir, **em conjunto** com wake (scheduler deixa de ser único motor).
+- Avaliar **fila com entrega** (ex.: QStash / Inngest / SQS) **só** quando métricas ou operação justificarem (profundidade, idade p95, falhas de poll, custo humano).
+- **Fairness simples por `company_id`** (quota de jobs por ciclo ou por invocação) **antes** de investir em broker pesado — mitiga *noisy neighbor* com pouco código.
+
+### Escala alvo — **~100 empresas × ~10k pedidos/mês** (~1M pedidos/mês agregado)
+
+- Tratar **mensagens + rodadas de IA** como driver de carga, não “pedidos/mês” médio.
+- **Tetos externos:** Anthropic (quota/RPM), Meta (rate limit / número), Postgres (contenção fila + OLTP).
+- Evolução provável: **fila dedicada ou particionamento** da tabela de jobs + **pool de workers** com **concurrency limit** + **orçamento de IA** (timeout, max tool rounds, circuito em 429).
+- **Postgres único** como fila + OLTP tem **teto**; acima dele, decisão consciente (réplica leitura, particionar, ou sair para fila gerenciada) com **ADR** e métricas.
+
+---
+
+## Limites conhecidos (auto-crítica; não superestimar)
+
+- **Fila não aumenta capacidade de IA** — só desloca trabalho e protege o webhook; latência de modelo continua a dominar muitos casos.
+- **Dedup de texto** cobre bem **duplo envio rápido / retry**; **não** substitui idempotência de **efeito** (criar pedido, cobrar, template) se outra camada reexecutar.
+- **RPC claim atômico** é necessário, não suficiente: sob muitos consumers, o gargalo migra para **hot rows**, índices e taxa de `UPDATE` na fila.
+- **Scheduler HTTP como único motor** gera UX de **até um intervalo entre mensagens**; por isso o wake + scheduler como rede de segurança é decisão explícita acima.
+
+---
+
 ## Princípios (não reabrir na implementação)
 
-1. **Webhook não executa Anthropic nem o motor completo do chatbot.** Só valida, persiste o mínimo, enfileira; HTTP rápido.
+1. **Webhook não executa Anthropic nem o motor completo do chatbot** quando **`CHATBOT_QUEUE_ENABLED=1`:** só valida, persiste o mínimo, enfileira; HTTP rápido. Com fila desligada, o comportamento legado (processar no mesmo request) pode existir para transição — não é o alvo de produção PRO.
 2. **Idempotência obrigatória** no processamento do inbound (mínimo: `message_id` do provedor + escopo **empresa** + thread). Duplicata ≠ segundo pedido ≠ segunda resposta. Se existirem **dois ingressos** (ex.: Meta + Twilio), o desenho do idempotente tem de cobrir **o mesmo evento de negócio** ou aceitar risco explícito documentado.
 3. **Motor de domínio** permanece em `lib/chatbot/` (ex.: `processInboundMessage` / pipeline); muda apenas **quem invoca** (worker após dequeue).
 4. **Pedidos**: mutação só por **RPC aprovada** (`create_order_with_items`, etc.). Sem SQL solto no worker para “consertar pedido”.
@@ -51,8 +110,8 @@ Suportar **muitas empresas e muitos pedidos em paralelo** sem acoplar o webhook 
 | Ação | Nota |
 |------|------|
 | `POST` webhook (ex.: `app/api/whatsapp/incoming`) | Após validação: **insert job** (`chatbot_queue` ou RPC equivalente), responder **200** sem `await` do motor |
-| Worker | `app/api/chatbot/process-queue` (ou job dedicado): `claim` com `FOR UPDATE SKIP LOCKED`, processar, marcar `done` / `failed`, **backoff** em falha; **poll com jitter** para não martelar o DB |
-| **Execução do worker** | Preferir **processo/cron estável** com tempo suficiente para drenar lotes. Em **serverless**, evitar “loop infinito” num único request: limitar jobs por invocação ou usar worker dedicado (VM/container) se o timeout for gargalo |
+| Worker | `app/api/chatbot/process-queue` (ou job dedicado): `claim` atômico (RPC preferencial), processar, marcar `done` / `failed`, **backoff** em falha |
+| **Execução do worker** | **Wake** após enqueue (caminho feliz) + **scheduler** como backup. Em **serverless**: **loop limitado** por batch e por tempo dentro de `maxDuration`; evitar “loop infinito”. Cron HTTP **esparso** sozinho não é arquitetura final para UX de chat |
 | Idempotência | Unique ou guard clause em **(empresa, `message_id`)** antes de efeitos colaterais (pedido, outbound) |
 | Índices / fila | Garantir **índice alinhado ao `claim`** (estado + ordenação); plano de **retenção/arquivamento** de jobs `done` antes da tabela virar problema operacional |
 
@@ -114,7 +173,8 @@ Suportar **muitas empresas e muitos pedidos em paralelo** sem acoplar o webhook 
 
 - “Degradação automática para regex/Starter” na mesma entrega da Fase 1 — segundo motor de bugs/testes.
 - “Resumo com LLM” antes de **cap + estado de pedido** — custo e complexidade sem necessidade comprovada.
-- **Fairness por empresa** antes de existir **métrica** de um tenant a degradar os outros — começar por limite global e idade da fila.
+- **Kafka / microserviço de fila** antes de **wake + loop limitado + métricas de profundidade/idade p95** — overengineering operacional.
+- **Fairness por empresa:** no Hobby pode ficar só **limite global** + observabilidade; no **médio prazo / multi-tenant denso**, introduzir **quota simples por `company_id`** no claim ou no batch **antes** de broker externo (ver “Arquitetura por horizonte”).
 
 ---
 
@@ -130,12 +190,12 @@ Manter fronteiras claras sem microserviço:
 
 ## Referências no repositório
 
-- Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`
-- Fila: `app/api/chatbot/process-queue/route.ts`, migrações `chatbot_queue` / RPC `claim_*`
-- Ingresso WhatsApp: `app/api/whatsapp/incoming/route.ts` (hoje pode ainda aguardar o motor — alvo da Fase 1)
+- Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/`
+- Fila: `app/api/chatbot/process-queue/route.ts`, migrações `chatbot_queue` / RPC `claim_chatbot_queue_jobs`
+- Ingresso WhatsApp: `app/api/whatsapp/incoming/route.ts` — com `CHATBOT_QUEUE_ENABLED=1`, **enqueue e retorno rápido**; processamento pesado no worker
 
 ---
 
 ## Decisão em uma linha
 
-**Executar Fase 0 + Fase 1 já; Fase 2 em seguida; horizontalizar workers com tetos claros; fila externa e microserviços só com evidência em métrica ou operação.** Documentar exceções em ADR se desviarem deste arquivo.
+**Postgres como fila primeiro; worker com claim exclusivo + idempotência forte + loop limitado; wake imediato como caminho feliz e scheduler como rede de segurança; fila gerenciada / particionamento / workers dedicados só com métrica de dor ou meta de escala (100×10k).** Documentar exceções em ADR se desviarem deste arquivo.

@@ -45,6 +45,11 @@
 - **Correcao aplicada:** adicionada suite de regressao critica (`tests/pro/proPipeline.failure-regression.test.ts`) e E2E de fila (`tests/integration/chatbot-queue-e2e.test.ts`) cobrindo `incoming -> chatbot_queue -> process-queue -> processInboundMessage`.
 - **Status:** resolvido.
 
+### 6) Wake imediato apos enqueue (caminho feliz do worker)
+- **Doc de decisao:** `docs/CHATBOT_PROD.md` (secao gatilho do worker + horizonte Hobby).
+- **Implementacao:** `app/api/whatsapp/incoming/route.ts` — apos insert OK na `chatbot_queue`, `scheduleQueueWorkerWake()` usa `after()` do Next.js e `fetch` autenticado para `GET /api/chatbot/process-queue`. Variavel `CHATBOT_QUEUE_WAKE_ENABLED=0` desliga (ex.: testes).
+- **Status:** resolvido.
+
 ## Checklist minimo de homologacao/producao (operacional)
 - [ ] `CHATBOT_QUEUE_ENABLED=1` no ambiente.
 - [ ] `CRON_SECRET` definido e cron chamando `GET /api/chatbot/process-queue` com `Authorization: Bearer`.
