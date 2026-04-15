@@ -1,5 +1,5 @@
 import type { ProcessMessageParams } from "@/lib/chatbot/types";
-import { BasicAiServiceAdapter } from "../adapters/ai/ai.service.basic";
+import { FullAiServiceAdapter } from "../adapters/ai/ai.service.full";
 import { ConsoleLoggerAdapter } from "../adapters/logger/logger.console";
 import { ConsoleMetricsAdapter } from "../adapters/metrics/metrics.console";
 import { LegacyOrderServiceAdapter } from "../adapters/order/order.service.legacy";
@@ -15,7 +15,7 @@ export function makeProPipelineDependencies(params: ProcessMessageParams): Pipel
         metrics: new ConsoleMetricsAdapter(),
         logger: new ConsoleLoggerAdapter(),
         intentService: new ProIntentClassifierService(),
-        aiService: new BasicAiServiceAdapter(),
+        aiService: new FullAiServiceAdapter(params.admin),
         orderService: new LegacyOrderServiceAdapter(params.admin),
     };
 }
