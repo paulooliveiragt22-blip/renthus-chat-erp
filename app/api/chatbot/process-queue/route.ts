@@ -24,7 +24,7 @@ export const maxDuration = 60;
 
 const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 3;
-const INBOUND_COALESCE_WINDOW_SECONDS = 20;
+const INBOUND_COALESCE_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
 
 const REACTIVATE_MSG =
     "😔 No momento não há atendentes disponíveis.\n" +
@@ -56,6 +56,7 @@ export async function GET(req: Request) {
     const jobIds: string[] = (claimed ?? []).map((r: any) => r.id);
     if (!jobIds.length) {
         await cleanupOldJobs(admin);
+        await emitQueueMetrics({ processed: 0, failed: 0, coalesced: 0 });
         return NextResponse.json({ ok: true, processed: 0, ms: Date.now() - t0 });
     }
 
@@ -115,6 +116,7 @@ export async function GET(req: Request) {
     }
 
     await cleanupOldJobs(admin);
+    await emitQueueMetrics({ processed, failed, coalesced });
 
     return NextResponse.json({
         ok: true,
@@ -138,6 +140,7 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
 
     if (!jobs?.length) {
         await cleanupOldJobs(admin);
+        await emitQueueMetrics({ processed: 0, failed: 0, coalesced: 0 });
         return NextResponse.json({ ok: true, processed: 0, ms: Date.now() - t0 });
     }
 
@@ -200,6 +203,7 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
     }
 
     await cleanupOldJobs(admin);
+    await emitQueueMetrics({ processed, failed, coalesced });
     return NextResponse.json({ ok: true, processed, coalesced, failed, ms: Date.now() - t0 });
 }
 
@@ -209,7 +213,7 @@ async function processJob(
     admin: ReturnType<typeof createAdminClient>,
     job: any
 ): Promise<void> {
-    const { company_id, thread_id, phone_e164, message_id, body_text, profile_name, metadata } = job;
+    const { company_id, thread_id, phone_e164, message_id, body_text, profile_name } = job;
 
     // Carrega credenciais do canal da empresa
     const { data: channelRow } = await admin
@@ -290,8 +294,9 @@ async function getHandoverTimeout(
         .eq("is_active", true)
         .maybeSingle();
 
-    const minutes = Number((data?.config as any)?.handover_timeout_minutes ?? 5);
-    const value   = isNaN(minutes) || minutes < 1 ? 5 : minutes;
+    const cfg = data?.config as { handover_timeout_minutes?: unknown } | undefined;
+    const minutes = Number(cfg?.handover_timeout_minutes ?? 5);
+    const value   = Number.isNaN(minutes) || minutes < 1 ? 5 : minutes;
     handoverTimeoutCache.set(companyId, { value, ts: Date.now() });
     return value;
 }
@@ -381,4 +386,40 @@ async function hasRecentEquivalentProcessed(
         if (key && key === coalesceKey) return true;
     }
     return false;
+}
+
+function getPositiveIntEnv(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 1) return fallback;
+    return Math.floor(value);
+}
+
+async function emitQueueMetrics(counts: { processed: number; failed: number; coalesced: number }) {
+    const payload = {
+        source: "chatbot_process_queue",
+        ts: Date.now(),
+        ...counts,
+    };
+
+    const ingestUrl = process.env.METRICS_INGEST_URL;
+    if (ingestUrl) {
+        try {
+            const headers: Record<string, string> = { "content-type": "application/json" };
+            if (process.env.METRICS_INGEST_TOKEN) {
+                headers.authorization = `Bearer ${process.env.METRICS_INGEST_TOKEN}`;
+            }
+            await fetch(ingestUrl, {
+                method: "POST",
+                headers,
+                body: JSON.stringify(payload),
+            });
+            return;
+        } catch {
+            // fallback para console abaixo
+        }
+    }
+
+    console.info("[metric] chatbot_process_queue", payload);
 }

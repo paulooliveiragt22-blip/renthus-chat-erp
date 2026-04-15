@@ -12,6 +12,7 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `CHATBOT_QUEUE_ENABLED=1`
 - `CRON_SECRET` configurado
 - `ANTHROPIC_API_KEY` válido
+- `INBOUND_DEDUP_WINDOW_SECONDS` (opcional, default `20`)
 - rota `GET /api/chatbot/process-queue` acessível com header:
   - `Authorization: Bearer <CRON_SECRET>`
 
@@ -85,6 +86,12 @@ Conferir:
 1. Repetir a mesma mensagem inbound rapidamente (2x).
 2. Verificar `whatsapp_messages` outbound:
    - não repetir texto bot idêntico em janela curta
+3. Verificar retorno do worker:
+   - `processed=1` no cenário duplicado
+   - `coalesced` pode ficar `0` (dedup no enqueue) ou `1` (coalescing no worker)
+4. Verificar métrica/log:
+   - `[metric] wa_incoming_dedup` quando o duplicado é barrado no webhook
+   - `[metric] chatbot_process_queue` com `processed/failed/coalesced`
 
 **Aprovado se:**
 - sem duplicidade visível ao cliente
