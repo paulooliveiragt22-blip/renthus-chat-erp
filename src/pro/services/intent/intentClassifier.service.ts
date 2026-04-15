@@ -2,9 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Intent, IntentDecision, PipelineContext } from "@/src/types/contracts";
 import type { IntentService, IntentServiceInput } from "./intent.types";
 
-const BTN_CATALOG = new Set(["btn_catalog", "1"]);
-const BTN_STATUS = new Set(["btn_status", "2"]);
-const BTN_SUPPORT = new Set(["btn_support", "3"]);
+const BTN_CATALOG = new Set(["btn_catalog"]);
+const BTN_STATUS = new Set(["btn_status"]);
+const BTN_SUPPORT = new Set(["btn_support"]);
 
 const HUMAN_RE = /\b(?:atendente|humano|suporte|falar\s+com)\b/iu;
 const STATUS_RE = /\b(?:status|cad[eê]|onde\s+est[aá]|acompanhar|previs[aã]o)\b/iu;

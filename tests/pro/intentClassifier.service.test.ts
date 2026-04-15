@@ -59,6 +59,19 @@ describe("ProIntentClassifierService", () => {
         assert.equal(out.reasonCode, "button_id_match");
     });
 
+    it("nao trata resposta numerica solta como botao de status", async () => {
+        const prev = process.env.ANTHROPIC_API_KEY;
+        delete process.env.ANTHROPIC_API_KEY;
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext(),
+            userText: "2",
+        });
+        if (prev) process.env.ANTHROPIC_API_KEY = prev;
+        assert.equal(out.intent, "unknown");
+        assert.equal(out.reasonCode, "fallback_unknown");
+    });
+
     it("cai em unknown quando ambíguo e sem chave de IA", async () => {
         const prev = process.env.ANTHROPIC_API_KEY;
         delete process.env.ANTHROPIC_API_KEY;
