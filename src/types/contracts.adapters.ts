@@ -1,17 +1,15 @@
 import type {
-    AiOrderAddress,
-    AiOrderCanonicalDraft,
-    AiOrderItem,
-    PrepareDraftToolInput,
+    DraftAddress,
+    DraftItem,
+    OrderDraft,
 } from "./contracts";
 import type {
     AiOrderAddressLegacy,
     AiOrderCanonicalDraftLegacy,
     AiOrderItemLegacy,
-    PrepareDraftToolInputLegacy,
 } from "./contracts.legacy";
 
-export function toCanonicalAddress(legacy: AiOrderAddressLegacy): AiOrderAddress {
+export function toCanonicalAddress(legacy: AiOrderAddressLegacy): DraftAddress {
     return {
         logradouro: legacy.logradouro,
         numero: legacy.numero,
@@ -26,7 +24,7 @@ export function toCanonicalAddress(legacy: AiOrderAddressLegacy): AiOrderAddress
     };
 }
 
-export function toLegacyAddress(canonical: AiOrderAddress): AiOrderAddressLegacy {
+export function toLegacyAddress(canonical: DraftAddress): AiOrderAddressLegacy {
     return {
         logradouro: canonical.logradouro,
         numero: canonical.numero,
@@ -41,7 +39,7 @@ export function toLegacyAddress(canonical: AiOrderAddress): AiOrderAddressLegacy
     };
 }
 
-export function toCanonicalItem(legacy: AiOrderItemLegacy): AiOrderItem {
+export function toCanonicalItem(legacy: AiOrderItemLegacy): DraftItem {
     return {
         produtoEmbalagemId: legacy.produto_embalagem_id,
         productName: legacy.product_name,
@@ -53,7 +51,7 @@ export function toCanonicalItem(legacy: AiOrderItemLegacy): AiOrderItem {
     };
 }
 
-export function toLegacyItem(canonical: AiOrderItem): AiOrderItemLegacy {
+export function toLegacyItem(canonical: DraftItem): AiOrderItemLegacy {
     return {
         produto_embalagem_id: canonical.produtoEmbalagemId,
         product_name: canonical.productName,
@@ -65,7 +63,7 @@ export function toLegacyItem(canonical: AiOrderItem): AiOrderItemLegacy {
     };
 }
 
-export function toCanonicalDraft(legacy: AiOrderCanonicalDraftLegacy): AiOrderCanonicalDraft {
+export function toCanonicalDraft(legacy: AiOrderCanonicalDraftLegacy): OrderDraft {
     return {
         items: legacy.items.map(toCanonicalItem),
         address: legacy.address ? toCanonicalAddress(legacy.address) : null,
@@ -80,10 +78,11 @@ export function toCanonicalDraft(legacy: AiOrderCanonicalDraftLegacy): AiOrderCa
         grandTotal: legacy.grand_total,
         pendingConfirmation: legacy.pending_confirmation,
         addressResolutionNote: legacy.address_resolution_note ?? null,
+        version: 1,
     };
 }
 
-export function toLegacyDraft(canonical: AiOrderCanonicalDraft): AiOrderCanonicalDraftLegacy {
+export function toLegacyDraft(canonical: OrderDraft): AiOrderCanonicalDraftLegacy {
     return {
         items: canonical.items.map(toLegacyItem),
         address: canonical.address ? toLegacyAddress(canonical.address) : null,
@@ -98,64 +97,6 @@ export function toLegacyDraft(canonical: AiOrderCanonicalDraft): AiOrderCanonica
         grand_total: canonical.grandTotal,
         pending_confirmation: canonical.pendingConfirmation,
         address_resolution_note: canonical.addressResolutionNote ?? null,
-    };
-}
-
-export function toCanonicalPrepareDraftInput(
-    legacy: PrepareDraftToolInputLegacy
-): PrepareDraftToolInput {
-    return {
-        items: legacy.items.map((i) => ({
-            produtoEmbalagemId: i.produto_embalagem_id,
-            quantity: i.quantity,
-        })),
-        address: legacy.address
-            ? {
-                logradouro: legacy.address.logradouro,
-                numero: legacy.address.numero,
-                bairro: legacy.address.bairro,
-                complemento: legacy.address.complemento ?? null,
-                apelido: legacy.address.apelido ?? null,
-                cidade: legacy.address.cidade ?? null,
-                estado: legacy.address.estado ?? null,
-                cep: legacy.address.cep ?? null,
-            }
-            : null,
-        addressRaw: legacy.address_raw ?? null,
-        savedAddressId: legacy.saved_address_id ?? null,
-        useSavedAddress: legacy.use_saved_address ?? false,
-        paymentMethod: legacy.payment_method ?? null,
-        changeFor: legacy.change_for ?? null,
-        readyForConfirmation: legacy.ready_for_confirmation ?? false,
-    };
-}
-
-export function toLegacyPrepareDraftInput(
-    canonical: PrepareDraftToolInput
-): PrepareDraftToolInputLegacy {
-    return {
-        items: canonical.items.map((i) => ({
-            produto_embalagem_id: i.produtoEmbalagemId,
-            quantity: i.quantity,
-        })),
-        address: canonical.address
-            ? {
-                logradouro: canonical.address.logradouro,
-                numero: canonical.address.numero,
-                bairro: canonical.address.bairro,
-                complemento: canonical.address.complemento ?? null,
-                apelido: canonical.address.apelido ?? null,
-                cidade: canonical.address.cidade ?? null,
-                estado: canonical.address.estado ?? null,
-                cep: canonical.address.cep ?? null,
-            }
-            : null,
-        address_raw: canonical.addressRaw ?? null,
-        saved_address_id: canonical.savedAddressId ?? null,
-        use_saved_address: canonical.useSavedAddress ?? false,
-        payment_method: canonical.paymentMethod ?? null,
-        change_for: canonical.changeFor ?? null,
-        ready_for_confirmation: canonical.readyForConfirmation ?? false,
     };
 }
 
