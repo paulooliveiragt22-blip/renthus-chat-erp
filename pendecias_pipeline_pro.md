@@ -42,8 +42,15 @@
 - **Onde quebra:** hoje os casos criticos estao fortes em unit, mas falta E2E de operacao real.
 - **Risco:** regressao de integracao so aparecer em producao.
 - **Correcao planejada:** suite de teste de contrato entre webhook, queue worker e pipeline PRO V2.
-- **Correcao aplicada:** adicionada suite de regressao focada em falhas criticas em `tests/pro/proPipeline.failure-regression.test.ts`.
-- **Status:** parcialmente resolvido (falta E2E full de fila em ambiente de integracao).
+- **Correcao aplicada:** adicionada suite de regressao critica (`tests/pro/proPipeline.failure-regression.test.ts`) e E2E de fila (`tests/integration/chatbot-queue-e2e.test.ts`) cobrindo `incoming -> chatbot_queue -> process-queue -> processInboundMessage`.
+- **Status:** resolvido.
+
+## Checklist minimo de homologacao/producao (operacional)
+- [ ] `CHATBOT_QUEUE_ENABLED=1` no ambiente.
+- [ ] `CRON_SECRET` definido e cron chamando `GET /api/chatbot/process-queue` com `Authorization: Bearer`.
+- [ ] Logs sem `queue insert error` e sem `job falhou` acima de 1% em janela de 15 min.
+- [ ] `processed` do worker > 0 para mensagens de teste.
+- [ ] Sem duplicidade de outbound para mesma thread/body em janela curta.
 
 ## Testes criticos executados nesta iteracao
 - `IA retornando invalido`

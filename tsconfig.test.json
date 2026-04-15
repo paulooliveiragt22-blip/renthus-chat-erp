@@ -15,6 +15,8 @@
     "lib/billing/computeNextBillingAt.ts",
     "tests/**/*.ts",
     "lib/chatbot/processMessage.ts",
-    "lib/whatsapp/send.ts"
+    "lib/whatsapp/send.ts",
+    "app/api/whatsapp/incoming/route.ts",
+    "app/api/chatbot/process-queue/route.ts"
   ]
 }

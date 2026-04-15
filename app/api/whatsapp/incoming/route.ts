@@ -24,6 +24,7 @@ import { checkRateLimit } from "@/lib/security/rateLimit";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
+const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
 
 const INCOMING_RATE_LIMIT = 180;
 const INCOMING_RATE_WINDOW_MS = 60_000;
@@ -287,6 +288,32 @@ export async function POST(req: NextRequest) {
                         waConfig
                     );
                     // Continua para processInboundMessage normalmente
+                }
+
+                if (CHATBOT_QUEUE_ENABLED) {
+                    const { error: queueErr } = await admin
+                        .from("chatbot_queue")
+                        .insert({
+                            company_id: channel.company_id,
+                            thread_id: threadId,
+                            phone_e164: phoneE164,
+                            message_id: waId,
+                            body_text: bodyText,
+                            profile_name: profileName ?? null,
+                            metadata: {
+                                source: "wa_incoming",
+                                phone_number_id: phoneNumberId,
+                                message_type: msgType,
+                            },
+                            status: "pending",
+                            attempts: 0,
+                            scheduled_at: new Date().toISOString(),
+                        });
+
+                    if (queueErr && (queueErr as { code?: string }).code !== "23505") {
+                        console.error("[wa/incoming] queue insert error:", queueErr.message);
+                    }
+                    continue;
                 }
 
                 // ── Processa chatbot com await (Lambda deve concluir antes do retorno) ──
