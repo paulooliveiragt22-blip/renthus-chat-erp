@@ -19,6 +19,11 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 ## Modo Hobby (sem cron por minuto)
 - No plano Hobby, execute o worker manualmente:
   - chamar `GET /api/chatbot/process-queue` apos cada mensagem de teste.
+- Para operação contínua no Hobby, use scheduler externo (cron-job.org/UptimeRobot) chamando:
+  - método: `GET`
+  - URL: `https://SEU_DOMINIO/api/chatbot/process-queue`
+  - header: `Authorization: Bearer <CRON_SECRET>`
+  - intervalo: `1 minuto`
 - Sequência recomendada:
   1. enviar mensagem no WhatsApp
   2. chamar `process-queue` manual

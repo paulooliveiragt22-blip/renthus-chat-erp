@@ -6,7 +6,7 @@
         },
         {
             "path": "/api/chatbot/process-queue",
-            "schedule": "* * * * *"
+            "schedule": "0 3 * * *"
         }
     ]
 }
