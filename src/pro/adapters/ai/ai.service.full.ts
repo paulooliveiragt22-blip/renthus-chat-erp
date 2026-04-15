@@ -18,6 +18,7 @@ type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
 type IntentMarker = "ok" | "unknown" | null;
 type AnthropicMessage = { role: "user" | "assistant"; content: unknown };
 type ToolResultBlock = { type: "tool_result"; tool_use_id: string; content: string };
+const AI_TIMEOUT_CODE = "AI_TIMEOUT";
 
 const SEARCH_TOOL = {
     name: "search_produtos",
@@ -90,17 +91,42 @@ function shouldEscalate(input: AiServiceInput, marker: IntentMarker): boolean {
     return streak + 1 >= input.context.policies.escalationRule.unknownConsecutive;
 }
 
+function isTimeoutError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const message = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+    const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+    return message.includes(AI_TIMEOUT_CODE) || code === AI_TIMEOUT_CODE;
+}
+
 export class FullAiServiceAdapter implements AiService {
     constructor(private readonly admin: SupabaseClient) {}
 
-    private callModel(client: Anthropic, messages: AnthropicMessage[]) {
-        return client.messages.create({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 900,
-            system: SYSTEM_PROMPT,
-            messages: messages as MessageCreateParams["messages"],
-            tools: [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"],
-        });
+    private async callModel(client: Anthropic, messages: AnthropicMessage[], timeoutMs: number) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(AI_TIMEOUT_CODE), Math.max(timeoutMs, 1000));
+        try {
+            return await client.messages.create(
+                {
+                    model: "claude-haiku-4-5-20251001",
+                    max_tokens: 900,
+                    system: SYSTEM_PROMPT,
+                    messages: messages as MessageCreateParams["messages"],
+                    tools: [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"],
+                },
+                {
+                    signal: controller.signal,
+                } as never
+            );
+        } catch (error) {
+            if (controller.signal.aborted) {
+                const timeoutError = new Error(AI_TIMEOUT_CODE);
+                (timeoutError as { code?: string }).code = AI_TIMEOUT_CODE;
+                throw timeoutError;
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeoutId);
+        }
     }
 
     private toLegacyToolInput(raw: Record<string, unknown>): PrepareDraftToolInputLegacy {
@@ -286,7 +312,7 @@ export class FullAiServiceAdapter implements AiService {
         let updatedDraft: OrderDraft | null = input.draft;
 
         try {
-            let response = await this.callModel(client, messages);
+            let response = await this.callModel(client, messages, input.limits.timeoutMs);
 
             while (response.stop_reason === "tool_use" && toolRoundsUsed < input.limits.maxToolRounds) {
                 toolRoundsUsed += 1;
@@ -303,7 +329,7 @@ export class FullAiServiceAdapter implements AiService {
                     { role: "user", content: round.toolResults },
                 ];
 
-                response = await this.callModel(client, messages);
+                response = await this.callModel(client, messages, input.limits.timeoutMs);
             }
 
             const text = response.content
@@ -314,7 +340,17 @@ export class FullAiServiceAdapter implements AiService {
 
             const { visible, marker } = stripIntentMarker(text);
             return this.buildSuccess(input, visible, marker, toolRoundsUsed, updatedDraft, response.content);
-        } catch {
+        } catch (error) {
+            if (isTimeoutError(error)) {
+                return {
+                    action: "error",
+                    replyText: "A IA demorou para responder. Tente novamente em instantes.",
+                    updatedDraft: input.draft,
+                    updatedHistory: input.history,
+                    signals: { toolRoundsUsed, intentMarker: "unknown" },
+                    errorCode: "AI_TIMEOUT",
+                };
+            }
             return this.buildProviderError(input, toolRoundsUsed);
         }
     }
