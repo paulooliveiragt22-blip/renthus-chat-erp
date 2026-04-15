@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
-export function getCurrentCompanyIdFromCookie() {
-    return cookies().get("renthus_company_id")?.value ?? null;
+export async function getCurrentCompanyIdFromCookie() {
+    const store = await cookies();
+    return store.get("renthus_company_id")?.value ?? null;
 }

@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 export const runtime = "nodejs";
 
 export async function POST() {
-    cookies().set("renthus_company_id", "", {
+    (await cookies()).set("renthus_company_id", "", {
         httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",

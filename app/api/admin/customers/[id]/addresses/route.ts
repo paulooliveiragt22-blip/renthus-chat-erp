@@ -3,12 +3,13 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-    const { admin, companyId } = ctx;
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+    const { id } = await ctx.params;
+    const ctxAuth = await requireCompanyAccess(["owner", "admin", "staff"]);
+    if (!ctxAuth.ok) return NextResponse.json({ error: ctxAuth.error }, { status: ctxAuth.status });
+    const { admin, companyId } = ctxAuth;
 
-    const customerId = String(params.id ?? "").trim();
+    const customerId = String(id ?? "").trim();
     if (!customerId) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -31,12 +32,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ ok: true });
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-    const { admin, companyId } = ctx;
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+    const { id } = await ctx.params;
+    const ctxAuth = await requireCompanyAccess(["owner", "admin", "staff"]);
+    if (!ctxAuth.ok) return NextResponse.json({ error: ctxAuth.error }, { status: ctxAuth.status });
+    const { admin, companyId } = ctxAuth;
 
-    const customerId = String(params.id ?? "").trim();
+    const customerId = String(id ?? "").trim();
     if (!customerId) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
     const body = (await req.json().catch(() => ({}))) as { address_id?: string; action?: string };
@@ -55,12 +57,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-    const { admin, companyId } = ctx;
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+    const { id } = await ctx.params;
+    const ctxAuth = await requireCompanyAccess(["owner", "admin", "staff"]);
+    if (!ctxAuth.ok) return NextResponse.json({ error: ctxAuth.error }, { status: ctxAuth.status });
+    const { admin, companyId } = ctxAuth;
 
-    const customerId = String(params.id ?? "").trim();
+    const customerId = String(id ?? "").trim();
     const addressId = String(req.nextUrl.searchParams.get("address_id") ?? "").trim();
     if (!customerId || !addressId) return NextResponse.json({ error: "ids_required" }, { status: 400 });
 

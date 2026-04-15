@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import {
     ArrowLeft, Building2, CheckCircle2, Loader2, MessageSquare,
@@ -238,8 +238,8 @@ function EditarCredenciaisModal({
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 
-export default function CompanyDetailPage({ params }: { params: { id: string } }) {
-    const { id }      = params;
+export default function CompanyDetailPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = use(params);
     const queryClient = useQueryClient();
     const [tab, setTab]             = useState<"info" | "canais" | "pedidos">("info");
     const [editingInfo, setEditingInfo]   = useState(false);

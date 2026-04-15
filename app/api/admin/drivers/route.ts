@@ -37,21 +37,26 @@ export async function POST(req: Request) {
     const name = String(body.name ?? "").trim();
     if (!name) return NextResponse.json({ error: "name_required" }, { status: 400 });
 
-    const { data, error } = await admin
-        .from("drivers")
-        .insert({
-            company_id: companyId,
+    const { data: driverId, error } = await admin.rpc("rpc_upsert_driver", {
+        p_company_id: companyId,
+        p_payload: {
             name,
-            phone: body.phone?.trim() || null,
-            vehicle: body.vehicle?.trim() || null,
-            plate: body.plate?.trim() || null,
-            notes: body.notes?.trim() || null,
+            phone: body.phone?.trim() ?? "",
+            vehicle: body.vehicle?.trim() ?? "",
+            plate: body.plate?.trim() ?? "",
+            notes: body.notes?.trim() ?? "",
             is_active: body.is_active !== false,
-        })
-        .select("*")
-        .single();
+        },
+    });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const { data, error: selErr } = await admin
+        .from("drivers")
+        .select("*")
+        .eq("id", driverId as string)
+        .eq("company_id", companyId)
+        .single();
+    if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
     return NextResponse.json({ driver: data });
 }
 
@@ -64,23 +69,27 @@ export async function PATCH(req: Request) {
     const id = String(body.id ?? "").trim();
     if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
-    const patch: Record<string, unknown> = {};
-    if (body.name != null) patch.name = String(body.name).trim();
-    if (body.phone !== undefined) patch.phone = body.phone?.trim() || null;
-    if (body.vehicle !== undefined) patch.vehicle = body.vehicle?.trim() || null;
-    if (body.plate !== undefined) patch.plate = body.plate?.trim() || null;
-    if (body.notes !== undefined) patch.notes = body.notes?.trim() || null;
-    if (body.is_active !== undefined) patch.is_active = Boolean(body.is_active);
+    const payload: Record<string, unknown> = { id };
+    if (body.name != null) payload.name = String(body.name).trim();
+    if (body.phone !== undefined) payload.phone = body.phone?.trim() ?? "";
+    if (body.vehicle !== undefined) payload.vehicle = body.vehicle?.trim() ?? "";
+    if (body.plate !== undefined) payload.plate = body.plate?.trim() ?? "";
+    if (body.notes !== undefined) payload.notes = body.notes?.trim() ?? "";
+    if (body.is_active !== undefined) payload.is_active = Boolean(body.is_active);
 
-    const { data, error } = await admin
-        .from("drivers")
-        .update(patch)
-        .eq("id", id)
-        .eq("company_id", companyId)
-        .select("*")
-        .single();
+    const { error } = await admin.rpc("rpc_upsert_driver", {
+        p_company_id: companyId,
+        p_payload: payload,
+    });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const { data, error: selErr } = await admin
+        .from("drivers")
+        .select("*")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .single();
+    if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
     return NextResponse.json({ driver: data });
 }
 
@@ -93,11 +102,10 @@ export async function DELETE(req: Request) {
     const id = String(body.id ?? "").trim();
     if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
-    const { error } = await admin
-        .from("drivers")
-        .delete()
-        .eq("id", id)
-        .eq("company_id", companyId);
+    const { error } = await admin.rpc("rpc_delete_driver", {
+        p_company_id: companyId,
+        p_driver_id: id,
+    });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });

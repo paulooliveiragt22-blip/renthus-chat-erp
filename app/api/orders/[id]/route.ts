@@ -6,9 +6,10 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 
 export const runtime = "nodejs";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
-        const orderId = String(params.id || "").trim();
+        const { id: rawOrderId } = await params;
+        const orderId = String(rawOrderId || "").trim();
         if (!orderId) return NextResponse.json({ error: "order_id required" }, { status: 400 });
 
         // 1) If Authorization header present try agent auth first

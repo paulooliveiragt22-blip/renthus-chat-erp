@@ -60,12 +60,10 @@ export async function POST(req: Request) {
         initial_amount?: number;
     };
 
-    const { error } = await admin.from("cash_registers").insert({
-        company_id: companyId,
-        operator_name: body.operator_name?.trim() || null,
-        initial_amount: Number(body.initial_amount ?? 0),
-        status: "open",
-        opened_at: new Date().toISOString(),
+    const { error } = await admin.rpc("rpc_open_cash_register", {
+        p_company_id: companyId,
+        p_operator_name: body.operator_name?.trim() ?? "",
+        p_initial_amount: Number(body.initial_amount ?? 0),
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
@@ -87,16 +85,12 @@ export async function PATCH(req: Request) {
     const counted = Number(body.closing_amount ?? 0);
     const expected = Number(body.balance_expected ?? 0);
 
-    const { error } = await admin
-        .from("cash_registers")
-        .update({
-            status: "closed",
-            closed_at: new Date().toISOString(),
-            closing_amount: counted,
-            difference: counted - expected,
-        })
-        .eq("id", id)
-        .eq("company_id", companyId);
+    const { error } = await admin.rpc("rpc_close_cash_register", {
+        p_company_id: companyId,
+        p_register_id: id,
+        p_closing_amount: counted,
+        p_balance_expected: expected,
+    });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });

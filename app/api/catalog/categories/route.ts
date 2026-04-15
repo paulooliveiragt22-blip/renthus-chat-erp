@@ -16,7 +16,7 @@ const RL_WINDOW_MS = 60_000;
 function getRequesterIp(req: NextRequest): string {
   const xff = req.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0].trim();
-  return req.headers.get("x-real-ip")?.trim() || req.ip || "unknown";
+  return req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 const CATEGORY_EMOJIS: Record<string, string> = {

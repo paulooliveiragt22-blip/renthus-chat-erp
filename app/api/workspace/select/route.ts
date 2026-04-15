@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     }
 
     // set cookie (workspace)
-    cookies().set("renthus_company_id", company_id, {
+    (await cookies()).set("renthus_company_id", company_id, {
         httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",

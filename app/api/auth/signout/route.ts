@@ -19,7 +19,7 @@ export async function POST() {
 
         // Limpa cookie de workspace
         // OBS: cookies().delete aceita apenas o nome (ou um objeto com name: string).
-        cookies().delete("renthus_company_id");
+        (await cookies()).delete("renthus_company_id");
 
         return NextResponse.json({ ok: true });
     } catch (err: any) {

@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 export async function GET() {
     try {
-        const companyId = getCurrentCompanyIdFromCookie();
+        const companyId = await getCurrentCompanyIdFromCookie();
         if (!companyId) {
             return NextResponse.json({ error: "No workspace selected" }, { status: 400 });
         }

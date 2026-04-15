@@ -9,13 +9,13 @@ export const runtime = "nodejs";
  */
 export async function POST(
     _req: Request,
-    { params }: { params: { threadId: string } }
+    { params }: { params: Promise<{ threadId: string }> }
 ) {
+    const { threadId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     const { admin, companyId, userId } = ctx;
-    const threadId = params.threadId;
     if (!threadId) return NextResponse.json({ error: "Missing threadId" }, { status: 400 });
 
     try {

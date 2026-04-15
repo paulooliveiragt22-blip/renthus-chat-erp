@@ -5,8 +5,9 @@ export const runtime = "nodejs";
 
 export async function GET(
     req: Request,
-    { params }: { params: { threadId: string } }
+    { params }: { params: Promise<{ threadId: string }> }
 ) {
+    const { threadId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
     if (!ctx.ok) {
         return NextResponse.json({ error: ctx.error }, { status: ctx.status });
@@ -18,7 +19,7 @@ export async function GET(
     const { data: thread } = await admin
         .from("whatsapp_threads")
         .select("id")
-        .eq("id", params.threadId)
+        .eq("id", threadId)
         .eq("company_id", companyId)
         .maybeSingle();
 
@@ -31,7 +32,7 @@ export async function GET(
         .select(
             "id, direction, provider, from_addr, to_addr, body, status, created_at, num_media, raw_payload"
         )
-        .eq("thread_id", params.threadId)
+        .eq("thread_id", threadId)
         .order("created_at", { ascending: true });
 
     if (error) {

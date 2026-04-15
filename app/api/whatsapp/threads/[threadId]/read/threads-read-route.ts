@@ -11,13 +11,13 @@ export const runtime = "nodejs";
  * usuário leu mensagens até o momento atual. Ele utiliza requireCompanyAccess
  * para garantir que o usuário pertence à empresa e atualiza last_read_at.
  */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
+    const { threadId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
     if (!ctx.ok) {
         return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     }
     const { admin, companyId, userId } = ctx;
-    const threadId = params.id;
     if (!threadId) {
         return NextResponse.json({ error: "Missing thread id" }, { status: 400 });
     }

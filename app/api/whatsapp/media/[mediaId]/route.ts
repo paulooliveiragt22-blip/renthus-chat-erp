@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import {
     resolveChannelAccessToken,
@@ -7,6 +7,10 @@ import {
 import { getWhatsAppConfig } from "@/lib/whatsapp/getConfig";
 import { META_MEDIA_ID_PATH_RE } from "@/lib/whatsapp/mediaIdPath";
 import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
+import {
+    trustedHttpsGraphRootOrNull,
+    trustedMetaBinaryDownloadUrlOrNull,
+} from "@/lib/whatsapp/graphUrlAllowlist";
 
 // Proxy para download de mídia da WhatsApp Cloud API (Meta).
 // Tenta tokens de todos os canais ativos + company_integrations + WHATSAPP_TOKEN,
@@ -15,12 +19,18 @@ import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 export const runtime = "nodejs";
 
 function graphBase(): string {
-    return (process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0").replace(/\/$/, "");
+    const raw = (process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0").trim().replace(/\/$/, "");
+    const trusted = trustedHttpsGraphRootOrNull(raw);
+    if (trusted) return trusted;
+    return trustedHttpsGraphRootOrNull("https://graph.facebook.com/v20.0") ?? "https://graph.facebook.com/v20.0";
 }
 
 function graphBaseFromChannelPm(pm: Record<string, unknown> | null | undefined): string {
     const fromPm = pm && typeof pm.base_url === "string" ? pm.base_url.trim() : "";
-    if (fromPm) return fromPm.replace(/\/$/, "");
+    if (fromPm) {
+        const trusted = trustedHttpsGraphRootOrNull(fromPm);
+        if (trusted) return trusted;
+    }
     return graphBase();
 }
 
@@ -48,8 +58,16 @@ async function proxyMediaOnce(
         };
     }
 
-    const mediaUrl = metaJson.url as string;
-    const res        = await fetch(mediaUrl, {
+    const mediaDl = trustedMetaBinaryDownloadUrlOrNull(metaJson.url as string);
+    if (!mediaDl) {
+        return {
+            ok:     false,
+            step:   "meta",
+            status: 502,
+            detail: "untrusted_media_download_host",
+        };
+    }
+    const res = await fetch(mediaDl.href, {
         headers: { Authorization: `Bearer ${bearer}` },
     });
 
@@ -89,22 +107,23 @@ function attemptKey(a: { bearer: string; graphRoot: string }) {
 }
 
 export async function GET(
-    req: Request,
-    { params }: { params: { mediaId: string } }
+    req: NextRequest,
+    { params }: { params: Promise<{ mediaId: string }> }
 ) {
+    const { mediaId: rawMediaId } = await params;
     const ctx = await requireCompanyAccess();
     if (!ctx.ok) {
         return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     }
 
     const { admin, companyId } = ctx;
-    const mediaId              = params.mediaId;
+    const mediaId              = rawMediaId;
 
     if (!mediaId || !META_MEDIA_ID_PATH_RE.test(mediaId)) {
         return NextResponse.json({ error: "invalid_media_id" }, { status: 400 });
     }
 
-    const channelIdHint = new URL(req.url).searchParams.get("channel_id")?.trim() ?? "";
+    const channelIdHint = req.nextUrl.searchParams.get("channel_id")?.trim() ?? "";
 
     const { data: channelRows } = await admin
         .from("whatsapp_channels")

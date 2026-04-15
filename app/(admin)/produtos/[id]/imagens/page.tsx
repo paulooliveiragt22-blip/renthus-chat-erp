@@ -3,8 +3,6 @@
 
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { ArrowLeft, ImageIcon, Loader2, Star, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,10 +22,8 @@ function formatFileSize(bytes: number): string {
 }
 
 export default function ProdutoImagensPage() {
-    const { id: productId }             = useParams<{ id: string }>();
-    const router                        = useRouter();
-    const { currentCompanyId: companyId } = useWorkspace();
-    const supabase                      = createClient();
+    const { id: productId } = useParams<{ id: string }>();
+    const router            = useRouter();
 
     const [images,     setImages]     = useState<ProductImage[]>([]);
     const [loading,    setLoading]    = useState(true);
@@ -43,20 +39,21 @@ export default function ProdutoImagensPage() {
     const fetchImages = useCallback(async () => {
         if (!productId) return;
         setLoading(true);
-        const { data, error } = await supabase
-            .from("product_images")
-            .select("id, url, thumbnail_url, is_primary, file_size, created_at")
-            .eq("product_id", productId)
-            .order("is_primary", { ascending: false })
-            .order("created_at", { ascending: true });
-
-        if (error) {
-            toast.error("Erro ao carregar imagens");
-        } else {
-            setImages((data ?? []) as ProductImage[]);
+        try {
+            const res  = await fetch(`/api/admin/products/${productId}/images`, { credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error(json?.error ?? "Erro ao carregar imagens");
+                setImages([]);
+            } else {
+                setImages((json.images ?? []) as ProductImage[]);
+            }
+        } catch {
+            toast.error("Erro de conexão");
+            setImages([]);
         }
         setLoading(false);
-    }, [productId, supabase]);
+    }, [productId]);
 
     useEffect(() => { fetchImages(); }, [fetchImages]);
 
@@ -82,7 +79,11 @@ export default function ProdutoImagensPage() {
         formData.append("is_primary", String(isPrimary));
 
         try {
-            const res  = await fetch("/api/products/upload-image", { method: "POST", body: formData });
+            const res  = await fetch("/api/products/upload-image", {
+                method: "POST",
+                body: formData,
+                credentials: "include",
+            });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
                 toast.error(json?.error ?? "Erro no upload");
@@ -129,14 +130,22 @@ export default function ProdutoImagensPage() {
 
     async function setPrimary(imageId: string) {
         if (!productId) return;
-        // Clear all primaries then set selected
-        await supabase.from("product_images").update({ is_primary: false }).eq("product_id", productId);
-        const { error } = await supabase.from("product_images").update({ is_primary: true }).eq("id", imageId);
-        if (error) {
-            toast.error("Erro ao definir imagem principal");
-        } else {
-            toast.success("Imagem principal atualizada");
-            setImages((prev) => prev.map((img) => ({ ...img, is_primary: img.id === imageId })));
+        try {
+            const res = await fetch(`/api/admin/products/${productId}/images`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ image_id: imageId }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error(json?.error ?? "Erro ao definir imagem principal");
+            } else {
+                toast.success("Imagem principal atualizada");
+                setImages((prev) => prev.map((img) => ({ ...img, is_primary: img.id === imageId })));
+            }
+        } catch {
+            toast.error("Erro de conexão");
         }
     }
 
@@ -144,12 +153,20 @@ export default function ProdutoImagensPage() {
 
     async function deleteImage(imageId: string) {
         setDeletingId(imageId);
-        const { error } = await supabase.from("product_images").delete().eq("id", imageId);
-        if (error) {
-            toast.error("Erro ao remover imagem");
-        } else {
-            toast.success("Imagem removida");
-            setImages((prev) => prev.filter((img) => img.id !== imageId));
+        try {
+            const res = await fetch(
+                `/api/admin/products/${productId}/images?image_id=${encodeURIComponent(imageId)}`,
+                { method: "DELETE", credentials: "include" }
+            );
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error(json?.error ?? "Erro ao remover imagem");
+            } else {
+                toast.success("Imagem removida");
+                setImages((prev) => prev.filter((img) => img.id !== imageId));
+            }
+        } catch {
+            toast.error("Erro de conexão");
         }
         setDeletingId(null);
     }

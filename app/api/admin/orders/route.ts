@@ -52,16 +52,46 @@ export async function PATCH(req: Request) {
     if (body.total_amount !== undefined) patch.total_amount = Number(body.total_amount ?? 0);
     if (body.driver_id !== undefined) patch.driver_id = body.driver_id || null;
 
-    const { data, error } = await admin
-        .from("orders")
-        .update(patch)
-        .eq("id", id)
-        .eq("company_id", companyId)
-        .select("id")
-        .single();
+    if (patch.status === "canceled") {
+        const { error: cErr } = await admin.rpc("rpc_admin_cancel_order", {
+            p_company_id: companyId,
+            p_order_id: id,
+            p_reject_confirmation: false,
+        });
+        if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
+        delete patch.status;
+    }
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, order: data });
+    if (body.driver_id !== undefined) {
+        const driverUuid =
+            body.driver_id != null && String(body.driver_id).trim() !== ""
+                ? String(body.driver_id).trim()
+                : null;
+        const { error: dErr } = await admin.rpc("rpc_admin_assign_driver", {
+            p_company_id: companyId,
+            p_order_id: id,
+            p_driver_id: driverUuid,
+        });
+        if (dErr) return NextResponse.json({ error: dErr.message }, { status: 500 });
+        delete patch.driver_id;
+    }
+
+    if (Object.keys(patch).length > 0) {
+        const { data, error } = await admin
+            .from("orders")
+            .update(patch)
+            .eq("id", id)
+            .eq("company_id", companyId)
+            .select("id")
+            .single();
+
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ ok: true, order: data });
+    }
+
+    const { data: row } = await admin.from("orders").select("id").eq("id", id).eq("company_id", companyId).maybeSingle();
+    if (!row) return NextResponse.json({ error: "order_not_found" }, { status: 404 });
+    return NextResponse.json({ ok: true, order: row });
 }
 
 export async function POST(req: Request) {

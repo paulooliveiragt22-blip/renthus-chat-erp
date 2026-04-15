@@ -3,12 +3,13 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 
 export const runtime = "nodejs";
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const { id: rawId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 
-    const id = String(params.id ?? "").trim();
+    const id = String(rawId ?? "").trim();
     if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
     const { data: end, error: e1 } = await admin

@@ -46,7 +46,7 @@ function isValidMetaSignature(rawBody: string, signatureHeader: string | null): 
 function getRequesterIp(req: NextRequest): string {
     const xff = req.headers.get("x-forwarded-for");
     if (xff) return xff.split(",")[0].trim();
-    return req.headers.get("x-real-ip")?.trim() || req.ip || "unknown";
+    return req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 function maskIdentifier(value: string): string {

@@ -14,17 +14,16 @@ export async function POST(req: Request) {
     if (!due_date || Number.isNaN(amount)) return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
 
     const payment_status = String(body.payment_status ?? "pending");
-    const row: Record<string, unknown> = {
-        company_id: companyId,
-        category: String(body.category ?? ""),
-        description: String(body.description ?? ""),
-        amount,
-        due_date,
-        payment_status,
-    };
-    if (payment_status === "paid") row.paid_at = new Date().toISOString();
-
-    const { error } = await admin.from("expenses").insert(row);
+    const { error } = await admin.rpc("rpc_upsert_expense", {
+        p_company_id: companyId,
+        p_payload: {
+            category: String(body.category ?? ""),
+            description: String(body.description ?? ""),
+            amount,
+            due_date,
+            payment_status,
+        },
+    });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
 }
@@ -52,11 +51,10 @@ export async function PATCH(req: Request) {
     if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
     if (body.action !== "mark_paid") return NextResponse.json({ error: "invalid_action" }, { status: 400 });
 
-    const { error } = await admin
-        .from("expenses")
-        .update({ payment_status: "paid", paid_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("company_id", companyId);
+    const { error } = await admin.rpc("rpc_upsert_expense", {
+        p_company_id: companyId,
+        p_payload: { action: "mark_paid", id },
+    });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
 }

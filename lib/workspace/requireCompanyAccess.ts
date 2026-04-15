@@ -3,7 +3,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { getCurrentCompanyIdFromCookie } from "./getCurrentCompanyId";
 
 export async function requireCompanyAccess(allowedRoles?: string[]) {
-    const companyId = getCurrentCompanyIdFromCookie();
+    const companyId = await getCurrentCompanyIdFromCookie();
     if (!companyId) {
         return { ok: false as const, status: 400, error: "No workspace selected" };
     }

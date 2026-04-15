@@ -20,7 +20,7 @@ Data: 2026-04-14
 |---|---|---|
 | `app/(admin)/impressoras/page.tsx` | ✅ Migrado para APIs (`/api/agent/*`, `/api/admin/impressoras/jobs`, `/api/admin/impressoras/test-order`) | Fila enfileirada por RPC `rpc_enqueue_print_job` (server-side) |
 | `app/(admin)/suporte/SuporteClient.tsx` | `support_tickets` | ✅ Migrado para `/api/admin/support-tickets` |
-| `app/(admin)/produtos/[id]/imagens/page.tsx` | `product_images` direto | API de imagens de produto |
+| `app/(admin)/produtos/[id]/imagens/page.tsx` | ✅ Migrado para `/api/admin/products/[id]/images` (GET/PATCH/DELETE) + upload em `/api/products/upload-image` |
 
 ## APIs já server-side (baixo risco imediato)
 
@@ -29,13 +29,13 @@ Data: 2026-04-14
 - Preferir `rpc` de domínio para mutações críticas (pedido, financeiro, billing, WhatsApp).
 - Evitar leitura “tabela nua” em rotas públicas sem filtro de company.
 
-## Lacunas de RPC por domínio (a criar)
+## Lacunas de RPC por domínio
 
-- Pedidos: `rpc_admin_upsert_order_with_items` (criar/atualizar pedido + itens em transação — usado por `POST /api/admin/orders` e `PUT /api/admin/orders/items`), `rpc_admin_cancel_order`, `rpc_admin_assign_driver`
-- Clientes: `rpc_upsert_customer_with_primary_address`
-- Financeiro: `rpc_upsert_expense`, `rpc_pay_bill`, `rpc_open_cash_register`, `rpc_close_cash_register`
-- PDV: `rpc_finalize_sale`, `rpc_finalize_pdv_order`
-- Entregadores: `rpc_upsert_driver`, `rpc_toggle_driver_active`, `rpc_delete_driver`
+- Pedidos: `rpc_admin_upsert_order_with_items` (já em uso em `POST /api/admin/orders` e `PUT /api/admin/orders/items`); **`rpc_admin_cancel_order`** (cancelamento e rejeição na fila via `PATCH /api/admin/fila/orders/[id]` e cancel em `PATCH /api/admin/orders`); **`rpc_admin_assign_driver`** (`PATCH /api/admin/orders` quando `driver_id` é enviado)
+- Clientes: **`rpc_upsert_customer_with_primary_address`** (`POST`/`PATCH /api/admin/customers`, `POST /api/admin/pdv/customers` com endereço opcional)
+- Financeiro: **`rpc_upsert_expense`** (`POST`/`PATCH mark_paid` em `/api/admin/financeiro/expenses`); **`rpc_pay_bill`** (`PATCH /api/admin/financeiro/bills`); **`rpc_open_cash_register`** / **`rpc_close_cash_register`** (`POST`/`PATCH` em `/api/admin/pdv/cash-register`)
+- PDV: **`rpc_finalize_pdv_order`** + alias **`rpc_finalize_sale`** (`POST /api/admin/pdv/finalize`) — migration `20260414240000_domain_admin_rpcs.sql`
+- Entregadores: **`rpc_upsert_driver`**, **`rpc_toggle_driver_active`** (RPC disponível; rotas usam upsert/delete), **`rpc_delete_driver`** (`/api/admin/drivers`)
 
 ## Regra operacional sugerida
 

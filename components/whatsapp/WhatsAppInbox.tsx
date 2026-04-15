@@ -36,6 +36,7 @@ import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 import { extractMediaFromWaPayload } from "@/lib/whatsapp/extractMediaFromWaPayload";
 import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsapp/mediaIdPath";
+import { buildWaMediaRelativePath } from "@/lib/whatsapp/waMediaUrl";
 import { BillingModal } from "./BillingModal";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -111,7 +112,8 @@ function buildTags(orders: CustomerOrder[]): string[] {
     return tags.slice(0, 5);
 }
 
-function detectBodyMedia(body: string | null, channelQuery = ""): DetectedMedia | null {
+/** `channelUuid` já validado (UUID) ou null — não passar query string da URL. */
+function detectBodyMedia(body: string | null, channelUuid: string | null = null): DetectedMedia | null {
     if (!body) return null;
     const t = body.trim();
     if (t.startsWith("http://") || t.startsWith("https://")) {
@@ -126,7 +128,9 @@ function detectBodyMedia(body: string | null, channelQuery = ""): DetectedMedia 
         } catch { /* não é URL válida */ }
     }
     if (META_MEDIA_ID_PATH_RE.test(t)) {
-        return { kind: "file", url: `/api/whatsapp/media/${t}${channelQuery}`, name: "arquivo" };
+        const path = buildWaMediaRelativePath(t, channelUuid);
+        if (!path) return null;
+        return { kind: "file", url: path, name: "arquivo" };
     }
     return null;
 }
@@ -168,10 +172,19 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
 
     // ── state ─────────────────────────────────────────────────────────────────
     const [threads,          setThreads]          = useState<Thread[]>([]);
-    const [selectedThreadId, setSelectedThreadId] = useState<string | null>(() => {
-        if (typeof window === "undefined") return null;
-        return parseOptionalUuid(new URLSearchParams(window.location.search).get("t"));
-    });
+    /** Só IDs vindos da API / clique — `?t=` é aplicado em `loadThreads` após cruzar com a lista. */
+    const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+
+    /** UUID opcional do query `t`, lido uma vez no cliente (fora do render de mídia). */
+    const urlThreadCandidateRef = useRef<string | null>(null);
+    const urlThreadConsumedRef  = useRef(false);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        urlThreadCandidateRef.current = parseOptionalUuid(
+            new URLSearchParams(window.location.search).get("t")
+        );
+    }, []);
     const [messages,         setMessages]         = useState<Message[]>([]);
     const [q,                setQ]                = useState("");
     const [loadingThreads,   setLoadingThreads]   = useState(true);
@@ -230,9 +243,27 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             setThreads(list);
             setSelectedThreadId((prev) => {
                 const desired = nextSelectedId !== undefined ? nextSelectedId : prev;
-                if (desired && list.some((t) => t.id === desired)) return desired;
-                if (!desired && list.length > 0) return list[0].id;
-                if (desired && !list.some((t) => t.id === desired)) return list[0]?.id ?? null;
+
+                if (desired && list.some((t) => t.id === desired)) {
+                    const row = list.find((t) => t.id === desired);
+                    return row ? row.id : prev;
+                }
+                if (desired && !list.some((t) => t.id === desired)) {
+                    const fb = list[0];
+                    return fb ? fb.id : null;
+                }
+                if (!desired && list.length > 0) {
+                    const urlPick = !urlThreadConsumedRef.current ? urlThreadCandidateRef.current : null;
+                    if (urlPick) {
+                        const row = list.find((t) => t.id === urlPick);
+                        if (row) {
+                            urlThreadConsumedRef.current = true;
+                            return row.id;
+                        }
+                    }
+                    urlThreadConsumedRef.current = true;
+                    return list[0].id;
+                }
                 return prev;
             });
         } catch (e: any) {
@@ -469,11 +500,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         [threads, selectedThreadId]
     );
 
-    /** Prioriza o token do canal que recebeu a thread na rota /api/whatsapp/media. */
-    const waMediaChannelQs = useMemo(() => {
-        const id = parseOptionalUuid(selectedThread?.channel_id?.trim() ?? null);
-        return id ? `?channel_id=${encodeURIComponent(id)}` : "";
-    }, [selectedThread?.channel_id]);
+    /** UUID do canal só a partir da thread carregada na lista (dados do servidor). */
+    const waMediaChannelUuid = useMemo(
+        () => parseOptionalUuid(selectedThread?.channel_id?.trim() ?? null),
+        [selectedThread?.channel_id]
+    );
 
     const phoneHint = useMemo(() => {
         const v = newPhoneBR.trim();
@@ -927,8 +958,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                 const rawMedia = extractMediaFromWaPayload(m.raw_payload ?? null);
                                 const safeRawMediaId = rawMedia ? sanitizeWhatsAppMediaPathId(rawMedia.id) : null;
                                 const hasRawMedia = Boolean(rawMedia && safeRawMediaId);
-                                const bodyMedia = !hasRawMedia ? detectBodyMedia(m.body, waMediaChannelQs) : null;
+                                const bodyMedia = !hasRawMedia ? detectBodyMedia(m.body, waMediaChannelUuid) : null;
                                 const displayText = bodyMedia ? null : m.body;
+                                const waPayloadMediaPath =
+                                    hasRawMedia && rawMedia && safeRawMediaId
+                                        ? buildWaMediaRelativePath(rawMedia.id, waMediaChannelUuid)
+                                        : null;
 
                                 return (
                                     <article
@@ -948,22 +983,22 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                                 : "rounded-bl-sm bg-white text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
                                         }`}>
                                             {/* Mídia do payload (Meta) */}
-                                            {hasRawMedia && rawMedia && safeRawMediaId ? (
+                                            {hasRawMedia && rawMedia && safeRawMediaId && waPayloadMediaPath ? (
                                                 <div className="mb-2">
                                                     {rawMedia.type === "image" ? (
                                                         <img
-                                                            src={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`}
+                                                            src={waPayloadMediaPath}
                                                             alt={rawMedia.caption || "Imagem"}
                                                             loading="lazy"
                                                             className="max-h-60 max-w-full rounded-xl object-cover"
                                                         />
                                                     ) : rawMedia.type === "video" ? (
-                                                        <video controls src={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`} className="max-h-52 max-w-full rounded-xl" />
+                                                        <video controls src={waPayloadMediaPath} className="max-h-52 max-w-full rounded-xl" />
                                                     ) : rawMedia.type === "audio" ? (
-                                                        <audio controls src={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`} className="w-52" />
+                                                        <audio controls src={waPayloadMediaPath} className="w-52" />
                                                     ) : (
                                                         <a
-                                                            href={`/api/whatsapp/media/${safeRawMediaId}${waMediaChannelQs}`}
+                                                            href={waPayloadMediaPath}
                                                             target="_blank" rel="noreferrer"
                                                             className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold underline ${isOut ? "text-white/90" : "text-primary"}`}
                                                         >

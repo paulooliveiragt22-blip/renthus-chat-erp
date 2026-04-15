@@ -6,7 +6,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 export async function GET() {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const companyId = cookieStore.get("renthus_company_id")?.value ?? null;
     if (companyId) return NextResponse.json({ company_id: companyId });
 

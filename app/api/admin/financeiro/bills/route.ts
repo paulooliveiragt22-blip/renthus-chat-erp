@@ -82,19 +82,18 @@ export async function PATCH(req: Request) {
     if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
     const paidNow = Number(body.pay_amount ?? 0) || 0;
-    const original = Number(body.original_amount ?? 0);
-    const saldo = Number(body.saldo_devedor ?? 0);
-    const newAmountPaid = original - saldo + paidNow;
+    const receivedDay =
+        body.received_at && String(body.received_at).trim() !== ""
+            ? String(body.received_at).trim().slice(0, 10)
+            : null;
 
-    const patch: Record<string, unknown> = {
-        amount_paid: newAmountPaid,
-        payment_method: body.payment_method ?? "pix",
-    };
-    if (newAmountPaid >= original && body.received_at) {
-        patch.paid_at = new Date(`${body.received_at}T12:00:00`).toISOString();
-    }
-
-    const { error } = await admin.from("bills").update(patch).eq("id", id).eq("company_id", companyId);
+    const { error } = await admin.rpc("rpc_pay_bill", {
+        p_company_id: companyId,
+        p_bill_id: id,
+        p_pay_amount: paidNow,
+        p_payment_method: String(body.payment_method ?? "pix"),
+        p_received_at: receivedDay,
+    });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
 }
