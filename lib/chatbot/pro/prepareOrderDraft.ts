@@ -1,34 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiOrderCanonicalDraft, AiOrderAddress, AiOrderItem } from "./typesAiOrder";
+import type { PrepareDraftToolInputLegacy as PrepareDraftToolInput } from "@/src/types/contracts.legacy";
 import { resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
 import { parsePtQuantity } from "./parseQtyPt";
 import { tryParseAddressOneLine } from "./parseAddressLoosePt";
 import { roundBrl } from "../utils";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 
-export interface PrepareDraftToolInput {
-    items: Array<{ produto_embalagem_id: string; quantity: number | string }>;
-    address: {
-        logradouro:  string;
-        numero:      string;
-        bairro:      string;
-        complemento?: string | null;
-        apelido?:    string | null;
-        cidade?:     string | null;
-        estado?:     string | null;
-        cep?:        string | null;
-    } | null;
-    /** Linha única (ex.: "Rua Tangará 850 São Mateus") — o servidor separa rua/número/bairro. */
-    address_raw?: string | null;
-    /** UUID de uma linha de get_order_hints.saved_addresses (mesma empresa + cliente). */
-    saved_address_id?: string | null;
-    /** Quando true, preenche o endereço a partir do cadastro / último pedido (cliente já identificado). */
-    use_saved_address?: boolean;
-    payment_method?:   string | null;
-    change_for?:       number | null;
-    /** Se true e tudo válido, o estado fica pronto para confirmação explícita do cliente. */
-    ready_for_confirmation?: boolean;
-}
+export type { PrepareDraftToolInput };
 
 function normPm(raw: string | null | undefined): "pix" | "cash" | "card" | null {
     if (!raw) return null;

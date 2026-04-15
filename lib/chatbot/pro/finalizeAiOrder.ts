@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiOrderCanonicalDraft } from "./typesAiOrder";
 import type { CartItem } from "../types";
+import type { OrderServiceResult } from "@/src/types/contracts.legacy";
 import { getOrCreateCustomer } from "../db/orders";
 import { formatCart, formatCurrency } from "../utils";
 import { loadPackRowForValidation } from "./prepareOrderDraft";
@@ -46,10 +47,7 @@ export async function tryFinalizeAiOrderFromDraft(params: {
     phoneE164:     string;
     profileName?: string | null;
     draft:         AiOrderCanonicalDraft;
-}): Promise<
-    | { ok: true; orderId: string; customerMessage: string; requireApproval: boolean }
-    | { ok: false; customerMessage: string }
-    > {
+}): Promise<OrderServiceResult> {
     const { admin, companyId, phoneE164, profileName, draft } = params;
 
     const fresh = await revalidateDraftAgainstDb(admin, companyId, draft);

@@ -1,0 +1,196 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { runProPipeline } from "../../src/pro/pipeline/runProPipeline";
+import type { ProPipelineInput, ProSessionState } from "../../src/types/contracts";
+import type { LoggerPort } from "../../src/pro/ports/logger.port";
+import type { MessageGateway } from "../../src/pro/ports/message.gateway";
+import type { MetricsPort } from "../../src/pro/ports/metrics.port";
+import type { SessionRepository } from "../../src/pro/ports/session.repository";
+import type { AiService } from "../../src/pro/services/ai/ai.types";
+import type { IntentService } from "../../src/pro/services/intent/intent.types";
+import type { OrderService } from "../../src/pro/services/order/order.types";
+
+function baseInput(): ProPipelineInput {
+    return {
+        tenant: {
+            companyId: "c1",
+            threadId: "t1",
+            messageId: "m1",
+            phoneE164: "+5511999999999",
+        },
+        actor: {
+            channel: "whatsapp",
+            source: "meta_webhook",
+            profileName: "Cliente",
+        },
+        tier: "pro",
+        inboundText: "sim",
+        nowIso: new Date().toISOString(),
+    };
+}
+
+function stateAwaitingConfirmation(overrides: Partial<ProSessionState> = {}): ProSessionState {
+    return {
+        step: "pro_awaiting_confirmation",
+        customerId: "cust-1",
+        misunderstandingStreak: 0,
+        escalationTier: 0,
+        draft: {
+            items: [
+                {
+                    produtoEmbalagemId: "pe-1",
+                    productName: "Heineken",
+                    quantity: 2,
+                    unitPrice: 10,
+                    fatorConversao: 1,
+                    productVolumeId: "pv-1",
+                    estoqueUnidades: 30,
+                },
+            ],
+            address: {
+                logradouro: "Rua A",
+                numero: "10",
+                bairro: "Centro",
+                complemento: null,
+            },
+            paymentMethod: "pix",
+            changeFor: null,
+            deliveryFee: 5,
+            deliveryZoneId: "z1",
+            deliveryAddressText: "Rua A, 10, Centro",
+            deliveryMinOrder: null,
+            deliveryEtaMin: 30,
+            totalItems: 20,
+            grandTotal: 25,
+            pendingConfirmation: true,
+            version: 1,
+        },
+        aiHistory: [],
+        ...overrides,
+    };
+}
+
+function buildDeps(params: {
+    session: ProSessionState;
+    intent: "order_intent" | "greeting" | "unknown";
+    aiResult?: unknown;
+    onOrderCalled?: () => void;
+}) {
+    const logger: LoggerPort = {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+    };
+    const metrics: MetricsPort = {
+        increment: () => undefined,
+        timing: () => undefined,
+    };
+    let savedState: ProSessionState | null = null;
+    const sessionRepo: SessionRepository = {
+        load: async () => params.session,
+        save: async (_c, _t, state) => {
+            savedState = state;
+        },
+    };
+    const sent: Array<{ text?: string }> = [];
+    const messageGateway: MessageGateway = {
+        send: async (_tenant, message) => {
+            sent.push({ text: message.text });
+        },
+    };
+    const intentService: IntentService = {
+        classify: async () => ({
+            intent: params.intent,
+            confidence: "high",
+            reasonCode: "llm_classification",
+        }),
+    };
+    const aiService: AiService = {
+        run: async () =>
+            (params.aiResult ??
+                {
+                    action: "reply",
+                    replyText: "ok",
+                    signals: { toolRoundsUsed: 0 },
+                }) as never,
+    };
+    const orderService: OrderService = {
+        createFromDraft: async () => {
+            params.onOrderCalled?.();
+            return {
+                ok: true,
+                orderId: "o1",
+                customerMessage: "pedido fechado",
+                requireApproval: false,
+            };
+        },
+    };
+
+    return { logger, metrics, sessionRepo, messageGateway, intentService, aiService, orderService, sent, getSavedState: () => savedState };
+}
+
+describe("novo pipeline PRO - falhas reais", () => {
+    it("IA retornando inválido: deve cair em fallback seguro", async () => {
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({ step: "pro_collecting_order" }),
+            intent: "order_intent",
+            aiResult: { action: "reply" }, // inválido (sem replyText/signals)
+        });
+
+        const out = await runProPipeline(
+            { ...baseInput(), inboundText: "quero pedir" },
+            deps
+        );
+
+        assert.ok(out.outbound.length > 0);
+        assert.equal(typeof out.outbound[0]?.text, "string");
+        assert.ok((out.outbound[0]?.text ?? "").length > 0);
+    });
+
+    it("intent errado: confirmação explícita deve finalizar pedido mesmo com intent incorreto", async () => {
+        let called = 0;
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation(),
+            intent: "greeting", // errado
+            onOrderCalled: () => {
+                called += 1;
+            },
+        });
+
+        await runProPipeline(baseInput(), deps);
+        assert.equal(called, 1);
+    });
+
+    it("pedido vazio: não deve chamar orderService", async () => {
+        let called = 0;
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({
+                draft: {
+                    items: [],
+                    address: null,
+                    paymentMethod: null,
+                    changeFor: null,
+                    deliveryFee: 0,
+                    deliveryZoneId: null,
+                    deliveryAddressText: null,
+                    deliveryMinOrder: null,
+                    deliveryEtaMin: null,
+                    totalItems: 0,
+                    grandTotal: 0,
+                    pendingConfirmation: true,
+                    version: 1,
+                },
+            }),
+            intent: "order_intent",
+            onOrderCalled: () => {
+                called += 1;
+            },
+        });
+
+        const out = await runProPipeline(baseInput(), deps);
+
+        assert.equal(called, 0);
+        assert.ok(out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("pedido")));
+    });
+});
+

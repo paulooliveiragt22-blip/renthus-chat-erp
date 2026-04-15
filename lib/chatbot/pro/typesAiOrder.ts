@@ -1,46 +1,12 @@
 /**
  * Rascunho canónico de pedido IA (servidor é fonte de verdade para preços/stock).
  * Persistido em `chatbot_sessions.context.ai_order_canonical`.
+ *
+ * Tipos importados de `src/types/contracts.ts` para manter contrato único.
  */
 
-export interface AiOrderAddress {
-    logradouro:  string;
-    numero:      string;
-    bairro:      string;
-    complemento: string | null;
-    apelido?:    string | null;
-    cidade?:     string | null;
-    estado?:     string | null;
-    cep?:        string | null;
-    /** Quando o endereço veio de `enderecos_cliente` */
-    endereco_cliente_id?: string | null;
-    /** Label amigável do bairro (zona) para o texto de entrega */
-    bairro_label?: string | null;
-}
-
-export interface AiOrderItem {
-    produto_embalagem_id: string;
-    product_name:         string;
-    quantity:             number;
-    unit_price:           number;
-    fator_conversao:      number;
-    product_volume_id:    string | null;
-    estoque_unidades:     number;
-}
-
-export interface AiOrderCanonicalDraft {
-    items:                  AiOrderItem[];
-    address:                AiOrderAddress | null;
-    payment_method:         "pix" | "cash" | "card" | null;
-    change_for:             number | null;
-    delivery_fee:           number;
-    delivery_zone_id:       string | null;
-    delivery_address_text:  string | null;
-    delivery_min_order:     number | null;
-    delivery_eta_min:       number | null;
-    total_items:            number;
-    grand_total:            number;
-    pending_confirmation:   boolean;
-    /** Origem do endereço quando veio de cadastro/pedido anterior */
-    address_resolution_note?: string | null;
-}
+export type {
+    AiOrderAddressLegacy as AiOrderAddress,
+    AiOrderItemLegacy as AiOrderItem,
+    AiOrderCanonicalDraftLegacy as AiOrderCanonicalDraft,
+} from "@/src/types/contracts.legacy";

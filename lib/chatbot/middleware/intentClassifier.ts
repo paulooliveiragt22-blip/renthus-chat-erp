@@ -11,14 +11,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { clampChatbotInputForRegex, normalize } from "../utils";
 import { isPortugueseOrderConfirmation, isPortugueseOrderRejection } from "../pro/confirmationPt";
-
-export type MessageIntent =
-    | "order_intent"
-    | "status_intent"
-    | "human_intent"
-    | "faq"
-    | "greeting"
-    | "unknown";
+import type { MessageIntent } from "@/src/types/contracts.legacy";
 
 // ── Regex Level 1 ──────────────────────────────────────────────────────────────
 // Vários padrões pequenos (S5843) em vez de um único regex com alta complexidade.

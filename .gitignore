@@ -26,6 +26,9 @@
 *.pem
 .mcp.json
 
+# Cursor MCP local (pode conter API keys; não versionar)
+.cursor/mcp.json
+
 # debug
 npm-debug.log*
 yarn-debug.log*
