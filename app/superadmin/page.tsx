@@ -1,25 +1,36 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Building2, Loader2, MessageSquare, Receipt, TrendingUp } from "lucide-react";
 import { getDashboardStats, getQueueHealthStats } from "@/lib/superadmin/actions";
+
+type QueueSortBy = "severity" | "failed15m" | "pendingNow";
 
 function formatCurrency(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 export default function SuperAdminDashboard() {
+    const [periodMinutes, setPeriodMinutes] = useState(15);
+    const [sortBy, setSortBy] = useState<QueueSortBy>("severity");
+
     const { data, isLoading } = useQuery({
         queryKey: ["sa", "dashboard"],
         queryFn:  () => getDashboardStats(),
         staleTime: 60_000,
     });
-    const { data: queueHealth, isLoading: isQueueLoading } = useQuery({
-        queryKey: ["sa", "queue-health", 15],
-        queryFn: () => getQueueHealthStats(15),
+    const { data: queueHealthRaw, isLoading: isQueueLoading } = useQuery({
+        queryKey: ["sa", "queue-health", periodMinutes],
+        queryFn: () => getQueueHealthStats(periodMinutes),
         staleTime: 30_000,
     });
+    const queueHealth = useMemo(() => {
+        if (!queueHealthRaw) return queueHealthRaw;
+        const rows = [...queueHealthRaw.companies].sort((a, b) => compareRows(a, b, sortBy));
+        return { ...queueHealthRaw, companies: rows };
+    }, [queueHealthRaw, sortBy]);
 
     const cards = [
         {
@@ -105,11 +116,31 @@ export default function SuperAdminDashboard() {
                 <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                            Saúde da Fila Chatbot (15 min)
+                            Saúde da Fila Chatbot
                         </h2>
                         <p className="text-xs text-zinc-400">
                             Falhas, pendências e dedup por empresa
                         </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={String(periodMinutes)}
+                            onChange={(e) => setPeriodMinutes(Number(e.target.value))}
+                            className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        >
+                            <option value="15">15m</option>
+                            <option value="60">1h</option>
+                            <option value="1440">24h</option>
+                        </select>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as QueueSortBy)}
+                            className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        >
+                            <option value="severity">Ordenar: severidade</option>
+                            <option value="failed15m">Ordenar: falhas</option>
+                            <option value="pendingNow">Ordenar: pendências</option>
+                        </select>
                     </div>
                 </div>
 
@@ -125,7 +156,7 @@ export default function SuperAdminDashboard() {
                         loading={isQueueLoading}
                     />
                     <MiniStat
-                        label="Processed (15m)"
+                        label={`Processed (${formatPeriodLabel(periodMinutes)})`}
                         value={String(queueHealth?.summary.processed15m ?? 0)}
                         loading={isQueueLoading}
                     />
@@ -240,4 +271,35 @@ function semaphoreStyle(severity: string): string {
         return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
     }
     return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+}
+
+function severityWeight(severity: string): number {
+    if (severity === "red") return 2;
+    if (severity === "yellow") return 1;
+    return 0;
+}
+
+function compareRows(
+    a: { severity: string; failed15m: number; pendingNow: number },
+    b: { severity: string; failed15m: number; pendingNow: number },
+    sortBy: QueueSortBy
+): number {
+    if (sortBy === "failed15m") {
+        return b.failed15m - a.failed15m || b.pendingNow - a.pendingNow;
+    }
+    if (sortBy === "pendingNow") {
+        return b.pendingNow - a.pendingNow || b.failed15m - a.failed15m;
+    }
+    return (
+        severityWeight(b.severity) - severityWeight(a.severity)
+        || b.pendingNow - a.pendingNow
+        || b.failed15m - a.failed15m
+    );
+}
+
+function formatPeriodLabel(minutes: number): string {
+    if (minutes === 15) return "15m";
+    if (minutes === 60) return "1h";
+    if (minutes === 1440) return "24h";
+    return `${minutes}m`;
 }
