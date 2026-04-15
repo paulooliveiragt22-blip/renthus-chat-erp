@@ -22,7 +22,61 @@ import { shouldIncrementProMisunderstandingStreak } from "./orderProgressHeurist
 
 const MAX_MISUNDERSTANDING = 4;
 const MAX_TOOL_ROUNDS      = 12;
+/** Máximo de mensagens (turnos user/assistant) persistidas; truncar sem quebrar pares tool_use/tool_result. */
 const MAX_STORED_MESSAGES  = 24;
+
+function contentBlocksAreOnlyToolResults(content: MessageParam["content"]): boolean {
+    if (typeof content === "string") return false;
+    if (!Array.isArray(content) || content.length === 0) return false;
+    return content.every(
+        (b) => typeof b === "object" && b !== null && "type" in b && (b as { type: string }).type === "tool_result"
+    );
+}
+
+/**
+ * A API Anthropic exige que cada bloco `tool_result` na mensagem `user` tenha o `tool_use` correspondente
+ * na mensagem `assistant` imediatamente anterior. O `.slice(-N)` no histórico pode cortar esse assistant.
+ */
+function stripLeadingInvalidAnthropicTurns(msgs: MessageParam[]): MessageParam[] {
+    const out = [...msgs];
+    while (out.length > 0) {
+        const head = out[0];
+        if (head.role === "assistant") {
+            out.shift();
+            continue;
+        }
+        if (head.role === "user" && contentBlocksAreOnlyToolResults(head.content)) {
+            out.shift();
+            continue;
+        }
+        break;
+    }
+    return out;
+}
+
+function assistantHasPendingToolUse(msg: MessageParam): boolean {
+    if (msg.role !== "assistant") return false;
+    const c = msg.content;
+    if (typeof c === "string") return false;
+    if (!Array.isArray(c)) return false;
+    return c.some((b) => typeof b === "object" && b !== null && "type" in b && (b as { type: string }).type === "tool_use");
+}
+
+/** Remove assistant final que ficou só com tool_use (crash / erro antes dos tool_result). */
+function stripTrailingIncompleteAssistant(msgs: MessageParam[]): MessageParam[] {
+    if (msgs.length === 0) return msgs;
+    const last = msgs[msgs.length - 1];
+    if (assistantHasPendingToolUse(last)) return msgs.slice(0, -1);
+    return msgs;
+}
+
+function sliceProAnthropicMessages(msgs: MessageParam[]): MessageParam[] {
+    let m = msgs.slice(-MAX_STORED_MESSAGES);
+    m = stripLeadingInvalidAnthropicTurns(m);
+    m = stripTrailingIncompleteAssistant(m);
+    m = stripLeadingInvalidAnthropicTurns(m);
+    return m;
+}
 
 const MSG_PRO_ESCALATION_CHOICE =
     "Não estou conseguindo entender bem. O que você prefere?\n\n" +
@@ -313,7 +367,7 @@ async function runProTool(params: {
 function loadStoredMessages(ctx: Record<string, unknown>): MessageParam[] {
     const raw = ctx.pro_anthropic_messages;
     if (!Array.isArray(raw)) return [];
-    return raw.slice(-MAX_STORED_MESSAGES) as MessageParam[];
+    return sliceProAnthropicMessages(raw as MessageParam[]);
 }
 
 export async function handleProOrderIntent(params: {
@@ -469,9 +523,10 @@ export async function handleProOrderIntent(params: {
         streak = 0;
     }
 
-    messages = [...messages, { role: "assistant" as const, content: response.content }].slice(
-        -MAX_STORED_MESSAGES
-    ) as MessageParam[];
+    messages = sliceProAnthropicMessages([
+        ...messages,
+        { role: "assistant" as const, content: response.content },
+    ]) as MessageParam[];
 
     let nextTier = Number(session.context.pro_escalation_tier ?? 0);
     if (mark === "ok") nextTier = 0;
