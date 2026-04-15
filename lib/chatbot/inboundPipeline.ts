@@ -86,7 +86,7 @@ export async function runInboundChatbotPipeline(
 
     const draftForIntent = session.context.ai_order_canonical as AiOrderCanonicalDraft | undefined;
     const intent         = await classifyIntent(input, session.step, model, {
-        orderConfirmationPending: tier === "pro" && Boolean(draftForIntent?.pending_confirmation),
+        proActiveCanonicalDraft: tier === "pro" && Boolean(draftForIntent),
     });
 
     switch (intent) {

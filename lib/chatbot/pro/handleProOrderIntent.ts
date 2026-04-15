@@ -347,7 +347,8 @@ export async function handleProOrderIntent(params: {
 
     const draftExisting = session.context.ai_order_canonical as AiOrderCanonicalDraft | undefined;
 
-    if (draftExisting?.pending_confirmation) {
+    // Qualquer rascunho válido em sessão pode ser fechado com sim/não (pending_confirmation no JSON antigo pode ser false).
+    if (draftExisting) {
         if (isPortugueseOrderRejection(input)) {
             await saveSession(admin, threadId, companyId, {
                 context: {

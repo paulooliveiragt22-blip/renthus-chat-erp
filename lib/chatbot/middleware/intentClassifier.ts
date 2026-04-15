@@ -107,9 +107,22 @@ const VALID_INTENTS: MessageIntent[] = [
     "order_intent", "status_intent", "human_intent", "faq", "greeting", "unknown",
 ];
 
+/** Respostas curtas de forma de pagamento / continuação de pedido (PRO com rascunho ativo). */
+function isProPaymentOrOrderSnippet(trimmed: string): boolean {
+    const t = trimmed.trim();
+    if (t.length === 0) return false;
+    if (/^(pix|no pix|dinheiro|no dinheiro|cart[aã]o|no cart[aã]o|d[eé]bito|cr[eé]dito)\s*[!.?]*$/iu.test(t)) return true;
+    if (t.length <= 24 && /\b(pix|dinheiro|cart[aã]o|d[eé]bito|cr[eé]dito)\b/iu.test(t)) return true;
+    if (/^troco\s+(para|de)?\s*R?\$?\s*\d/iu.test(t)) return true;
+    return false;
+}
+
 export type ClassifyIntentOptions = {
-    /** Chatbot PRO com rascunho aguardando sim/não — não classificar "sim"/"ok" como saudação. */
-    orderConfirmationPending?: boolean;
+    /**
+     * Chatbot PRO com `ai_order_canonical` na sessão — não classificar "sim"/"pix"/"dinheiro" como saudação;
+     * manter `order_intent` para o Haiku continuar o pedido ou o servidor fechar após confirmação.
+     */
+    proActiveCanonicalDraft?: boolean;
 };
 
 // ── Classificação ─────────────────────────────────────────────────────────────
@@ -123,11 +136,11 @@ export async function classifyIntent(
     const trimmed = clampChatbotInputForRegex(text.trim());
     const norm    = normalize(trimmed);
 
-    if (
-        options?.orderConfirmationPending &&
-        (isPortugueseOrderConfirmation(trimmed) || isPortugueseOrderRejection(trimmed))
-    ) {
-        return "order_intent";
+    if (options?.proActiveCanonicalDraft) {
+        if (isPortugueseOrderConfirmation(trimmed) || isPortugueseOrderRejection(trimmed)) {
+            return "order_intent";
+        }
+        if (isProPaymentOrOrderSnippet(trimmed)) return "order_intent";
     }
 
     // Botões exatos do menu (string fixa, sem ambiguidade)

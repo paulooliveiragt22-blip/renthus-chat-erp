@@ -36,6 +36,8 @@ function normPm(raw: string | null | undefined): "pix" | "cash" | "card" | null 
     if (s === "pix" || s.includes("pix")) return "pix";
     if (s === "cash" || s === "dinheiro" || s.includes("dinheiro")) return "cash";
     if (s === "card" || s.includes("cartao") || s.includes("cartão")) return "card";
+    if (s.includes("debito") || s.includes("débito") || s.includes("credito") || s.includes("crédito")) return "card";
+    if (s.includes("transfer") || s.includes("ted")) return "pix";
     return null;
 }
 
@@ -284,7 +286,9 @@ export async function prepareOrderDraftFromTool(
                 delivery_eta_min,
                 total_items,
                 grand_total,
-                pending_confirmation: Boolean(body.ready_for_confirmation),
+                // Rascunho só existe com itens+endereço+pagamento válidos; sempre aguardar "sim"/"ok" no servidor
+                // (a IA costuma esquecer ready_for_confirmation=true e o pedido nunca fechava).
+                pending_confirmation: true,
                 address_resolution_note: addressNote,
             }
             : null;
