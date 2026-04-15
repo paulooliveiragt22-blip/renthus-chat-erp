@@ -24,6 +24,7 @@ export const maxDuration = 60;
 
 const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 3;
+const INBOUND_COALESCE_WINDOW_SECONDS = 20;
 
 const REACTIVATE_MSG =
     "😔 No momento não há atendentes disponíveis.\n" +
@@ -66,9 +67,33 @@ export async function GET(req: Request) {
 
     let processed = 0;
     let failed = 0;
+    let coalesced = 0;
+    const seenInBatch = new Set<string>();
 
     for (const job of jobs ?? []) {
         try {
+            const coalesceKey = buildCoalesceKey(job.thread_id, job.phone_e164, job.company_id, job.body_text);
+            const shouldCoalesce =
+                coalesceKey &&
+                (
+                    seenInBatch.has(coalesceKey) ||
+                    await hasRecentEquivalentProcessed(admin, job, coalesceKey)
+                );
+
+            if (shouldCoalesce) {
+                await admin
+                    .from("chatbot_queue")
+                    .update({
+                        status: "done",
+                        last_error: "coalesced_duplicate_inbound",
+                    })
+                    .eq("id", job.id);
+                processed++;
+                coalesced++;
+                continue;
+            }
+
+            if (coalesceKey) seenInBatch.add(coalesceKey);
             await processJob(admin, job);
             await admin
                 .from("chatbot_queue")
@@ -94,6 +119,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
         ok: true,
         processed,
+        coalesced,
         failed,
         ms: Date.now() - t0,
     });
@@ -120,9 +146,33 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
 
     let processed = 0;
     let failed = 0;
+    let coalesced = 0;
+    const seenInBatch = new Set<string>();
 
     for (const job of jobs) {
         try {
+            const coalesceKey = buildCoalesceKey(job.thread_id, job.phone_e164, job.company_id, job.body_text);
+            const shouldCoalesce =
+                coalesceKey &&
+                (
+                    seenInBatch.has(coalesceKey) ||
+                    await hasRecentEquivalentProcessed(admin, job, coalesceKey)
+                );
+
+            if (shouldCoalesce) {
+                await admin
+                    .from("chatbot_queue")
+                    .update({
+                        status: "done",
+                        last_error: "coalesced_duplicate_inbound",
+                    })
+                    .eq("id", job.id);
+                processed++;
+                coalesced++;
+                continue;
+            }
+
+            if (coalesceKey) seenInBatch.add(coalesceKey);
             await admin
                 .from("chatbot_queue")
                 .update({ status: "processing", attempts: (job.attempts ?? 0) + 1 })
@@ -150,7 +200,7 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
     }
 
     await cleanupOldJobs(admin);
-    return NextResponse.json({ ok: true, processed, failed, ms: Date.now() - t0 });
+    return NextResponse.json({ ok: true, processed, coalesced, failed, ms: Date.now() - t0 });
 }
 
 // ─── Processa um job individual ───────────────────────────────────────────────
@@ -255,4 +305,80 @@ async function cleanupOldJobs(admin: ReturnType<typeof createAdminClient>) {
         .delete()
         .in("status", ["done", "failed"])
         .lt("created_at", cutoff);
+}
+
+function normalizeInboundText(text: string): string {
+    return text
+        .normalize("NFD")
+        .replaceAll(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replaceAll(/\s+/g, " ")
+        .trim();
+}
+
+function buildCoalesceKey(
+    threadId: string | null | undefined,
+    phoneE164: string | null | undefined,
+    companyId: string | null | undefined,
+    bodyText: string | null | undefined
+): string | null {
+    const owner = phoneE164 || threadId || companyId || "global";
+    if (!owner || !bodyText) return null;
+    const normalized = normalizeInboundText(bodyText);
+    if (!normalized) return null;
+    return `${owner}::${normalized}`;
+}
+
+async function hasRecentEquivalentProcessed(
+    admin: ReturnType<typeof createAdminClient>,
+    job: { id: string; thread_id?: string; phone_e164?: string; company_id?: string; body_text?: string; created_at?: string },
+    coalesceKey: string
+): Promise<boolean> {
+    const threadId = job.thread_id;
+    const phoneE164 = job.phone_e164;
+    const companyId = job.company_id;
+    if (!threadId && !phoneE164 && !companyId) return false;
+    const cutoff = new Date(Date.now() - INBOUND_COALESCE_WINDOW_SECONDS * 1000).toISOString();
+    const [byThread, byPhone, byCompany] = await Promise.all([
+        threadId
+            ? admin
+                .from("chatbot_queue")
+                .select("id, thread_id, phone_e164, company_id, body_text")
+                .eq("thread_id", threadId)
+                .in("status", ["done", "processing"])
+                .gte("created_at", cutoff)
+                .limit(30)
+            : Promise.resolve({ data: [], error: null }),
+        phoneE164
+            ? admin
+                .from("chatbot_queue")
+                .select("id, thread_id, phone_e164, company_id, body_text")
+                .eq("phone_e164", phoneE164)
+                .in("status", ["done", "processing"])
+                .gte("created_at", cutoff)
+                .limit(30)
+            : Promise.resolve({ data: [], error: null }),
+        companyId
+            ? admin
+                .from("chatbot_queue")
+                .select("id, thread_id, phone_e164, company_id, body_text")
+                .eq("company_id", companyId)
+                .in("status", ["done", "processing"])
+                .gte("created_at", cutoff)
+                .limit(30)
+            : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    const recent = [...(byThread.data ?? []), ...(byPhone.data ?? []), ...(byCompany.data ?? [])];
+    for (const row of recent) {
+        if (row.id === job.id) continue;
+        const key = buildCoalesceKey(
+            row.thread_id as string | null | undefined,
+            row.phone_e164 as string | null | undefined,
+            row.company_id as string | null | undefined,
+            row.body_text as string | null | undefined
+        );
+        if (key && key === coalesceKey) return true;
+    }
+    return false;
 }

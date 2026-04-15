@@ -25,6 +25,7 @@ import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
 export const runtime = "nodejs";
 const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
+const INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS = 20;
 
 const INCOMING_RATE_LIMIT = 180;
 const INCOMING_RATE_WINDOW_MS = 60_000;
@@ -54,6 +55,15 @@ function maskIdentifier(value: string): string {
     if (!value) return "(empty)";
     if (value.length <= 6) return `${value.slice(0, 1)}***`;
     return `${value.slice(0, 3)}***${value.slice(-3)}`;
+}
+
+function normalizeInboundText(text: string): string {
+    return text
+        .normalize("NFD")
+        .replaceAll(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replaceAll(/\s+/g, " ")
+        .trim();
 }
 
 // ─── GET — verificação do webhook ─────────────────────────────────────────────
@@ -291,6 +301,30 @@ export async function POST(req: NextRequest) {
                 }
 
                 if (CHATBOT_QUEUE_ENABLED) {
+                    const dedupCutoff = new Date(Date.now() - INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS * 1000).toISOString();
+                    const normalizedBody = normalizeInboundText(bodyText);
+                    let shouldSkipEnqueue = false;
+
+                    if (normalizedBody) {
+                        const { data: recentJobs } = await admin
+                            .from("chatbot_queue")
+                            .select("body_text")
+                            .eq("thread_id", threadId)
+                            .eq("phone_e164", phoneE164)
+                            .in("status", ["pending", "processing", "done"])
+                            .gte("created_at", dedupCutoff)
+                            .limit(10);
+
+                        shouldSkipEnqueue = (recentJobs ?? []).some((j) => {
+                            const prev = typeof j.body_text === "string" ? normalizeInboundText(j.body_text) : "";
+                            return prev.length > 0 && prev === normalizedBody;
+                        });
+                    }
+
+                    if (shouldSkipEnqueue) {
+                        continue;
+                    }
+
                     const { error: queueErr } = await admin
                         .from("chatbot_queue")
                         .insert({
