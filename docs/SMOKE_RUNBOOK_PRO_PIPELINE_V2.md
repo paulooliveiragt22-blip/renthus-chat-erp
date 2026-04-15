@@ -128,6 +128,17 @@ Se qualquer critério NO-GO ocorrer:
 - Jobs recentes:
   - `select id,status,attempts,created_at from chatbot_queue order by created_at desc limit 20;`
 
+## Checklist pós-migração de índices (dedup/queue)
+1. Aplicar migration:
+   - `supabase db push`
+2. Confirmar criação dos índices:
+   - `select indexname from pg_indexes where tablename='chatbot_queue' and indexname like 'chatbot_queue_%dedup%';`
+   - `select indexname from pg_indexes where tablename='chatbot_queue' and indexname like 'chatbot_queue_coalesce_%';`
+3. Smoke rápido:
+   - repetir mensagem 2x em <= 10s
+   - executar `GET /api/chatbot/process-queue`
+   - esperado: `processed=1` e `failed=0`
+
 ## Execução automatizada local (referência)
 - Suíte usada para validar este runbook no repositório:
   - `tests/integration/chatbot-queue-e2e.test.ts`

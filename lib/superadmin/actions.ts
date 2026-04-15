@@ -109,6 +109,152 @@ export async function getDashboardStats() {
     };
 }
 
+export async function getQueueHealthStats(periodMinutes = 15) {
+    const admin = createAdminClient();
+    const windowStart = new Date(Date.now() - periodMinutes * 60_000).toISOString();
+
+    const [pendingRes, recentRes] = await Promise.all([
+        admin
+            .from("chatbot_queue")
+            .select("company_id")
+            .eq("status", "pending"),
+        admin
+            .from("chatbot_queue")
+            .select("company_id, status, last_error")
+            .gte("created_at", windowStart)
+            .in("status", ["done", "failed"]),
+    ]);
+
+    if (pendingRes.error) throw new Error(pendingRes.error.message);
+    if (recentRes.error) throw new Error(recentRes.error.message);
+
+    const byCompany = new Map<string, QueueHealthBaseRow>();
+
+    const ensure = (companyId: string) => ensureCompanyRow(byCompany, companyId);
+
+    for (const row of pendingRes.data ?? []) {
+        if (!row.company_id) continue;
+        ensure(row.company_id).pendingNow += 1;
+    }
+
+    for (const row of recentRes.data ?? []) {
+        if (!row.company_id) continue;
+        const item = ensure(row.company_id);
+        if (row.status === "failed") item.failed15m += 1;
+        if (row.status === "done") item.done15m += 1;
+        if (row.last_error === "coalesced_duplicate_inbound") item.coalesced15m += 1;
+    }
+
+    const companyIds = [...byCompany.keys()];
+    if (companyIds.length) {
+        const { data: companies, error: companiesErr } = await admin
+            .from("companies")
+            .select("id, name")
+            .in("id", companyIds);
+        if (companiesErr) throw new Error(companiesErr.message);
+        for (const c of companies ?? []) {
+            const item = byCompany.get(c.id);
+            if (item) item.companyName = c.name ?? c.id;
+        }
+    }
+
+    const items = [...byCompany.values()].map((item) => toQueueHealthRow(item))
+        .filter((item) => item.pendingNow > 0 || item.processed15m > 0)
+        .sort(compareQueueHealthRows);
+
+    const summary = items.reduce(
+        (acc, item) => {
+            acc.pendingNow += item.pendingNow;
+            acc.processed15m += item.processed15m;
+            acc.failed15m += item.failed15m;
+            acc.coalesced15m += item.coalesced15m;
+            return acc;
+        },
+        { pendingNow: 0, processed15m: 0, failed15m: 0, coalesced15m: 0 }
+    );
+
+    const failureRate = ratio(summary.failed15m, summary.processed15m);
+    const dedupHitRate = ratio(summary.coalesced15m, summary.processed15m - summary.failed15m);
+
+    return {
+        periodMinutes,
+        summary: {
+            ...summary,
+            failureRate,
+            dedupHitRate,
+        },
+        companies: items,
+    };
+}
+
+type QueueHealthBaseRow = {
+    companyId: string;
+    companyName: string;
+    pendingNow: number;
+    done15m: number;
+    failed15m: number;
+    coalesced15m: number;
+};
+
+type QueueHealthRow = QueueHealthBaseRow & {
+    processed15m: number;
+    failureRate: number;
+    dedupHitRate: number;
+    severity: "green" | "yellow" | "red";
+};
+
+function ensureCompanyRow(map: Map<string, QueueHealthBaseRow>, companyId: string): QueueHealthBaseRow {
+    if (!map.has(companyId)) {
+        map.set(companyId, {
+            companyId,
+            companyName: companyId,
+            pendingNow: 0,
+            done15m: 0,
+            failed15m: 0,
+            coalesced15m: 0,
+        });
+    }
+    return map.get(companyId)!;
+}
+
+function ratio(numerator: number, denominator: number): number {
+    if (denominator <= 0) return 0;
+    return numerator / denominator;
+}
+
+function toQueueHealthRow(item: QueueHealthBaseRow): QueueHealthRow {
+    const processed15m = item.done15m + item.failed15m;
+    const failureRate = ratio(item.failed15m, processed15m);
+    const dedupHitRate = ratio(item.coalesced15m, item.done15m);
+    return {
+        ...item,
+        processed15m,
+        failureRate,
+        dedupHitRate,
+        severity: resolveQueueSeverity(failureRate, item.pendingNow),
+    };
+}
+
+function resolveQueueSeverity(failureRate: number, pendingNow: number): "green" | "yellow" | "red" {
+    if (failureRate > 0.03 || pendingNow >= 20) return "red";
+    if (failureRate > 0 || pendingNow > 0) return "yellow";
+    return "green";
+}
+
+function severityWeight(severity: "green" | "yellow" | "red"): number {
+    if (severity === "red") return 2;
+    if (severity === "yellow") return 1;
+    return 0;
+}
+
+function compareQueueHealthRows(a: QueueHealthRow, b: QueueHealthRow): number {
+    return (
+        severityWeight(b.severity) - severityWeight(a.severity)
+        || b.pendingNow - a.pendingNow
+        || b.failed15m - a.failed15m
+    );
+}
+
 // ─── Planos ───────────────────────────────────────────────────────────────────
 
 export async function getPlans() {
