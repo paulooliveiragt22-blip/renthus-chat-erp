@@ -1,4 +1,4 @@
-// middleware.ts
+// proxy.ts — convenção Next.js 16+ (substitui middleware.ts na raiz do projeto)
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
@@ -22,7 +22,7 @@ type CompanyAccessRow = {
     is_active:               boolean;
 };
 
-/** Redirecionamentos de cobrança / onboarding (extraído para reduzir complexidade cognitiva do middleware). */
+/** Redirecionamentos de cobrança / onboarding (extraído para reduzir complexidade cognitiva do proxy). */
 async function redirectForCompanyAccess(
     request: NextRequest,
     pathname: string,
@@ -129,7 +129,7 @@ function isPublicAppRoute(pathname: string): boolean {
     );
 }
 
-export async function middleware(
+export async function proxy(
     request: NextRequest,
     _event?: NextFetchEvent,
     options?: { createClient?: SupabaseClientFactory }

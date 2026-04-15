@@ -6,10 +6,10 @@ import path from "path";
 
 export async function GET(req: NextRequest) {
     try {
-        // resposta intermediária (usada para comportamento de cookies, como no middleware do projeto)
+        // resposta intermediária (usada para comportamento de cookies, como no proxy do projeto)
         const response = NextResponse.next();
 
-        // cria client server-side usando cookies do request -> response (mesma abordagem do middleware)
+        // cria client server-side usando cookies do request -> response (mesma abordagem do proxy)
         const supabase = createServerClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

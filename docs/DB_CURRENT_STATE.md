@@ -482,9 +482,9 @@ RPC atômica reserve_print_job(p_company, p_agent) implementada (PL/pgSQL com FO
 
 Backend (renthus-chat-erp)
 
-Middleware já permite tráfego para /api/print/* (roteamento correto). 
+O proxy (`proxy.ts`) já permite tráfego para /api/print/* (roteamento correto).
 
-middleware
+proxy.ts
 
 Helpers: lib/supabase/admin.ts (service-role client) e lib/workspace/requireCompanyAccess.ts existem e são usados nas rotas. 
 

@@ -14,9 +14,9 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 ---
 
-## 2. Reduzir superfície “pública” no middleware
+## 2. Reduzir superfície “pública” no proxy (`proxy.ts`)
 
-- [x] Manter em `isTechnicalApiPublic` apenas o estritamente necessário (webhook Meta, flows Meta, print, billing público, agent, etc.). → `middleware.ts` (WhatsApp já granular)
+- [x] Manter em `isTechnicalApiPublic` apenas o estritamente necessário (webhook Meta, flows Meta, print, billing público, agent, etc.). → `proxy.ts` (WhatsApp já granular)
 - [ ] Revisar periodicamente `app/api/agent/**` para que nenhuma sub-rota fique sem autenticação.
 
 ---
@@ -96,7 +96,7 @@ No **código da aplicação**, a chave `SUPABASE_SERVICE_ROLE_KEY` é lida em:
 | Local | Uso |
 |-------|-----|
 | `lib/supabase/admin.ts` | Cria o cliente Supabase com essa chave → todas as chamadas com esse cliente usam o papel **`service_role`** no Postgres (ignora RLS). |
-| `middleware.ts` | Usa a mesma variável em `Authorization: Bearer` em `fetch` direto ao PostgREST (assinatura/cobrança por `company_id` no cookie). |
+| `proxy.ts` | Usa a mesma variável em `Authorization: Bearer` em `fetch` direto ao PostgREST (assinatura/cobrança por `company_id` no cookie). |
 | `app/api/companies/create/route.ts` | Além de `createAdminClient()`, usa `SUPABASE_SERVICE_ROLE_KEY` em `fetch` para RPC. |
 | `app/api/chatbot/resolve/route.ts` | Compara header interno com `SUPABASE_SERVICE_ROLE_KEY` + usa `createAdminClient()`. |
 | `lib/superadmin/actions.ts` | Apenas checagem de “env preenchido” para health/diagnóstico superadmin. |

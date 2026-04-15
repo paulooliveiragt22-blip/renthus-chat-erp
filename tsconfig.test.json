@@ -11,7 +11,7 @@
     "allowJs": true
   },
   "include": [
-    "middleware.ts",
+    "proxy.ts",
     "lib/billing/computeNextBillingAt.ts",
     "tests/**/*.ts",
     "lib/chatbot/processMessage.ts",

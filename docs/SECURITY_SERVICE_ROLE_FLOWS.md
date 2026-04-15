@@ -18,7 +18,7 @@ Rotas que chamam `requireCompanyAccess` (ou equivalente) e depois `admin`: o uti
 
 ## Middleware
 
-`middleware.ts` usa `SUPABASE_SERVICE_ROLE_KEY` em `fetch` ao PostgREST para subscription/empresa — o `company_id` vem do cookie `renthus_company_id` (rever se o cookie é só httpOnly / assinado na vossa política).
+`proxy.ts` usa `SUPABASE_SERVICE_ROLE_KEY` em `fetch` ao PostgREST para subscription/empresa — o `company_id` vem do cookie `renthus_company_id` (rever se o cookie é só httpOnly / assinado na vossa política).
 
 ## SQL (migrações)
 

@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { beforeEach, describe, it, mock } from "node:test";
 import { NextRequest } from "next/server";
-import { middleware, type SupabaseClientFactory } from "../middleware";
+import { proxy, type SupabaseClientFactory } from "../proxy";
 
 type MockedClientFactory = SupabaseClientFactory & {
     mock: ReturnType<typeof mock.fn>["mock"];
@@ -20,7 +20,7 @@ function createRequest(pathname: string, cookies?: string) {
     return new NextRequest(url, { headers });
 }
 
-describe("middleware auth routing", () => {
+describe("proxy auth routing", () => {
     let factory: MockedClientFactory;
 
     beforeEach(() => {
@@ -28,7 +28,7 @@ describe("middleware auth routing", () => {
     });
 
     it("bypasses public auth routes without invoking Supabase", async () => {
-        const response = await middleware(createRequest("/login"), undefined, {
+        const response = await proxy(createRequest("/login"), undefined, {
             createClient: factory,
         });
 
@@ -37,12 +37,12 @@ describe("middleware auth routing", () => {
     });
 
     it("exempts webhook and print endpoints", async () => {
-        const response = await middleware(
+        const response = await proxy(
             createRequest("/api/whatsapp/incoming"),
             undefined,
             { createClient: factory }
         );
-        const printResponse = await middleware(createRequest("/api/print/pull"), undefined, {
+        const printResponse = await proxy(createRequest("/api/print/pull"), undefined, {
             createClient: factory,
         });
 
@@ -53,7 +53,7 @@ describe("middleware auth routing", () => {
 
     it("redirects unauthenticated users on protected routes", async () => {
         const { factory: protectedFactory } = createMockClient(null);
-        const response = await middleware(createRequest("/dashboard"), undefined, {
+        const response = await proxy(createRequest("/dashboard"), undefined, {
             createClient: protectedFactory,
         });
 
@@ -64,7 +64,7 @@ describe("middleware auth routing", () => {
 
     it("allows protected routes when a session exists", async () => {
         const { factory: protectedFactory, getUser } = createMockClient({ id: "user-123" });
-        const response = await middleware(createRequest("/dashboard"), undefined, {
+        const response = await proxy(createRequest("/dashboard"), undefined, {
             createClient: protectedFactory,
         });
 
