@@ -108,6 +108,8 @@ function isTechnicalApiPublic(pathname: string): boolean {
         /** Webhook + Flows: chamados pela Meta sem cookie de sessão. Demais /api/whatsapp/* exigem login aqui. */
         pathname.startsWith("/api/whatsapp/incoming") ||
         pathname.startsWith("/api/whatsapp/flows") ||
+        /** Worker da fila do chatbot usa autenticação própria via CRON_SECRET. */
+        pathname.startsWith("/api/chatbot/process-queue") ||
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||
