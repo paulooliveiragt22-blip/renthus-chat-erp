@@ -16,6 +16,7 @@ import { botReply } from "./botSend";
 import { sendFlowMessage, sendInteractiveButtons } from "../whatsapp/send";
 import { clampChatbotInputForRegex, isWithinBusinessHours } from "./utils";
 import { handleProOrderIntent } from "./pro/handleProOrderIntent";
+import { handleProEscalationChoice } from "./pro/handleProEscalationChoice";
 import type { AiOrderCanonicalDraft } from "./pro/typesAiOrder";
 
 export async function runInboundChatbotPipeline(
@@ -63,6 +64,23 @@ export async function runInboundChatbotPipeline(
 
     if (session.step === "awaiting_flow") {
         await handleAwaitingFlow({ ...params, text: input }, session);
+        return;
+    }
+
+    if (tier === "pro" && session.step === "pro_escalation_choice" && waConfig) {
+        await handleProEscalationChoice({
+            admin,
+            companyId,
+            threadId,
+            phoneE164,
+            input,
+            session,
+            waConfig,
+            effectiveCatalogId,
+            companyName,
+            model,
+            profileName: params.profileName,
+        });
         return;
     }
 
@@ -211,15 +229,17 @@ async function sendWelcomeMenu(
         if (!hasCustomerRow) {
             greetText = firstTpl
                 ? applyProGreetingTemplate(firstTpl, companyName, null)
-                : `Olá! É seu primeiro contato com a *${companyName}* por aqui. 🍺\n\nPode mandar seu pedido em texto (bebidas, quantidades, endereço e pagamento) ou usar os botões abaixo.`;
+                : `Olá! É seu primeiro contato com a *${companyName}* por aqui. 🍺\n\nPode mandar seu pedido em texto livre (bebidas, quantidades, endereço e pagamento).`;
         } else {
             const nm = customer?.name ? String(customer.name).trim() : null;
             greetText = routineTpl
                 ? applyProGreetingTemplate(routineTpl, companyName, nm)
                 : nm
-                    ? `Olá, *${nm}*! Que bom te ver de novo no *${companyName}*. 🍺\n\nDiz o que pedimos hoje ou use os botões.`
+                    ? `Olá, *${nm}*! Que bom te ver de novo no *${companyName}*. 🍺\n\nDiz o que pedimos hoje em texto livre.`
                     : `Olá de novo! No *${companyName}*, o que pedimos hoje? 🍺`;
         }
+        await botReply(admin, companyId, threadId, phoneE164, greetText);
+        return;
     } else if (!isFirstMessage) {
         greetText = `Como posso te ajudar no *${companyName}*? 🍺`;
     } else if (customer?.name) {

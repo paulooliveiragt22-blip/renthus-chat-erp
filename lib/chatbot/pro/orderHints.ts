@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrCreateCustomer } from "../db/orders";
-import { resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
+import { listCustomerAddressesForCustomer, resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
 
 export async function buildOrderHintsPayload(params: {
     admin:     SupabaseClient;
@@ -12,10 +12,15 @@ export async function buildOrderHintsPayload(params: {
 
     const customer = await getOrCreateCustomer(admin, companyId, phoneE164, name ?? null);
     if (!customer?.id) {
-        return { customer_known: false, hint: "Primeiro pedido: pergunte o endereço completo (rua, número, bairro)." };
+        return {
+            customer_known: false,
+            hint:
+                "Primeiro pedido: antes de pedir endereço, confira se saved_addresses veio vazio. Se vazio, peça logradouro, número, bairro e (se possível) cidade/CEP em campos separados.",
+        };
     }
 
     const saved = await resolveDefaultAddressForCustomer(admin, companyId, customer.id);
+    const savedList = await listCustomerAddressesForCustomer(admin, companyId, customer.id);
 
     const { data: favs } = await admin.rpc("get_customer_favorites", {
         p_company_id:     companyId,
@@ -32,6 +37,19 @@ export async function buildOrderHintsPayload(params: {
                 resolution: saved.note,
             }
             : null,
+        /** Liste todos ao cliente antes de pedir um endereço novo; use `saved_address_id` no prepare_order_draft para um destes ids. */
+        saved_addresses: savedList.map((r) => ({
+            id:           r.id,
+            apelido:      r.apelido,
+            logradouro:   r.logradouro,
+            numero:       r.numero,
+            complemento:  r.complemento,
+            bairro:       r.bairro,
+            cidade:       r.cidade,
+            estado:       r.estado,
+            cep:          r.cep,
+            is_principal: r.is_principal,
+        })),
         favorite_lines: (favs ?? []).map((f: { id: string; name?: string; description?: string; price?: number }) => ({
             produto_embalagem_id: f.id,
             label:                f.name ?? f.description ?? "",

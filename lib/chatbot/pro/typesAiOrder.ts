@@ -9,6 +9,11 @@ export interface AiOrderAddress {
     bairro:      string;
     complemento: string | null;
     apelido?:    string | null;
+    cidade?:     string | null;
+    estado?:     string | null;
+    cep?:        string | null;
+    /** Quando o endereço veio de `enderecos_cliente` */
+    endereco_cliente_id?: string | null;
     /** Label amigável do bairro (zona) para o texto de entrega */
     bairro_label?: string | null;
 }

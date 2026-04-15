@@ -9,7 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ProcessMessageParams, Session } from "../types";
 import { saveSession } from "../session";
 import { botReply } from "../botSend";
-import { sendFlowMessage } from "../../whatsapp/send";
+import { sendInteractiveButtons } from "../../whatsapp/send";
 import { formatCurrency } from "../utils";
 import { getOrCreateCustomer } from "../db/orders";
 import { isPortugueseOrderConfirmation, isPortugueseOrderRejection } from "./confirmationPt";
@@ -21,8 +21,15 @@ import { buildOrderHintsPayload } from "./orderHints";
 import { shouldIncrementProMisunderstandingStreak } from "./orderProgressHeuristic";
 
 const MAX_MISUNDERSTANDING = 4;
-const MAX_TOOL_ROUNDS      = 6;
+const MAX_TOOL_ROUNDS      = 12;
 const MAX_STORED_MESSAGES  = 24;
+
+const MSG_PRO_ESCALATION_CHOICE =
+    "Não estou conseguindo entender bem. O que você prefere?\n\n" +
+    "1️⃣ Ver o *catálogo* (formulário)\n" +
+    "2️⃣ *Falar com um atendente*\n" +
+    "3️⃣ *Tentar de novo* em texto livre\n\n" +
+    "Responda com o número ou escreva catálogo / atendente / tentar de novo.";
 
 const MARK_OK      = "\nINTENT_OK";
 const MARK_UNKNOWN = "\nINTENT_UNKNOWN";
@@ -49,6 +56,8 @@ function formatDraftForModel(d: AiOrderCanonicalDraft): string {
         const comp = addr.complemento ? ` (${addr.complemento})` : "";
         const bairro = addr.bairro_label ?? addr.bairro;
         addrLine     = `📍 ${addr.logradouro}, ${addr.numero}${comp} — ${bairro}`;
+        const extra  = [addr.cidade, addr.estado, addr.cep].filter(Boolean).join(" · ");
+        if (extra) addrLine += `\n📌 ${extra}`;
     }
     let pm = "Dinheiro";
     if (d.payment_method === "pix") pm = "PIX";
@@ -101,7 +110,7 @@ const SEARCH_TOOL = {
 const HINTS_TOOL = {
     name:         "get_order_hints",
     description:
-        "Dados reais do cadastro: endereço salvo, favoritos, customer_known. Não assuma endereço ou favoritos sem chamar esta tool quando o cliente falar em “de sempre”, último pedido ou no que costuma pedir. O JSON devolvido é a única base para esses fatos.",
+        "Dados reais do cadastro: saved_addresses (todos os endereços em enderecos_cliente), saved_address (principal/último), favoritos, customer_known. Antes de pedir endereço novo ao cliente, mostre o conteúdo de saved_addresses (se não for vazio). Para usar um cadastrado, chame prepare_order_draft com saved_address_id = id da linha escolhida. Não invente endereço.",
     input_schema: {
         type:       "object" as const,
         properties: {},
@@ -111,7 +120,7 @@ const HINTS_TOOL = {
 const PREPARE_DRAFT_TOOL = {
     name:         "prepare_order_draft",
     description:
-        "Validação no servidor: UUID produto_embalagem_id tem de ser exatamente um id já retornado por search_produtos nesta conversa (nunca invente ou complete UUID). Endereço, pagamento, estoque e zona de entrega são checados aqui; totais e erros no JSON da tool prevalecem sobre o que você inferiu. Se errors não for vazio, corrija com base nessas mensagens — não contradiga o servidor. use_saved_address=true para endereço salvo. ready_for_confirmation=true só ao mostrar resumo final pedindo “sim”/“ok”.",
+        "Validação no servidor: UUID produto_embalagem_id tem de ser exatamente um id já retornado por search_produtos nesta conversa (nunca invente ou complete UUID). Endereço, pagamento, estoque e zona de entrega são checados aqui; totais e erros no JSON da tool prevalecem sobre o que você inferiu. Se errors não for vazio, corrija com base nessas mensagens — não contradiga o servidor. Para endereço já cadastrado use saved_address_id (UUID de get_order_hints.saved_addresses) OU use_saved_address=true (principal/último). Para endereço digitado use address com logradouro, numero, bairro e se souber cidade, estado, cep em campos separados (não junte tudo no logradouro). ready_for_confirmation=true só ao mostrar resumo final pedindo “sim”/“ok”.",
     input_schema: {
         type:       "object" as const,
         properties: {
@@ -135,19 +144,26 @@ const PREPARE_DRAFT_TOOL = {
             },
             address: {
                 type:        "object",
-                description: "Endereço (rua, número, bairro); omitir se use_saved_address ou address_raw",
+                description: "Endereço estruturado; omitir se saved_address_id, use_saved_address ou address_raw",
                 properties: {
                     logradouro:  { type: "string" },
                     numero:      { type: "string" },
                     bairro:      { type: "string" },
                     complemento: { type: "string" },
                     apelido:     { type: "string" },
+                    cidade:      { type: "string" },
+                    estado:      { type: "string" },
+                    cep:         { type: "string" },
                 },
             },
             address_raw: {
                 type:        "string",
                 description:
                     "Opcional: uma linha só (ex.: Rua Tangará 850 São Mateus). O servidor tenta separar logradouro, número e bairro.",
+            },
+            saved_address_id: {
+                type:        "string",
+                description: "UUID de uma linha de get_order_hints.saved_addresses (mesmo cliente).",
             },
             use_saved_address: {
                 type:        "boolean",
@@ -198,7 +214,7 @@ Pode e DEVE dizer claramente quando não tiver base: ex. “Não encontrei esse 
 
 <order_flow>
 1) Escolha de produtos: se o pedido for vago ou houver várias embalagens, use search_produtos e ofereça só opções retornadas.
-2) Endereço: rua, número e bairro — ou use_saved_address=true depois de get_order_hints mostrar endereço salvo.
+2) Endereço: chame get_order_hints cedo. Se saved_addresses não for vazio, mostre TODOS ao cliente (apelido, rua, nº, bairro, cidade se houver) antes de pedir endereço novo. Se o cliente escolher um cadastrado, use prepare_order_draft com saved_address_id = id da linha. Senão peça logradouro, número e bairro em campos claros (e cidade/CEP se possível); use_saved_address=true só para o padrão (principal/último) quando o cliente disser “de sempre” e bater com saved_address.
 3) Pagamento: pix, cash ou card; troco (change_for) só com cash.
 4) Quando completo, prepare_order_draft com ready_for_confirmation=true, mostre o resumo (alinhado ao draft da tool) e peça confirmação explícita.
 5) Até o cliente dizer sim/ok/etc., o pedido continua em rascunho — não diga que já foi registrado de forma definitiva.
@@ -266,6 +282,7 @@ async function runProTool(params: {
             items:                    (input.items as PrepareDraftToolInput["items"]) ?? [],
             address:                  (input.address as PrepareDraftToolInput["address"]) ?? null,
             address_raw:              input.address_raw != null ? String(input.address_raw) : null,
+            saved_address_id:         input.saved_address_id != null ? String(input.saved_address_id) : null,
             use_saved_address:        Boolean(input.use_saved_address),
             payment_method:           input.payment_method != null ? String(input.payment_method) : null,
             change_for:               input.change_for != null ? Number(input.change_for) : null,
@@ -314,7 +331,7 @@ export async function handleProOrderIntent(params: {
 }): Promise<void> {
     const {
         admin, companyId, threadId, phoneE164, input, session,
-        effectiveCatalogId, companyName, model, waConfig, profileName,
+        companyName, model, waConfig, profileName,
     } = params;
 
     if (!waConfig) {
@@ -335,9 +352,10 @@ export async function handleProOrderIntent(params: {
             await saveSession(admin, threadId, companyId, {
                 context: {
                     ...session.context,
-                    ai_order_canonical:       undefined,
-                    pro_anthropic_messages:   [],
+                    ai_order_canonical:          undefined,
+                    pro_anthropic_messages:      [],
                     pro_misunderstanding_streak: 0,
+                    pro_escalation_tier:         0,
                 },
             });
             await botReply(admin, companyId, threadId, phoneE164, "Tudo bem — cancelei esse pedido. Quando quiser, é só dizer o que precisa. 😊");
@@ -359,6 +377,7 @@ export async function handleProOrderIntent(params: {
                         ai_order_canonical:          undefined,
                         pro_anthropic_messages:      [],
                         pro_misunderstanding_streak: 0,
+                        pro_escalation_tier:         0,
                     },
                 });
                 await botReply(admin, companyId, threadId, phoneE164, placed.customerMessage);
@@ -369,31 +388,8 @@ export async function handleProOrderIntent(params: {
         }
     }
 
-    let streak = Number(session.context.pro_misunderstanding_streak ?? 0);
-    if (streak >= MAX_MISUNDERSTANDING) {
-        await saveSession(admin, threadId, companyId, {
-            step:    "awaiting_flow",
-            context: {
-                ...session.context,
-                pro_misunderstanding_streak: 0,
-                flow_started_at:             new Date().toISOString(),
-                flow_repeat_count:             0,
-            },
-        });
-        if (effectiveCatalogId) {
-            await sendFlowMessage(
-                phoneE164,
-                {
-                    flowId:    effectiveCatalogId,
-                    flowToken: `${threadId}|${companyId}|catalog`,
-                    bodyText:  `Para montar seu pedido certinho, use o catálogo do *${companyName}* aqui abaixo. 😊`,
-                    ctaLabel:  "Ver Catálogo",
-                },
-                waConfig
-            );
-        }
-        return;
-    }
+    const escTierBefore = Number(session.context.pro_escalation_tier ?? 0);
+    let streak          = Number(session.context.pro_misunderstanding_streak ?? 0);
 
     const client = new Anthropic();
 
@@ -476,37 +472,54 @@ export async function handleProOrderIntent(params: {
         -MAX_STORED_MESSAGES
     ) as MessageParam[];
 
-    await saveSession(admin, threadId, companyId, {
-        context: {
-            ...session.context,
-            pro_misunderstanding_streak: streak,
-            pro_anthropic_messages:        messages as unknown as Record<string, unknown>,
-        },
-    });
+    let nextTier = Number(session.context.pro_escalation_tier ?? 0);
+    if (mark === "ok") nextTier = 0;
 
-    const reply = visible.length > 0 ? visible : "Não entendi direito — me diga o que quer pedir ou escolha uma opção do menu. 😊";
+    let nextStep = session.step;
+    let escalate: "none" | "choice" | "buttons" = "none";
+    let clearAiDraft = false;
+    if (streak >= MAX_MISUNDERSTANDING) {
+        if (escTierBefore < 1) {
+            escalate     = "choice";
+            streak       = 0;
+            nextTier     = 1;
+            nextStep     = "pro_escalation_choice";
+            clearAiDraft = true;
+        } else {
+            escalate     = "buttons";
+            streak       = 0;
+            nextTier     = 2;
+            nextStep     = "main_menu";
+            clearAiDraft = true;
+        }
+    }
+
+    const nextCtx: Record<string, unknown> = {
+        ...session.context,
+        pro_misunderstanding_streak: streak,
+        pro_escalation_tier:         nextTier,
+        pro_anthropic_messages:      (clearAiDraft ? [] : messages) as unknown as Record<string, unknown>,
+    };
+    if (clearAiDraft) nextCtx.ai_order_canonical = undefined;
+
+    await saveSession(admin, threadId, companyId, { step: nextStep, context: nextCtx });
+    session.step    = nextStep;
+    session.context = nextCtx;
+
+    const reply = visible.length > 0 ? visible : "Não entendi direito — me diga o que quer pedir em texto. 😊";
     await botReply(admin, companyId, threadId, phoneE164, reply);
 
-    if (streak >= MAX_MISUNDERSTANDING && effectiveCatalogId) {
-        await saveSession(admin, threadId, companyId, {
-            step:    "awaiting_flow",
-            context: {
-                ...session.context,
-                pro_misunderstanding_streak: 0,
-                pro_anthropic_messages:        [],
-                ai_order_canonical:            undefined,
-                flow_started_at:               new Date().toISOString(),
-                flow_repeat_count:               0,
-            },
-        });
-        await sendFlowMessage(
+    if (escalate === "choice") {
+        await botReply(admin, companyId, threadId, phoneE164, MSG_PRO_ESCALATION_CHOICE);
+    } else if (escalate === "buttons") {
+        await sendInteractiveButtons(
             phoneE164,
-            {
-                flowId:    effectiveCatalogId,
-                flowToken: `${threadId}|${companyId}|catalog`,
-                bodyText:  `Vamos pelo formulário do *${companyName}* — assim não falha nada no pedido. 🍺`,
-                ctaLabel:  "Ver Catálogo",
-            },
+            `No *${companyName}*, como prefere continuar?`,
+            [
+                { id: "btn_catalog", title: "🛒 Ver Catálogo" },
+                { id: "btn_status", title: "📦 Meu pedido" },
+                { id: "btn_support", title: "🙋 Falar c/ atendente" },
+            ],
             waConfig
         );
     }

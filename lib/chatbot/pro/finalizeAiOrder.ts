@@ -66,41 +66,31 @@ export async function tryFinalizeAiOrderFromDraft(params: {
     const addr = draft.address;
     const apelido = addr.apelido?.trim() || "WhatsApp";
 
-    const { data: existingAddr } = await admin
-        .from("enderecos_cliente")
-        .select("id")
-        .eq("customer_id", customer.id)
-        .eq("company_id", companyId)
-        .eq("apelido", apelido)
-        .maybeSingle();
+    const payload: Record<string, unknown> = {
+        address_id:    addr.endereco_cliente_id ?? null,
+        apelido,
+        logradouro:    addr.logradouro,
+        numero:        addr.numero,
+        complemento: addr.complemento ?? "",
+        bairro:        addr.bairro,
+        cidade:        addr.cidade ?? "",
+        estado:        addr.estado ?? "",
+        cep:           addr.cep ?? "",
+        is_principal:  true,
+    };
 
-    let deliveryEnderecoClienteId: string | null = null;
+    const { data: deliveryEnderecoClienteId, error: addrErr } = await admin.rpc(
+        "rpc_chatbot_pro_upsert_endereco_cliente",
+        {
+            p_company_id:  companyId,
+            p_customer_id: customer.id,
+            p_payload:     payload,
+        }
+    );
 
-    if (existingAddr?.id) {
-        await admin.from("enderecos_cliente").update({
-            logradouro:   addr.logradouro,
-            numero:       addr.numero,
-            complemento:  addr.complemento,
-            bairro:       addr.bairro,
-            is_principal: true,
-        }).eq("id", existingAddr.id);
-        deliveryEnderecoClienteId = existingAddr.id as string;
-    } else {
-        const { data: inserted } = await admin
-            .from("enderecos_cliente")
-            .insert({
-                company_id:   companyId,
-                customer_id:  customer.id,
-                apelido,
-                logradouro:   addr.logradouro,
-                numero:       addr.numero,
-                complemento:  addr.complemento,
-                bairro:       addr.bairro,
-                is_principal: true,
-            })
-            .select("id")
-            .single();
-        if (inserted?.id) deliveryEnderecoClienteId = inserted.id as string;
+    if (addrErr || !deliveryEnderecoClienteId) {
+        console.error("[chatbot/pro] rpc_chatbot_pro_upsert_endereco_cliente:", addrErr?.message);
+        return { ok: false, customerMessage: "Não consegui salvar o endereço. Confira rua, número e bairro e tente de novo. 😊" };
     }
 
     const { data: settings } = await admin
@@ -113,7 +103,15 @@ export async function tryFinalizeAiOrderFromDraft(params: {
     const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
 
     const addressText = draft.delivery_address_text
-        ?? [addr.logradouro, addr.numero, addr.complemento, addr.bairro_label ?? addr.bairro].filter(Boolean).join(", ");
+        ?? [
+            addr.logradouro,
+            addr.numero,
+            addr.complemento,
+            addr.bairro_label ?? addr.bairro,
+            addr.cidade,
+            addr.estado,
+            addr.cep,
+        ].filter(Boolean).join(", ");
 
     const cartPayload = draft.items.map((item) => ({
         product_name:         item.product_name,

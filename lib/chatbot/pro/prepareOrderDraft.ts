@@ -14,9 +14,14 @@ export interface PrepareDraftToolInput {
         bairro:      string;
         complemento?: string | null;
         apelido?:    string | null;
+        cidade?:     string | null;
+        estado?:     string | null;
+        cep?:        string | null;
     } | null;
     /** Linha única (ex.: "Rua Tangará 850 São Mateus") — o servidor separa rua/número/bairro. */
     address_raw?: string | null;
+    /** UUID de uma linha de get_order_hints.saved_addresses (mesma empresa + cliente). */
+    saved_address_id?: string | null;
     /** Quando true, preenche o endereço a partir do cadastro / último pedido (cliente já identificado). */
     use_saved_address?: boolean;
     payment_method?:   string | null;
@@ -94,7 +99,15 @@ export async function loadPackRowForValidation(
 }
 
 function buildAddressText(addr: AiOrderAddress, bairroLabel: string): string {
-    return [addr.logradouro, addr.numero, addr.complemento, bairroLabel || addr.bairro]
+    return [
+        addr.logradouro,
+        addr.numero,
+        addr.complemento,
+        bairroLabel || addr.bairro,
+        addr.cidade,
+        addr.estado,
+        addr.cep,
+    ]
         .filter(Boolean)
         .join(", ");
 }
@@ -120,26 +133,63 @@ export async function prepareOrderDraftFromTool(
             bairro:      String(body.address.bairro ?? "").trim(),
             complemento: body.address.complemento ? String(body.address.complemento).trim() : null,
             apelido:     body.address.apelido ? String(body.address.apelido).trim() : null,
+            cidade:      body.address.cidade ? String(body.address.cidade).trim() : null,
+            estado:      body.address.estado ? String(body.address.estado).trim() : null,
+            cep:         body.address.cep ? String(body.address.cep).trim() : null,
         }
         : null;
 
+    const savedAddrId = body.saved_address_id?.trim();
+    if (savedAddrId) {
+        if (!customerId) {
+            errors.push("Cliente não identificado; não dá para usar saved_address_id.");
+        } else {
+            const { data: row } = await admin
+                .from("enderecos_cliente")
+                .select("id, apelido, logradouro, numero, complemento, bairro, cidade, estado, cep")
+                .eq("id", savedAddrId)
+                .eq("company_id", companyId)
+                .eq("customer_id", customerId)
+                .maybeSingle();
+            if (!row?.logradouro || !row.numero || !row.bairro) {
+                errors.push("saved_address_id inválido ou incompleto; use outro id de saved_addresses ou endereço digitado.");
+            } else {
+                address = {
+                    logradouro:           String(row.logradouro).trim(),
+                    numero:               String(row.numero ?? "").trim(),
+                    bairro:               String(row.bairro).trim(),
+                    complemento:          row.complemento ? String(row.complemento).trim() : null,
+                    apelido:              row.apelido ? String(row.apelido).trim() : null,
+                    cidade:               row.cidade ? String(row.cidade).trim() : null,
+                    estado:               row.estado ? String(row.estado).trim() : null,
+                    cep:                  row.cep ? String(row.cep).trim() : null,
+                    endereco_cliente_id:  row.id as string,
+                };
+            }
+        }
+    }
+
     const rawLine = body.address_raw?.trim();
-    if (rawLine) {
+    if (rawLine && !savedAddrId) {
         const parsed = tryParseAddressOneLine(rawLine);
         if (parsed) {
             address = {
-                logradouro:  address?.logradouro?.trim() || parsed.logradouro,
-                numero:      address?.numero?.trim() || parsed.numero,
-                bairro:      address?.bairro?.trim() || parsed.bairro,
-                complemento: address?.complemento ?? null,
-                apelido:     address?.apelido ?? null,
+                logradouro:           address?.logradouro?.trim() || parsed.logradouro,
+                numero:               address?.numero?.trim() || parsed.numero,
+                bairro:               address?.bairro?.trim() || parsed.bairro,
+                complemento:          address?.complemento ?? null,
+                apelido:              address?.apelido ?? null,
+                cidade:               address?.cidade ?? null,
+                estado:               address?.estado ?? null,
+                cep:                  address?.cep ?? null,
+                endereco_cliente_id:  address?.endereco_cliente_id ?? null,
             };
         }
     }
 
     let addressNote: string | null = null;
 
-    if (body.use_saved_address) {
+    if (body.use_saved_address && !savedAddrId) {
         if (!customerId) {
             errors.push("Não há cliente identificado pelo telefone para usar endereço salvo.");
         } else {
