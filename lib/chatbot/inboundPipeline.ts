@@ -16,6 +16,7 @@ import { botReply } from "./botSend";
 import { sendFlowMessage, sendInteractiveButtons } from "../whatsapp/send";
 import { clampChatbotInputForRegex, isWithinBusinessHours } from "./utils";
 import { handleProOrderIntent } from "./pro/handleProOrderIntent";
+import type { AiOrderCanonicalDraft } from "./pro/typesAiOrder";
 
 export async function runInboundChatbotPipeline(
     params: ProcessMessageParams,
@@ -65,12 +66,15 @@ export async function runInboundChatbotPipeline(
         return;
     }
 
-    const intent = await classifyIntent(input, session.step, model);
+    const draftForIntent = session.context.ai_order_canonical as AiOrderCanonicalDraft | undefined;
+    const intent         = await classifyIntent(input, session.step, model, {
+        orderConfirmationPending: tier === "pro" && Boolean(draftForIntent?.pending_confirmation),
+    });
 
     switch (intent) {
         case "greeting":
         case "unknown":
-            await sendWelcomeMenu(params, session, config);
+            await sendWelcomeMenu(params, session, config, tier);
             break;
 
         case "order_intent":
@@ -149,14 +153,26 @@ async function starterOrderFlow(
             waConfig
         );
     } else {
-        await sendWelcomeMenu(params, session, config);
+        await sendWelcomeMenu(params, session, config, "starter");
     }
+}
+
+function applyProGreetingTemplate(
+    tpl: string,
+    companyName: string,
+    customerName: string | null
+): string {
+    const nome = (customerName ?? "").trim() || "Cliente";
+    return tpl
+        .replaceAll("{empresa}", companyName)
+        .replaceAll("{nome}", nome);
 }
 
 async function sendWelcomeMenu(
     params: ProcessMessageParams,
     session: { step: string; context: Record<string, unknown> },
-    config: CompanyConfig
+    config: CompanyConfig,
+    tier: ChatbotProductTier
 ): Promise<void> {
     const { admin, companyId, threadId, phoneE164, waConfig } = params;
     if (!waConfig) {
@@ -165,6 +181,7 @@ async function sendWelcomeMenu(
     }
     const companyName = config.name;
     const settings    = config.settings;
+    const botCfg      = config.botConfig;
 
     if (!isWithinBusinessHours(settings)) {
         const msg = (settings?.closed_message as string) ??
@@ -186,7 +203,24 @@ async function sendWelcomeMenu(
 
     const isFirstMessage = session.step === "welcome";
     let greetText: string;
-    if (!isFirstMessage) {
+
+    if (tier === "pro") {
+        const firstTpl   = String(botCfg.pro_greeting_first_contact ?? "").trim();
+        const routineTpl = String(botCfg.pro_greeting_routine ?? "").trim();
+        const hasCustomerRow = Boolean(customer?.id);
+        if (!hasCustomerRow) {
+            greetText = firstTpl
+                ? applyProGreetingTemplate(firstTpl, companyName, null)
+                : `Olá! É seu primeiro contato com a *${companyName}* por aqui. 🍺\n\nPode mandar seu pedido em texto (bebidas, quantidades, endereço e pagamento) ou usar os botões abaixo.`;
+        } else {
+            const nm = customer?.name ? String(customer.name).trim() : null;
+            greetText = routineTpl
+                ? applyProGreetingTemplate(routineTpl, companyName, nm)
+                : nm
+                    ? `Olá, *${nm}*! Que bom te ver de novo no *${companyName}*. 🍺\n\nDiz o que pedimos hoje ou use os botões.`
+                    : `Olá de novo! No *${companyName}*, o que pedimos hoje? 🍺`;
+        }
+    } else if (!isFirstMessage) {
         greetText = `Como posso te ajudar no *${companyName}*? 🍺`;
     } else if (customer?.name) {
         greetText = `Olá, *${(customer.name as string).trim()}*! 🍺\n\nComo posso te ajudar?`;

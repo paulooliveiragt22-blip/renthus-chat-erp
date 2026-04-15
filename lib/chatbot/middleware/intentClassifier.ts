@@ -10,6 +10,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { clampChatbotInputForRegex, normalize } from "../utils";
+import { isPortugueseOrderConfirmation, isPortugueseOrderRejection } from "../pro/confirmationPt";
 
 export type MessageIntent =
     | "order_intent"
@@ -106,15 +107,28 @@ const VALID_INTENTS: MessageIntent[] = [
     "order_intent", "status_intent", "human_intent", "faq", "greeting", "unknown",
 ];
 
+export type ClassifyIntentOptions = {
+    /** Chatbot PRO com rascunho aguardando sim/não — não classificar "sim"/"ok" como saudação. */
+    orderConfirmationPending?: boolean;
+};
+
 // ── Classificação ─────────────────────────────────────────────────────────────
 
 export async function classifyIntent(
     text: string,
     _step: string,
-    model = "claude-haiku-4-5-20251001"
+    model = "claude-haiku-4-5-20251001",
+    options?: ClassifyIntentOptions
 ): Promise<MessageIntent> {
     const trimmed = clampChatbotInputForRegex(text.trim());
     const norm    = normalize(trimmed);
+
+    if (
+        options?.orderConfirmationPending &&
+        (isPortugueseOrderConfirmation(trimmed) || isPortugueseOrderRejection(trimmed))
+    ) {
+        return "order_intent";
+    }
 
     // Botões exatos do menu (string fixa, sem ambiguidade)
     if (BTN_CATALOG.has(trimmed)) return "order_intent";
