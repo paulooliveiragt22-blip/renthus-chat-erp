@@ -221,7 +221,7 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 
 - [x] Módulo de transição de estado com **cobertura de teste** das transições críticas (`proStepTransitions` + testes).
 - [x] **Zero** finalize fora de `pro_awaiting_confirmation` no motor PRO V2 (evidência em §6.1).
-- [x] Telemetria com **&lt; 10 motivos** estáveis: **9** valores em `ProPipelineTelemetryReason` + consulta via **logs/métricas** (`MetricsPort`); Super Admin opcional até painel dedicado (ver `CHATBOT_PROD.md`).
+- [x] Telemetria com **&lt; 10 motivos** estáveis: **9** valores em `ProPipelineTelemetryReason` + consulta via **logs/métricas** (`MetricsPort`) e **Super Admin** para saúde da fila (`/superadmin`, `chatbot_queue`); catálogo `pro_pipeline.*` / `tags.reason` documentado em `CHATBOT_PROD.md` (integração visual dos 9 motivos no painel = melhoria futura opcional).
 - [x] Runbook de smoke com **confirmação ambígua** (passo 4.1) e **replay** de `message_id` (passo 4.3).
 - [x] Documentação: esta página + [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) + [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) + [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) como fonte única até ADR específico.
 
@@ -238,6 +238,7 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 
 - Catálogo fechado de **9** motivos: tipo `ProPipelineTelemetryReason` em `contracts.ts`, teste de exaustividade `tests/pro/proPipelineTelemetryReasons.test.ts`, tabela em `CHATBOT_PROD.md`.
 - `invalid_state_transition` mantém-se só como rejeição interna de `canTransition` (`INVALID_PRO_STEP_TRANSITION` em `proStepTransitions.ts`), fora do tipo de telemetria.
+- **Super Admin:** `/superadmin` já expõe métricas operacionais da fila (`getQueueHealthStats`); motivos `tags.reason` do PRO V2 listados no `CHATBOT_PROD.md` para correlação com logs / futura persistência no painel.
 
 ---
 
@@ -268,6 +269,7 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 | 2026-04-16 | `types.ts`, `processMessage.ts`, `processMessage.proV2.test.ts`, `CHATBOT_PROD.md`, esta doc | R2 fronteira: `ProcessMessageParams.proPipelineDependencyOverrides` → `makeProPipelineDependencies`; testes com `require.cache` cobrindo modo `active` (sem legado após sucesso), fallback após erro do V2, e `shadow`; `CHATBOT_PROD.md` documenta flags e semântica active/shadow. |
 | 2026-04-16 | `inboundPipeline.ts`, `pipeline_chatbot_prod.md`, esta doc | R2: contrato explícito no legado — V2 orquestrado só em `processInboundMessage`; `active` não invoca `runInboundChatbotPipeline` após sucesso; sem `return` cego no legado que quebrasse fallback; Bloco 1 do diagrama de pipeline atualizado (linha 1.1b). |
 | 2026-04-16 | `contracts.ts`, `proStepTransitions.ts`, `proPipelineTelemetryReasons.test.ts`, `CHATBOT_PROD.md`, `SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`, `structure_chatbot_prod.md`, esta doc | **§6 fechado:** 9 motivos `ProPipelineTelemetryReason` (&lt;10); `invalid_state_transition` só em `canTransition`; auditoria finalize (§6.1); runbook passo 4.3 replay; árvore `src/pro/` em `structure_chatbot_prod.md`; tabela de telemetria em `CHATBOT_PROD.md`. |
+| 2026-04-16 | `CHATBOT_PROD.md`, `structure_chatbot_prod.md`, esta doc | Super Admin já existente (`/superadmin`, saúde `chatbot_queue` via `getQueueHealthStats`); doc distingue fila/worker vs métricas `pro_pipeline.*`/`tags.reason` no `MetricsPort`; árvore inclui `app/superadmin/`. |
 
 **Próximo na sequência sugerida (§0):** **R4** (quota por `company_id` / cache seguro de catálogo) **só** com evidência em produção (ver `CHATBOT_PROD.md`); ADR opcional se houver desvio desta estratégia; manter runbook e testes de regressão ao alterar confirmação ou adapters.
 

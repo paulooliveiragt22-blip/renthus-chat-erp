@@ -105,6 +105,9 @@ app/api/chatbot/
   reactivate/route.ts
   config/route.ts
 
+app/superadmin/
+  page.tsx                       ← Dashboard plataforma + «Saúde da fila Chatbot» (lib/superadmin/actions.ts)
+
 lib/chatbot/
   processMessage.ts             ← processInboundMessage (entrada única do motor)
   inboundPipeline.ts            ← runInboundChatbotPipeline
@@ -200,6 +203,8 @@ tests/integration/
 | `app/api/whatsapp/incoming/` | Webhook Meta: HMAC, rate limit, canal → `company_id`, upsert thread, insert `whatsapp_messages`, lógica de handover timeout, **alvo:** enqueue + 200 rápido. |
 | `app/api/whatsapp/*` (resto) | APIs de aplicação (threads, envio, media); não substituem o burst do webhook. |
 | `app/api/chatbot/process-queue/` | Consumer: `claim_chatbot_queue_jobs` (ou fallback), `processJob`, atualizar `done`/`failed`, limpeza de jobs antigos. |
+| `app/superadmin/` | Dashboard operacional: fila `chatbot_queue`, falhas, dedup (`getQueueHealthStats`). |
+| `lib/superadmin/actions.ts` | Server actions do superadmin (estatísticas globais + saúde da fila). |
 | `app/api/chatbot/resolve/` | Caminho administrativo / service key para disparar o motor sem passar pelo webhook Meta. |
 | `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`); com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO corre `runProPipeline` antes do legado (ver `CHATBOT_PROD.md`). |
 | `lib/chatbot/inboundPipeline.ts` | Orquestração legada: sessão, intents, steps Starter vs PRO, envio via `botSend` / `lib/whatsapp/send`. |

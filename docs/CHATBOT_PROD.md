@@ -249,7 +249,17 @@ Homologação manual: [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_P
 
 ### Telemetria PRO V2 — `tags.reason` (catálogo fechado)
 
-Critério de produto: **nove** valores estáveis em `ProPipelineTelemetryReason` (`src/types/contracts.ts`), emitidos em métricas `pro_pipeline.*` via `MetricsPort` (ex.: logs em dev com `ConsoleMetricsAdapter`). **Super Admin:** opcional; até existir painel dedicado, filtrar logs/métricas por estes valores.
+Critério de produto: **nove** valores estáveis em `ProPipelineTelemetryReason` (`src/types/contracts.ts`), em métricas `pro_pipeline.*`. O `runProPipeline` envia cada contador para o **`MetricsPort`** (com `companyId` e `threadId` nas tags), e o adapter **`ConsoleMetricsAdapter`** (`src/pro/adapters/metrics/metrics.console.ts`) faz:
+- log `[metrics.increment]` no worker;
+- opcionalmente **POST** JSON para **`METRICS_INGEST_URL`** (e `METRICS_INGEST_TOKEN` se definido) — ponto de integração com Datadog / Grafana / ingest próprio.
+
+**Super Admin (já existente):** rota **`/superadmin`** — bloco **«Saúde da fila Chatbot»** (`getQueueHealthStats` em `lib/superadmin/actions.ts`) lê **`chatbot_queue`**. Isso é **complementar** ao motor PRO: fila (throughput/erros) vs. **motivos** do pipeline (`tags.reason`).
+
+#### Como trazer os 9 `tags.reason` para o mesmo painel (recomendação prática)
+
+1. **Curto prazo (sem código novo no painel):** configurar **`METRICS_INGEST_URL`** para o vosso colector; no Datadog/Grafana filtrar `name` = `pro_pipeline.*` e `tags.reason` ∈ catálogo abaixo; opcionalmente alertas por `companyId`.
+2. **Médio prazo (tudo no repositório):** criar tabela Supabase (ex.: `pro_pipeline_metric_events`: `created_at`, `company_id`, `metric_name`, `value`, `tags` jsonb) + adapter **`SupabaseMetricsAdapter`** que faz `insert` assíncrono (ou batch); depois **`getProPipelineHealthStats`** em `lib/superadmin/actions.ts` com `group by metric_name, tags->>reason` na janela de 15 min; novo cartão ou secção em `app/superadmin/page.tsx` ao lado da fila.
+3. **Evitar duplicar contagem:** `pro_pipeline.outbound_count` continua a ser incrementado só em `persistAndEmit` (uma vez por mensagem após envio); o flush do `runProPipeline` **exclui** esse nome para não duplicar.
 
 | `tags.reason` | Métrica típica | Nota |
 |---------------|----------------|------|

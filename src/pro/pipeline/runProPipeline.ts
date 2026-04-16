@@ -5,6 +5,7 @@ import type {
     ProPipelineTelemetryReason,
 } from "@/src/types/contracts";
 import { buildPipelineContext, type PipelineDependencies } from "./context";
+import type { MetricsPort } from "../ports/metrics.port";
 import { aiStage } from "./stages/aiStage";
 import { guardRails } from "./stages/guardRails";
 import { intentStage } from "./stages/intentStage";
@@ -14,6 +15,25 @@ import { persistAndEmit } from "./stages/persistAndEmit";
 import { routeStage } from "./stages/routeStage";
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
+
+/** Envia o array de métricas do run para `MetricsPort` (logs / `METRICS_INGEST_URL` / futuro Supabase). */
+function flushPipelineRunMetrics(
+    port: MetricsPort,
+    tenant: { companyId: string; threadId: string },
+    items: PipelineMetric[],
+    excludeNames?: ReadonlySet<string>
+): void {
+    const skip = excludeNames ?? new Set<string>();
+    for (const m of items) {
+        if (skip.has(m.name)) continue;
+        const tags: Record<string, string> = {
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+        };
+        if (m.tags) Object.assign(tags, m.tags);
+        port.increment(m.name, m.value, tags);
+    }
+}
 
 function appendAiOutcomeMetrics(
     metrics: PipelineMetric[],
@@ -68,6 +88,8 @@ export async function runProPipeline(
     deps: PipelineDependencies
 ): Promise<ProPipelineOutput> {
     if (input.tier !== "pro") {
+        const metrics: PipelineMetric[] = [{ name: "pro_pipeline.skipped_non_pro", value: 1 }];
+        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics);
         return {
             nextState: {
                 step: "pro_idle",
@@ -79,7 +101,7 @@ export async function runProPipeline(
             },
             outbound: [],
             sideEffects: [],
-            metrics: [{ name: "pro_pipeline.skipped_non_pro", value: 1 }],
+            metrics,
         };
     }
 
@@ -88,17 +110,19 @@ export async function runProPipeline(
 
     const guarded = guardRails({ state: context.session, inboundText: input.inboundText });
     if (guarded.stop) {
+        const metrics: PipelineMetric[] = [
+            {
+                name: "pro_pipeline.guard_stop",
+                value: 1,
+                tags: guarded.stopReason ? { reason: guarded.stopReason } : undefined,
+            },
+        ];
+        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics);
         return {
             nextState: guarded.state,
             outbound: guarded.outbound,
             sideEffects: [],
-            metrics: [
-                {
-                    name: "pro_pipeline.guard_stop",
-                    value: 1,
-                    tags: guarded.stopReason ? { reason: guarded.stopReason } : undefined,
-                },
-            ],
+            metrics,
         };
     }
 
@@ -170,6 +194,7 @@ export async function runProPipeline(
                 },
             });
         }
+        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics);
         return {
             nextState: preOrder.state,
             outbound,
@@ -217,6 +242,8 @@ export async function runProPipeline(
         { name: "pro_pipeline.outbound_count", value: outbound.length },
     ];
     appendAiOutcomeMetrics(runMetrics, decision.intent, invalidAiSanitized, aiServiceErrorCode);
+
+    flushPipelineRunMetrics(deps.metrics, input.tenant, runMetrics, new Set(["pro_pipeline.outbound_count"]));
 
     return {
         nextState,
