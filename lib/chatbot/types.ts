@@ -21,8 +21,10 @@ export interface ProcessMessageParams {
     profileName?:   string | null;
     /** Credenciais do canal WhatsApp da empresa (token + phoneNumberId) */
     waConfig?:      WaConfig;
-    /** Flow ID do catálogo configurado para esta empresa */
+    /** Flow ID do catálogo configurado para esta empresa / canal (`provider_metadata.catalog_flow_id`). */
     catalogFlowId?: string;
+    /** Flow ID de status de pedido (`provider_metadata.status_flow_id` ou `WHATSAPP_STATUS_FLOW_ID`). */
+    statusFlowId?: string;
     /** Injeta portas do pipeline PRO V2 (ex.: testes); ver `makeProPipelineDependencies`. */
     proPipelineDependencyOverrides?: ProPipelineDependencyOverrides;
 }

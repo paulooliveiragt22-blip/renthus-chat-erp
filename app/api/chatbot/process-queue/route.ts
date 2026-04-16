@@ -224,12 +224,16 @@ async function processJob(
         .eq("provider", "meta")
         .eq("status", "active")
         .maybeSingle();
-    const channelMeta = channelRow?.provider_metadata as { catalog_flow_id?: string } | null;
+    const channelMeta = channelRow?.provider_metadata as {
+        catalog_flow_id?: string;
+        status_flow_id?: string;
+    } | null;
     const waConfig: WaConfig = {
         phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
         accessToken:   channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
     };
     const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
+    const statusFlowId = channelMeta?.status_flow_id ?? process.env.WHATSAPP_STATUS_FLOW_ID;
 
     // 1. Lê bot_active fresh (pode ter mudado desde que o job foi enfileirado)
     const { data: threadRow } = await admin
@@ -274,6 +278,7 @@ async function processJob(
         profileName: profile_name ?? null,
         waConfig,
         catalogFlowId,
+        statusFlowId,
     });
 }
 

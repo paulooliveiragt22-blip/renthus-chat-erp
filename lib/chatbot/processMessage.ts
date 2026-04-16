@@ -63,6 +63,8 @@ export async function processInboundMessage(params: ProcessMessageParams): Promi
                     tier: "pro",
                     inboundText: params.text,
                     nowIso: new Date().toISOString(),
+                    flowCatalogId: params.catalogFlowId ?? null,
+                    flowStatusId: params.statusFlowId ?? null,
                 },
                 deps
             );

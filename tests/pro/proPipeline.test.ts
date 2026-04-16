@@ -92,10 +92,14 @@ function buildDeps(params: {
             savedState = state;
         },
     };
-    const sent: Array<{ text?: string }> = [];
+    const sent: Array<{ kind?: string; text?: string; flow?: { flowId: string } }> = [];
     const messageGateway: MessageGateway = {
         send: async (_tenant, message) => {
-            sent.push({ text: message.text });
+            sent.push({
+                kind: message.kind,
+                text: message.text,
+                flow: message.flow,
+            });
         },
     };
     const intentService: IntentService = {
@@ -216,6 +220,24 @@ describe("novo pipeline PRO - falhas reais", () => {
         assert.ok(out.outbound.some((m) => m.kind === "buttons"));
         assert.ok(
             out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("assistente") || (m.text ?? "").toLowerCase().includes("pedido"))
+        );
+    });
+
+    it("botão Cardápio com flow configurado deve emitir mensagem kind flow", async () => {
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
+            intent: "order_intent",
+        });
+        const out = await runProPipeline(
+            {
+                ...baseInput(),
+                inboundText: "btn_catalog",
+                flowCatalogId: "FLOW_CATALOG_TEST",
+            },
+            deps
+        );
+        assert.ok(
+            out.outbound.some((m) => m.kind === "flow" && m.flow?.flowId === "FLOW_CATALOG_TEST")
         );
     });
 

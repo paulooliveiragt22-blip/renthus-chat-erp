@@ -242,6 +242,10 @@ export async function runProPipeline(
     const routed = routeStage({
         state: guarded.state,
         decision,
+        inboundText: input.inboundText,
+        tenant: input.tenant,
+        flowCatalogId: input.flowCatalogId ?? null,
+        flowStatusId: input.flowStatusId ?? null,
     });
 
     let nextState = routed.state;

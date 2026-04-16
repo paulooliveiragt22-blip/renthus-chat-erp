@@ -40,31 +40,24 @@ export async function botReply(
 // ─── Botões interativos ────────────────────────────────────────────────────────
 
 export async function botSendButtons(
-    admin: SupabaseClient,
-    companyId: string,
-    threadId: string,
+    _admin: SupabaseClient,
+    _companyId: string,
+    _threadId: string,
     phoneE164: string,
     body: string,
     buttons: { id: string; title: string }[],
     waConfig?: WaConfig
 ): Promise<void> {
-    await sendViaService({
-        admin,
-        companyId,
-        toPhone:    phoneE164,
-        text:       body,
-        threadId,
-        senderType: "bot",
-    });
+    /** Uma só bolha: o interactive já leva o corpo; texto duplicado quebrava UX no WhatsApp. */
     await _sendInteractiveButtons(phoneE164, body, buttons, waConfig);
 }
 
 // ─── Lista interativa ──────────────────────────────────────────────────────────
 
 export async function botSendList(
-    admin: SupabaseClient,
-    companyId: string,
-    threadId: string,
+    _admin: SupabaseClient,
+    _companyId: string,
+    _threadId: string,
     phoneE164: string,
     bodyText: string,
     buttonLabel: string,
@@ -72,13 +65,6 @@ export async function botSendList(
     sectionTitle?: string,
     waConfig?: WaConfig
 ): Promise<void> {
-    await sendViaService({
-        admin,
-        companyId,
-        toPhone:    phoneE164,
-        text:       bodyText,
-        threadId,
-        senderType: "bot",
-    });
+    /** Lista interativa já inclui o corpo; evitar bolha de texto duplicada. */
     await _sendListMessage(phoneE164, bodyText, buttonLabel, rows, sectionTitle, waConfig);
 }

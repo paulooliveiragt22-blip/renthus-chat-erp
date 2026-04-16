@@ -78,6 +78,53 @@ function stripIntentMarker(text: string): { visible: string; marker: "ok" | "unk
     return { visible: t.trim(), marker: null };
 }
 
+/** Evita contradicao: modelo fala em “erro” mas o draft (BD/tools) ja tem itens validos. */
+function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null): string {
+    if (!draft) return visible;
+    const items = draft.items;
+    if (!items.length) return visible;
+
+    const flat = visible
+        .toLowerCase()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "");
+
+    const failureHints = [
+        "erro tecnico",
+        "erro ao buscar",
+        "tive um erro",
+        "nao consegui",
+        "falha ao buscar",
+        "falha ao",
+        "problema tecnico",
+        "dificuldade",
+        "nao encontrei o produto",
+        "nao encontrei",
+        "nao foi possivel",
+        "infelizmente",
+    ];
+    const looksLikeFailure = failureHints.some((h) => flat.includes(h));
+    if (!looksLikeFailure) return visible;
+
+    const lines = items.map((it) => {
+        const name = it.productName ?? "Item";
+        const sub = it.quantity * it.unitPrice;
+        return `• ${it.quantity}x ${name} — R$ ${sub.toFixed(2).replace(".", ",")}`;
+    });
+    const totalFromDraft =
+        draft.grandTotal ?? items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
+    let msg =
+        `Certo! Segue o que esta no seu pedido (cadastro da loja):\n${lines.join("\n")}\n` +
+        `Total estimado: R$ ${totalFromDraft.toFixed(2).replace(".", ",")}.\n\n`;
+    if (draft.paymentMethod) {
+        msg += "Revise os dados e confirme o pedido quando estiver tudo certo.";
+    } else {
+        msg +=
+            "Confirme o endereco (use o botao abaixo ou digite o endereco completo) e diga se paga em PIX, cartao ou dinheiro.";
+    }
+    return msg.trim();
+}
+
 function toAnthropicMessages(history: AiTurn[]): Array<{ role: "user" | "assistant"; content: unknown }> {
     return history
         .slice(-24)
@@ -367,7 +414,8 @@ export class FullAiServiceAdapter implements AiService {
                 .trim();
 
             const { visible, marker } = stripIntentMarker(text);
-            return this.buildSuccess(input, visible, marker, toolRoundsUsed, updatedDraft, response.content);
+            const visibleSafe = sanitizeVisibleAgainstDraft(visible, updatedDraft);
+            return this.buildSuccess(input, visibleSafe, marker, toolRoundsUsed, updatedDraft, response.content);
         } catch (error) {
             if (isTimeoutError(error)) {
                 return {

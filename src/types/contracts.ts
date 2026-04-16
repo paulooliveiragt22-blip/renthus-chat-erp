@@ -127,6 +127,10 @@ export interface ProPipelineInput {
     tier: ChatbotTier;
     inboundText: string;
     nowIso: string;
+    /** WhatsApp Flow do catálogo (por canal em `provider_metadata.catalog_flow_id` ou env). */
+    flowCatalogId?: string | null;
+    /** WhatsApp Flow de status de pedido (por canal em `provider_metadata.status_flow_id` ou env). */
+    flowStatusId?: string | null;
 }
 
 export interface ProPipelineOutput {
@@ -174,6 +178,8 @@ export interface PipelineContext {
     session: ProSessionState;
     policies: PipelinePolicies;
     nowIso: string;
+    flowCatalogId?: string | null;
+    flowStatusId?: string | null;
 }
 
 export interface AiServiceInput {

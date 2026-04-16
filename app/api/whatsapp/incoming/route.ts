@@ -267,8 +267,12 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
     if (!channel) return;
 
     const waConfig = buildWaConfig(channel, phoneNumberId);
-    const channelMeta = channel.provider_metadata as { catalog_flow_id?: string } | null;
+    const channelMeta = channel.provider_metadata as {
+        catalog_flow_id?: string;
+        status_flow_id?: string;
+    } | null;
     const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
+    const statusFlowId = channelMeta?.status_flow_id ?? process.env.WHATSAPP_STATUS_FLOW_ID;
 
     for (const msg of messages) {
         await processSingleInboundMessage({
@@ -278,6 +282,7 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
             channel,
             waConfig,
             catalogFlowId,
+            statusFlowId,
             phoneNumberId,
         });
     }
@@ -343,9 +348,10 @@ async function processSingleInboundMessage(params: {
     channel: ActiveChannel;
     waConfig: WaConfig;
     catalogFlowId: string | undefined;
+    statusFlowId: string | undefined;
     phoneNumberId: string;
 }): Promise<void> {
-    const { admin, value, msg, channel, waConfig, catalogFlowId, phoneNumberId } = params;
+    const { admin, value, msg, channel, waConfig, catalogFlowId, statusFlowId, phoneNumberId } = params;
     const waId = msg?.id as string | null;
     const fromRaw = msg?.from as string;
     const msgType = msg?.type as string;
@@ -422,6 +428,7 @@ async function processSingleInboundMessage(params: {
             profileName,
             waConfig,
             catalogFlowId,
+            statusFlowId,
         });
     } catch (err: any) {
         console.error("[chatbot] processInboundMessage error:", err?.message ?? err);

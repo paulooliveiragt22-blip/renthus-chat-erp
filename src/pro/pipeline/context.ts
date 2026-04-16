@@ -41,6 +41,8 @@ export function buildPipelineContext(params: {
         session,
         policies: policies ?? DEFAULT_PRO_POLICIES,
         nowIso: input.nowIso,
+        flowCatalogId: input.flowCatalogId ?? null,
+        flowStatusId: input.flowStatusId ?? null,
     };
 }
 

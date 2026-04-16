@@ -65,14 +65,22 @@ function buildAddressConfirmationMessage(draft: OrderDraft): OutboundMessage[] {
     ]
         .filter(Boolean)
         .join(", ");
+    /** Botão primeiro: o corpo do interactive já traz o endereço; texto livre como fallback continua possível. */
     return [
-        { kind: "text", text: `Endereco de entrega e este?\n${addr}\n\nSe nao for, digite o novo endereco.` },
         {
             kind: "buttons",
-            text: "Confirma o endereco salvo?",
+            text:
+                `Entrega neste endereco?\n${addr}\n\nSe nao for, digite o endereco completo.`,
             buttons: [{ id: "pro_confirm_saved_address", title: "Confirmar endereco" }],
         },
     ];
+}
+
+/** WhatsApp: mensagens interactivas primeiro, depois texto (melhor UX e alinhado a “botão primeiro”). */
+export function prioritizeInteractiveFirst(messages: OutboundMessage[]): OutboundMessage[] {
+    const interactive = messages.filter((m) => m.kind === "buttons" || m.kind === "flow");
+    const plain = messages.filter((m) => m.kind === "text");
+    return [...interactive, ...plain];
 }
 
 function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
@@ -214,12 +222,12 @@ export function checkoutPostProcess(params: {
     }
     outbound.push(...checkoutButtonsForState(nextState));
 
-    return { state: nextState, outbound };
+    return { state: nextState, outbound: prioritizeInteractiveFirst(outbound) };
 }
 
 export function checkoutPostProcessForQuickAction(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
 }): OutboundMessage[] {
-    return [...params.outbound, ...checkoutButtonsForState(params.state)];
+    return prioritizeInteractiveFirst([...params.outbound, ...checkoutButtonsForState(params.state)]);
 }
