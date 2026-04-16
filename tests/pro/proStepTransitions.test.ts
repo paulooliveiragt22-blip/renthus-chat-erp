@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+    applyAiStateTransition,
     canTransition,
     executeOrderRpcTransition,
     resolveStepAfterAiAction,
     resolveStepAfterOrderStage,
 } from "../../src/pro/pipeline/proStepTransitions";
+import type { ProSessionState } from "../../src/types/contracts";
 
 describe("proStepTransitions (R1)", () => {
     it("transições de IA a partir de passos operacionais", () => {
@@ -76,5 +78,40 @@ describe("proStepTransitions (R1)", () => {
         assert.equal(calls, 1);
         assert.equal(executed.executed, true);
         assert.equal(executed.nextStep, "pro_idle");
+    });
+
+    it("applyAiStateTransition atualiza streak e tier de escalonamento", () => {
+        const base: ProSessionState = {
+            step: "pro_collecting_order",
+            customerId: "c1",
+            misunderstandingStreak: 1,
+            escalationTier: 0,
+            draft: null,
+            aiHistory: [],
+        };
+
+        const unknown = applyAiStateTransition({
+            state: base,
+            action: "reply",
+            intentMarker: "unknown",
+        });
+        assert.equal(unknown.misunderstandingStreak, 2);
+        assert.equal(unknown.escalationTier, 0);
+
+        const ok = applyAiStateTransition({
+            state: unknown,
+            action: "reply",
+            intentMarker: "ok",
+        });
+        assert.equal(ok.misunderstandingStreak, 0);
+
+        const escalated = applyAiStateTransition({
+            state: ok,
+            action: "escalate",
+            intentMarker: "unknown",
+        });
+        assert.equal(escalated.step, "pro_escalation_choice");
+        assert.equal(escalated.misunderstandingStreak, 0);
+        assert.equal(escalated.escalationTier, 1);
     });
 });

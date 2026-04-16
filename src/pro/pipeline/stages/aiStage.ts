@@ -6,7 +6,7 @@ import type {
     ProSessionState,
     SideEffect,
 } from "@/src/types/contracts";
-import { resolveStepAfterAiAction } from "../proStepTransitions";
+import { applyAiStateTransition } from "../proStepTransitions";
 
 export interface AiStageResult {
     state: ProSessionState;
@@ -56,7 +56,7 @@ export async function aiStage(params: {
         errorCode: raw?.errorCode,
     };
 
-    const nextState: ProSessionState = {
+    const nextStateBase = {
         ...context.session,
         draft: aiResult.updatedDraft ?? null,
         aiHistory: aiResult.updatedHistory ?? [],
@@ -65,7 +65,11 @@ export async function aiStage(params: {
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];
     const sideEffects: SideEffect[] = [];
 
-    nextState.step = resolveStepAfterAiAction(context.session.step, aiResult.action);
+    const nextState = applyAiStateTransition({
+        state: nextStateBase,
+        action: aiResult.action,
+        intentMarker: aiResult.signals.intentMarker ?? null,
+    });
 
     return { state: nextState, outbound, sideEffects, aiResult, invalidAiSanitized };
 }

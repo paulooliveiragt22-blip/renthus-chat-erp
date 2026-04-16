@@ -2,6 +2,7 @@ import type {
     AiServiceAction,
     OrderServiceResult,
     ProPipelineTelemetryReason,
+    ProSessionState,
     ProStep,
 } from "@/src/types/contracts";
 
@@ -65,6 +66,48 @@ export function canTransition(from: ProStep, event: ProStepEvent): CanTransition
 export function resolveStepAfterAiAction(from: ProStep, action: AiServiceAction): ProStep {
     const r = canTransition(from, { type: "ai_action_resolved", action });
     return r.ok ? r.to : "pro_collecting_order";
+}
+
+function bumpEscalationTier(current: ProSessionState["escalationTier"]): ProSessionState["escalationTier"] {
+    if (current >= 2) return 2;
+    return (current + 1) as ProSessionState["escalationTier"];
+}
+
+/**
+ * Centraliza efeitos de estado após retorno da IA:
+ * - transição de `step`;
+ * - atualização de streak de incompreensão;
+ * - progressão de tier quando houver escalonamento.
+ */
+export function applyAiStateTransition(params: {
+    state: ProSessionState;
+    action: AiServiceAction;
+    intentMarker?: "ok" | "unknown" | null;
+}): ProSessionState {
+    const { state, action, intentMarker } = params;
+    const step = resolveStepAfterAiAction(state.step, action);
+
+    if (action === "escalate") {
+        return {
+            ...state,
+            step,
+            misunderstandingStreak: 0,
+            escalationTier: bumpEscalationTier(state.escalationTier),
+        };
+    }
+
+    let misunderstandingStreak = state.misunderstandingStreak;
+    if (intentMarker === "ok") {
+        misunderstandingStreak = 0;
+    } else if (intentMarker === "unknown") {
+        misunderstandingStreak = state.misunderstandingStreak + 1;
+    }
+
+    return {
+        ...state,
+        step,
+        misunderstandingStreak,
+    };
 }
 
 /** Resolve o próximo passo após `orderStage` (só válido em `pro_awaiting_confirmation`). */
