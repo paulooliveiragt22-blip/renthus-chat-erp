@@ -10,7 +10,10 @@ import type {
 import type { AiService } from "../../services/ai/ai.types";
 import { runSearchProdutos } from "@/lib/chatbot/pro/searchProdutos";
 import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
-import { prepareOrderDraftFromTool } from "@/lib/chatbot/pro/prepareOrderDraft";
+import {
+    buildPrepareDraftGuidanceForModel,
+    prepareOrderDraftFromTool,
+} from "@/lib/chatbot/pro/prepareOrderDraft";
 import { toCanonicalDraft } from "@/src/types/contracts.adapters";
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
 
@@ -22,7 +25,8 @@ const AI_TIMEOUT_CODE = "AI_TIMEOUT";
 
 const SEARCH_TOOL = {
     name: "search_produtos",
-    description: "Busca catálogo real da empresa por nome/termo/categoria.",
+    description:
+        "Busca catálogo real da empresa por nome/termo/categoria. A resposta inclui guidance_for_model_pt — siga quando items estiver vazio.",
     input_schema: {
         type: "object" as const,
         properties: {
@@ -45,7 +49,7 @@ const HINTS_TOOL = {
 const PREPARE_DRAFT_TOOL = {
     name: "prepare_order_draft",
     description:
-        "Valida item/endereço/pagamento no servidor e devolve rascunho canônico com totais e erros.",
+        "Valida item/endereço/pagamento no servidor e devolve rascunho canônico com totais e erros. Sempre leia guidance_for_model_pt na resposta antes de escrever para o cliente.",
     input_schema: {
         type: "object" as const,
         properties: {
@@ -64,9 +68,11 @@ const PREPARE_DRAFT_TOOL = {
 
 const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Fale PT-BR direto.
-- Não invente produto/preço/estoque.
-- Sempre use tools para confirmar catálogo e draft.
-- Só peça confirmação explícita quando draft estiver completo.
+- Fonte de verdade: só cite produto, preço, estoque e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
+- Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido até ok:true (cliente pode mandar produto, endereço e pagamento em qualquer ordem — você monta o próximo prepare com o que já souber).
+- Após prepare_order_draft: se ok:false, sua mensagem DEVE refletir as errors e o guidance_for_model_pt (sem “erro técnico genérico” quando a causa for validação). Se ok:true, alinhe o texto ao draft.
+- Se search_produtos retornar items vazio, não invente produto nem preço; siga guidance_for_model_pt.
+- Só peça confirmação explícita de pedido fechado quando o draft do servidor estiver completo e pendente de confirmação.
 - Termine a resposta com:
   - INTENT_OK quando houve progresso de pedido
   - INTENT_UNKNOWN quando não houve progresso`;
@@ -208,10 +214,17 @@ export class FullAiServiceAdapter implements AiService {
             query,
             { categoryHint, limit: 8 }
         );
+        const guidanceForModelPt =
+            rows.length > 0
+                ? ["Use apenas produto_embalagem_id desta lista em prepare_order_draft."]
+                : [
+                      "Nenhum item no catálogo para este termo.",
+                      "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente nova busca.",
+                  ];
         return {
             type: "tool_result",
             tool_use_id: block.id,
-            content: JSON.stringify({ items: rows }),
+            content: JSON.stringify({ items: rows, guidance_for_model_pt: guidanceForModelPt }),
         };
     }
 
@@ -252,6 +265,10 @@ export class FullAiServiceAdapter implements AiService {
                     ok: prepared.ok,
                     errors: prepared.errors,
                     has_draft: Boolean(prepared.draft),
+                    guidance_for_model_pt: buildPrepareDraftGuidanceForModel(
+                        prepared.ok,
+                        prepared.errors
+                    ),
                 }),
             },
         };

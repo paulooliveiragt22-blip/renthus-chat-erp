@@ -2,6 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrCreateCustomer } from "../db/orders";
 import { listCustomerAddressesForCustomer, resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
 
+const FLOW_REMINDER_PT =
+    "Fluxo sugerido: (1) get_order_hints cedo no pedido; (2) search_produtos antes de citar preço; " +
+    "(3) prepare_order_draft pode ser chamado várias vezes até ok:true — use só produto_embalagem_id retornados pelo search.";
+
 export async function buildOrderHintsPayload(params: {
     admin:     SupabaseClient;
     companyId: string;
@@ -13,6 +17,7 @@ export async function buildOrderHintsPayload(params: {
     const customer = await getOrCreateCustomer(admin, companyId, phoneE164, name ?? null);
     if (!customer?.id) {
         return {
+            flow_reminder_pt: FLOW_REMINDER_PT,
             customer_known: false,
             hint:
                 "Primeiro pedido: antes de pedir endereço, confira se saved_addresses veio vazio. Se vazio, peça logradouro, número, bairro e (se possível) cidade/CEP em campos separados.",
@@ -29,6 +34,8 @@ export async function buildOrderHintsPayload(params: {
     });
 
     return {
+        /** Lembrete fixo para o modelo: ordem de tools e reaproveitamento de draft. */
+        flow_reminder_pt: FLOW_REMINDER_PT,
         customer_known: true,
         customer_id:    customer.id,
         saved_address:  saved

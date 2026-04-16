@@ -278,3 +278,61 @@ export async function prepareOrderDraftFromTool(
         errors: draft ? [] : (baseErrors.length ? baseErrors : ["Rascunho incompleto."]),
     };
 }
+
+/**
+ * Instruções estáveis para o modelo após `prepare_order_draft`, alinhadas aos `errors` reais do servidor.
+ * Reduz “erro técnico genérico” e respostas que ignoram validação (endereço, estoque, pagamento, etc.).
+ */
+export function buildPrepareDraftGuidanceForModel(ok: boolean, errors: string[]): string[] {
+    if (ok) {
+        return [
+            "Rascunho aceito no servidor.",
+            "Resposta ao cliente: resuma itens, endereço, taxa e total exatamente como no draft (sem alterar preços).",
+            "Se o draft estiver completo e pendente de confirmação, peça confirmação explícita (sim/ok ou botão) antes de considerar o pedido fechado.",
+        ];
+    }
+
+    const errs = errors.filter(Boolean).slice(0, 8);
+    const lines: string[] = [
+        "Rascunho rejeitado pelo servidor.",
+        "Não use mensagem genérica de \"erro técnico no catálogo\" quando a causa for validação (endereço, estoque, pagamento, área, etc.).",
+        "Explique ao cliente de forma curta, com base nas mensagens abaixo (pode parafrasear, sem inventar dados):",
+    ];
+    if (!errs.length) lines.push("- Rascunho incompleto (sem detalhe adicional).");
+    else for (const e of errs) lines.push(`- ${e}`);
+
+    const blob = errs.join(" | ").toLowerCase();
+
+    if (blob.includes("embalagem") || blob.includes("uuid") || blob.includes("outra empresa")) {
+        lines.push(
+            "Próximo passo: rode search_produtos com o termo do cliente e use somente produto_embalagem_id que aparecerem na lista retornada."
+        );
+    }
+    if (blob.includes("pelo menos um item") || blob.includes("inclua")) {
+        lines.push("Próximo passo: inclua items com produto_embalagem_id do último search_produtos.");
+    }
+    if (blob.includes("payment_method") || blob.includes("pagamento")) {
+        lines.push(
+            "Próximo passo: pergunte se paga em PIX, cartão ou dinheiro; depois chame prepare_order_draft de novo com payment_method (pix|cash|card)."
+        );
+    }
+    if (blob.includes("endereço") || blob.includes("endereco") || blob.includes("bairro") || blob.includes("rua")) {
+        lines.push(
+            "Próximo passo: se get_order_hints trouxe saved_addresses, liste-os; senão peça rua, número e bairro; use address_raw, address estruturado ou saved_address_id."
+        );
+    }
+    if (blob.includes("estoque")) {
+        lines.push("Próximo passo: ofereça quantidade menor ou outro item da lista do search_produtos.");
+    }
+    if (blob.includes("mínimo") || blob.includes("minimo")) {
+        lines.push("Próximo passo: explique o pedido mínimo e sugira acrescentar itens até atingir o valor.");
+    }
+    if (blob.includes("fora da área") || blob.includes("atendimento")) {
+        lines.push("Próximo passo: informe que o bairro não está na área e peça outro endereço dentro da região atendida.");
+    }
+    if (blob.includes("cliente") && blob.includes("identificado")) {
+        lines.push("Próximo passo: siga com get_order_hints; o telefone costuma criar o cadastro automaticamente na primeira interação.");
+    }
+
+    return lines;
+}
