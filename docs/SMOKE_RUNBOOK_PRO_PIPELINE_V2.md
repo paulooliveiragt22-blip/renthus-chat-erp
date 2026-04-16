@@ -2,6 +2,10 @@
 
 Decisões de arquitetura (Hobby vs escala, wake + scheduler, limites honestos): [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 
+**Evidências para release (p95 do webhook, replay de `message_id`, carga leve):** ver em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md#como-obter-evidências-p95-carga-replay) a secção *Como obter evidências (p95, carga, replay)*.
+
+**Refatoração do fecho de pedido PRO (estado + IA):** [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+
 ## Objetivo
 Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `incoming` enfileira rápido

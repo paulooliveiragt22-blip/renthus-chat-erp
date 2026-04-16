@@ -8,7 +8,8 @@ Este ficheiro descreve **a estrutura real do repositório**, **fluxo entre módu
 
 | Ficheiro | Uso |
 |----------|-----|
-| [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | **Decisões canónicas:** princípios, arquitetura por horizonte (Hobby / médio prazo / escala), gatilho wake + scheduler, fases 0–3, tetos externos, limites honestos |
+| [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | **Decisões canónicas:** princípios, arquitetura por horizonte (Hobby / médio prazo / escala), gatilho wake + scheduler, **pedido PRO / IA**, fases 0–3, tetos externos, limites honestos, evidências p95/replay/carga |
+| [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) | **Estratégia de refatoração** do fecho de pedido PRO: fases R0–R4, gates, anti-padrões, critérios de “feito” |
 | Este ficheiro | Árvore de código, responsabilidades, fluxo atual vs alvo, checklist por ficheiro |
 
 ---

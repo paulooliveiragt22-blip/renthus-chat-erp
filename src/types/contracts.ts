@@ -137,6 +137,16 @@ export interface ProPipelineOutput {
     }>;
 }
 
+/** Motivos estáveis para métricas/logs do pipeline PRO (ver `REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md` R0). */
+export type ProPipelineTelemetryReason =
+    | "draft_validation_failed"
+    | "finalize_blocked"
+    | "confirmation_ambiguous"
+    | "tool_output_rejected"
+    | "ai_timeout"
+    | "ai_invalid_response"
+    | "order_rejected";
+
 export interface PipelinePolicies {
     locale: Locale;
     maxToolRounds: number;
@@ -209,6 +219,7 @@ export type OrderServiceResult =
             | "MIN_ORDER_NOT_MET"
             | "DELIVERY_AREA_NOT_SUPPORTED"
             | "OUT_OF_STOCK"
+            | "PRODUCT_NOT_FOUND"
             | "INVALID_PAYMENT"
             | "INVALID_ADDRESS"
             | "RPC_ERROR"

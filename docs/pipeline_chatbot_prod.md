@@ -1,7 +1,7 @@
 # Pipeline de processamento de mensagem (chatbot — produção)
 
 Documento para **execução**: ordem real no código, responsabilidades, falhas prováveis.  
-Relacionado: [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (fases, SLOs), [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) (ficheiros e checklist).
+Relacionado: [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (fases, SLOs), [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (refatoração estado/pedido PRO), [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) (ficheiros e checklist).
 
 ---
 

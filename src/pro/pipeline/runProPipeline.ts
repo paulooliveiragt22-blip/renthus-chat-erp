@@ -67,13 +67,25 @@ export async function runProPipeline(
             metrics: deps.metrics,
             logger: deps.logger,
         });
+        const metrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [
+            { name: "pro_pipeline.pre_order_resolved", value: 1, tags: { intent: decision.intent } },
+        ];
+        if (preOrder.orderResult && !preOrder.orderResult.ok) {
+            metrics.push({
+                name: "pro_pipeline.order_failed",
+                value: 1,
+                tags: {
+                    intent: decision.intent,
+                    errorCode: preOrder.orderResult.errorCode,
+                    reason: "order_rejected",
+                },
+            });
+        }
         return {
             nextState: preOrder.state,
             outbound,
             sideEffects: [],
-            metrics: [
-                { name: "pro_pipeline.pre_order_resolved", value: 1, tags: { intent: decision.intent } },
-            ],
+            metrics,
         };
     }
 

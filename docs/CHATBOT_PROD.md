@@ -2,7 +2,7 @@
 
 Documento de decisão e checklist para o time executar. Alinhado ao código atual (`processInboundMessage`, `chatbot_queue`, motor em `lib/chatbot/`).
 
-**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → fases 0–3 → riscos e limites honestos.
+**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (plano de refatoração).
 
 ---
 
@@ -48,8 +48,8 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 
 ### Médio prazo — tráfego real / saída do Hobby
 
-- Introduzir **wake imediato** após enqueue (caminho feliz).
-- Preferir **cron Vercel com frequência útil** quando o plano Pro permitir, **em conjunto** com wake (scheduler deixa de ser único motor).
+- **Wake imediato** após enqueue já é o **caminho feliz** implementado (`incoming` → `after()` → `GET /api/chatbot/process-queue`); nesta fase o foco passa a **confiabilidade e observabilidade** (logs, métricas, p95), não “ligar o wake”.
+- Preferir **cron Vercel com frequência útil** quando o plano Pro permitir, **em conjunto** com wake (o scheduler externo deixa de ser tão crítico para UX, mas permanece como rede de segurança).
 - Avaliar **fila com entrega** (ex.: QStash / Inngest / SQS) **só** quando métricas ou operação justificarem (profundidade, idade p95, falhas de poll, custo humano).
 - **Fairness simples por `company_id`** (quota de jobs por ciclo ou por invocação) **antes** de investir em broker pesado — mitiga *noisy neighbor* com pouco código.
 
@@ -160,6 +160,39 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 
 ---
 
+## Como obter evidências (p95, carga, replay)
+
+Objetivo: fechar os checkboxes dos **critérios de aceite** com método repetível, sem adivinhar a partir de um único log.
+
+### 1) Webhook **p95 &lt; 2 s** (só o `POST /api/whatsapp/incoming`)
+
+1. Na **Vercel** → projeto → **Logs** (ou Observability / Speed Insights, se ativo).
+2. Filtre **path** = `/api/whatsapp/incoming` e, se existir, **method** = `POST`.
+3. Exporte ou copie uma **amostra** (mínimo sugerido: **100+** requests em janela de 24–72 h com tráfego normal).
+4. Ordene as **durações totais** (ou só “Function duration”) e calcule **p95** (valor abaixo do qual ficam 95% das amostras).
+5. **Passa** se p95 &lt; **2 s** e não houver `POST` ao Anthropic listado nesse mesmo request (confirma que o motor pesado está no worker).
+
+*Atalho:* Speed Insights / APM com breakdown por rota substitui planilha manual quando disponível.
+
+### 2) Replay de **`message_id`** (idempotência de efeito)
+
+1. **Guardar** o body bruto JSON de um webhook real (uma mensagem que já processou) e o header `X-Hub-Signature-256` **ou** recalcular a assinatura com `WHATSAPP_APP_SECRET` (HMAC-SHA256 do body, formato Meta).
+2. Enviar o **mesmo** `POST` duas vezes para `/api/whatsapp/incoming` (intervalo curto).
+3. **Verificar no Supabase:** uma linha de efeito de negócio esperada (ex.: não duplicar pedido; `whatsapp_messages` / `chatbot_queue` coerentes com unique `(company_id, message_id)` onde aplicável).
+4. **Documentar** o procedimento (URL, headers, o que medir) no runbook ou numa nota de homologação — critério de aceite pede cenário documentado.
+
+*Nunca commite o secret nem o body com tokens em repositório.*
+
+### 3) Carga leve (“fila acumulada → latência, não 500 no webhook”)
+
+1. Em janela controlada (staging preferível; produção só com volume modesto), gerar **N mensagens** em sequência (vários utilizadores ou um script com rate limit respeitoso).
+2. Em paralelo: **Logs** filtrados em `incoming` → percentagem de **5xx** deve permanecer **~0**; `process-queue` pode mostrar **503** se RPC falhar (investigar Supabase separadamente).
+3. **Super Admin** (saúde da fila): observar `pending` subir e **voltar a descer**; falha em massa no worker aparece como `failed` / alertas.
+
+*Carga pesada sintética (k6, Artillery)* só vale quando quiser número para capacidade; para o critério de aceite, muitas vezes basta **pico moderado real** + monitorização.
+
+---
+
 ## Riscos aceitos (até nova decisão)
 
 - Latência **primeira resposta** pode subir vs fluxo síncrono (troca intencional).
@@ -178,6 +211,30 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 
 ---
 
+## Pedido PRO — “cérebro” da IA (decisões)
+
+Complementa a arquitetura **Webhook → fila → worker**: o transporte já desacopla latência; esta secção fixa **como** o PRO fecha pedido sem virar “conversa solta”.
+
+### Princípios (vinculativos para refatoração)
+
+1. **Fonte única de verdade** do rascunho/pedido no **servidor** (BD / draft canónico). O modelo **propõe**; não é ledger de negócio.
+2. **Máquina de estados explícita** (enum + transições permitidas **testáveis**). Mutação de pedido **só** através de **RPC aprovada** e **só** quando o **gate** do estado permitir.
+3. **Uma fronteira semântica** para **efeito de pedido**: evitar duas “verdades” paralelas (classificador legado vs PRO V2) no mesmo caminho que cria/atualiza draft ou finaliza — ver plano em [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+4. **Tools de catálogo** = **leitura** + contrato estrito + **validação server-side** do output. Texto ao cliente com valores sensíveis (preço, taxas) deve **preferencialmente refletir snapshot** já validado, não improvisação do modelo.
+5. **Confirmação forte** no fecho (sinal inequívoco no contexto certo); ambiguidade → **clarificação**, não `finalize`.
+6. **Orçamento de IA** (timeout, rodadas de tool, cap de tokens) como **teto** por mensagem; degradação estável (mensagem segura / retry) acima de “falha opaca”.
+
+### O que não superestimar
+
+- Estado canónico **reduz** risco de pedido fantasma; **não** elimina texto de bolha desalinhado se a UI verbal for 100% livre no LLM.
+- Híbrido determinístico + IA **não** reduz custo de manutenção sem **dono** do diagrama de estado e testes de transição.
+
+### Plano de execução
+
+**Estratégia de refatoração por fases** (ordem, gates, entregáveis, riscos): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+
+---
+
 ## Estrutura de pastas (alvo de refator mínima)
 
 Manter fronteiras claras sem microserviço:
@@ -193,9 +250,14 @@ Manter fronteiras claras sem microserviço:
 - Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/`
 - Fila: `app/api/chatbot/process-queue/route.ts`, migrações `chatbot_queue` / RPC `claim_chatbot_queue_jobs`
 - Ingresso WhatsApp: `app/api/whatsapp/incoming/route.ts` — com `CHATBOT_QUEUE_ENABLED=1`, **enqueue e retorno rápido**; processamento pesado no worker
+- Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
 
 ---
 
 ## Decisão em uma linha
 
-**Postgres como fila primeiro; worker com claim exclusivo + idempotência forte + loop limitado; wake imediato como caminho feliz e scheduler como rede de segurança; fila gerenciada / particionamento / workers dedicados só com métrica de dor ou meta de escala (100×10k).** Documentar exceções em ADR se desviarem deste arquivo.
+**Transporte:** Postgres como fila primeiro; worker com claim exclusivo + idempotência forte + loop limitado; wake imediato como caminho feliz e scheduler como rede de segurança; fila gerenciada / particionamento / workers dedicados só com métrica de dor ou meta de escala (100×10k).
+
+**Pedido PRO:** estado e gates no servidor; IA para preenchimento e linguagem; confirmação e RPCs disciplinadas — detalhe em [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+
+Documentar exceções em ADR se desviarem deste arquivo.

@@ -4,6 +4,8 @@ import type { DraftAddress, OrderServiceResult } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { loadPackRowForValidation } from "@/lib/chatbot/pro/prepareOrderDraft";
 
+type OrderFailCode = Extract<OrderServiceResult, { ok: false }>["errorCode"];
+
 function buildAddressText(address: DraftAddress): string {
     return [
         address.logradouro,
@@ -28,30 +30,43 @@ export class OrderServiceV2Adapter implements OrderService {
     private async revalidateDraft(
         companyId: string,
         draft: NonNullable<Parameters<OrderService["createFromDraft"]>[0]["draft"]>
-    ): Promise<{ ok: true } | { ok: false; message: string }> {
+    ): Promise<{ ok: true } | { ok: false; message: string; errorCode: OrderFailCode }> {
         for (const item of draft.items) {
             const loaded = await loadPackRowForValidation(this.admin, companyId, item.produtoEmbalagemId);
             if (!loaded) {
-                return { ok: false, message: "Um produto deixou de estar disponivel. Ajuste o pedido no chat." } as const;
+                return {
+                    ok: false,
+                    message:
+                        "Nao encontramos esse produto ou embalagem no catalogo. Confirme o item ou escolha outro.",
+                    errorCode: "PRODUCT_NOT_FOUND",
+                };
             }
 
             const priceChanged = Math.abs(loaded.row.preco_venda - item.unitPrice) >= 0.02;
             if (priceChanged) {
-                return { ok: false, message: "O preco de um item mudou. Peça um novo resumo no chat." } as const;
+                return {
+                    ok: false,
+                    message: "O preco de um item mudou. Peça um novo resumo no chat.",
+                    errorCode: "OUT_OF_STOCK",
+                };
             }
 
             const need = item.quantity * loaded.row.fator_conversao;
             if (loaded.estoque < need) {
-                return { ok: false, message: `Estoque insuficiente para "${item.productName}".` } as const;
+                return {
+                    ok: false,
+                    message: `Estoque insuficiente para "${item.productName}".`,
+                    errorCode: "OUT_OF_STOCK",
+                };
             }
         }
 
         if (!draft.address?.logradouro || !draft.address.numero || !draft.address.bairro) {
-            return { ok: false, message: "Endereco incompleto." } as const;
+            return { ok: false, message: "Endereco incompleto.", errorCode: "INVALID_ADDRESS" };
         }
 
         if (!draft.paymentMethod) {
-            return { ok: false, message: "Forma de pagamento invalida." } as const;
+            return { ok: false, message: "Forma de pagamento invalida.", errorCode: "INVALID_PAYMENT" };
         }
 
         return { ok: true };
@@ -64,8 +79,8 @@ export class OrderServiceV2Adapter implements OrderService {
             return {
                 ok: false,
                 customerMessage: fresh.message,
-                errorCode: "OUT_OF_STOCK",
-                retryable: false,
+                errorCode: fresh.errorCode,
+                retryable: fresh.errorCode === "RPC_ERROR" || fresh.errorCode === "DB_ERROR",
             };
         }
 
