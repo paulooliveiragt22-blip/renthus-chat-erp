@@ -166,6 +166,26 @@ describe("pro pipeline - failure regression", () => {
             })
         );
         assert.ok(out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("tente novamente")));
+        assert.ok(
+            out.metrics.some((m) => m.name === "pro_pipeline.ai_timeout" && m.tags?.reason === "ai_timeout")
+        );
+    });
+
+    it("IA rate limit: emite métrica ai_rate_limited", async () => {
+        const out = await runProPipeline(
+            { ...baseInput(), inboundText: "quero pedir" },
+            deps({
+                aiResult: {
+                    action: "error",
+                    replyText: "Estamos com pico de uso na IA. Aguarde um instante e tente de novo.",
+                    errorCode: "AI_RATE_LIMIT",
+                    signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
+                },
+            })
+        );
+        assert.ok(
+            out.metrics.some((m) => m.name === "pro_pipeline.ai_rate_limited" && m.tags?.reason === "ai_rate_limited")
+        );
     });
 
     it("IA retornando inválido (sem replyText): aiStage aplica fallback seguro", async () => {
@@ -185,6 +205,24 @@ describe("pro pipeline - failure regression", () => {
                 t.toLowerCase().includes("novamente") ||
                 t.toLowerCase().includes("tentar")
         );
+        assert.ok(
+            out.metrics.some(
+                (m) => m.name === "pro_pipeline.ai_invalid_response" && m.tags?.reason === "ai_invalid_response"
+            )
+        );
+    });
+
+    it("IA retornando JSON inválido (payload string quebrada): pipeline não quebra e aplica fallback", async () => {
+        const out = await runProPipeline(
+            { ...baseInput(), inboundText: "quero 1 heineken" },
+            deps({
+                state: baseState(),
+                intent: "order_intent",
+                // Simula provider devolvendo payload fora do contrato esperado.
+                aiResult: "{\"action\":\"reply\",\"replyText\":",
+            })
+        );
+        assert.ok(out.outbound.length > 0);
         assert.ok(
             out.metrics.some(
                 (m) => m.name === "pro_pipeline.ai_invalid_response" && m.tags?.reason === "ai_invalid_response"
@@ -225,6 +263,25 @@ describe("pro pipeline - failure regression", () => {
         assert.ok(out.outbound.some((m) => (m.text ?? "").includes("Erro ao gravar")));
         assert.ok(
             out.metrics.some((m) => m.name === "pro_pipeline.order_failed" && m.tags?.errorCode === "DB_ERROR")
+        );
+    });
+
+    it("dados inconsistentes no fecho: INCONSISTENT_DRAFT retorna erro explícito", async () => {
+        const out = await runProPipeline(baseInput(), deps({
+            state: stateAwaitingConfirmation(),
+            intent: "order_intent",
+            orderResult: {
+                ok: false,
+                customerMessage: "Dados inconsistentes do pedido. Revise os itens e tente novamente.",
+                errorCode: "INCONSISTENT_DRAFT",
+                retryable: false,
+            },
+        }));
+        assert.ok(out.outbound.some((m) => (m.text ?? "").includes("Dados inconsistentes")));
+        assert.ok(
+            out.metrics.some(
+                (m) => m.name === "pro_pipeline.order_failed" && m.tags?.errorCode === "INCONSISTENT_DRAFT"
+            )
         );
     });
 

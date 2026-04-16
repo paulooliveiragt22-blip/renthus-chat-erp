@@ -144,6 +144,8 @@ export type ProPipelineTelemetryReason =
     | "confirmation_ambiguous"
     | "tool_output_rejected"
     | "ai_timeout"
+    | "ai_rate_limited"
+    | "ai_provider_error"
     | "ai_invalid_response"
     | "order_rejected"
     | "invalid_state_transition";
@@ -225,6 +227,7 @@ export type OrderServiceResult =
             | "PRODUCT_NOT_FOUND"
             | "INVALID_PAYMENT"
             | "INVALID_ADDRESS"
+            | "INCONSISTENT_DRAFT"
             | "RPC_ERROR"
             | "DB_ERROR";
         retryable: boolean;

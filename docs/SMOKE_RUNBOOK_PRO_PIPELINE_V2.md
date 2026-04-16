@@ -112,6 +112,23 @@ Conferir:
 
 ---
 
+### Passo 4.2 - Matriz padrão de falhas reais
+Executar, no mínimo, os 4 cenários abaixo em ambiente de validação:
+1. IA com JSON inválido (payload quebrado / sem contrato esperado)
+2. produto inexistente no fechamento (`PRODUCT_NOT_FOUND`)
+3. timeout de API da IA (`AI_TIMEOUT`)
+4. dados inconsistentes no draft (`INCONSISTENT_DRAFT`)
+
+Conferir para cada caso:
+- onde quebra (estágio/adapter)
+- mensagem ao cliente em PT-BR sem vazar detalhe técnico
+- métrica/erro correspondente no retorno do pipeline
+
+**Aprovado se:**
+- todos os 4 cenários têm teste automatizado e comportamento reproduzível no smoke
+
+---
+
 ### Passo 5 - Duplicidade outbound
 1. Repetir a mesma mensagem inbound rapidamente (2x).
 2. Verificar `whatsapp_messages` outbound:

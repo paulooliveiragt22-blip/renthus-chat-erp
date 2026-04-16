@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildOrderCustomerMessage } from "../../src/pro/adapters/order/order.service.v2";
+import {
+    buildOrderErrorMessage,
+    buildOrderCustomerMessage,
+    isRetryableOrderError,
+    validateDraftConsistency,
+} from "../../src/pro/adapters/order/order.service.v2";
 import type { OrderDraft } from "../../src/types/contracts";
 
 function sampleDraft(): OrderDraft {
@@ -66,5 +71,61 @@ describe("OrderServiceV2Adapter message snapshot", () => {
         });
         assert.ok(text.includes("Pedido #ABC123 recebido."));
         assert.ok(text.includes("Estamos confirmando e ja voltamos."));
+    });
+
+    it("quando grandTotal vier inconsistente, mensagem usa total recomputado", () => {
+        const draft = sampleDraft();
+        draft.grandTotal = 999;
+        const text = buildOrderCustomerMessage({
+            orderCode: "#ABC123",
+            requireApproval: false,
+            draft,
+        });
+        assert.ok(text.includes("Total R$ 45,00 via PIX."));
+    });
+});
+
+describe("OrderServiceV2Adapter consistency validation", () => {
+    it("falha com totais inconsistentes (quebra antes: pedido poderia sair com total divergente)", () => {
+        const draft = sampleDraft();
+        draft.totalItems = 999;
+        const out = validateDraftConsistency(draft);
+        if (out.ok) throw new Error("esperava falha de consistência de totais");
+    });
+
+    it("falha com dados numéricos inválidos", () => {
+        const draft = sampleDraft();
+        const first = draft.items[0];
+        if (!first) throw new Error("draft de teste precisa de pelo menos um item");
+        first.quantity = 0;
+        const out = validateDraftConsistency(draft);
+        if (out.ok) throw new Error("esperava falha de consistência numérica");
+    });
+});
+
+describe("OrderServiceV2Adapter retryability policy", () => {
+    it("marca apenas RPC_ERROR e DB_ERROR como retryable", () => {
+        assert.equal(isRetryableOrderError("RPC_ERROR"), true);
+        assert.equal(isRetryableOrderError("DB_ERROR"), true);
+        assert.equal(isRetryableOrderError("PRODUCT_NOT_FOUND"), false);
+        assert.equal(isRetryableOrderError("INVALID_ADDRESS"), false);
+        assert.equal(isRetryableOrderError("INCONSISTENT_DRAFT"), false);
+    });
+});
+
+describe("OrderServiceV2Adapter canonical error messages", () => {
+    it("padroniza PRODUCT_NOT_FOUND e INCONSISTENT_DRAFT", () => {
+        assert.equal(
+            buildOrderErrorMessage("PRODUCT_NOT_FOUND"),
+            "Nao encontramos esse produto ou embalagem no catalogo. Confirme o item ou escolha outro."
+        );
+        assert.equal(
+            buildOrderErrorMessage("INCONSISTENT_DRAFT"),
+            "Dados inconsistentes do pedido. Revise os itens e tente novamente."
+        );
+    });
+
+    it("aceita contexto para OUT_OF_STOCK", () => {
+        assert.equal(buildOrderErrorMessage("OUT_OF_STOCK", { itemName: "Coca 2L" }), 'Estoque insuficiente para "Coca 2L".');
     });
 });

@@ -38,10 +38,27 @@ function appendAiOutcomeMetrics(
         });
     }
     if (aiServiceErrorCode === "AI_RATE_LIMIT") {
+        const reason: ProPipelineTelemetryReason = "ai_rate_limited";
         metrics.push({
             name: "pro_pipeline.ai_rate_limited",
             value: 1,
-            tags: { intent, reason: "ai_rate_limited" },
+            tags: { intent, reason },
+        });
+    }
+    if (aiServiceErrorCode === "AI_TIMEOUT") {
+        const reason: ProPipelineTelemetryReason = "ai_timeout";
+        metrics.push({
+            name: "pro_pipeline.ai_timeout",
+            value: 1,
+            tags: { intent, reason },
+        });
+    }
+    if (aiServiceErrorCode === "AI_PROVIDER_ERROR") {
+        const reason: ProPipelineTelemetryReason = "ai_provider_error";
+        metrics.push({
+            name: "pro_pipeline.ai_provider_error",
+            value: 1,
+            tags: { intent, reason },
         });
     }
 }

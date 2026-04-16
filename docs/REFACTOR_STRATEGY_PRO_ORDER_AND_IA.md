@@ -247,6 +247,9 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 | 2026-04-16 | `proStepTransitions.ts`, `orderStage.ts`, `proStepTransitions.test.ts`, esta doc | Alinhamento final R1: RPC `createFromDraft` executa via `executeOrderRpcTransition` (dentro do módulo de transição), preservando regra “sem finalize fora de transição válida”. |
 | 2026-04-16 | `orderStage.ts`, `intentClassifier.service.ts`, `proPipeline.test.ts`, `proPipeline.failure-regression.test.ts`, `SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`, esta doc | R3 incremental: confirmação forte inclui `confirmar` e IDs (`confirmar_pedido`, `confirm_order`), bloqueia negação explícita em awaiting; smoke atualizado com passo 4.1 (confirmação forte/ambígua). |
 | 2026-04-16 | `order.service.v2.ts`, `order.service.v2.message.test.ts`, esta doc | R3 cópia ao cliente: mensagem final de confirmação padronizada no servidor a partir do draft validado (itens, total, taxa, pagamento), com testes unitários de snapshot textual. |
+| 2026-04-16 | `runProPipeline.ts`, `contracts.ts`, `proPipeline.failure-regression.test.ts`, esta doc | Padronização de telemetria de falhas de IA: métricas explícitas para `AI_TIMEOUT`, `AI_RATE_LIMIT` e `AI_PROVIDER_ERROR` (reasons tipados) além de `ai_invalid_response`/`tool_output_rejected`. |
+| 2026-04-16 | `order.service.v2.ts`, `order.service.v2.message.test.ts`, esta doc | Política única de retry no adapter de pedido (`isRetryableOrderError`): apenas `RPC_ERROR` e `DB_ERROR` são retentáveis; demais erros (ex.: `PRODUCT_NOT_FOUND`, `INCONSISTENT_DRAFT`) ficam não-retentáveis e explícitos. |
+| 2026-04-16 | `order.service.v2.ts`, `order.service.v2.message.test.ts`, esta doc | Mapa canônico `errorCode -> customerMessage` no adapter de pedido (`buildOrderErrorMessage`), removendo strings espalhadas e padronizando resposta para `PRODUCT_NOT_FOUND`, `OUT_OF_STOCK`, `INVALID_ADDRESS`, `INVALID_PAYMENT`, `INCONSISTENT_DRAFT`, `DB_ERROR` e `RPC_ERROR`, com testes unitários dedicados. |
 
 **Próximo na sequência sugerida (§0):** Fase R3 (confirmação forte / cópia ao cliente) e atualização do [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md); opcional: fundir streaks de escalação no módulo de transição.
 
@@ -255,3 +258,18 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 ## 9. Revisão
 
 Rever este documento **após cada deploy** em produção com tráfego real, ou a cada **4 semanas** em fase de piloto, para ajustar ordem das fases com base nas métricas de `reason` e na saúde da fila.
+
+---
+
+## 10. Matriz padrão de falhas (obrigatória)
+
+Aplicar esta mesma matriz a cada ficheiro/etapa refatorada (e aos próximos alvos da sequência):
+
+| Falha simulada | Onde quebra | Correção esperada |
+|---|---|---|
+| IA retornando JSON inválido | `aiStage` (normalização de resposta) | fallback seguro + métrica `pro_pipeline.ai_invalid_response` |
+| produto inexistente | `order.service.v2.ts` (`revalidateDraft`) | `PRODUCT_NOT_FOUND` + mensagem clara |
+| timeout de API | adapter de IA (`ai.service.full.ts`) | `AI_TIMEOUT` + mensagem retry-safe |
+| dados inconsistentes | `order.service.v2.ts` (`validateDraftConsistency`) | `INCONSISTENT_DRAFT` + bloqueio de finalize |
+
+Regra operacional: qualquer novo refactor só fecha quando os 4 cenários acima estiverem cobertos por teste e documentados no log da seção 8.
