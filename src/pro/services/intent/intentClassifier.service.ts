@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Intent, IntentDecision, PipelineContext } from "@/src/types/contracts";
+import { isOrderSessionContinuityNeeded } from "@/src/pro/pipeline/sessionOrderContext";
 import type { IntentService, IntentServiceInput } from "./intent.types";
 
 const BTN_CATALOG = new Set(["btn_catalog"]);
@@ -90,6 +91,15 @@ export class ProIntentClassifierService implements IntentService {
         if (BTN_STATUS.has(text)) return { intent: "status_intent", confidence: "high", reasonCode: "button_id_match" };
         if (BTN_SUPPORT.has(text)) return { intent: "human_intent", confidence: "high", reasonCode: "button_id_match" };
         if (HUMAN_RE.test(raw)) return { intent: "human_intent", confidence: "high", reasonCode: "regex_match" };
+
+        // Pedido em curso: respostas curtas ("uma caixa", "2 unidades") não têm ORDER_RE nem contexto no Haiku de 1 chamada.
+        // Sem isto, caem em greeting/unknown → routeStage mostra o menu inicial e "apaga" o fluxo.
+        if (isOrderSessionContinuityNeeded(context.session)) {
+            if (STATUS_RE.test(raw)) {
+                return { intent: "status_intent", confidence: "high", reasonCode: "regex_match" };
+            }
+            return { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" };
+        }
 
         // Camada 2: regex curta de alta precisão
         if (STATUS_RE.test(raw)) return { intent: "status_intent", confidence: "high", reasonCode: "regex_match" };

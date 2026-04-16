@@ -10,6 +10,7 @@ Este documento descreve **como o servidor mantém o passo (`ProStep`) alinhado a
 
 - **Fonte de verdade do “onde estamos” no checkout:** o `OrderDraft` persistido (itens, endereço, pagamento, `pendingConfirmation`) + regras em `resolveProStepFromDraft`.
 - **A IA** continua responsável por interpretar texto livre e chamar tools; o **motor** re-sincroniza `step` após cada turno relevante para que botões e gates batem com o estado real.
+- **Intenção vs. menu inicial:** mensagens curtas (“uma caixa”, “2”) não contêm palavras da `ORDER_RE` e o classificador LLM **não recebia o histórico** — podiam cair em `unknown` / `greeting` e o `routeStage` reenviava a saudação. Mitigação: `isOrderSessionContinuityNeeded` + `reasonCode: active_order_session` em `intentClassifier.service.ts` e defesa em `routeStage.ts` (continuar em modo `ai` com pedido activo).
 
 ---
 

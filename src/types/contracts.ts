@@ -101,7 +101,8 @@ export interface IntentDecision {
         | "regex_match"
         | "llm_classification"
         | "confirmation_shortcut"
-        | "fallback_unknown";
+        | "fallback_unknown"
+        | "active_order_session";
 }
 
 export interface OutboundMessage {

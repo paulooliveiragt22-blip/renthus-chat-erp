@@ -1,4 +1,5 @@
 import type { IntentDecision, OutboundMessage, ProSessionState, TenantRef } from "@/src/types/contracts";
+import { isOrderSessionContinuityNeeded } from "../sessionOrderContext";
 import { canTransition } from "../proStepTransitions";
 
 export interface RouteStageResult {
@@ -147,6 +148,10 @@ export function routeStage(params: {
     }
 
     if (decision.intent === "faq" || decision.intent === "greeting" || decision.intent === "unknown") {
+        /** Defesa em profundidade: classificador ou LLM não devem reabrir o menu com pedido a meio. */
+        if (isOrderSessionContinuityNeeded(state)) {
+            return { mode: "ai", state, outbound: [] };
+        }
         const isReturningCustomer = Boolean(state.customerId);
         return {
             mode: "direct_reply",
