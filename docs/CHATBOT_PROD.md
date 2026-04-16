@@ -247,6 +247,24 @@ Estado persistido do V2: `session.context.__pro_v2_state` (ver adapter `session.
 
 Homologação manual: [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md). Matriz obrigatória de falhas simuladas: secção 10 de [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
 
+### Telemetria PRO V2 — `tags.reason` (catálogo fechado)
+
+Critério de produto: **nove** valores estáveis em `ProPipelineTelemetryReason` (`src/types/contracts.ts`), emitidos em métricas `pro_pipeline.*` via `MetricsPort` (ex.: logs em dev com `ConsoleMetricsAdapter`). **Super Admin:** opcional; até existir painel dedicado, filtrar logs/métricas por estes valores.
+
+| `tags.reason` | Métrica típica | Nota |
+|---------------|----------------|------|
+| `draft_validation_failed` | `pro_pipeline.order_precondition_failed` | Rascunho incompleto na confirmação. |
+| `finalize_blocked` | `pro_pipeline.order_precondition_failed` | Sem rascunho persistido na confirmação. |
+| `confirmation_ambiguous` | `pro_pipeline.confirmation_ambiguous` | Texto não é confirmação forte. |
+| `tool_output_rejected` | `pro_pipeline.ai_tool_round_exhausted` | Ex.: `TOOL_FAILED` / limite de tools. |
+| `ai_timeout` | `pro_pipeline.ai_timeout` | |
+| `ai_rate_limited` | `pro_pipeline.ai_rate_limited` | |
+| `ai_provider_error` | `pro_pipeline.ai_provider_error` | |
+| `ai_invalid_response` | `pro_pipeline.ai_invalid_response` | Resposta IA fora do contrato / sanitizada. |
+| `order_rejected` | `pro_pipeline.order_failed` | `tags.errorCode` do pedido (ex.: `PRODUCT_NOT_FOUND`). |
+
+Rejeições de máquina de estados **internas** (`canTransition` → `invalid_state_transition`) **não** usam este tipo; não entram em `tags.reason` do catálogo acima.
+
 ---
 
 ## Estrutura de pastas (alvo de refator mínima)

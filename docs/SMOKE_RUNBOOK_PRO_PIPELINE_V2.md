@@ -129,6 +129,15 @@ Conferir para cada caso:
 
 ---
 
+### Passo 4.3 - Replay de `message_id` (idempotência)
+Reutilizar o procedimento canónico em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md#como-obter-evidências-p95-carga-replay) (subsecção **“2) Replay de `message_id`”**): guardar body + assinatura, enviar o mesmo `POST` duas vezes, verificar na base **um** efeito de negócio (sem segundo pedido / sem segunda resposta duplicada fora da política de dedup).
+
+**Aprovado se:**
+- o segundo envio não duplica pedido nem gera outbound incoerente com a política de idempotência
+- evidência anotada na homologação (timestamp, `company_id`, `message_id`)
+
+---
+
 ### Passo 5 - Duplicidade outbound
 1. Repetir a mesma mensagem inbound rapidamente (2x).
 2. Verificar `whatsapp_messages` outbound:

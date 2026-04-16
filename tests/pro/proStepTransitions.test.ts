@@ -4,6 +4,7 @@ import {
     applyAiStateTransition,
     canTransition,
     executeOrderRpcTransition,
+    INVALID_PRO_STEP_TRANSITION,
     resolveStepAfterAiAction,
     resolveStepAfterOrderStage,
 } from "../../src/pro/pipeline/proStepTransitions";
@@ -23,7 +24,7 @@ describe("proStepTransitions (R1)", () => {
     it("rejeita IA em handover", () => {
         const r = canTransition("handover", { type: "ai_action_resolved", action: "reply" });
         assert.equal(r.ok, false);
-        if (!r.ok) assert.equal(r.reason, "invalid_state_transition");
+        if (!r.ok) assert.equal(r.reason, INVALID_PRO_STEP_TRANSITION);
         assert.equal(resolveStepAfterAiAction("handover", "reply"), "pro_collecting_order");
     });
 

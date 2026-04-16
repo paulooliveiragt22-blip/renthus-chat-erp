@@ -160,6 +160,19 @@ lib/whatsapp/
 lib/supabase/
   admin.ts                       ← createAdminClient (service role)
 
+src/pro/                       ← Motor PRO Pipeline V2 (tier PRO + flags; ver CHATBOT_PROD)
+  pipeline/
+    runProPipeline.ts            ← Orquestra estágios
+    deps.factory.ts              ← Monta portas (overrides em testes)
+    context.ts, orderDraftGate.ts, proStepTransitions.ts, errors.ts
+    stages/                      ← loadState, guardRails, intent, order, route, ai, persistAndEmit
+  adapters/
+    ai/                          ← ex.: ai.service.full.ts
+    order/                       ← ex.: order.service.v2.ts
+    supabase/session.repository.supabase.ts  ← estado `context.__pro_v2_state`
+    whatsapp/, metrics/, logger/
+  services/, ports/
+
 lib/security/
   rateLimit.ts                   ← webhook incoming (IP)
   cronAuth.ts                    ← process-queue (Authorization)
@@ -188,8 +201,10 @@ tests/integration/
 | `app/api/whatsapp/*` (resto) | APIs de aplicação (threads, envio, media); não substituem o burst do webhook. |
 | `app/api/chatbot/process-queue/` | Consumer: `claim_chatbot_queue_jobs` (ou fallback), `processJob`, atualizar `done`/`failed`, limpeza de jobs antigos. |
 | `app/api/chatbot/resolve/` | Caminho administrativo / service key para disparar o motor sem passar pelo webhook Meta. |
-| `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`) e delega ao pipeline. |
-| `lib/chatbot/inboundPipeline.ts` | Orquestração: sessão, intents, steps Starter vs PRO, envio via `botSend` / `lib/whatsapp/send`. |
+| `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`); com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO corre `runProPipeline` antes do legado (ver `CHATBOT_PROD.md`). |
+| `lib/chatbot/inboundPipeline.ts` | Orquestração legada: sessão, intents, steps Starter vs PRO, envio via `botSend` / `lib/whatsapp/send`. |
+| `src/pro/pipeline/` | Motor PRO V2: estado `ProStep`, gates de pedido, métricas `pro_pipeline.*`, persistência `__pro_v2_state`. |
+| `src/pro/adapters/` | IA, pedido (RPC), sessão Supabase, WhatsApp, métricas/log. |
 | `lib/chatbot/middleware/` | Pré-roteamento antes de handlers/PRO. |
 | `lib/chatbot/handlers/` | Menu, FAQ, handover, fluxos não-PRO. |
 | `lib/chatbot/pro/` | Pedido assistido por IA, tools, endereço, finalização; manter mutações de pedido via **RPCs** já usadas no fluxo. |

@@ -1,10 +1,8 @@
-import type {
-    AiServiceAction,
-    OrderServiceResult,
-    ProPipelineTelemetryReason,
-    ProSessionState,
-    ProStep,
-} from "@/src/types/contracts";
+import type { AiServiceAction, OrderServiceResult, ProSessionState, ProStep } from "@/src/types/contracts";
+
+/** Código estável para `canTransition` falhar (não é valor de `ProPipelineTelemetryReason` / métricas). */
+export const INVALID_PRO_STEP_TRANSITION = "invalid_state_transition" as const;
+export type InvalidProStepTransitionReason = typeof INVALID_PRO_STEP_TRANSITION;
 
 /** Eventos semânticos que alteram `ProSessionState.step` no pipeline PRO (R1). */
 export type ProStepEvent =
@@ -21,7 +19,7 @@ export type ProStepEvent =
 
 export type CanTransitionResult =
     | { ok: true; to: ProStep }
-    | { ok: false; reason: ProPipelineTelemetryReason };
+    | { ok: false; reason: InvalidProStepTransitionReason };
 
 function mapAiActionToStep(action: AiServiceAction): ProStep {
     if (action === "request_confirmation") return "pro_awaiting_confirmation";
@@ -40,14 +38,14 @@ export function canTransition(from: ProStep, event: ProStepEvent): CanTransition
 
     if (event.type === "ai_action_resolved") {
         if (from === "handover") {
-            return { ok: false, reason: "invalid_state_transition" };
+            return { ok: false, reason: INVALID_PRO_STEP_TRANSITION };
         }
         return { ok: true, to: mapAiActionToStep(event.action) };
     }
 
     if (event.type === "order_stage") {
         if (from !== "pro_awaiting_confirmation") {
-            return { ok: false, reason: "invalid_state_transition" };
+            return { ok: false, reason: INVALID_PRO_STEP_TRANSITION };
         }
         switch (event.outcome) {
             case "order_created_ok":
@@ -59,7 +57,7 @@ export function canTransition(from: ProStep, event: ProStepEvent): CanTransition
         }
     }
 
-    return { ok: false, reason: "invalid_state_transition" };
+    return { ok: false, reason: INVALID_PRO_STEP_TRANSITION };
 }
 
 /** Resolve o próximo passo após IA; fallback seguro se a combinação for inválida. */

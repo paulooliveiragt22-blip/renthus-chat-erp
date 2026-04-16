@@ -137,7 +137,10 @@ export interface ProPipelineOutput {
     }>;
 }
 
-/** Motivos estáveis para métricas/logs do pipeline PRO (ver `REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md` R0). */
+/**
+ * Motivos estáveis para `tags.reason` em métricas `pro_pipeline.*` (§6 da estratégia: **&lt; 10** valores).
+ * Rejeições internas de `canTransition` usam código à parte (`invalid_state_transition` em `proStepTransitions.ts`), não este tipo.
+ */
 export type ProPipelineTelemetryReason =
     | "draft_validation_failed"
     | "finalize_blocked"
@@ -147,8 +150,7 @@ export type ProPipelineTelemetryReason =
     | "ai_rate_limited"
     | "ai_provider_error"
     | "ai_invalid_response"
-    | "order_rejected"
-    | "invalid_state_transition";
+    | "order_rejected";
 
 export interface PipelinePolicies {
     locale: Locale;

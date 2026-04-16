@@ -220,10 +220,24 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 ## 6. Critérios de “feito” desta estratégia
 
 - [x] Módulo de transição de estado com **cobertura de teste** das transições críticas (`proStepTransitions` + testes).
-- [ ] **Zero** finalize fora de `awaiting_confirmation` (ou estado equivalente documentado).
-- [ ] Telemetria com **&lt; 10 motivos** estáveis consultáveis no Super Admin ou logs.
-- [ ] Runbook de smoke atualizado com **confirmação ambígua** e **replay** onde couber.
-- [ ] Documentação: esta página + `CHATBOT_PROD.md` mantidos como fonte única de decisão até ADR específico.
+- [x] **Zero** finalize fora de `pro_awaiting_confirmation` no motor PRO V2 (evidência em §6.1).
+- [x] Telemetria com **&lt; 10 motivos** estáveis: **9** valores em `ProPipelineTelemetryReason` + consulta via **logs/métricas** (`MetricsPort`); Super Admin opcional até painel dedicado (ver `CHATBOT_PROD.md`).
+- [x] Runbook de smoke com **confirmação ambígua** (passo 4.1) e **replay** de `message_id` (passo 4.3).
+- [x] Documentação: esta página + [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) + [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) + [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) como fonte única até ADR específico.
+
+### 6.1 Evidências (finalize + telemetria) — auditoria 2026-04-16
+
+**Finalize / RPC `createFromDraft` no PRO V2**
+
+- Único caminho no motor: `orderStage.ts` → `executeOrderRpcTransition` → `orderService.createFromDraft` (`src/pro/pipeline/stages/orderStage.ts`, `proStepTransitions.ts`).
+- `executeOrderRpcTransition` **não** chama o RPC quando `from !== "pro_awaiting_confirmation"` (teste `executeOrderRpcTransition só executa RPC em awaiting_confirmation` em `tests/pro/proStepTransitions.test.ts`).
+- Nenhum outro ficheiro em `src/pro/pipeline/` referencia `createFromDraft` (pesquisa: `createFromDraft` / `executeOrderRpcTransition` no repositório).
+- Adapter por defeito: `OrderServiceV2Adapter` em `deps.factory.ts`. `LegacyOrderServiceAdapter` existe para pontes; não é o caminho V2 por defeito.
+
+**Telemetria `tags.reason`**
+
+- Catálogo fechado de **9** motivos: tipo `ProPipelineTelemetryReason` em `contracts.ts`, teste de exaustividade `tests/pro/proPipelineTelemetryReasons.test.ts`, tabela em `CHATBOT_PROD.md`.
+- `invalid_state_transition` mantém-se só como rejeição interna de `canTransition` (`INVALID_PRO_STEP_TRANSITION` em `proStepTransitions.ts`), fora do tipo de telemetria.
 
 ---
 
@@ -253,8 +267,9 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 | 2026-04-16 | `proStepTransitions.ts`, `aiStage.ts`, `proStepTransitions.test.ts`, esta doc | Escalonamento consolidado na transição de IA: `applyAiStateTransition` passa a aplicar `step` + `misunderstandingStreak` + `escalationTier` no mesmo módulo canônico (inclui reset em `INTENT_OK`, incremento em `INTENT_UNKNOWN` e bump de tier em `escalate`). |
 | 2026-04-16 | `types.ts`, `processMessage.ts`, `processMessage.proV2.test.ts`, `CHATBOT_PROD.md`, esta doc | R2 fronteira: `ProcessMessageParams.proPipelineDependencyOverrides` → `makeProPipelineDependencies`; testes com `require.cache` cobrindo modo `active` (sem legado após sucesso), fallback após erro do V2, e `shadow`; `CHATBOT_PROD.md` documenta flags e semântica active/shadow. |
 | 2026-04-16 | `inboundPipeline.ts`, `pipeline_chatbot_prod.md`, esta doc | R2: contrato explícito no legado — V2 orquestrado só em `processInboundMessage`; `active` não invoca `runInboundChatbotPipeline` após sucesso; sem `return` cego no legado que quebrasse fallback; Bloco 1 do diagrama de pipeline atualizado (linha 1.1b). |
+| 2026-04-16 | `contracts.ts`, `proStepTransitions.ts`, `proPipelineTelemetryReasons.test.ts`, `CHATBOT_PROD.md`, `SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`, `structure_chatbot_prod.md`, esta doc | **§6 fechado:** 9 motivos `ProPipelineTelemetryReason` (&lt;10); `invalid_state_transition` só em `canTransition`; auditoria finalize (§6.1); runbook passo 4.3 replay; árvore `src/pro/` em `structure_chatbot_prod.md`; tabela de telemetria em `CHATBOT_PROD.md`. |
 
-**Próximo na sequência sugerida (§0):** fechar §6 “documentação” restante (`structure_chatbot_prod.md` / `pipeline_chatbot_prod.md` — Bloco 1 já referencia V2); **R4** (quota / leitura de catálogo) quando houver evidência em produção; manter [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md) em sincronia a cada mudança de confirmação ou telemetria.
+**Próximo na sequência sugerida (§0):** **R4** (quota por `company_id` / cache seguro de catálogo) **só** com evidência em produção (ver `CHATBOT_PROD.md`); ADR opcional se houver desvio desta estratégia; manter runbook e testes de regressão ao alterar confirmação ou adapters.
 
 ---
 
