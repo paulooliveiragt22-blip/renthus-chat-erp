@@ -1,10 +1,8 @@
 import type {
     OutboundMessage,
-    OrderDraft,
     ProPipelineInput,
     ProPipelineOutput,
     ProPipelineTelemetryReason,
-    ProSessionState,
 } from "@/src/types/contracts";
 import { buildPipelineContext, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -13,9 +11,13 @@ import { guardRails } from "./stages/guardRails";
 import { intentStage } from "./stages/intentStage";
 import { loadState } from "./stages/loadState";
 import { orderStage } from "./stages/orderStage";
-import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { persistAndEmit } from "./stages/persistAndEmit";
 import { routeStage } from "./stages/routeStage";
+import {
+    applyQuickAction,
+    checkoutPostProcess,
+    checkoutPostProcessForQuickAction,
+} from "./stages/checkoutPostProcess";
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
 
@@ -86,180 +88,6 @@ function appendAiOutcomeMetrics(
     }
 }
 
-function normalizeInboundAction(text: string): string {
-    return text
-        .trim()
-        .toLowerCase()
-        .normalize("NFD")
-        .replaceAll(/\p{Diacritic}/gu, "");
-}
-
-function parsePtMoneyInput(text: string): number | null {
-    const only = text.replaceAll(/[^\d,.\s]/g, "").trim();
-    if (!only) return null;
-    const normalized = only
-        .replaceAll(/\s+/g, "")
-        .replaceAll(".", "")
-        .replace(",", ".");
-    const value = Number(normalized);
-    if (!Number.isFinite(value) || value <= 0) return null;
-    return Math.round(value * 100) / 100;
-}
-
-function buildPaymentButtons(): OutboundMessage {
-    return {
-        kind: "buttons",
-        text: "Escolha a forma de pagamento:",
-        buttons: [
-            { id: "pro_pay_pix", title: "PIX" },
-            { id: "pro_pay_card", title: "Cartao" },
-            { id: "pro_pay_cash", title: "Dinheiro" },
-        ],
-    };
-}
-
-function buildConfirmationActionButtons(): OutboundMessage {
-    return {
-        kind: "buttons",
-        text: "Escolha a proxima acao:",
-        buttons: [
-            { id: "pro_edit_order", title: "Editar" },
-            { id: "pro_cancel_order", title: "Cancelar" },
-            { id: "pro_confirm_order", title: "Confirmar" },
-        ],
-    };
-}
-
-function buildAddressConfirmationMessage(draft: OrderDraft): OutboundMessage[] {
-    if (!draft.address) return [];
-    if (!draft.address.enderecoClienteId) return [];
-    const addr = [
-        draft.address.logradouro,
-        draft.address.numero,
-        draft.address.complemento,
-        draft.address.bairroLabel ?? draft.address.bairro,
-        draft.address.cidade,
-        draft.address.estado,
-        draft.address.cep,
-    ]
-        .filter(Boolean)
-        .join(", ");
-    return [
-        { kind: "text", text: `Endereco de entrega e este?\n${addr}\n\nSe nao for, digite o novo endereco.` },
-        {
-            kind: "buttons",
-            text: "Confirma o endereco salvo?",
-            buttons: [{ id: "pro_confirm_saved_address", title: "Confirmar endereco" }],
-        },
-    ];
-}
-
-function postProcessCheckoutMessages(state: ProSessionState): OutboundMessage[] {
-    if (!state.draft) return [];
-    const outbound: OutboundMessage[] = [];
-    if (!state.draft.paymentMethod) {
-        outbound.push(buildPaymentButtons());
-        return outbound;
-    }
-    if (state.step === "pro_awaiting_confirmation") {
-        outbound.push(buildConfirmationActionButtons());
-    }
-    return outbound;
-}
-
-function applyQuickAction(params: {
-    text: string;
-    state: ProSessionState;
-}): {
-    handled: boolean;
-    state: ProSessionState;
-    outbound: OutboundMessage[];
-} {
-    const { text, state } = params;
-    const action = normalizeInboundAction(text);
-    if (!action) return { handled: false, state, outbound: [] };
-
-    if (action === "pro_cancel_order" || action === "btn_cancel_order") {
-        return {
-            handled: true,
-            state: { ...state, step: "pro_idle", draft: null, misunderstandingStreak: 0, escalationTier: 0 },
-            outbound: [{ kind: "text", text: "Pedido cancelado. Quando quiser, me diga o que precisa." }],
-        };
-    }
-
-    if (action === "pro_edit_order" || action === "btn_edit_order") {
-        return {
-            handled: true,
-            state: { ...state, step: "pro_collecting_order" },
-            outbound: [{ kind: "text", text: "Perfeito. Me diga o que voce quer editar no pedido." }],
-        };
-    }
-
-    if (action === "pro_add_items" || action === "btn_add_items") {
-        return {
-            handled: true,
-            state: { ...state, step: "pro_collecting_order" },
-            outbound: [{ kind: "text", text: "Certo. Me diga os produtos que quer adicionar." }],
-        };
-    }
-
-    if (action === "pro_pay_pix" && state.draft) {
-        return {
-            handled: true,
-            state: { ...state, step: "pro_collecting_order", draft: { ...state.draft, paymentMethod: "pix", changeFor: null } },
-            outbound: [{ kind: "text", text: "Pagamento em PIX selecionado." }],
-        };
-    }
-    if (action === "pro_pay_card" && state.draft) {
-        return {
-            handled: true,
-            state: { ...state, step: "pro_collecting_order", draft: { ...state.draft, paymentMethod: "card", changeFor: null } },
-            outbound: [{ kind: "text", text: "Pagamento em cartao selecionado." }],
-        };
-    }
-    if (action === "pro_pay_cash" && state.draft) {
-        return {
-            handled: true,
-            state: {
-                ...state,
-                step: "pro_awaiting_change_amount",
-                draft: { ...state.draft, paymentMethod: "cash" },
-            },
-            outbound: [{ kind: "text", text: "Pagamento em dinheiro. Troco pra quanto?" }],
-        };
-    }
-
-    if (state.step === "pro_awaiting_change_amount" && state.draft?.paymentMethod === "cash") {
-        const amount = parsePtMoneyInput(text);
-        if (amount != null) {
-            return {
-                handled: true,
-                state: {
-                    ...state,
-                    step: "pro_collecting_order",
-                    draft: { ...state.draft, changeFor: amount },
-                },
-                outbound: [{ kind: "text", text: `Troco registrado para R$ ${amount.toFixed(2).replace(".", ",")}.` }],
-            };
-        }
-        return {
-            handled: true,
-            state,
-            outbound: [{ kind: "text", text: "Nao entendi o valor do troco. Exemplo: 100,00." }],
-        };
-    }
-
-    if (action === "pro_confirm_saved_address" && state.draft?.address) {
-        return {
-            handled: true,
-            state: { ...state, step: "pro_collecting_order" },
-            outbound: [{ kind: "text", text: "Endereco confirmado." }],
-        };
-    }
-
-    return { handled: false, state, outbound: [] };
-}
-
 export async function runProPipeline(
     input: ProPipelineInput,
     deps: PipelineDependencies
@@ -303,9 +131,12 @@ export async function runProPipeline(
         };
     }
 
-    const quick = applyQuickAction({ text: input.inboundText, state: guarded.state });
+    const quick = applyQuickAction(input.inboundText, guarded.state);
     if (quick.handled) {
-        const quickOutbound = [...quick.outbound, ...postProcessCheckoutMessages(quick.state)];
+        const quickOutbound = checkoutPostProcessForQuickAction({
+            state: quick.state,
+            outbound: quick.outbound,
+        });
         await persistAndEmit({
             tenant: input.tenant,
             state: quick.state,
@@ -316,7 +147,7 @@ export async function runProPipeline(
             logger: deps.logger,
         });
         const metrics: PipelineMetric[] = [
-            { name: "pro_pipeline.quick_action", value: 1, tags: { action: normalizeInboundAction(input.inboundText) } },
+            { name: "pro_pipeline.quick_action", value: 1, tags: { action: quick.actionTag ?? "unknown" } },
             { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
         ];
         flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, new Set(["pro_pipeline.outbound_count"]));
@@ -357,7 +188,7 @@ export async function runProPipeline(
     if (preOrder.outboundText) {
         const outbound: OutboundMessage[] = [
             { kind: "text", text: preOrder.outboundText },
-            ...postProcessCheckoutMessages(preOrder.state),
+            ...checkoutPostProcessForQuickAction({ state: preOrder.state, outbound: [] }),
         ];
         await persistAndEmit({
             tenant: input.tenant,
@@ -430,22 +261,18 @@ export async function runProPipeline(
         nextState = ai.state;
         outbound.push(...ai.outbound);
     }
-
-    if (routed.mode === "ai" && nextState.draft && nextState.step === "pro_collecting_order" && !nextState.draft.paymentMethod) {
-        const needsAddressConfirmation = Boolean(nextState.draft.address?.enderecoClienteId);
-        if (needsAddressConfirmation) {
-            outbound.push(...buildAddressConfirmationMessage(nextState.draft));
-        }
-    }
-    if (routed.mode === "ai" && nextState.draft && isDraftStructurallyCompleteForFinalize(nextState.draft)) {
-        nextState = { ...nextState, step: "pro_awaiting_confirmation" };
-    }
-    outbound.push(...postProcessCheckoutMessages(nextState));
+    const checkout = checkoutPostProcess({
+        state: nextState,
+        outbound,
+        mode: routed.mode,
+    });
+    nextState = checkout.state;
+    const finalOutbound = checkout.outbound;
 
     await persistAndEmit({
         tenant: input.tenant,
         state: nextState,
-        outbound,
+        outbound: finalOutbound,
         sessionRepo: deps.sessionRepo,
         messageGateway: deps.messageGateway,
         metrics: deps.metrics,
@@ -455,7 +282,7 @@ export async function runProPipeline(
     const runMetrics: PipelineMetric[] = [
         ...preOrderSideMetrics,
         { name: "pro_pipeline.run", value: 1, tags: { intent: decision.intent } },
-        { name: "pro_pipeline.outbound_count", value: outbound.length },
+        { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
     ];
     appendAiOutcomeMetrics(runMetrics, decision.intent, invalidAiSanitized, aiServiceErrorCode);
 
@@ -463,7 +290,7 @@ export async function runProPipeline(
 
     return {
         nextState,
-        outbound,
+        outbound: finalOutbound,
         sideEffects: [],
         metrics: runMetrics,
     };
