@@ -7,6 +7,27 @@ export interface RouteStageResult {
     outbound: OutboundMessage[];
 }
 
+function buildWelcomeText(isReturningCustomer: boolean): string {
+    if (isReturningCustomer) {
+        return (
+            "Bem-vindo de volta! Posso agilizar seu pedido com seus dados salvos.\n\n" +
+            "Você pode digitar o que precisa em uma frase (produto + quantidade) ou usar os botões abaixo."
+        );
+    }
+    return (
+        "Oi! Sou o assistente da loja e te ajudo a fechar o pedido por aqui.\n\n" +
+        "Se preferir, escreva tudo em uma frase (produto + endereco + pagamento) ou use os botões abaixo."
+    );
+}
+
+function mainMenuButtons(): Array<{ id: string; title: string }> {
+    return [
+        { id: "btn_catalog", title: "Cardapio" },
+        { id: "btn_status", title: "Meu pedido" },
+        { id: "btn_support", title: "Falar com atendente" },
+    ];
+}
+
 export function routeStage(params: {
     state: ProSessionState;
     decision: IntentDecision;
@@ -31,11 +52,19 @@ export function routeStage(params: {
         };
     }
 
-    if (decision.intent === "faq" || decision.intent === "greeting") {
+    if (decision.intent === "faq" || decision.intent === "greeting" || decision.intent === "unknown") {
+        const isReturningCustomer = Boolean(state.customerId);
         return {
             mode: "direct_reply",
             state,
-            outbound: [{ kind: "text", text: "Posso te ajudar com pedido, status ou falar com atendente." }],
+            outbound: [
+                { kind: "text", text: buildWelcomeText(isReturningCustomer) },
+                {
+                    kind: "buttons",
+                    text: "Posso te ajudar com pedido, status ou atendimento humano.",
+                    buttons: mainMenuButtons(),
+                },
+            ],
         };
     }
 

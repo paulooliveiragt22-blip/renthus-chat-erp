@@ -165,7 +165,7 @@ lib/supabase/
 
 src/pro/                       ← Motor PRO Pipeline V2 (tier PRO + flags; ver CHATBOT_PROD)
   pipeline/
-    runProPipeline.ts            ← Orquestra estágios
+    runProPipeline.ts            ← Orquestra estágios + **Order Finalization Orchestrator** (quick actions checkout, ver CHATBOT_PROD)
     deps.factory.ts              ← Monta portas (overrides em testes)
     context.ts, orderDraftGate.ts, proStepTransitions.ts, errors.ts
     stages/                      ← loadState, guardRails, intent, order, route, ai, persistAndEmit
@@ -208,7 +208,7 @@ tests/integration/
 | `app/api/chatbot/resolve/` | Caminho administrativo / service key para disparar o motor sem passar pelo webhook Meta. |
 | `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`); com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO corre `runProPipeline` antes do legado. **Produção:** `CHATBOT_PRO_PIPELINE_V2_MODE=active` (ver decisões operacionais em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). |
 | `lib/chatbot/inboundPipeline.ts` | Orquestração legada: sessão, intents, steps Starter vs PRO, envio via `botSend` / `lib/whatsapp/send`. |
-| `src/pro/pipeline/` | Motor PRO V2: estado `ProStep`, gates de pedido, métricas `pro_pipeline.*`, persistência `__pro_v2_state`. |
+| `src/pro/pipeline/` | Motor PRO V2: estado `ProStep`, gates de pedido, métricas `pro_pipeline.*`, persistência `__pro_v2_state`; **checkout com botões** e quick actions em `runProPipeline.ts` + saudação/menu em `stages/routeStage.ts` (ver secção *Order Finalization Orchestrator* em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). |
 | `src/pro/adapters/` | IA, pedido (RPC), sessão Supabase, WhatsApp, métricas/log. |
 | `lib/chatbot/middleware/` | Pré-roteamento antes de handlers/PRO. |
 | `lib/chatbot/handlers/` | Menu, FAQ, handover, fluxos não-PRO. |

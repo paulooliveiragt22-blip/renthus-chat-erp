@@ -202,7 +202,7 @@ Depende de `intent` e `tier`:
 
 | Intent | Starter (`tier !== "pro"`) | PRO |
 |--------|---------------------------|-----|
-| `greeting` / `unknown` | `sendWelcomeMenu` — horário, botões/lista (**sem refator neste ciclo**) | Mensagem PRO templates / texto |
+| `greeting` / `unknown` | `sendWelcomeMenu` — horário, botões/lista (**sem refator neste ciclo**) | **PRO V2 (`active`):** saudação contextual + botões `Cardápio` / `Meu pedido` / `Falar com atendente` em `routeStage.ts` (ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) — *Order Finalization Orchestrator* / estado no código). |
 | `order_intent` | `starterOrderFlow` — Flow catálogo ou menu (**sem refator neste ciclo**) | **`handleProOrderIntent`** — tools + Haiku + rascunho (**foco da refatoração**) |
 | `status_intent` | Flow status ou `replyWithOrderStatus` (**sem refator neste ciclo**) | Idem |
 | `human_intent` | `doHandover` (**sem refator neste ciclo**) | Idem |
@@ -215,6 +215,16 @@ Depende de `intent` e `tier`:
 | 4.P.1 | Loop tool / mensagens | `search_produtos`, `prepare_order_draft`, hints; truncagem `MAX_STORED_MESSAGES` / saneamento tool_use. |
 | 4.P.2 | Confirmação PT-BR | `confirmationPt` + fluxo servidor. |
 | 4.P.3 | Fecho | **`tryFinalizeAiOrderFromDraft`** → `finalizeAiOrder.ts` — **RPC** de criação de pedido (regra de negócio no servidor). |
+
+**Orquestrador de fechamento (PRO V2, produção) — implementado em `runProPipeline.ts`:**
+- `pro_edit_order` → volta para `pro_collecting_order` com instrução objetiva de edição.
+- `pro_add_items` → mantém draft e continua coleta de itens.
+- `pro_cancel_order` → limpa draft e retorna ao menu.
+- `pro_pay_pix` / `pro_pay_card` / `pro_pay_cash` → define pagamento; em `cash`, entrar em `pro_awaiting_change_amount`.
+- `pro_confirm_saved_address` → confirma endereço salvo do draft antes do resumo final.
+- Draft completo (itens + endereço + pagamento) força `pro_awaiting_confirmation` e envia botões `Editar`, `Cancelar`, `Confirmar`.
+
+**Nota:** o resumo “entendi o pedido” numa única frase inicial continua a depender do **draft** produzido pela camada de pedido/IA; o orquestrador acrescenta UI determinística em cima do draft quando este existe.
 
 **Falhas:** tool loop excedido; 400 Anthropic por histórico tool quebrado; RPC falha (estoque, política entrega, validação); cliente nunca confirma.
 

@@ -229,6 +229,36 @@ Complementa a arquitetura **Webhook → fila → worker**: o transporte já desa
 - Estado canónico **reduz** risco de pedido fantasma; **não** elimina texto de bolha desalinhado se a UI verbal for 100% livre no LLM.
 - Híbrido determinístico + IA **não** reduz custo de manutenção sem **dono** do diagrama de estado e testes de transição.
 
+### Order Finalization Orchestrator (produção)
+
+Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de checkout com ações determinísticas antes de cair em ambiguidade de LLM.
+
+- **Saudação contextual:** no início da conversa, distinguir primeiro acesso vs cliente recorrente e mostrar botões (`Cardápio`, `Meu pedido`, `Falar com atendente`).
+- **Mensagem inicial já completa (itens + endereço + pagamento):** devolver resumo entendido e botões `Confirmar`, `Corrigir/Editar`, `Adicionar + produtos`.
+- **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`). Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
+- **Endereço salvo:** quando houver endereço de `enderecos_cliente` no draft, pedir confirmação explícita do endereço com botão `Confirmar endereço`; se não, aceitar endereço digitado.
+- **Resumo final:** sempre com botões na ordem `Editar`, `Cancelar`, `Confirmar`; fechamento só via RPC quando os gates de draft estiverem completos.
+- **Proibição de UX enganosa:** não emitir “pedido confirmado” antes de retorno `ok` do RPC de criação.
+
+#### Estado no código (**já executado**)
+
+Implementação actual no PRO V2 (`CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIPELINE_V2_MODE=active`):
+
+| Peça | Onde | O que faz |
+|------|------|-------------|
+| Saudação + menu | `src/pro/pipeline/stages/routeStage.ts` | `greeting`, `faq` e **`unknown`** recebem texto diferenciado (primeiro contacto vs `customerId` presente) + botões `btn_catalog` / `btn_status` / `btn_support`. |
+| Quick actions (checkout) | `src/pro/pipeline/runProPipeline.ts` (`applyQuickAction`) | Trata IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`; estado `pro_awaiting_change_amount` + parse de troco em texto livre. |
+| Pós-processamento UI | `runProPipeline.ts` (`postProcessCheckoutMessages`, `buildAddressConfirmationMessage`) | Com draft: sem `paymentMethod` → botões PIX/Cartão/Dinheiro; em `pro_awaiting_confirmation` → botões Editar/Cancelar/Confirmar; com `address.enderecoClienteId` e sem pagamento → pergunta de endereço + botão confirmar. |
+| Classificação de botões | `src/pro/services/intent/intentClassifier.service.ts` | Mapeia os IDs acima para `order_intent` com alta confiança. |
+| Novos passos no tipo | `src/types/contracts.ts` (`ProStep`) | Inclui `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount` (catálogo de passo; transições formais podem endurecer-se depois). |
+
+**Testes:** `tests/pro/proPipeline.test.ts` cobre saudação com botões e fluxo de troco após `pro_pay_cash`.
+
+#### Pendências honestas (ainda **não** coberto só por este patch)
+
+- **Primeira mensagem “tudo numa frase”** com resumo + três botões (`Confirmar` / `Corrigir` / `Adicionar`): depende do **draft canónico** vindo da camada de pedido/IA (`AiService` + tools / equivalente). O orquestrador emite os botões de checkout **quando** o draft está completo; não substitui a extração semântica da frase inicial.
+- **`pro_awaiting_address_confirmation` / `pro_awaiting_payment_method`:** declarados no contrato; a máquina de transições em `proStepTransitions.ts` ainda não os usa de forma explícita — o fluxo actual passa sobretudo por `pro_collecting_order` + `pro_awaiting_confirmation` + quick actions.
+
 ### Plano de execução
 
 **Estratégia de refatoração por fases** (ordem, gates, entregáveis, riscos): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
@@ -309,7 +339,7 @@ Manter fronteiras claras sem microserviço:
 
 ## Referências no repositório
 
-- Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/`
+- Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/` (orquestrador de checkout: `runProPipeline.ts`, saída interactiva: `stages/routeStage.ts`, intents de botão: `services/intent/intentClassifier.service.ts`)
 - Fila: `app/api/chatbot/process-queue/route.ts`, migrações `chatbot_queue` / RPC `claim_chatbot_queue_jobs`
 - Ingresso WhatsApp: `app/api/whatsapp/incoming/route.ts` — com `CHATBOT_QUEUE_ENABLED=1`, **enqueue e retorno rápido**; processamento pesado no worker
 - Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)

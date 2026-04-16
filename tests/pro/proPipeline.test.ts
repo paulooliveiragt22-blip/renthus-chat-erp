@@ -206,5 +206,33 @@ describe("novo pipeline PRO - falhas reais", () => {
         assert.equal(called, 0);
         assert.ok(out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("pedido")));
     });
+
+    it("greeting deve responder com menu de botões contextual", async () => {
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
+            intent: "greeting",
+        });
+        const out = await runProPipeline({ ...baseInput(), inboundText: "oi" }, deps);
+        assert.ok(out.outbound.some((m) => m.kind === "buttons"));
+        assert.ok(
+            out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("assistente") || (m.text ?? "").toLowerCase().includes("pedido"))
+        );
+    });
+
+    it("botão de pagamento em dinheiro deve pedir troco", async () => {
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({
+                step: "pro_collecting_order",
+                draft: {
+                    ...stateAwaitingConfirmation().draft!,
+                    paymentMethod: null,
+                },
+            }),
+            intent: "order_intent",
+        });
+        const out = await runProPipeline({ ...baseInput(), inboundText: "pro_pay_cash" }, deps);
+        assert.equal(out.nextState.step, "pro_awaiting_change_amount");
+        assert.ok(out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("troco")));
+    });
 });
 

@@ -11,6 +11,7 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `incoming` enfileira rápido
 - `process-queue` consome sem erro
 - chatbot responde sem duplicidade
+- **Orquestrador PRO V2 (já no código):** saudação com botões (`routeStage`) e checkout com botões / troco (`runProPipeline` — ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) secção *Order Finalization Orchestrator* / estado no código)
 
 ## Pré-requisitos obrigatórios
 - `CHATBOT_PRO_PIPELINE_V2=1`
@@ -38,7 +39,7 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
   1. enviar mensagem no WhatsApp
   2. chamar `process-queue` manual
   3. validar resposta no WhatsApp e status da fila
-- So migrar para cron recorrente (`* * * * *`) quando mudar para Pro.
+- Só migrar para cron recorrente (`* * * * *`) quando mudar para Pro.
 
 ## Plano de execução (15-20 min)
 

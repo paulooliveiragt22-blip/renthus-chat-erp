@@ -18,6 +18,9 @@ export type Intent =
 export type ProStep =
     | "pro_idle"
     | "pro_collecting_order"
+    | "pro_awaiting_address_confirmation"
+    | "pro_awaiting_payment_method"
+    | "pro_awaiting_change_amount"
     | "pro_awaiting_confirmation"
     | "pro_escalation_choice"
     | "handover";

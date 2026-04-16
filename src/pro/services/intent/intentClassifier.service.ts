@@ -5,6 +5,12 @@ import type { IntentService, IntentServiceInput } from "./intent.types";
 const BTN_CATALOG = new Set(["btn_catalog"]);
 const BTN_STATUS = new Set(["btn_status"]);
 const BTN_SUPPORT = new Set(["btn_support"]);
+const BTN_ORDER_EDIT = new Set(["pro_edit_order", "btn_edit_order"]);
+const BTN_ORDER_ADD_MORE = new Set(["pro_add_items", "btn_add_items"]);
+const BTN_ORDER_CANCEL = new Set(["pro_cancel_order", "btn_cancel_order"]);
+const BTN_ORDER_CONFIRM = new Set(["pro_confirm_order", "btn_confirm_order", "confirmar_pedido", "confirm_order"]);
+const BTN_PAY = new Set(["pro_pay_pix", "pro_pay_card", "pro_pay_cash"]);
+const BTN_CONFIRM_ADDRESS = new Set(["pro_confirm_saved_address"]);
 
 const HUMAN_RE = /\b(?:atendente|humano|suporte|falar\s+com)\b/iu;
 const STATUS_RE = /\b(?:status|cad[eê]|onde\s+est[aá]|acompanhar|previs[aã]o)\b/iu;
@@ -69,6 +75,16 @@ export class ProIntentClassifierService implements IntentService {
         // Camada 1: contexto e sinais determinísticos
         if (context.session.step === "pro_awaiting_confirmation" && (CONFIRM_RE.test(raw) || REJECT_RE.test(raw))) {
             return { intent: "order_intent", confidence: "high", reasonCode: "confirmation_shortcut" };
+        }
+        if (
+            BTN_ORDER_EDIT.has(text) ||
+            BTN_ORDER_ADD_MORE.has(text) ||
+            BTN_ORDER_CANCEL.has(text) ||
+            BTN_ORDER_CONFIRM.has(text) ||
+            BTN_PAY.has(text) ||
+            BTN_CONFIRM_ADDRESS.has(text)
+        ) {
+            return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
         }
         if (BTN_CATALOG.has(text)) return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
         if (BTN_STATUS.has(text)) return { intent: "status_intent", confidence: "high", reasonCode: "button_id_match" };
