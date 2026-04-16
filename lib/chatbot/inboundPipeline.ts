@@ -1,6 +1,12 @@
 /**
  * Pipeline único de mensagens inbound do chatbot.
  * Ramifica por plano: Starter (flow-first actual) vs PRO (IA + tool + Flow após falhas).
+ *
+ * **Fronteira com PRO Pipeline V2** (`lib/chatbot/processMessage.ts`):
+ * - Com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO, `processInboundMessage` corre **primeiro** o V2 (`runProPipeline`).
+ * - Modo **`active`**: em sucesso do V2, **não** se chama esta função na mesma mensagem (evita dupla semântica).
+ * - Modo **`shadow`** ou **fallback** após erro do V2 em `active`: esta função corre na sequência (ver `CHATBOT_PROD.md`).
+ * Não adicionar aqui um `return` genérico “V2 active” sem orquestração em `processInboundMessage` — quebraria o fallback.
  */
 
 import type { ProcessMessageParams, CompanyConfig } from "./types";
@@ -23,6 +29,8 @@ export async function runInboundChatbotPipeline(
     params: ProcessMessageParams,
     tier: ChatbotProductTier
 ): Promise<void> {
+    // Orquestração V2 + legado: sempre `processInboundMessage`. Chamadas diretas a esta função
+    // ignoram o V2 (ex.: testes legados) — não é o caminho de produção com fila + PRO.
     const { admin, companyId, threadId, waConfig, catalogFlowId } = params;
     const input = clampChatbotInputForRegex(params.text.trim());
     if (!input) return;
