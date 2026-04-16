@@ -240,9 +240,27 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 | Variável | Valor | Comportamento |
 |----------|--------|----------------|
 | `CHATBOT_PRO_PIPELINE_V2` | `1` | Executa o motor PRO V2 (além do plano PRO). |
-| `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem (útil para comparar logs/métricas; não é UX final em produção). |
-| `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, há **fallback** para o legado com log. |
+| `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão técnica) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem. **Uso pretendido:** homologação / comparação de métricas — **não** é alvo de produção (duplica trabalho, custo e latência). |
+| `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, há **fallback** para o legado com log. **Alvo de produção** para empresas PRO. |
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
+
+### Decisões operacionais (produção — aplicar)
+
+1. **Um motor por mensagem (tenant PRO):** `CHATBOT_PRO_PIPELINE_V2=1` e **`CHATBOT_PRO_PIPELINE_V2_MODE=active`**. Manter `shadow` só em ambientes de **homologação** ou janelas curtas de comparação de telemetria — não como estado estável em produção.
+2. **Fila ligada:** `CHATBOT_QUEUE_ENABLED=1` — o webhook não deve aguardar Anthropic nem pipeline completo (SLO de ingresso: secção *Critérios de aceite (release)* neste documento).
+3. **Gates antes de confirmação:** não tratar “resumo bonito” no LLM como substituto de draft válido no servidor. Só pedir confirmação explícita (“sim” / “ok”) quando itens, endereço, pagamento e regras de entrega (zona, mínimo, etc.) estiverem consistentes no estado canónico / tool `prepare_order_draft`. Falha na criação (`create_order_with_items` / RPCs associadas): mensagem ao cliente **acionável** (o que falhou + o que fazer), evitando “erro técnico” genérico e evitando pedir de novo dados já persistidos sem motivo de domínio.
+4. **Dedup de texto na fila:** `INBOUND_DEDUP_WINDOW_SECONDS` (default **20** no código) — suprime segundo job na mesma thread para o mesmo texto normalizado dentro da janela (double-tap / retry). Valores maiores reduzem duplicata e custo; valores excessivos atrasam reenvio intencional da mesma frase — ajustar só com métrica.
+5. **Métricas PRO em painel:** `PRO_PIPELINE_METRICS_STORE=supabase` alinhado ao bloco «Métricas PRO pipeline» no Super Admin (`getProPipelineHealthStats`).
+6. **Thresholds de alerta (UI):** `NEXT_PUBLIC_PRO_METRICS_ALERT_HARD_FAILURES_THRESHOLD` e `NEXT_PUBLIC_PRO_METRICS_ALERT_AMBIGUOUS_THRESHOLD` — defaults no código **3** e **2**; valores **maiores** (ex.: 5 e 3) diminuem alerta falso em tenant ruidoso; não há “valor certo” universal — calibrar após 1–2 semanas de tráfego.
+
+**Checklist mínimo de env em produção (além das flags PRO/fila/métricas):**
+
+| Variável | Papel |
+|----------|--------|
+| `CRON_SECRET` | Auth do `GET /api/chatbot/process-queue` e do **wake** (`Authorization: Bearer`). |
+| Uma base URL pública ou interna | Wake: `CHATBOT_QUEUE_WAKE_URL` → `APP_INTERNAL_URL` → `NEXT_PUBLIC_APP_URL` → `VERCEL_URL` (ver comentários em `app/api/whatsapp/incoming/route.ts`). Sem isso + secret, só o scheduler cobre latência. |
+| `ANTHROPIC_API_KEY` | Motor PRO (e classificadores que usam Haiku). |
+| Credenciais Meta / canal | Já exigidas pelo ingresso (`WHATSAPP_APP_SECRET`, tokens de canal, etc.). |
 
 Estado persistido do V2: `session.context.__pro_v2_state` (ver adapter `session.repository.supabase`). O legado mantém o seu próprio `session.step` / `context.ai_order_canonical`; não misturar escritas de draft entre as duas stacks sem plano explícito (ver matriz R2 na estratégia).
 

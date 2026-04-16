@@ -18,7 +18,9 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `CHATBOT_QUEUE_ENABLED=1`
 - `CRON_SECRET` configurado
 - `ANTHROPIC_API_KEY` válido
-- `INBOUND_DEDUP_WINDOW_SECONDS` (opcional, default `20`)
+- `INBOUND_DEDUP_WINDOW_SECONDS` (opcional, default `20` — coalescing de texto igual na thread; ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) secção PRO / decisões operacionais)
+- `PRO_PIPELINE_METRICS_STORE=supabase` (opcional; Super Admin «Métricas PRO pipeline»)
+- `NEXT_PUBLIC_PRO_METRICS_ALERT_*` (opcional; thresholds de alerta na UI — defaults 3/2, podem subir para reduzir ruído)
 - **Wake (local):** `NEXT_PUBLIC_APP_URL` (ex.: `http://localhost:3000`) ou `CHATBOT_QUEUE_WAKE_URL`; em Vercel usa-se `VERCEL_URL` automaticamente. Opcional: `CHATBOT_QUEUE_WAKE_ENABLED=0` para forçar só scheduler.
 - rota `GET /api/chatbot/process-queue` acessível com header:
   - `Authorization: Bearer <CRON_SECRET>`

@@ -206,7 +206,7 @@ tests/integration/
 | `app/superadmin/` | Dashboard operacional: fila `chatbot_queue`, falhas, dedup (`getQueueHealthStats`). |
 | `lib/superadmin/actions.ts` | Server actions do superadmin (estatísticas globais + saúde da fila). |
 | `app/api/chatbot/resolve/` | Caminho administrativo / service key para disparar o motor sem passar pelo webhook Meta. |
-| `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`); com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO corre `runProPipeline` antes do legado (ver `CHATBOT_PROD.md`). |
+| `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`); com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO corre `runProPipeline` antes do legado. **Produção:** `CHATBOT_PRO_PIPELINE_V2_MODE=active` (ver decisões operacionais em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). |
 | `lib/chatbot/inboundPipeline.ts` | Orquestração legada: sessão, intents, steps Starter vs PRO, envio via `botSend` / `lib/whatsapp/send`. |
 | `src/pro/pipeline/` | Motor PRO V2: estado `ProStep`, gates de pedido, métricas `pro_pipeline.*`, persistência `__pro_v2_state`. |
 | `src/pro/adapters/` | IA, pedido (RPC), sessão Supabase, WhatsApp, métricas/log. |
@@ -323,4 +323,5 @@ Cruzar com checkboxes em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 **Motor:** `lib/chatbot/processMessage.ts` → `inboundPipeline.ts`.  
 **Fila:** `chatbot_queue` + `claim_chatbot_queue_jobs`.  
 **Escopo do ciclo atual:** Starter congelado; refatoração só no PRO.  
-**Próximo passo de código:** Fase 1 em `app/api/whatsapp/incoming/route.ts` + migração de idempotência se necessário + testes.
+**Fase 1 (desacoplamento):** implementada no código com `CHATBOT_QUEUE_ENABLED=1` (`incoming` enfileira + wake opcional), worker em `process-queue`, idempotência `(company_id, message_id)` na fila e dedup em `whatsapp_messages` — alinhar com a §6 deste ficheiro.  
+**Próximos passos:** fechar os critérios da §7 com evidência (p95 webhook, replay `message_id`, regressão Starter); depois Fases 0/2/3 em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (instrumentação, caps IA PRO, escala quando métricas justificarem).

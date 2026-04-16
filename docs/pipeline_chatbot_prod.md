@@ -132,7 +132,7 @@ Numeração contínua do pedido HTTP até resposta ao cliente.
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
 | 1.1 | `processInboundMessage` | `lib/chatbot/processMessage.ts` | Única fachada pública do motor. |
-| 1.1b | PRO Pipeline V2 (opcional) | `processMessage.ts` → `runProPipeline` (`src/pro/pipeline/`) | Com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO: corre **antes** do legado. Modo `active`: após sucesso **não** entra em 1.3 na mesma mensagem. Modo `shadow` ou erro do V2 em `active`: segue para 1.3. Detalhe: [`CHATBOT_PROD.md`](./CHATBOT_PROD.md). |
+| 1.1b | PRO Pipeline V2 (opcional) | `processMessage.ts` → `runProPipeline` (`src/pro/pipeline/`) | Com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO: corre **antes** do legado. **Produção (decisão):** `CHATBOT_PRO_PIPELINE_V2_MODE=active` — um só motor por mensagem. Modo `shadow`: só homologação / telemetria comparativa (ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). Erro do V2 em `active`: fallback para 1.3 (legado) com log. |
 | 1.2 | Resolver plano | `lib/chatbot/tier.ts` (`getChatbotProductTier`) | `starter` vs `pro`; falha de query → comportamento default do tier. |
 | 1.3 | `runInboundChatbotPipeline` | `lib/chatbot/inboundPipeline.ts` | Orquestração completa abaixo. |
 
