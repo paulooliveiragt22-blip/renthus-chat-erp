@@ -38,6 +38,42 @@ function fromLlmLabel(label: string): Intent | null {
     return null;
 }
 
+/** Extrai texto curto de entradas recentes do utilizador no histórico da IA (para contexto do classificador). */
+function recentUserUtterancesForIntent(session: PipelineContext["session"], maxLines: number, maxChars: number): string {
+    const lines: string[] = [];
+    for (let i = session.aiHistory.length - 1; i >= 0 && lines.length < maxLines; i--) {
+        const turn = session.aiHistory[i];
+        if (turn?.role !== "user") continue;
+        const c = turn.content;
+        let text = "";
+        if (typeof c === "string") {
+            text = c;
+        } else if (c != null && typeof c === "object" && "text" in c && typeof (c as { text?: unknown }).text === "string") {
+            text = String((c as { text: string }).text);
+        }
+        const t = text.replaceAll(/\s+/gu, " ").trim();
+        if (t) lines.unshift(t.length > maxChars ? `${t.slice(0, maxChars)}…` : t);
+    }
+    return lines.join(" | ");
+}
+
+/** Resumo mínimo da sessão PRO para o Haiku não classificar pedido como greeting sem contexto. */
+function buildIntentClassifierContextBlock(session: PipelineContext["session"]): string {
+    const d = session.draft;
+    const parts: string[] = [`step=${session.step}`];
+    if (d?.items?.length) {
+        const first = d.items[0]?.productName ?? "?";
+        parts.push(
+            `draft_items=${d.items.length} (ex.: ${first.slice(0, 40)}), draft_address=${d.address ? "yes" : "no"}, draft_payment=${d.paymentMethod ?? "none"}`
+        );
+    } else {
+        parts.push("draft_items=0");
+    }
+    const recent = recentUserUtterancesForIntent(session, 4, 120);
+    if (recent) parts.push(`recent_user=${recent}`);
+    return parts.join("\n");
+}
+
 async function llmClassify(context: PipelineContext, userText: string): Promise<IntentDecision> {
     if (!process.env.ANTHROPIC_API_KEY) {
         return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
@@ -45,14 +81,21 @@ async function llmClassify(context: PipelineContext, userText: string): Promise<
 
     try {
         const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        const sessionBlock = buildIntentClassifierContextBlock(context.session);
+        const userPayload =
+            `Contexto da sessão (use para desambiguar respostas curtas como quantidade ou "sim"):\n${sessionBlock}\n\n` +
+            `Mensagem actual do cliente a classificar:\n---\n${userText.trim()}\n---\n\n` +
+            `Responda só com um label: order_intent, status_intent, human_intent, faq, greeting, unknown.`;
+
         const resp = await client.messages.create({
             model: "claude-haiku-4-5-20251001",
             max_tokens: 12,
             system:
-                "Classify a WhatsApp user message into exactly one label: " +
-                "order_intent, status_intent, human_intent, faq, greeting, unknown. " +
-                "Reply only with the label.",
-            messages: [{ role: "user", content: userText }],
+                "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
+                "If the session shows an active order (draft with items, or recent user messages about products) " +
+                "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
+                "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
+            messages: [{ role: "user", content: userPayload }],
         });
         const text = (resp.content[0] as { text?: string } | undefined)?.text ?? "";
         const mapped = fromLlmLabel(text);
