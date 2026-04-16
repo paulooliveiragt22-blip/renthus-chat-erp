@@ -242,6 +242,7 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 | `CHATBOT_PRO_PIPELINE_V2` | `1` | Executa o motor PRO V2 (além do plano PRO). |
 | `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem (útil para comparar logs/métricas; não é UX final em produção). |
 | `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, há **fallback** para o legado com log. |
+| `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
 
 Estado persistido do V2: `session.context.__pro_v2_state` (ver adapter `session.repository.supabase`). O legado mantém o seu próprio `session.step` / `context.ai_order_canonical`; não misturar escritas de draft entre as duas stacks sem plano explícito (ver matriz R2 na estratégia).
 
@@ -258,7 +259,7 @@ Critério de produto: **nove** valores estáveis em `ProPipelineTelemetryReason`
 #### Como trazer os 9 `tags.reason` para o mesmo painel (recomendação prática)
 
 1. **Curto prazo (sem código novo no painel):** configurar **`METRICS_INGEST_URL`** para o vosso colector; no Datadog/Grafana filtrar `name` = `pro_pipeline.*` e `tags.reason` ∈ catálogo abaixo; opcionalmente alertas por `companyId`.
-2. **Médio prazo (tudo no repositório):** criar tabela Supabase (ex.: `pro_pipeline_metric_events`: `created_at`, `company_id`, `metric_name`, `value`, `tags` jsonb) + adapter **`SupabaseMetricsAdapter`** que faz `insert` assíncrono (ou batch); depois **`getProPipelineHealthStats`** em `lib/superadmin/actions.ts` com `group by metric_name, tags->>reason` na janela de 15 min; novo cartão ou secção em `app/superadmin/page.tsx` ao lado da fila.
+2. **Médio prazo (camada 2, implementado):** tabela **`pro_pipeline_metric_events`** (`created_at`, `company_id`, `thread_id`, `metric_name`, `value`, `tags` jsonb), RPC **`superadmin_pro_pipeline_metric_totals(p_window_minutes)`**, adapter **`SupabaseMetricsAdapter`** (`src/pro/adapters/metrics/metrics.supabase.ts`) com `insert` assíncrono + delegação ao **`ConsoleMetricsAdapter`** (log + `METRICS_INGEST_URL`). Ativar no worker com **`PRO_PIPELINE_METRICS_STORE=supabase`**. Super Admin: **`getProPipelineHealthStats`** em `lib/superadmin/actions.ts` e secção **«Métricas PRO pipeline (Supabase)»** em `app/superadmin/page.tsx` (mesma janela 15m / 1h / 24h que a fila).
 3. **Evitar duplicar contagem:** `pro_pipeline.outbound_count` continua a ser incrementado só em `persistAndEmit` (uma vez por mensagem após envio); o flush do `runProPipeline` **exclui** esse nome para não duplicar.
 
 | `tags.reason` | Métrica típica | Nota |

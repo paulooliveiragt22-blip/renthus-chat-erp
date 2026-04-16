@@ -187,6 +187,71 @@ export async function getQueueHealthStats(periodMinutes = 15) {
     };
 }
 
+/** Linha agregada de métricas PRO (`pro_pipeline.*`) na janela temporal (Super Admin). */
+export type ProPipelineMetricAggregateRow = {
+    companyId: string;
+    companyName: string;
+    metricName: string;
+    reason: string | null;
+    intent: string | null;
+    errorCode: string | null;
+    total: number;
+};
+
+type ProPipelineMetricRpcRow = {
+    company_id: string;
+    metric_name: string;
+    reason_key: string;
+    intent_key: string;
+    error_code: string;
+    total: number | string;
+};
+
+function coerceMetricTotal(v: number | string): number {
+    return typeof v === "string" ? Number(v) : v;
+}
+
+/** Agrega `pro_pipeline_metric_events` por empresa, métrica e tags (reason / intent / errorCode). */
+export async function getProPipelineHealthStats(periodMinutes = 15) {
+    const admin = createAdminClient();
+    const { data: raw, error } = await admin.rpc("superadmin_pro_pipeline_metric_totals", {
+        p_window_minutes: periodMinutes,
+    });
+    if (error) throw new Error(error.message);
+
+    const rows = (raw ?? []) as ProPipelineMetricRpcRow[];
+    const companyIds = [...new Set(rows.map((r) => r.company_id))];
+    const nameById = new Map<string, string>();
+    if (companyIds.length) {
+        const { data: companies, error: companiesErr } = await admin
+            .from("companies")
+            .select("id, name")
+            .in("id", companyIds);
+        if (companiesErr) throw new Error(companiesErr.message);
+        for (const c of companies ?? []) {
+            nameById.set(c.id, c.name ?? c.id);
+        }
+    }
+
+    const aggregates: ProPipelineMetricAggregateRow[] = rows.map((r) => ({
+        companyId:   r.company_id,
+        companyName: nameById.get(r.company_id) ?? r.company_id,
+        metricName:  r.metric_name,
+        reason:      r.reason_key.length ? r.reason_key : null,
+        intent:      r.intent_key.length ? r.intent_key : null,
+        errorCode:   r.error_code.length ? r.error_code : null,
+        total:       coerceMetricTotal(r.total),
+    }));
+
+    const volume = aggregates.reduce((s, r) => s + r.total, 0);
+
+    return {
+        periodMinutes,
+        volume,
+        rows: aggregates,
+    };
+}
+
 type QueueHealthBaseRow = {
     companyId: string;
     companyName: string;

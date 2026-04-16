@@ -1,10 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Building2, Loader2, MessageSquare, Receipt, TrendingUp } from "lucide-react";
-import { getDashboardStats, getQueueHealthStats } from "@/lib/superadmin/actions";
+import { getDashboardStats, getProPipelineHealthStats, getQueueHealthStats } from "@/lib/superadmin/actions";
 
 type QueueSortBy = "severity" | "failed15m" | "pendingNow";
 
@@ -16,6 +16,11 @@ export default function SuperAdminDashboard() {
     const [periodMinutes, setPeriodMinutes] = useState(15);
     const [sortBy, setSortBy] = useState<QueueSortBy>("severity");
     const [autoRefresh, setAutoRefresh] = useState(true);
+    /** Evita mismatch de hidratação: o bloco PRO métricas só entra após o mount (SSR = cliente no 1º paint). */
+    const [proMetricsMounted, setProMetricsMounted] = useState(false);
+    useEffect(() => {
+        setProMetricsMounted(true);
+    }, []);
 
     const { data, isLoading, dataUpdatedAt: dashboardUpdatedAt } = useQuery({
         queryKey: ["sa", "dashboard"],
@@ -29,6 +34,14 @@ export default function SuperAdminDashboard() {
         queryFn: () => getQueueHealthStats(periodMinutes),
         staleTime: 30_000,
         refetchInterval: autoRefresh ? 30_000 : false,
+        refetchIntervalInBackground: true,
+    });
+    const { data: proMetrics, isLoading: isProMetricsLoading, dataUpdatedAt: proMetricsUpdatedAt } = useQuery({
+        queryKey: ["sa", "pro-pipeline-metrics", periodMinutes],
+        queryFn: () => getProPipelineHealthStats(periodMinutes),
+        enabled: proMetricsMounted,
+        staleTime: 30_000,
+        refetchInterval: autoRefresh && proMetricsMounted ? 30_000 : false,
         refetchIntervalInBackground: true,
     });
     const queueHealth = useMemo(() => {
@@ -81,7 +94,11 @@ export default function SuperAdminDashboard() {
             color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
         },
     ];
-    const lastUpdatedAt = Math.max(dashboardUpdatedAt, queueUpdatedAt);
+    const lastUpdatedAt = Math.max(
+        dashboardUpdatedAt,
+        queueUpdatedAt,
+        proMetricsMounted ? proMetricsUpdatedAt : 0
+    );
 
     return (
         <div className="space-y-6">
@@ -237,6 +254,76 @@ export default function SuperAdminDashboard() {
                     </table>
                 </div>
             </div>
+
+            {proMetricsMounted ? (
+                <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+                    <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                Métricas PRO pipeline (Supabase)
+                            </h2>
+                            <p className="text-xs text-zinc-400">
+                                Agregação de <code className="rounded bg-zinc-100 px-1 py-0.5 text-[10px] dark:bg-zinc-800">pro_pipeline_metric_events</code>
+                                {" "}— mesma janela que a fila acima. Requer migração aplicada e{" "}
+                                <code className="rounded bg-zinc-100 px-1 py-0.5 text-[10px] dark:bg-zinc-800">PRO_PIPELINE_METRICS_STORE=supabase</code>{" "}
+                                no worker.
+                            </p>
+                        </div>
+                        <MiniStat
+                            label={`Volume (${formatPeriodLabel(periodMinutes)})`}
+                            value={String(proMetrics?.volume ?? 0)}
+                            loading={isProMetricsLoading}
+                        />
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                        Empresa
+                                    </th>
+                                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                        Métrica
+                                    </th>
+                                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                        reason
+                                    </th>
+                                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                        intent
+                                    </th>
+                                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                        errorCode
+                                    </th>
+                                    <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                        Total
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                                {(proMetrics?.rows ?? []).slice(0, 40).map((r, i) => (
+                                    <tr key={`${r.companyId}-${r.metricName}-${r.reason ?? ""}-${r.intent ?? ""}-${r.errorCode ?? ""}-${i}`}>
+                                        <td className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300">{r.companyName}</td>
+                                        <td className="px-3 py-2 font-mono text-[11px] text-zinc-600 dark:text-zinc-400">{r.metricName}</td>
+                                        <td className="px-3 py-2 text-xs">{r.reason ?? "—"}</td>
+                                        <td className="px-3 py-2 text-xs">{r.intent ?? "—"}</td>
+                                        <td className="px-3 py-2 text-xs">{r.errorCode ?? "—"}</td>
+                                        <td className="px-3 py-2 text-right text-xs tabular-nums">
+                                            {r.total.toLocaleString("pt-BR")}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {!isProMetricsLoading && (proMetrics?.rows?.length ?? 0) === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="px-3 py-6 text-center text-xs text-zinc-400">
+                                            Sem eventos na janela ou ingest ainda não ligado ao Supabase.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            ) : null}
 
             {/* Atalhos */}
             <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
