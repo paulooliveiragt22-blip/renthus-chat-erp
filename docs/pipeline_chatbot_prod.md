@@ -216,13 +216,14 @@ Depende de `intent` e `tier`:
 | 4.P.2 | Confirmação PT-BR | `confirmationPt` + fluxo servidor. |
 | 4.P.3 | Fecho | **`tryFinalizeAiOrderFromDraft`** → `finalizeAiOrder.ts` — **RPC** de criação de pedido (regra de negócio no servidor). |
 
-**Orquestrador de fechamento (PRO V2, produção) — implementado em `runProPipeline.ts`:**
+**Orquestrador de fechamento (PRO V2, produção) — `runProPipeline.ts` + `checkoutPostProcess.ts` + `orderSlotStep.ts`:**
 - `pro_edit_order` → volta para `pro_collecting_order` com instrução objetiva de edição.
 - `pro_add_items` → mantém draft e continua coleta de itens.
 - `pro_cancel_order` → limpa draft e retorna ao menu.
 - `pro_pay_pix` / `pro_pay_card` / `pro_pay_cash` → define pagamento; em `cash`, entrar em `pro_awaiting_change_amount`.
-- `pro_confirm_saved_address` → confirma endereço salvo do draft antes do resumo final.
-- Draft completo (itens + endereço + pagamento) força `pro_awaiting_confirmation` e envia botões `Editar`, `Cancelar`, `Confirmar`.
+- `pro_confirm_saved_address` → passa a `pro_awaiting_payment_method` (evita voltar ao CTA de endereço).
+- Após cada turno relevante, `withResolvedSlotStep` / `resolveProStepFromDraft` alinham `ProStep` ao draft (endereço salvo sem pagamento → `pro_awaiting_address_confirmation`; etc. — ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md)).
+- Draft completo (itens + endereço + pagamento, troco se preciso) → `pro_awaiting_confirmation` e botões `Editar`, `Cancelar`, `Confirmar`.
 
 **Nota:** o resumo “entendi o pedido” numa única frase inicial continua a depender do **draft** produzido pela camada de pedido/IA; o orquestrador acrescenta UI determinística em cima do draft quando este existe.
 

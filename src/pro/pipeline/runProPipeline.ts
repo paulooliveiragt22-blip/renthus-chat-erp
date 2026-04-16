@@ -18,6 +18,7 @@ import {
     checkoutPostProcess,
     checkoutPostProcessForQuickAction,
 } from "./stages/checkoutPostProcess";
+import { withResolvedSlotStep } from "./orderSlotStep";
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
 
@@ -133,13 +134,14 @@ export async function runProPipeline(
 
     const quick = applyQuickAction(input.inboundText, guarded.state);
     if (quick.handled) {
+        const syncedQuick = withResolvedSlotStep(quick.state);
         const quickOutbound = checkoutPostProcessForQuickAction({
-            state: quick.state,
+            state: syncedQuick,
             outbound: quick.outbound,
         });
         await persistAndEmit({
             tenant: input.tenant,
-            state: quick.state,
+            state: syncedQuick,
             outbound: quickOutbound,
             sessionRepo: deps.sessionRepo,
             messageGateway: deps.messageGateway,
@@ -152,7 +154,7 @@ export async function runProPipeline(
         ];
         flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, new Set(["pro_pipeline.outbound_count"]));
         return {
-            nextState: quick.state,
+            nextState: syncedQuick,
             outbound: quickOutbound,
             sideEffects: [],
             metrics,
@@ -186,13 +188,14 @@ export async function runProPipeline(
     }
 
     if (preOrder.outboundText) {
+        const syncedPre = withResolvedSlotStep(preOrder.state);
         const outbound: OutboundMessage[] = [
             { kind: "text", text: preOrder.outboundText },
-            ...checkoutPostProcessForQuickAction({ state: preOrder.state, outbound: [] }),
+            ...checkoutPostProcessForQuickAction({ state: syncedPre, outbound: [] }),
         ];
         await persistAndEmit({
             tenant: input.tenant,
-            state: preOrder.state,
+            state: syncedPre,
             outbound,
             sessionRepo: deps.sessionRepo,
             messageGateway: deps.messageGateway,
@@ -232,7 +235,7 @@ export async function runProPipeline(
         }
         flushPipelineRunMetrics(deps.metrics, input.tenant, metrics);
         return {
-            nextState: preOrder.state,
+            nextState: syncedPre,
             outbound,
             sideEffects: [],
             metrics,

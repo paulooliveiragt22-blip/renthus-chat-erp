@@ -11,7 +11,7 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `incoming` enfileira rápido
 - `process-queue` consome sem erro
 - chatbot responde sem duplicidade
-- **Orquestrador PRO V2 (já no código):** saudação com botões (`routeStage`) e checkout com botões / troco (`runProPipeline` — ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) secção *Order Finalization Orchestrator* / estado no código)
+- **Orquestrador PRO V2 (já no código):** saudação com botões (`routeStage`), checkout com botões / troco (`runProPipeline` + `checkoutPostProcess`) e **slots de passo** (`orderSlotStep` — ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md); decisão de produto em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) secção *Order Finalization Orchestrator*).
 
 ## Pré-requisitos obrigatórios
 - `CHATBOT_PRO_PIPELINE_V2=1`

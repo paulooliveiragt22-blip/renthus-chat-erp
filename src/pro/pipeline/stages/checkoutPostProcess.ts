@@ -1,5 +1,5 @@
 import type { OutboundMessage, OrderDraft, ProSessionState } from "@/src/types/contracts";
-import { isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
+import { resolveProStepFromDraft } from "../orderSlotStep";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -85,7 +85,17 @@ export function prioritizeInteractiveFirst(messages: OutboundMessage[]): Outboun
 
 function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
     if (!state.draft) return [];
-    if (!state.draft.paymentMethod) return [buildPaymentButtons()];
+    if (!state.draft.paymentMethod) {
+        if (
+            state.step === "pro_awaiting_address_confirmation" ||
+            (state.step === "pro_collecting_order" &&
+                state.draft.items.length > 0 &&
+                state.draft.address?.enderecoClienteId)
+        ) {
+            return [];
+        }
+        return [buildPaymentButtons()];
+    }
     if (state.step === "pro_awaiting_confirmation") return [buildConfirmationActionButtons()];
     return [];
 }
@@ -198,7 +208,7 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
         return {
             handled: true,
             actionTag: action,
-            state: { ...state, step: "pro_collecting_order" },
+            state: { ...state, step: "pro_awaiting_payment_method" },
             outbound: [{ kind: "text", text: "Endereco confirmado." }],
         };
     }
@@ -214,12 +224,21 @@ export function checkoutPostProcess(params: {
     let nextState = params.state;
     const outbound = [...params.outbound];
 
-    if (params.mode === "ai" && nextState.draft && nextState.step === "pro_collecting_order" && !nextState.draft.paymentMethod) {
+    const showAddressConfirm =
+        params.mode === "ai" &&
+        nextState.draft &&
+        !nextState.draft.paymentMethod &&
+        nextState.draft.address?.enderecoClienteId &&
+        (nextState.step === "pro_collecting_order" ||
+            nextState.step === "pro_awaiting_address_confirmation");
+    if (showAddressConfirm && nextState.draft) {
         outbound.push(...buildAddressConfirmationMessage(nextState.draft));
     }
-    if (params.mode === "ai" && nextState.draft && isDraftStructurallyCompleteForFinalize(nextState.draft)) {
-        nextState = { ...nextState, step: "pro_awaiting_confirmation" };
-    }
+
+    nextState = {
+        ...nextState,
+        step: resolveProStepFromDraft({ step: nextState.step, draft: nextState.draft }),
+    };
     outbound.push(...checkoutButtonsForState(nextState));
 
     return { state: nextState, outbound: prioritizeInteractiveFirst(outbound) };

@@ -34,6 +34,7 @@ Cada linha: **ficheiro** — contrato / nota.
 | [`context.ts`](../src/pro/pipeline/context.ts) | `PipelineContext`, `PipelinePolicies`, `buildPipelineContext`. |
 | [`errors.ts`](../src/pro/pipeline/errors.ts) | `ProPipelineSessionLoadError` e type guards de falha do pipeline PRO. |
 | [`orderDraftGate.ts`](../src/pro/pipeline/orderDraftGate.ts) | R1: pré-condição única de draft antes de `createFromDraft` (usado por `orderStage`). |
+| [`orderSlotStep.ts`](../src/pro/pipeline/orderSlotStep.ts) | Sincronização determinística de `ProStep` com o `OrderDraft` (`resolveProStepFromDraft`, `withResolvedSlotStep`); ver [`PRO_ORDER_SLOT_MACHINE.md`](../docs/PRO_ORDER_SLOT_MACHINE.md). |
 | [`proStepTransitions.ts`](../src/pro/pipeline/proStepTransitions.ts) | R1: `canTransition` / resolução de `ProStep` (IA, pedido, handover). |
 | [`deps.factory.ts`](../src/pro/pipeline/deps.factory.ts) | Monta `PipelineDependencies` (adapters reais + `overrides` para testes). |
 | [`stages/loadState.ts`](../src/pro/pipeline/stages/loadState.ts) | Carrega `ProSessionState` via `SessionRepository`; envolve erros em `ProPipelineSessionLoadError`. |
@@ -270,8 +271,9 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 | 2026-04-16 | `inboundPipeline.ts`, `pipeline_chatbot_prod.md`, esta doc | R2: contrato explícito no legado — V2 orquestrado só em `processInboundMessage`; `active` não invoca `runInboundChatbotPipeline` após sucesso; sem `return` cego no legado que quebrasse fallback; Bloco 1 do diagrama de pipeline atualizado (linha 1.1b). |
 | 2026-04-16 | `contracts.ts`, `proStepTransitions.ts`, `proPipelineTelemetryReasons.test.ts`, `CHATBOT_PROD.md`, `SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`, `structure_chatbot_prod.md`, esta doc | **§6 fechado:** 9 motivos `ProPipelineTelemetryReason` (&lt;10); `invalid_state_transition` só em `canTransition`; auditoria finalize (§6.1); runbook passo 4.3 replay; árvore `src/pro/` em `structure_chatbot_prod.md`; tabela de telemetria em `CHATBOT_PROD.md`. |
 | 2026-04-16 | `CHATBOT_PROD.md`, `structure_chatbot_prod.md`, esta doc | Super Admin já existente (`/superadmin`, saúde `chatbot_queue` via `getQueueHealthStats`); doc distingue fila/worker vs métricas `pro_pipeline.*`/`tags.reason` no `MetricsPort`; árvore inclui `app/superadmin/`. |
+| 2026-04-16 | `orderSlotStep.ts`, `checkoutPostProcess.ts`, `runProPipeline.ts`, `prepareOrderDraft.ts`, `orderHints.ts`, `ai.service.full.ts`, `tests/pro/orderSlotStep.test.ts`, `tests/pro/prepareDraftGuidance.test.ts`, `PRO_ORDER_SLOT_MACHINE.md`, `CHATBOT_PROD.md`, esta doc | **Slots explícitos:** `resolveProStepFromDraft` + `withResolvedSlotStep` após IA e quick actions; `pro_awaiting_address_confirmation` / `pro_awaiting_payment_method` efectivos; guidance nas tools + smoke de testes unitários. |
 
-**Próximo na sequência sugerida (§0):** **R4** (quota por `company_id` / cache seguro de catálogo) **só** com evidência em produção (ver `CHATBOT_PROD.md`); ADR opcional se houver desvio desta estratégia; manter runbook e testes de regressão ao alterar confirmação ou adapters.
+**Próximo na sequência sugerida (§0):** **R4** (quota por `company_id` / cache seguro de catálogo) **só** com evidência em produção (ver `CHATBOT_PROD.md`); unificar `applyAiStateTransition` com `resolveProStepFromDraft` (ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md) §6); ADR opcional se houver desvio desta estratégia; manter runbook e testes de regressão ao alterar confirmação ou adapters.
 
 ---
 

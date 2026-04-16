@@ -246,18 +246,22 @@ Implementação actual no PRO V2 (`CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIP
 
 | Peça | Onde | O que faz |
 |------|------|-------------|
-| Saudação + menu | `src/pro/pipeline/stages/routeStage.ts` | `greeting`, `faq` e **`unknown`** recebem texto diferenciado (primeiro contacto vs `customerId` presente) + botões `btn_catalog` / `btn_status` / `btn_support`. |
-| Quick actions (checkout) | `src/pro/pipeline/runProPipeline.ts` (`applyQuickAction`) | Trata IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`; estado `pro_awaiting_change_amount` + parse de troco em texto livre. |
-| Pós-processamento UI | `runProPipeline.ts` (`postProcessCheckoutMessages`, `buildAddressConfirmationMessage`) | Com draft: sem `paymentMethod` → botões PIX/Cartão/Dinheiro; em `pro_awaiting_confirmation` → botões Editar/Cancelar/Confirmar; com `address.enderecoClienteId` e sem pagamento → pergunta de endereço + botão confirmar. |
-| Classificação de botões | `src/pro/services/intent/intentClassifier.service.ts` | Mapeia os IDs acima para `order_intent` com alta confiança. |
-| Novos passos no tipo | `src/types/contracts.ts` (`ProStep`) | Inclui `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount` (catálogo de passo; transições formais podem endurecer-se depois). |
+| Saudação + menu | `src/pro/pipeline/stages/routeStage.ts` | `greeting`, `faq` e **`unknown`**: uma mensagem `buttons` + flows `btn_catalog` / `btn_status` quando há `flowCatalogId` / `flowStatusId` (por canal). |
+| Quick actions (checkout) | `runProPipeline.ts` + `stages/checkoutPostProcess.ts` (`applyQuickAction`) | IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`; troco em `pro_awaiting_change_amount`. Após cada quick action, `withResolvedSlotStep` alinha `ProStep` ao draft. |
+| Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço salvo sem pagamento → `pro_awaiting_address_confirmation`; endereço completo sem pagamento (sem id salvo) → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; draft completo → `pro_awaiting_confirmation`. |
+| Pós-processamento UI | `stages/checkoutPostProcess.ts` | `buildAddressConfirmationMessage` quando há `enderecoClienteId` e ainda falta pagamento; botões de pagamento só quando o passo já não exige confirmação de endereço; confirmação final em `pro_awaiting_confirmation`. Mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |
+| Consistência texto IA ↔ tools | `src/pro/adapters/ai/ai.service.full.ts` + `lib/chatbot/pro/prepareOrderDraft.ts` + `lib/chatbot/pro/orderHints.ts` | `guidance_for_model_pt` em `search_produtos` / `prepare_order_draft`; `flow_reminder_pt` em `get_order_hints`; system prompt reforçado; `sanitizeVisibleAgainstDraft` quando o modelo contradiz o draft. |
+| Classificação de botões | `src/pro/services/intent/intentClassifier.service.ts` | Mapeia IDs de botão para `order_intent` / `status_intent` / `human_intent` com alta confiança. |
+| Passos no tipo | `src/types/contracts.ts` (`ProStep`) | `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount`, etc. |
 
-**Testes:** `tests/pro/proPipeline.test.ts` cobre saudação com botões e fluxo de troco após `pro_pay_cash`.
+**Testes:** `tests/pro/proPipeline.test.ts`, `tests/pro/orderSlotStep.test.ts`, `tests/pro/prepareDraftGuidance.test.ts`.
 
-#### Pendências honestas (ainda **não** coberto só por este patch)
+**Documentação de slots:** [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md).
 
-- **Primeira mensagem “tudo numa frase”** com resumo + três botões (`Confirmar` / `Corrigir` / `Adicionar`): depende do **draft canónico** vindo da camada de pedido/IA (`AiService` + tools / equivalente). O orquestrador emite os botões de checkout **quando** o draft está completo; não substitui a extração semântica da frase inicial.
-- **`pro_awaiting_address_confirmation` / `pro_awaiting_payment_method`:** declarados no contrato; a máquina de transições em `proStepTransitions.ts` ainda não os usa de forma explícita — o fluxo actual passa sobretudo por `pro_collecting_order` + `pro_awaiting_confirmation` + quick actions.
+#### Pendências honestas (evolução contínua)
+
+- **Primeira mensagem “tudo numa frase”** com resumo + três botões (`Confirmar` / `Corrigir` / `Adicionar`): depende do **draft canónico** vindo das tools / IA; o orquestrador emite botões quando o draft e o `ProStep` estão coerentes — não substitui a extração semântica sozinha.
+- **`proStepTransitions.ts` (eventos IA vs. slots):** hoje `resolveProStepFromDraft` reconcilia o passo no fim do turno (`checkoutPostProcess` + quick actions); unificar totalmente com `applyAiStateTransition` é trabalho R4+ (ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md) §6).
 
 ### Plano de execução
 
