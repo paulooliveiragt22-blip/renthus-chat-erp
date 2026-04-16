@@ -1,4 +1,5 @@
 import type { IntentDecision, OutboundMessage, ProSessionState } from "@/src/types/contracts";
+import { canTransition } from "../proStepTransitions";
 
 export interface RouteStageResult {
     mode: "direct_reply" | "ai";
@@ -13,9 +14,11 @@ export function routeStage(params: {
     const { state, decision } = params;
 
     if (decision.intent === "human_intent") {
+        const tr = canTransition(state.step, { type: "intent_human_handover" });
+        const step = tr.ok ? tr.to : "handover";
         return {
             mode: "direct_reply",
-            state: { ...state, step: "handover" },
+            state: { ...state, step },
             outbound: [{ kind: "text", text: "Vou te encaminhar para um atendente humano." }],
         };
     }

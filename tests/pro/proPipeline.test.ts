@@ -161,6 +161,20 @@ describe("novo pipeline PRO - falhas reais", () => {
         assert.equal(called, 1);
     });
 
+    it("id de botão de confirmação (confirmar) deve finalizar pedido", async () => {
+        let called = 0;
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation(),
+            intent: "unknown",
+            onOrderCalled: () => {
+                called += 1;
+            },
+        });
+
+        await runProPipeline({ ...baseInput(), inboundText: "confirmar" }, deps);
+        assert.equal(called, 1);
+    });
+
     it("pedido vazio: não deve chamar orderService", async () => {
         let called = 0;
         const deps = buildDeps({

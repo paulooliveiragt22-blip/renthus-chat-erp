@@ -3,7 +3,10 @@ import type { ProSessionState } from "@/src/types/contracts";
 import type { SessionRepository } from "../../ports/session.repository";
 import { getOrCreateSession, saveSession } from "@/lib/chatbot/session";
 
-const PRO_V2_STATE_KEY = "__pro_v2_state";
+/** Chave em `chatbot_sessions.context` onde persiste `ProSessionState` do motor PRO V2. */
+export const CHATBOT_SESSION_PRO_V2_STATE_KEY = "__pro_v2_state" as const;
+
+const PRO_V2_STATE_KEY = CHATBOT_SESSION_PRO_V2_STATE_KEY;
 
 function toStateFromLegacy(session: Awaited<ReturnType<typeof getOrCreateSession>>): ProSessionState {
     return {
@@ -19,9 +22,17 @@ function toStateFromLegacy(session: Awaited<ReturnType<typeof getOrCreateSession
 export class SupabaseSessionRepository implements SessionRepository {
     constructor(private readonly admin: SupabaseClient) {}
 
+    /**
+     * Lê `ProSessionState` em `context.__pro_v2_state` ou deriva snapshot mínimo da sessão legada.
+     * Erros de rede/Supabase propagam-se; `loadState` encapsula-os em `ProPipelineSessionLoadError`.
+     */
     async load(companyId: string, threadId: string): Promise<ProSessionState | null> {
         const session = await getOrCreateSession(this.admin, threadId, companyId);
-        const state = (session.context?.[PRO_V2_STATE_KEY] as ProSessionState | undefined) ?? null;
+        const raw = session.context?.[PRO_V2_STATE_KEY];
+        const state =
+            raw !== null && raw !== undefined && typeof raw === "object"
+                ? (raw as ProSessionState)
+                : null;
         return state ?? toStateFromLegacy(session);
     }
 

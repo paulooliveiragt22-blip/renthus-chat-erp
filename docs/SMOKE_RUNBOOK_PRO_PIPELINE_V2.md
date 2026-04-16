@@ -95,6 +95,23 @@ Conferir:
 
 ---
 
+### Passo 4.1 - Confirmação forte (R3)
+Com sessão em `pro_awaiting_confirmation`, executar:
+1. confirmação textual curta: `confirmar` (ou `sim`)
+2. confirmação por id de botão: `confirmar` / `confirmar_pedido` / `confirm_order` (quando a origem enviar id no body)
+3. negação/ambíguo: `não confirma ainda` ou `talvez depois`
+
+Conferir:
+- só os sinais fortes executam finalização (RPC)
+- negação/ambíguo **não** finalizam pedido
+- métrica `pro_pipeline.confirmation_ambiguous` quando o texto não confirma de forma forte
+
+**Aprovado se:**
+- zero finalize fora de confirmação forte em `pro_awaiting_confirmation`
+- comportamento alinhado com `tests/pro/proPipeline.test.ts` e `tests/pro/proPipeline.failure-regression.test.ts`
+
+---
+
 ### Passo 5 - Duplicidade outbound
 1. Repetir a mesma mensagem inbound rapidamente (2x).
 2. Verificar `whatsapp_messages` outbound:

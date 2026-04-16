@@ -12,7 +12,8 @@ const ORDER_RE = /\b(?:quero|pedir|comprar|card[aá]pio|cat[aá]logo|bebida|adic
 const FAQ_RE = /\b(?:qual|quanto|como|onde|quando|aceita|entrega|funciona)\b/iu;
 const GREETING_RE = /^(?:oi|ol[aá]|bom dia|boa tarde|boa noite|e ai|e aí)\W*$/iu;
 
-const CONFIRM_RE = /^(?:sim|ok|confirmo|pode\s+fechar|fechar)\b/iu;
+const CONFIRM_RE =
+    /^(?:sim|ok|confirmo|confirmar|pode\s+confirmar|pode\s+fechar|fechar|confirmar_pedido|confirm_order)\b/iu;
 const REJECT_RE = /^(?:n[aã]o|nao|cancelar|cancela)\b/iu;
 
 function normalize(text: string): string {

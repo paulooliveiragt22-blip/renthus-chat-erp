@@ -32,13 +32,16 @@ Cada linha: **ficheiro** — contrato / nota.
 |----------|-------------------|
 | [`runProPipeline.ts`](../src/pro/pipeline/runProPipeline.ts) | Orquestra estágios; `ProPipelineInput` → `ProPipelineOutput`. |
 | [`context.ts`](../src/pro/pipeline/context.ts) | `PipelineContext`, `PipelinePolicies`, `buildPipelineContext`. |
-| [`deps.factory.ts`](../src/pro/pipeline/deps.factory.ts) | Monta `PipelineDependencies` (adapters reais). |
-| [`stages/loadState.ts`](../src/pro/pipeline/stages/loadState.ts) | Carrega `ProSessionState` via `SessionRepository`. |
-| [`stages/guardRails.ts`](../src/pro/pipeline/stages/guardRails.ts) | Pré-condições antes de intent/IA. |
+| [`errors.ts`](../src/pro/pipeline/errors.ts) | `ProPipelineSessionLoadError` e type guards de falha do pipeline PRO. |
+| [`orderDraftGate.ts`](../src/pro/pipeline/orderDraftGate.ts) | R1: pré-condição única de draft antes de `createFromDraft` (usado por `orderStage`). |
+| [`proStepTransitions.ts`](../src/pro/pipeline/proStepTransitions.ts) | R1: `canTransition` / resolução de `ProStep` (IA, pedido, handover). |
+| [`deps.factory.ts`](../src/pro/pipeline/deps.factory.ts) | Monta `PipelineDependencies` (adapters reais + `overrides` para testes). |
+| [`stages/loadState.ts`](../src/pro/pipeline/stages/loadState.ts) | Carrega `ProSessionState` via `SessionRepository`; envolve erros em `ProPipelineSessionLoadError`. |
+| [`stages/guardRails.ts`](../src/pro/pipeline/stages/guardRails.ts) | Pré-condições antes de intent/IA; `stopReason` para métrica `guard_stop`. |
 | [`stages/intentStage.ts`](../src/pro/pipeline/stages/intentStage.ts) | `IntentDecision` via `IntentService`. |
 | [`stages/orderStage.ts`](../src/pro/pipeline/stages/orderStage.ts) | Confirmação + `OrderService.createFromDraft` → `OrderServiceResult`. |
-| [`stages/routeStage.ts`](../src/pro/pipeline/stages/routeStage.ts) | Roteamento `pro_escalation_choice` / modo IA. |
-| [`stages/aiStage.ts`](../src/pro/pipeline/stages/aiStage.ts) | `AiService.run` → `AiServiceResult`; fallback se resposta inválida. |
+| [`stages/routeStage.ts`](../src/pro/pipeline/stages/routeStage.ts) | Roteamento modo IA / respostas diretas; transição `handover` via `canTransition`. |
+| [`stages/aiStage.ts`](../src/pro/pipeline/stages/aiStage.ts) | `AiService.run` → `AiServiceResult`; fallback se resposta inválida; `ProStep` via `resolveStepAfterAiAction` + `aiTimeoutMs` das policies. |
 | [`stages/persistAndEmit.ts`](../src/pro/pipeline/stages/persistAndEmit.ts) | Persistência sessão + envio `MessageGateway` + métricas. |
 
 ### Serviços e portas (`src/pro/services`, `src/pro/ports`)
@@ -76,6 +79,9 @@ Cada linha: **ficheiro** — contrato / nota.
 |----------|--------|
 | [`tests/pro/proPipeline.test.ts`](../tests/pro/proPipeline.test.ts) | Fluxos felizes + “falhas reais” (IA inválida, intent, pedido vazio). |
 | [`tests/pro/proPipeline.failure-regression.test.ts`](../tests/pro/proPipeline.failure-regression.test.ts) | Regressão timeout / erros de pipeline. |
+| [`tests/pro/orderDraftGate.test.ts`](../tests/pro/orderDraftGate.test.ts) | Pré-condição de draft (R1). |
+| [`tests/pro/deps.factory.test.ts`](../tests/pro/deps.factory.test.ts) | Overrides de `makeProPipelineDependencies` (R2). |
+| [`tests/pro/proStepTransitions.test.ts`](../tests/pro/proStepTransitions.test.ts) | `canTransition` e resolvers de passo PRO (R1). |
 | [`tests/integration/chatbot-queue-e2e.test.ts`](../tests/integration/chatbot-queue-e2e.test.ts) | Fila + worker + `processInboundMessage` (não alterar Starter). |
 
 ### Documentação (manter sincronizado ao fechar fases)
@@ -144,6 +150,8 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 
 **Onde tocar (referência):** `src/pro/pipeline/` (stages), adapters de order; evitar mudar contratos públicos sem atualizar [`contracts.ts`](../src/types/contracts.ts) quando aplicável.
 
+**Estado (incremental):** [`orderDraftGate.ts`](../src/pro/pipeline/orderDraftGate.ts) + [`proStepTransitions.ts`](../src/pro/pipeline/proStepTransitions.ts) (`canTransition`, usado por `aiStage`, `orderStage`, `routeStage`). Evolução futura: um único `applyTransition(state, event)` que também mova contadores (`misunderstandingStreak`, etc.) se necessário.
+
 ---
 
 ### Fase R2 — Fronteira semântica (classificador vs PRO)
@@ -155,6 +163,14 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 - Ajustes mínimos em `processMessage.ts` / `inboundPipeline.ts` para **encaminhar** sem duplicar lógica de negócio.
 
 **Gate:** testes de regressão `intent errado`, `pedido vazio`, `IA inválida` continuam verdes; novos testes para “mensagem de menu não apaga draft” se aplicável.
+
+**Matriz incremental (piloto PRO V2):** o classificador legado (`intentClassifier` / `inboundPipeline`) continua a decidir fluxo Starter e metadados de alto nível; **efeito estrutural em pedido PRO** (draft canónico, passos `pro_*`, fecho) fica em `runProPipeline` + `SessionRepository` (chave `context.__pro_v2_state`). Com `CHATBOT_PRO_PIPELINE_V2_MODE=active`, `processInboundMessage` devolve após o PRO e não duplica escrita de draft no legado na mesma mensagem.
+
+| Camada | Escreve `__pro_v2_state` / chama RPC de pedido PRO? |
+|--------|-----------------------------------------------------|
+| `processInboundMessage` → `runProPipeline` | Sim (via `persistAndEmit` / `OrderService`) |
+| `makeProPipelineDependencies` | Não; só injeta portas (`overrides` em testes) |
+| `inboundPipeline` após retorno PRO ativo | Não na mesma invocação (fluxo encerra) |
 
 ---
 
@@ -203,7 +219,7 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 
 ## 6. Critérios de “feito” desta estratégia
 
-- [ ] Módulo de transição de estado com **cobertura de teste** das transições críticas.
+- [x] Módulo de transição de estado com **cobertura de teste** das transições críticas (`proStepTransitions` + testes).
 - [ ] **Zero** finalize fora de `awaiting_confirmation` (ou estado equivalente documentado).
 - [ ] Telemetria com **&lt; 10 motivos** estáveis consultáveis no Super Admin ou logs.
 - [ ] Runbook de smoke atualizado com **confirmação ambígua** e **replay** onde couber.
@@ -225,8 +241,14 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 | Data | Ficheiros | Nota |
 |------|-----------|------|
 | 2026-04-16 | `contracts.ts`, `order.service.v2.ts`, `runProPipeline.ts`, `proPipeline.failure-regression.test.ts`, esta doc | R0 parcial: `ProPipelineTelemetryReason`, `PRODUCT_NOT_FOUND`, métrica `pro_pipeline.order_failed`, testes IA inválida / PRODUCT_NOT_FOUND / DB_ERROR / `load` que falha. |
+| 2026-04-16 | `orderStage.ts`, `aiStage.ts`, `persistAndEmit.ts`, `runProPipeline.ts`, `proPipeline.failure-regression.test.ts`, esta doc | Gates com `OrderStageOutcome`; métricas `order_precondition_failed` (`finalize_blocked` / `draft_validation_failed`), `confirmation_ambiguous`, `ai_invalid_response`; `persistAndEmit` regista `session_save_failed` antes de relançar; testes para sem rascunho, rascunho incompleto, confirmação fraca e falha de `save`. |
+| 2026-04-16 | `errors.ts`, `loadState.ts`, `orderDraftGate.ts`, `orderStage.ts`, `session.repository.supabase.ts`, `deps.factory.ts`, `processMessage.ts`, `orderDraftGate.test.ts`, `deps.factory.test.ts`, esta doc | R1: `orderDraftGate` + uso em `orderStage`. Erro tipado `ProPipelineSessionLoadError` (`underlyingCause`) em `loadState`. Adapter: `CHATBOT_SESSION_PRO_V2_STATE_KEY`. R2: `makeProPipelineDependencies(..., { overrides })`, matriz no doc, log estruturado em `processMessage` para falha de load. |
+| 2026-04-16 | `proStepTransitions.ts`, `aiStage.ts`, `orderStage.ts`, `routeStage.ts`, `guardRails.ts`, `runProPipeline.ts`, `contracts.ts` (`PipelinePolicies.aiTimeoutMs`, `invalid_state_transition`), `ai.service.full.ts`, `proStepTransitions.test.ts`, `proPipeline.failure-regression.test.ts`, esta doc | R1 fechado no motor: `canTransition` + helpers; `guard_stop` com `stopReason`; timeout IA alinhado às policies; Full AI: limite de tool rounds (`TOOL_FAILED`), 429/rate limit (`AI_RATE_LIMIT`), `AbortError` como timeout, tool desconhecido devolve `tool_result` estruturado; métricas `ai_tool_round_exhausted` / `ai_rate_limited`. |
+| 2026-04-16 | `proStepTransitions.ts`, `orderStage.ts`, `proStepTransitions.test.ts`, esta doc | Alinhamento final R1: RPC `createFromDraft` executa via `executeOrderRpcTransition` (dentro do módulo de transição), preservando regra “sem finalize fora de transição válida”. |
+| 2026-04-16 | `orderStage.ts`, `intentClassifier.service.ts`, `proPipeline.test.ts`, `proPipeline.failure-regression.test.ts`, `SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`, esta doc | R3 incremental: confirmação forte inclui `confirmar` e IDs (`confirmar_pedido`, `confirm_order`), bloqueia negação explícita em awaiting; smoke atualizado com passo 4.1 (confirmação forte/ambígua). |
+| 2026-04-16 | `order.service.v2.ts`, `order.service.v2.message.test.ts`, esta doc | R3 cópia ao cliente: mensagem final de confirmação padronizada no servidor a partir do draft validado (itens, total, taxa, pagamento), com testes unitários de snapshot textual. |
 
-**Próximo na sequência sugerida (§0):** `orderStage.ts` (gates de confirmação), `aiStage.ts` (métrica `ai_invalid_response` quando aplicável), `persistAndEmit.ts`, depois serviços/adapters conforme R1–R2.
+**Próximo na sequência sugerida (§0):** Fase R3 (confirmação forte / cópia ao cliente) e atualização do [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md); opcional: fundir streaks de escalação no módulo de transição.
 
 ---
 

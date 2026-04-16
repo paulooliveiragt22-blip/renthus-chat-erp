@@ -1,4 +1,9 @@
-import type { OutboundMessage, ProPipelineInput, ProPipelineOutput } from "@/src/types/contracts";
+import type {
+    OutboundMessage,
+    ProPipelineInput,
+    ProPipelineOutput,
+    ProPipelineTelemetryReason,
+} from "@/src/types/contracts";
 import { buildPipelineContext, type PipelineDependencies } from "./context";
 import { aiStage } from "./stages/aiStage";
 import { guardRails } from "./stages/guardRails";
@@ -7,6 +12,39 @@ import { loadState } from "./stages/loadState";
 import { orderStage } from "./stages/orderStage";
 import { persistAndEmit } from "./stages/persistAndEmit";
 import { routeStage } from "./stages/routeStage";
+
+type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
+
+function appendAiOutcomeMetrics(
+    metrics: PipelineMetric[],
+    intent: string,
+    invalidAiSanitized: boolean,
+    aiServiceErrorCode: string | undefined
+): void {
+    if (invalidAiSanitized) {
+        const reason: ProPipelineTelemetryReason = "ai_invalid_response";
+        metrics.push({
+            name: "pro_pipeline.ai_invalid_response",
+            value: 1,
+            tags: { intent, reason },
+        });
+    }
+    if (aiServiceErrorCode === "TOOL_FAILED") {
+        const reason: ProPipelineTelemetryReason = "tool_output_rejected";
+        metrics.push({
+            name: "pro_pipeline.ai_tool_round_exhausted",
+            value: 1,
+            tags: { intent, reason },
+        });
+    }
+    if (aiServiceErrorCode === "AI_RATE_LIMIT") {
+        metrics.push({
+            name: "pro_pipeline.ai_rate_limited",
+            value: 1,
+            tags: { intent, reason: "ai_rate_limited" },
+        });
+    }
+}
 
 export async function runProPipeline(
     input: ProPipelineInput,
@@ -37,7 +75,13 @@ export async function runProPipeline(
             nextState: guarded.state,
             outbound: guarded.outbound,
             sideEffects: [],
-            metrics: [{ name: "pro_pipeline.guard_stop", value: 1 }],
+            metrics: [
+                {
+                    name: "pro_pipeline.guard_stop",
+                    value: 1,
+                    tags: guarded.stopReason ? { reason: guarded.stopReason } : undefined,
+                },
+            ],
         };
     }
 
@@ -56,6 +100,17 @@ export async function runProPipeline(
         decision,
         userText: input.inboundText,
     });
+
+    const preOrderSideMetrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [];
+    if (preOrder.outcome === "skipped_weak_confirmation") {
+        const reason: ProPipelineTelemetryReason = "confirmation_ambiguous";
+        preOrderSideMetrics.push({
+            name: "pro_pipeline.confirmation_ambiguous",
+            value: 1,
+            tags: { intent: decision.intent, reason },
+        });
+    }
+
     if (preOrder.outboundText) {
         const outbound: OutboundMessage[] = [{ kind: "text", text: preOrder.outboundText }];
         await persistAndEmit({
@@ -68,8 +123,25 @@ export async function runProPipeline(
             logger: deps.logger,
         });
         const metrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [
+            ...preOrderSideMetrics,
             { name: "pro_pipeline.pre_order_resolved", value: 1, tags: { intent: decision.intent } },
         ];
+        if (preOrder.outcome === "gate_no_draft") {
+            const reason: ProPipelineTelemetryReason = "finalize_blocked";
+            metrics.push({
+                name: "pro_pipeline.order_precondition_failed",
+                value: 1,
+                tags: { intent: decision.intent, reason },
+            });
+        }
+        if (preOrder.outcome === "gate_draft_incomplete") {
+            const reason: ProPipelineTelemetryReason = "draft_validation_failed";
+            metrics.push({
+                name: "pro_pipeline.order_precondition_failed",
+                value: 1,
+                tags: { intent: decision.intent, reason },
+            });
+        }
         if (preOrder.orderResult && !preOrder.orderResult.ok) {
             metrics.push({
                 name: "pro_pipeline.order_failed",
@@ -97,6 +169,8 @@ export async function runProPipeline(
     let nextState = routed.state;
     const outbound: OutboundMessage[] = [...routed.outbound];
 
+    let invalidAiSanitized = false;
+    let aiServiceErrorCode: string | undefined;
     if (routed.mode === "ai") {
         const ai = await aiStage({
             aiService: deps.aiService,
@@ -104,6 +178,8 @@ export async function runProPipeline(
             decision,
             userText: input.inboundText,
         });
+        invalidAiSanitized = ai.invalidAiSanitized;
+        aiServiceErrorCode = ai.aiResult.errorCode;
         nextState = ai.state;
         outbound.push(...ai.outbound);
     }
@@ -118,14 +194,18 @@ export async function runProPipeline(
         logger: deps.logger,
     });
 
+    const runMetrics: PipelineMetric[] = [
+        ...preOrderSideMetrics,
+        { name: "pro_pipeline.run", value: 1, tags: { intent: decision.intent } },
+        { name: "pro_pipeline.outbound_count", value: outbound.length },
+    ];
+    appendAiOutcomeMetrics(runMetrics, decision.intent, invalidAiSanitized, aiServiceErrorCode);
+
     return {
         nextState,
         outbound,
         sideEffects: [],
-        metrics: [
-            { name: "pro_pipeline.run", value: 1, tags: { intent: decision.intent } },
-            { name: "pro_pipeline.outbound_count", value: outbound.length },
-        ],
+        metrics: runMetrics,
     };
 }
 

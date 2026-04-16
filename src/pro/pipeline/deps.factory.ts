@@ -8,8 +8,18 @@ import { WhatsAppMessageGateway } from "../adapters/whatsapp/message.gateway.wha
 import { ProIntentClassifierService } from "../services/intent/intent.service";
 import type { PipelineDependencies } from "./context";
 
-export function makeProPipelineDependencies(params: ProcessMessageParams): PipelineDependencies {
-    return {
+/** Permite testes e integrações substituir portas sem alterar `ProcessMessageParams`. */
+export type ProPipelineDependencyOverrides = Partial<PipelineDependencies>;
+
+export interface MakeProPipelineDependenciesOptions {
+    overrides?: ProPipelineDependencyOverrides;
+}
+
+export function makeProPipelineDependencies(
+    params: ProcessMessageParams,
+    options?: MakeProPipelineDependenciesOptions
+): PipelineDependencies {
+    const base: PipelineDependencies = {
         sessionRepo: new SupabaseSessionRepository(params.admin),
         messageGateway: new WhatsAppMessageGateway(params.admin, params.waConfig),
         metrics: new ConsoleMetricsAdapter(),
@@ -18,5 +28,6 @@ export function makeProPipelineDependencies(params: ProcessMessageParams): Pipel
         aiService: new FullAiServiceAdapter(params.admin),
         orderService: new OrderServiceV2Adapter(params.admin),
     };
+    return { ...base, ...options?.overrides };
 }
 

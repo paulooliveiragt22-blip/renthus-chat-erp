@@ -21,6 +21,7 @@ export const DEFAULT_PRO_POLICIES: PipelinePolicies = {
     locale: "pt-BR",
     maxToolRounds: 12,
     maxHistoryTurns: 24,
+    aiTimeoutMs: 15_000,
     escalationRule: {
         unknownConsecutive: 2,
         lowConfidenceConsecutive: 2,

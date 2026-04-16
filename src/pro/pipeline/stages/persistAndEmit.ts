@@ -15,7 +15,20 @@ export async function persistAndEmit(params: {
 }): Promise<void> {
     const { tenant, state, outbound, sessionRepo, messageGateway, metrics, logger } = params;
 
-    await sessionRepo.save(tenant.companyId, tenant.threadId, state);
+    try {
+        await sessionRepo.save(tenant.companyId, tenant.threadId, state);
+    } catch (error) {
+        metrics.increment("pro_pipeline.session_save_failed", 1, {
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+        });
+        logger.error("pro_pipeline.session_save_failed", {
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+    }
 
     for (const msg of outbound) {
         await messageGateway.send(tenant, msg);

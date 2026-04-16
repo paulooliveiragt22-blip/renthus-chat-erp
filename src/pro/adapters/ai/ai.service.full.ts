@@ -92,10 +92,19 @@ function shouldEscalate(input: AiServiceInput, marker: IntentMarker): boolean {
 }
 
 function isTimeoutError(error: unknown): boolean {
+    if (error instanceof Error && error.name === "AbortError") return true;
     if (!error || typeof error !== "object") return false;
     const message = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
     const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
     return message.includes(AI_TIMEOUT_CODE) || code === AI_TIMEOUT_CODE;
+}
+
+function isRateLimitError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const e = error as { status?: number; message?: unknown };
+    if (e.status === 429) return true;
+    const m = String(e.message ?? "").toLowerCase();
+    return m.includes("429") || m.includes("rate limit") || m.includes("too many requests");
 }
 
 export class FullAiServiceAdapter implements AiService {
@@ -205,7 +214,7 @@ export class FullAiServiceAdapter implements AiService {
         input: AiServiceInput,
         block: { id: string; name: string; input: unknown },
         currentDraft: OrderDraft | null
-    ): Promise<{ result: ToolResultBlock | null; nextDraft: OrderDraft | null }> {
+    ): Promise<{ result: ToolResultBlock; nextDraft: OrderDraft | null }> {
         const name = block.name as ToolName;
         if (name === "search_produtos") {
             return { result: await this.runSearchTool(input, block), nextDraft: currentDraft };
@@ -217,7 +226,14 @@ export class FullAiServiceAdapter implements AiService {
             const out = await this.runPrepareDraftTool(input, block, currentDraft);
             return { result: out.result, nextDraft: out.nextDraft };
         }
-        return { result: null, nextDraft: currentDraft };
+        return {
+            result: {
+                type: "tool_result",
+                tool_use_id: block.id,
+                content: JSON.stringify({ ok: false, error: "unsupported_tool", tool: block.name }),
+            },
+            nextDraft: currentDraft,
+        };
     }
 
     private async executeToolRound(
@@ -236,7 +252,7 @@ export class FullAiServiceAdapter implements AiService {
                 nextDraft
             );
             nextDraft = executed.nextDraft;
-            if (executed.result) toolResults.push(executed.result);
+            toolResults.push(executed.result);
         }
 
         return { toolResults, nextDraft };
@@ -332,6 +348,18 @@ export class FullAiServiceAdapter implements AiService {
                 response = await this.callModel(client, messages, input.limits.timeoutMs);
             }
 
+            if (response.stop_reason === "tool_use") {
+                return {
+                    action: "error",
+                    replyText:
+                        "Atingimos o limite de consultas automáticas nesta mensagem. Pode repetir o pedido de forma mais curta ou em partes?",
+                    updatedDraft: input.draft,
+                    updatedHistory: input.history,
+                    signals: { toolRoundsUsed, intentMarker: "unknown" },
+                    errorCode: "TOOL_FAILED",
+                };
+            }
+
             const text = response.content
                 .filter((b) => b.type === "text")
                 .map((b) => b.text)
@@ -349,6 +377,16 @@ export class FullAiServiceAdapter implements AiService {
                     updatedHistory: input.history,
                     signals: { toolRoundsUsed, intentMarker: "unknown" },
                     errorCode: "AI_TIMEOUT",
+                };
+            }
+            if (isRateLimitError(error)) {
+                return {
+                    action: "error",
+                    replyText: "Estamos com pico de uso na IA. Aguarde um instante e tente de novo.",
+                    updatedDraft: input.draft,
+                    updatedHistory: input.history,
+                    signals: { toolRoundsUsed, intentMarker: "unknown" },
+                    errorCode: "AI_RATE_LIMIT",
                 };
             }
             return this.buildProviderError(input, toolRoundsUsed);

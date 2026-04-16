@@ -6,12 +6,15 @@ import type {
     ProSessionState,
     SideEffect,
 } from "@/src/types/contracts";
+import { resolveStepAfterAiAction } from "../proStepTransitions";
 
 export interface AiStageResult {
     state: ProSessionState;
     outbound: OutboundMessage[];
     sideEffects: SideEffect[];
     aiResult: AiServiceResult;
+    /** `true` quando `replyText` veio vazio/ausente e o estágio aplicou a mensagem de fallback segura. */
+    invalidAiSanitized: boolean;
 }
 
 export async function aiStage(params: {
@@ -31,16 +34,19 @@ export async function aiStage(params: {
         limits: {
             maxToolRounds: context.policies.maxToolRounds,
             maxHistoryTurns: context.policies.maxHistoryTurns,
-            timeoutMs: 15000,
+            timeoutMs: context.policies.aiTimeoutMs,
         },
     });
 
+    const hadValidReplyText =
+        typeof raw?.replyText === "string" && raw.replyText.trim().length > 0;
+    const invalidAiSanitized = !hadValidReplyText;
+
     const aiResult: AiServiceResult = {
         action: raw?.action ?? "error",
-        replyText:
-            typeof raw?.replyText === "string" && raw.replyText.trim().length > 0
-                ? raw.replyText
-                : "Tive uma falha ao processar sua mensagem. Pode tentar novamente?",
+        replyText: hadValidReplyText
+            ? raw.replyText.trim()
+            : "Tive uma falha ao processar sua mensagem. Pode tentar novamente?",
         updatedDraft: raw?.updatedDraft ?? context.session.draft,
         updatedHistory: raw?.updatedHistory ?? context.session.aiHistory,
         signals: {
@@ -59,16 +65,8 @@ export async function aiStage(params: {
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];
     const sideEffects: SideEffect[] = [];
 
-    if (aiResult.action === "request_confirmation") {
-        nextState.step = "pro_awaiting_confirmation";
-    } else if (aiResult.action === "escalate") {
-        nextState.step = "pro_escalation_choice";
-    } else if (aiResult.action === "error") {
-        nextState.step = "pro_collecting_order";
-    } else {
-        nextState.step = "pro_collecting_order";
-    }
+    nextState.step = resolveStepAfterAiAction(context.session.step, aiResult.action);
 
-    return { state: nextState, outbound, sideEffects, aiResult };
+    return { state: nextState, outbound, sideEffects, aiResult, invalidAiSanitized };
 }
 

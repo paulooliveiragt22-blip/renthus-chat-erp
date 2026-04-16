@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderService } from "../../services/order/order.types";
-import type { DraftAddress, OrderServiceResult } from "@/src/types/contracts";
+import type { DraftAddress, OrderDraft, OrderServiceResult } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { loadPackRowForValidation } from "@/lib/chatbot/pro/prepareOrderDraft";
 
@@ -22,6 +22,34 @@ function paymentLabel(method: "pix" | "cash" | "card"): string {
     if (method === "pix") return "PIX";
     if (method === "card") return "Cartao";
     return "Dinheiro";
+}
+
+function moneyBr(value: number): string {
+    return value.toFixed(2).replace(".", ",");
+}
+
+function buildItemsSummary(items: OrderDraft["items"]): string {
+    return items
+        .slice(0, 3)
+        .map((item) => `${item.quantity}x ${item.productName}`)
+        .join("; ");
+}
+
+export function buildOrderCustomerMessage(params: {
+    orderCode: string;
+    requireApproval: boolean;
+    draft: OrderDraft;
+}): string {
+    const { orderCode, requireApproval, draft } = params;
+    const payment = paymentLabel(draft.paymentMethod ?? "cash");
+    const items = buildItemsSummary(draft.items);
+    const deliveryFeeText =
+        draft.deliveryFee > 0 ? ` Taxa R$ ${moneyBr(draft.deliveryFee)}.` : " Taxa R$ 0,00.";
+
+    if (requireApproval) {
+        return `Pedido ${orderCode} recebido. Itens: ${items}. Total R$ ${moneyBr(draft.grandTotal)} via ${payment}.${deliveryFeeText} Estamos confirmando e ja voltamos.`;
+    }
+    return `Pedido ${orderCode} confirmado. Itens: ${items}. Total R$ ${moneyBr(draft.grandTotal)} via ${payment}.${deliveryFeeText}`;
 }
 
 export class OrderServiceV2Adapter implements OrderService {
@@ -180,10 +208,11 @@ export class OrderServiceV2Adapter implements OrderService {
         }
 
         const code = `#${String(orderId).replaceAll("-", "").slice(-6).toUpperCase()}`;
-        const payment = paymentLabel(draft.paymentMethod ?? "cash");
-        const customerMessage = requireApproval
-            ? `Pedido ${code} recebido. Estamos confirmando e ja voltamos.`
-            : `Pedido ${code} confirmado. Total R$ ${draft.grandTotal.toFixed(2).replace(".", ",")} via ${payment}.`;
+        const customerMessage = buildOrderCustomerMessage({
+            orderCode: code,
+            requireApproval,
+            draft,
+        });
 
         return {
             ok: true,

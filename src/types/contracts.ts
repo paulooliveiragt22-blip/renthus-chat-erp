@@ -145,12 +145,15 @@ export type ProPipelineTelemetryReason =
     | "tool_output_rejected"
     | "ai_timeout"
     | "ai_invalid_response"
-    | "order_rejected";
+    | "order_rejected"
+    | "invalid_state_transition";
 
 export interface PipelinePolicies {
     locale: Locale;
     maxToolRounds: number;
     maxHistoryTurns: number;
+    /** Timeout (ms) da chamada ao modelo no adapter de IA; alinhado a `aiStage`. */
+    aiTimeoutMs: number;
     escalationRule: {
         unknownConsecutive: number;
         lowConfidenceConsecutive: number;

@@ -1,5 +1,6 @@
 import type { ProSessionState, TenantRef } from "@/src/types/contracts";
 import type { SessionRepository } from "../../ports/session.repository";
+import { ProPipelineSessionLoadError } from "../errors";
 
 export function createInitialProState(): ProSessionState {
     return {
@@ -17,7 +18,14 @@ export async function loadState(params: {
     tenant: TenantRef;
 }): Promise<ProSessionState> {
     const { sessionRepo, tenant } = params;
-    const loaded = await sessionRepo.load(tenant.companyId, tenant.threadId);
-    return loaded ?? createInitialProState();
+    try {
+        const loaded = await sessionRepo.load(tenant.companyId, tenant.threadId);
+        return loaded ?? createInitialProState();
+    } catch (cause) {
+        throw new ProPipelineSessionLoadError(
+            { companyId: tenant.companyId, threadId: tenant.threadId },
+            { cause }
+        );
+    }
 }
 

@@ -15,7 +15,22 @@ import type { ProcessMessageParams } from "./types";
 import { getChatbotProductTier } from "./tier";
 import { runInboundChatbotPipeline } from "./inboundPipeline";
 import { runProPipeline } from "@/src/pro/pipeline/runProPipeline";
+import { isProPipelineSessionLoadError } from "@/src/pro/pipeline/errors";
 import { makeProPipelineDependencies } from "@/src/pro/pipeline/deps.factory";
+
+function logProV2PipelineFailure(err: unknown): void {
+    if (isProPipelineSessionLoadError(err)) {
+        const c = err.underlyingCause;
+        console.error("[chatbot/pro-v2] erro ao carregar sessão PRO:", {
+            code: err.code,
+            companyId: err.tenant.companyId,
+            threadId: err.tenant.threadId,
+            cause: c instanceof Error ? c.message : c,
+        });
+        return;
+    }
+    console.error("[chatbot/pro-v2] erro no pipeline novo:", err);
+}
 
 export async function processInboundMessage(params: ProcessMessageParams): Promise<void> {
     const tier = await getChatbotProductTier(params.admin, params.companyId);
@@ -50,7 +65,7 @@ export async function processInboundMessage(params: ProcessMessageParams): Promi
             if (proV2Active) return;
             console.info("[chatbot/pro-v2] shadow run concluído, seguindo pipeline legado.");
         } catch (err) {
-            console.error("[chatbot/pro-v2] erro no pipeline novo:", err);
+            logProV2PipelineFailure(err);
             if (proV2Active) {
                 console.warn("[chatbot/pro-v2] fallback automático para pipeline legado.");
             }
