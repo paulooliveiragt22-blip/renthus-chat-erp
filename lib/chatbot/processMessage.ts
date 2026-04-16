@@ -41,7 +41,12 @@ export async function processInboundMessage(params: ProcessMessageParams): Promi
 
     if (tier === "pro" && proV2Enabled) {
         try {
-            const deps = makeProPipelineDependencies(params);
+            const deps = makeProPipelineDependencies(
+                params,
+                params.proPipelineDependencyOverrides
+                    ? { overrides: params.proPipelineDependencyOverrides }
+                    : undefined
+            );
             await runProPipeline(
                 {
                     tenant: {

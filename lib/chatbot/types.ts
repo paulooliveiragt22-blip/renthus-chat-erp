@@ -5,7 +5,11 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PipelineDependencies } from "@/src/pro/pipeline/context";
 import type { WaConfig } from "../whatsapp/send";
+
+/** Subconjunto das portas do PRO V2 para testes ou homologação (omitir em produção). */
+export type ProPipelineDependencyOverrides = Partial<PipelineDependencies>;
 
 export interface ProcessMessageParams {
     admin:          SupabaseClient;
@@ -19,6 +23,8 @@ export interface ProcessMessageParams {
     waConfig?:      WaConfig;
     /** Flow ID do catálogo configurado para esta empresa */
     catalogFlowId?: string;
+    /** Injeta portas do pipeline PRO V2 (ex.: testes); ver `makeProPipelineDependencies`. */
+    proPipelineDependencyOverrides?: ProPipelineDependencyOverrides;
 }
 
 export interface CartItem {

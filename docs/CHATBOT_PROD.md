@@ -233,6 +233,20 @@ Complementa a arquitetura **Webhook → fila → worker**: o transporte já desa
 
 **Estratégia de refatoração por fases** (ordem, gates, entregáveis, riscos): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
 
+### PRO Pipeline V2 — flags e fronteira com o legado
+
+Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeline/runProPipeline.ts`) **antes** de `runInboundChatbotPipeline` quando o plano é **PRO** e `CHATBOT_PRO_PIPELINE_V2=1`.
+
+| Variável | Valor | Comportamento |
+|----------|--------|----------------|
+| `CHATBOT_PRO_PIPELINE_V2` | `1` | Executa o motor PRO V2 (além do plano PRO). |
+| `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem (útil para comparar logs/métricas; não é UX final em produção). |
+| `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, há **fallback** para o legado com log. |
+
+Estado persistido do V2: `session.context.__pro_v2_state` (ver adapter `session.repository.supabase`). O legado mantém o seu próprio `session.step` / `context.ai_order_canonical`; não misturar escritas de draft entre as duas stacks sem plano explícito (ver matriz R2 na estratégia).
+
+Homologação manual: [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md). Matriz obrigatória de falhas simuladas: secção 10 de [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+
 ---
 
 ## Estrutura de pastas (alvo de refator mínima)
