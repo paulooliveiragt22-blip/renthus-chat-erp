@@ -64,11 +64,28 @@ export async function orderStage(params: {
     logger?: LoggerPort;
 }): Promise<OrderStageResult> {
     const { orderService, tenant, state, userText, logger } = params;
+    const trimmedText = userText.trim();
+    const isConfirm = isExplicitConfirmation(trimmedText);
+
+    logger?.info("pro_pipeline.order_stage.enter", {
+        companyId: tenant.companyId,
+        threadId: tenant.threadId,
+        step: state.step,
+        hasDraft: Boolean(state.draft),
+        hasCustomerId: Boolean(state.customerId),
+        isExplicitConfirmation: isConfirm,
+        inboundSample: trimmedText.slice(0, 64),
+    });
 
     if (state.step !== "pro_awaiting_confirmation") {
         return { state, outcome: "skipped_not_awaiting" };
     }
-    if (!isExplicitConfirmation(userText)) {
+    if (!isConfirm) {
+        logger?.info("pro_pipeline.order_stage.skip_weak_confirmation", {
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+            inboundSample: trimmedText.slice(0, 64),
+        });
         return { state, outcome: "skipped_weak_confirmation" };
     }
     if (!hasPersistedDraft(state)) {
@@ -107,6 +124,14 @@ export async function orderStage(params: {
                 draft: state.draft,
                 idempotencyKey: `${tenant.companyId}:${tenant.threadId}:${tenant.messageId}`,
             }),
+    });
+    logger?.info("pro_pipeline.order_stage.transition_result", {
+        companyId: tenant.companyId,
+        threadId: tenant.threadId,
+        executed: transition.executed,
+        nextStep: transition.nextStep,
+        outcome: transition.outcome,
+        hasOrderResult: Boolean(transition.orderResult),
     });
     if (!transition.executed || !transition.orderResult) {
         logger?.warn("pro_pipeline.order_create_aborted", {
