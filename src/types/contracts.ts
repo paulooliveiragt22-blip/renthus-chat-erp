@@ -217,6 +217,7 @@ export interface AiServiceResult {
     updatedSearchProdutoEmbalagemIds?: string[];
     signals: {
         toolRoundsUsed: number;
+        /** Heurística a partir do sufixo da resposta do modelo (não é payload de WhatsApp). */
         intentMarker?: "ok" | "unknown" | null;
     };
     errorCode?: "AI_TIMEOUT" | "AI_RATE_LIMIT" | "AI_PROVIDER_ERROR" | "TOOL_FAILED";

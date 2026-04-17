@@ -166,9 +166,47 @@ function isCancelOrderPlainText(text: string): boolean {
     return /^(?:cancelar|cancela|desistir|desisto)\b/u.test(action);
 }
 
+/** Texto livre equivalente ao id do botão de pagamento (já normalizado). */
+function mapPlainTextToPaymentButtonId(action: string): string | null {
+    const map: Record<string, string> = {
+        pix: "pro_pay_pix",
+        cartao: "pro_pay_card",
+        dinheiro: "pro_pay_cash",
+        especie: "pro_pay_cash",
+        cash: "pro_pay_cash",
+        card: "pro_pay_card",
+    };
+    return map[action] ?? null;
+}
+
+const ORPHAN_FINAL_CONFIRM_IDS = new Set(["pro_confirm_order", "btn_confirm_order", "btn_confirmar"]);
+
 export function applyQuickAction(text: string, state: ProSessionState): QuickActionResult {
     const action = normalizeInboundAction(text);
     if (!action) return { handled: false, actionTag: null, state, outbound: [] };
+
+    /**
+     * Botão "Confirmar" atrasado (WhatsApp) ou reenvio após `draft` limpo: não mandar para IA
+     * (vira alucinação + `stripHallucinatedOrderPersistenceClaims`).
+     * Em `pro_awaiting_confirmation` sem draft, deixa o `orderStage` responder com gate.
+     */
+    if (
+        ORPHAN_FINAL_CONFIRM_IDS.has(action) &&
+        !state.draft &&
+        state.step !== "pro_awaiting_confirmation"
+    ) {
+        return {
+            handled: true,
+            actionTag: action,
+            state,
+            outbound: [
+                {
+                    kind: "text",
+                    text: "Esse passo ja foi concluido ou nao ha pedido aberto para confirmar. Para novo pedido, envie os itens.",
+                },
+            ],
+        };
+    }
 
     if (isCancelOrderPlainText(text)) {
         const nextState: ProSessionState = {
@@ -222,7 +260,19 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
         };
     }
 
-    const paymentAction = resolvePaymentQuickAction(action, state);
+    let paymentAction = resolvePaymentQuickAction(action, state);
+    if (!paymentAction) {
+        const mapped = mapPlainTextToPaymentButtonId(action);
+        if (
+            mapped &&
+            state.draft &&
+            state.draft.items.length > 0 &&
+            isAddressStructurallyComplete(state.draft.address) &&
+            !state.draft.paymentMethod
+        ) {
+            paymentAction = resolvePaymentQuickAction(mapped, state);
+        }
+    }
     if (paymentAction) return paymentAction;
 
     if (state.step === "pro_awaiting_change_amount" && state.draft?.paymentMethod === "cash") {

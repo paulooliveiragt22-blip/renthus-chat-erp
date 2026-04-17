@@ -23,6 +23,7 @@ import { toCanonicalDraft } from "@/src/types/contracts.adapters";
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
 import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
+import { stripModelIntentSuffix } from "./stripModelIntentSuffix";
 
 type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
 type IntentMarker = "ok" | "unknown" | null;
@@ -82,16 +83,8 @@ const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Se search_produtos retornar items vazio, não invente produto nem preço; siga guidance_for_model_pt.
 - Só peça confirmação explícita de pedido fechado quando o draft do servidor estiver completo e pendente de confirmação.
 - Nunca diga que o pedido já foi confirmado, criado no sistema, registrado na loja ou que saiu para entrega: isso só ocorre após confirmação no servidor (fora do modelo).
-- Termine a resposta com:
-  - INTENT_OK quando houve progresso de pedido
-  - INTENT_UNKNOWN quando não houve progresso`;
+- Termine a resposta com INTENT_OK ou INTENT_UNKNOWN (sem texto extra após o marcador).`;
 
-function stripIntentMarker(text: string): { visible: string; marker: "ok" | "unknown" | null } {
-    const t = text.trimEnd();
-    if (t.endsWith("INTENT_OK")) return { visible: t.replace(/INTENT_OK\s*$/u, "").trimEnd(), marker: "ok" };
-    if (t.endsWith("INTENT_UNKNOWN")) return { visible: t.replace(/INTENT_UNKNOWN\s*$/u, "").trimEnd(), marker: "unknown" };
-    return { visible: t.trim(), marker: null };
-}
 
 /** Evita contradicao: modelo fala em “erro” mas o draft (BD/tools) ja tem itens validos. */
 function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null): string {
@@ -505,7 +498,7 @@ export class FullAiServiceAdapter implements AiService {
                 .join("\n")
                 .trim();
 
-            const { visible, marker } = stripIntentMarker(text);
+            const { visible, marker } = stripModelIntentSuffix(text);
             let visibleSafe = stripHallucinatedOrderPersistenceClaims(
                 sanitizeVisibleAgainstDraft(visible, updatedDraft)
             );
