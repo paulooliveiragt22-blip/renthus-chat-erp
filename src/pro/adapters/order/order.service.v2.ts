@@ -270,8 +270,7 @@ export class OrderServiceV2Adapter implements OrderService {
             p_customer_id: customer.id,
             p_status: "new",
             p_confirmation_status: confirmationStatus,
-            // `orders.source` CHECK só permite chatbot|ui|pdv_direct|flow_* (ver migrations).
-            p_source: "chatbot",
+            p_source: "ai_chat_pro_v2",
             p_channel: "whatsapp",
             p_total_amount: draft.grandTotal,
             p_total: draft.totalItems,
