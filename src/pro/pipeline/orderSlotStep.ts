@@ -24,12 +24,17 @@ function resolveStepWhenPaymentMissing(step: ProStep): ProStep {
  * Regra especial: se o cliente já passou para escolha de pagamento (`pro_awaiting_payment_method`)
  * após confirmar endereço salvo, não regressar para confirmação de endereço só porque o draft
  * ainda carrega `enderecoClienteId`.
+ *
+ * Confirmação final (`pro_awaiting_confirmation`): basta o draft estruturalmente completo
+ * (`isDraftStructurallyCompleteForFinalize`); `pendingConfirmation` na tool é opcional.
  */
 export function resolveProStepFromDraft(params: { step: ProStep; draft: OrderDraft | null }): ProStep {
     const { step, draft } = params;
 
     if (step === "handover") return "handover";
-    if (step === "pro_escalation_choice") return "pro_escalation_choice";
+    if (step === "pro_escalation_choice") {
+        if (!draft || draft.items.length === 0) return "pro_escalation_choice";
+    }
     if (step === "pro_awaiting_change_amount") return "pro_awaiting_change_amount";
 
     if (!draft || draft.items.length === 0) {
@@ -48,7 +53,7 @@ export function resolveProStepFromDraft(params: { step: ProStep; draft: OrderDra
         return "pro_awaiting_change_amount";
     }
 
-    if (isDraftStructurallyCompleteForFinalize(draft) && draft.pendingConfirmation) {
+    if (isDraftStructurallyCompleteForFinalize(draft)) {
         return "pro_awaiting_confirmation";
     }
 

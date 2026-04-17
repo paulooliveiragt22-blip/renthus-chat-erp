@@ -106,6 +106,37 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
+    it("rascunho estruturalmente completo sem pendingConfirmation: ainda vai para confirmação final", () => {
+        const d = draft({
+            paymentMethod: "pix",
+            changeFor: null,
+            pendingConfirmation: false,
+        });
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
+            "pro_awaiting_confirmation"
+        );
+    });
+
+    it("pro_escalation_choice sem itens: mantém escolha", () => {
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_escalation_choice", draft: null }),
+            "pro_escalation_choice"
+        );
+    });
+
+    it("pro_escalation_choice com rascunho completo: re-alinha para confirmação final", () => {
+        const d = draft({
+            paymentMethod: "pix",
+            changeFor: null,
+            pendingConfirmation: false,
+        });
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_escalation_choice", draft: d }),
+            "pro_awaiting_confirmation"
+        );
+    });
+
     it("withResolvedSlotStep aplica resolve", () => {
         const s: ProSessionState = {
             step: "pro_collecting_order",

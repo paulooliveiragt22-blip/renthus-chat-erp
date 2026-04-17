@@ -19,6 +19,7 @@ import {
 import { toCanonicalDraft } from "@/src/types/contracts.adapters";
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
 import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
+import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
 
 type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
 type IntentMarker = "ok" | "unknown" | null;
@@ -366,7 +367,10 @@ export class FullAiServiceAdapter implements AiService {
             };
         }
 
-        const shouldConfirm = Boolean(updatedDraft?.pendingConfirmation);
+        const shouldConfirm = Boolean(
+            updatedDraft?.pendingConfirmation ||
+                (updatedDraft != null && isDraftStructurallyCompleteForFinalize(updatedDraft))
+        );
         return {
             action: shouldConfirm ? "request_confirmation" : "reply",
             replyText: replyText || "Pode me passar mais detalhes do pedido?",
