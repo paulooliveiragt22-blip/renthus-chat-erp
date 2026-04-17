@@ -1,5 +1,5 @@
 import type { OutboundMessage, OrderDraft, ProSessionState } from "@/src/types/contracts";
-import { resolveProStepFromDraft } from "../orderSlotStep";
+import { isAddressStructurallyComplete, resolveProStepFromDraft } from "../orderSlotStep";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -43,35 +43,51 @@ function buildPaymentButtons(): OutboundMessage {
 function buildConfirmationActionButtons(): OutboundMessage {
     return {
         kind: "buttons",
-        text: "Escolha a proxima acao:",
+        text: "Revise o resumo acima e escolha uma opcao:",
         buttons: [
-            { id: "pro_edit_order", title: "Editar" },
-            { id: "pro_cancel_order", title: "Cancelar" },
             { id: "pro_confirm_order", title: "Confirmar" },
+            { id: "pro_edit_order", title: "Corrigir" },
+            { id: "pro_add_items", title: "Adicionar produtos" },
         ],
     };
 }
 
-function buildAddressConfirmationMessage(draft: OrderDraft): OutboundMessage[] {
-    if (!draft.address?.enderecoClienteId) return [];
-    const addr = [
-        draft.address.logradouro,
-        draft.address.numero,
-        draft.address.complemento,
-        draft.address.bairroLabel ?? draft.address.bairro,
-        draft.address.cidade,
-        draft.address.estado,
-        draft.address.cep,
+function formatDraftAddressLine(draft: OrderDraft): string {
+    const a = draft.address;
+    if (!a) return "";
+    return [
+        a.logradouro,
+        a.numero,
+        a.complemento,
+        a.bairroLabel ?? a.bairro,
+        a.cidade,
+        a.estado,
+        a.cep,
     ]
         .filter(Boolean)
         .join(", ");
-    /** Botão primeiro: o corpo do interactive já traz o endereço; texto livre como fallback continua possível. */
+}
+
+/** Endereço salvo em `enderecos_cliente` ou digitado (sem id): sempre com botão Confirmar antes do pagamento. */
+function buildAddressConfirmationMessage(draft: OrderDraft): OutboundMessage[] {
+    if (!isAddressStructurallyComplete(draft.address)) return [];
+    const addr = formatDraftAddressLine(draft);
+    if (draft.address?.enderecoClienteId) {
+        return [
+            {
+                kind: "buttons",
+                text:
+                    `O endereco de entrega e este?\n${addr}\n\nSe nao for, digite o endereco completo.`,
+                buttons: [{ id: "pro_confirm_saved_address", title: "Confirmar endereco" }],
+            },
+        ];
+    }
     return [
         {
             kind: "buttons",
             text:
-                `Entrega neste endereco?\n${addr}\n\nSe nao for, digite o endereco completo.`,
-            buttons: [{ id: "pro_confirm_saved_address", title: "Confirmar endereco" }],
+                `O endereco de entrega e este?\n${addr}\n\nSe nao for, digite o endereco completo.`,
+            buttons: [{ id: "pro_confirm_typed_address", title: "Confirmar endereco" }],
         },
     ];
 }
@@ -86,11 +102,12 @@ export function prioritizeInteractiveFirst(messages: OutboundMessage[]): Outboun
 function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
     if (!state.draft) return [];
     if (!state.draft.paymentMethod) {
+        /** Aguardando confirmação de endereço (salvo ou digitado): não mostrar pagamento ainda. */
         if (
             state.step === "pro_awaiting_address_confirmation" ||
             (state.step === "pro_collecting_order" &&
                 state.draft.items.length > 0 &&
-                state.draft.address?.enderecoClienteId)
+                isAddressStructurallyComplete(state.draft.address))
         ) {
             return [];
         }
@@ -141,9 +158,33 @@ function resolvePaymentQuickAction(action: string, state: ProSessionState): Quic
     return null;
 }
 
+const CANCEL_TEXT_ACTIONS = new Set(["cancelar", "cancela", "desistir", "desisto"]);
+
+function isCancelOrderPlainText(text: string): boolean {
+    const action = normalizeInboundAction(text).replaceAll(/\s+/g, " ").trim();
+    if (CANCEL_TEXT_ACTIONS.has(action)) return true;
+    return /^(?:cancelar|cancela|desistir|desisto)\b/u.test(action);
+}
+
 export function applyQuickAction(text: string, state: ProSessionState): QuickActionResult {
     const action = normalizeInboundAction(text);
     if (!action) return { handled: false, actionTag: null, state, outbound: [] };
+
+    if (isCancelOrderPlainText(text)) {
+        const nextState: ProSessionState = {
+            ...state,
+            step: "pro_idle",
+            draft: null,
+            misunderstandingStreak: 0,
+            escalationTier: 0,
+        };
+        return {
+            handled: true,
+            actionTag: "cancelar_texto",
+            state: nextState,
+            outbound: [{ kind: "text", text: "Pedido cancelado. Quando quiser, me diga o que precisa." }],
+        };
+    }
 
     if (action === "pro_cancel_order" || action === "btn_cancel_order") {
         const nextState: ProSessionState = {
@@ -213,6 +254,15 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
         };
     }
 
+    if (action === "pro_confirm_typed_address" && state.draft?.address) {
+        return {
+            handled: true,
+            actionTag: action,
+            state: { ...state, step: "pro_awaiting_payment_method" },
+            outbound: [{ kind: "text", text: "Endereco confirmado." }],
+        };
+    }
+
     return { handled: false, actionTag: null, state, outbound: [] };
 }
 
@@ -224,11 +274,14 @@ export function checkoutPostProcess(params: {
     let nextState = params.state;
     const outbound = [...params.outbound];
 
+    const addrComplete =
+        Boolean(nextState.draft?.address) && isAddressStructurallyComplete(nextState.draft!.address);
     const showAddressConfirm =
         params.mode === "ai" &&
         nextState.draft &&
+        nextState.draft.items.length > 0 &&
         !nextState.draft.paymentMethod &&
-        nextState.draft.address?.enderecoClienteId &&
+        addrComplete &&
         (nextState.step === "pro_collecting_order" ||
             nextState.step === "pro_awaiting_address_confirmation");
     if (showAddressConfirm && nextState.draft) {

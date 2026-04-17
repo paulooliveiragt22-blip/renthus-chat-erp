@@ -34,10 +34,9 @@ Ordem de avaliação (simplificado):
 2. **Sem itens no draft:** `pro_idle` se já estava idle; senão `pro_collecting_order`.
 3. **Endereço estrutural incompleto:** `pro_collecting_order`.
 4. **Sem `paymentMethod`:**
-   - Se `step === pro_awaiting_payment_method` → mantém (cliente já confirmou endereço salvo e está a escolher pagamento).
+   - Se `step === pro_awaiting_payment_method` → mantém (cliente já confirmou o endereço e está a escolher pagamento).
    - Se `step === pro_awaiting_address_confirmation` → mantém (à espera do botão ou novo texto).
-   - Se existe `address.enderecoClienteId` → `pro_awaiting_address_confirmation` (mostrar CTA de confirmar endereço salvo).
-   - Caso contrário (endereço digitado / resolvido sem id salvo) → `pro_awaiting_payment_method`.
+   - Caso contrário, com endereço estruturalmente completo → `pro_awaiting_address_confirmation` (salvo ou só digitado; CTA `pro_confirm_saved_address` ou `pro_confirm_typed_address`).
 5. **`paymentMethod === cash`** e `changeFor == null` → `pro_awaiting_change_amount`.
 6. **Draft completo para finalize** (`isDraftStructurallyCompleteForFinalize`) **e** `pendingConfirmation` → `pro_awaiting_confirmation`.
 7. **Caso contrário:** `pro_collecting_order`.
@@ -46,7 +45,7 @@ Ordem de avaliação (simplificado):
 
 ## 4. Botões e prioridade de UI
 
-- **`checkoutButtonsForState`:** não mostra PIX/Cartão/Dinheiro enquanto o passo for `pro_awaiting_address_confirmation` **ou** enquanto (em `pro_collecting_order`) houver `enderecoClienteId` sem pagamento — nesses casos só entra a UI de **confirmar endereço** (`buildAddressConfirmationMessage`).
+- **`checkoutButtonsForState`:** não mostra PIX/Cartão/Dinheiro enquanto o passo for `pro_awaiting_address_confirmation` **ou** enquanto (em `pro_collecting_order`) existir endereço estruturalmente completo sem pagamento — nesses casos só entra a UI de **confirmar endereço** (`buildAddressConfirmationMessage`).
 - **`prioritizeInteractiveFirst`:** mensagens `buttons` / `flow` antes de `text` (WhatsApp).
 
 ---

@@ -234,10 +234,10 @@ Complementa a arquitetura **Webhook → fila → worker**: o transporte já desa
 Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de checkout com ações determinísticas antes de cair em ambiguidade de LLM.
 
 - **Saudação contextual:** no início da conversa, distinguir primeiro acesso vs cliente recorrente e mostrar botões (`Cardápio`, `Meu pedido`, `Falar com atendente`).
-- **Mensagem inicial já completa (itens + endereço + pagamento):** devolver resumo entendido e botões `Confirmar`, `Corrigir/Editar`, `Adicionar + produtos`.
+- **Mensagem inicial já completa (itens + endereço + pagamento):** devolver resumo entendido e botões `Confirmar`, `Corrigir`, `Adicionar produtos`.
 - **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`). Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
-- **Endereço salvo:** quando houver endereço de `enderecos_cliente` no draft, pedir confirmação explícita do endereço com botão `Confirmar endereço`; se não, aceitar endereço digitado.
-- **Resumo final:** sempre com botões na ordem `Editar`, `Cancelar`, `Confirmar`; fechamento só via RPC quando os gates de draft estiverem completos.
+- **Endereço (salvo ou digitado):** com morada estruturalmente completa, mensagem “é este?” + texto livre para corrigir + botão `Confirmar endereço` (`pro_confirm_saved_address` ou `pro_confirm_typed_address` sem `enderecoClienteId`).
+- **Resumo final:** botões `Confirmar`, `Corrigir`, `Adicionar produtos`; cancelamento por botão `pro_cancel_order` ou texto curto (`cancelar`, `desistir`, etc.). Fechamento só via RPC quando os gates de draft estiverem completos.
 - **Proibição de UX enganosa:** não emitir “pedido confirmado” antes de retorno `ok` do RPC de criação.
 
 #### Estado no código (**já executado**)
@@ -247,9 +247,9 @@ Implementação actual no PRO V2 (`CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIP
 | Peça | Onde | O que faz |
 |------|------|-------------|
 | Saudação + menu | `src/pro/pipeline/stages/routeStage.ts` | `greeting`, `faq` e **`unknown`**: uma mensagem `buttons` + flows `btn_catalog` / `btn_status` quando há `flowCatalogId` / `flowStatusId` (por canal). |
-| Quick actions (checkout) | `runProPipeline.ts` + `stages/checkoutPostProcess.ts` (`applyQuickAction`) | IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`; troco em `pro_awaiting_change_amount`. Após cada quick action, `withResolvedSlotStep` alinha `ProStep` ao draft. |
-| Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço salvo sem pagamento → `pro_awaiting_address_confirmation`; endereço completo sem pagamento (sem id salvo) → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; draft completo → `pro_awaiting_confirmation`. |
-| Pós-processamento UI | `stages/checkoutPostProcess.ts` | `buildAddressConfirmationMessage` quando há `enderecoClienteId` e ainda falta pagamento; botões de pagamento só quando o passo já não exige confirmação de endereço; confirmação final em `pro_awaiting_confirmation`. Mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |
+| Quick actions (checkout) | `runProPipeline.ts` + `stages/checkoutPostProcess.ts` (`applyQuickAction`) | IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`, `pro_confirm_typed_address`; troco em `pro_awaiting_change_amount`; texto `cancelar` / `desistir` cancela o rascunho. Após cada quick action, `withResolvedSlotStep` alinha `ProStep` ao draft. |
+| Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço estruturalmente completo sem pagamento → `pro_awaiting_address_confirmation` (salvo ou digitado); após confirmar endereço → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; draft completo → `pro_awaiting_confirmation`. |
+| Pós-processamento UI | `stages/checkoutPostProcess.ts` | `buildAddressConfirmationMessage` com morada completa e sem pagamento (com ou sem `enderecoClienteId`); botões de pagamento só após confirmação de endereço; confirmação final em `pro_awaiting_confirmation`. Mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |
 | Consistência texto IA ↔ tools | `src/pro/adapters/ai/ai.service.full.ts` + `lib/chatbot/pro/prepareOrderDraft.ts` + `lib/chatbot/pro/orderHints.ts` | `guidance_for_model_pt` em `search_produtos` / `prepare_order_draft`; `flow_reminder_pt` em `get_order_hints`; system prompt reforçado; `sanitizeVisibleAgainstDraft` quando o modelo contradiz o draft. |
 | Classificação de botões | `src/pro/services/intent/intentClassifier.service.ts` | Mapeia IDs de botão para `order_intent` / `status_intent` / `human_intent` com alta confiança. |
 | Passos no tipo | `src/types/contracts.ts` (`ProStep`) | `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount`, etc. |
@@ -260,7 +260,7 @@ Implementação actual no PRO V2 (`CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIP
 
 #### Pendências honestas (evolução contínua)
 
-- **Primeira mensagem “tudo numa frase”** com resumo + três botões (`Confirmar` / `Corrigir` / `Adicionar`): depende do **draft canónico** vindo das tools / IA; o orquestrador emite botões quando o draft e o `ProStep` estão coerentes — não substitui a extração semântica sozinha.
+- **Primeira mensagem “tudo numa frase”** com resumo + três botões: o orquestrador emite `Confirmar` / `Corrigir` / `Adicionar produtos` em `pro_awaiting_confirmation` quando o draft canónico e o `ProStep` estão coerentes; a qualidade do resumo na primeira volta continua a depender das tools / IA.
 - **`proStepTransitions.ts` (eventos IA vs. slots):** hoje `resolveProStepFromDraft` reconcilia o passo no fim do turno (`checkoutPostProcess` + quick actions); unificar totalmente com `applyAiStateTransition` é trabalho R4+ (ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md) §6).
 
 ### Plano de execução

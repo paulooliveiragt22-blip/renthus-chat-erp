@@ -9,11 +9,12 @@ export function isAddressStructurallyComplete(address: DraftAddress | null): boo
     );
 }
 
-function resolveStepWhenPaymentMissing(step: ProStep, draft: OrderDraft): ProStep {
+/** Chamado só com endereço já estruturalmente completo e sem `paymentMethod`. */
+function resolveStepWhenPaymentMissing(step: ProStep): ProStep {
     if (step === "pro_awaiting_payment_method") return "pro_awaiting_payment_method";
     if (step === "pro_awaiting_address_confirmation") return "pro_awaiting_address_confirmation";
-    if (draft.address?.enderecoClienteId) return "pro_awaiting_address_confirmation";
-    return "pro_awaiting_payment_method";
+    /** Primeira vez com endereço completo (salvo ou digitado): confirmação antes do pagamento. */
+    return "pro_awaiting_address_confirmation";
 }
 
 /**
@@ -40,7 +41,7 @@ export function resolveProStepFromDraft(params: { step: ProStep; draft: OrderDra
     }
 
     if (!draft.paymentMethod) {
-        return resolveStepWhenPaymentMissing(step, draft);
+        return resolveStepWhenPaymentMissing(step);
     }
 
     if (draft.paymentMethod === "cash" && draft.changeFor == null) {

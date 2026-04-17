@@ -11,7 +11,7 @@ const BTN_ORDER_ADD_MORE = new Set(["pro_add_items", "btn_add_items"]);
 const BTN_ORDER_CANCEL = new Set(["pro_cancel_order", "btn_cancel_order"]);
 const BTN_ORDER_CONFIRM = new Set(["pro_confirm_order", "btn_confirm_order", "confirmar_pedido", "confirm_order"]);
 const BTN_PAY = new Set(["pro_pay_pix", "pro_pay_card", "pro_pay_cash"]);
-const BTN_CONFIRM_ADDRESS = new Set(["pro_confirm_saved_address"]);
+const BTN_CONFIRM_ADDRESS = new Set(["pro_confirm_saved_address", "pro_confirm_typed_address"]);
 
 const HUMAN_RE = /\b(?:atendente|humano|suporte|falar\s+com)\b/iu;
 const STATUS_RE = /\b(?:status|cad[eê]|onde\s+est[aá]|acompanhar|previs[aã]o)\b/iu;

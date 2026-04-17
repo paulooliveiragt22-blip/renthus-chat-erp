@@ -61,10 +61,10 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
-    it("sem enderecoClienteId e sem pagamento: aguarda forma de pagamento", () => {
+    it("sem enderecoClienteId e sem pagamento: aguarda confirmação do endereço digitado", () => {
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: draft() }),
-            "pro_awaiting_payment_method"
+            "pro_awaiting_address_confirmation"
         );
     });
 

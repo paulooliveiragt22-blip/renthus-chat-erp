@@ -18,6 +18,8 @@ import { runProPipeline } from "@/src/pro/pipeline/runProPipeline";
 import { isProPipelineSessionLoadError } from "@/src/pro/pipeline/errors";
 import { makeProPipelineDependencies } from "@/src/pro/pipeline/deps.factory";
 
+let proV2ShadowModeWarned = false;
+
 function logProV2PipelineFailure(err: unknown): void {
     if (isProPipelineSessionLoadError(err)) {
         const c = err.underlyingCause;
@@ -38,6 +40,13 @@ export async function processInboundMessage(params: ProcessMessageParams): Promi
     const proV2Enabled = process.env.CHATBOT_PRO_PIPELINE_V2 === "1";
     const proV2Mode = (process.env.CHATBOT_PRO_PIPELINE_V2_MODE ?? "shadow").toLowerCase();
     const proV2Active = proV2Mode === "active";
+
+    if (tier === "pro" && proV2Enabled && !proV2Active && !proV2ShadowModeWarned) {
+        proV2ShadowModeWarned = true;
+        console.info(
+            "[chatbot/pro-v2] CHATBOT_PRO_PIPELINE_V2=1 com modo shadow: o V2 corre mas a resposta visível pode vir do legado (sem quick replies do V2). Em produção use CHATBOT_PRO_PIPELINE_V2_MODE=active."
+        );
+    }
 
     if (tier === "pro" && proV2Enabled) {
         try {
