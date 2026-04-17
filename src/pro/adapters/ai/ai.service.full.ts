@@ -14,7 +14,9 @@ import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
     buildPrepareDraftGuidanceForModel,
+    formatPrepareErrorsForClientReply,
     prepareOrderDraftFromTool,
+    shouldPreferPrepareErrorsOverModelText,
 } from "@/lib/chatbot/pro/prepareOrderDraft";
 import { toCanonicalDraft } from "@/src/types/contracts.adapters";
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
@@ -253,7 +255,11 @@ export class FullAiServiceAdapter implements AiService {
         input: AiServiceInput,
         block: { id: string; input: unknown },
         currentDraft: OrderDraft | null
-    ): Promise<{ result: ToolResultBlock; nextDraft: OrderDraft | null }> {
+    ): Promise<{
+        result: ToolResultBlock;
+        nextDraft: OrderDraft | null;
+        prepareOutcome: { ok: boolean; errors: string[] };
+    }> {
         const raw = (block.input ?? {}) as Record<string, unknown>;
         const legacyInput = this.toLegacyToolInput(raw);
         let effectiveCustomerId = input.context.session.customerId;
@@ -275,6 +281,7 @@ export class FullAiServiceAdapter implements AiService {
         const nextDraft = prepared.draft ? toCanonicalDraft(prepared.draft) : currentDraft;
         return {
             nextDraft,
+            prepareOutcome: { ok: prepared.ok, errors: [...prepared.errors] },
             result: {
                 type: "tool_result",
                 tool_use_id: block.id,
@@ -295,17 +302,21 @@ export class FullAiServiceAdapter implements AiService {
         input: AiServiceInput,
         block: { id: string; name: string; input: unknown },
         currentDraft: OrderDraft | null
-    ): Promise<{ result: ToolResultBlock; nextDraft: OrderDraft | null }> {
+    ): Promise<{
+        result: ToolResultBlock;
+        nextDraft: OrderDraft | null;
+        prepareOutcome: { ok: boolean; errors: string[] } | null;
+    }> {
         const name = block.name as ToolName;
         if (name === "search_produtos") {
-            return { result: await this.runSearchTool(input, block), nextDraft: currentDraft };
+            return { result: await this.runSearchTool(input, block), nextDraft: currentDraft, prepareOutcome: null };
         }
         if (name === "get_order_hints") {
-            return { result: await this.runHintsTool(input, block), nextDraft: currentDraft };
+            return { result: await this.runHintsTool(input, block), nextDraft: currentDraft, prepareOutcome: null };
         }
         if (name === "prepare_order_draft") {
             const out = await this.runPrepareDraftTool(input, block, currentDraft);
-            return { result: out.result, nextDraft: out.nextDraft };
+            return { result: out.result, nextDraft: out.nextDraft, prepareOutcome: out.prepareOutcome };
         }
         return {
             result: {
@@ -314,6 +325,7 @@ export class FullAiServiceAdapter implements AiService {
                 content: JSON.stringify({ ok: false, error: "unsupported_tool", tool: block.name }),
             },
             nextDraft: currentDraft,
+            prepareOutcome: null,
         };
     }
 
@@ -321,9 +333,14 @@ export class FullAiServiceAdapter implements AiService {
         input: AiServiceInput,
         content: Array<{ type: string; id?: string; name?: string; input?: unknown }>,
         currentDraft: OrderDraft | null
-    ): Promise<{ toolResults: ToolResultBlock[]; nextDraft: OrderDraft | null }> {
+    ): Promise<{
+        toolResults: ToolResultBlock[];
+        nextDraft: OrderDraft | null;
+        prepareOutcomeThisRound: { ok: boolean; errors: string[] } | null;
+    }> {
         const toolResults: ToolResultBlock[] = [];
         let nextDraft = currentDraft;
+        let prepareOutcomeThisRound: { ok: boolean; errors: string[] } | null = null;
 
         for (const block of content) {
             if (block.type !== "tool_use" || !block.id || !block.name) continue;
@@ -333,10 +350,11 @@ export class FullAiServiceAdapter implements AiService {
                 nextDraft
             );
             nextDraft = executed.nextDraft;
+            if (executed.prepareOutcome) prepareOutcomeThisRound = executed.prepareOutcome;
             toolResults.push(executed.result);
         }
 
-        return { toolResults, nextDraft };
+        return { toolResults, nextDraft, prepareOutcomeThisRound };
     }
 
     private buildHistory(input: AiServiceInput, assistantContent: unknown): AiTurn[] {
@@ -410,6 +428,7 @@ export class FullAiServiceAdapter implements AiService {
         ];
         let toolRoundsUsed = 0;
         let updatedDraft: OrderDraft | null = input.draft;
+        let lastPrepareOutcome: { ok: boolean; errors: string[] } | null = null;
 
         try {
             let response = await this.callModel(client, messages, input.limits.timeoutMs);
@@ -422,6 +441,9 @@ export class FullAiServiceAdapter implements AiService {
                     updatedDraft
                 );
                 updatedDraft = round.nextDraft;
+                if (round.prepareOutcomeThisRound) {
+                    lastPrepareOutcome = round.prepareOutcomeThisRound;
+                }
 
                 messages = [
                     ...messages,
@@ -451,9 +473,22 @@ export class FullAiServiceAdapter implements AiService {
                 .trim();
 
             const { visible, marker } = stripIntentMarker(text);
-            const visibleSafe = stripHallucinatedOrderPersistenceClaims(
+            let visibleSafe = stripHallucinatedOrderPersistenceClaims(
                 sanitizeVisibleAgainstDraft(visible, updatedDraft)
             );
+            const hasDraftItems = Boolean(updatedDraft?.items?.length);
+            const prepOk = lastPrepareOutcome?.ok ?? null;
+            const prepErrs = lastPrepareOutcome?.errors ?? [];
+            if (
+                shouldPreferPrepareErrorsOverModelText({
+                    visible: visibleSafe,
+                    hasDraftItems,
+                    prepareOk: prepOk,
+                    errors: prepErrs,
+                })
+            ) {
+                visibleSafe = formatPrepareErrorsForClientReply(prepErrs);
+            }
             return this.buildSuccess(input, visibleSafe, marker, toolRoundsUsed, updatedDraft, response.content);
         } catch (error) {
             if (isTimeoutError(error)) {

@@ -335,3 +335,63 @@ export function buildPrepareDraftGuidanceForModel(ok: boolean, errors: string[])
 
     return lines;
 }
+
+/** Normaliza texto para comparação simples (acentos removidos). */
+function normalizePtCompare(text: string): string {
+    return text
+        .toLowerCase()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "");
+}
+
+/**
+ * Mensagem ao cliente quando `prepare_order_draft` devolveu `ok:false` com erros de validação
+ * (substitui "problema técnico" genérico da IA quando não há rascunho útil no estado).
+ */
+export function formatPrepareErrorsForClientReply(errors: string[]): string {
+    const uniq = [...new Set(errors.map((e) => e.trim()).filter(Boolean))].slice(0, 6);
+    const bullets = uniq.map((e) => `• ${e}`).join("\n");
+    return (
+        "Não consegui validar o pedido com os dados atuais:\n" +
+        bullets +
+        "\n\nAjuste o que faltar e envie de novo. Se apareceram endereços salvos nas dicas, pode escolher um deles."
+    );
+}
+
+/**
+ * Quando trocar a resposta visível do modelo pelos erros canónicos do `prepare_order_draft`.
+ * Não usa quando já há itens no draft persistido (outro caminho corrige contradições).
+ */
+export function shouldPreferPrepareErrorsOverModelText(params: {
+    visible: string;
+    hasDraftItems: boolean;
+    prepareOk: boolean | null;
+    errors: string[];
+}): boolean {
+    const { visible, hasDraftItems, prepareOk, errors } = params;
+    if (prepareOk === null || prepareOk === true || errors.length === 0) return false;
+    if (hasDraftItems) return false;
+
+    const v = visible.trim();
+    if (!v) return true;
+
+    const flat = normalizePtCompare(v);
+    const genericHints = [
+        "problema tecnico",
+        "erro tecnico",
+        "falha ao",
+        "falha no",
+        "nao consegui processar",
+        "nao estou conseguindo",
+        "erro ao processar",
+        "instabilidade",
+        "servidor",
+        "tente novamente",
+        "tente de novo",
+        "falha temporaria",
+        "falha temporária",
+    ];
+    if (genericHints.some((h) => flat.includes(h))) return true;
+    if (v.length < 22) return true;
+    return false;
+}
