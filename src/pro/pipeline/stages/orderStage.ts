@@ -7,6 +7,7 @@ import type {
 import type { LoggerPort } from "../../ports/logger.port";
 import type { OrderService } from "../../services/order/order.types";
 import { hasPersistedDraft, isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
+import { isExplicitOrderConfirmation } from "../orderConfirmationText";
 import { executeOrderRpcTransition, resolveStepAfterOrderStage } from "../proStepTransitions";
 
 /** Resultado do estágio de pedido para telemetria e testes (gates antes de `createFromDraft`). */
@@ -25,36 +26,6 @@ export interface OrderStageResult {
     outcome: OrderStageOutcome;
 }
 
-function isExplicitConfirmation(text: string): boolean {
-    const raw = text.trim();
-    if (!raw || raw.length > 64) return false;
-
-    const normalized = raw
-        .toLowerCase()
-        .normalize("NFD")
-        .replaceAll(/\p{Diacritic}/gu, "")
-        .trim();
-
-    if (/\b(nao|nunca|jamais|cancelar|cancela|desistir|desiste)\b/u.test(normalized)) {
-        return false;
-    }
-
-    // IDs de botões/lista podem chegar no texto após extração do webhook.
-    const confirmationIds = new Set([
-        "confirmar",
-        "confirmar_pedido",
-        "confirm_order",
-        "pro_confirm_order",
-        "btn_confirm_order",
-        "btn_confirmar",
-    ]);
-    if (confirmationIds.has(normalized)) return true;
-
-    return /^(sim|ok|okay|confirmo|confirmar|pode\s+confirmar|pode\s+fechar|fechar(?:\s+pedido)?)\W*$/iu.test(
-        raw
-    );
-}
-
 export async function orderStage(params: {
     orderService: OrderService;
     tenant: TenantRef;
@@ -65,7 +36,7 @@ export async function orderStage(params: {
 }): Promise<OrderStageResult> {
     const { orderService, tenant, state, userText, logger } = params;
     const trimmedText = userText.trim();
-    const isConfirm = isExplicitConfirmation(trimmedText);
+    const isConfirm = isExplicitOrderConfirmation(trimmedText);
 
     logger?.info("pro_pipeline.order_stage.enter", {
         companyId: tenant.companyId,
