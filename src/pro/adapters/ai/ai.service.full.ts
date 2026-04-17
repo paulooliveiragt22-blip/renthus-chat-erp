@@ -17,6 +17,7 @@ import {
 } from "@/lib/chatbot/pro/prepareOrderDraft";
 import { toCanonicalDraft } from "@/src/types/contracts.adapters";
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
+import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
 
 type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
 type IntentMarker = "ok" | "unknown" | null;
@@ -74,6 +75,7 @@ const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Após prepare_order_draft: se ok:false, sua mensagem DEVE refletir as errors e o guidance_for_model_pt (sem “erro técnico genérico” quando a causa for validação). Se ok:true, alinhe o texto ao draft.
 - Se search_produtos retornar items vazio, não invente produto nem preço; siga guidance_for_model_pt.
 - Só peça confirmação explícita de pedido fechado quando o draft do servidor estiver completo e pendente de confirmação.
+- Nunca diga que o pedido já foi confirmado, criado no sistema, registrado na loja ou que saiu para entrega: isso só ocorre após confirmação no servidor (fora do modelo).
 - Termine a resposta com:
   - INTENT_OK quando houve progresso de pedido
   - INTENT_UNKNOWN quando não houve progresso`;
@@ -442,7 +444,9 @@ export class FullAiServiceAdapter implements AiService {
                 .trim();
 
             const { visible, marker } = stripIntentMarker(text);
-            const visibleSafe = sanitizeVisibleAgainstDraft(visible, updatedDraft);
+            const visibleSafe = stripHallucinatedOrderPersistenceClaims(
+                sanitizeVisibleAgainstDraft(visible, updatedDraft)
+            );
             return this.buildSuccess(input, visibleSafe, marker, toolRoundsUsed, updatedDraft, response.content);
         } catch (error) {
             if (isTimeoutError(error)) {

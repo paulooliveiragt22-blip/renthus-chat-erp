@@ -183,6 +183,7 @@ export async function runProPipeline(
         state: guarded.state,
         decision,
         userText: input.inboundText,
+        logger: deps.logger,
     });
 
     const preOrderSideMetrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [];

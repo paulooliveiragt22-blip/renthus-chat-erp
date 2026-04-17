@@ -234,6 +234,12 @@ export class OrderServiceV2Adapter implements OrderService {
         );
 
         if (addrErr || !deliveryEnderecoClienteId) {
+            console.warn("[chatbot/order-v2] rpc_chatbot_pro_upsert_endereco_cliente failed", {
+                companyId: tenant.companyId,
+                threadId: tenant.threadId,
+                message: addrErr?.message,
+                code: addrErr?.code,
+            });
             return {
                 ok: false,
                 customerMessage: buildOrderErrorMessage("INVALID_ADDRESS"),
@@ -278,6 +284,14 @@ export class OrderServiceV2Adapter implements OrderService {
         });
 
         if (orderErr || !orderId) {
+            console.warn("[chatbot/order-v2] create_order_with_items failed", {
+                companyId: tenant.companyId,
+                threadId: tenant.threadId,
+                message: orderErr?.message,
+                code: orderErr?.code,
+                details: orderErr?.details,
+                orderId,
+            });
             return {
                 ok: false,
                 customerMessage: buildOrderErrorMessage("RPC_ERROR"),

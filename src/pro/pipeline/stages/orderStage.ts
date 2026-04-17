@@ -4,6 +4,7 @@ import type {
     ProSessionState,
     TenantRef,
 } from "@/src/types/contracts";
+import type { LoggerPort } from "../../ports/logger.port";
 import type { OrderService } from "../../services/order/order.types";
 import { hasPersistedDraftAndCustomer, isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
 import { executeOrderRpcTransition, resolveStepAfterOrderStage } from "../proStepTransitions";
@@ -59,8 +60,9 @@ export async function orderStage(params: {
     state: ProSessionState;
     decision: IntentDecision;
     userText: string;
+    logger?: LoggerPort;
 }): Promise<OrderStageResult> {
-    const { orderService, tenant, state, userText } = params;
+    const { orderService, tenant, state, userText, logger } = params;
 
     if (state.step !== "pro_awaiting_confirmation") {
         return { state, outcome: "skipped_not_awaiting" };
@@ -69,6 +71,11 @@ export async function orderStage(params: {
         return { state, outcome: "skipped_weak_confirmation" };
     }
     if (!hasPersistedDraftAndCustomer(state)) {
+        logger?.warn("pro_pipeline.order_stage_gate", {
+            outcome: "gate_no_draft",
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+        });
         return {
             state: { ...state, step: resolveStepAfterOrderStage(state.step, "gate_no_draft") },
             outboundText: "Não encontrei um rascunho de pedido para confirmar. Me diga os itens novamente.",
@@ -77,6 +84,11 @@ export async function orderStage(params: {
     }
 
     if (!isDraftStructurallyCompleteForFinalize(state.draft)) {
+        logger?.warn("pro_pipeline.order_stage_gate", {
+            outcome: "gate_draft_incomplete",
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+        });
         return {
             state: { ...state, step: resolveStepAfterOrderStage(state.step, "gate_draft_incomplete") },
             outboundText: "Seu pedido ainda está incompleto. Vamos revisar itens, endereço e pagamento antes de confirmar.",
@@ -95,6 +107,12 @@ export async function orderStage(params: {
             }),
     });
     if (!transition.executed || !transition.orderResult) {
+        logger?.warn("pro_pipeline.order_create_aborted", {
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+            executed: transition.executed,
+            hasOrderResult: Boolean(transition.orderResult),
+        });
         return {
             state: {
                 ...state,
@@ -107,6 +125,10 @@ export async function orderStage(params: {
 
     const { orderResult } = transition;
     if (transition.outcome === "order_created_ok") {
+        logger?.info("pro_pipeline.order_created_ok", {
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+        });
         return {
             state: {
                 ...state,
@@ -121,6 +143,12 @@ export async function orderStage(params: {
         };
     }
 
+    logger?.warn("pro_pipeline.order_create_failed", {
+        companyId: tenant.companyId,
+        threadId: tenant.threadId,
+        errorCode: orderResult.ok ? undefined : orderResult.errorCode,
+        retryable: orderResult.ok ? undefined : orderResult.retryable,
+    });
     return {
         state: {
             ...state,
