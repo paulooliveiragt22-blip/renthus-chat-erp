@@ -123,7 +123,7 @@ export async function tryFinalizeAiOrderFromDraft(params: {
         p_customer_id:                  customer.id,
         p_status:                       "new",
         p_confirmation_status:          confirmationStatus,
-        p_source:                       "ai_chat_pro",
+        p_source:                       "chatbot",
         p_channel:                      "whatsapp",
         p_total_amount:                 draft.grand_total,
         p_total:                        draft.total_items,
