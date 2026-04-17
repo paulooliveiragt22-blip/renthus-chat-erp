@@ -3,7 +3,9 @@ import type {
     ProPipelineInput,
     ProPipelineOutput,
     ProPipelineTelemetryReason,
+    ProSessionState,
 } from "@/src/types/contracts";
+import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
 import { aiStage } from "./stages/aiStage";
@@ -88,6 +90,40 @@ function appendAiOutcomeMetrics(
             tags: { intent, reason },
         });
     }
+}
+
+/** Diagnóstico: rascunho + passo após IA e antes de gravar sessão (correlacionar com `order_stage.enter`). */
+function logSessionDraftSnapshot(
+    logger: LoggerPort | undefined,
+    event: "pro_pipeline.post_ai_session" | "pro_pipeline.pre_persist_session",
+    tenant: { companyId: string; threadId: string },
+    state: ProSessionState,
+    extra: Record<string, unknown>
+): void {
+    if (!logger) return;
+    const d = state.draft;
+    logger.info(event, {
+        companyId: tenant.companyId,
+        threadId: tenant.threadId,
+        step: state.step,
+        hasDraft: Boolean(d),
+        draftItemCount: d?.items.length ?? 0,
+        draftPaymentMethod: d?.paymentMethod ?? null,
+        draftHasAddressBlock: Boolean(d?.address),
+        draftAddressMinFields: d?.address
+            ? {
+                  logradouro: Boolean(String(d.address.logradouro ?? "").trim()),
+                  numero: Boolean(String(d.address.numero ?? "").trim()),
+                  bairro: Boolean(String(d.address.bairro ?? "").trim()),
+              }
+            : null,
+        draftGrandTotal: d?.grandTotal ?? null,
+        draftPendingConfirmation: d?.pendingConfirmation ?? null,
+        searchProdutoEmbalagemIdCount: state.searchProdutoEmbalagemIds.length,
+        aiHistoryTurns: state.aiHistory.length,
+        customerIdSet: Boolean(state.customerId),
+        ...extra,
+    });
 }
 
 export async function runProPipeline(
@@ -281,6 +317,14 @@ export async function runProPipeline(
         aiServiceErrorCode = ai.aiResult.errorCode;
         nextState = ai.state;
         outbound.push(...ai.outbound);
+        logSessionDraftSnapshot(deps.logger, "pro_pipeline.post_ai_session", input.tenant, nextState, {
+            intent: decision.intent,
+            inboundSample: input.inboundText.trim().slice(0, 120),
+            aiAction: ai.aiResult.action,
+            aiErrorCode: ai.aiResult.errorCode ?? null,
+            toolRoundsUsed: ai.aiResult.signals.toolRoundsUsed,
+            invalidAiSanitized,
+        });
     }
     const checkout = checkoutPostProcess({
         state: nextState,
@@ -289,6 +333,12 @@ export async function runProPipeline(
     });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;
+
+    logSessionDraftSnapshot(deps.logger, "pro_pipeline.pre_persist_session", input.tenant, nextState, {
+        intent: decision.intent,
+        inboundSample: input.inboundText.trim().slice(0, 120),
+        routedMode: routed.mode,
+    });
 
     await persistAndEmit({
         tenant: input.tenant,
