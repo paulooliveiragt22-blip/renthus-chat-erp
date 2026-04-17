@@ -245,7 +245,7 @@ describe("novo pipeline PRO - falhas reais", () => {
     it("botão de pagamento em dinheiro deve pedir troco", async () => {
         const deps = buildDeps({
             session: stateAwaitingConfirmation({
-                step: "pro_collecting_order",
+                step: "pro_awaiting_payment_method",
                 draft: {
                     ...stateAwaitingConfirmation().draft!,
                     paymentMethod: null,

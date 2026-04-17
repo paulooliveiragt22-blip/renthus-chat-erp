@@ -96,6 +96,19 @@ describe("ProIntentClassifierService", () => {
         assert.equal(out.intent, "status_intent");
     });
 
+    it("em pro_escalation_choice, cartão não vira human_intent (regressão handover)", async () => {
+        const prev = process.env.ANTHROPIC_API_KEY;
+        delete process.env.ANTHROPIC_API_KEY;
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext("pro_escalation_choice"),
+            userText: "cartão",
+        });
+        if (prev) process.env.ANTHROPIC_API_KEY = prev;
+        assert.equal(out.intent, "order_intent");
+        assert.equal(out.reasonCode, "regex_match");
+    });
+
     it("cai em unknown quando ambíguo, sem pedido activo e sem chave de IA", async () => {
         const prev = process.env.ANTHROPIC_API_KEY;
         delete process.env.ANTHROPIC_API_KEY;

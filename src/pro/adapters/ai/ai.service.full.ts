@@ -128,7 +128,7 @@ function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null):
         msg += "Revise os dados e confirme o pedido quando estiver tudo certo.";
     } else {
         msg +=
-            "Confirme o endereco (use o botao abaixo ou digite o endereco completo) e diga se paga em PIX, cartao ou dinheiro.";
+            "Confirme o endereco (use o botao abaixo ou digite o endereco completo). Depois use os botoes de pagamento.";
     }
     return msg.trim();
 }

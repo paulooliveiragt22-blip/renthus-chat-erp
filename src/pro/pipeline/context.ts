@@ -26,7 +26,8 @@ export const DEFAULT_PRO_POLICIES: PipelinePolicies = {
     maxHistoryTurns: 24,
     aiTimeoutMs: 15_000,
     escalationRule: {
-        unknownConsecutive: 2,
+        /** Dois `INTENT_UNKNOWN` seguidos escalavam cedo demais (ex.: produto válido após busca). */
+        unknownConsecutive: 3,
         lowConfidenceConsecutive: 2,
         noProgressTurns: 3,
     },

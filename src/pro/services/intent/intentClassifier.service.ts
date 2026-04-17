@@ -133,6 +133,21 @@ export class ProIntentClassifierService implements IntentService {
         if (BTN_CATALOG.has(text)) return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
         if (BTN_STATUS.has(text)) return { intent: "status_intent", confidence: "high", reasonCode: "button_id_match" };
         if (BTN_SUPPORT.has(text)) return { intent: "human_intent", confidence: "high", reasonCode: "button_id_match" };
+        /**
+         * Em escolha de escalação, o LLM classifica "cartão"/"pix" como human_intent (ruído).
+         * Palavra isolada de pagamento continua no fluxo de pedido.
+         */
+        if (context.session.step === "pro_escalation_choice") {
+            const payNorm = raw
+                .trim()
+                .toLowerCase()
+                .normalize("NFD")
+                .replaceAll(/\p{Diacritic}/gu, "")
+                .replaceAll(/\s+/g, " ");
+            if (/^(pix|cartao|dinheiro|especie|card|cash|credito|debito)$/u.test(payNorm)) {
+                return { intent: "order_intent", confidence: "high", reasonCode: "regex_match" };
+            }
+        }
         if (HUMAN_RE.test(raw)) return { intent: "human_intent", confidence: "high", reasonCode: "regex_match" };
 
         // Pedido em curso: respostas curtas ("uma caixa", "2 unidades") não têm ORDER_RE nem contexto no Haiku de 1 chamada.

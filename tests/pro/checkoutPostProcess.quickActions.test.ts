@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
-import { applyQuickAction } from "../../src/pro/pipeline/stages/checkoutPostProcess";
+import {
+    applyQuickAction,
+    strictCheckoutStructuredGate,
+} from "../../src/pro/pipeline/stages/checkoutPostProcess";
 
 function minimalDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
     return {
@@ -65,16 +68,41 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.equal(r.handled, false);
     });
 
-    it("Cartão em texto com draft+endereço: aplica como pro_pay_card", () => {
-        const r = applyQuickAction(
+    it("strict gate: em coleta com endereco completo, cartão exige confirmar endereco (CTA)", () => {
+        const g = strictCheckoutStructuredGate(
             "Cartão",
             state({
                 step: "pro_collecting_order",
                 draft: minimalDraft(),
             })
         );
-        assert.equal(r.handled, true);
-        assert.equal(r.state.draft?.paymentMethod, "card");
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_address_before_payment");
+        assert.ok(g.outbound.some((m) => m.kind === "buttons"));
+    });
+
+    it("strict gate: em awaiting_payment_method texto livre reenvia botoes de pagamento", () => {
+        const g = strictCheckoutStructuredGate(
+            "cartao",
+            state({
+                step: "pro_awaiting_payment_method",
+                draft: minimalDraft(),
+            })
+        );
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_payment_inbound_gate");
+        assert.ok(g.outbound.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_pay_card")));
+    });
+
+    it("strict gate: pro_pay_pix em awaiting_payment passa (null)", () => {
+        const g = strictCheckoutStructuredGate(
+            "pro_pay_pix",
+            state({
+                step: "pro_awaiting_payment_method",
+                draft: minimalDraft(),
+            })
+        );
+        assert.equal(g, null);
     });
 
     it("cartao sem draft: não inventa pagamento", () => {

@@ -166,17 +166,69 @@ function isCancelOrderPlainText(text: string): boolean {
     return /^(?:cancelar|cancela|desistir|desisto)\b/u.test(action);
 }
 
-/** Texto livre equivalente ao id do botão de pagamento (já normalizado). */
-function mapPlainTextToPaymentButtonId(action: string): string | null {
-    const map: Record<string, string> = {
-        pix: "pro_pay_pix",
-        cartao: "pro_pay_card",
-        dinheiro: "pro_pay_cash",
-        especie: "pro_pay_cash",
-        cash: "pro_pay_cash",
-        card: "pro_pay_card",
-    };
-    return map[action] ?? null;
+const PAYMENT_BUTTON_IDS = new Set(["pro_pay_pix", "pro_pay_card", "pro_pay_cash"]);
+
+const PAYMENT_WORD_ONLY_RE = /^(pix|cartao|dinheiro|especie|card|cash|credito|debito)$/u;
+
+/**
+ * Checkout estruturado: (1) em pagamento só botões; (2) antes disso, pagamento por texto/botão
+ * só depois de confirmar endereço no servidor.
+ */
+export function strictCheckoutStructuredGate(text: string, state: ProSessionState): QuickActionResult | null {
+    const action = normalizeInboundAction(text);
+    const d = state.draft;
+
+    if (state.step === "pro_awaiting_payment_method" && d) {
+        if (!action) return null;
+        if (isCancelOrderPlainText(text)) return null;
+        if (PAYMENT_BUTTON_IDS.has(action)) return null;
+        return {
+            handled: true,
+            actionTag: "strict_payment_inbound_gate",
+            state,
+            outbound: prioritizeInteractiveFirst([
+                {
+                    kind: "text",
+                    text: "Use um dos botoes abaixo para escolher o pagamento.",
+                },
+                buildPaymentButtons(),
+            ]),
+        };
+    }
+
+    const payTextOnly = PAYMENT_WORD_ONLY_RE.test(action) && !PAYMENT_BUTTON_IDS.has(action);
+    if (
+        d &&
+        d.items.length > 0 &&
+        !d.paymentMethod &&
+        isAddressStructurallyComplete(d.address) &&
+        action &&
+        !isCancelOrderPlainText(text)
+    ) {
+        const blockCollectingText =
+            state.step === "pro_collecting_order" && payTextOnly;
+        const blockAwaitingAddr =
+            state.step === "pro_awaiting_address_confirmation" &&
+            (payTextOnly || PAYMENT_BUTTON_IDS.has(action));
+        if (blockCollectingText || blockAwaitingAddr) {
+            const addrMsg = buildAddressConfirmationMessage(d);
+            if (addrMsg.length === 0) return null;
+            return {
+                handled: true,
+                actionTag: "strict_address_before_payment",
+                state,
+                outbound: prioritizeInteractiveFirst([
+                    {
+                        kind: "text",
+                        text: "Confirme o endereco com o botao antes de escolher o pagamento.",
+                    },
+                    ...addrMsg,
+                ]),
+            };
+        }
+    }
+
+    return null;
 }
 
 const ORPHAN_FINAL_CONFIRM_IDS = new Set(["pro_confirm_order", "btn_confirm_order", "btn_confirmar"]);
@@ -260,19 +312,7 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
         };
     }
 
-    let paymentAction = resolvePaymentQuickAction(action, state);
-    if (!paymentAction) {
-        const mapped = mapPlainTextToPaymentButtonId(action);
-        if (
-            mapped &&
-            state.draft &&
-            state.draft.items.length > 0 &&
-            isAddressStructurallyComplete(state.draft.address) &&
-            !state.draft.paymentMethod
-        ) {
-            paymentAction = resolvePaymentQuickAction(mapped, state);
-        }
-    }
+    const paymentAction = resolvePaymentQuickAction(action, state);
     if (paymentAction) return paymentAction;
 
     if (state.step === "pro_awaiting_change_amount" && state.draft?.paymentMethod === "cash") {

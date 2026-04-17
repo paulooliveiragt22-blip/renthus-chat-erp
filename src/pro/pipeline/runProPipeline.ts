@@ -19,6 +19,7 @@ import {
     applyQuickAction,
     checkoutPostProcess,
     checkoutPostProcessForQuickAction,
+    strictCheckoutStructuredGate,
 } from "./stages/checkoutPostProcess";
 import { withResolvedSlotStep, withResolvedSlotStepUnlessAwaitingConfirmation } from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
@@ -176,6 +177,39 @@ export async function runProPipeline(
         return {
             nextState: guarded.state,
             outbound: guarded.outbound,
+            sideEffects: [],
+            metrics,
+        };
+    }
+
+    const strictGate = strictCheckoutStructuredGate(input.inboundText, guarded.state);
+    if (strictGate) {
+        const syncedQuick = withResolvedSlotStep(strictGate.state);
+        const quickOutbound = checkoutPostProcessForQuickAction({
+            state: syncedQuick,
+            outbound: strictGate.outbound,
+        });
+        await persistAndEmit({
+            tenant: input.tenant,
+            state: syncedQuick,
+            outbound: quickOutbound,
+            sessionRepo: deps.sessionRepo,
+            messageGateway: deps.messageGateway,
+            metrics: deps.metrics,
+            logger: deps.logger,
+        });
+        const metrics: PipelineMetric[] = [
+            {
+                name: "pro_pipeline.strict_checkout_inbound_gate",
+                value: 1,
+                tags: { action: strictGate.actionTag ?? "strict_checkout_inbound_gate" },
+            },
+            { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
+        ];
+        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, new Set(["pro_pipeline.outbound_count"]));
+        return {
+            nextState: syncedQuick,
+            outbound: quickOutbound,
             sideEffects: [],
             metrics,
         };
