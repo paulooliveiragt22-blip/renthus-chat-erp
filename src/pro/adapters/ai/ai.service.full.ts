@@ -127,7 +127,7 @@ function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null):
     const totalFromDraft =
         draft.grandTotal ?? items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
     let msg =
-        `Certo! Segue o que esta no seu pedido (cadastro da loja):\n${lines.join("\n")}\n` +
+        `Certo! Segue o rascunho que temos no chat (ainda nao e pedido confirmado na loja):\n${lines.join("\n")}\n` +
         `Total estimado: R$ ${totalFromDraft.toFixed(2).replace(".", ",")}.\n\n`;
     if (draft.paymentMethod) {
         msg += "Revise os dados e confirme o pedido quando estiver tudo certo.";

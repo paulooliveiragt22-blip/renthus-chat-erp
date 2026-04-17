@@ -120,7 +120,11 @@ export async function runProPipeline(
         profileName: input.actor.profileName ?? null,
         state: loadedState,
     });
-    const context = buildPipelineContext({ input, session: sessionWithCustomer });
+    /** Alinha `step` ao draft antes de intent/orderStage (evita "Sim" com passo desatualizado na sessão). */
+    const context = buildPipelineContext({
+        input,
+        session: withResolvedSlotStep(sessionWithCustomer),
+    });
 
     const guarded = guardRails({ state: context.session, inboundText: input.inboundText });
     if (guarded.stop) {

@@ -20,4 +20,17 @@ describe("stripHallucinatedOrderPersistenceClaims", () => {
         const t = "Pronto para confirmar? Revise o resumo acima.";
         assert.equal(stripHallucinatedOrderPersistenceClaims(t), t);
     });
+
+    it("substitui afirmacao de pedido criado (IA sem RPC)", () => {
+        const out = stripHallucinatedOrderPersistenceClaims(
+            "Pronto! Seu pedido foi criado e ja esta no sistema."
+        );
+        assert.match(out, /Ainda nao registrei seu pedido/i);
+        assert.doesNotMatch(out, /pedido foi criado/i);
+    });
+
+    it("substitui criamos seu pedido", () => {
+        const out = stripHallucinatedOrderPersistenceClaims("Criamos seu pedido com sucesso!");
+        assert.match(out, /Ainda nao registrei seu pedido/i);
+    });
 });
