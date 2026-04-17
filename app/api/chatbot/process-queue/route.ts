@@ -76,7 +76,13 @@ export async function GET(req: Request) {
 
     for (const job of jobList) {
         try {
-            const coalesceKey = buildCoalesceKey(job.thread_id, job.phone_e164, job.company_id, job.body_text);
+            const coalesceKey = buildCoalesceKey(
+                job.thread_id,
+                job.phone_e164,
+                job.company_id,
+                job.body_text,
+                job.metadata?.message_type ?? null
+            );
             const shouldCoalesce =
                 coalesceKey &&
                 (
@@ -85,6 +91,13 @@ export async function GET(req: Request) {
                 );
 
             if (shouldCoalesce) {
+                console.info("[process-queue] inbound coalesced", {
+                    companyId: job.company_id,
+                    threadId: job.thread_id,
+                    messageId: job.message_id,
+                    body: String(job.body_text ?? "").slice(0, 64),
+                    messageType: job.metadata?.message_type ?? null,
+                });
                 await admin
                     .from("chatbot_queue")
                     .update({
@@ -159,7 +172,13 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
 
     for (const job of fallbackJobList) {
         try {
-            const coalesceKey = buildCoalesceKey(job.thread_id, job.phone_e164, job.company_id, job.body_text);
+            const coalesceKey = buildCoalesceKey(
+                job.thread_id,
+                job.phone_e164,
+                job.company_id,
+                job.body_text,
+                job.metadata?.message_type ?? null
+            );
             const shouldCoalesce =
                 coalesceKey &&
                 (
@@ -168,6 +187,13 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
                 );
 
             if (shouldCoalesce) {
+                console.info("[process-queue] inbound coalesced (fallback)", {
+                    companyId: job.company_id,
+                    threadId: job.thread_id,
+                    messageId: job.message_id,
+                    body: String(job.body_text ?? "").slice(0, 64),
+                    messageType: job.metadata?.message_type ?? null,
+                });
                 await admin
                     .from("chatbot_queue")
                     .update({
@@ -341,22 +367,63 @@ function normalizeInboundText(text: string): string {
         .trim();
 }
 
+function isCriticalOrderConfirmationText(normalizedText: string): boolean {
+    if (!normalizedText) return false;
+    const confirmationIds = new Set([
+        "sim",
+        "ok",
+        "okay",
+        "confirmar",
+        "confirmo",
+        "confirmar_pedido",
+        "confirm_order",
+        "pro_confirm_order",
+        "btn_confirm_order",
+        "btn_confirmar",
+        "pro_confirm_saved_address",
+        "pro_confirm_typed_address",
+    ]);
+    if (confirmationIds.has(normalizedText)) return true;
+    return /^(sim|ok|confirmo|confirmar|pode confirmar|pode fechar|fechar pedido?)$/u.test(normalizedText);
+}
+
+function shouldSkipCoalesceByPayload(params: {
+    normalizedText: string;
+    messageType?: string | null;
+}): boolean {
+    const { normalizedText, messageType } = params;
+    if (!normalizedText) return true;
+    if (isCriticalOrderConfirmationText(normalizedText)) return true;
+    if (normalizedText.length <= 6) return true;
+    if (messageType === "interactive") return true;
+    return false;
+}
+
 function buildCoalesceKey(
     threadId: string | null | undefined,
     phoneE164: string | null | undefined,
     companyId: string | null | undefined,
-    bodyText: string | null | undefined
+    bodyText: string | null | undefined,
+    messageType?: string | null
 ): string | null {
     const owner = phoneE164 || threadId || companyId || "global";
     if (!owner || !bodyText) return null;
     const normalized = normalizeInboundText(bodyText);
-    if (!normalized) return null;
+    if (shouldSkipCoalesceByPayload({ normalizedText: normalized, messageType })) return null;
     return `${owner}::${normalized}`;
 }
 
 async function hasRecentEquivalentProcessed(
     admin: ReturnType<typeof createAdminClient>,
-    job: { id: string; thread_id?: string; phone_e164?: string; company_id?: string; body_text?: string; created_at?: string },
+    job: {
+        id: string;
+        thread_id?: string;
+        phone_e164?: string;
+        company_id?: string;
+        body_text?: string;
+        created_at?: string;
+        metadata?: { message_type?: string | null } | null;
+    },
     coalesceKey: string
 ): Promise<boolean> {
     const threadId = job.thread_id;
@@ -368,7 +435,7 @@ async function hasRecentEquivalentProcessed(
         threadId
             ? admin
                 .from("chatbot_queue")
-                .select("id, thread_id, phone_e164, company_id, body_text")
+                .select("id, thread_id, phone_e164, company_id, body_text, metadata")
                 .eq("thread_id", threadId)
                 .in("status", ["done", "processing"])
                 .gte("created_at", cutoff)
@@ -377,7 +444,7 @@ async function hasRecentEquivalentProcessed(
         phoneE164
             ? admin
                 .from("chatbot_queue")
-                .select("id, thread_id, phone_e164, company_id, body_text")
+                .select("id, thread_id, phone_e164, company_id, body_text, metadata")
                 .eq("phone_e164", phoneE164)
                 .in("status", ["done", "processing"])
                 .gte("created_at", cutoff)
@@ -386,7 +453,7 @@ async function hasRecentEquivalentProcessed(
         companyId
             ? admin
                 .from("chatbot_queue")
-                .select("id, thread_id, phone_e164, company_id, body_text")
+                .select("id, thread_id, phone_e164, company_id, body_text, metadata")
                 .eq("company_id", companyId)
                 .in("status", ["done", "processing"])
                 .gte("created_at", cutoff)
@@ -401,7 +468,8 @@ async function hasRecentEquivalentProcessed(
             row.thread_id as string | null | undefined,
             row.phone_e164 as string | null | undefined,
             row.company_id as string | null | undefined,
-            row.body_text as string | null | undefined
+            row.body_text as string | null | undefined,
+            (row.metadata as { message_type?: string | null } | null | undefined)?.message_type ?? null
         );
         if (key && key === coalesceKey) return true;
     }
