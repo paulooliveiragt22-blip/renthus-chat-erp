@@ -238,7 +238,13 @@ export async function runProPipeline(
     }
 
     if (preOrder.outboundText) {
-        const syncedPre = withResolvedSlotStep(preOrder.state);
+        // Após `order_create_failed`, `orderStage` já define `step` para `pro_collecting_order` para o
+        // cliente corrigir dados; `withResolvedSlotStep` voltaria a `pro_awaiting_confirmation` só porque o
+        // draft ainda está completo — preso em botões "Confirmar" com RPC que continua a falhar.
+        const syncedPre =
+            preOrder.outcome === "order_create_failed"
+                ? preOrder.state
+                : withResolvedSlotStep(preOrder.state);
         const outbound: OutboundMessage[] = [
             { kind: "text", text: preOrder.outboundText },
             ...checkoutPostProcessForQuickAction({ state: syncedPre, outbound: [] }),

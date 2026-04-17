@@ -287,6 +287,21 @@ describe("pro pipeline - failure regression", () => {
         );
     });
 
+    it("apos order_create_failed: step permanece pro_collecting_order (nao re-sincronizar para awaiting_confirmation com draft completo)", async () => {
+        const out = await runProPipeline(baseInput(), deps({
+            state: stateAwaitingConfirmation(),
+            intent: "order_intent",
+            orderResult: {
+                ok: false,
+                customerMessage: "Nao consegui validar o endereco.",
+                errorCode: "INVALID_ADDRESS",
+                retryable: false,
+            },
+        }));
+        assert.equal(out.nextState.step, "pro_collecting_order");
+        assert.ok(out.outbound.some((m) => (m.text ?? "").includes("Nao consegui validar")));
+    });
+
     it("falha de DB ao carregar sessão: runProPipeline propaga ProPipelineSessionLoadError com underlyingCause", async () => {
         const brokenRepo: SessionRepository = {
             load: async () => {
