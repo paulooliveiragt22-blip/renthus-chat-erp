@@ -67,3 +67,15 @@ export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
         step: resolveProStepFromDraft({ step: state.step, draft: state.draft }),
     };
 }
+
+/**
+ * Igual a `withResolvedSlotStep`, mas não altera o passo quando já estamos em
+ * `pro_awaiting_confirmation`: o `orderStage` deve tratar gates (rascunho vazio/incompleto)
+ * sem o slot machine “descer” o passo antes da hora.
+ */
+export function withResolvedSlotStepUnlessAwaitingConfirmation(state: ProSessionState): ProSessionState {
+    if (state.step === "pro_awaiting_confirmation") {
+        return state;
+    }
+    return withResolvedSlotStep(state);
+}

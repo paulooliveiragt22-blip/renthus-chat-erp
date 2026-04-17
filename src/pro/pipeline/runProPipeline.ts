@@ -18,7 +18,7 @@ import {
     checkoutPostProcess,
     checkoutPostProcessForQuickAction,
 } from "./stages/checkoutPostProcess";
-import { withResolvedSlotStep } from "./orderSlotStep";
+import { withResolvedSlotStep, withResolvedSlotStepUnlessAwaitingConfirmation } from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
@@ -123,7 +123,7 @@ export async function runProPipeline(
     /** Alinha `step` ao draft antes de intent/orderStage (evita "Sim" com passo desatualizado na sessão). */
     const context = buildPipelineContext({
         input,
-        session: withResolvedSlotStep(sessionWithCustomer),
+        session: withResolvedSlotStepUnlessAwaitingConfirmation(sessionWithCustomer),
     });
 
     const guarded = guardRails({ state: context.session, inboundText: input.inboundText });

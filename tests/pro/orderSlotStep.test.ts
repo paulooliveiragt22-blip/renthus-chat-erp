@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
-import { resolveProStepFromDraft, withResolvedSlotStep } from "../../src/pro/pipeline/orderSlotStep";
+import {
+    resolveProStepFromDraft,
+    withResolvedSlotStep,
+    withResolvedSlotStepUnlessAwaitingConfirmation,
+} from "../../src/pro/pipeline/orderSlotStep";
 
 function draft(overrides: Partial<OrderDraft> = {}): OrderDraft {
     return {
@@ -147,5 +151,17 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
             aiHistory: [],
         };
         assert.equal(withResolvedSlotStep(s).step, "pro_awaiting_confirmation");
+    });
+
+    it("withResolvedSlotStepUnlessAwaitingConfirmation não rebaixa de confirmation com draft null", () => {
+        const s: ProSessionState = {
+            step: "pro_awaiting_confirmation",
+            customerId: "c1",
+            misunderstandingStreak: 0,
+            escalationTier: 0,
+            draft: null,
+            aiHistory: [],
+        };
+        assert.equal(withResolvedSlotStepUnlessAwaitingConfirmation(s).step, "pro_awaiting_confirmation");
     });
 });
