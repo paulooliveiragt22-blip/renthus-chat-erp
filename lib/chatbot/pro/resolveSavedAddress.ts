@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { tryParseAddressOneLine } from "./parseAddressLoosePt";
 import type { AiOrderAddress } from "./typesAiOrder";
 
 export type SavedClienteEnderecoRow = {
@@ -19,6 +20,39 @@ export type ResolvedSavedAddress = {
     /** ex.: "principal no cadastro" | "último pedido entregue" */
     note: string;
 };
+
+/**
+ * Monta `AiOrderAddress` a partir de `enderecos_cliente`.
+ * Se `numero`/`bairro` vierem vazios mas `logradouro` for uma linha única (ex.: "Rua X 34 Bairro"),
+ * usa `tryParseAddressOneLine` para o draft e slots passarem em `isAddressStructurallyComplete`.
+ */
+export function buildAiAddressFromSavedClienteRow(row: SavedClienteEnderecoRow): AiOrderAddress | null {
+    const rawLog = row.logradouro?.replace(/\s+/gu, " ").trim() ?? "";
+    if (!rawLog) return null;
+    let logradouro = rawLog;
+    let numero = row.numero?.replace(/\s+/gu, " ").trim() ?? "";
+    let bairro = row.bairro?.replace(/\s+/gu, " ").trim() ?? "";
+    if (!numero || !bairro) {
+        const parsed = tryParseAddressOneLine(rawLog);
+        if (parsed) {
+            logradouro = parsed.logradouro;
+            numero = parsed.numero;
+            bairro = parsed.bairro;
+        }
+    }
+    if (!logradouro || !numero || !bairro) return null;
+    return {
+        logradouro,
+        numero,
+        bairro,
+        complemento: row.complemento ? String(row.complemento).trim() : null,
+        apelido: row.apelido ? String(row.apelido).trim() : null,
+        cidade: row.cidade ? String(row.cidade).trim() : null,
+        estado: row.estado ? String(row.estado).trim() : null,
+        cep: row.cep ? String(row.cep).trim() : null,
+        endereco_cliente_id: row.id as string,
+    };
+}
 
 /** Todos os endereços cadastrados do cliente (para hints / IA mostrar antes de pedir novo). */
 export async function listCustomerAddressesForCustomer(
@@ -53,21 +87,9 @@ export async function resolveDefaultAddressForCustomer(
         .eq("is_principal", true)
         .maybeSingle();
 
-    if (principal?.logradouro && principal?.numero && principal?.bairro) {
-        return {
-            address: {
-                logradouro:           String(principal.logradouro).trim(),
-                numero:               String(principal.numero ?? "").trim(),
-                bairro:               String(principal.bairro).trim(),
-                complemento:          principal.complemento ? String(principal.complemento).trim() : null,
-                apelido:              principal.apelido ? String(principal.apelido).trim() : null,
-                cidade:               principal.cidade ? String(principal.cidade).trim() : null,
-                estado:               principal.estado ? String(principal.estado).trim() : null,
-                cep:                  principal.cep ? String(principal.cep).trim() : null,
-                endereco_cliente_id:  principal.id as string,
-            },
-            note: "endereço principal do cadastro",
-        };
+    if (principal?.logradouro) {
+        const address = buildAiAddressFromSavedClienteRow(principal as SavedClienteEnderecoRow);
+        if (address) return { address, note: "endereço principal do cadastro" };
     }
 
     const { data: lastOrder } = await admin
@@ -90,21 +112,9 @@ export async function resolveDefaultAddressForCustomer(
         .eq("company_id", companyId)
         .maybeSingle();
 
-    if (fromOrder?.logradouro && fromOrder?.numero && fromOrder?.bairro) {
-        return {
-            address: {
-                logradouro:           String(fromOrder.logradouro).trim(),
-                numero:               String(fromOrder.numero ?? "").trim(),
-                bairro:               String(fromOrder.bairro).trim(),
-                complemento:          fromOrder.complemento ? String(fromOrder.complemento).trim() : null,
-                apelido:              fromOrder.apelido ? String(fromOrder.apelido).trim() : null,
-                cidade:               fromOrder.cidade ? String(fromOrder.cidade).trim() : null,
-                estado:               fromOrder.estado ? String(fromOrder.estado).trim() : null,
-                cep:                  fromOrder.cep ? String(fromOrder.cep).trim() : null,
-                endereco_cliente_id:  fromOrder.id as string,
-            },
-            note: "último endereço usado num pedido entregue",
-        };
+    if (fromOrder?.logradouro) {
+        const address = buildAiAddressFromSavedClienteRow(fromOrder as SavedClienteEnderecoRow);
+        if (address) return { address, note: "último endereço usado num pedido entregue" };
     }
 
     return null;

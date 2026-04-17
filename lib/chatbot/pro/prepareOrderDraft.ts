@@ -1,7 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiOrderCanonicalDraft, AiOrderAddress, AiOrderItem } from "./typesAiOrder";
 import type { PrepareDraftToolInputLegacy as PrepareDraftToolInput } from "@/src/types/contracts.legacy";
-import { resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
+import {
+    buildAiAddressFromSavedClienteRow,
+    resolveDefaultAddressForCustomer,
+    type SavedClienteEnderecoRow,
+} from "./resolveSavedAddress";
 import { parsePtQuantity } from "./parseQtyPt";
 import { tryParseAddressOneLine } from "./parseAddressLoosePt";
 import { roundBrl } from "../utils";
@@ -132,20 +136,15 @@ export async function prepareOrderDraftFromTool(
                 .eq("company_id", companyId)
                 .eq("customer_id", customerId)
                 .maybeSingle();
-            if (!row?.logradouro || !row.numero || !row.bairro) {
+            if (!row?.logradouro) {
                 errors.push("saved_address_id inválido ou incompleto; use outro id de saved_addresses ou endereço digitado.");
             } else {
-                address = {
-                    logradouro:           String(row.logradouro).trim(),
-                    numero:               String(row.numero ?? "").trim(),
-                    bairro:               String(row.bairro).trim(),
-                    complemento:          row.complemento ? String(row.complemento).trim() : null,
-                    apelido:              row.apelido ? String(row.apelido).trim() : null,
-                    cidade:               row.cidade ? String(row.cidade).trim() : null,
-                    estado:               row.estado ? String(row.estado).trim() : null,
-                    cep:                  row.cep ? String(row.cep).trim() : null,
-                    endereco_cliente_id:  row.id as string,
-                };
+                const built = buildAiAddressFromSavedClienteRow(row as SavedClienteEnderecoRow);
+                if (!built) {
+                    errors.push("saved_address_id inválido ou incompleto; use outro id de saved_addresses ou endereço digitado.");
+                } else {
+                    address = built;
+                }
             }
         }
     }

@@ -37,6 +37,7 @@ export function makeProPipelineDependencies(
         intentService: new ProIntentClassifierService(),
         aiService: new FullAiServiceAdapter(params.admin),
         orderService: new OrderServiceV2Adapter(params.admin),
+        admin: params.admin,
     };
     return { ...base, ...options?.overrides };
 }

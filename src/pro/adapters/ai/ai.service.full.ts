@@ -10,6 +10,7 @@ import type {
 import type { AiService } from "../../services/ai/ai.types";
 import { runSearchProdutos } from "@/lib/chatbot/pro/searchProdutos";
 import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
+import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
     buildPrepareDraftGuidanceForModel,
     prepareOrderDraftFromTool,
@@ -249,10 +250,20 @@ export class FullAiServiceAdapter implements AiService {
     ): Promise<{ result: ToolResultBlock; nextDraft: OrderDraft | null }> {
         const raw = (block.input ?? {}) as Record<string, unknown>;
         const legacyInput = this.toLegacyToolInput(raw);
+        let effectiveCustomerId = input.context.session.customerId;
+        if (!effectiveCustomerId) {
+            const c = await getOrCreateCustomer(
+                this.admin,
+                input.context.tenant.companyId,
+                input.context.tenant.phoneE164,
+                input.context.actor.profileName ?? null
+            );
+            effectiveCustomerId = c?.id ?? null;
+        }
         const prepared = await prepareOrderDraftFromTool(
             this.admin,
             input.context.tenant.companyId,
-            input.context.session.customerId,
+            effectiveCustomerId,
             legacyInput
         );
         const nextDraft = prepared.draft ? toCanonicalDraft(prepared.draft) : currentDraft;

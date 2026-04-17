@@ -19,6 +19,7 @@ import {
     checkoutPostProcessForQuickAction,
 } from "./stages/checkoutPostProcess";
 import { withResolvedSlotStep } from "./orderSlotStep";
+import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
 
@@ -112,7 +113,14 @@ export async function runProPipeline(
     }
 
     const loadedState = await loadState({ sessionRepo: deps.sessionRepo, tenant: input.tenant });
-    const context = buildPipelineContext({ input, session: loadedState });
+    const sessionWithCustomer = await enrichProSessionCustomerFromPhone({
+        admin: deps.admin,
+        companyId: input.tenant.companyId,
+        phoneE164: input.tenant.phoneE164,
+        profileName: input.actor.profileName ?? null,
+        state: loadedState,
+    });
+    const context = buildPipelineContext({ input, session: sessionWithCustomer });
 
     const guarded = guardRails({ state: context.session, inboundText: input.inboundText });
     if (guarded.stop) {

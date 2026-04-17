@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PipelineContext, PipelinePolicies, ProPipelineInput, ProSessionState } from "@/src/types/contracts";
 import type { LoggerPort } from "../ports/logger.port";
 import type { MessageGateway } from "../ports/message.gateway";
@@ -15,6 +16,8 @@ export interface PipelineDependencies {
     intentService: IntentService;
     aiService: AiService;
     orderService: OrderService;
+    /** Service role Supabase: sincroniza `customerId` da sessão com o telefone WhatsApp. */
+    admin?: SupabaseClient;
 }
 
 export const DEFAULT_PRO_POLICIES: PipelinePolicies = {
