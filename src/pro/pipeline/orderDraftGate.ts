@@ -14,3 +14,10 @@ export function hasPersistedDraftAndCustomer(
 ): state is ProSessionState & { draft: OrderDraft; customerId: string } {
     return Boolean(state.draft && state.customerId);
 }
+
+/** Gate mínimo para permitir tentativa de finalização: rascunho persistido. */
+export function hasPersistedDraft(
+    state: ProSessionState
+): state is ProSessionState & { draft: OrderDraft } {
+    return Boolean(state.draft);
+}

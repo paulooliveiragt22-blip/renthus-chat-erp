@@ -6,7 +6,7 @@ import type {
 } from "@/src/types/contracts";
 import type { LoggerPort } from "../../ports/logger.port";
 import type { OrderService } from "../../services/order/order.types";
-import { hasPersistedDraftAndCustomer, isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
+import { hasPersistedDraft, isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
 import { executeOrderRpcTransition, resolveStepAfterOrderStage } from "../proStepTransitions";
 
 /** Resultado do estágio de pedido para telemetria e testes (gates antes de `createFromDraft`). */
@@ -45,6 +45,7 @@ function isExplicitConfirmation(text: string): boolean {
         "confirmar_pedido",
         "confirm_order",
         "pro_confirm_order",
+        "btn_confirm_order",
         "btn_confirmar",
     ]);
     if (confirmationIds.has(normalized)) return true;
@@ -70,7 +71,7 @@ export async function orderStage(params: {
     if (!isExplicitConfirmation(userText)) {
         return { state, outcome: "skipped_weak_confirmation" };
     }
-    if (!hasPersistedDraftAndCustomer(state)) {
+    if (!hasPersistedDraft(state)) {
         logger?.warn("pro_pipeline.order_stage_gate", {
             outcome: "gate_no_draft",
             companyId: tenant.companyId,
@@ -101,7 +102,8 @@ export async function orderStage(params: {
         runCreateFromDraft: async () =>
             orderService.createFromDraft({
                 tenant,
-                customerId: state.customerId,
+                // `customerId` pode estar nulo na sessão; o adapter V2 resolve cliente por telefone.
+                customerId: state.customerId ?? "__missing_session_customer__",
                 draft: state.draft,
                 idempotencyKey: `${tenant.companyId}:${tenant.threadId}:${tenant.messageId}`,
             }),
