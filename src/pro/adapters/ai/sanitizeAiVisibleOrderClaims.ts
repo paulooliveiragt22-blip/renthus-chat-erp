@@ -13,8 +13,15 @@ export function stripHallucinatedOrderPersistenceClaims(visible: string): string
     const claims: RegExp[] = [
         /pedido\s+foi\s+confirmad/,
         /seu\s+pedido\s+foi\s+confirmad/,
+        /** "Seu pedido já foi confirmado" (advérbio entre sujeito e verbo) */
+        /pedido\s+ja\s+foi\s+confirmad/,
+        /seu\s+pedido\s+ja\s+foi\s+confirmad/,
+        /** Títulos/markdown: "Pedido confirmado:" */
+        /pedido\s+confirmado\s*:/,
         /pedido\s+confirmado\s+e\s+/,
         /pedido\s+confirmado[.!]/,
+        /** Afirmação de confirmação sem persistência real */
+        /confirmado\s+aqui\s+comigo/,
         /pedido\s+(foi\s+)?criad/,
         /criamos\s+(o\s+)?(seu\s+)?pedido/,
         /criei\s+(o\s+)?(seu\s+)?pedido/,
@@ -33,7 +40,8 @@ export function stripHallucinatedOrderPersistenceClaims(visible: string): string
     if (!claims.some((re) => re.test(flat))) return visible;
 
     return (
-        "Ainda nao registrei seu pedido no sistema da loja. " +
-        "Quando o resumo com totais estiver completo, use Confirmar — ou diga o que falta (itens, endereco ou pagamento)."
+        "Ainda nao registrei seu pedido no sistema da loja.\n\n" +
+        "Para fechar aqui, preciso do rascunho validado pelo servidor (itens do catalogo, endereco e pagamento) e depois Confirmar.\n\n" +
+        "Se precisar de uma pessoa agora, digite *atendente* ou *humano*."
     );
 }

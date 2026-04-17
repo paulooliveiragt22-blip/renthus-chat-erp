@@ -6,6 +6,7 @@ import type {
     ProSessionState,
     SideEffect,
 } from "@/src/types/contracts";
+import { stripHallucinatedOrderPersistenceClaims } from "@/src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
 import { applyAiStateTransition } from "../proStepTransitions";
 
 export interface AiStageResult {
@@ -40,13 +41,16 @@ export async function aiStage(params: {
 
     const hadValidReplyText =
         typeof raw?.replyText === "string" && raw.replyText.trim().length > 0;
-    const invalidAiSanitized = !hadValidReplyText;
+    const baseReplyText = hadValidReplyText
+        ? raw.replyText.trim()
+        : "Tive uma falha ao processar sua mensagem. Pode tentar novamente?";
+    const replyText = stripHallucinatedOrderPersistenceClaims(baseReplyText);
+    const invalidAiSanitized =
+        !hadValidReplyText || (hadValidReplyText && replyText !== baseReplyText);
 
     const aiResult: AiServiceResult = {
         action: raw?.action ?? "error",
-        replyText: hadValidReplyText
-            ? raw.replyText.trim()
-            : "Tive uma falha ao processar sua mensagem. Pode tentar novamente?",
+        replyText,
         updatedDraft: raw?.updatedDraft ?? context.session.draft,
         updatedHistory: raw?.updatedHistory ?? context.session.aiHistory,
         signals: {

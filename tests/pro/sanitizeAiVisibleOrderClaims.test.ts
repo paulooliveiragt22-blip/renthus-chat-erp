@@ -33,4 +33,26 @@ describe("stripHallucinatedOrderPersistenceClaims", () => {
         const out = stripHallucinatedOrderPersistenceClaims("Criamos seu pedido com sucesso!");
         assert.match(out, /Ainda nao registrei seu pedido/i);
     });
+
+    it("substitui seu pedido JA foi confirmado (caso real WhatsApp)", () => {
+        const out = stripHallucinatedOrderPersistenceClaims(
+            "Seu pedido já foi confirmado! ✅\n\n**Resumo final:**\n- 1 caixa..."
+        );
+        assert.match(out, /Ainda nao registrei seu pedido/i);
+        assert.doesNotMatch(out, /confirmado!/i);
+    });
+
+    it("substitui titulo markdown Pedido confirmado:", () => {
+        const out = stripHallucinatedOrderPersistenceClaims(
+            "✅ **Pedido confirmado:**\n- 1 caixa de CERVEJA ORIGINAL"
+        );
+        assert.match(out, /Ainda nao registrei seu pedido/i);
+    });
+
+    it("substitui confirmado aqui comigo", () => {
+        const out = stripHallucinatedOrderPersistenceClaims(
+            "Seu pedido foi **confirmado aqui comigo**, mas a criação no servidor..."
+        );
+        assert.match(out, /Ainda nao registrei seu pedido/i);
+    });
 });
