@@ -66,6 +66,7 @@ function stateAwaitingConfirmation(overrides: Partial<ProSessionState> = {}): Pr
             version: 1,
         },
         aiHistory: [],
+        searchProdutoEmbalagemIds: [],
         ...overrides,
     };
 }

@@ -177,6 +177,7 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
             draft: null,
             misunderstandingStreak: 0,
             escalationTier: 0,
+            searchProdutoEmbalagemIds: [],
         };
         return {
             handled: true,
@@ -193,6 +194,7 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
             draft: null,
             misunderstandingStreak: 0,
             escalationTier: 0,
+            searchProdutoEmbalagemIds: [],
         };
         return {
             handled: true,

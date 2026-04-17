@@ -91,6 +91,11 @@ export interface ProSessionState {
     escalationTier: 0 | 1 | 2;
     draft: OrderDraft | null;
     aiHistory: AiTurn[];
+    /**
+     * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
+     * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
+     */
+    searchProdutoEmbalagemIds: string[];
 }
 
 export interface IntentDecision {
@@ -208,6 +213,8 @@ export interface AiServiceResult {
     replyText: string;
     updatedDraft?: OrderDraft | null;
     updatedHistory?: AiTurn[];
+    /** Atualização da allowlist de catálogo após rodadas de tool (PRO V2). */
+    updatedSearchProdutoEmbalagemIds?: string[];
     signals: {
         toolRoundsUsed: number;
         intentMarker?: "ok" | "unknown" | null;

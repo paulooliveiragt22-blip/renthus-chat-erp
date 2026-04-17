@@ -21,6 +21,7 @@ const emptyProState = {
     escalationTier: 0 as const,
     draft: null,
     aiHistory: [],
+    searchProdutoEmbalagemIds: [],
 };
 
 before(async () => {

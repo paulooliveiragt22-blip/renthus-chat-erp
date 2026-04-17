@@ -16,6 +16,14 @@ function toStateFromLegacy(session: Awaited<ReturnType<typeof getOrCreateSession
         escalationTier: 0,
         draft: null,
         aiHistory: [],
+        searchProdutoEmbalagemIds: [],
+    };
+}
+
+function normalizeProV2State(raw: ProSessionState): ProSessionState {
+    return {
+        ...raw,
+        searchProdutoEmbalagemIds: raw.searchProdutoEmbalagemIds ?? [],
     };
 }
 
@@ -31,7 +39,7 @@ export class SupabaseSessionRepository implements SessionRepository {
         const raw = session.context?.[PRO_V2_STATE_KEY];
         const state =
             raw !== null && raw !== undefined && typeof raw === "object"
-                ? (raw as ProSessionState)
+                ? normalizeProV2State(raw as ProSessionState)
                 : null;
         return state ?? toStateFromLegacy(session);
     }

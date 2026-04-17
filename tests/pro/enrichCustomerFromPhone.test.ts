@@ -12,6 +12,7 @@ describe("enrichProSessionCustomerFromPhone", () => {
             escalationTier: 0,
             draft: null,
             aiHistory: [],
+            searchProdutoEmbalagemIds: [],
         };
         const out = await enrichProSessionCustomerFromPhone({
             admin: undefined,
@@ -31,6 +32,7 @@ describe("enrichProSessionCustomerFromPhone", () => {
             escalationTier: 0,
             draft: null,
             aiHistory: [],
+            searchProdutoEmbalagemIds: [],
         };
         const out = await enrichProSessionCustomerFromPhone({
             admin: {} as never,

@@ -13,6 +13,15 @@ import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 
 export type { PrepareDraftToolInput };
 
+/**
+ * Política de catálogo para `prepare_order_draft`.
+ * - `legacy`: apenas validação no banco (fluxos antigos).
+ * - `search_allowlist`: cada `produto_embalagem_id` tem de constar na última lista de `search_produtos` (PRO V2).
+ */
+export type PrepareOrderDraftCatalogPolicy =
+    | { kind: "legacy" }
+    | { kind: "search_allowlist"; allowedEmbalagemIds: readonly string[] };
+
 function normPm(raw: string | null | undefined): "pix" | "cash" | "card" | null {
     if (!raw) return null;
     const s = raw.trim().toLowerCase();
@@ -101,7 +110,8 @@ export async function prepareOrderDraftFromTool(
     admin: SupabaseClient,
     companyId: string,
     customerId: string | null,
-    body: PrepareDraftToolInput
+    body: PrepareDraftToolInput,
+    catalogPolicy: PrepareOrderDraftCatalogPolicy = { kind: "legacy" }
 ): Promise<{
     ok:    boolean;
     draft: AiOrderCanonicalDraft | null;
@@ -190,12 +200,37 @@ export async function prepareOrderDraftFromTool(
     const pm = normPm(body.payment_method ?? null);
     if (!pm) errors.push("Informe payment_method: pix, cash ou card.");
 
+    const allowSet =
+        catalogPolicy.kind === "search_allowlist" ? new Set(catalogPolicy.allowedEmbalagemIds) : null;
+    if (
+        catalogPolicy.kind === "search_allowlist" &&
+        (body.items?.length ?? 0) > 0 &&
+        allowSet &&
+        allowSet.size === 0
+    ) {
+        errors.push(
+            "Faça search_produtos nesta conversa antes de prepare_order_draft; só é permitido produto_embalagem_id devolvido na lista da última busca."
+        );
+    }
+
     const itemsOut: AiOrderItem[] = [];
     for (const line of body.items ?? []) {
         const qty = parsePtQuantity(line.quantity);
         if (!line.produto_embalagem_id || qty == null) {
             errors.push("Cada item precisa de produto_embalagem_id (UUID) e quantity inteira ≥ 1 (número ou por extenso).");
             continue;
+        }
+        if (catalogPolicy.kind === "search_allowlist" && allowSet) {
+            if (allowSet.size === 0) {
+                continue;
+            }
+            const pid = String(line.produto_embalagem_id).trim();
+            if (!allowSet.has(pid)) {
+                errors.push(
+                    `produto_embalagem_id não consta na última busca do catálogo: ${pid}. Rode search_produtos e use só ids retornados na lista.`
+                );
+                continue;
+            }
         }
         const loaded = await loadPackRowForValidation(admin, companyId, line.produto_embalagem_id);
         if (!loaded) {
@@ -331,6 +366,11 @@ export function buildPrepareDraftGuidanceForModel(ok: boolean, errors: string[])
     }
     if (blob.includes("cliente") && blob.includes("identificado")) {
         lines.push("Próximo passo: siga com get_order_hints; o telefone costuma criar o cadastro automaticamente na primeira interação.");
+    }
+    if (errs.some((e) => /última busca|ultima busca|na lista da última|na lista da ultima/i.test(e))) {
+        lines.push(
+            "Próximo passo: chame search_produtos e copie produto_embalagem_id apenas do array items retornado na resposta."
+        );
     }
 
     return lines;

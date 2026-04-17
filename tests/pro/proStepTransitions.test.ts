@@ -89,6 +89,7 @@ describe("proStepTransitions (R1)", () => {
             escalationTier: 0,
             draft: null,
             aiHistory: [],
+            searchProdutoEmbalagemIds: [],
         };
 
         const unknown = applyAiStateTransition({

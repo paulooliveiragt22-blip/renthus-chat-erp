@@ -105,6 +105,7 @@ export async function runProPipeline(
                 escalationTier: 0,
                 draft: null,
                 aiHistory: [],
+                searchProdutoEmbalagemIds: [],
             },
             outbound: [],
             sideEffects: [],

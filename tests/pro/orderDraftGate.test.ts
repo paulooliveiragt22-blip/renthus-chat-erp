@@ -56,6 +56,7 @@ describe("orderDraftGate (R1)", () => {
             escalationTier: 0,
             draft: minimalDraft(),
             aiHistory: [],
+            searchProdutoEmbalagemIds: [],
         };
         if (hasPersistedDraftAndCustomer(s)) {
             assert.equal(typeof s.customerId, "string");

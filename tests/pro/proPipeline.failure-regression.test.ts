@@ -34,6 +34,7 @@ function baseState(): ProSessionState {
         escalationTier: 0,
         draft: null,
         aiHistory: [],
+        searchProdutoEmbalagemIds: [],
     };
 }
 
@@ -74,6 +75,7 @@ function stateAwaitingConfirmation(): ProSessionState {
             version: 1,
         },
         aiHistory: [],
+        searchProdutoEmbalagemIds: [],
     };
 }
 

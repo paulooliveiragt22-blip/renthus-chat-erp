@@ -64,6 +64,8 @@ export async function aiStage(params: {
         ...context.session,
         draft: aiResult.updatedDraft ?? null,
         aiHistory: aiResult.updatedHistory ?? [],
+        searchProdutoEmbalagemIds:
+            aiResult.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],
     };
 
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];

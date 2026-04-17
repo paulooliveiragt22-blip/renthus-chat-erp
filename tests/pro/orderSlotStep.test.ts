@@ -149,6 +149,7 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
             escalationTier: 0,
             draft: draft({ paymentMethod: "pix" }),
             aiHistory: [],
+            searchProdutoEmbalagemIds: [],
         };
         assert.equal(withResolvedSlotStep(s).step, "pro_awaiting_confirmation");
     });
@@ -161,6 +162,7 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
             escalationTier: 0,
             draft: null,
             aiHistory: [],
+            searchProdutoEmbalagemIds: [],
         };
         assert.equal(withResolvedSlotStepUnlessAwaitingConfirmation(s).step, "pro_awaiting_confirmation");
     });

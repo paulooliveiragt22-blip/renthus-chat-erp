@@ -23,6 +23,7 @@ function baseContext(step: PipelineContext["session"]["step"] = "pro_collecting_
             escalationTier: 0,
             draft: null,
             aiHistory: [],
+            searchProdutoEmbalagemIds: [],
         },
         policies: {
             locale: "pt-BR",

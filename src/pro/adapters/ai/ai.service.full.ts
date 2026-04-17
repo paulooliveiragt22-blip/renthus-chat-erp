@@ -17,6 +17,7 @@ import {
     formatPrepareErrorsForClientReply,
     prepareOrderDraftFromTool,
     shouldPreferPrepareErrorsOverModelText,
+    type PrepareOrderDraftCatalogPolicy,
 } from "@/lib/chatbot/pro/prepareOrderDraft";
 import { toCanonicalDraft } from "@/src/types/contracts.adapters";
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
@@ -76,6 +77,7 @@ const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Fale PT-BR direto.
 - Fonte de verdade: só cite produto, preço, estoque e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
 - Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido até ok:true (cliente pode mandar produto, endereço e pagamento em qualquer ordem — você monta o próximo prepare com o que já souber).
+- Regra dura: em prepare_order_draft use somente produto_embalagem_id que apareceu no JSON items do último search_produtos desta conversa (não invente UUID nem copie de outra busca antiga).
 - Após prepare_order_draft: se ok:false, sua mensagem DEVE refletir as errors e o guidance_for_model_pt (sem “erro técnico genérico” quando a causa for validação). Se ok:true, alinhe o texto ao draft.
 - Se search_produtos retornar items vazio, não invente produto nem preço; siga guidance_for_model_pt.
 - Só peça confirmação explícita de pedido fechado quando o draft do servidor estiver completo e pendente de confirmação.
@@ -213,7 +215,11 @@ export class FullAiServiceAdapter implements AiService {
         };
     }
 
-    private async runSearchTool(input: AiServiceInput, block: { id: string; input: unknown }): Promise<ToolResultBlock> {
+    private async runSearchTool(
+        input: AiServiceInput,
+        block: { id: string; input: unknown },
+        allowlistRuntime: { ids: string[] }
+    ): Promise<ToolResultBlock> {
         const payload = (block.input ?? {}) as Record<string, unknown>;
         const query = String(payload.query ?? "");
         const categoryHint = payload.category_hint == null ? null : String(payload.category_hint);
@@ -223,6 +229,7 @@ export class FullAiServiceAdapter implements AiService {
             query,
             { categoryHint, limit: 8 }
         );
+        allowlistRuntime.ids = rows.map((r) => String(r.id));
         const guidanceForModelPt =
             rows.length > 0
                 ? ["Use apenas produto_embalagem_id desta lista em prepare_order_draft."]
@@ -254,7 +261,8 @@ export class FullAiServiceAdapter implements AiService {
     private async runPrepareDraftTool(
         input: AiServiceInput,
         block: { id: string; input: unknown },
-        currentDraft: OrderDraft | null
+        currentDraft: OrderDraft | null,
+        allowlistRuntime: { ids: string[] }
     ): Promise<{
         result: ToolResultBlock;
         nextDraft: OrderDraft | null;
@@ -272,11 +280,16 @@ export class FullAiServiceAdapter implements AiService {
             );
             effectiveCustomerId = c?.id ?? null;
         }
+        const catalogPolicy: PrepareOrderDraftCatalogPolicy = {
+            kind: "search_allowlist",
+            allowedEmbalagemIds: allowlistRuntime.ids,
+        };
         const prepared = await prepareOrderDraftFromTool(
             this.admin,
             input.context.tenant.companyId,
             effectiveCustomerId,
-            legacyInput
+            legacyInput,
+            catalogPolicy
         );
         const nextDraft = prepared.draft ? toCanonicalDraft(prepared.draft) : currentDraft;
         return {
@@ -301,7 +314,8 @@ export class FullAiServiceAdapter implements AiService {
     private async executeToolBlock(
         input: AiServiceInput,
         block: { id: string; name: string; input: unknown },
-        currentDraft: OrderDraft | null
+        currentDraft: OrderDraft | null,
+        allowlistRuntime: { ids: string[] }
     ): Promise<{
         result: ToolResultBlock;
         nextDraft: OrderDraft | null;
@@ -309,13 +323,17 @@ export class FullAiServiceAdapter implements AiService {
     }> {
         const name = block.name as ToolName;
         if (name === "search_produtos") {
-            return { result: await this.runSearchTool(input, block), nextDraft: currentDraft, prepareOutcome: null };
+            return {
+                result: await this.runSearchTool(input, block, allowlistRuntime),
+                nextDraft: currentDraft,
+                prepareOutcome: null,
+            };
         }
         if (name === "get_order_hints") {
             return { result: await this.runHintsTool(input, block), nextDraft: currentDraft, prepareOutcome: null };
         }
         if (name === "prepare_order_draft") {
-            const out = await this.runPrepareDraftTool(input, block, currentDraft);
+            const out = await this.runPrepareDraftTool(input, block, currentDraft, allowlistRuntime);
             return { result: out.result, nextDraft: out.nextDraft, prepareOutcome: out.prepareOutcome };
         }
         return {
@@ -332,7 +350,8 @@ export class FullAiServiceAdapter implements AiService {
     private async executeToolRound(
         input: AiServiceInput,
         content: Array<{ type: string; id?: string; name?: string; input?: unknown }>,
-        currentDraft: OrderDraft | null
+        currentDraft: OrderDraft | null,
+        allowlistRuntime: { ids: string[] }
     ): Promise<{
         toolResults: ToolResultBlock[];
         nextDraft: OrderDraft | null;
@@ -347,7 +366,8 @@ export class FullAiServiceAdapter implements AiService {
             const executed = await this.executeToolBlock(
                 input,
                 { id: block.id, name: block.name, input: block.input ?? {} },
-                nextDraft
+                nextDraft,
+                allowlistRuntime
             );
             nextDraft = executed.nextDraft;
             if (executed.prepareOutcome) prepareOutcomeThisRound = executed.prepareOutcome;
@@ -371,7 +391,8 @@ export class FullAiServiceAdapter implements AiService {
         marker: IntentMarker,
         toolRoundsUsed: number,
         updatedDraft: OrderDraft | null,
-        assistantContent: unknown
+        assistantContent: unknown,
+        searchProdutoEmbalagemIds: string[]
     ): AiServiceResult {
         const nextHistory = this.buildHistory(input, assistantContent);
         if (shouldEscalate(input, marker)) {
@@ -381,6 +402,7 @@ export class FullAiServiceAdapter implements AiService {
                     replyText || "Não estou conseguindo entender bem. Você prefere catálogo, atendente ou tentar de novo?",
                 updatedDraft,
                 updatedHistory: nextHistory,
+                updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
                 signals: { toolRoundsUsed, intentMarker: marker },
             };
         }
@@ -394,28 +416,37 @@ export class FullAiServiceAdapter implements AiService {
             replyText: replyText || "Pode me passar mais detalhes do pedido?",
             updatedDraft,
             updatedHistory: nextHistory,
+            updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
             signals: { toolRoundsUsed, intentMarker: marker },
         };
     }
 
-    private buildProviderError(input: AiServiceInput, toolRoundsUsed: number): AiServiceResult {
+    private buildProviderError(
+        input: AiServiceInput,
+        toolRoundsUsed: number,
+        searchProdutoEmbalagemIds: string[]
+    ): AiServiceResult {
         return {
             action: "error",
             replyText: "Tive uma falha ao processar sua mensagem. Pode tentar novamente?",
             updatedDraft: input.draft,
             updatedHistory: input.history,
+            updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
             signals: { toolRoundsUsed, intentMarker: "unknown" },
             errorCode: "AI_PROVIDER_ERROR",
         };
     }
 
     async run(input: AiServiceInput): Promise<AiServiceResult> {
+        const allowlistRuntime = { ids: [...(input.context.session.searchProdutoEmbalagemIds ?? [])] };
+
         if (!process.env.ANTHROPIC_API_KEY) {
             return {
                 action: "error",
                 replyText: "Estou sem conexão com IA agora. Pode tentar novamente em instantes?",
                 updatedDraft: input.draft,
                 updatedHistory: input.history,
+                updatedSearchProdutoEmbalagemIds: allowlistRuntime.ids,
                 signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
                 errorCode: "AI_PROVIDER_ERROR",
             };
@@ -438,7 +469,8 @@ export class FullAiServiceAdapter implements AiService {
                 const round = await this.executeToolRound(
                     input,
                     response.content as Array<{ type: string; id?: string; name?: string; input?: unknown }>,
-                    updatedDraft
+                    updatedDraft,
+                    allowlistRuntime
                 );
                 updatedDraft = round.nextDraft;
                 if (round.prepareOutcomeThisRound) {
@@ -461,6 +493,7 @@ export class FullAiServiceAdapter implements AiService {
                         "Atingimos o limite de consultas automáticas nesta mensagem. Pode repetir o pedido de forma mais curta ou em partes?",
                     updatedDraft: input.draft,
                     updatedHistory: input.history,
+                    updatedSearchProdutoEmbalagemIds: allowlistRuntime.ids,
                     signals: { toolRoundsUsed, intentMarker: "unknown" },
                     errorCode: "TOOL_FAILED",
                 };
@@ -489,7 +522,15 @@ export class FullAiServiceAdapter implements AiService {
             ) {
                 visibleSafe = formatPrepareErrorsForClientReply(prepErrs);
             }
-            return this.buildSuccess(input, visibleSafe, marker, toolRoundsUsed, updatedDraft, response.content);
+            return this.buildSuccess(
+                input,
+                visibleSafe,
+                marker,
+                toolRoundsUsed,
+                updatedDraft,
+                response.content,
+                allowlistRuntime.ids
+            );
         } catch (error) {
             if (isTimeoutError(error)) {
                 return {
@@ -497,6 +538,7 @@ export class FullAiServiceAdapter implements AiService {
                     replyText: "A IA demorou para responder. Tente novamente em instantes.",
                     updatedDraft: input.draft,
                     updatedHistory: input.history,
+                    updatedSearchProdutoEmbalagemIds: allowlistRuntime.ids,
                     signals: { toolRoundsUsed, intentMarker: "unknown" },
                     errorCode: "AI_TIMEOUT",
                 };
@@ -507,11 +549,12 @@ export class FullAiServiceAdapter implements AiService {
                     replyText: "Estamos com pico de uso na IA. Aguarde um instante e tente de novo.",
                     updatedDraft: input.draft,
                     updatedHistory: input.history,
+                    updatedSearchProdutoEmbalagemIds: allowlistRuntime.ids,
                     signals: { toolRoundsUsed, intentMarker: "unknown" },
                     errorCode: "AI_RATE_LIMIT",
                 };
             }
-            return this.buildProviderError(input, toolRoundsUsed);
+            return this.buildProviderError(input, toolRoundsUsed, allowlistRuntime.ids);
         }
     }
 }

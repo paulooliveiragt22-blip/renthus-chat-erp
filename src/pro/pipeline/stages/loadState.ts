@@ -10,6 +10,7 @@ export function createInitialProState(): ProSessionState {
         escalationTier: 0,
         draft: null,
         aiHistory: [],
+        searchProdutoEmbalagemIds: [],
     };
 }
 
