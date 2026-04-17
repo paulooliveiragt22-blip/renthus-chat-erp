@@ -119,9 +119,10 @@ Numeração contínua do pedido HTTP até resposta ao cliente.
 
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
-| 0.B.1 | Carregar canal Meta | `process-queue/route.ts` | `waConfig`, `catalogFlowId`; canal ausente usa env fallback (risco multi-tenant). |
+| 0.B.1 | Carregar canal Meta | `process-queue/route.ts` | `waConfig`, `catalogFlowId`. Fora de produção: canal ausente pode cair em env (dev local). **`NODE_ENV=production`:** sem canal Meta **active** para a empresa → **erro** no job (sem fallback de token global — evita cross-tenant). |
 | 0.B.2 | `bot_active` / handover | `process-queue/route.ts` | Handover ativo → **return** (job pode marcar-se `done` sem `processInboundMessage`); expirado → reativa + opcional mensagem + **apaga** `chatbot_sessions`. |
 | 0.B.3 | Claim RPC fail-fast | `process-queue/route.ts` | Em produção: se RPC de claim falhar → **503 + alerta** (sem fallback concorrente inseguro). |
+| 0.B.4 | Ordem no batch (fairness v1) | `process-queue/route.ts` | Após carregar jobs claimados, **`interleaveQueueJobsByCompany`** evita processar o mesmo `company_id` em sequência no lote (best-effort; não substitui fairness no SQL). |
 
 **Falhas típicas (Bloco 0):** rede Meta duplicada (ok com 0.9), secret errado (401), DB indisponível (500 ou skip silencioso), canal desconfigurado (mensagem ignorada).
 
@@ -132,7 +133,7 @@ Numeração contínua do pedido HTTP até resposta ao cliente.
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
 | 1.1 | `processInboundMessage` | `lib/chatbot/processMessage.ts` | Única fachada pública do motor. |
-| 1.1b | PRO Pipeline V2 (opcional) | `processMessage.ts` → `runProPipeline` (`src/pro/pipeline/`) | Com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO: corre **antes** do legado. **Produção (decisão):** `CHATBOT_PRO_PIPELINE_V2_MODE=active` — um só motor por mensagem. Modo `shadow`: só homologação / telemetria comparativa (ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). Erro do V2 em `active`: fallback para 1.3 (legado) com log. |
+| 1.1b | PRO Pipeline V2 (opcional) | `processMessage.ts` → `runProPipeline` (`src/pro/pipeline/`) | Com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO: corre **antes** do legado. **Produção (decisão):** `CHATBOT_PRO_PIPELINE_V2_MODE=active` — um só motor por mensagem. Modo `shadow`: só homologação / telemetria comparativa (ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). Erro do V2 em `active`: **mensagem fixa** ao cliente (`botReply`) e **fim** — não entra no legado de pedido (evita estado duplicado). |
 | 1.2 | Resolver plano | `lib/chatbot/tier.ts` (`getChatbotProductTier`) | `starter` vs `pro`; falha de query → comportamento default do tier. |
 | 1.3 | `runInboundChatbotPipeline` | `lib/chatbot/inboundPipeline.ts` | Orquestração completa abaixo. |
 
@@ -203,12 +204,12 @@ Depende de `intent` e `tier`:
 | Intent | Starter (`tier !== "pro"`) | PRO |
 |--------|---------------------------|-----|
 | `greeting` / `unknown` | `sendWelcomeMenu` — horário, botões/lista (**sem refator neste ciclo**) | **PRO V2 (`active`):** saudação contextual + botões `Cardápio` / `Meu pedido` / `Falar com atendente` em `routeStage.ts` (ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) — *Order Finalization Orchestrator* / estado no código). |
-| `order_intent` | `starterOrderFlow` — Flow catálogo ou menu (**sem refator neste ciclo**) | **`handleProOrderIntent`** — tools + Haiku + rascunho (**foco da refatoração**) |
+| `order_intent` | `starterOrderFlow` — Flow catálogo ou menu (**sem refator neste ciclo**) | **V2 `active` (alvo):** `runProPipeline` → `orderStage` / slots / RPC de fecho — **não** passa por `inboundPipeline` nem `handleProOrderIntent` na **mesma** mensagem após sucesso (ver Bloco 1.1b). **Erro do V2 em `active`:** só mensagem fixa; **sem** `handleProOrderIntent`. **Legado / `shadow`:** `handleProOrderIntent` — tools + Haiku + rascunho; fecho `tryFinalizeAiOrderFromDraft` → `finalizeAiOrder`. |
 | `status_intent` | Flow status ou `replyWithOrderStatus` (**sem refator neste ciclo**) | Idem |
 | `human_intent` | `doHandover` (**sem refator neste ciclo**) | Idem |
 | `faq` | `handleFAQ` (**sem refator neste ciclo**) | Idem |
 
-**PRO — pedido (`handleProOrderIntent.ts` + satélites):**
+**PRO — pedido legado (`handleProOrderIntent.ts` + satélites)** — usado quando o V2 não corre, quando corre em **`shadow`** após o V2, ou quando o V2 falha em **`shadow`** (exceção → legado). **Não** corre após exceção do V2 em **`active`** (mensagem fixa em `processMessage.ts`).
 
 | # | Etapa | Responsabilidade |
 |---|--------|------------------|
@@ -253,6 +254,13 @@ Depende de `intent` e `tier`:
         ↓
 [1] processInboundMessage → tier
         ↓
+    PRO e CHATBOT_PRO_PIPELINE_V2=1?
+        ├─ sim → [1b] runProPipeline (src/pro/pipeline/)
+        │           MODE=active e sucesso? → FIM (resposta do V2)
+        │           MODE=active e exceção? → `botReply` (mensagem fixa) → FIM (**sem** legado de pedido)
+        │           MODE=shadow (ou exceção em shadow) → continua ↓
+        └─ não (Starter ou V2 desligado) ────────────────┘
+        ↓
 [2] inboundPipeline
         clamp → bot? → session/company → handover? skip
         → intentDetector (regex global)
@@ -261,7 +269,7 @@ Depende de `intent` e `tier`:
         → classifyIntent (regex + botões → Haiku?)
         → switch(intent)
                 ↓
-[4] handleFAQ | doHandover | starterOrderFlow | handleProOrderIntent | …
+[4] handleFAQ | doHandover | starterOrderFlow | handleProOrderIntent (PRO legado) | …
                 ↓
 [5] botReply / sendInteractive / sendFlowMessage → Meta
 ```
@@ -303,10 +311,10 @@ Depende de `intent` e `tier`:
 
 | Bloco | Ficheiros principais |
 |-------|----------------------|
-| 0 | `app/api/whatsapp/incoming/route.ts`, `app/api/chatbot/process-queue/route.ts` |
-| 1 | `lib/chatbot/processMessage.ts`, `lib/chatbot/tier.ts` |
+| 0 | `app/api/whatsapp/incoming/route.ts`, `app/api/chatbot/process-queue/route.ts`, `lib/chatbot/interleaveQueueJobsByCompany.ts` |
+| 1 | `lib/chatbot/processMessage.ts`, `lib/chatbot/tier.ts`; **V2:** `src/pro/pipeline/runProPipeline.ts` (chamado antes do legado quando PRO + `CHATBOT_PRO_PIPELINE_V2=1`) |
 | 2 | `lib/chatbot/inboundPipeline.ts`, `lib/chatbot/session.ts`, `lib/chatbot/db/company.ts` |
 | 2.6 | `lib/chatbot/middleware/intentDetector.ts` |
 | 2.9–3 | `lib/chatbot/middleware/intentClassifier.ts`, `lib/chatbot/pro/confirmationPt.ts` |
-| 4 PRO | `lib/chatbot/pro/handleProOrderIntent.ts`, `prepareOrderDraft.ts`, `searchProdutos.ts`, `finalizeAiOrder.ts` |
+| 4 PRO | **V2 (`active`):** `src/pro/pipeline/runProPipeline.ts`, `orderStage.ts`, `orderSlotStep.ts`, `checkoutPostProcess.ts`, serviços em `src/pro/`; falha V2 → `lib/chatbot/processMessage.ts` + `botSend.ts` (texto fixo). **Legado / `shadow`:** `lib/chatbot/pro/handleProOrderIntent.ts`, `prepareOrderDraft.ts`, `searchProdutos.ts`, `finalizeAiOrder.ts` |
 | 5 | `lib/chatbot/botSend.ts`, `lib/whatsapp/sendMessage.ts`, `lib/whatsapp/send.ts` |

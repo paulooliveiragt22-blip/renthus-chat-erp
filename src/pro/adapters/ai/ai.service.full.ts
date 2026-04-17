@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { runWithAnthropicInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
 import type { MessageCreateParams } from "@anthropic-ai/sdk/resources/messages";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -170,17 +171,19 @@ export class FullAiServiceAdapter implements AiService {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(AI_TIMEOUT_CODE), Math.max(timeoutMs, 1000));
         try {
-            return await client.messages.create(
-                {
-                    model: "claude-haiku-4-5-20251001",
-                    max_tokens: 900,
-                    system: SYSTEM_PROMPT,
-                    messages: messages as MessageCreateParams["messages"],
-                    tools: [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"],
-                },
-                {
-                    signal: controller.signal,
-                } as never
+            return await runWithAnthropicInFlightSlot(() =>
+                client.messages.create(
+                    {
+                        model: "claude-haiku-4-5-20251001",
+                        max_tokens: 900,
+                        system: SYSTEM_PROMPT,
+                        messages: messages as MessageCreateParams["messages"],
+                        tools: [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"],
+                    },
+                    {
+                        signal: controller.signal,
+                    } as never
+                )
             );
         } catch (error) {
             if (controller.signal.aborted) {

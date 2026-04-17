@@ -113,16 +113,30 @@ describe("processInboundMessage — PRO Pipeline V2 fronteira", () => {
         assert.equal(legacyCalls, 0);
     });
 
-    it("modo active: se o V2 falhar, faz fallback para o pipeline legado", async () => {
+    it("modo active: se o V2 falhar, não chama legado e envia mensagem fixa (botReply)", async () => {
         process.env.CHATBOT_PRO_PIPELINE_V2 = "1";
         process.env.CHATBOT_PRO_PIPELINE_V2_MODE = "active";
 
         const root = join(__dirname, "..", "..");
         const runProPath = join(root, "src", "pro", "pipeline", "runProPipeline.js");
         const processMsgPath = join(root, "lib", "chatbot", "processMessage.js");
+        const botSendPath = join(root, "lib", "chatbot", "botSend.js");
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cache = (require as any).cache as Record<string, unknown>;
         const prevRunPro = cache[runProPath];
+        const prevBotSend = cache[botSendPath];
+        let botReplyCalls = 0;
+
+        cache[botSendPath] = {
+            id: botSendPath,
+            filename: botSendPath,
+            loaded: true,
+            exports: {
+                botReply: async () => {
+                    botReplyCalls += 1;
+                },
+            },
+        };
 
         cache[runProPath] = {
             id: runProPath,
@@ -150,9 +164,12 @@ describe("processInboundMessage — PRO Pipeline V2 fronteira", () => {
             });
 
             assert.equal(proRuns, 1);
-            assert.equal(legacyCalls, 1);
+            assert.equal(legacyCalls, 0);
+            assert.equal(botReplyCalls, 1);
         } finally {
             cache[runProPath] = prevRunPro;
+            if (prevBotSend === undefined) delete cache[botSendPath];
+            else cache[botSendPath] = prevBotSend;
             delete cache[processMsgPath];
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             processInboundMessage = require(processMsgPath).processInboundMessage;

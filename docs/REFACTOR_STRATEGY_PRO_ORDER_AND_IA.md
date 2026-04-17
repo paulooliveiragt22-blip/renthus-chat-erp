@@ -8,7 +8,7 @@ Este documento define **fases**, **entregáveis**, **gates** e **o que não faze
 
 **Escopo:** apenas **tier PRO** e caminhos que levam a **draft / confirmação / finalização**; Starter permanece congelado salvo bug crítico.
 
-**Referências cruzadas:** [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) (árvore), [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) (blocos 0–5), [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md) (homologação), [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (decisões).
+**Referências cruzadas:** [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) (árvore), [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) (blocos 0–5), [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md) (homologação), [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (decisões), [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) (execução contínua: fila, worker, V2, limites Anthropic).
 
 ---
 
@@ -272,6 +272,9 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 | 2026-04-16 | `contracts.ts`, `proStepTransitions.ts`, `proPipelineTelemetryReasons.test.ts`, `CHATBOT_PROD.md`, `SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`, `structure_chatbot_prod.md`, esta doc | **§6 fechado:** 9 motivos `ProPipelineTelemetryReason` (&lt;10); `invalid_state_transition` só em `canTransition`; auditoria finalize (§6.1); runbook passo 4.3 replay; árvore `src/pro/` em `structure_chatbot_prod.md`; tabela de telemetria em `CHATBOT_PROD.md`. |
 | 2026-04-16 | `CHATBOT_PROD.md`, `structure_chatbot_prod.md`, esta doc | Super Admin já existente (`/superadmin`, saúde `chatbot_queue` via `getQueueHealthStats`); doc distingue fila/worker vs métricas `pro_pipeline.*`/`tags.reason` no `MetricsPort`; árvore inclui `app/superadmin/`. |
 | 2026-04-16 | `orderSlotStep.ts`, `checkoutPostProcess.ts`, `runProPipeline.ts`, `prepareOrderDraft.ts`, `orderHints.ts`, `ai.service.full.ts`, `tests/pro/orderSlotStep.test.ts`, `tests/pro/prepareDraftGuidance.test.ts`, `PRO_ORDER_SLOT_MACHINE.md`, `CHATBOT_PROD.md`, esta doc | **Slots explícitos:** `resolveProStepFromDraft` + `withResolvedSlotStep` após IA e quick actions; `pro_awaiting_address_confirmation` / `pro_awaiting_payment_method` efectivos; guidance nas tools + smoke de testes unitários. |
+| 2026-04-16 | `CHECKLIST_ARCH_PRO_SCALE.md`, `process-queue/route.ts`, `processMessage.ts`, `anthropicInFlightGate.ts`, `ai.service.full.ts`, `CHATBOT_PROD.md`, `pipeline_chatbot_prod.md`, `structure_chatbot_prod.md` | Escala/regressão: claim fallback **proibido** em `NODE_ENV=production`; worker exige canal Meta em prod; aviso `console.error` se PRO+V2≠`active` em prod; teto in-flight Anthropic no adapter PRO V2; doc alinhada. |
+| 2026-04-16 | `processMessage.ts`, `botSend.ts`, `inboundPipeline.ts`, `processMessage.proV2.test.ts`, `CHATBOT_PROD.md`, `pipeline_chatbot_prod.md`, `CHECKLIST_ARCH_PRO_SCALE.md` | Modo `active`: exceção do `runProPipeline` → `botReply` com mensagem fixa PT-BR e **return** (sem legado de pedido). |
+| 2026-04-16 | `interleaveQueueJobsByCompany.ts`, `process-queue/route.ts`, `EVIDENCE_CHECKLIST_P14.md`, docs checklist/structure/pipeline | P1.3 fairness v1 no batch; P1.4 artefacto de evidências + link em `CHATBOT_PROD.md`. |
 
 **Próximo na sequência sugerida (§0):** **R4** (quota por `company_id` / cache seguro de catálogo) **só** com evidência em produção (ver `CHATBOT_PROD.md`); unificar `applyAiStateTransition` com `resolveProStepFromDraft` (ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md) §6); ADR opcional se houver desvio desta estratégia; manter runbook e testes de regressão ao alterar confirmação ou adapters.
 

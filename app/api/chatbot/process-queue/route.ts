@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
+import { interleaveQueueJobsByCompany } from "@/lib/chatbot/interleaveQueueJobsByCompany";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
@@ -25,9 +26,8 @@ export const maxDuration = 60;
 const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 3;
 const INBOUND_COALESCE_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
-const ALLOW_CLAIM_FALLBACK =
-    process.env.CHATBOT_QUEUE_ALLOW_CLAIM_FALLBACK === "1"
-    || process.env.NODE_ENV !== "production";
+/** Em produção nunca usar claim best-effort: duplo processamento entre instâncias. */
+const ALLOW_CLAIM_FALLBACK = process.env.NODE_ENV !== "production";
 
 const REACTIVATE_MSG =
     "😔 No momento não há atendentes disponíveis.\n" +
@@ -67,12 +67,14 @@ export async function GET(req: Request) {
         .select("*")
         .in("id", jobIds);
 
+    const jobList = interleaveQueueJobsByCompany(jobs ?? []);
+
     let processed = 0;
     let failed = 0;
     let coalesced = 0;
     const seenInBatch = new Set<string>();
 
-    for (const job of jobs ?? []) {
+    for (const job of jobList) {
         try {
             const coalesceKey = buildCoalesceKey(job.thread_id, job.phone_e164, job.company_id, job.body_text);
             const shouldCoalesce =
@@ -153,7 +155,9 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
     let coalesced = 0;
     const seenInBatch = new Set<string>();
 
-    for (const job of jobs) {
+    const fallbackJobList = interleaveQueueJobsByCompany(jobs);
+
+    for (const job of fallbackJobList) {
         try {
             const coalesceKey = buildCoalesceKey(job.thread_id, job.phone_e164, job.company_id, job.body_text);
             const shouldCoalesce =
@@ -228,6 +232,16 @@ async function processJob(
         catalog_flow_id?: string;
         status_flow_id?: string;
     } | null;
+    if (process.env.NODE_ENV === "production") {
+        if (!channelRow) {
+            throw new Error("missing_active_meta_whatsapp_channel");
+        }
+        const pid = String(channelRow.from_identifier ?? "").trim();
+        const tok = resolveChannelAccessToken(channelRow).trim();
+        if (!pid) throw new Error("whatsapp_channel_missing_phone_number_id");
+        if (!tok) throw new Error("whatsapp_channel_missing_access_token");
+    }
+
     const waConfig: WaConfig = {
         phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
         accessToken:   channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
@@ -445,7 +459,7 @@ async function handleClaimError(
         );
     }
 
-    // Fallback só para ambientes de teste/dev ou quando explicitamente habilitado.
+    // Fallback só fora de produção (em prod o claim RPC é obrigatório).
     console.warn("[process-queue] RPC claim_chatbot_queue_jobs não encontrada, usando fallback:", message);
     return runFallbackProcessing(admin, t0);
 }

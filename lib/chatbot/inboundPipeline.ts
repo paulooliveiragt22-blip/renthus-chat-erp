@@ -5,8 +5,8 @@
  * **Fronteira com PRO Pipeline V2** (`lib/chatbot/processMessage.ts`):
  * - Com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO, `processInboundMessage` corre **primeiro** o V2 (`runProPipeline`).
  * - Modo **`active`**: em sucesso do V2, **não** se chama esta função na mesma mensagem (evita dupla semântica).
- * - Modo **`shadow`** ou **fallback** após erro do V2 em `active`: esta função corre na sequência (ver `CHATBOT_PROD.md`).
- * Não adicionar aqui um `return` genérico “V2 active” sem orquestração em `processInboundMessage` — quebraria o fallback.
+ * - Modo **`shadow`** (após V2 com sucesso, ou após **exceção** do V2): esta função corre na sequência (ver `CHATBOT_PROD.md`). Modo **`active`** com exceção do V2: **não** entra aqui — `processMessage.ts` envia mensagem fixa e retorna.
+ * Não adicionar aqui um `return` genérico “V2 active” sem orquestração em `processInboundMessage` — quebraria o fluxo `shadow`.
  */
 
 import type { ProcessMessageParams, CompanyConfig } from "./types";

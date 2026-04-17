@@ -152,6 +152,8 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 
 ## Critérios de aceite (release)
 
+Tabela de acompanhamento (método + placeholders): [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md).
+
 - [ ] Webhook **p95 &lt; 2 s** sem esperar Haiku.
 - [ ] **Zero** pedidos duplicados em teste de replay de `message_id` (e cenário de replay documentado por canal).
 - [ ] Com fila acumulada: degradação por **latência**, não **500 em cascata** no webhook.
@@ -275,13 +277,14 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 |----------|--------|----------------|
 | `CHATBOT_PRO_PIPELINE_V2` | `1` | Executa o motor PRO V2 (além do plano PRO). |
 | `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão técnica) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem. **Uso pretendido:** homologação / comparação de métricas — **não** é alvo de produção (duplica trabalho, custo e latência). |
-| `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, há **fallback** para o legado com log. **Alvo de produção** para empresas PRO. |
+| `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, **não** há fallback para o pipeline legado de pedido: envia-se **mensagem fixa** ao cliente (`botReply`) e termina (evita `ai_order_canonical` desalinhado de `__pro_v2_state`). **Alvo de produção** para empresas PRO. |
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
+| `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas `messages.create` em paralelo **por instância** no adapter pesado do PRO V2 (`FullAiServiceAdapter`). Não substitui quota Anthropic nem coordena entre réplicas serverless; reduz picos locais e ajuda a evitar 429 em rajada. |
 
 ### Decisões operacionais (produção — aplicar)
 
-1. **Um motor por mensagem (tenant PRO):** `CHATBOT_PRO_PIPELINE_V2=1` e **`CHATBOT_PRO_PIPELINE_V2_MODE=active`**. Manter `shadow` só em ambientes de **homologação** ou janelas curtas de comparação de telemetria — não como estado estável em produção.
-2. **Fila ligada:** `CHATBOT_QUEUE_ENABLED=1` — o webhook não deve aguardar Anthropic nem pipeline completo (SLO de ingresso: secção *Critérios de aceite (release)* neste documento).
+1. **Um motor por mensagem (tenant PRO):** `CHATBOT_PRO_PIPELINE_V2=1` e **`CHATBOT_PRO_PIPELINE_V2_MODE=active`**. Manter `shadow` só em ambientes de **homologação** ou janelas curtas de comparação de telemetria — não como estado estável em produção. Com `NODE_ENV=production` e V2 ligado em modo **≠ `active`**, o motor regista **um** `console.error` por processo a alertar o risco.
+2. **Fila ligada:** `CHATBOT_QUEUE_ENABLED=1` — o webhook não deve aguardar Anthropic nem pipeline completo (SLO de ingresso: secção *Critérios de aceite (release)* neste documento). Worker: em **`NODE_ENV=production`**, o claim **best-effort** da fila está **desligado** (só RPC atómica; fallback inseguro entre instâncias não corre, independentemente de variáveis antigas). Em produção o worker **falha o job** se não existir **canal Meta activo** resolvido para a empresa (não usa token global como substituto de tenant).
 3. **Gates antes de confirmação:** não tratar “resumo bonito” no LLM como substituto de draft válido no servidor. Só pedir confirmação explícita (“sim” / “ok”) quando itens, endereço, pagamento e regras de entrega (zona, mínimo, etc.) estiverem consistentes no estado canónico / tool `prepare_order_draft`. Falha na criação (`create_order_with_items` / RPCs associadas): mensagem ao cliente **acionável** (o que falhou + o que fazer), evitando “erro técnico” genérico e evitando pedir de novo dados já persistidos sem motivo de domínio.
 4. **Dedup de texto na fila:** `INBOUND_DEDUP_WINDOW_SECONDS` (default **20** no código) — suprime segundo job na mesma thread para o mesmo texto normalizado dentro da janela (double-tap / retry). Valores maiores reduzem duplicata e custo; valores excessivos atrasam reenvio intencional da mesma frase — ajustar só com métrica.
 5. **Métricas PRO em painel:** `PRO_PIPELINE_METRICS_STORE=supabase` alinhado ao bloco «Métricas PRO pipeline» no Super Admin (`getProPipelineHealthStats`).
@@ -299,6 +302,8 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 Estado persistido do V2: `session.context.__pro_v2_state` (ver adapter `session.repository.supabase`). O legado mantém o seu próprio `session.step` / `context.ai_order_canonical`; não misturar escritas de draft entre as duas stacks sem plano explícito (ver matriz R2 na estratégia).
 
 Homologação manual: [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md). Matriz obrigatória de falhas simuladas: secção 10 de [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+
+Checklist de arquitectura (escala / regressão): [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md).
 
 ### Telemetria PRO V2 — `tags.reason` (catálogo fechado)
 

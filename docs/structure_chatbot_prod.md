@@ -10,6 +10,8 @@ Este ficheiro descreve **a estrutura real do repositório**, **fluxo entre módu
 |----------|-----|
 | [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | **Decisões canónicas:** princípios, arquitetura por horizonte (Hobby / médio prazo / escala), gatilho wake + scheduler, **pedido PRO / IA**, fases 0–3, tetos externos, limites honestos, evidências p95/replay/carga |
 | [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) | **Estratégia de refatoração** do fecho de pedido PRO: fases R0–R4, gates, anti-padrões, critérios de “feito” |
+| [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) | **Checklist operacional** (fila, claim, canal no worker, V2 `active`, teto Anthropic in-flight, pendências P0.4 / fairness) |
+| [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md) | **P1.4** — tabela para fechar critérios de aceite em `CHATBOT_PROD.md` (p95, replay, runbook) com evidência real |
 | Este ficheiro | Árvore de código, responsabilidades, fluxo atual vs alvo, checklist por ficheiro |
 
 ---
@@ -270,7 +272,7 @@ Cruzar com checkboxes em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 | # | Tarefa | Onde tocar |
 |---|--------|------------|
 | 1.1 | Após insert em `whatsapp_messages` com sucesso e texto não vazio: **insert `chatbot_queue`** com os mesmos campos que `processJob` espera (`company_id`, `thread_id`, `phone_e164`, `message_id`, `body_text`, `profile_name`, `metadata` se necessário para catálogo/canal) | `app/api/whatsapp/incoming/route.ts` |
-| 1.2 | **Remover** `await processInboundMessage` do webhook (ou feature-flag até validação) | `incoming/route.ts` |
+| 1.2 | **Remover** `await processInboundMessage` do webhook quando **`CHATBOT_QUEUE_ENABLED=1`** (motor só no worker) — **cumprido** nesse modo. Com fila **desligada**, o `await` no webhook mantém-se como caminho legado de transição / dev local. | `incoming/route.ts` |
 | 1.3 | Garantir idempotência obrigatória da fila com índice único parcial em **`(company_id, message_id)`** (`message_id IS NOT NULL`) + tratamento de conflito no insert | `supabase/migrations/` + `incoming/route.ts` (tratar 23505 como skip) |
 | 1.4 | Confirmar RPC `claim_chatbot_queue_jobs` aplicada em **todos** os ambientes; evitar fallback em produção | `20260320700002_chatbot_queue_rpc.sql`, deploy Supabase |
 | 1.5 | Cron Vercel (ou equivalente) a chamar `GET /api/chatbot/process-queue` com auth correta | `vercel.json` / painel + `cronAuth` |
@@ -285,7 +287,7 @@ Cruzar com checkboxes em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 |---|--------|------------|
 | 2.1 | Cap rígido de histórico / persistência mínima para tools | Tabelas/serviços usados pelo PRO (ex. mensagens Anthropic); localizar writes em `lib/chatbot/pro/` |
 | 2.2 | Limite global de concorrência para chamadas Anthropic (sem fairness por empresa na v1) | Wrapper de chamada ou semáforo no caminho PRO |
-| 2.3 | Fairness por `company_id` só após métrica | `claim_*` ou camada antes da IA |
+| 2.3 | Fairness por `company_id` — **v1:** intercalar jobs do mesmo batch no worker (`interleaveQueueJobsByCompany.ts`). Ajuste no `claim_*` / pré-IA só após métrica | `process-queue/route.ts`, `lib/chatbot/interleaveQueueJobsByCompany.ts` |
 | 2.4 | Refinar somente Bloco PRO de classificação/ordenação sem alterar heurísticas do Starter | `lib/chatbot/pro/*`, com alterações mínimas em `inboundPipeline.ts` |
 
 ### Fase 3 — Escala
