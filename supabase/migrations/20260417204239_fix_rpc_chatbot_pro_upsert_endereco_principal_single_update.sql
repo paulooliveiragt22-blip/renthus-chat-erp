@@ -1,18 +1,15 @@
--- Corrige picos de "stack depth limit exceeded" (54001) em rpc_chatbot_pro_upsert_endereco_cliente:
--- o bloco final fazia dois UPDATEs globais em enderecos_cliente (desmarca todos + marca o atual).
--- Triggers AFTER UPDATE por linha podem encadear trabalho extra; um único UPDATE define o boolean
--- de todas as linhas do cliente numa só passagem.
+-- RPC chatbot PRO: um único UPDATE para is_principal (menos cascatas de trigger).
 
 CREATE OR REPLACE FUNCTION public.rpc_chatbot_pro_upsert_endereco_cliente(
     p_company_id   uuid,
     p_customer_id  uuid,
     p_payload      jsonb
 )
-RETURNS uuid
+    RETURNS uuid
     LANGUAGE plpgsql
     SECURITY DEFINER
     SET search_path = public
-AS $$
+AS $function$
 DECLARE
     v_id          uuid;
     v_apelido     text;
@@ -111,7 +108,6 @@ BEGIN
 
     RETURN v_id;
 END;
-$$;
+$function$;
 
 GRANT EXECUTE ON FUNCTION public.rpc_chatbot_pro_upsert_endereco_cliente(uuid, uuid, jsonb) TO service_role;
-
