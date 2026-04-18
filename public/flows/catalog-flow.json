@@ -42,7 +42,7 @@
             "condition": "${data.has_cart_so_far}",
             "then": [
               { "type": "TextSubheading", "text": "🛒 Carrinho atual:" },
-              { "type": "TextBody",       "text": "${data.cart_so_far}" }
+              { "type": "TextCaption",    "text": "${data.cart_so_far}" }
             ]
           },
           {
@@ -115,7 +115,7 @@
             "condition": "${data.has_cart_so_far}",
             "then": [
               { "type": "TextSubheading", "text": "🛒 Carrinho atual:" },
-              { "type": "TextBody",       "text": "${data.cart_so_far}" }
+              { "type": "TextCaption",    "text": "${data.cart_so_far}" }
             ]
           },
           {
@@ -204,7 +204,7 @@
             "text": "${data.category_name}"
           },
           {
-            "type": "TextBody",
+            "type": "TextCaption",
             "text": "Selecione os produtos desejados. No próximo passo você informa as quantidades."
           },
           {
@@ -430,7 +430,7 @@
             "text": "🛒 Seu pedido"
           },
           {
-            "type": "TextBody",
+            "type": "TextCaption",
             "text": "${data.cart_summary}"
           },
           {
@@ -588,7 +588,7 @@
             "text": "📍 Entrega"
           },
           {
-            "type": "TextBody",
+            "type": "TextCaption",
             "text": "${data.address_display}"
           },
           {
@@ -596,7 +596,7 @@
             "text": "🛒 Resumo"
           },
           {
-            "type": "TextBody",
+            "type": "TextCaption",
             "text": "${data.cart_summary}"
           },
           {
@@ -659,11 +659,11 @@
         "type": "SingleColumnLayout",
         "children": [
           {
-            "type": "TextHeading",
+            "type": "TextSubheading",
             "text": "✅ Pedido confirmado!"
           },
           {
-            "type": "TextBody",
+            "type": "TextCaption",
             "text": "Seu pedido ${data.order_code} foi recebido. Já estamos preparando! 🍺\n\nFique de olho nas próximas mensagens para atualizações."
           },
           {

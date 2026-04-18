@@ -29,7 +29,7 @@
             "text": "${data.total_count}"
           },
           {
-            "type": "TextBody",
+            "type": "TextCaption",
             "text": "${data.orders_text}"
           },
           {
@@ -53,11 +53,11 @@
         "type": "SingleColumnLayout",
         "children": [
           {
-            "type": "TextHeading",
+            "type": "TextSubheading",
             "text": "Nenhum pedido ainda 😊"
           },
           {
-            "type": "TextBody",
+            "type": "TextCaption",
             "text": "Você ainda não fez nenhum pedido por aqui. Que tal ver nosso catálogo?"
           },
           {

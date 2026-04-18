@@ -1,6 +1,6 @@
 {
-  "$schema": "https://developers.facebook.com/docs/whatsapp/flows/reference/flowjson",
   "version": "7.2",
+  "data_api_version": "3.0",
   "screens": [
     {
       "id": "CEP_SEARCH",
@@ -14,8 +14,8 @@
             "type": "Form",
             "name": "cep_form",
             "children": [
-              { "type": "TextHeading", "text": "Informe o CEP para preencher rua e bairro (opcional)" },
-              { "type": "TextInput", "name": "cep", "label": "CEP", "input-type": "numeric", "required": false }
+              { "type": "TextSubheading", "text": "Informe o CEP para preencher rua e bairro (opcional)" },
+              { "type": "TextInput", "name": "cep", "label": "CEP", "input-type": "number", "required": false }
             ]
           },
           { "type": "Footer", "label": "Continuar", "on-click-action": { "name": "data_exchange", "payload": { "cep": "${form.cep}" } } }
@@ -78,18 +78,12 @@
       "data": { "address_id": { "type": "string", "__example__": "" } },
       "layout": {
         "type": "SingleColumnLayout",
-        "children": [{ "type": "TextHeading", "text": "Endereco cadastrado!" }]
+        "children": [{ "type": "TextSubheading", "text": "Endereco cadastrado!" }]
       }
     }
   ],
   "routing_model": {
     "CEP_SEARCH": ["ADDRESS"],
     "ADDRESS": ["SUCCESS"]
-  },
-  "_meta": {
-    "flow_token_format": "{threadId}|{companyId}|address_register",
-    "endpoint": "POST /api/whatsapp/flows (encrypted)",
-    "rpc_on_submit": "rpc_chatbot_pro_create_customer_address",
-    "note": "Este JSON e um esqueleto para importacao no Flow Builder da Meta; ajuste campos `init-values` / Dynamic Data conforme a versao suportada pela sua conta. O servidor espera screens CEP_SEARCH, ADDRESS e SUCCESS com os nomes de campo indicados no handler `address_register`."
   }
 }
