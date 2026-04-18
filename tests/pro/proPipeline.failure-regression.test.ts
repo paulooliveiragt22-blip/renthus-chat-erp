@@ -190,6 +190,39 @@ describe("pro pipeline - failure regression", () => {
         );
     });
 
+    it("IA: persiste searchProdutoEmbalagemIds quando o adapter devolve a allowlist", async () => {
+        const out = await runProPipeline(
+            { ...baseInput(), inboundText: "quero heineken" },
+            deps({
+                state: baseState(),
+                intent: "order_intent",
+                aiResult: {
+                    action: "reply",
+                    replyText: "Segue o catálogo.",
+                    signals: { toolRoundsUsed: 1, intentMarker: "ok" },
+                    updatedSearchProdutoEmbalagemIds: ["emb-1", "emb-2"],
+                },
+            })
+        );
+        assert.deepEqual(out.nextState.searchProdutoEmbalagemIds, ["emb-1", "emb-2"]);
+    });
+
+    it("IA: omitir updatedSearchProdutoEmbalagemIds preserva allowlist já na sessão", async () => {
+        const out = await runProPipeline(
+            { ...baseInput(), inboundText: "uma caixa" },
+            deps({
+                state: { ...baseState(), searchProdutoEmbalagemIds: ["emb-keep"] },
+                intent: "order_intent",
+                aiResult: {
+                    action: "reply",
+                    replyText: "Ok.",
+                    signals: { toolRoundsUsed: 0, intentMarker: "ok" },
+                },
+            })
+        );
+        assert.deepEqual(out.nextState.searchProdutoEmbalagemIds, ["emb-keep"]);
+    });
+
     it("IA retornando inválido (sem replyText): aiStage aplica fallback seguro", async () => {
         const out = await runProPipeline(
             { ...baseInput(), inboundText: "quero 2 skol" },

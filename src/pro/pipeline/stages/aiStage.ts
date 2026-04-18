@@ -53,6 +53,7 @@ export async function aiStage(params: {
         replyText,
         updatedDraft: raw?.updatedDraft ?? context.session.draft,
         updatedHistory: raw?.updatedHistory ?? context.session.aiHistory,
+        updatedSearchProdutoEmbalagemIds: raw?.updatedSearchProdutoEmbalagemIds,
         signals: {
             toolRoundsUsed: Number(raw?.signals?.toolRoundsUsed ?? 0),
             intentMarker: raw?.signals?.intentMarker ?? null,
@@ -65,7 +66,7 @@ export async function aiStage(params: {
         draft: aiResult.updatedDraft ?? null,
         aiHistory: aiResult.updatedHistory ?? [],
         searchProdutoEmbalagemIds:
-            aiResult.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],
+            raw?.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],
     };
 
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];
