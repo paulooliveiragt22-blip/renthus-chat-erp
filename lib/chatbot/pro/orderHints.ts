@@ -27,11 +27,7 @@ export async function buildOrderHintsPayload(params: {
     const saved = await resolveDefaultAddressForCustomer(admin, companyId, customer.id);
     const savedList = await listCustomerAddressesForCustomer(admin, companyId, customer.id);
 
-    const { data: favs } = await admin.rpc("get_customer_favorites", {
-        p_company_id:     companyId,
-        p_customer_phone: phoneE164,
-        p_limit:            5,
-    });
+    const favorite_lines = await loadCustomerFavoriteLinesSafe(admin, companyId, phoneE164);
 
     return {
         /** Lembrete fixo para o modelo: ordem de tools e reaproveitamento de draft. */
@@ -57,10 +53,34 @@ export async function buildOrderHintsPayload(params: {
             cep:          r.cep,
             is_principal: r.is_principal,
         })),
-        favorite_lines: (favs ?? []).map((f: { id: string; name?: string; description?: string; price?: number }) => ({
-            produto_embalagem_id: f.id,
-            label:                f.name ?? f.description ?? "",
-            price:                f.price,
-        })),
+        favorite_lines,
     };
+}
+
+type FavoriteRpcRow = { id: string; name?: string; description?: string; price?: number };
+
+/**
+ * Favoritos são opcionais: falha do RPC (ex. 400 em produção) não deve quebrar get_order_hints
+ * nem gerar resposta HTTP de erro — seguimos sem favorite_lines.
+ */
+async function loadCustomerFavoriteLinesSafe(
+    admin: SupabaseClient,
+    companyId: string,
+    phoneE164: string
+): Promise<Array<{ produto_embalagem_id: string; label: string; price: number }>> {
+    const { data, error } = await admin.rpc("get_customer_favorites", {
+        p_company_id:       companyId,
+        p_customer_phone:   phoneE164,
+        p_limit:            5,
+    });
+    if (error) {
+        console.warn("[order_hints] get_customer_favorites ignorado:", error.code ?? "", error.message ?? "");
+        return [];
+    }
+    const rows: FavoriteRpcRow[] = Array.isArray(data) ? data : data ? [data as FavoriteRpcRow] : [];
+    return rows.map((f) => ({
+        produto_embalagem_id: f.id,
+        label:                f.name ?? f.description ?? "",
+        price:                Number(f.price ?? 0),
+    }));
 }

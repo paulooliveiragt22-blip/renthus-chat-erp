@@ -304,7 +304,13 @@ export async function prepareOrderDraftFromTool(
 
     const total_items = roundBrl(itemsOut.reduce((s, i) => s + i.unit_price * i.quantity, 0));
     const grand_total = roundBrl(total_items + delivery_fee);
-    if (delivery_min_order != null && grand_total < delivery_min_order) {
+    // Só avisa pedido mínimo quando já há pelo menos uma linha de item válida no catálogo;
+    // evita misturar com erros de UUID/pagamento e confundir o cliente e o modelo.
+    if (
+        itemsOut.length > 0 &&
+        delivery_min_order != null &&
+        grand_total < delivery_min_order
+    ) {
         errors.push(`Pedido mínimo para entrega: R$ ${delivery_min_order.toFixed(2).replace(".", ",")}.`);
     }
 

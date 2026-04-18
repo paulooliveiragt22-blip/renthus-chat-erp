@@ -57,15 +57,20 @@ export async function GET(request: NextRequest) {
     resolvedCategoryName = cat?.name ?? null;
   }
 
-  // 1. Favoritos do cliente (se phone fornecido)
+  // 1. Favoritos do cliente (se phone fornecido) — RPC opcional; falha não derruba o catálogo
   let favorites: any[] = [];
   if (customerPhone) {
-    const { data } = await admin.rpc("get_customer_favorites", {
+    const { data, error: favError } = await admin.rpc("get_customer_favorites", {
       p_company_id:     companyId,
       p_customer_phone: customerPhone,
       p_limit:          5,
     });
-    favorites = data ?? [];
+    if (favError) {
+      console.warn("[catalog] get_customer_favorites ignorado:", favError.code ?? "", favError.message ?? "");
+      favorites = [];
+    } else {
+      favorites = Array.isArray(data) ? data : data ? [data] : [];
+    }
   }
 
   // 2. Top produtos

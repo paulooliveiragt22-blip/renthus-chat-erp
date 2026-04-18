@@ -103,13 +103,18 @@ export async function fetchFlowFavoriteItems(
     customerPhone: string | null
 ): Promise<Array<Record<string, unknown>>> {
     if (!customerPhone) return [];
-    const { data } = await admin.rpc("get_customer_favorites", {
+    const { data, error } = await admin.rpc("get_customer_favorites", {
         p_company_id:     companyId,
         p_customer_phone: customerPhone,
         p_limit:          5,
     });
-    if (!data?.length) return [];
-    return (data as any[]).map((f: any) => {
+    if (error) {
+        console.warn("[catalog_flow] get_customer_favorites ignorado:", error.code ?? "", error.message ?? "");
+        return [];
+    }
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    if (!rows.length) return [];
+    return (rows as any[]).map((f: any) => {
         const price = `R$ ${(Number.parseFloat(f.price) || 0).toFixed(2).replaceAll(".", ",")}`;
         return {
             id:          f.id,
