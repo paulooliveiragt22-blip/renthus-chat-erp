@@ -39,6 +39,13 @@
           {
             "type": "Form",
             "name": "addr_form",
+            "init-values": {
+              "rua": "${data.rua_init}",
+              "bairro": "${data.bairro_init}",
+              "cidade": "${data.cidade_init}",
+              "estado": "${data.estado_init}",
+              "cep": "${data.cep_prefill}"
+            },
             "children": [
               { "type": "TextInput", "name": "apelido", "label": "Apelido (ex.: Casa)", "required": true },
               { "type": "TextInput", "name": "rua", "label": "Rua / logradouro", "required": true },

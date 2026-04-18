@@ -80,21 +80,27 @@ function formatDraftAddressLine(draft: OrderDraft): string {
         .join(", ");
 }
 
-/** Endereço salvo em `enderecos_cliente` ou digitado: botões Confirmar / Alterar antes do resumo final. */
+/** Endereço salvo em `enderecos_cliente` ou digitado: confirmar; salvo também permite cadastrar outro via flow. */
 function buildAddressConfirmationMessage(draft: OrderDraft): OutboundMessage[] {
     if (!isAddressStructurallyComplete(draft.address)) return [];
     const addr = formatDraftAddressLine(draft);
     const confirmId = draft.address?.enderecoClienteId
         ? "pro_confirm_saved_address"
         : "pro_confirm_typed_address";
+    const buttons = draft.address?.enderecoClienteId
+        ? [
+              { id: confirmId, title: "Confirmar" },
+              { id: "pro_new_address_flow", title: "Novo endereco" },
+          ]
+        : [
+              { id: confirmId, title: "Confirmar" },
+              { id: "pro_edit_delivery_address", title: "Alterar" },
+          ];
     return [
         {
             kind: "buttons",
             text: `Confirma a entrega neste endereco?\n\n${addr}`,
-            buttons: [
-                { id: confirmId, title: "Confirmar" },
-                { id: "pro_edit_delivery_address", title: "Alterar" },
-            ],
+            buttons,
         },
     ];
 }
@@ -124,6 +130,14 @@ function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
             (state.step === "pro_collecting_order" &&
                 state.draft.items.length > 0 &&
                 isAddressStructurallyComplete(state.draft.address))
+        ) {
+            return [];
+        }
+        /** Itens no rascunho mas endereco ainda incompleto: não mostrar pagamento até cadastro/texto. */
+        if (
+            state.step === "pro_collecting_order" &&
+            state.draft.items.length > 0 &&
+            !isAddressStructurallyComplete(state.draft.address)
         ) {
             return [];
         }
@@ -381,7 +395,7 @@ export function applyQuickAction(
         };
     }
 
-    if (action === "pro_edit_delivery_address" && state.draft) {
+    if ((action === "pro_edit_delivery_address" || action === "pro_new_address_flow") && state.draft) {
         const merged: ProSessionState = {
             ...state,
             deliveryAddressUiConfirmed: false,
@@ -436,12 +450,46 @@ export function checkoutPostProcess(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
     mode: "direct_reply" | "ai";
+    /** Flow Meta cadastro de endereco (apos carrinho com itens). */
+    flowAddressRegister?: FlowAddressRegisterQuickOpts | null;
+    /** Resultado de `buildOrderHintsPayload` quando o checkout precisa decidir cadastro. */
+    orderHints?: Record<string, unknown> | null;
 }): { state: ProSessionState; outbound: OutboundMessage[] } {
     let nextState = params.state;
     const outbound = [...params.outbound];
 
     const addrComplete =
         Boolean(nextState.draft?.address) && isAddressStructurallyComplete(nextState.draft!.address);
+    const needAddrRegistration = params.orderHints?.requires_address_flow_registration === true;
+    const showAddressRegistrationPrompt =
+        params.mode === "ai" &&
+        Boolean(params.flowAddressRegister?.flowId) &&
+        needAddrRegistration &&
+        nextState.draft &&
+        nextState.draft.items.length > 0 &&
+        !addrComplete &&
+        nextState.deliveryAddressUiConfirmed !== true;
+    if (showAddressRegistrationPrompt && params.flowAddressRegister) {
+        const ref = params.flowAddressRegister;
+        outbound.push(
+            {
+                kind: "text",
+                text:
+                    "Seu pedido ja tem produtos. Para entregar, cadastre o endereco completo (rua, numero, bairro, cidade e UF). " +
+                    "O CEP e opcional e ajuda a preencher automaticamente. Use o formulario abaixo ou descreva tudo em uma mensagem.",
+            },
+            {
+                kind: "flow",
+                flow: {
+                    flowId:    ref.flowId,
+                    flowToken: `${ref.threadId}|${ref.companyId}|address_register`,
+                    bodyText:
+                        "Abra o formulario para cadastrar o endereco de entrega. Voce tambem pode enviar o endereco em texto no chat.",
+                    ctaLabel: "Abrir cadastro",
+                },
+            }
+        );
+    }
     const showAddressConfirm =
         params.mode === "ai" &&
         nextState.draft &&

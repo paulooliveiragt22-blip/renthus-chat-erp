@@ -22,8 +22,13 @@ import {
     checkoutPostProcess,
     checkoutPostProcessForQuickAction,
     strictCheckoutStructuredGate,
+    type FlowAddressRegisterQuickOpts,
 } from "./stages/checkoutPostProcess";
-import { withResolvedSlotStep, withResolvedSlotStepUnlessAwaitingConfirmation } from "./orderSlotStep";
+import {
+    isAddressStructurallyComplete,
+    withResolvedSlotStep,
+    withResolvedSlotStepUnlessAwaitingConfirmation,
+} from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
@@ -344,28 +349,6 @@ export async function runProPipeline(
         };
     }
 
-    let menuOrderHints: Record<string, unknown> | null = null;
-    if (
-        (decision.intent === "greeting" || decision.intent === "unknown") &&
-        deps.admin &&
-        input.flowAddressRegisterId
-    ) {
-        try {
-            menuOrderHints = await buildOrderHintsPayload({
-                admin:     deps.admin,
-                companyId: input.tenant.companyId,
-                phoneE164: input.tenant.phoneE164,
-                name:      input.actor.profileName ?? null,
-            });
-        } catch (err) {
-            deps.logger?.warn("pro_pipeline.prefetch_menu_order_hints_failed", {
-                companyId: input.tenant.companyId,
-                threadId:  input.tenant.threadId,
-                message:   err instanceof Error ? err.message : String(err),
-            });
-        }
-    }
-
     const routed = routeStage({
         state: guarded.state,
         decision,
@@ -373,8 +356,6 @@ export async function runProPipeline(
         tenant: input.tenant,
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
-        flowAddressRegisterId: input.flowAddressRegisterId ?? null,
-        orderHints:            menuOrderHints,
     });
 
     let nextState = routed.state;
@@ -382,6 +363,7 @@ export async function runProPipeline(
 
     let invalidAiSanitized = false;
     let aiServiceErrorCode: string | undefined;
+    let checkoutOrderHints: Record<string, unknown> | null = null;
     if (routed.mode === "ai") {
         let aiContext: PipelineContext = { ...context, session: nextState };
         if (decision.intent === "order_intent" && deps.admin && nextState.customerId) {
@@ -420,11 +402,43 @@ export async function runProPipeline(
             toolRoundsUsed: ai.aiResult.signals.toolRoundsUsed,
             invalidAiSanitized,
         });
+        const d = nextState.draft;
+        if (
+            deps.admin &&
+            d &&
+            d.items.length > 0 &&
+            !isAddressStructurallyComplete(d.address ?? null)
+        ) {
+            try {
+                checkoutOrderHints = await buildOrderHintsPayload({
+                    admin:     deps.admin,
+                    companyId: input.tenant.companyId,
+                    phoneE164: input.tenant.phoneE164,
+                    name:      input.actor.profileName ?? null,
+                });
+            } catch (err) {
+                deps.logger?.warn("pro_pipeline.prefetch_checkout_order_hints_failed", {
+                    companyId: input.tenant.companyId,
+                    threadId:  input.tenant.threadId,
+                    message:   err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
     }
+    const flowIdTrim = String(input.flowAddressRegisterId ?? "").trim();
+    const flowRef: FlowAddressRegisterQuickOpts | null = flowIdTrim
+        ? {
+              flowId:    flowIdTrim,
+              threadId:  input.tenant.threadId,
+              companyId: input.tenant.companyId,
+          }
+        : null;
     const checkout = checkoutPostProcess({
         state: nextState,
         outbound,
         mode: routed.mode,
+        flowAddressRegister: flowRef,
+        orderHints:          checkoutOrderHints,
     });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;

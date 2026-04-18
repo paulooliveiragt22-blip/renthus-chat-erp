@@ -112,6 +112,26 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.equal(r.handled, false);
     });
 
+    it("pro_new_address_flow com flow: mesmo comportamento que Alterar", () => {
+        const r = applyQuickAction(
+            "pro_new_address_flow",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft(),
+            }),
+            {
+                flowAddressRegister: {
+                    flowId: "flow-meta-id",
+                    threadId: "thread-1",
+                    companyId: "company-1",
+                },
+            }
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.outbound.length, 1);
+        assert.equal(r.outbound[0]?.kind, "flow");
+    });
+
     it("pro_edit_delivery_address com flow configurado: inclui mensagem de flow", () => {
         const r = applyQuickAction(
             "pro_edit_delivery_address",

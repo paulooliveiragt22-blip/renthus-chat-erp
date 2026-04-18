@@ -15,6 +15,7 @@ const BTN_CONFIRM_ADDRESS = new Set([
     "pro_confirm_saved_address",
     "pro_confirm_typed_address",
     "pro_edit_delivery_address",
+    "pro_new_address_flow",
 ]);
 
 const HUMAN_RE = /\b(?:atendente|humano|suporte|falar\s+com)\b/iu;
