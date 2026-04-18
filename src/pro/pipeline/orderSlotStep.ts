@@ -1,14 +1,16 @@
 import type { DraftAddress, OrderDraft, ProSessionState, ProStep } from "@/src/types/contracts";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 
-/** Endereço mínimo para entrega (rua, número, bairro, cidade — colunas em `enderecos_cliente`). */
+/** Endereço mínimo para entrega (rua, número, bairro, cidade, UF — colunas em `enderecos_cliente`). */
 export function isAddressStructurallyComplete(address: DraftAddress | null): boolean {
     if (!address) return false;
+    const uf = address.estado?.trim().toUpperCase() ?? "";
     return Boolean(
         address.logradouro?.trim() &&
             address.numero?.trim() &&
             address.bairro?.trim() &&
-            address.cidade?.trim()
+            address.cidade?.trim() &&
+            uf.length === 2
     );
 }
 
@@ -20,6 +22,7 @@ export function deliveryAddressFingerprint(address: DraftAddress | null): string
         address.numero?.trim() ?? "",
         address.bairro?.trim() ?? "",
         address.cidade?.trim() ?? "",
+        address.estado?.trim().toUpperCase() ?? "",
         address.enderecoClienteId ?? "",
     ].join("|");
 }

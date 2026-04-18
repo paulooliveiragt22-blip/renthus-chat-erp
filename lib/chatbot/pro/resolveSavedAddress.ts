@@ -41,14 +41,17 @@ export function buildAiAddressFromSavedClienteRow(row: SavedClienteEnderecoRow):
         }
     }
     if (!logradouro || !numero || !bairro) return null;
+    const cidade = row.cidade ? String(row.cidade).trim() : "";
+    const estado = row.estado ? String(row.estado).trim().toUpperCase().slice(0, 2) : "";
+    if (!cidade || estado.length !== 2) return null;
     return {
         logradouro,
         numero,
         bairro,
         complemento: row.complemento ? String(row.complemento).trim() : null,
         apelido: row.apelido ? String(row.apelido).trim() : null,
-        cidade: row.cidade ? String(row.cidade).trim() : null,
-        estado: row.estado ? String(row.estado).trim() : null,
+        cidade,
+        estado,
         cep: row.cep ? String(row.cep).trim() : null,
         endereco_cliente_id: row.id as string,
     };

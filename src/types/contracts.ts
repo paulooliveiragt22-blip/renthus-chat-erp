@@ -142,6 +142,8 @@ export interface ProPipelineInput {
     flowCatalogId?: string | null;
     /** WhatsApp Flow de status de pedido (por canal em `provider_metadata.status_flow_id` ou env). */
     flowStatusId?: string | null;
+    /** Flow Meta para cadastro obrigatório de endereço (cidade/UF); `provider_metadata.address_register_flow_id`. */
+    flowAddressRegisterId?: string | null;
 }
 
 export interface ProPipelineOutput {
@@ -191,6 +193,7 @@ export interface PipelineContext {
     nowIso: string;
     flowCatalogId?: string | null;
     flowStatusId?: string | null;
+    flowAddressRegisterId?: string | null;
     /**
      * Snapshot do mesmo payload de `get_order_hints`, carregado no servidor antes da IA
      * quando há `order_intent` e `session.customerId` — endereços/favoritos não dependem só da tool.

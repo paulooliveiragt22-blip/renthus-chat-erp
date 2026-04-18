@@ -23,8 +23,11 @@ export async function buildOrderHintsPayload(params: {
         return {
             flow_reminder_pt: FLOW_REMINDER_PT,
             customer_known: false,
+            requires_address_flow_registration: true,
+            address_registration_reason_pt:
+                "Primeiro contato: cadastre endereco completo (rua, numero, bairro, cidade e UF) pelo formulario enviado pelo botao.",
             hint:
-                "Primeiro pedido: antes de pedir endereço, confira se saved_addresses veio vazio. Se vazio, peça logradouro, número, bairro e (se possível) cidade/CEP em campos separados.",
+                "Primeiro pedido: se o canal tiver Flow de cadastro, envie-o; senao peca logradouro, numero, bairro, cidade e UF (2 letras) em campos separados; CEP opcional para preencher via ViaCEP.",
         };
     }
 
@@ -36,12 +39,23 @@ export async function buildOrderHintsPayload(params: {
         const parsed = buildAiAddressFromSavedClienteRow(r);
         if (parsed) continue;
         if (!(r.logradouro?.trim() || r.numero?.trim() || r.bairro?.trim())) continue;
+        const missingCity = !r.cidade?.trim();
+        const missingUf = !r.estado?.trim() || String(r.estado).trim().length < 2;
         saved_addresses_incomplete.push({
             id: r.id,
-            reason_pt:
-                "Cadastro com rua/número/bairro incompletos ou em formato que o servidor não separou; peça ao cliente completar ou confirme linha por linha.",
+            reason_pt: missingCity || missingUf
+                ? "Cadastro sem cidade ou sem UF valida; peca ao cliente completar ou use o Flow de endereco."
+                : "Cadastro com rua/número/bairro incompletos ou em formato que o servidor não separou; peça ao cliente completar ou confirme linha por linha.",
         });
     }
+
+    const requires_address_flow_registration =
+        savedList.length === 0 || saved_addresses_incomplete.length > 0;
+    const address_registration_reason_pt = requires_address_flow_registration
+        ? savedList.length === 0
+            ? "Cliente sem enderecos cadastrados; use o Flow ou colete rua, numero, bairro, cidade e UF."
+            : "Ha endereco cadastral incompleto (ex.: falta cidade ou UF); peca para completar pelo Flow ou texto estruturado."
+        : null;
 
     const favorite_lines = await loadCustomerFavoriteLinesSafe(admin, companyId, phoneE164);
 
@@ -49,6 +63,10 @@ export async function buildOrderHintsPayload(params: {
         /** Lembrete fixo para o modelo: ordem de tools e reaproveitamento de draft. */
         flow_reminder_pt: FLOW_REMINDER_PT,
         customer_known: true,
+        requires_address_flow_registration,
+        ...(address_registration_reason_pt
+            ? { address_registration_reason_pt }
+            : {}),
         customer_id:    customer.id,
         saved_address:  saved
             ? {

@@ -199,8 +199,9 @@ export async function prepareOrderDraftFromTool(
         }
     }
 
-    if (address && (!address.logradouro || !address.numero || !address.bairro || !address.cidade?.trim())) {
-        errors.push("Endereço incompleto: obrigatório rua, número, bairro e cidade.");
+    const ufOk = address?.estado && String(address.estado).trim().length >= 2;
+    if (address && (!address.logradouro || !address.numero || !address.bairro || !address.cidade?.trim() || !ufOk)) {
+        errors.push("Endereço incompleto: obrigatório rua, número, bairro, cidade e UF (2 letras).");
     }
 
     const pm = normPm(body.payment_method ?? null);

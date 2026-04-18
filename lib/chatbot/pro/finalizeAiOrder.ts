@@ -25,11 +25,13 @@ export async function revalidateDraftAgainstDb(
             return { ok: false, message: `Estoque insuficiente para "${it.product_name}".` };
         }
     }
+    const ufOk = draft.address?.estado && String(draft.address.estado).trim().length >= 2;
     if (
         !draft.address?.logradouro ||
         !draft.address?.numero ||
         !draft.address?.bairro ||
-        !draft.address?.cidade?.trim()
+        !draft.address?.cidade?.trim() ||
+        !ufOk
     ) {
         return { ok: false, message: "Endereço incompleto." };
     }
@@ -96,7 +98,7 @@ export async function tryFinalizeAiOrderFromDraft(params: {
         return {
             ok: false,
             customerMessage:
-                "Não consegui salvar o endereço. Confira rua, número, bairro e cidade e tente de novo. 😊",
+                "Não consegui salvar o endereço. Confira rua, número, bairro, cidade e UF e tente de novo. 😊",
         };
     }
 

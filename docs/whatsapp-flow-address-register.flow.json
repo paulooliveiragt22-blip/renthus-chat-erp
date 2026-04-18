@@ -1,0 +1,95 @@
+{
+  "$schema": "https://developers.facebook.com/docs/whatsapp/flows/reference/flowjson",
+  "version": "7.2",
+  "screens": [
+    {
+      "id": "CEP_SEARCH",
+      "title": "CEP (opcional)",
+      "terminal": false,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "cep_form",
+            "children": [
+              { "type": "TextHeading", "text": "Informe o CEP para preencher rua e bairro (opcional)" },
+              { "type": "TextInput", "name": "cep", "label": "CEP", "input-type": "numeric", "required": false }
+            ]
+          },
+          { "type": "Footer", "label": "Continuar", "on-click-action": { "name": "data_exchange", "payload": { "cep": "${form.cep}" } } }
+        ]
+      }
+    },
+    {
+      "id": "ADDRESS",
+      "title": "Endereco",
+      "terminal": false,
+      "data": {
+        "rua_init": { "type": "string", "__example__": "" },
+        "bairro_init": { "type": "string", "__example__": "" },
+        "cidade_init": { "type": "string", "__example__": "" },
+        "estado_init": { "type": "string", "__example__": "" },
+        "cep_prefill": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "addr_form",
+            "children": [
+              { "type": "TextInput", "name": "apelido", "label": "Apelido (ex.: Casa)", "required": true },
+              { "type": "TextInput", "name": "rua", "label": "Rua / logradouro", "required": true },
+              { "type": "TextInput", "name": "numero", "label": "Numero", "required": true },
+              { "type": "TextInput", "name": "complemento", "label": "Complemento", "required": false },
+              { "type": "TextInput", "name": "bairro", "label": "Bairro", "required": true },
+              { "type": "TextInput", "name": "cidade", "label": "Cidade", "required": true },
+              { "type": "TextInput", "name": "estado", "label": "UF (2 letras)", "required": true },
+              { "type": "TextInput", "name": "cep", "label": "CEP (8 digitos, opcional)", "required": false }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Salvar",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "apelido": "${form.apelido}",
+                "rua": "${form.rua}",
+                "numero": "${form.numero}",
+                "complemento": "${form.complemento}",
+                "bairro": "${form.bairro}",
+                "cidade": "${form.cidade}",
+                "estado": "${form.estado}",
+                "cep": "${form.cep}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "SUCCESS",
+      "title": "Pronto",
+      "terminal": true,
+      "success": true,
+      "data": { "address_id": { "type": "string", "__example__": "" } },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [{ "type": "TextHeading", "text": "Endereco cadastrado!" }]
+      }
+    }
+  ],
+  "routing_model": {
+    "CEP_SEARCH": ["ADDRESS"],
+    "ADDRESS": ["SUCCESS"]
+  },
+  "_meta": {
+    "flow_token_format": "{threadId}|{companyId}|address_register",
+    "endpoint": "POST /api/whatsapp/flows (encrypted)",
+    "rpc_on_submit": "rpc_chatbot_pro_create_customer_address",
+    "note": "Este JSON e um esqueleto para importacao no Flow Builder da Meta; ajuste campos `init-values` / Dynamic Data conforme a versao suportada pela sua conta. O servidor espera screens CEP_SEARCH, ADDRESS e SUCCESS com os nomes de campo indicados no handler `address_register`."
+  }
+}

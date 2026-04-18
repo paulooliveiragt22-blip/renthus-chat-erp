@@ -11,8 +11,8 @@ describe("buildAiAddressFromSavedClienteRow", () => {
             numero: null,
             complemento: null,
             bairro: null,
-            cidade: null,
-            estado: null,
+            cidade: "Sorriso",
+            estado: "MT",
             cep: null,
             is_principal: true,
         });

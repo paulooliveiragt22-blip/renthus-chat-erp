@@ -27,6 +27,8 @@ import {
 } from "@/lib/whatsapp/flows/catalogFlowHelpers";
 import { resolveDeliveryForNeighborhood, buildDeliveryExpectationText } from "@/lib/delivery/policy";
 import { lookupCep } from "@/lib/address/cepLookup";
+import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
+import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
 
 export const runtime = "nodejs";
 
@@ -313,6 +315,157 @@ export async function POST(req: NextRequest) {
             },
             aesKey, iv
         );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FLOW CADASTRO DE ENDEREÇO  (flowType === "address_register")
+    // flow_token: threadId|companyId|address_register — CEP_SEARCH → ADDRESS → SUCCESS
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (flowType === "address_register") {
+        const customerPhone: string | null = earlyThreadPhone
+            ? (earlyThreadPhone.startsWith("+") ? earlyThreadPhone : `+${earlyThreadPhone}`)
+            : null;
+
+        if (!customerPhone) {
+            return encryptedError("thread_not_found", aesKey, iv);
+        }
+
+        if (action === "INIT") {
+            return encryptedOk(
+                {
+                    version: "3.0",
+                    screen:  "CEP_SEARCH",
+                    data:    {
+                        hint: "Informe o CEP para preencher rua e bairro automaticamente (opcional). Depois complete cidade e UF.",
+                    },
+                },
+                aesKey,
+                iv
+            );
+        }
+
+        if (action === "data_exchange") {
+            const screenNorm = String(screen ?? "").trim().toUpperCase();
+
+            if (screenNorm === "CEP_SEARCH") {
+                const rawCep = String(formData?.cep ?? "").replaceAll(/\D/g, "");
+                let ruaInit = "";
+                let bairroInit = "";
+                let cidadeInit = "";
+                let estadoInit = "";
+                if (rawCep.length === 8) {
+                    const viaCepData = await lookupCep(rawCep, 3000);
+                    if (viaCepData) {
+                        ruaInit = viaCepData.logradouro ?? "";
+                        bairroInit = viaCepData.bairro ?? "";
+                        cidadeInit = viaCepData.localidade ?? "";
+                        estadoInit = viaCepData.uf ?? "";
+                    }
+                }
+                return encryptedOk(
+                    {
+                        version: "3.0",
+                        screen:  "ADDRESS",
+                        data:    {
+                            rua_init:     ruaInit,
+                            bairro_init:  bairroInit,
+                            cidade_init:  cidadeInit,
+                            estado_init:  estadoInit,
+                            cep_prefill:  rawCep.length === 8 ? rawCep : "",
+                        },
+                    },
+                    aesKey,
+                    iv
+                );
+            }
+
+            if (screenNorm === "ADDRESS") {
+                const rua = String(formData?.rua ?? "").trim();
+                const numero = String(formData?.numero ?? "").trim();
+                const complemento = String(formData?.complemento ?? "").trim();
+                const bairroText = String(formData?.bairro ?? "").trim();
+                const cidade = String(formData?.cidade ?? "").trim();
+                const estado = String(formData?.estado ?? "").trim();
+                const cepDigits = String(formData?.cep ?? "").replaceAll(/\D/g, "").slice(0, 8);
+                const apelido = String(formData?.apelido ?? "").trim() || "Principal";
+
+                if (!rua || !numero || !bairroText || !cidade || estado.length < 2) {
+                    return encryptedError("missing_address_fields", aesKey, iv);
+                }
+
+                const customer = await getOrCreateCustomer(
+                    admin,
+                    companyId,
+                    customerPhone,
+                    earlyThreadProfileName ?? null
+                );
+                if (!customer?.id) {
+                    return encryptedError("customer_create_failed", aesKey, iv);
+                }
+
+                await admin
+                    .from("chatbot_sessions")
+                    .update({ customer_id: customer.id })
+                    .eq("thread_id", threadId);
+
+                const persisted = await persistEnderecoClienteFromFlow(admin, {
+                    companyId,
+                    customerId:        customer.id,
+                    existingAddressId: null,
+                    apelido,
+                    logradouro:        rua,
+                    numero,
+                    complemento:     complemento || null,
+                    bairro:            bairroText,
+                    cidade,
+                    estado,
+                    cep:               cepDigits.length === 8 ? cepDigits : null,
+                });
+                if (!persisted.ok) {
+                    console.error("[flows/address_register] persist failed:", persisted.message);
+                    return encryptedError("address_persist_failed", aesKey, iv);
+                }
+
+                const { data: sess } = await admin
+                    .from("chatbot_sessions")
+                    .select("context")
+                    .eq("thread_id", threadId)
+                    .maybeSingle();
+                const ctx = (sess?.context ?? {}) as Record<string, unknown>;
+                await admin
+                    .from("chatbot_sessions")
+                    .update({
+                        context: {
+                            ...ctx,
+                            flow_address_register_done:     true,
+                            registered_endereco_cliente_id: persisted.id,
+                        },
+                    })
+                    .eq("thread_id", threadId);
+
+                if (customerPhone) {
+                    await sendWhatsAppMessage(
+                        customerPhone,
+                        "Endereco cadastrado com sucesso! Ja pode enviar seu pedido por aqui.",
+                        waConfig
+                    );
+                }
+
+                return encryptedOk(
+                    {
+                        version: "3.0",
+                        screen:  "SUCCESS",
+                        data:    { address_id: persisted.id },
+                    },
+                    aesKey,
+                    iv
+                );
+            }
+
+            return encryptedError("unknown_address_register_screen", aesKey, iv);
+        }
+
+        return encryptedError("unknown_address_register_action", aesKey, iv);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -917,14 +1070,18 @@ export async function POST(req: NextRequest) {
                 }
 
                 // Caminho B: cliente digitou CEP → ADDRESS com preenchimento automático
-                let ruaInit    = "";
+                let ruaInit = "";
                 let bairroInit = "";
+                let cidadeInit = "";
+                let estadoInit = "";
 
                 if (rawCep.length === 8) {
                     const viaCepData = await lookupCep(rawCep, 3000);
                     if (viaCepData) {
-                        ruaInit    = viaCepData.logradouro ?? "";
+                        ruaInit = viaCepData.logradouro ?? "";
                         bairroInit = viaCepData.bairro ?? "";
+                        cidadeInit = viaCepData.localidade ?? "";
+                        estadoInit = viaCepData.uf ?? "";
                     } else {
                         console.warn("[flows/catalog] ViaCEP falhou para CEP:", rawCep);
                     }
@@ -940,6 +1097,8 @@ export async function POST(req: NextRequest) {
                         data:    {
                             rua_init:     ruaInit,
                             bairro_init:  bairroInit,
+                            cidade_init:  cidadeInit,
+                            estado_init:  estadoInit,
                             cart_summary: formatCart(cart),
                         },
                     } as Record<string, unknown>,
@@ -949,13 +1108,16 @@ export async function POST(req: NextRequest) {
 
             // ── ADDRESS → valida campos → salva endereço → PAYMENT ───────────
             if (screenNorm === "ADDRESS") {
-                const rua         = String(formData?.rua         ?? "").trim();
-                const numero      = String(formData?.numero      ?? "").trim();
+                const rua = String(formData?.rua ?? "").trim();
+                const numero = String(formData?.numero ?? "").trim();
                 const complemento = String(formData?.complemento ?? "").trim();
-                const bairroText  = String(formData?.bairro      ?? "").trim();
-                const apelido     = String(formData?.apelido     ?? "").trim();
+                const bairroText = String(formData?.bairro ?? "").trim();
+                const cidade = String(formData?.cidade ?? "").trim();
+                const estado = String(formData?.estado ?? "").trim();
+                const cepDigits = String(formData?.cep ?? "").replaceAll(/\D/g, "").slice(0, 8);
+                const apelido = String(formData?.apelido ?? "").trim();
 
-                if (!rua || !numero || !bairroText || !apelido) {
+                if (!rua || !numero || !bairroText || !apelido || !cidade || estado.length < 2) {
                     return encryptedError("missing_address_fields", aesKey, iv);
                 }
 
@@ -982,6 +1144,9 @@ export async function POST(req: NextRequest) {
                     flow_numero:       numero,
                     flow_complemento:  complemento,
                     flow_bairro_label: bairroLabel,
+                    flow_cidade:       cidade,
+                    flow_estado:       estado,
+                    flow_cep:          cepDigits.length === 8 ? cepDigits : null,
                     catalog_screen:    "PAYMENT",
                 };
                 await admin.from("chatbot_sessions").update({ context: addrPaymentCtx }).eq("thread_id", threadId);
@@ -1092,46 +1257,46 @@ export async function POST(req: NextRequest) {
                     (context.delivery_endereco_cliente_id as string | undefined) ?? null;
 
                 if (customerId) {
-                    const flowApelido     = (context.flow_apelido      as string) ?? "";
-                    const flowRua         = (context.flow_rua          as string) ?? address;
-                    const flowNumero      = (context.flow_numero        as string) ?? null;
-                    const flowComplemento = (context.flow_complemento   as string) ?? null;
-                    const flowBairro      = (context.flow_bairro_label  as string) ?? null;
+                    const flowApelido = (context.flow_apelido as string) ?? "";
+                    const flowRua = (context.flow_rua as string) ?? address;
+                    const flowNumero = (context.flow_numero as string) ?? null;
+                    const flowComplemento = (context.flow_complemento as string) ?? null;
+                    const flowBairro = (context.flow_bairro_label as string) ?? null;
+                    const flowCidade = String(context.flow_cidade ?? "").trim();
+                    const flowEstado = String(context.flow_estado ?? "").trim();
+                    const flowCep = (context.flow_cep as string | null | undefined) ?? null;
+
+                    if (!flowCidade || flowEstado.length < 2) {
+                        console.error("[flows/catalog] PAYMENT sem cidade/UF no contexto | threadId:", threadId);
+                        return encryptedError("missing_address_geo", aesKey, iv);
+                    }
 
                     const { data: existingAddr } = await admin
                         .from("enderecos_cliente")
                         .select("id")
                         .eq("customer_id", customerId)
-                        .eq("company_id",  companyId)
-                        .eq("apelido",     flowApelido)
+                        .eq("company_id", companyId)
+                        .eq("apelido", flowApelido)
                         .maybeSingle();
 
-                    if (existingAddr?.id) {
-                        await admin.from("enderecos_cliente").update({
-                            logradouro:   flowRua,
-                            numero:       flowNumero,
-                            complemento:  flowComplemento,
-                            bairro:       flowBairro,
-                            is_principal: true,
-                        }).eq("id", existingAddr.id);
-                        deliveryEnderecoClienteId = existingAddr.id;
-                    } else {
-                        const { data: inserted } = await admin
-                            .from("enderecos_cliente")
-                            .insert({
-                                company_id:   companyId,
-                                customer_id:  customerId,
-                                apelido:      flowApelido,
-                                logradouro:   flowRua,
-                                numero:       flowNumero,
-                                complemento:  flowComplemento,
-                                bairro:       flowBairro,
-                                is_principal: true,
-                            })
-                            .select("id")
-                            .single();
-                        if (inserted?.id) deliveryEnderecoClienteId = inserted.id as string;
+                    const persisted = await persistEnderecoClienteFromFlow(admin, {
+                        companyId,
+                        customerId,
+                        existingAddressId: existingAddr?.id ?? null,
+                        apelido:           flowApelido || "WhatsApp",
+                        logradouro:        flowRua,
+                        numero:            flowNumero,
+                        complemento:     flowComplemento,
+                        bairro:            flowBairro,
+                        cidade:            flowCidade,
+                        estado:            flowEstado,
+                        cep:               flowCep,
+                    });
+                    if (!persisted.ok) {
+                        console.error("[flows/catalog] persist endereco:", persisted.message);
+                        return encryptedError("address_persist_failed", aesKey, iv);
                     }
+                    deliveryEnderecoClienteId = persisted.id;
                 }
 
                 const { data: settings } = await admin
@@ -1140,7 +1305,7 @@ export async function POST(req: NextRequest) {
                     .eq("company_id", companyId)
                     .maybeSingle();
 
-                const requireApproval    = settings?.require_order_approval ?? false;
+                const requireApproval = settings?.require_order_approval ?? false;
                 const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
 
                 if (!cart.length) {
@@ -1241,14 +1406,18 @@ export async function POST(req: NextRequest) {
         if (screen === "CEP_SEARCH") {
             const rawCep = String(formData?.cep ?? "").replaceAll(/\D/g, "");
 
-            let ruaInit    = "";
+            let ruaInit = "";
             let bairroInit = "";
+            let cidadeInit = "";
+            let estadoInit = "";
 
             if (rawCep.length === 8) {
                 const viaCepData = await lookupCep(rawCep, 3000);
                 if (viaCepData) {
-                    ruaInit    = viaCepData.logradouro ?? "";
+                    ruaInit = viaCepData.logradouro ?? "";
                     bairroInit = viaCepData.bairro ?? "";
+                    cidadeInit = viaCepData.localidade ?? "";
+                    estadoInit = viaCepData.uf ?? "";
                 } else {
                     console.warn("[flows] ViaCEP falhou para CEP:", rawCep);
                 }
@@ -1269,22 +1438,28 @@ export async function POST(req: NextRequest) {
                     data:    {
                         rua_init:     ruaInit,
                         bairro_init:  bairroInit,
+                        cidade_init:  cidadeInit,
+                        estado_init:  estadoInit,
                         cart_summary: formatCart(cart),
                     },
                 },
-                aesKey, iv
+                aesKey,
+                iv
             );
         }
 
         // ── ADDRESS → valida e salva endereço → navega para PAYMENT ──────────
         if (screen === "ADDRESS") {
-            const rua         = String(formData?.rua         ?? "").trim();
-            const numero      = String(formData?.numero      ?? "").trim();
+            const rua = String(formData?.rua ?? "").trim();
+            const numero = String(formData?.numero ?? "").trim();
             const complemento = String(formData?.complemento ?? "").trim();
-            const bairroText  = String(formData?.bairro      ?? "").trim();
-            const apelido     = String(formData?.apelido     ?? "").trim();
+            const bairroText = String(formData?.bairro ?? "").trim();
+            const cidade = String(formData?.cidade ?? "").trim();
+            const estado = String(formData?.estado ?? "").trim();
+            const cepDigits = String(formData?.cep ?? "").replaceAll(/\D/g, "").slice(0, 8);
+            const apelido = String(formData?.apelido ?? "").trim();
 
-            if (!rua || !numero || !bairroText || !apelido) {
+            if (!rua || !numero || !bairroText || !apelido || !cidade || estado.length < 2) {
                 return encryptedError("missing_address_fields", aesKey, iv);
             }
 
@@ -1320,21 +1495,23 @@ export async function POST(req: NextRequest) {
                         flow_numero:       numero,
                         flow_complemento:  complemento,
                         flow_bairro_label: bairroLabel,
+                        flow_cidade:       cidade,
+                        flow_estado:       estado,
+                        flow_cep:          cepDigits.length === 8 ? cepDigits : null,
                     },
                 })
                 .eq("thread_id", threadId);
 
             const totalProducts = cart.reduce((s, i) => s + i.price * i.qty, 0);
-            const grandTotal    = totalProducts + deliveryFee;
-            const feeText       = deliveryFee > 0
-                ? `\n🛵 Taxa ${bairroLabel}: ${formatCurrency(deliveryFee)}`
-                : "";
+            const grandTotal = totalProducts + deliveryFee;
+            const feeText =
+                deliveryFee > 0 ? `\n🛵 Taxa ${bairroLabel}: ${formatCurrency(deliveryFee)}` : "";
             const expectation = buildDeliveryExpectationText({
                 minOrder: delivery.min_order,
                 etaMin: delivery.eta_min,
             });
             const expectationText = expectation ? `\n${expectation}` : "";
-            const cartSummary   = `${formatCart(cart)}${feeText}${expectationText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
+            const cartSummary = `${formatCart(cart)}${feeText}${expectationText}\n\n💰 *Total: ${formatCurrency(grandTotal)}*`;
 
             return encryptedOk(
                 {
@@ -1345,7 +1522,8 @@ export async function POST(req: NextRequest) {
                         cart_summary:    cartSummary,
                     },
                 },
-                aesKey, iv
+                aesKey,
+                iv
             );
         }
 
@@ -1382,46 +1560,46 @@ export async function POST(req: NextRequest) {
                 (context.delivery_endereco_cliente_id as string | undefined) ?? null;
 
             if (customerId) {
-                const flowApelido     = (context.flow_apelido     as string) ?? "";
-                const flowRua         = (context.flow_rua         as string) ?? address;
-                const flowNumero      = (context.flow_numero      as string) ?? null;
+                const flowApelido = (context.flow_apelido as string) ?? "";
+                const flowRua = (context.flow_rua as string) ?? address;
+                const flowNumero = (context.flow_numero as string) ?? null;
                 const flowComplemento = (context.flow_complemento as string) ?? null;
-                const flowBairro      = (context.flow_bairro_label as string) ?? null;
+                const flowBairro = (context.flow_bairro_label as string) ?? null;
+                const flowCidade = String(context.flow_cidade ?? "").trim();
+                const flowEstado = String(context.flow_estado ?? "").trim();
+                const flowCep = (context.flow_cep as string | null | undefined) ?? null;
+
+                if (!flowCidade || flowEstado.length < 2) {
+                    console.error("[flows/checkout] PAYMENT sem cidade/UF no contexto | threadId:", threadId);
+                    return encryptedError("missing_address_geo", aesKey, iv);
+                }
 
                 const { data: existingAddr } = await admin
                     .from("enderecos_cliente")
                     .select("id")
-                    .eq("customer_id",  customerId)
-                    .eq("company_id",   companyId)
-                    .eq("apelido",      flowApelido)
+                    .eq("customer_id", customerId)
+                    .eq("company_id", companyId)
+                    .eq("apelido", flowApelido)
                     .maybeSingle();
 
-                if (existingAddr?.id) {
-                    await admin.from("enderecos_cliente").update({
-                        logradouro:   flowRua,
-                        numero:       flowNumero,
-                        complemento:  flowComplemento,
-                        bairro:       flowBairro,
-                        is_principal: true,
-                    }).eq("id", existingAddr.id);
-                    deliveryEnderecoClienteId = existingAddr.id;
-                } else {
-                    const { data: inserted } = await admin
-                        .from("enderecos_cliente")
-                        .insert({
-                            company_id:   companyId,
-                            customer_id:  customerId,
-                            apelido:      flowApelido,
-                            logradouro:   flowRua,
-                            numero:       flowNumero,
-                            complemento:  flowComplemento,
-                            bairro:       flowBairro,
-                            is_principal: true,
-                        })
-                        .select("id")
-                        .single();
-                    if (inserted?.id) deliveryEnderecoClienteId = inserted.id as string;
+                const persisted = await persistEnderecoClienteFromFlow(admin, {
+                    companyId,
+                    customerId,
+                    existingAddressId: existingAddr?.id ?? null,
+                    apelido:           flowApelido || "WhatsApp",
+                    logradouro:        flowRua,
+                    numero:            flowNumero,
+                    complemento:     flowComplemento,
+                    bairro:            flowBairro,
+                    cidade:            flowCidade,
+                    estado:            flowEstado,
+                    cep:               flowCep,
+                });
+                if (!persisted.ok) {
+                    console.error("[flows/checkout] persist endereco:", persisted.message);
+                    return encryptedError("address_persist_failed", aesKey, iv);
                 }
+                deliveryEnderecoClienteId = persisted.id;
             }
 
             // Salva contexto final de pagamento

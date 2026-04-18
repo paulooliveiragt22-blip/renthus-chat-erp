@@ -257,6 +257,7 @@ async function processJob(
     const channelMeta = channelRow?.provider_metadata as {
         catalog_flow_id?: string;
         status_flow_id?: string;
+        address_register_flow_id?: string;
     } | null;
     if (process.env.NODE_ENV === "production") {
         if (!channelRow) {
@@ -274,6 +275,8 @@ async function processJob(
     };
     const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
     const statusFlowId = channelMeta?.status_flow_id ?? process.env.WHATSAPP_STATUS_FLOW_ID;
+    const addressRegisterFlowId =
+        channelMeta?.address_register_flow_id ?? process.env.WHATSAPP_ADDRESS_REGISTER_FLOW_ID;
 
     // 1. Lê bot_active fresh (pode ter mudado desde que o job foi enfileirado)
     const { data: threadRow } = await admin
@@ -319,6 +322,7 @@ async function processJob(
         waConfig,
         catalogFlowId,
         statusFlowId,
+        addressRegisterFlowId,
     });
 }
 

@@ -270,9 +270,12 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
     const channelMeta = channel.provider_metadata as {
         catalog_flow_id?: string;
         status_flow_id?: string;
+        address_register_flow_id?: string;
     } | null;
     const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
     const statusFlowId = channelMeta?.status_flow_id ?? process.env.WHATSAPP_STATUS_FLOW_ID;
+    const addressRegisterFlowId =
+        channelMeta?.address_register_flow_id ?? process.env.WHATSAPP_ADDRESS_REGISTER_FLOW_ID;
 
     for (const msg of messages) {
         await processSingleInboundMessage({
@@ -283,6 +286,7 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
             waConfig,
             catalogFlowId,
             statusFlowId,
+            addressRegisterFlowId,
             phoneNumberId,
         });
     }
@@ -349,9 +353,11 @@ async function processSingleInboundMessage(params: {
     waConfig: WaConfig;
     catalogFlowId: string | undefined;
     statusFlowId: string | undefined;
+    addressRegisterFlowId: string | undefined;
     phoneNumberId: string;
 }): Promise<void> {
-    const { admin, value, msg, channel, waConfig, catalogFlowId, statusFlowId, phoneNumberId } = params;
+    const { admin, value, msg, channel, waConfig, catalogFlowId, statusFlowId, addressRegisterFlowId, phoneNumberId } =
+        params;
     const waId = msg?.id as string | null;
     const fromRaw = msg?.from as string;
     const msgType = msg?.type as string;
@@ -429,6 +435,7 @@ async function processSingleInboundMessage(params: {
             waConfig,
             catalogFlowId,
             statusFlowId,
+            addressRegisterFlowId,
         });
     } catch (err: any) {
         console.error("[chatbot] processInboundMessage error:", err?.message ?? err);

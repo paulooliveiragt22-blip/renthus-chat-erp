@@ -98,6 +98,7 @@ async function runProV2InboundBranch(
                 nowIso: new Date().toISOString(),
                 flowCatalogId: params.catalogFlowId ?? null,
                 flowStatusId: params.statusFlowId ?? null,
+                flowAddressRegisterId: params.addressRegisterFlowId ?? null,
             },
             deps
         );

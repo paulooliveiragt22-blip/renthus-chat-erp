@@ -45,8 +45,13 @@ export function routeStage(params: {
     tenant: TenantRef;
     flowCatalogId?: string | null;
     flowStatusId?: string | null;
+    /** Flow WhatsApp para cadastro de endereco (primeiro contato / cadastro incompleto). */
+    flowAddressRegisterId?: string | null;
+    /** Payload de `buildOrderHintsPayload` quando prefetch em saudacao (opcional). */
+    orderHints?: Record<string, unknown> | null;
 }): RouteStageResult {
-    const { state, decision, inboundText, tenant, flowCatalogId, flowStatusId } = params;
+    const { state, decision, inboundText, tenant, flowCatalogId, flowStatusId, flowAddressRegisterId, orderHints } =
+        params;
     const norm = normalizeInboundId(inboundText);
 
     if (decision.intent === "human_intent") {
@@ -153,6 +158,36 @@ export function routeStage(params: {
             return { mode: "ai", state, outbound: [] };
         }
         const isReturningCustomer = Boolean(state.customerId);
+        const needAddrFlow =
+            Boolean(flowAddressRegisterId) && orderHints?.requires_address_flow_registration === true;
+        if (decision.intent === "greeting" && needAddrFlow) {
+            const reason = String(orderHints?.address_registration_reason_pt ?? "").trim();
+            const extra = reason ? `\n\n${reason}` : "";
+            return {
+                mode: "direct_reply",
+                state,
+                outbound: [
+                    {
+                        kind: "text",
+                        text: `Para continuar, precisamos do seu endereco completo de entrega (rua, numero, bairro, cidade e UF). O CEP e opcional e ajuda a preencher automaticamente.${extra}`,
+                    },
+                    {
+                        kind: "flow",
+                        flow: {
+                            flowId:    flowAddressRegisterId!,
+                            flowToken: `${tenant.threadId}|${tenant.companyId}|address_register`,
+                            bodyText:  "Abra o formulario para cadastrar seu endereco.",
+                            ctaLabel:  "Cadastrar endereco",
+                        },
+                    },
+                    {
+                        kind: "buttons",
+                        text: buildWelcomeBody(isReturningCustomer),
+                        buttons: mainMenuButtons(),
+                    },
+                ],
+            };
+        }
         return {
             mode: "direct_reply",
             state,

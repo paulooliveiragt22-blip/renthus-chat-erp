@@ -118,6 +118,8 @@ function logSessionDraftSnapshot(
                   logradouro: Boolean(String(d.address.logradouro ?? "").trim()),
                   numero: Boolean(String(d.address.numero ?? "").trim()),
                   bairro: Boolean(String(d.address.bairro ?? "").trim()),
+                  cidade: Boolean(String(d.address.cidade ?? "").trim()),
+                  estado: Boolean(String(d.address.estado ?? "").trim().length >= 2),
               }
             : null,
         draftGrandTotal: d?.grandTotal ?? null,
@@ -334,6 +336,24 @@ export async function runProPipeline(
         };
     }
 
+    let greetingOrderHints: Record<string, unknown> | null = null;
+    if (decision.intent === "greeting" && deps.admin && input.flowAddressRegisterId) {
+        try {
+            greetingOrderHints = await buildOrderHintsPayload({
+                admin:     deps.admin,
+                companyId: input.tenant.companyId,
+                phoneE164: input.tenant.phoneE164,
+                name:      input.actor.profileName ?? null,
+            });
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.prefetch_greeting_order_hints_failed", {
+                companyId: input.tenant.companyId,
+                threadId:  input.tenant.threadId,
+                message:   err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+
     const routed = routeStage({
         state: guarded.state,
         decision,
@@ -341,6 +361,8 @@ export async function runProPipeline(
         tenant: input.tenant,
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
+        flowAddressRegisterId: input.flowAddressRegisterId ?? null,
+        orderHints:            greetingOrderHints,
     });
 
     let nextState = routed.state;

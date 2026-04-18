@@ -25,6 +25,8 @@ export interface ProcessMessageParams {
     catalogFlowId?: string;
     /** Flow ID de status de pedido (`provider_metadata.status_flow_id` ou `WHATSAPP_STATUS_FLOW_ID`). */
     statusFlowId?: string;
+    /** Flow de cadastro de endereco (`provider_metadata.address_register_flow_id`). */
+    addressRegisterFlowId?: string;
     /** Injeta portas do pipeline PRO V2 (ex.: testes); ver `makeProPipelineDependencies`. */
     proPipelineDependencyOverrides?: ProPipelineDependencyOverrides;
 }

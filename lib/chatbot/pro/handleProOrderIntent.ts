@@ -164,7 +164,7 @@ const SEARCH_TOOL = {
 const HINTS_TOOL = {
     name:         "get_order_hints",
     description:
-        "Dados reais do cadastro: saved_addresses (todos os endereços em enderecos_cliente), saved_address (principal/último), favoritos, customer_known. Antes de pedir endereço novo ao cliente, mostre o conteúdo de saved_addresses (se não for vazio). Para usar um cadastrado, chame prepare_order_draft com saved_address_id = id da linha escolhida. Não invente endereço.",
+        "Dados reais do cadastro: saved_addresses, saved_address, favorite_lines, customer_known, requires_address_flow_registration (se true: cliente sem endereco valido ou incompleto — cidade e UF obrigatorias), address_registration_reason_pt. Antes de pedir endereço novo, mostre saved_addresses. Se requires_address_flow_registration for true e o canal tiver Flow, oriente o botao de cadastro; senao peca rua, numero, bairro, cidade e UF (2 letras). Não invente endereço.",
     input_schema: {
         type:       "object" as const,
         properties: {},

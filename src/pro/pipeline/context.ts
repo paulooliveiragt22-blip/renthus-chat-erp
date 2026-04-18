@@ -47,6 +47,7 @@ export function buildPipelineContext(params: {
         nowIso: input.nowIso,
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
+        flowAddressRegisterId: input.flowAddressRegisterId ?? null,
     };
 }
 

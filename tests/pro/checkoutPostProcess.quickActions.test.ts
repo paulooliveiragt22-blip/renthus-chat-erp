@@ -24,6 +24,7 @@ function minimalDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
             numero: "1",
             bairro: "Centro",
             cidade: "Sorriso",
+            estado: "MT",
             complemento: null,
         },
         paymentMethod: null,
