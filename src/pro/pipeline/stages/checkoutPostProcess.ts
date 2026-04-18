@@ -64,6 +64,26 @@ function buildConfirmationActionButtons(): OutboundMessage {
     };
 }
 
+function formatBRL(value: number): string {
+    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/** Resumo canónico do rascunho (substitui recap da IA na confirmação de endereço). */
+export function buildOrderRecapText(draft: OrderDraft): string {
+    const lines = draft.items.map(
+        (it) => `${it.quantity}x ${it.productName} — ${formatBRL(it.unitPrice * it.quantity)}`
+    );
+    let body = `Resumo do pedido:\n${lines.join("\n")}`;
+    if (draft.deliveryFee > 0.009) {
+        body += `\nEntrega: ${formatBRL(draft.deliveryFee)}`;
+    }
+    if (draft.paymentMethod === "cash" && draft.changeFor != null) {
+        body += `\nTroco para: ${formatBRL(draft.changeFor)}`;
+    }
+    body += `\n\nTotal: ${formatBRL(draft.grandTotal)}`;
+    return body;
+}
+
 function formatDraftAddressLine(draft: OrderDraft): string {
     const a = draft.address;
     if (!a) return "";
@@ -387,11 +407,17 @@ export function applyQuickAction(
         state.draft?.address
     ) {
         const merged: ProSessionState = { ...state, deliveryAddressUiConfirmed: true };
+        const stepped = withResolvedSlotStep(merged);
+        const outboundMsgs: OutboundMessage[] = [];
+        if (stepped.step === "pro_awaiting_confirmation" && stepped.draft) {
+            outboundMsgs.push({ kind: "text", text: buildOrderRecapText(stepped.draft) });
+        }
+        outboundMsgs.push({ kind: "text", text: "Endereco confirmado." });
         return {
             handled: true,
             actionTag: action,
-            state: withResolvedSlotStep(merged),
-            outbound: [{ kind: "text", text: "Endereco confirmado." }],
+            state: stepped,
+            outbound: outboundMsgs,
         };
     }
 
@@ -424,7 +450,7 @@ export function applyQuickAction(
                                 "Toque no botao abaixo para abrir o cadastro de endereco (CEP opcional). " +
                                 "Se preferir, pode enviar o endereco em texto: rua, numero, bairro, cidade e UF. " +
                                 "Ex.: Rua Tangara, 850, Sao Mateus, Sorriso-MT.",
-                            ctaLabel: "Abrir cadastro",
+                            ctaLabel: "Cadastrar endereço",
                         },
                     },
                 ],
@@ -485,7 +511,7 @@ export function checkoutPostProcess(params: {
                     flowToken: `${ref.threadId}|${ref.companyId}|address_register`,
                     bodyText:
                         "Abra o formulario para cadastrar o endereco de entrega. Voce tambem pode enviar o endereco em texto no chat.",
-                    ctaLabel: "Abrir cadastro",
+                    ctaLabel: "Cadastrar endereço",
                 },
             }
         );
@@ -499,6 +525,10 @@ export function checkoutPostProcess(params: {
         (!nextState.draft.paymentMethod ||
             shouldHoldAwaitingAddressUi(nextState.draft, nextState.deliveryAddressUiConfirmed));
     if (showAddressConfirm && nextState.draft) {
+        /** Evita bolha de recap da IA no mesmo turno que os botões de confirmação de endereço. */
+        for (let i = outbound.length - 1; i >= 0; i--) {
+            if (outbound[i]?.kind === "text") outbound.splice(i, 1);
+        }
         outbound.push(...buildAddressConfirmationMessage(nextState.draft));
     }
 
@@ -519,5 +549,15 @@ export function checkoutPostProcessForQuickAction(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
 }): OutboundMessage[] {
-    return prioritizeInteractiveFirst([...params.outbound, ...checkoutButtonsForState(params.state)]);
+    const extra = checkoutButtonsForState(params.state);
+    const combined = [...params.outbound, ...extra];
+    const hasFinalButtons = extra.some(
+        (m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")
+    );
+    if (hasFinalButtons) {
+        const texts = combined.filter((m) => m.kind === "text");
+        const inter = combined.filter((m) => m.kind === "buttons" || m.kind === "flow");
+        return [...texts, ...inter];
+    }
+    return prioritizeInteractiveFirst(combined);
 }

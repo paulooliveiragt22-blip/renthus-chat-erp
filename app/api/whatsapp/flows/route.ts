@@ -29,6 +29,7 @@ import { resolveDeliveryForNeighborhood, buildDeliveryExpectationText } from "@/
 import { lookupCep } from "@/lib/address/cepLookup";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
+import { followUpProSessionAfterAddressRegister } from "@/lib/whatsapp/flows/followUpAfterAddressRegister";
 
 export const runtime = "nodejs";
 
@@ -423,32 +424,21 @@ export async function POST(req: NextRequest) {
                 });
                 if (!persisted.ok) {
                     console.error("[flows/address_register] persist failed:", persisted.message);
+                    if (persisted.message === "max_enderecos_por_cliente") {
+                        return encryptedError("max_enderecos_por_cliente", aesKey, iv);
+                    }
                     return encryptedError("address_persist_failed", aesKey, iv);
                 }
 
-                const { data: sess } = await admin
-                    .from("chatbot_sessions")
-                    .select("context")
-                    .eq("thread_id", threadId)
-                    .maybeSingle();
-                const ctx = (sess?.context ?? {}) as Record<string, unknown>;
-                await admin
-                    .from("chatbot_sessions")
-                    .update({
-                        context: {
-                            ...ctx,
-                            flow_address_register_done:     true,
-                            registered_endereco_cliente_id: persisted.id,
-                        },
-                    })
-                    .eq("thread_id", threadId);
-
                 if (customerPhone) {
-                    await sendWhatsAppMessage(
-                        customerPhone,
-                        "Endereco cadastrado com sucesso! Ja pode enviar seu pedido por aqui.",
-                        waConfig
-                    );
+                    await followUpProSessionAfterAddressRegister({
+                        admin,
+                        companyId,
+                        threadId,
+                        phoneE164: customerPhone,
+                        waConfig,
+                        persistedAddressId: persisted.id,
+                    });
                 }
 
                 return encryptedOk(

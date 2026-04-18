@@ -45,7 +45,11 @@ export async function persistEnderecoClienteFromFlow(
             p_payload:     { ...basePayload, address_id: params.existingAddressId },
         });
         if (error || !data) {
-            return { ok: false, message: error?.message ?? "upsert_endereco_failed" };
+            const msg = error?.message ?? "upsert_endereco_failed";
+            if (/max_enderecos|Limite de 4/i.test(msg)) {
+                return { ok: false, message: "max_enderecos_por_cliente" };
+            }
+            return { ok: false, message: msg };
         }
         return { ok: true, id: String(data) };
     }
@@ -55,7 +59,11 @@ export async function persistEnderecoClienteFromFlow(
         p_payload:     basePayload,
     });
     if (error || !data) {
-        return { ok: false, message: error?.message ?? "create_endereco_failed" };
+        const msg = error?.message ?? "create_endereco_failed";
+        if (/max_enderecos|Limite de 4/i.test(msg)) {
+            return { ok: false, message: "max_enderecos_por_cliente" };
+        }
+        return { ok: false, message: msg };
     }
     return { ok: true, id: String(data) };
 }
