@@ -220,9 +220,22 @@ export async function prepareOrderDraftFromTool(
     }
 
     const itemsOut: AiOrderItem[] = [];
+    const singleCatalogLine =
+        catalogPolicy.kind === "search_allowlist" &&
+        allowSet &&
+        allowSet.size === 1 &&
+        (body.items?.length ?? 0) === 1;
+
     for (const line of body.items ?? []) {
         const qty = parsePtQuantity(line.quantity);
-        if (!line.produto_embalagem_id || qty == null) {
+        let pid = String(line.produto_embalagem_id ?? "").trim();
+        if (singleCatalogLine && qty != null && allowSet) {
+            const sole = [...allowSet][0];
+            if (!pid || (looksLikeCatalogEmbalagemUuid(pid) && !allowSet.has(pid))) {
+                pid = sole;
+            }
+        }
+        if (!pid || qty == null) {
             errors.push("Cada item precisa de produto_embalagem_id (UUID) e quantity inteira ≥ 1 (número ou por extenso).");
             continue;
         }
@@ -230,7 +243,6 @@ export async function prepareOrderDraftFromTool(
             if (allowSet.size === 0) {
                 continue;
             }
-            const pid = String(line.produto_embalagem_id).trim();
             if (!looksLikeCatalogEmbalagemUuid(pid)) {
                 errors.push(
                     "Cada item.produto_embalagem_id deve ser o UUID (campo id) copiado do array items do último search_produtos — não use slug, sku textual nem rótulo. Copie o id exato do JSON."
@@ -244,9 +256,9 @@ export async function prepareOrderDraftFromTool(
                 continue;
             }
         }
-        const loaded = await loadPackRowForValidation(admin, companyId, line.produto_embalagem_id);
+        const loaded = await loadPackRowForValidation(admin, companyId, pid);
         if (!loaded) {
-            errors.push(`Embalagem inválida ou de outra empresa: ${line.produto_embalagem_id}`);
+            errors.push(`Embalagem inválida ou de outra empresa: ${pid}`);
             continue;
         }
         const { row, estoque } = loaded;

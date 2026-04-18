@@ -108,7 +108,7 @@ const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Fonte de verdade: só cite produto, preço, estoque e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
 - Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido até ok:true (cliente pode mandar produto, endereço e pagamento em qualquer ordem — você monta o próximo prepare com o que já souber).
 - Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência — não siga só com texto sem consolidar o rascunho no servidor.
-- Regra dura: em prepare_order_draft use somente produto_embalagem_id que apareceu no JSON items do último search_produtos desta conversa (não invente UUID nem copie de outra busca antiga).
+- Regra dura: em prepare_order_draft use somente produto_embalagem_id que apareceu no JSON items do último search_produtos desta conversa (não invente UUID nem copie de outra busca antiga). Se a resposta de prepare_order_draft trouxer allowed_produto_embalagem_ids, use exatamente um desses valores.
 - Nunca use slug ou id textual (ex.: heineken-long-neck-330ml-caixa-6): o servidor só aceita o UUID de cada item retornado por search_produtos — pode copiar o campo id ou produto_embalagem_id do JSON de items.
 - Após prepare_order_draft: se ok:false, sua mensagem DEVE refletir as errors e o guidance_for_model_pt (sem “erro técnico genérico” quando a causa for validação). Se ok:true, alinhe o texto ao draft.
 - Se search_produtos retornar items vazio, não invente produto nem preço; siga guidance_for_model_pt.
@@ -251,7 +251,10 @@ export class FullAiServiceAdapter implements AiService {
         allowlistRuntime.ids = rows.map((r) => String(r.id));
         const guidanceForModelPt =
             rows.length > 0
-                ? ["Use apenas produto_embalagem_id desta lista em prepare_order_draft."]
+                ? [
+                      "Use apenas o UUID de cada linha em items (campos id ou produto_embalagem_id) em prepare_order_draft — não invente UUID.",
+                      `IDs exatos desta busca (copie um literalmente): ${allowlistRuntime.ids.join(", ")}.`,
+                  ]
                 : [
                       "Nenhum item no catálogo para este termo.",
                       "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente nova busca.",
@@ -259,7 +262,11 @@ export class FullAiServiceAdapter implements AiService {
         return {
             type: "tool_result",
             tool_use_id: block.id,
-            content: JSON.stringify({ items: rows, guidance_for_model_pt: guidanceForModelPt }),
+            content: JSON.stringify({
+                items: rows,
+                produto_embalagem_ids_validos: allowlistRuntime.ids,
+                guidance_for_model_pt: guidanceForModelPt,
+            }),
         };
     }
 
@@ -333,6 +340,17 @@ export class FullAiServiceAdapter implements AiService {
             draftItemCount: prepared.draft?.items?.length ?? 0,
         });
         const nextDraft = prepared.draft ? toCanonicalDraft(prepared.draft) : currentDraft;
+        const allowedIds =
+            catalogPolicy.kind === "search_allowlist" && catalogPolicy.allowedEmbalagemIds.length
+                ? [...catalogPolicy.allowedEmbalagemIds]
+                : [];
+        const baseGuidance = buildPrepareDraftGuidanceForModel(prepared.ok, prepared.errors);
+        const idHint =
+            !prepared.ok && allowedIds.length
+                ? [
+                      `allowed_produto_embalagem_ids: copie um destes valores para items[].produto_embalagem_id ou items[].id no próximo prepare_order_draft: ${allowedIds.join(", ")}.`,
+                  ]
+                : [];
         return {
             nextDraft,
             prepareOutcome: { ok: prepared.ok, errors: [...prepared.errors] },
@@ -343,10 +361,8 @@ export class FullAiServiceAdapter implements AiService {
                     ok: prepared.ok,
                     errors: prepared.errors,
                     has_draft: Boolean(prepared.draft),
-                    guidance_for_model_pt: buildPrepareDraftGuidanceForModel(
-                        prepared.ok,
-                        prepared.errors
-                    ),
+                    ...(!prepared.ok && allowedIds.length ? { allowed_produto_embalagem_ids: allowedIds } : {}),
+                    guidance_for_model_pt: [...baseGuidance, ...idHint],
                 }),
             },
         };
