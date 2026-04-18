@@ -1,10 +1,12 @@
 import type {
     OutboundMessage,
+    PipelineContext,
     ProPipelineInput,
     ProPipelineOutput,
     ProPipelineTelemetryReason,
     ProSessionState,
 } from "@/src/types/contracts";
+import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
 import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -347,9 +349,27 @@ export async function runProPipeline(
     let invalidAiSanitized = false;
     let aiServiceErrorCode: string | undefined;
     if (routed.mode === "ai") {
+        let aiContext: PipelineContext = { ...context, session: nextState };
+        if (decision.intent === "order_intent" && deps.admin && nextState.customerId) {
+            try {
+                const prefetchedOrderHints = await buildOrderHintsPayload({
+                    admin: deps.admin,
+                    companyId: input.tenant.companyId,
+                    phoneE164: input.tenant.phoneE164,
+                    name: input.actor.profileName ?? null,
+                });
+                aiContext = { ...aiContext, prefetchedOrderHints };
+            } catch (err) {
+                deps.logger?.warn("pro_pipeline.prefetch_order_hints_failed", {
+                    companyId: input.tenant.companyId,
+                    threadId: input.tenant.threadId,
+                    message: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
         const ai = await aiStage({
             aiService: deps.aiService,
-            context: { ...context, session: nextState },
+            context: aiContext,
             decision,
             userText: input.inboundText,
             logger: deps.logger,

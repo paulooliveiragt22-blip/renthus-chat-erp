@@ -186,6 +186,11 @@ export interface PipelineContext {
     nowIso: string;
     flowCatalogId?: string | null;
     flowStatusId?: string | null;
+    /**
+     * Snapshot do mesmo payload de `get_order_hints`, carregado no servidor antes da IA
+     * quando há `order_intent` e `session.customerId` — endereços/favoritos não dependem só da tool.
+     */
+    prefetchedOrderHints?: Record<string, unknown> | null;
 }
 
 /** Telemetria por invocação da tool `prepare_order_draft` (adapter PRO IA). */

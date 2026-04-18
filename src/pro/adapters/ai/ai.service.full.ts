@@ -103,6 +103,9 @@ const PREPARE_DRAFT_TOOL = {
     },
 };
 
+/** Limite de caracteres do JSON de hints anexado ao system (evita estourar contexto). */
+const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
+
 const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Fale PT-BR direto.
 - Fonte de verdade: só cite produto, preço, estoque e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
@@ -116,6 +119,27 @@ const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Nunca diga que o pedido já foi confirmado, criado no sistema, registrado na loja ou que saiu para entrega: isso só ocorre após confirmação no servidor (fora do modelo).
 - Termine a resposta com INTENT_OK ou INTENT_UNKNOWN (sem texto extra após o marcador).`;
 
+
+function buildEffectiveSystemPrompt(input: AiServiceInput): string {
+    const hints = input.context.prefetchedOrderHints;
+    if (!hints || typeof hints !== "object") return SYSTEM_PROMPT;
+    try {
+        let body = JSON.stringify(hints);
+        if (body.length > PREFETCH_ORDER_HINTS_JSON_MAX) {
+            body = body.slice(0, PREFETCH_ORDER_HINTS_JSON_MAX) + "…[truncado]";
+        }
+        return (
+            SYSTEM_PROMPT +
+            "\n\n--- Dados do cadastro (servidor; válidos nesta mensagem) ---\n" +
+            body +
+            "\n--- Fim dados cadastro ---\n" +
+            "Use saved_addresses / saved_address para endereços já cadastrados; favorite_lines são produtos favoritos. " +
+            "Pode chamar get_order_hints para atualizar, mas trate estes dados como já carregados nesta volta."
+        );
+    } catch {
+        return SYSTEM_PROMPT;
+    }
+}
 
 /** Evita contradicao: modelo fala em “erro” mas o draft (BD/tools) ja tem itens validos. */
 function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null): string {
@@ -200,7 +224,8 @@ export class FullAiServiceAdapter implements AiService {
         client: Anthropic,
         messages: AnthropicMessage[],
         timeoutMs: number,
-        toolChoice?: ToolChoice
+        toolChoice: ToolChoice | undefined,
+        systemPrompt: string
     ) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(AI_TIMEOUT_CODE), Math.max(timeoutMs, 1000));
@@ -208,7 +233,7 @@ export class FullAiServiceAdapter implements AiService {
             const body: MessageCreateParams = {
                 model: "claude-haiku-4-5-20251001",
                 max_tokens: 900,
-                system: SYSTEM_PROMPT,
+                system: systemPrompt,
                 messages: messages as MessageCreateParams["messages"],
                 tools: [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"],
             };
@@ -524,7 +549,8 @@ export class FullAiServiceAdapter implements AiService {
         let prepareInvokedThisTurn = false;
 
         try {
-            let response = await this.callModel(client, messages, input.limits.timeoutMs);
+            const systemPrompt = buildEffectiveSystemPrompt(input);
+            let response = await this.callModel(client, messages, input.limits.timeoutMs, undefined, systemPrompt);
 
             while (response.stop_reason === "tool_use" && toolRoundsUsed < input.limits.maxToolRounds) {
                 toolRoundsUsed += 1;
@@ -546,7 +572,7 @@ export class FullAiServiceAdapter implements AiService {
                     { role: "user", content: round.toolResults },
                 ];
 
-                response = await this.callModel(client, messages, input.limits.timeoutMs);
+                response = await this.callModel(client, messages, input.limits.timeoutMs, undefined, systemPrompt);
             }
 
             if (response.stop_reason === "tool_use") {
@@ -589,7 +615,8 @@ export class FullAiServiceAdapter implements AiService {
                     client,
                     messages,
                     input.limits.timeoutMs,
-                    forcePrepareChoice
+                    forcePrepareChoice,
+                    systemPrompt
                 );
                 while (forceResponse.stop_reason === "tool_use" && toolRoundsUsed < input.limits.maxToolRounds) {
                     toolRoundsUsed += 1;
@@ -609,7 +636,7 @@ export class FullAiServiceAdapter implements AiService {
                         { role: "assistant", content: forceResponse.content },
                         { role: "user", content: round.toolResults },
                     ];
-                    forceResponse = await this.callModel(client, messages, input.limits.timeoutMs);
+                    forceResponse = await this.callModel(client, messages, input.limits.timeoutMs, undefined, systemPrompt);
                 }
                 if (forceResponse.stop_reason === "tool_use") {
                     return {

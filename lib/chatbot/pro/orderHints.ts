@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrCreateCustomer } from "../db/orders";
-import { listCustomerAddressesForCustomer, resolveDefaultAddressForCustomer } from "./resolveSavedAddress";
+import {
+    buildAiAddressFromSavedClienteRow,
+    listCustomerAddressesForCustomer,
+    resolveDefaultAddressForCustomer,
+} from "./resolveSavedAddress";
 
 const FLOW_REMINDER_PT =
     "Fluxo sugerido: (1) get_order_hints cedo no pedido; (2) search_produtos antes de citar preço; " +
@@ -26,6 +30,18 @@ export async function buildOrderHintsPayload(params: {
 
     const saved = await resolveDefaultAddressForCustomer(admin, companyId, customer.id);
     const savedList = await listCustomerAddressesForCustomer(admin, companyId, customer.id);
+
+    const saved_addresses_incomplete: Array<{ id: string; reason_pt: string }> = [];
+    for (const r of savedList) {
+        const parsed = buildAiAddressFromSavedClienteRow(r);
+        if (parsed) continue;
+        if (!(r.logradouro?.trim() || r.numero?.trim() || r.bairro?.trim())) continue;
+        saved_addresses_incomplete.push({
+            id: r.id,
+            reason_pt:
+                "Cadastro com rua/número/bairro incompletos ou em formato que o servidor não separou; peça ao cliente completar ou confirme linha por linha.",
+        });
+    }
 
     const favorite_lines = await loadCustomerFavoriteLinesSafe(admin, companyId, phoneE164);
 
@@ -54,6 +70,9 @@ export async function buildOrderHintsPayload(params: {
             is_principal: r.is_principal,
         })),
         favorite_lines,
+        ...(saved_addresses_incomplete.length
+            ? { saved_addresses_incomplete }
+            : {}),
     };
 }
 
@@ -77,7 +96,9 @@ async function loadCustomerFavoriteLinesSafe(
         console.warn("[order_hints] get_customer_favorites ignorado:", error.code ?? "", error.message ?? "");
         return [];
     }
-    const rows: FavoriteRpcRow[] = Array.isArray(data) ? data : data ? [data as FavoriteRpcRow] : [];
+    let rows: FavoriteRpcRow[] = [];
+    if (Array.isArray(data)) rows = data;
+    else if (data) rows = [data as FavoriteRpcRow];
     return rows.map((f) => ({
         produto_embalagem_id: f.id,
         label:                f.name ?? f.description ?? "",
