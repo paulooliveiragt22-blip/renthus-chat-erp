@@ -20,6 +20,7 @@ import {
     type PrepareOrderDraftCatalogPolicy,
 } from "@/lib/chatbot/pro/prepareOrderDraft";
 import { toCanonicalDraft } from "@/src/types/contracts.adapters";
+import { normalizePrepareDraftAnthropicInput } from "@/lib/chatbot/pro/normalizePrepareDraftAnthropicInput";
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
 import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
@@ -229,16 +230,7 @@ export class FullAiServiceAdapter implements AiService {
     }
 
     private toLegacyToolInput(raw: Record<string, unknown>): PrepareDraftToolInputLegacy {
-        return {
-            items: (raw.items as PrepareDraftToolInputLegacy["items"]) ?? [],
-            address: (raw.address as PrepareDraftToolInputLegacy["address"]) ?? null,
-            address_raw: raw.address_raw == null ? null : String(raw.address_raw),
-            saved_address_id: raw.saved_address_id == null ? null : String(raw.saved_address_id),
-            use_saved_address: Boolean(raw.use_saved_address),
-            payment_method: raw.payment_method == null ? null : String(raw.payment_method),
-            change_for: raw.change_for == null ? null : Number(raw.change_for),
-            ready_for_confirmation: Boolean(raw.ready_for_confirmation),
-        };
+        return normalizePrepareDraftAnthropicInput(raw);
     }
 
     private async runSearchTool(
