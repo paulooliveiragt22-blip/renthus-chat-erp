@@ -317,6 +317,28 @@ export class FullAiServiceAdapter implements AiService {
             legacyInput,
             catalogPolicy
         );
+        const addrIn = legacyInput.address;
+        const hasStructuredAddress = Boolean(
+            addrIn &&
+                String(addrIn.logradouro ?? "").trim() &&
+                String(addrIn.numero ?? "").trim() &&
+                String(addrIn.bairro ?? "").trim()
+        );
+        const hasAddressPayload =
+            Boolean(legacyInput.saved_address_id?.trim()) ||
+            Boolean(legacyInput.use_saved_address) ||
+            Boolean(legacyInput.address_raw?.trim()) ||
+            hasStructuredAddress;
+        input.onPrepareDraftToolResult?.({
+            companyId: input.context.tenant.companyId,
+            threadId: input.context.tenant.threadId,
+            ok: prepared.ok,
+            errors: prepared.errors,
+            hasItems: (legacyInput.items?.length ?? 0) > 0,
+            hasAddress: hasAddressPayload,
+            payment_method: legacyInput.payment_method ?? null,
+            draftItemCount: prepared.draft?.items?.length ?? 0,
+        });
         const nextDraft = prepared.draft ? toCanonicalDraft(prepared.draft) : currentDraft;
         return {
             nextDraft,

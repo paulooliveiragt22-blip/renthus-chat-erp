@@ -1,4 +1,5 @@
 import type { AiService, AiServiceResult } from "../../services/ai/ai.types";
+import type { LoggerPort } from "../../ports/logger.port";
 import type {
     IntentDecision,
     OutboundMessage,
@@ -23,8 +24,9 @@ export async function aiStage(params: {
     context: PipelineContext;
     decision: IntentDecision;
     userText: string;
+    logger?: LoggerPort;
 }): Promise<AiStageResult> {
-    const { aiService, context, decision, userText } = params;
+    const { aiService, context, decision, userText, logger } = params;
 
     const raw = await aiService.run({
         context,
@@ -37,6 +39,11 @@ export async function aiStage(params: {
             maxHistoryTurns: context.policies.maxHistoryTurns,
             timeoutMs: context.policies.aiTimeoutMs,
         },
+        onPrepareDraftToolResult: logger
+            ? (payload) => {
+                  logger.info("pro_ai.prepare_order_draft", { ...payload });
+              }
+            : undefined,
     });
 
     const hadValidReplyText =

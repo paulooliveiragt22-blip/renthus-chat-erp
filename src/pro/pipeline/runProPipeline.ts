@@ -352,6 +352,7 @@ export async function runProPipeline(
             context: { ...context, session: nextState },
             decision,
             userText: input.inboundText,
+            logger: deps.logger,
         });
         invalidAiSanitized = ai.invalidAiSanitized;
         aiServiceErrorCode = ai.aiResult.errorCode;

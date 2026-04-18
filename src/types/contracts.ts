@@ -188,6 +188,18 @@ export interface PipelineContext {
     flowStatusId?: string | null;
 }
 
+/** Telemetria por invocação da tool `prepare_order_draft` (adapter PRO IA). */
+export type PrepareDraftToolTelemetryPayload = {
+    companyId: string;
+    threadId: string;
+    ok: boolean;
+    errors: readonly string[];
+    hasItems: boolean;
+    hasAddress: boolean;
+    payment_method: string | null;
+    draftItemCount: number;
+};
+
 export interface AiServiceInput {
     context: PipelineContext;
     userText: string;
@@ -199,6 +211,8 @@ export interface AiServiceInput {
         maxHistoryTurns: number;
         timeoutMs: number;
     };
+    /** Quando definido (ex.: pipeline PRO), chamado após cada `prepare_order_draft` no servidor. */
+    onPrepareDraftToolResult?: (payload: PrepareDraftToolTelemetryPayload) => void;
 }
 
 export type AiServiceAction =
