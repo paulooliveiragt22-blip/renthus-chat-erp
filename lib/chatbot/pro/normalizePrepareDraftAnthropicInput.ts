@@ -16,6 +16,7 @@ export function normalizePrepareDraftAnthropicInput(raw: Record<string, unknown>
         const idRaw =
             r.produto_embalagem_id ??
             r.produtoEmbalagemId ??
+            r.id ??
             r.pack_id ??
             r.embalagem_id;
         const qtyRaw = r.quantity ?? r.qty ?? r.quantidade;

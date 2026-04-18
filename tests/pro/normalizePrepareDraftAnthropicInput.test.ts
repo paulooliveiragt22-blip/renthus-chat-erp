@@ -23,4 +23,12 @@ describe("normalizePrepareDraftAnthropicInput", () => {
         assert.equal(out.address?.numero, "1");
         assert.equal(out.address?.bairro, "Centro");
     });
+
+    it("mapeia id (como no JSON de search_produtos) para produto_embalagem_id", () => {
+        const out = normalizePrepareDraftAnthropicInput({
+            items: [{ id: "a3806337-4700-4e77-a788-6bcfa181c100", quantity: 1 }],
+            paymentMethod: "cartao",
+        });
+        assert.equal(out.items[0]?.produto_embalagem_id, "a3806337-4700-4e77-a788-6bcfa181c100");
+    });
 });
