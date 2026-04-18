@@ -1,5 +1,10 @@
 import type { OutboundMessage, OrderDraft, ProSessionState } from "@/src/types/contracts";
-import { isAddressStructurallyComplete, resolveProStepFromDraft } from "../orderSlotStep";
+import {
+    isAddressStructurallyComplete,
+    resolveProStepFromDraft,
+    shouldHoldAwaitingAddressUi,
+    withResolvedSlotStep,
+} from "../orderSlotStep";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -68,26 +73,21 @@ function formatDraftAddressLine(draft: OrderDraft): string {
         .join(", ");
 }
 
-/** Endereço salvo em `enderecos_cliente` ou digitado (sem id): sempre com botão Confirmar antes do pagamento. */
+/** Endereço salvo em `enderecos_cliente` ou digitado: botões Confirmar / Alterar antes do resumo final. */
 function buildAddressConfirmationMessage(draft: OrderDraft): OutboundMessage[] {
     if (!isAddressStructurallyComplete(draft.address)) return [];
     const addr = formatDraftAddressLine(draft);
-    if (draft.address?.enderecoClienteId) {
-        return [
-            {
-                kind: "buttons",
-                text:
-                    `O endereco de entrega e este?\n${addr}\n\nSe nao for, digite o endereco completo.`,
-                buttons: [{ id: "pro_confirm_saved_address", title: "Confirmar endereco" }],
-            },
-        ];
-    }
+    const confirmId = draft.address?.enderecoClienteId
+        ? "pro_confirm_saved_address"
+        : "pro_confirm_typed_address";
     return [
         {
             kind: "buttons",
-            text:
-                `O endereco de entrega e este?\n${addr}\n\nSe nao for, digite o endereco completo.`,
-            buttons: [{ id: "pro_confirm_typed_address", title: "Confirmar endereco" }],
+            text: `Confirma a entrega neste endereco?\n\n${addr}`,
+            buttons: [
+                { id: confirmId, title: "Confirmar" },
+                { id: "pro_edit_delivery_address", title: "Alterar" },
+            ],
         },
     ];
 }
@@ -101,6 +101,15 @@ export function prioritizeInteractiveFirst(messages: OutboundMessage[]): Outboun
 
 function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
     if (!state.draft) return [];
+    const addrOk =
+        state.draft.items.length > 0 && isAddressStructurallyComplete(state.draft.address);
+    const addrUiPending = addrOk && state.deliveryAddressUiConfirmed !== true;
+    if (
+        addrUiPending &&
+        (state.step === "pro_awaiting_address_confirmation" || state.step === "pro_collecting_order")
+    ) {
+        return [];
+    }
     if (!state.draft.paymentMethod) {
         /** Aguardando confirmação de endereço (salvo ou digitado): não mostrar pagamento ainda. */
         if (
@@ -197,22 +206,31 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
     }
 
     const payTextOnly = PAYMENT_WORD_ONLY_RE.test(action) && !PAYMENT_BUTTON_IDS.has(action);
+    const paymentAttempt = payTextOnly || PAYMENT_BUTTON_IDS.has(action);
     if (
         d &&
         d.items.length > 0 &&
-        !d.paymentMethod &&
         isAddressStructurallyComplete(d.address) &&
         action &&
         !isCancelOrderPlainText(text)
     ) {
-        const blockCollectingText =
-            state.step === "pro_collecting_order" && payTextOnly;
-        const blockAwaitingAddr =
-            state.step === "pro_awaiting_address_confirmation" &&
-            (payTextOnly || PAYMENT_BUTTON_IDS.has(action));
-        if (blockCollectingText || blockAwaitingAddr) {
+        const addrUiPending = state.deliveryAddressUiConfirmed !== true;
+        const blockUntilAddrUi =
+            addrUiPending &&
+            paymentAttempt &&
+            (state.step === "pro_collecting_order" || state.step === "pro_awaiting_address_confirmation");
+        const blockPaymentWithoutMethod =
+            !d.paymentMethod &&
+            paymentAttempt &&
+            (state.step === "pro_collecting_order" || state.step === "pro_awaiting_address_confirmation");
+
+        if (blockUntilAddrUi || blockPaymentWithoutMethod) {
             const addrMsg = buildAddressConfirmationMessage(d);
             if (addrMsg.length === 0) return null;
+            const hint =
+                addrUiPending && d.paymentMethod
+                    ? "Confirme o endereco com o botao antes de alterar o pagamento."
+                    : "Confirme o endereco com o botao antes de escolher o pagamento.";
             return {
                 handled: true,
                 actionTag: "strict_address_before_payment",
@@ -220,7 +238,7 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
                 outbound: prioritizeInteractiveFirst([
                     {
                         kind: "text",
-                        text: "Confirme o endereco com o botao antes de escolher o pagamento.",
+                        text: hint,
                     },
                     ...addrMsg,
                 ]),
@@ -268,6 +286,7 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
             misunderstandingStreak: 0,
             escalationTier: 0,
             searchProdutoEmbalagemIds: [],
+            deliveryAddressUiConfirmed: false,
         };
         return {
             handled: true,
@@ -285,6 +304,7 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
             misunderstandingStreak: 0,
             escalationTier: 0,
             searchProdutoEmbalagemIds: [],
+            deliveryAddressUiConfirmed: false,
         };
         return {
             handled: true,
@@ -337,21 +357,41 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
         };
     }
 
-    if (action === "pro_confirm_saved_address" && state.draft?.address) {
+    if (
+        (action === "pro_confirm_saved_address" || action === "pro_confirm_typed_address") &&
+        state.draft?.address
+    ) {
+        const merged: ProSessionState = { ...state, deliveryAddressUiConfirmed: true };
         return {
             handled: true,
             actionTag: action,
-            state: { ...state, step: "pro_awaiting_payment_method" },
+            state: withResolvedSlotStep(merged),
             outbound: [{ kind: "text", text: "Endereco confirmado." }],
         };
     }
 
-    if (action === "pro_confirm_typed_address" && state.draft?.address) {
+    if (action === "pro_edit_delivery_address" && state.draft) {
+        const merged: ProSessionState = {
+            ...state,
+            deliveryAddressUiConfirmed: false,
+            draft: {
+                ...state.draft,
+                address: null,
+                deliveryAddressText: null,
+                addressResolutionNote: null,
+                pendingConfirmation: false,
+            },
+        };
         return {
             handled: true,
             actionTag: action,
-            state: { ...state, step: "pro_awaiting_payment_method" },
-            outbound: [{ kind: "text", text: "Endereco confirmado." }],
+            state: withResolvedSlotStep(merged),
+            outbound: [
+                {
+                    kind: "text",
+                    text: "Informe o novo endereco: rua, numero, bairro e cidade (todos obrigatorios). Exemplo: Rua Tangara, 850, Sao Mateus, Sorriso-MT.",
+                },
+            ],
         };
     }
 
@@ -372,17 +412,21 @@ export function checkoutPostProcess(params: {
         params.mode === "ai" &&
         nextState.draft &&
         nextState.draft.items.length > 0 &&
-        !nextState.draft.paymentMethod &&
         addrComplete &&
-        (nextState.step === "pro_collecting_order" ||
-            nextState.step === "pro_awaiting_address_confirmation");
+        nextState.deliveryAddressUiConfirmed !== true &&
+        (!nextState.draft.paymentMethod ||
+            shouldHoldAwaitingAddressUi(nextState.draft, nextState.deliveryAddressUiConfirmed));
     if (showAddressConfirm && nextState.draft) {
         outbound.push(...buildAddressConfirmationMessage(nextState.draft));
     }
 
     nextState = {
         ...nextState,
-        step: resolveProStepFromDraft({ step: nextState.step, draft: nextState.draft }),
+        step: resolveProStepFromDraft({
+            step: nextState.step,
+            draft: nextState.draft,
+            deliveryAddressUiConfirmed: nextState.deliveryAddressUiConfirmed,
+        }),
     };
     outbound.push(...checkoutButtonsForState(nextState));
 

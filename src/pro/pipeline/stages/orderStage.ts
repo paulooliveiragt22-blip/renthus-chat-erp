@@ -7,6 +7,7 @@ import type {
 import type { LoggerPort } from "../../ports/logger.port";
 import type { OrderService } from "../../services/order/order.types";
 import { hasPersistedDraft, isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
+import { shouldHoldAwaitingAddressUi, withResolvedSlotStep } from "../orderSlotStep";
 import { isExplicitOrderConfirmation } from "../orderConfirmationText";
 import { executeOrderRpcTransition, resolveStepAfterOrderStage } from "../proStepTransitions";
 
@@ -81,6 +82,21 @@ export async function orderStage(params: {
         return {
             state: { ...state, step: resolveStepAfterOrderStage(state.step, "gate_draft_incomplete") },
             outboundText: "Seu pedido ainda está incompleto. Vamos revisar itens, endereço e pagamento antes de confirmar.",
+            outcome: "gate_draft_incomplete",
+        };
+    }
+
+    if (shouldHoldAwaitingAddressUi(state.draft, state.deliveryAddressUiConfirmed)) {
+        logger?.warn("pro_pipeline.order_stage_gate", {
+            outcome: "gate_draft_incomplete",
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+            reason: "address_ui_unconfirmed",
+        });
+        return {
+            state: withResolvedSlotStep(state),
+            outboundText:
+                "Preciso que voce confirme o endereco de entrega com os botoes (Confirmar ou Alterar) antes de fechar o pedido.",
             outcome: "gate_draft_incomplete",
         };
     }

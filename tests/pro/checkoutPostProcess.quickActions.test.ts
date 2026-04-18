@@ -23,6 +23,7 @@ function minimalDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
             logradouro: "Rua A",
             numero: "1",
             bairro: "Centro",
+            cidade: "Sorriso",
             complemento: null,
         },
         paymentMethod: null,
@@ -108,5 +109,18 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
     it("cartao sem draft: não inventa pagamento", () => {
         const r = applyQuickAction("cartao", state({ draft: null }));
         assert.equal(r.handled, false);
+    });
+
+    it("strict gate: com pagamento no draft e endereco nao confirmado na UI, pix exige confirmar endereco", () => {
+        const g = strictCheckoutStructuredGate(
+            "pix",
+            state({
+                step: "pro_awaiting_address_confirmation",
+                draft: minimalDraft({ paymentMethod: "pix" }),
+            })
+        );
+        assert.ok(g && g.handled);
+        assert.equal(g.actionTag, "strict_address_before_payment");
+        assert.ok(g.outbound.some((m) => m.kind === "buttons"));
     });
 });

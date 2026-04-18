@@ -191,7 +191,7 @@ export async function prepareOrderDraftFromTool(
         } else {
             const resolved = await resolveDefaultAddressForCustomer(admin, companyId, customerId);
             if (!resolved) {
-                errors.push("Não encontrei endereço salvo; peça rua, número e bairro.");
+                errors.push("Não encontrei endereço salvo; peça rua, número, bairro e cidade.");
             } else {
                 address     = resolved.address;
                 addressNote = resolved.note;
@@ -199,8 +199,8 @@ export async function prepareOrderDraftFromTool(
         }
     }
 
-    if (address && (!address.logradouro || !address.numero || !address.bairro)) {
-        errors.push("Endereço incompleto: obrigatório rua, número e bairro.");
+    if (address && (!address.logradouro || !address.numero || !address.bairro || !address.cidade?.trim())) {
+        errors.push("Endereço incompleto: obrigatório rua, número, bairro e cidade.");
     }
 
     const pm = normPm(body.payment_method ?? null);
@@ -382,7 +382,7 @@ export function buildPrepareDraftGuidanceForModel(ok: boolean, errors: string[])
     }
     if (blob.includes("endereço") || blob.includes("endereco") || blob.includes("bairro") || blob.includes("rua")) {
         lines.push(
-            "Próximo passo: se get_order_hints trouxe saved_addresses, liste-os; senão peça rua, número e bairro; use address_raw, address estruturado ou saved_address_id."
+            "Próximo passo: se get_order_hints trouxe saved_addresses, liste-os; senão peça rua, número, bairro e cidade; use address_raw, address estruturado ou saved_address_id."
         );
     }
     if (blob.includes("estoque")) {

@@ -24,6 +24,7 @@ function draft(overrides: Partial<OrderDraft> = {}): OrderDraft {
             logradouro: "Rua A",
             numero: "1",
             bairro: "Centro",
+            cidade: "Sorriso",
             complemento: null,
         },
         paymentMethod: null,
@@ -55,6 +56,7 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
                 logradouro: "Rua A",
                 numero: "1",
                 bairro: "Centro",
+                cidade: "Sorriso",
                 complemento: null,
                 enderecoClienteId: "addr-1",
             },
@@ -78,6 +80,7 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
                 logradouro: "Rua A",
                 numero: "1",
                 bairro: "Centro",
+                cidade: "Sorriso",
                 complemento: null,
                 enderecoClienteId: "addr-1",
             },
@@ -99,18 +102,18 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
-    it("rascunho completo com pagamento não-dinheiro: confirmação final", () => {
+    it("rascunho completo com pagamento não-dinheiro: aguarda confirmação de endereço na UI", () => {
         const d = draft({
             paymentMethod: "pix",
             changeFor: null,
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
-            "pro_awaiting_confirmation"
+            "pro_awaiting_address_confirmation"
         );
     });
 
-    it("rascunho estruturalmente completo sem pendingConfirmation: ainda vai para confirmação final", () => {
+    it("rascunho estruturalmente completo sem pendingConfirmation: ainda aguarda confirmação de endereço na UI", () => {
         const d = draft({
             paymentMethod: "pix",
             changeFor: null,
@@ -118,7 +121,7 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
-            "pro_awaiting_confirmation"
+            "pro_awaiting_address_confirmation"
         );
     });
 
@@ -129,7 +132,7 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
-    it("pro_escalation_choice com rascunho completo: re-alinha para confirmação final", () => {
+    it("pro_escalation_choice com rascunho completo: re-alinha para confirmação de endereço na UI", () => {
         const d = draft({
             paymentMethod: "pix",
             changeFor: null,
@@ -137,6 +140,21 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_escalation_choice", draft: d }),
+            "pro_awaiting_address_confirmation"
+        );
+    });
+
+    it("com deliveryAddressUiConfirmed e pagamento: confirmação final", () => {
+        const d = draft({
+            paymentMethod: "pix",
+            changeFor: null,
+        });
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: d,
+                deliveryAddressUiConfirmed: true,
+            }),
             "pro_awaiting_confirmation"
         );
     });
@@ -148,6 +166,20 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
             misunderstandingStreak: 0,
             escalationTier: 0,
             draft: draft({ paymentMethod: "pix" }),
+            aiHistory: [],
+            searchProdutoEmbalagemIds: [],
+        };
+        assert.equal(withResolvedSlotStep(s).step, "pro_awaiting_address_confirmation");
+    });
+
+    it("withResolvedSlotStep com endereço confirmado na UI: resumo final", () => {
+        const s: ProSessionState = {
+            step: "pro_collecting_order",
+            customerId: "c1",
+            misunderstandingStreak: 0,
+            escalationTier: 0,
+            draft: draft({ paymentMethod: "pix" }),
+            deliveryAddressUiConfirmed: true,
             aiHistory: [],
             searchProdutoEmbalagemIds: [],
         };

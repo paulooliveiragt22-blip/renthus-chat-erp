@@ -8,12 +8,61 @@ import {
     resolveStepAfterAiAction,
     resolveStepAfterOrderStage,
 } from "../../src/pro/pipeline/proStepTransitions";
-import type { ProSessionState } from "../../src/types/contracts";
+import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
+
+function minimalOrderDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
+    return {
+        items: [
+            {
+                produtoEmbalagemId: "pe-1",
+                productName: "X",
+                quantity: 1,
+                unitPrice: 10,
+                fatorConversao: 1,
+                productVolumeId: null,
+                estoqueUnidades: 9,
+            },
+        ],
+        address: {
+            logradouro: "Rua A",
+            numero: "1",
+            bairro: "Centro",
+            cidade: "Sorriso",
+            complemento: null,
+        },
+        paymentMethod: "pix",
+        changeFor: null,
+        deliveryFee: 0,
+        deliveryZoneId: null,
+        deliveryAddressText: null,
+        deliveryMinOrder: null,
+        deliveryEtaMin: null,
+        totalItems: 10,
+        grandTotal: 10,
+        pendingConfirmation: true,
+        version: 1,
+        ...overrides,
+    };
+}
 
 describe("proStepTransitions (R1)", () => {
     it("transições de IA a partir de passos operacionais", () => {
         assert.equal(
             resolveStepAfterAiAction("pro_collecting_order", "request_confirmation"),
+            "pro_awaiting_confirmation"
+        );
+        assert.equal(
+            resolveStepAfterAiAction("pro_collecting_order", "request_confirmation", {
+                draft: minimalOrderDraft(),
+                deliveryAddressUiConfirmed: false,
+            }),
+            "pro_awaiting_address_confirmation"
+        );
+        assert.equal(
+            resolveStepAfterAiAction("pro_collecting_order", "request_confirmation", {
+                draft: minimalOrderDraft(),
+                deliveryAddressUiConfirmed: true,
+            }),
             "pro_awaiting_confirmation"
         );
         assert.equal(resolveStepAfterAiAction("pro_idle", "escalate"), "pro_escalation_choice");

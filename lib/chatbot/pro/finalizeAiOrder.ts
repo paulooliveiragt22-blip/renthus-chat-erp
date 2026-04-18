@@ -25,7 +25,12 @@ export async function revalidateDraftAgainstDb(
             return { ok: false, message: `Estoque insuficiente para "${it.product_name}".` };
         }
     }
-    if (!draft.address?.logradouro || !draft.address?.numero || !draft.address?.bairro) {
+    if (
+        !draft.address?.logradouro ||
+        !draft.address?.numero ||
+        !draft.address?.bairro ||
+        !draft.address?.cidade?.trim()
+    ) {
         return { ok: false, message: "Endereço incompleto." };
     }
     return { ok: true };
@@ -88,7 +93,11 @@ export async function tryFinalizeAiOrderFromDraft(params: {
 
     if (addrErr || !deliveryEnderecoClienteId) {
         console.error("[chatbot/pro] rpc_chatbot_pro_upsert_endereco_cliente:", addrErr?.message);
-        return { ok: false, customerMessage: "Não consegui salvar o endereço. Confira rua, número e bairro e tente de novo. 😊" };
+        return {
+            ok: false,
+            customerMessage:
+                "Não consegui salvar o endereço. Confira rua, número, bairro e cidade e tente de novo. 😊",
+        };
     }
 
     const { data: settings } = await admin

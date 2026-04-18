@@ -8,6 +8,7 @@ import type {
     SideEffect,
 } from "@/src/types/contracts";
 import { stripHallucinatedOrderPersistenceClaims } from "@/src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
+import { orderDraftFingerprintForAddressConfirm } from "../orderSlotStep";
 import { applyAiStateTransition } from "../proStepTransitions";
 
 export interface AiStageResult {
@@ -68,9 +69,16 @@ export async function aiStage(params: {
         errorCode: raw?.errorCode,
     };
 
+    const nextDraft = aiResult.updatedDraft ?? null;
+    const prevFp = orderDraftFingerprintForAddressConfirm(context.session.draft);
+    const nextFp = orderDraftFingerprintForAddressConfirm(nextDraft);
+    const deliveryAddressUiConfirmed =
+        context.session.deliveryAddressUiConfirmed === true && prevFp === nextFp && nextFp !== "";
+
     const nextStateBase = {
         ...context.session,
-        draft: aiResult.updatedDraft ?? null,
+        draft: nextDraft,
+        deliveryAddressUiConfirmed,
         aiHistory: aiResult.updatedHistory ?? [],
         searchProdutoEmbalagemIds:
             raw?.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],

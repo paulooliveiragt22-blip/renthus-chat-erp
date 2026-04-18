@@ -1,12 +1,15 @@
 import type { AiServiceAction, OrderServiceResult, ProSessionState, ProStep } from "@/src/types/contracts";
+import { shouldHoldAwaitingAddressUi } from "./orderSlotStep";
 
 /** Código estável para `canTransition` falhar (não é valor de `ProPipelineTelemetryReason` / métricas). */
 export const INVALID_PRO_STEP_TRANSITION = "invalid_state_transition" as const;
 export type InvalidProStepTransitionReason = typeof INVALID_PRO_STEP_TRANSITION;
 
+export type AiActionSessionSnapshot = Pick<ProSessionState, "draft" | "deliveryAddressUiConfirmed">;
+
 /** Eventos semânticos que alteram `ProSessionState.step` no pipeline PRO (R1). */
 export type ProStepEvent =
-    | { type: "ai_action_resolved"; action: AiServiceAction }
+    | { type: "ai_action_resolved"; action: AiServiceAction; session?: AiActionSessionSnapshot }
     | {
           type: "order_stage";
           outcome:
@@ -21,8 +24,13 @@ export type CanTransitionResult =
     | { ok: true; to: ProStep }
     | { ok: false; reason: InvalidProStepTransitionReason };
 
-function mapAiActionToStep(action: AiServiceAction): ProStep {
-    if (action === "request_confirmation") return "pro_awaiting_confirmation";
+function mapAiActionToStep(action: AiServiceAction, session?: AiActionSessionSnapshot): ProStep {
+    if (action === "request_confirmation") {
+        if (shouldHoldAwaitingAddressUi(session?.draft ?? null, session?.deliveryAddressUiConfirmed)) {
+            return "pro_awaiting_address_confirmation";
+        }
+        return "pro_awaiting_confirmation";
+    }
     if (action === "escalate") return "pro_escalation_choice";
     return "pro_collecting_order";
 }
@@ -40,7 +48,7 @@ export function canTransition(from: ProStep, event: ProStepEvent): CanTransition
         if (from === "handover") {
             return { ok: false, reason: INVALID_PRO_STEP_TRANSITION };
         }
-        return { ok: true, to: mapAiActionToStep(event.action) };
+        return { ok: true, to: mapAiActionToStep(event.action, event.session) };
     }
 
     if (event.type === "order_stage") {
@@ -61,8 +69,12 @@ export function canTransition(from: ProStep, event: ProStepEvent): CanTransition
 }
 
 /** Resolve o próximo passo após IA; fallback seguro se a combinação for inválida. */
-export function resolveStepAfterAiAction(from: ProStep, action: AiServiceAction): ProStep {
-    const r = canTransition(from, { type: "ai_action_resolved", action });
+export function resolveStepAfterAiAction(
+    from: ProStep,
+    action: AiServiceAction,
+    session?: AiActionSessionSnapshot
+): ProStep {
+    const r = canTransition(from, { type: "ai_action_resolved", action, session });
     return r.ok ? r.to : "pro_collecting_order";
 }
 
@@ -83,7 +95,10 @@ export function applyAiStateTransition(params: {
     intentMarker?: "ok" | "unknown" | null;
 }): ProSessionState {
     const { state, action, intentMarker } = params;
-    const step = resolveStepAfterAiAction(state.step, action);
+    const step = resolveStepAfterAiAction(state.step, action, {
+        draft: state.draft,
+        deliveryAddressUiConfirmed: state.deliveryAddressUiConfirmed,
+    });
 
     if (action === "escalate") {
         return {

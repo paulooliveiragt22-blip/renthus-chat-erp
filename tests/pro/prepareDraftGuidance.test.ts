@@ -35,8 +35,8 @@ describe("buildPrepareDraftGuidanceForModel", () => {
 describe("prepareOrderDraft / resposta ao cliente após rejeição", () => {
     it("formatPrepareErrorsForClientReply lista erros", () => {
         const msg = formatPrepareErrorsForClientReply([
-            "Endereço incompleto: obrigatório rua, número e bairro.",
-            "Endereço incompleto: obrigatório rua, número e bairro.",
+            "Endereço incompleto: obrigatório rua, número, bairro e cidade.",
+            "Endereço incompleto: obrigatório rua, número, bairro e cidade.",
         ]);
         assert.match(msg, /Endereço incompleto/u);
         assert.ok(msg.includes("•"));

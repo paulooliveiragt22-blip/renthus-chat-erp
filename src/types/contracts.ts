@@ -92,6 +92,11 @@ export interface ProSessionState {
     draft: OrderDraft | null;
     aiHistory: AiTurn[];
     /**
+     * Cliente confirmou explicitamente o endereço de entrega (botão ou fluxo equivalente).
+     * Enquanto `false`/ausente com draft completo, o passo fica em `pro_awaiting_address_confirmation` mesmo com pagamento já preenchido.
+     */
+    deliveryAddressUiConfirmed?: boolean;
+    /**
      * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */

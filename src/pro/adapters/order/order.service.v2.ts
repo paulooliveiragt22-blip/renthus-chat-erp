@@ -159,7 +159,12 @@ export class OrderServiceV2Adapter implements OrderService {
             }
         }
 
-        if (!draft.address?.logradouro || !draft.address.numero || !draft.address.bairro) {
+        if (
+            !draft.address?.logradouro ||
+            !draft.address.numero ||
+            !draft.address.bairro ||
+            !draft.address.cidade?.trim()
+        ) {
             return { ok: false, message: buildOrderErrorMessage("INVALID_ADDRESS"), errorCode: "INVALID_ADDRESS" };
         }
 
