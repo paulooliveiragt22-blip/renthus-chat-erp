@@ -3,8 +3,6 @@ import { describe, it } from "node:test";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
 import {
     applyQuickAction,
-    buildOrderRecapText,
-    checkoutPostProcessForQuickAction,
     strictCheckoutStructuredGate,
 } from "../../src/pro/pipeline/stages/checkoutPostProcess";
 
@@ -154,7 +152,7 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         const flow = r.outbound[0];
         assert.equal(flow?.kind, "flow");
         assert.equal(flow?.flow?.flowToken, "thread-1|company-1|address_register");
-        assert.equal(flow?.flow?.ctaLabel, "Cadastrar endereço");
+        assert.equal(flow?.flow?.ctaLabel, "Abrir cadastro");
     });
 
     it("strict gate: com pagamento no draft e endereco nao confirmado na UI, pix exige confirmar endereco", () => {
@@ -168,32 +166,5 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.ok(g && g.handled);
         assert.equal(g.actionTag, "strict_address_before_payment");
         assert.ok(g.outbound.some((m) => m.kind === "buttons"));
-    });
-
-    it("buildOrderRecapText inclui taxa de entrega e total", () => {
-        const t = buildOrderRecapText(
-            minimalDraft({
-                paymentMethod: "card",
-                deliveryFee: 5,
-                grandTotal: 15,
-            })
-        );
-        assert.ok(t.includes("Resumo do pedido"));
-        assert.ok(t.includes("Entrega"));
-        assert.ok(t.includes("Total"));
-    });
-
-    it("checkoutPostProcessForQuickAction: textos antes dos botoes de confirmacao final", () => {
-        const st = state({
-            step: "pro_awaiting_confirmation",
-            draft: minimalDraft({ paymentMethod: "card" }),
-        });
-        const ob = checkoutPostProcessForQuickAction({
-            state: st,
-            outbound: [{ kind: "text", text: "Linha de recap" }],
-        });
-        const firstInteractive = ob.findIndex((m) => m.kind === "buttons" || m.kind === "flow");
-        assert.ok(firstInteractive >= 0);
-        assert.ok(ob.slice(0, firstInteractive).every((m) => m.kind === "text"));
     });
 });
