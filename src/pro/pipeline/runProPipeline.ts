@@ -219,7 +219,15 @@ export async function runProPipeline(
         };
     }
 
-    const quick = applyQuickAction(input.inboundText, guarded.state);
+    const quick = applyQuickAction(input.inboundText, guarded.state, {
+        flowAddressRegister: input.flowAddressRegisterId
+            ? {
+                  flowId:    input.flowAddressRegisterId,
+                  threadId:  input.tenant.threadId,
+                  companyId: input.tenant.companyId,
+              }
+            : undefined,
+    });
     if (quick.handled) {
         const syncedQuick = withResolvedSlotStep(quick.state);
         const quickOutbound = checkoutPostProcessForQuickAction({
@@ -336,17 +344,21 @@ export async function runProPipeline(
         };
     }
 
-    let greetingOrderHints: Record<string, unknown> | null = null;
-    if (decision.intent === "greeting" && deps.admin && input.flowAddressRegisterId) {
+    let menuOrderHints: Record<string, unknown> | null = null;
+    if (
+        (decision.intent === "greeting" || decision.intent === "unknown") &&
+        deps.admin &&
+        input.flowAddressRegisterId
+    ) {
         try {
-            greetingOrderHints = await buildOrderHintsPayload({
+            menuOrderHints = await buildOrderHintsPayload({
                 admin:     deps.admin,
                 companyId: input.tenant.companyId,
                 phoneE164: input.tenant.phoneE164,
                 name:      input.actor.profileName ?? null,
             });
         } catch (err) {
-            deps.logger?.warn("pro_pipeline.prefetch_greeting_order_hints_failed", {
+            deps.logger?.warn("pro_pipeline.prefetch_menu_order_hints_failed", {
                 companyId: input.tenant.companyId,
                 threadId:  input.tenant.threadId,
                 message:   err instanceof Error ? err.message : String(err),
@@ -362,7 +374,7 @@ export async function runProPipeline(
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
         flowAddressRegisterId: input.flowAddressRegisterId ?? null,
-        orderHints:            greetingOrderHints,
+        orderHints:            menuOrderHints,
     });
 
     let nextState = routed.state;

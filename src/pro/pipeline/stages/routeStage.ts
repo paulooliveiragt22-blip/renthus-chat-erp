@@ -160,7 +160,8 @@ export function routeStage(params: {
         const isReturningCustomer = Boolean(state.customerId);
         const needAddrFlow =
             Boolean(flowAddressRegisterId) && orderHints?.requires_address_flow_registration === true;
-        if (decision.intent === "greeting" && needAddrFlow) {
+        /** `unknown` incluído: “oi”/ruído sem classificar como greeting ainda precisa do cadastro quando hints pedem. */
+        if ((decision.intent === "greeting" || decision.intent === "unknown") && needAddrFlow) {
             const reason = String(orderHints?.address_registration_reason_pt ?? "").trim();
             const extra = reason ? `\n\n${reason}` : "";
             return {

@@ -13,6 +13,13 @@ export interface QuickActionResult {
     outbound: OutboundMessage[];
 }
 
+/** Quando definido, o botão «Alterar» endereço também oferece o Flow Meta de cadastro. */
+export type FlowAddressRegisterQuickOpts = {
+    flowId: string;
+    threadId: string;
+    companyId: string;
+};
+
 function normalizeInboundAction(text: string): string {
     return text
         .trim()
@@ -251,7 +258,11 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
 
 const ORPHAN_FINAL_CONFIRM_IDS = new Set(["pro_confirm_order", "btn_confirm_order", "btn_confirmar"]);
 
-export function applyQuickAction(text: string, state: ProSessionState): QuickActionResult {
+export function applyQuickAction(
+    text: string,
+    state: ProSessionState,
+    opts?: { flowAddressRegister?: FlowAddressRegisterQuickOpts | null }
+): QuickActionResult {
     const action = normalizeInboundAction(text);
     if (!action) return { handled: false, actionTag: null, state, outbound: [] };
 
@@ -382,6 +393,29 @@ export function applyQuickAction(text: string, state: ProSessionState): QuickAct
                 pendingConfirmation: false,
             },
         };
+        const fr = opts?.flowAddressRegister;
+        /** Só o card de flow: sem bolha de texto extra — o cliente toca no CTA do flow para abrir (limite da API Meta). */
+        if (fr?.flowId) {
+            return {
+                handled: true,
+                actionTag: action,
+                state: withResolvedSlotStep(merged),
+                outbound: [
+                    {
+                        kind: "flow",
+                        flow: {
+                            flowId:    fr.flowId,
+                            flowToken: `${fr.threadId}|${fr.companyId}|address_register`,
+                            bodyText:
+                                "Toque no botao abaixo para abrir o cadastro de endereco (CEP opcional). " +
+                                "Se preferir, pode enviar o endereco em texto: rua, numero, bairro, cidade e UF. " +
+                                "Ex.: Rua Tangara, 850, Sao Mateus, Sorriso-MT.",
+                            ctaLabel: "Abrir cadastro",
+                        },
+                    },
+                ],
+            };
+        }
         return {
             handled: true,
             actionTag: action,

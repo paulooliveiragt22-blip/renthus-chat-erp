@@ -112,6 +112,29 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.equal(r.handled, false);
     });
 
+    it("pro_edit_delivery_address com flow configurado: inclui mensagem de flow", () => {
+        const r = applyQuickAction(
+            "pro_edit_delivery_address",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft(),
+            }),
+            {
+                flowAddressRegister: {
+                    flowId: "flow-meta-id",
+                    threadId: "thread-1",
+                    companyId: "company-1",
+                },
+            }
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.outbound.length, 1);
+        const flow = r.outbound[0];
+        assert.equal(flow?.kind, "flow");
+        assert.equal(flow?.flow?.flowToken, "thread-1|company-1|address_register");
+        assert.equal(flow?.flow?.ctaLabel, "Abrir cadastro");
+    });
+
     it("strict gate: com pagamento no draft e endereco nao confirmado na UI, pix exige confirmar endereco", () => {
         const g = strictCheckoutStructuredGate(
             "pix",
