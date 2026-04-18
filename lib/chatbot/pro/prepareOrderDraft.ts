@@ -13,6 +13,12 @@ import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 
 export type { PrepareDraftToolInput };
 
+/** Formato de UUID esperado em `produto_embalagem_id` (ex.: `view_chat_produtos.id`). */
+export function looksLikeCatalogEmbalagemUuid(value: string): boolean {
+    const s = value.trim();
+    return /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(s);
+}
+
 /**
  * Política de catálogo para `prepare_order_draft`.
  * - `legacy`: apenas validação no banco (fluxos antigos).
@@ -225,6 +231,12 @@ export async function prepareOrderDraftFromTool(
                 continue;
             }
             const pid = String(line.produto_embalagem_id).trim();
+            if (!looksLikeCatalogEmbalagemUuid(pid)) {
+                errors.push(
+                    "Cada item.produto_embalagem_id deve ser o UUID (campo id) copiado do array items do último search_produtos — não use slug, sku textual nem rótulo. Copie o id exato do JSON."
+                );
+                continue;
+            }
             if (!allowSet.has(pid)) {
                 errors.push(
                     `produto_embalagem_id não consta na última busca do catálogo: ${pid}. Rode search_produtos e use só ids retornados na lista.`
@@ -370,6 +382,11 @@ export function buildPrepareDraftGuidanceForModel(ok: boolean, errors: string[])
     if (errs.some((e) => /última busca|ultima busca|na lista da última|na lista da ultima/i.test(e))) {
         lines.push(
             "Próximo passo: chame search_produtos e copie produto_embalagem_id apenas do array items retornado na resposta."
+        );
+    }
+    if (blob.includes("slug") || blob.includes("rótulo") || blob.includes("rotulo")) {
+        lines.push(
+            "Próximo passo: em items use somente o campo id (UUID) de cada linha em items do último search_produtos — nunca slug tipo \"marca-tamanho-caixa\"."
         );
     }
 

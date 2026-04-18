@@ -27,6 +27,29 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
         assert.ok(res.errors.some((e) => e.includes("última busca") || e.includes("ultima busca")));
     });
 
+    it("rejeita slug textual (não UUID) com mensagem específica em search_allowlist", async () => {
+        const admin = null as unknown as SupabaseClient;
+        const res = await prepareOrderDraftFromTool(
+            admin,
+            "00000000-0000-0000-0000-000000000001",
+            null,
+            {
+                items: [{ produto_embalagem_id: "heineken-long-neck-330ml-caixa-6", quantity: 1 }],
+                address: null,
+                address_raw: null,
+                saved_address_id: null,
+                use_saved_address: false,
+                payment_method: "pix",
+                change_for: null,
+                ready_for_confirmation: false,
+            },
+            { kind: "search_allowlist", allowedEmbalagemIds: ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"] }
+        );
+        assert.equal(res.ok, false);
+        assert.ok(res.errors.some((e) => e.includes("slug") || e.includes("UUID")));
+        assert.ok(!res.errors.some((e) => e.includes("heineken-long-neck") && e.includes("última busca")));
+    });
+
     it("com allowlist vazia e itens, exige search_produtos primeiro", async () => {
         const admin = null as unknown as SupabaseClient;
         const res = await prepareOrderDraftFromTool(

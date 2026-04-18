@@ -174,7 +174,7 @@ const HINTS_TOOL = {
 const PREPARE_DRAFT_TOOL = {
     name:         "prepare_order_draft",
     description:
-        "Validação no servidor: UUID produto_embalagem_id tem de ser exatamente um id já retornado por search_produtos nesta conversa (nunca invente ou complete UUID). Endereço, pagamento, estoque e zona de entrega são checados aqui; totais e erros no JSON da tool prevalecem sobre o que você inferiu. Se errors não for vazio, corrija com base nessas mensagens — não contradiga o servidor. Para endereço já cadastrado use saved_address_id (UUID de get_order_hints.saved_addresses) OU use_saved_address=true (principal/último). Para endereço digitado use address com logradouro, numero, bairro e se souber cidade, estado, cep em campos separados (não junte tudo no logradouro). ready_for_confirmation=true só ao mostrar resumo final pedindo “sim”/“ok”.",
+        "Validação no servidor: produto_embalagem_id tem de ser o UUID (campo id) copiado de search_produtos.items — nunca slug/sku textual. Tem de constar na última busca desta conversa. Endereço, pagamento, estoque e zona de entrega são checados aqui; totais e erros no JSON da tool prevalecem sobre o que você inferiu. Se errors não for vazio, corrija com base nessas mensagens — não contradiga o servidor. Para endereço já cadastrado use saved_address_id (UUID de get_order_hints.saved_addresses) OU use_saved_address=true (principal/último). Para endereço digitado use address com logradouro, numero, bairro e se souber cidade, estado, cep em campos separados (não junte tudo no logradouro). ready_for_confirmation=true só ao mostrar resumo final pedindo “sim”/“ok”.",
     input_schema: {
         type:       "object" as const,
         properties: {
@@ -252,6 +252,7 @@ Se prepare_order_draft devolver errors ou ok:false, não invente outro resultado
 
 <forbidden>
 - Inventar, completar ou “adivinhar” UUID (produto_embalagem_id).
+- Usar slug ou identificador textual em produto_embalagem_id (ex.: heineken-long-neck-330ml-caixa-6): copie apenas o campo id (UUID) de items do search_produtos.
 - Citar preço, promoção ou estoque sem item correspondente no último resultado de search_produtos (ou no draft retornado por prepare_order_draft).
 - Dizer que o pedido foi fechado, enviado ou pago antes da confirmação explícita do cliente (o servidor confirma na mensagem seguinte).
 </forbidden>

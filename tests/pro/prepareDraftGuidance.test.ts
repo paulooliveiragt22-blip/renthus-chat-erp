@@ -23,6 +23,13 @@ describe("buildPrepareDraftGuidanceForModel", () => {
         const g = buildPrepareDraftGuidanceForModel(false, ['Estoque insuficiente para "X" (pediu 2).']);
         assert.ok(g.some((l) => l.toLowerCase().includes("estoque")));
     });
+
+    it("quando slug inválido, sugere copiar id UUID do search", () => {
+        const g = buildPrepareDraftGuidanceForModel(false, [
+            "Cada item.produto_embalagem_id deve ser o UUID (campo id) copiado do array items do último search_produtos — não use slug, sku textual nem rótulo. Copie o id exato do JSON.",
+        ]);
+        assert.ok(g.some((l) => l.toLowerCase().includes("slug")));
+    });
 });
 
 describe("prepareOrderDraft / resposta ao cliente após rejeição", () => {
