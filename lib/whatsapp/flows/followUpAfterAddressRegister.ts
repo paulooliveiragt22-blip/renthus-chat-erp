@@ -66,7 +66,7 @@ export async function followUpProSessionAfterAddressRegister(params: {
         apelido: row.apelido ? String(row.apelido).trim() : null,
         cidade: row.cidade ? String(row.cidade).trim() : null,
         estado: row.estado ? String(row.estado).trim().toUpperCase().slice(0, 2) : null,
-        cep: row.cep ? String(row.cep).replace(/\D/g, "").slice(0, 8) || null,
+        cep: row.cep ? (String(row.cep).replace(/\D/g, "").slice(0, 8) || null) : null,
         enderecoClienteId: String(row.id),
     };
 
