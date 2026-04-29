@@ -22,7 +22,7 @@
     "sonar:export-quality:new:csv": "node scripts/fetch-sonar-reliability.mjs --quality --new-code --csv"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.89.0",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@ducanh2912/next-pwa": "^10.2.9",
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "@supabase/ssr": "^0.8.0",
