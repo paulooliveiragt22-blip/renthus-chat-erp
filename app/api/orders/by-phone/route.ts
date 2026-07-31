@@ -106,7 +106,7 @@ function getStatusText(status: string, confirmationStatus: string): string {
   if (confirmationStatus === "pending_confirmation") return "Aguardando confirmação";
   if (confirmationStatus === "rejected")             return "Pedido rejeitado";
   if (status === "new")                              return "Confirmado";
-  if (status === "delivered")                        return "Entregue";
+  if (status === "delivered")                        return "Em entrega";
   if (status === "finalized")                        return "Finalizado";
   if (status === "canceled")                         return "Cancelado";
   return "Processando";

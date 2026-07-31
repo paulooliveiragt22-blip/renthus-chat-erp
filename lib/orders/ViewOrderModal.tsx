@@ -24,7 +24,7 @@ import {
 // ── paletas de status ─────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
     new:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-    delivered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    delivered: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
     finalized: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
     canceled:  "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
 };
@@ -133,9 +133,7 @@ export default function ViewOrderModal({
     canFinalize,
     canEdit,
     onOutForDelivery,
-    onDeliveredMessage,
     sendingOutForDelivery,
-    sendingDeliveredMessage,
 }: {
     open: boolean;
     onClose: () => void;
@@ -152,9 +150,7 @@ export default function ViewOrderModal({
     canFinalize: boolean;
     canEdit: boolean;
     onOutForDelivery: () => void;
-    onDeliveredMessage: () => void;
     sendingOutForDelivery: boolean;
-    sendingDeliveredMessage: boolean;
 }) {
     const st     = order ? String(order.status) : "";
     const ordNum = order ? String(order.id).slice(-6).toUpperCase() : "";
@@ -220,27 +216,17 @@ export default function ViewOrderModal({
                             </button>
                         )}
 
-                        {/* WhatsApp */}
-                        {order.customers?.phone && (
-                            <>
-                                <button
-                                    onClick={onOutForDelivery}
-                                    disabled={sendingOutForDelivery}
-                                    className="flex items-center gap-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-                                >
-                                    <MessageCircle className="h-3.5 w-3.5" />
-                                    {sendingOutForDelivery ? "Enviando..." : "Saiu pra entrega"}
-                                </button>
-
-                                <button
-                                    onClick={onDeliveredMessage}
-                                    disabled={sendingDeliveredMessage}
-                                    className="flex items-center gap-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-                                >
-                                    <MessageCircle className="h-3.5 w-3.5" />
-                                    {sendingDeliveredMessage ? "Enviando..." : "Agradecimento"}
-                                </button>
-                            </>
+                        {/* WhatsApp — só em pedidos ainda não finalizados/cancelados */}
+                        {canDeliver && order.customers?.phone && (
+                            <button
+                                type="button"
+                                onClick={onOutForDelivery}
+                                disabled={sendingOutForDelivery}
+                                className="flex items-center gap-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
+                            >
+                                <MessageCircle className="h-3.5 w-3.5" />
+                                {sendingOutForDelivery ? "Enviando..." : "Saiu pra entrega"}
+                            </button>
                         )}
 
                         {/* Cancelar — discreto, no final */}

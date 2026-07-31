@@ -29,7 +29,7 @@ type Thread = {
 function prettyStatus(s: string) {
     if (s === "new") return "Novo";
     if (s === "canceled") return "Cancelado";
-    if (s === "delivered") return "Entregue";
+    if (s === "delivered") return "Em entrega";
     if (s === "finalized") return "Finalizado";
     return s;
 }

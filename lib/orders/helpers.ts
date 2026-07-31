@@ -31,7 +31,8 @@ export function formatDT(ts: string) {
 export function prettyStatus(s: string) {
     if (s === "new") return "Novo";
     if (s === "canceled") return "Cancelado";
-    if (s === "delivered") return "Entregue";
+    // No domínio Pedidos: delivered = saiu / em rota (não "já entregue")
+    if (s === "delivered") return "Em entrega";
     if (s === "finalized") return "Finalizado";
     return s;
 }

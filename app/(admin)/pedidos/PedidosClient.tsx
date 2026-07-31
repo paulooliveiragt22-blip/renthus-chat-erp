@@ -198,7 +198,7 @@ function orderPrintGetItemInfo(it: { product_name?: unknown; unit_type?: unknown
 
 const STATUS_BADGE: Record<string, string> = {
     new:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-    delivered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    delivered: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
     finalized: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
     canceled:  "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500",
 };
@@ -328,7 +328,6 @@ export default function PedidosPage() {
 
     // ── whatsapp sending ──────────────────────────────────────────────────────
     const [sendingOutForDelivery,  setSendingOutForDelivery]  = useState(false);
-    const [sendingDeliveredMessage, setSendingDeliveredMessage] = useState(false);
 
     // ── refs for realtime ─────────────────────────────────────────────────────
     const viewOrderIdRef = useRef<string | null>(null);
@@ -671,7 +670,41 @@ export default function PedidosPage() {
             }
         }
 
-        setMsg("✅ Pedido atualizado.");
+        // Ao finalizar: envia agradecimento WhatsApp (antes no botão separado)
+        if (actionKind === "finalize") {
+            const full = viewOrder?.id === orderId ? viewOrder : await fetchOrderFull(orderId);
+            const listCust = (orders.find((o) => o.id === orderId) as any)?.customers;
+            const phoneRaw = String(full?.customers?.phone ?? listCust?.phone ?? "").trim();
+            const digits = phoneRaw.replaceAll(/\D/g, "");
+            const e164 = phoneRaw.startsWith("+")
+                ? phoneRaw
+                : digits
+                    ? (digits.startsWith("55") ? `+${digits}` : `+55${digits}`)
+                    : "";
+            if (e164.startsWith("+")) {
+                try {
+                    await fetch("/api/whatsapp/send", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                            to_phone_e164: e164,
+                            kind: "text",
+                            text: deliveryStatusWhatsAppText(
+                                "delivered_message",
+                                String(full?.customers?.name ?? listCust?.name ?? "")
+                            ),
+                        }),
+                    });
+                } catch (err) {
+                    console.warn("[runAction] agradecimento WhatsApp:", err);
+                }
+            }
+        }
+
+        setMsg(actionKind === "finalize"
+            ? "✅ Pedido finalizado. Agradecimento enviado ao cliente (se houver WhatsApp)."
+            : "✅ Pedido atualizado.");
         setOpenAction(false); setActionSaving(false);
         await loadOrders();
         if (viewOrder?.id === orderId) setViewOrder(await fetchOrderFull(orderId));
@@ -994,29 +1027,44 @@ export default function PedidosPage() {
     }
 
     async function syncViewOrderAfterOutForDelivery(ordId: string) {
-        await fetch("/api/admin/orders", {
+        const current = String(viewOrder?.id === ordId ? viewOrder.status : "").trim();
+        if (current === "finalized" || current === "canceled") {
+            setMsg("Pedido finalizado/cancelado não pode voltar para em entrega.");
+            return;
+        }
+        const res = await fetch("/api/admin/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({ id: ordId, status: "delivered" }),
         });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setMsg(`Erro ao marcar em entrega: ${json?.error ?? "falha desconhecida"}`);
+            return;
+        }
         const updated = await fetchOrderFull(ordId);
         if (updated) setViewOrder(updated);
         await loadOrders();
     }
 
-    async function sendWhatsAppForCurrentOrder(kind: "out_for_delivery" | "delivered_message") {
+    async function sendWhatsAppForCurrentOrder(kind: "out_for_delivery") {
         const ord = viewOrder;
         if (!ord || !ord.customers?.phone) { setMsg("Telefone do cliente não encontrado."); return; }
+        if (!canDeliver(String(ord.status))) {
+            setMsg("Pedido finalizado/cancelado não pode voltar para em entrega.");
+            return;
+        }
         const phone = String(ord.customers.phone).trim();
         if (!phone.startsWith("+")) { setMsg("Telefone precisa estar em formato internacional (+55...)."); return; }
         const text = deliveryStatusWhatsAppText(kind, ord.customers.name || "");
         try {
-            if (kind === "out_for_delivery") setSendingOutForDelivery(true); else setSendingDeliveredMessage(true);
+            setSendingOutForDelivery(true);
             setMsg(null);
             const res = await fetch("/api/whatsapp/send", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "include",
                 body: JSON.stringify({ to_phone_e164: phone, kind: "text", text }),
             });
             if (!res.ok) {
@@ -1024,12 +1072,12 @@ export default function PedidosPage() {
                 setMsg(`Erro WhatsApp: ${d?.error || res.statusText}`);
                 return;
             }
-            if (kind === "out_for_delivery") await syncViewOrderAfterOutForDelivery(ord.id);
-            setMsg("✅ Mensagem enviada no WhatsApp.");
+            await syncViewOrderAfterOutForDelivery(ord.id);
+            setMsg("✅ Mensagem enviada no WhatsApp. Pedido em entrega.");
         } catch (err: unknown) {
             setMsg(`Erro WhatsApp: ${String((err as Error)?.message ?? err)}`);
         } finally {
-            if (kind === "out_for_delivery") setSendingOutForDelivery(false); else setSendingDeliveredMessage(false);
+            setSendingOutForDelivery(false);
         }
     }
 
@@ -1655,9 +1703,7 @@ export default function PedidosPage() {
                 canFinalize={viewOrder ? canFinalize(String((viewOrder as any).status)) : false}
                 canEdit={viewOrder ? canEdit(String((viewOrder as any).status)) : false}
                 onOutForDelivery={() => sendWhatsAppForCurrentOrder("out_for_delivery")}
-                onDeliveredMessage={() => sendWhatsAppForCurrentOrder("delivered_message")}
                 sendingOutForDelivery={sendingOutForDelivery}
-                sendingDeliveredMessage={sendingDeliveredMessage}
             />
 
             <ActionModal

@@ -125,7 +125,7 @@ function flowOrderStatusEmoji(status: string, conf: string): string {
     if (status === "new") return "✅";
     if (status === "preparing") return "🔥";
     if (status === "delivering") return "🛵";
-    if (status === "delivered") return "📦";
+    if (status === "delivered") return "🛵";
     if (status === "finalized") return "✅";
     if (status === "canceled") return "❌";
     return "📋";
@@ -137,7 +137,7 @@ function flowOrderStatusText(status: string, conf: string): string {
     if (status === "new") return "Confirmado";
     if (status === "preparing") return "Em preparo";
     if (status === "delivering") return "Saiu para entrega";
-    if (status === "delivered") return "Entregue";
+    if (status === "delivered") return "Em entrega";
     if (status === "finalized") return "Finalizado";
     if (status === "canceled") return "Cancelado";
     return "Em processamento";

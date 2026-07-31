@@ -52,6 +52,23 @@ export async function PATCH(req: Request) {
     if (body.total_amount !== undefined) patch.total_amount = Number(body.total_amount ?? 0);
     if (body.driver_id !== undefined) patch.driver_id = body.driver_id || null;
 
+    // Pedido finalizado/cancelado não volta para "em entrega" (delivered)
+    if (patch.status === "delivered") {
+        const { data: current } = await admin
+            .from("orders")
+            .select("status")
+            .eq("id", id)
+            .eq("company_id", companyId)
+            .maybeSingle();
+        const cur = String(current?.status ?? "");
+        if (cur === "finalized" || cur === "canceled") {
+            return NextResponse.json(
+                { error: "pedido_finalizado_nao_pode_voltar_para_entrega" },
+                { status: 409 }
+            );
+        }
+    }
+
     if (patch.status === "canceled") {
         const { error: cErr } = await admin.rpc("rpc_admin_cancel_order", {
             p_company_id: companyId,

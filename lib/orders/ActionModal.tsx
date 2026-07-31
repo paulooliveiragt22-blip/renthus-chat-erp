@@ -41,7 +41,7 @@ export default function ActionModal({
 
     function actionTitle(k: ActionKind) {
         if (k === "cancel")  return "Cancelar pedido";
-        if (k === "deliver") return "Marcar como entregue";
+        if (k === "deliver") return "Marcar como em entrega";
         return "Finalizar e registrar pagamento";
     }
     function actionStatus(k: ActionKind): OrderStatus {
