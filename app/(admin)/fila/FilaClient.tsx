@@ -3,7 +3,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
-import { Check, Clock, MessageCircle, Pencil, RefreshCcw, X } from "lucide-react";
+import { Check, Clock, MessageCircle, Pencil, RefreshCcw, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { playBeep } from "@/lib/utils/playBeep";
 import { FilaOrderEditOverlay } from "@/components/fila/FilaOrderEditOverlay";
 import WhatsAppInbox from "@/components/whatsapp/WhatsAppInbox";
@@ -157,6 +157,8 @@ export default function FilaClient() {
   const prevCountRef  = useRef(0);
   const prevIdsRef    = useRef<Set<string>>(new Set());
   const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
+  const [requireApproval, setRequireApproval] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false);
 
   // ── Overlay state ─────────────────────────────────────────────────────────
   const [chatPhone,      setChatPhone]      = useState<string | null>(null);
@@ -190,18 +192,28 @@ export default function FilaClient() {
     setLoading(false);
   }, [companyId]);
 
+  const fetchApprovalSetting = useCallback(async () => {
+    if (!companyId) return;
+    try {
+      const res = await fetch("/api/admin/company-settings", { credentials: "include", cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setRequireApproval(Boolean(json?.settings?.require_order_approval));
+    } catch { /* ignore */ }
+  }, [companyId]);
+
   // ── Realtime + polling ────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!companyId) return;
 
     fetchOrders();
+    fetchApprovalSetting();
     const poll = setInterval(fetchOrders, 8000);
 
     return () => {
       clearInterval(poll);
     };
-  }, [companyId, fetchOrders]);
+  }, [companyId, fetchOrders, fetchApprovalSetting]);
 
   // ── Atalhos de teclado ────────────────────────────────────────────────────
 
@@ -220,6 +232,30 @@ export default function FilaClient() {
   function notify(ok: boolean, text: string) {
     setMsg({ ok, text });
     setTimeout(() => setMsg(null), 4000);
+  }
+
+  async function toggleApproval() {
+    if (!companyId || approvalBusy) return;
+    const next = !requireApproval;
+    setApprovalBusy(true);
+    try {
+      const res = await fetch("/api/admin/company-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ require_order_approval: next }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? "falha ao salvar");
+      setRequireApproval(next);
+      notify(true, next
+        ? "Confirmação manual ativada — novos pedidos vão para a fila"
+        : "Confirmação manual desativada — pedidos confirmam automaticamente");
+    } catch (e: unknown) {
+      notify(false, "Erro ao alterar confirmação: " + String((e as Error)?.message ?? e));
+    } finally {
+      setApprovalBusy(false);
+    }
   }
 
   // ── WhatsApp ──────────────────────────────────────────────────────────────
@@ -340,13 +376,35 @@ export default function FilaClient() {
           </p>
         </div>
 
-        <button
-          onClick={() => fetchOrders()}
-          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-        >
-          <RefreshCcw className="w-3.5 h-3.5" />
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={approvalBusy}
+            onClick={() => void toggleApproval()}
+            title={requireApproval
+              ? "Confirmação manual ativa — clique para desativar"
+              : "Confirmação automática — clique para exigir aprovação na fila"}
+            className={[
+              "flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors disabled:opacity-50",
+              requireApproval
+                ? "text-yellow-800 bg-yellow-50 border-yellow-200 hover:bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-900/20 dark:border-yellow-800 dark:hover:bg-yellow-900/40"
+                : "text-emerald-800 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/20 dark:border-emerald-800 dark:hover:bg-emerald-900/40",
+            ].join(" ")}
+          >
+            {requireApproval
+              ? <ShieldAlert className="w-3.5 h-3.5" />
+              : <ShieldCheck className="w-3.5 h-3.5" />}
+            {approvalBusy ? "Salvando…" : `Confirmação manual: ${requireApproval ? "ON" : "OFF"}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => fetchOrders()}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+          >
+            <RefreshCcw className="w-3.5 h-3.5" />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {/* Toast inline */}
@@ -397,12 +455,19 @@ export default function FilaClient() {
               key={order.id}
               style={{ animationDelay: `${idx * 60}ms` }}
               className={[
-                "bg-white dark:bg-zinc-800 rounded-xl shadow-sm border-l-4 flex flex-col overflow-hidden",
+                "relative bg-white dark:bg-zinc-800 rounded-xl shadow-sm border-l-4 flex flex-col overflow-hidden",
                 "fila-card-enter fila-card-hover",
                 isFirst ? "border-yellow-400 ring-1 ring-yellow-200 dark:ring-yellow-800 fila-card-first-pulse" : "border-gray-200 dark:border-zinc-600",
                 isNew ? "fila-card-new-flash" : "",
               ].join(" ")}
             >
+              <button
+                type="button"
+                className="absolute inset-0 z-[1] rounded-xl border-0 bg-transparent p-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                aria-label={`Abrir pedido ${shortId}`}
+                onClick={() => setEditOrderId(order.id)}
+              />
+              <div className="relative z-[2] flex min-h-0 flex-1 flex-col pointer-events-none">
               {/* Card header */}
               <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
                 <div>
@@ -476,9 +541,10 @@ export default function FilaClient() {
               </div>
 
               {/* Ações secundárias */}
-              <div className="px-3 pb-1 flex gap-2">
+              <div className="px-3 pb-1 flex gap-2 pointer-events-auto">
                 {phone && (
                   <button
+                    type="button"
                     onClick={() => setChatPhone(toE164(phone) ?? phone)}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors"
                   >
@@ -487,6 +553,7 @@ export default function FilaClient() {
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => setEditOrderId(order.id)}
                   className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
                 >
@@ -496,8 +563,9 @@ export default function FilaClient() {
               </div>
 
               {/* Ações principais */}
-              <div className="px-3 pb-3 flex gap-2">
+              <div className="px-3 pb-3 flex gap-2 pointer-events-auto">
                 <button
+                  type="button"
                   disabled={isBusy}
                   onClick={() => handleReject(order.id)}
                   className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors disabled:opacity-40"
@@ -506,6 +574,7 @@ export default function FilaClient() {
                   Rejeitar
                 </button>
                 <button
+                  type="button"
                   disabled={isBusy}
                   onClick={() => handleConfirm(order.id)}
                   className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-40"
@@ -513,6 +582,7 @@ export default function FilaClient() {
                   <Check className="w-3.5 h-3.5" />
                   {isBusy ? "Processando..." : "Confirmar Pedido"}
                 </button>
+              </div>
               </div>
             </div>
           );

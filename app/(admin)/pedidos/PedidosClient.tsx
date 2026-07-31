@@ -1361,8 +1361,8 @@ export default function PedidosPage() {
                                     aria-label={`Abrir pedido ${num}`}
                                     onClick={() => openOrder(o.id)}
                                 />
-                                <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
-                                <div className="flex flex-col pointer-events-none divide-y divide-zinc-100 dark:divide-zinc-800">
+                                <div className="relative z-[2] flex min-h-0 flex-1 flex-col pointer-events-none">
+                                <div className="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
                                 {/* ── Header: ID + status na mesma linha ── */}
                                 <div className="px-3 py-2 flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-1.5 min-w-0">

@@ -28,14 +28,17 @@ export async function PATCH(req: Request) {
         auto_print_orders?: boolean;
     };
 
-    const patch: Record<string, unknown> = {};
+    const patch: Record<string, unknown> = { company_id: companyId };
     if (body.require_order_approval !== undefined) patch.require_order_approval = Boolean(body.require_order_approval);
     if (body.auto_print_orders !== undefined) patch.auto_print_orders = Boolean(body.auto_print_orders);
 
+    if (Object.keys(patch).length <= 1) {
+        return NextResponse.json({ error: "nada para atualizar" }, { status: 400 });
+    }
+
     const { error } = await admin
         .from("company_settings")
-        .update(patch)
-        .eq("company_id", companyId);
+        .upsert(patch, { onConflict: "company_id" });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
 }
