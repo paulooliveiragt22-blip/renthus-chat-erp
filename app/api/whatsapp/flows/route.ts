@@ -1010,7 +1010,7 @@ export async function POST(req: NextRequest) {
                 if (selectedAddressId) {
                     const { data: savedAddr } = await admin
                         .from("enderecos_cliente")
-                        .select("id, apelido, logradouro, numero, complemento, bairro")
+                        .select("id, apelido, logradouro, numero, complemento, bairro, cidade, estado, cep")
                         .eq("id", selectedAddressId)
                         .eq("company_id", companyId)
                         .maybeSingle();
@@ -1025,6 +1025,9 @@ export async function POST(req: NextRequest) {
                         const address  = [(savedAddr as any).logradouro, (savedAddr as any).numero,
                                           (savedAddr as any).complemento, delivery.label]
                                           .filter(Boolean).join(", ");
+                        const savedCidade = String((savedAddr as any).cidade ?? "").trim();
+                        const savedEstado = String((savedAddr as any).estado ?? "").trim().toUpperCase();
+                        const savedCepRaw = String((savedAddr as any).cep ?? "").replaceAll(/\D/g, "");
 
                         // Usa cart + context já carregados na sessão inicial
                         const cart    = ((sessionForScreen?.cart ?? []) as CartItem[]);
@@ -1051,6 +1054,9 @@ export async function POST(req: NextRequest) {
                             flow_numero:                  (savedAddr as any).numero,
                             flow_complemento:             (savedAddr as any).complemento,
                             flow_bairro_label:            delivery.label,
+                            flow_cidade:                  savedCidade,
+                            flow_estado:                  savedEstado,
+                            flow_cep:                     savedCepRaw.length === 8 ? savedCepRaw : null,
                             delivery_endereco_cliente_id: selectedAddressId,
                             catalog_screen:               "PAYMENT",
                         };
@@ -1252,11 +1258,11 @@ export async function POST(req: NextRequest) {
                 const totalItems  = cart.reduce((s, i) => s + i.price * i.qty, 0);
                 const grandTotal  = totalItems + deliveryFee;
 
-                // Upsert endereço do cliente
+                // Upsert endereço do cliente (pula se já veio id de endereço salvo)
                 let deliveryEnderecoClienteId: string | null =
                     (context.delivery_endereco_cliente_id as string | undefined) ?? null;
 
-                if (customerId) {
+                if (customerId && !deliveryEnderecoClienteId) {
                     const flowApelido = (context.flow_apelido as string) ?? "";
                     const flowRua = (context.flow_rua as string) ?? address;
                     const flowNumero = (context.flow_numero as string) ?? null;
@@ -1555,11 +1561,11 @@ export async function POST(req: NextRequest) {
             const grandTotal   = totalItems + deliveryFee;
             const customerId   = sessionRow.customer_id ?? null;
 
-            // Upsert endereço do cliente (quando tem customer_id)
+            // Upsert endereço do cliente (pula se já veio id de endereço salvo)
             let deliveryEnderecoClienteId: string | null =
                 (context.delivery_endereco_cliente_id as string | undefined) ?? null;
 
-            if (customerId) {
+            if (customerId && !deliveryEnderecoClienteId) {
                 const flowApelido = (context.flow_apelido as string) ?? "";
                 const flowRua = (context.flow_rua as string) ?? address;
                 const flowNumero = (context.flow_numero as string) ?? null;
