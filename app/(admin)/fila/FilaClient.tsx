@@ -159,6 +159,7 @@ export default function FilaClient() {
   const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
   const [requireApproval, setRequireApproval] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState(false);
+  const [deliveryEtaMin, setDeliveryEtaMin] = useState<number | null>(null);
 
   // ── Overlay state ─────────────────────────────────────────────────────────
   const [chatPhone,      setChatPhone]      = useState<string | null>(null);
@@ -201,6 +202,18 @@ export default function FilaClient() {
     } catch { /* ignore */ }
   }, [companyId]);
 
+  const fetchDeliveryEta = useCallback(async () => {
+    if (!companyId) return;
+    try {
+      const res = await fetch("/api/delivery/policy", { credentials: "include", cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const raw = (json?.company?.settings as Record<string, unknown> | undefined)?.delivery_est_minutes;
+      const n = raw == null ? NaN : Math.floor(Number(raw));
+      setDeliveryEtaMin(Number.isFinite(n) ? n : null);
+    } catch { /* ignore */ }
+  }, [companyId]);
+
   // ── Realtime + polling ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -208,12 +221,13 @@ export default function FilaClient() {
 
     fetchOrders();
     fetchApprovalSetting();
+    fetchDeliveryEta();
     const poll = setInterval(fetchOrders, 8000);
 
     return () => {
       clearInterval(poll);
     };
-  }, [companyId, fetchOrders, fetchApprovalSetting]);
+  }, [companyId, fetchOrders, fetchApprovalSetting, fetchDeliveryEta]);
 
   // ── Atalhos de teclado ────────────────────────────────────────────────────
 
@@ -294,11 +308,15 @@ export default function FilaClient() {
       const total   = Number(order?.total_amount || order?.total || 0)
         .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+      const etaLine = deliveryEtaMin != null && Number.isFinite(deliveryEtaMin)
+        ? `🚚 *Previsão de entrega:* ${Math.max(0, Math.floor(deliveryEtaMin))} minutos\n\n`
+        : "";
+
       await sendWhatsApp(phone,
         `✅ *Pedido Confirmado!*\n\n` +
         `Pedido #${shortId}\n` +
         `Total: ${total}\n\n` +
-        `🚚 *Previsão de entrega:* 30–40 minutos\n\n` +
+        etaLine +
         `Obrigado pela preferência! 🍺`
       );
 

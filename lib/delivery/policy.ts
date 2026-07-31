@@ -156,3 +156,24 @@ export function buildDeliveryExpectationText(params: {
     }
     return parts.join(" • ");
 }
+
+/** Minutos de previsão a partir de companies.settings.delivery_est_minutes. */
+export async function getCompanyDeliveryEtaMin(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<number | null> {
+    const { data } = await admin
+        .from("companies")
+        .select("settings")
+        .eq("id", companyId)
+        .maybeSingle();
+    const settings = (data?.settings ?? {}) as Record<string, unknown>;
+    return parseNullableInt(settings.delivery_est_minutes);
+}
+
+/** Linha de previsão para mensagem WhatsApp de confirmação (vazio se sem ETA). */
+export function formatDeliveryEtaConfirmLine(etaMin: number | null | undefined): string {
+    if (etaMin == null || !Number.isFinite(Number(etaMin))) return "";
+    const minutes = Math.max(0, Math.floor(Number(etaMin)));
+    return `🚚 *Previsão de entrega:* ${minutes} minutos`;
+}

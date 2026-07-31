@@ -25,7 +25,12 @@ import {
     fetchFlowFavoriteItems,
     saveCatalogFlowScreen,
 } from "@/lib/whatsapp/flows/catalogFlowHelpers";
-import { resolveDeliveryForNeighborhood, buildDeliveryExpectationText } from "@/lib/delivery/policy";
+import {
+    resolveDeliveryForNeighborhood,
+    buildDeliveryExpectationText,
+    formatDeliveryEtaConfirmLine,
+    getCompanyDeliveryEtaMin,
+} from "@/lib/delivery/policy";
 import { lookupCep } from "@/lib/address/cepLookup";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
@@ -1047,6 +1052,7 @@ export async function POST(req: NextRequest) {
                             ...ctx,
                             delivery_address:             address,
                             delivery_fee:                 delivFee,
+                            delivery_eta_min:             delivery.eta_min,
                             delivery_zone_id:             delivery.matched_rule_id ?? null,
                             flow_address_done:            true,
                             flow_apelido:                 (savedAddr as any).apelido,
@@ -1143,6 +1149,7 @@ export async function POST(req: NextRequest) {
                     ...context,
                     delivery_address:  address,
                     delivery_fee:      deliveryFee,
+                    delivery_eta_min:  delivery.eta_min,
                     delivery_zone_id:  delivery.matched_rule_id ?? null,
                     flow_address_done: true,
                     flow_apelido:      apelido,
@@ -1359,10 +1366,16 @@ export async function POST(req: NextRequest) {
                     const feeText   = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
                     const chgText   = changeFor ? ` (troco para ${formatCurrency(changeFor)})` : "";
                     const orderCode = `#${order.id.replaceAll("-", "").slice(-6).toUpperCase()}`;
+                    let etaMin = context.delivery_eta_min != null ? Number(context.delivery_eta_min) : NaN;
+                    if (!Number.isFinite(etaMin)) {
+                        etaMin = (await getCompanyDeliveryEtaMin(admin, companyId)) ?? NaN;
+                    }
+                    const etaLine = formatDeliveryEtaConfirmLine(Number.isFinite(etaMin) ? etaMin : null);
+                    const etaBlock = etaLine ? `\n\n${etaLine}` : "";
 
                     const msg = requireApproval
                         ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-                        : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${chgText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
+                        : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${chgText}${etaBlock}\n\nObrigado pela preferência! 🍺`;
 
                     await sendWhatsAppMessage(customerPhone, msg, waConfig);
                 }
@@ -1494,6 +1507,7 @@ export async function POST(req: NextRequest) {
                         ...context,
                         delivery_address:  address,
                         delivery_fee:      deliveryFee,
+                        delivery_eta_min:  delivery.eta_min,
                         delivery_zone_id:  delivery.matched_rule_id ?? null,
                         flow_address_done: true,
                         flow_apelido:      apelido,
@@ -1687,10 +1701,16 @@ export async function POST(req: NextRequest) {
                     const changeText = changeFor
                         ? ` (troco para ${formatCurrency(changeFor)})`
                         : "";
+                    let etaMin = context.delivery_eta_min != null ? Number(context.delivery_eta_min) : NaN;
+                    if (!Number.isFinite(etaMin)) {
+                        etaMin = (await getCompanyDeliveryEtaMin(admin, companyId)) ?? NaN;
+                    }
+                    const etaLine = formatDeliveryEtaConfirmLine(Number.isFinite(etaMin) ? etaMin : null);
+                    const etaBlock = etaLine ? `\n\n${etaLine}` : "";
 
                     const msg = requireApproval
                         ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}\n\n🚚 Previsão: 30-40 min\n\nObrigado pela preferência! 🍺`;
+                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}${etaBlock}\n\nObrigado pela preferência! 🍺`;
 
                     await sendWhatsAppMessage(phoneE164, msg, waConfig);
                 }
