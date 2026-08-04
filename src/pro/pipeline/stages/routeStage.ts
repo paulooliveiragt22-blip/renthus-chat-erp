@@ -1,4 +1,5 @@
 import type { IntentDecision, OutboundMessage, ProSessionState, TenantRef } from "@/src/types/contracts";
+import { buildWebMenuOfferText } from "@/lib/public-menu/menuOfferText";
 import { isOrderSessionContinuityNeeded } from "../sessionOrderContext";
 import { canTransition } from "../proStepTransitions";
 
@@ -14,6 +15,12 @@ function normalizeInboundId(text: string): string {
         .toLowerCase()
         .normalize("NFD")
         .replaceAll(/\p{Diacritic}/gu, "");
+}
+
+/** Pedido explícito de ver o cardápio/catálogo (botão ou frase curta). */
+function wantsCatalogBrowse(norm: string): boolean {
+    if (norm === "btn_catalog" || norm === "1") return true;
+    return /^(quero\s+)?(ver\s+)?(o\s+)?(cardapio|catalogo|menu)(\s+por\s+favor)?$/u.test(norm);
 }
 
 /** Saudação única: corpo do interactive (uma bolha WhatsApp). */
@@ -45,8 +52,9 @@ export function routeStage(params: {
     tenant: TenantRef;
     flowCatalogId?: string | null;
     flowStatusId?: string | null;
+    webMenuUrl?: string | null;
 }): RouteStageResult {
-    const { state, decision, inboundText, tenant, flowCatalogId, flowStatusId } = params;
+    const { state, decision, inboundText, tenant, flowCatalogId, flowStatusId, webMenuUrl } = params;
     const norm = normalizeInboundId(inboundText);
 
     if (decision.intent === "human_intent") {
@@ -59,7 +67,20 @@ export function routeStage(params: {
         };
     }
 
-    if (norm === "btn_catalog" && flowCatalogId) {
+    if (wantsCatalogBrowse(norm) && webMenuUrl) {
+        return {
+            mode: "direct_reply",
+            state,
+            outbound: [
+                {
+                    kind: "text",
+                    text: buildWebMenuOfferText({ url: webMenuUrl }),
+                },
+            ],
+        };
+    }
+
+    if (wantsCatalogBrowse(norm) && flowCatalogId) {
         return {
             mode: "direct_reply",
             state,
@@ -121,7 +142,7 @@ export function routeStage(params: {
         };
     }
 
-    if (norm === "btn_catalog") {
+    if (wantsCatalogBrowse(norm)) {
         return {
             mode: "direct_reply",
             state,

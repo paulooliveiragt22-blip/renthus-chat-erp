@@ -48,6 +48,7 @@ export function buildPipelineContext(params: {
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
         flowAddressRegisterId: input.flowAddressRegisterId ?? null,
+        webMenuUrl: input.webMenuUrl ?? null,
     };
 }
 

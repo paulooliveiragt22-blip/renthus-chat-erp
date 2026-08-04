@@ -19,6 +19,7 @@ import { botReply } from "./botSend";
 import { runProPipeline } from "@/src/pro/pipeline/runProPipeline";
 import { isProPipelineSessionLoadError } from "@/src/pro/pipeline/errors";
 import { makeProPipelineDependencies } from "@/src/pro/pipeline/deps.factory";
+import { resolveActivePublicMenuLink } from "@/lib/public-menu/resolveActiveMenuLink";
 
 /** Modo `active`: falha do V2 não delega pedido ao legado (evita `ai_order_canonical` vs `__pro_v2_state`). */
 const PRO_V2_ACTIVE_FAILURE_MESSAGE_PT_BR =
@@ -80,6 +81,7 @@ async function runProV2InboundBranch(
                 ? { overrides: params.proPipelineDependencyOverrides }
                 : undefined
         );
+        const webMenu = await resolveActivePublicMenuLink(params.admin, params.companyId);
         await runProPipeline(
             {
                 tenant: {
@@ -99,6 +101,7 @@ async function runProV2InboundBranch(
                 flowCatalogId: params.catalogFlowId ?? null,
                 flowStatusId: params.statusFlowId ?? null,
                 flowAddressRegisterId: params.addressRegisterFlowId ?? null,
+                webMenuUrl: webMenu?.url ?? null,
             },
             deps
         );

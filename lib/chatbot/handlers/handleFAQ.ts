@@ -2,7 +2,7 @@
  * lib/chatbot/handlers/handleFAQ.ts
  *
  * Responde dúvidas do cliente usando Claude Haiku.
- * NUNCA aceita pedidos nem confirma compras — sempre redireciona para o Flow Catálogo.
+ * NUNCA aceita pedidos nem confirma compras — oferece cardápio web (se ativo) ou Flow.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -10,9 +10,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Session, CompanyConfig } from "../types";
 import type { ProcessMessageParams } from "../types";
 import { botReply } from "../botSend";
-import { sendFlowMessage, sendInteractiveButtons } from "../../whatsapp/send";
+import { sendInteractiveButtons } from "../../whatsapp/send";
 import { sanitizeClaudeReply } from "../utils";
-import { saveSession } from "../session";
+import { offerCatalogToCustomer } from "../offerCatalog";
 
 // ── Cache de produtos para FAQ ─────────────────────────────────────────────────
 
@@ -95,29 +95,21 @@ ${productList || "Catálogo em atualização. Use o botão abaixo para ver os pr
             "Não consegui buscar essa informação agora. Veja nosso catálogo ou fale com um atendente. 😊");
     }
 
-    // Sempre oferece o catálogo após responder
+    // Sempre oferece o catálogo após responder (web menu ativo → link; senão Flow)
     const effectiveFlowId = catalogFlowId ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
-
-    if (effectiveFlowId) {
-        await saveSession(admin, threadId, companyId, {
-            step:    "awaiting_flow",
-            context: {
-                ...session.context,
-                flow_started_at:   new Date().toISOString(),
-                flow_repeat_count: 0,
-            },
-        });
-        await sendFlowMessage(
-            phoneE164,
-            {
-                flowId:    effectiveFlowId,
-                flowToken: `${threadId}|${companyId}|catalog`,
-                bodyText:  "Quer ver nosso catálogo completo e fazer seu pedido?",
-                ctaLabel:  "Ver Catálogo",
-            },
-            waConfig
-        );
-    } else {
+    const offered = await offerCatalogToCustomer({
+        admin,
+        companyId,
+        threadId,
+        phoneE164,
+        companyName,
+        session,
+        waConfig,
+        flowCatalogId: effectiveFlowId,
+        flowBodyText: "Quer ver nosso catálogo completo e fazer seu pedido?",
+        flowCtaLabel: "Ver Catálogo",
+    });
+    if (offered === "none") {
         await sendInteractiveButtons(
             phoneE164,
             "Como posso te ajudar?",

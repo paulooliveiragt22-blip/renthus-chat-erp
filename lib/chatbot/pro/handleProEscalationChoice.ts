@@ -6,10 +6,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ProcessMessageParams, Session } from "../types";
 import { saveSession } from "../session";
 import { botReply } from "../botSend";
-import { sendFlowMessage } from "../../whatsapp/send";
 import { doHandover } from "../handlers/handleMainMenu";
 import { normalize } from "../utils";
 import { handleProOrderIntent } from "./handleProOrderIntent";
+import { offerCatalogToCustomer } from "../offerCatalog";
 
 function parseEscalationChoice(raw: string): "catalog" | "human" | "retry" | null {
     const n = normalize(raw).trim();
@@ -42,7 +42,21 @@ export async function handleProEscalationChoice(params: {
     const choice    = parseEscalationChoice(trimmed);
 
     if (choice === "catalog") {
-        if (!effectiveCatalogId) {
+        const offered = await offerCatalogToCustomer({
+            admin,
+            companyId,
+            threadId,
+            phoneE164,
+            companyName,
+            session: {
+                context: { ...session.context, pro_escalation_tier: 0 },
+            },
+            waConfig,
+            flowCatalogId: effectiveCatalogId,
+            flowBodyText: `Abra o catálogo do *${companyName}* para montar o pedido. 😊`,
+            flowCtaLabel: "Ver Catálogo",
+        });
+        if (offered === "none") {
             await saveSession(admin, threadId, companyId, {
                 step:    "main_menu",
                 context: { ...session.context, pro_escalation_tier: 0 },
@@ -52,29 +66,16 @@ export async function handleProEscalationChoice(params: {
                 companyId,
                 threadId,
                 phoneE164,
-                "O catálogo pelo formulário não está disponível agora. Pode mandar seu pedido em texto livre. 😊"
+                "O catálogo não está disponível agora. Pode mandar seu pedido em texto livre. 😊"
             );
             return;
         }
-        await saveSession(admin, threadId, companyId, {
-            step:    "awaiting_flow",
-            context: {
-                ...session.context,
-                pro_escalation_tier: 0,
-                flow_started_at:     new Date().toISOString(),
-                flow_repeat_count:   0,
-            },
-        });
-        await sendFlowMessage(
-            phoneE164,
-            {
-                flowId:    effectiveCatalogId,
-                flowToken: `${threadId}|${companyId}|catalog`,
-                bodyText:  `Abra o catálogo do *${companyName}* para montar o pedido. 😊`,
-                ctaLabel:  "Ver Catálogo",
-            },
-            waConfig
-        );
+        if (offered === "web_menu") {
+            await saveSession(admin, threadId, companyId, {
+                step:    "main_menu",
+                context: { ...session.context, pro_escalation_tier: 0 },
+            });
+        }
         return;
     }
 

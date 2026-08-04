@@ -2,6 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeMenuSlug, parseMenuSlug, slugFromDisplayName } from "../../lib/public-menu/slug";
 import { parsePublicMenuRpcPayload } from "../../lib/public-menu/parsePublicMenu";
+import {
+    buildPublicMenuAbsoluteUrl,
+    resolvePublicAppBaseUrl,
+} from "../../lib/public-menu/appBaseUrl";
+import { buildWebMenuOfferText } from "../../lib/public-menu/menuOfferText";
 
 describe("public-menu slug", () => {
     it("normaliza acentos e espaços", () => {
@@ -92,5 +97,34 @@ describe("parsePublicMenuRpcPayload", () => {
         assert.equal(r.menu.categories[0]!.items[0]!.price, 12.5);
         assert.equal(r.menu.categories[0]!.items[0]!.currency, "BRL");
         assert.equal(r.menu.categories[0]!.items[0]!.embalagemId, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    });
+});
+
+describe("public-menu app URL + offer text", () => {
+    it("resolvePublicAppBaseUrl prefere NEXT_PUBLIC_APP_URL", () => {
+        assert.equal(
+            resolvePublicAppBaseUrl({
+                NEXT_PUBLIC_APP_URL: "https://app.exemplo.com/",
+                VERCEL_URL: "other.vercel.app",
+            } as NodeJS.ProcessEnv),
+            "https://app.exemplo.com"
+        );
+    });
+
+    it("buildPublicMenuAbsoluteUrl inclui utm_source", () => {
+        const url = buildPublicMenuAbsoluteUrl("disk-teste", {
+            utmSource: "whatsapp",
+            env: { NEXT_PUBLIC_APP_URL: "https://app.renthus.com.br" } as NodeJS.ProcessEnv,
+        });
+        assert.equal(url, "https://app.renthus.com.br/c/disk-teste?utm_source=whatsapp");
+    });
+
+    it("buildWebMenuOfferText inclui URL e nome", () => {
+        const text = buildWebMenuOfferText({
+            url: "https://app.renthus.com.br/c/x",
+            companyName: "Disk X",
+        });
+        assert.ok(text.includes("Disk X"));
+        assert.ok(text.includes("https://app.renthus.com.br/c/x"));
     });
 });

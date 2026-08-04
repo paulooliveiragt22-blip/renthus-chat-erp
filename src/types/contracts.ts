@@ -144,6 +144,11 @@ export interface ProPipelineInput {
     flowStatusId?: string | null;
     /** Flow Meta para cadastro obrigatório de endereço (cidade/UF); `provider_metadata.address_register_flow_id`. */
     flowAddressRegisterId?: string | null;
+    /**
+     * URL absoluta do cardápio web (`/c/{slug}`) quando `company_menu_profile.is_active`.
+     * Preferido ao Flow no botão Cardápio.
+     */
+    webMenuUrl?: string | null;
 }
 
 export interface ProPipelineOutput {
@@ -194,6 +199,7 @@ export interface PipelineContext {
     flowCatalogId?: string | null;
     flowStatusId?: string | null;
     flowAddressRegisterId?: string | null;
+    webMenuUrl?: string | null;
     /**
      * Snapshot do mesmo payload de `get_order_hints`, carregado no servidor antes da IA
      * quando há `order_intent` e `session.customerId` — endereços/favoritos não dependem só da tool.

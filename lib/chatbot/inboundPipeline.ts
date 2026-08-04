@@ -23,6 +23,7 @@ import { sendFlowMessage, sendInteractiveButtons } from "../whatsapp/send";
 import { clampChatbotInputForRegex, isWithinBusinessHours } from "./utils";
 import { handleProOrderIntent } from "./pro/handleProOrderIntent";
 import { handleProEscalationChoice } from "./pro/handleProEscalationChoice";
+import { offerCatalogToCustomer } from "./offerCatalog";
 import type { AiOrderCanonicalDraft } from "./pro/typesAiOrder";
 
 export async function runInboundChatbotPipeline(
@@ -159,26 +160,19 @@ async function starterOrderFlow(
     companyName: string
 ): Promise<void> {
     const { admin, companyId, threadId, phoneE164, waConfig } = params;
-    if (effectiveCatalogId && waConfig) {
-        await saveSession(admin, threadId, companyId, {
-            step:    "awaiting_flow",
-            context: {
-                ...session.context,
-                flow_started_at:   new Date().toISOString(),
-                flow_repeat_count: 0,
-            },
-        });
-        await sendFlowMessage(
-            phoneE164,
-            {
-                flowId:    effectiveCatalogId,
-                flowToken: `${threadId}|${companyId}|catalog`,
-                bodyText:  `🛒 Escolha o que você quer pedir no *${companyName}*!`,
-                ctaLabel:  "Ver Catálogo",
-            },
-            waConfig
-        );
-    } else {
+    const offered = await offerCatalogToCustomer({
+        admin,
+        companyId,
+        threadId,
+        phoneE164,
+        companyName,
+        session,
+        waConfig,
+        flowCatalogId: effectiveCatalogId,
+        flowBodyText: `🛒 Escolha o que você quer pedir no *${companyName}*!`,
+        flowCtaLabel: "Ver Catálogo",
+    });
+    if (offered === "none") {
         await sendWelcomeMenu(params, session, config, "starter");
     }
 }

@@ -245,6 +245,25 @@ describe("novo pipeline PRO - falhas reais", () => {
         );
     });
 
+    it("botão Cardápio com webMenuUrl ativo prefere link texto ao Flow", async () => {
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
+            intent: "order_intent",
+        });
+        const menuUrl = "https://app.renthus.com.br/c/disk-teste?utm_source=whatsapp";
+        const out = await runProPipeline(
+            {
+                ...baseInput(),
+                inboundText: "btn_catalog",
+                flowCatalogId: "FLOW_CATALOG_TEST",
+                webMenuUrl: menuUrl,
+            },
+            deps
+        );
+        assert.ok(out.outbound.every((m) => m.kind !== "flow"));
+        assert.ok(out.outbound.some((m) => m.kind === "text" && (m.text ?? "").includes(menuUrl)));
+    });
+
     it("botão de pagamento em dinheiro deve pedir troco", async () => {
         const deps = buildDeps({
             session: stateAwaitingConfirmation({

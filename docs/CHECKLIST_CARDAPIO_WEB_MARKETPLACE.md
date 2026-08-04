@@ -66,6 +66,7 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 | F0.5 | Página pública `/c/[slug]` mobile-first (lista + foto + preço) | [x] | `app/(public)/c/[slug]` + proxy público |
 | F0.6 | Link copiável no admin + QR code | [x] | Copiar / Abrir / QR na aba Cardápio |
 | F0.7 | Analytics mínimo: view por slug + `visitor_id` | [x] | `page_view` no MenuClient |
+| F0.8 | Chatbot envia link `/c/{slug}` quando cardápio ativo | [x] | 2026-08-04 — Starter/PRO/FAQ; fallback Flow |
 
 ### F1 — Sync marketplace (iFood primeiro)
 
