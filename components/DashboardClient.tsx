@@ -294,18 +294,19 @@ export default function DashboardClient() {
 
             {/* ── plano & uso WhatsApp ──────────────────────────────────── */}
             {planData && (() => {
-                const isPro    = planData.plan_key === "pro";
+                const planKey = String(planData.plan_key ?? "").toLowerCase();
+                const isPaidTier = planKey === "pro" || planKey === "market" || planKey === "complete";
                 const pct      = planData.limit ? Math.min(100, Math.round((planData.used / planData.limit) * 100)) : 0;
                 const barColor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-400" : "bg-emerald-500";
                 return (
                     <div className="flex flex-wrap items-center gap-4 rounded-xl border border-zinc-100 bg-white px-5 py-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
                         {/* badge plano */}
                         <div className="flex items-center gap-2 shrink-0">
-                            {isPro
+                            {isPaidTier
                                 ? <Zap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                                 : <Sparkles className="h-4 w-4 text-sky-500 dark:text-sky-400" />}
                             <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
-                                isPro
+                                isPaidTier
                                     ? "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
                                     : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
                             }`}>

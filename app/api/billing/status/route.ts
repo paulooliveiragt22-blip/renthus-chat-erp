@@ -80,16 +80,11 @@ export async function GET(req: Request) {
             essencial: getMonthlyPriceCents("essencial") / 100,
             pro:       getMonthlyPriceCents("pro") / 100,
             market:    getMonthlyPriceCents("market") / 100,
-            // aliases legados (UI antiga)
-            bot:      getMonthlyPriceCents("essencial") / 100,
-            complete: getMonthlyPriceCents("pro") / 100,
         };
         const setupPricesBRL = {
             essencial: getSetupPriceCents("essencial") / 100,
             pro:       getSetupPriceCents("pro") / 100,
             market:    getSetupPriceCents("market") / 100,
-            bot:      getSetupPriceCents("essencial") / 100,
-            complete: getSetupPriceCents("pro") / 100,
         };
 
         let aiWallet = null;

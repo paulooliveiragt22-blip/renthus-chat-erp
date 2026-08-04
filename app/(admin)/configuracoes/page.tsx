@@ -629,7 +629,7 @@ function ConfiguracoesPageContent() {
         }
     }, [activeTab, companyId, loadBilling]);
 
-    async function changeRenthusPlan(plan: "essencial" | "pro" | "market" | "bot" | "complete") {
+    async function changeRenthusPlan(plan: "essencial" | "pro" | "market") {
         setPlanSaving(true);
         setBillingErr(null);
         try {

@@ -117,30 +117,6 @@ export default function QuickReplyModal({
         }
     }
 
-    async function upgradeToFullAndRetry() {
-        if (!pendingText) return;
-        setBillingBusy(true);
-        setError(null);
-        try {
-            const res  = await fetch("/api/billing/upgrade", {
-                method:  "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ plan_key: "full_erp" }),
-            });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) { setError(json?.error ?? "Falha ao fazer upgrade"); return; }
-            setLimitOpen(false);
-            await sendMessageDirect(pendingText);
-            setPendingText(null);
-        } catch (e: any) {
-            console.error(e);
-            setError("Falha ao fazer upgrade");
-        } finally {
-            setBillingBusy(false);
-        }
-    }
-
     function formatDT(ts?: string | null) {
         if (!ts) return "";
         try { return new Date(ts).toLocaleString("pt-BR"); } catch { return ts as string; }
@@ -276,7 +252,6 @@ export default function QuickReplyModal({
                     busy={billingBusy}
                     onClose={() => { if (!billingBusy) setLimitOpen(false); }}
                     onAcceptOverage={acceptOverageAndRetry}
-                    onUpgrade={upgradeToFullAndRetry}
                 />
             )}
         </div>

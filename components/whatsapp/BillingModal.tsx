@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { X } from "lucide-react";
 import type { Usage } from "@/lib/whatsapp/types";
 
@@ -10,7 +11,6 @@ interface BillingModalProps {
     busy: boolean;
     onClose: () => void;
     onAcceptOverage: () => void;
-    onUpgrade: () => void;
 }
 
 export function BillingModal({
@@ -19,7 +19,6 @@ export function BillingModal({
     busy,
     onClose,
     onAcceptOverage,
-    onUpgrade,
 }: BillingModalProps) {
     const usageLabel = (() => {
         if (!usage) return null;
@@ -42,7 +41,6 @@ export function BillingModal({
                 aria-modal="true"
                 aria-label="Limite do plano atingido"
             >
-                {/* Header */}
                 <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
                     <p className="text-sm font-bold text-primary">Limite do plano atingido</p>
                     <button
@@ -55,8 +53,7 @@ export function BillingModal({
                     </button>
                 </div>
 
-                {/* Body */}
-                <div className="p-4 space-y-3 text-sm text-zinc-700 dark:text-zinc-300">
+                <div className="space-y-3 p-4 text-sm text-zinc-700 dark:text-zinc-300">
                     <p>Você atingiu o limite mensal de mensagens. Escolha uma opção para continuar:</p>
                     {usageLabel && (
                         <p className="text-xs text-zinc-500 dark:text-zinc-400">{usageLabel}</p>
@@ -65,14 +62,14 @@ export function BillingModal({
                         <p className="text-xs text-zinc-500 dark:text-zinc-400">
                             Mensagem:{" "}
                             <span className="font-medium">
-                                &ldquo;{pendingText.slice(0, 80)}{pendingText.length > 80 ? "…" : ""}&rdquo;
+                                &ldquo;{pendingText.slice(0, 80)}
+                                {pendingText.length > 80 ? "…" : ""}&rdquo;
                             </span>
                         </p>
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="flex justify-end gap-2 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
+                <div className="flex flex-wrap justify-end gap-2 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
                     <button
                         onClick={onClose}
                         disabled={busy}
@@ -87,13 +84,13 @@ export function BillingModal({
                     >
                         {busy ? "Processando..." : "Aceitar cobrança extra"}
                     </button>
-                    <button
-                        onClick={onUpgrade}
-                        disabled={busy}
-                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+                    <Link
+                        href="/configuracoes?tab=plano"
+                        className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700"
+                        onClick={onClose}
                     >
-                        {busy ? "Processando..." : "Upgrade ERP Full"}
-                    </button>
+                        Ver planos (upgrade)
+                    </Link>
                 </div>
             </div>
         </div>

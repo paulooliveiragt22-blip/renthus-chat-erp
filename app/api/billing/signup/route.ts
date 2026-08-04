@@ -16,7 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { startTrialAfterSignup } from "@/lib/billing/startFreeTrial";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
-import { normalizePlanKey, getPlanLabel } from "@/lib/billing/planCatalog";
+import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
 
 export const runtime = "nodejs";
 
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "As senhas não coincidem" }, { status: 400 });
         }
 
-        const planKey = normalizePlanKey(plan);
+        const planKey = parseCommercialPlanInput(plan);
         if (!planKey) {
             return NextResponse.json(
                 { error: "Plano inválido. Use 'essencial', 'pro' ou 'market'" },

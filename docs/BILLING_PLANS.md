@@ -42,6 +42,8 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 - A Prazo → só PDV
 - 2FA → adiado (1 usuário)
 
-## Legado
-Aliases aceitos na API: `bot`/`starter` → `essencial`; `complete` → `pro`.
+## Legado (somente leitura interna)
+`normalizePlanKey` ainda mapeia `bot`/`starter` → `essencial` e `complete` → `pro` para linhas/webhooks antigos.
+APIs públicas (`signup`, `change-plan`) aceitam **somente** `essencial` | `pro` | `market`.
 Catálogo canônico: `lib/billing/planCatalog.ts`.
+A rota morta `/api/billing/upgrade` (mini_erp/full_erp) foi removida.

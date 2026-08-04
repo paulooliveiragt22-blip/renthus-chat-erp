@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
-import { normalizePlanKey, planRank } from "@/lib/billing/planCatalog";
+import { normalizePlanKey, parseCommercialPlanInput, planRank } from "@/lib/billing/planCatalog";
 
 export const runtime = "nodejs";
 
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
         const { admin, companyId } = ctx;
         const body = (await req.json()) as Body;
-        const planKey = normalizePlanKey(body?.plan);
+        const planKey = parseCommercialPlanInput(body?.plan);
         if (!planKey) {
             return NextResponse.json(
                 { error: "Plano inválido. Use 'essencial', 'pro' ou 'market'." },

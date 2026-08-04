@@ -605,25 +605,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         finally   { setBillingBusy(false); }
     }
 
-    async function upgradeToFullAndRetry() {
-        if (!pendingText || !selectedThread) return;
-        setBillingBusy(true);
-        try {
-            const res  = await fetch("/api/billing/upgrade", {
-                method:  "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ plan_key: "full_erp" }),
-            });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) { setErr(json?.error ?? "Falha"); return; }
-            setLimitOpen(false);
-            await sendMessage(pendingText);
-            setPendingText(null);
-        } catch { setErr("Falha ao fazer upgrade"); }
-        finally   { setBillingBusy(false); }
-    }
-
     async function toggleBot(threadId: string, newValue: boolean) {
         setBotToggling(true);
         try {
@@ -1086,7 +1067,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     busy={billingBusy}
                     onClose={() => { if (!billingBusy) setLimitOpen(false); }}
                     onAcceptOverage={acceptOverageAndRetry}
-                    onUpgrade={upgradeToFullAndRetry}
                 />
             )}
 

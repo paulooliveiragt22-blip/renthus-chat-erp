@@ -189,7 +189,7 @@ async function generateSetupCharge(
     }
 
     const company     = sub.companies as CompanyRow | null;
-    const amountCents = getSetupPriceCents(sub.plan as "bot" | "complete");
+    const amountCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
     const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
     const order = await createPixInvoiceOrder({
@@ -256,7 +256,7 @@ async function generateMonthlyInvoice(
     }
 
     const company     = sub.companies as CompanyRow | null;
-    const amountCents = getMonthlyPriceCents(sub.plan as "bot" | "complete");
+    const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
     const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
     const order = await createPixInvoiceOrder({

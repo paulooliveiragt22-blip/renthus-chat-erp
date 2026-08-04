@@ -89,8 +89,17 @@ export function normalizePlanKey(raw: string | null | undefined): CommercialPlan
     return null;
 }
 
+/** Aceita só keys comerciais na API pública (rejeita bot/complete/starter). */
+export function parseCommercialPlanInput(raw: unknown): CommercialPlanKey | null {
+    const k = String(raw ?? "")
+        .trim()
+        .toLowerCase();
+    if (k === "essencial" || k === "pro" || k === "market") return k;
+    return null;
+}
+
 export function isCommercialPlanKey(raw: string): raw is CommercialPlanKey {
-    return normalizePlanKey(raw) !== null && ["essencial", "pro", "market"].includes(normalizePlanKey(raw)!);
+    return parseCommercialPlanInput(raw) !== null;
 }
 
 export function getMonthlyPriceCentsForPlan(plan: PlanInputKey | string): number {

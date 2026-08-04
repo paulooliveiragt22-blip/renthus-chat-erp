@@ -129,7 +129,10 @@ export default function ImpressorasPage() {
     // ── agent state ───────────────────────────────────────────────────────────
     const [agents,       setAgents]       = useState<AgentRow[]>([]);
     const [newApiKey,    setNewApiKey]    = useState<string | null>(null);
+    const [pairingCode,  setPairingCode]  = useState<string | null>(null);
+    const [pairingExpires, setPairingExpires] = useState<string | null>(null);
     const [generating,   setGenerating]   = useState(false);
+    const [pairingBusy,  setPairingBusy]  = useState(false);
     const [agentErr,     setAgentErr]     = useState<string | null>(null);
     const [copied,       setCopied]       = useState(false);
 
@@ -207,14 +210,40 @@ export default function ImpressorasPage() {
         return () => clearInterval(id);
     }, [companyId, loadAgents, loadJobs]);
 
-    // ── agent key management ──────────────────────────────────────────────────
+    // ── agent key / pairing ───────────────────────────────────────────────────
     async function generateKey() {
-        setGenerating(true); setAgentErr(null); setNewApiKey(null);
+        setGenerating(true); setAgentErr(null); setNewApiKey(null); setPairingCode(null);
         const res = await fetch("/api/agent/keys", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: "{}" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { setAgentErr(json?.error ?? "Erro ao gerar chave"); }
         else { setNewApiKey(json.api_key); loadAgents(); }
         setGenerating(false);
+    }
+
+    async function generatePairing() {
+        setPairingBusy(true);
+        setAgentErr(null);
+        setPairingCode(null);
+        setNewApiKey(null);
+        const res = await fetch("/api/admin/print-agents/pairing", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setAgentErr(
+                json?.hint ??
+                    json?.error ??
+                    "Não foi possível gerar o código (plano Pro/Market com impressão automática)."
+            );
+        } else {
+            setPairingCode(String(json.code ?? ""));
+            setPairingExpires(json.expiresAt ? String(json.expiresAt) : null);
+            void loadAgents();
+        }
+        setPairingBusy(false);
     }
 
     async function revokeAgent(id: string) {
@@ -311,17 +340,43 @@ export default function ImpressorasPage() {
                             </span>
                             <div>
                                 <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Vínculo com Agente</p>
-                                <p className="text-xs text-zinc-400">Gere a chave e cole no Renthus Print Agent</p>
+                                <p className="text-xs text-zinc-400">
+                                    Pareie com um código curto ou gere a chave manualmente
+                                </p>
                             </div>
                         </div>
-                        <button
-                            onClick={generateKey}
-                            disabled={generating}
-                            className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60"
-                        >
-                            {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <KeyRound className="h-3 w-3" />}
-                            {generating ? "Gerando…" : "Nova Chave"}
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    void generatePairing();
+                                }}
+                                disabled={pairingBusy}
+                                className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60"
+                            >
+                                {pairingBusy ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                    <Wifi className="h-3 w-3" />
+                                )}
+                                {pairingBusy ? "Gerando…" : "Código de pareamento"}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    void generateKey();
+                                }}
+                                disabled={generating}
+                                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                            >
+                                {generating ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                    <KeyRound className="h-3 w-3" />
+                                )}
+                                {generating ? "Gerando…" : "Nova chave"}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Error */}
@@ -329,6 +384,48 @@ export default function ImpressorasPage() {
                         <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
                             <span>{agentErr}</span>
                             <button onClick={() => setAgentErr(null)}><XCircle className="h-4 w-4" /></button>
+                        </div>
+                    )}
+
+                    {pairingCode && (
+                        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-700/40 dark:bg-violet-900/20">
+                            <p className="mb-2 text-xs font-bold text-violet-800 dark:text-violet-300">
+                                Código de pareamento (use uma vez no Print Agent):
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <code className="flex-1 tracking-[0.2em] rounded bg-white px-3 py-2 text-center font-mono text-lg font-bold text-violet-900 shadow-sm dark:bg-zinc-800 dark:text-violet-200">
+                                    {pairingCode}
+                                </code>
+                                <button
+                                    type="button"
+                                    onClick={() => copyKey(pairingCode)}
+                                    className="flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-700"
+                                >
+                                    {copied ? (
+                                        <CheckCircle2 className="h-3 w-3" />
+                                    ) : (
+                                        <ClipboardCopy className="h-3 w-3" />
+                                    )}
+                                    {copied ? "Copiado" : "Copiar"}
+                                </button>
+                            </div>
+                            <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                URL:{" "}
+                                <strong>
+                                    {typeof window !== "undefined" ? window.location.origin : ""}
+                                </strong>
+                                {pairingExpires
+                                    ? ` · expira ${new Date(pairingExpires).toLocaleTimeString("pt-BR", {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                      })}`
+                                    : " · válido por ~15 min"}
+                            </p>
+                            <p className="mt-1 text-[11px] text-zinc-500">
+                                O agente chama{" "}
+                                <code className="font-mono">POST /api/agent/activate</code> com este
+                                código e recebe a API key.
+                            </p>
                         </div>
                     )}
 
@@ -343,18 +440,26 @@ export default function ImpressorasPage() {
                                     {newApiKey}
                                 </code>
                                 <button
+                                    type="button"
                                     onClick={() => copyKey(newApiKey)}
                                     className="flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                                 >
                                     {copied ? <CheckCircle2 className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                                     {copied ? "Copiado" : "Copiar"}
                                 </button>
-                                <button onClick={() => setNewApiKey(null)} className="rounded-md bg-zinc-100 px-2.5 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300">
+                                <button
+                                    type="button"
+                                    onClick={() => setNewApiKey(null)}
+                                    className="rounded-md bg-zinc-100 px-2.5 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300"
+                                >
                                     OK
                                 </button>
                             </div>
                             <p className="mt-2 text-xs text-zinc-500">
-                                URL do servidor: <strong>{typeof window !== "undefined" ? window.location.origin : ""}</strong>
+                                URL do servidor:{" "}
+                                <strong>
+                                    {typeof window !== "undefined" ? window.location.origin : ""}
+                                </strong>
                             </p>
                         </div>
                     )}
@@ -405,14 +510,23 @@ export default function ImpressorasPage() {
                             {testLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
                             Pedido de Teste
                         </button>
-                        <a
-                            href="/api/downloads/print-agen"
-                            download
-                            className="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-700/40 dark:bg-violet-900/20 dark:text-violet-300"
-                        >
-                            <Download className="h-3 w-3" />
-                            Baixar Agente
-                        </a>
+                        {process.env.NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL ? (
+                            <a
+                                href={process.env.NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-700/40 dark:bg-violet-900/20 dark:text-violet-300"
+                            >
+                                <Download className="h-3 w-3" />
+                                Baixar Agente
+                            </a>
+                        ) : (
+                            <span className="text-[11px] text-zinc-400">
+                                Download do agente: release no GitHub (configure{" "}
+                                <code className="font-mono">NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL</code>
+                                ).
+                            </span>
+                        )}
                     </div>
                     {testMsg && <p className="text-xs text-zinc-500">{testMsg}</p>}
                 </div>
