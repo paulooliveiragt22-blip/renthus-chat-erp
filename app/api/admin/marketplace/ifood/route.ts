@@ -82,6 +82,36 @@ export async function PATCH(req: Request) {
         encrypted = null;
     }
 
+    // Live exige token (novo ou já salvo). Sem token → 400 (não cair em mock silencioso).
+    if (!useMock && encrypted === undefined) {
+        const { data: existing } = await admin
+            .from("marketplace_connections")
+            .select("encrypted_access_token")
+            .eq("company_id", companyId)
+            .eq("provider", "ifood")
+            .maybeSingle();
+        if (!existing?.encrypted_access_token) {
+            return NextResponse.json(
+                {
+                    error: "live_requires_token",
+                    hint: "Desative o mock e informe o access token iFood, ou mantenha o modo mock.",
+                },
+                { status: 400 }
+            );
+        }
+    }
+    if (!useMock && encrypted === null) {
+        return NextResponse.json(
+            { error: "live_requires_token", hint: "Modo live precisa de access token." },
+            { status: 400 }
+        );
+    }
+
+    // Auto-sync só em live (mock é só teste manual).
+    let autoSync =
+        body.autoSyncEnabled == null ? undefined : Boolean(body.autoSyncEnabled);
+    if (useMock) autoSync = false;
+
     const patch: Record<string, unknown> = {
         company_id: companyId,
         provider: "ifood",
@@ -90,7 +120,7 @@ export async function PATCH(req: Request) {
         status: body.status ?? (useMock || encrypted ? "connected" : "disconnected"),
         updated_at: new Date().toISOString(),
     };
-    if (body.autoSyncEnabled != null) patch.auto_sync_enabled = Boolean(body.autoSyncEnabled);
+    if (autoSync !== undefined) patch.auto_sync_enabled = autoSync;
     if (body.syncIntervalHours != null) {
         patch.sync_interval_hours = clampCatalogSyncIntervalHours(body.syncIntervalHours);
     }

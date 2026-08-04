@@ -21,14 +21,25 @@ type Connection = {
     };
 };
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+    checked,
+    onChange,
+    disabled,
+}: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    disabled?: boolean;
+}) {
     return (
         <button
             type="button"
             role="switch"
             aria-checked={checked}
-            onClick={() => onChange(!checked)}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+            disabled={disabled}
+            onClick={() => {
+                if (!disabled) onChange(!checked);
+            }}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
                 checked ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
             }`}
         >
@@ -38,6 +49,28 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
                 }`}
             />
         </button>
+    );
+}
+
+function ModeBadge({ useMock, hasToken }: { useMock: boolean; hasToken: boolean }) {
+    if (useMock) {
+        return (
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                Mock · teste
+            </span>
+        );
+    }
+    if (!hasToken) {
+        return (
+            <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-red-800 dark:bg-red-900/40 dark:text-red-200">
+                Live · sem token
+            </span>
+        );
+    }
+    return (
+        <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+            Live · iFood
+        </span>
     );
 }
 
@@ -67,7 +100,7 @@ export default function MarketplaceIfoodSettings() {
             if (c) {
                 setMerchantId(c.merchantId);
                 setUseMock(c.useMock);
-                setAutoSyncEnabled(Boolean(c.autoSyncEnabled));
+                setAutoSyncEnabled(Boolean(c.autoSyncEnabled) && !c.useMock);
                 setSyncIntervalHours(c.syncIntervalHours ?? 3);
             }
         } catch {
@@ -81,15 +114,24 @@ export default function MarketplaceIfoodSettings() {
         void load();
     }, [load]);
 
+    function onToggleMock(next: boolean) {
+        setUseMock(next);
+        if (next) setAutoSyncEnabled(false);
+    }
+
     async function save() {
         setSaving(true);
         setMsg(null);
         try {
+            if (!useMock && !accessToken.trim() && !conn?.hasAccessToken) {
+                setMsg("Modo live exige access token. Cole o token ou mantenha o mock.");
+                return;
+            }
             const body: Record<string, unknown> = {
                 merchantId,
                 useMock,
                 status: "connected",
-                autoSyncEnabled,
+                autoSyncEnabled: useMock ? false : autoSyncEnabled,
                 syncIntervalHours,
             };
             if (accessToken.trim()) body.accessToken = accessToken.trim();
@@ -101,12 +143,19 @@ export default function MarketplaceIfoodSettings() {
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setMsg(json.error ?? "Erro ao salvar");
+                setMsg(json.hint ?? json.error ?? "Erro ao salvar");
                 return;
             }
             setAccessToken("");
-            setConn(json.connection as Connection);
-            setMsg("Conexão salva.");
+            const next = json.connection as Connection;
+            setConn(next);
+            setUseMock(next.useMock);
+            setAutoSyncEnabled(Boolean(next.autoSyncEnabled) && !next.useMock);
+            setMsg(
+                next.useMock
+                    ? "Conexão salva em modo mock (só teste manual)."
+                    : "Conexão live salva."
+            );
         } catch {
             setMsg("Falha ao salvar.");
         } finally {
@@ -128,9 +177,10 @@ export default function MarketplaceIfoodSettings() {
                 return;
             }
             const c = json.counters ?? {};
+            const modeHint = useMock || conn?.useMock ? " (mock)" : " (live)";
             setMsg(
                 json.ok
-                    ? `Sync ok: ${c.created ?? 0} criados, ${c.updated ?? 0} atualizados, ${c.imagesDownloaded ?? 0} fotos, ${c.errors ?? 0} erros.`
+                    ? `Sync ok${modeHint}: ${c.created ?? 0} criados, ${c.updated ?? 0} atualizados, ${c.imagesDownloaded ?? 0} fotos, ${c.errors ?? 0} erros.`
                     : json.errorMessage ?? "Sync com erros."
             );
             await load();
@@ -171,17 +221,20 @@ export default function MarketplaceIfoodSettings() {
         );
     }
 
+    const effectiveHasToken = Boolean(conn?.hasAccessToken) || Boolean(accessToken.trim());
+
     return (
         <div className="space-y-5 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
-            <div>
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    iFood — importar cardápio
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                    Sincronização manual para o cadastro Renthus (produtos + embalagem UN). Option
-                    groups/complementos viram acompanhamentos (até 2 no chatbot). Sem consulta live no
-                    WhatsApp. Homologação iFood (F1.8) é ops fora do código.
-                </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                        iFood — importar cardápio
+                    </h3>
+                    <p className="mt-1 text-xs text-zinc-500">
+                        Mock = dados de exemplo. Live = API iFood com token. Auto-sync só no live.
+                    </p>
+                </div>
+                <ModeBadge useMock={useMock} hasToken={effectiveHasToken} />
             </div>
 
             <label className="block text-sm">
@@ -205,6 +258,7 @@ export default function MarketplaceIfoodSettings() {
                     onChange={(e) => setAccessToken(e.target.value)}
                     placeholder="Bearer token (cifrado no servidor)"
                     autoComplete="off"
+                    disabled={useMock}
                 />
             </label>
 
@@ -214,11 +268,18 @@ export default function MarketplaceIfoodSettings() {
                         Usar catálogo mock
                     </p>
                     <p className="text-xs text-zinc-500">
-                        Ative até ter credenciais iFood. Importa 3 itens de exemplo.
+                        Ative até ter credenciais. Importa 3 itens de exemplo (sem API iFood).
                     </p>
                 </div>
-                <Toggle checked={useMock} onChange={setUseMock} />
+                <Toggle checked={useMock} onChange={onToggleMock} />
             </div>
+
+            {!useMock && !effectiveHasToken ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    Cole o access token antes de salvar o modo live. Sem token a API rejeita o
+                    save (não há fallback silencioso para mock).
+                </p>
+            ) : null}
 
             <div className="flex items-center justify-between gap-4">
                 <div>
@@ -226,10 +287,16 @@ export default function MarketplaceIfoodSettings() {
                         Sync automático
                     </p>
                     <p className="text-xs text-zinc-500">
-                        Cron horário no servidor; respeita o intervalo abaixo (1–6 h).
+                        {useMock
+                            ? "Indisponível em mock — use “Importar / Sincronizar” manualmente."
+                            : "Cron horário no servidor; respeita o intervalo abaixo (1–6 h)."}
                     </p>
                 </div>
-                <Toggle checked={autoSyncEnabled} onChange={setAutoSyncEnabled} />
+                <Toggle
+                    checked={autoSyncEnabled && !useMock}
+                    onChange={setAutoSyncEnabled}
+                    disabled={useMock}
+                />
             </div>
 
             <label className="block text-sm">
@@ -238,7 +305,7 @@ export default function MarketplaceIfoodSettings() {
                     className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
                     value={syncIntervalHours}
                     onChange={(e) => setSyncIntervalHours(Number(e.target.value))}
-                    disabled={!autoSyncEnabled}
+                    disabled={useMock || !autoSyncEnabled}
                 >
                     {[1, 2, 3, 4, 5, 6].map((h) => (
                         <option key={h} value={h}>
@@ -255,7 +322,8 @@ export default function MarketplaceIfoodSettings() {
                         <strong>
                             {new Date(conn.lastSyncAt).toLocaleString("pt-BR")}
                         </strong>{" "}
-                        · status: {conn.status}
+                        · status: {conn.status} ·{" "}
+                        {conn.useMock ? "mock" : "live"}
                     </p>
                     <p className="mt-1">
                         Criados {conn.lastSync.created} · atualizados {conn.lastSync.updated} ·

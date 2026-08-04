@@ -22,6 +22,7 @@ type ConnRow = {
     status: string;
     last_sync_at: string | null;
     sync_interval_hours: number | null;
+    use_mock?: boolean | null;
 };
 
 /**
@@ -44,8 +45,9 @@ export async function runMarketplaceCatalogCron(
 
     const { data, error } = await admin
         .from("marketplace_connections")
-        .select("id, company_id, provider, status, last_sync_at, sync_interval_hours")
+        .select("id, company_id, provider, status, last_sync_at, sync_interval_hours, use_mock")
         .eq("auto_sync_enabled", true)
+        .eq("use_mock", false)
         .in("status", ["connected", "error"])
         .order("last_sync_at", { ascending: true, nullsFirst: true })
         .limit(40);

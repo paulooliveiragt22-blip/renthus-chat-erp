@@ -85,7 +85,7 @@ export default function MarketplaceAiqfomeSettings() {
                 body: JSON.stringify({
                     merchantId,
                     useMock: true,
-                    autoSyncEnabled,
+                    autoSyncEnabled: false,
                     syncIntervalHours,
                 }),
             });
@@ -132,13 +132,18 @@ export default function MarketplaceAiqfomeSettings() {
 
     return (
         <div className="space-y-4 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
-            <div>
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    Aiqfome — importar cardápio
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                    Mesmo fluxo do iFood (porta de catálogo). Por enquanto só mock até credenciais.
-                </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                        Aiqfome — importar cardápio
+                    </h3>
+                    <p className="mt-1 text-xs text-zinc-500">
+                        Só mock nesta versão (sem API live). Sync automático desligado.
+                    </p>
+                </div>
+                <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                    Mock · v.next
+                </span>
             </div>
             <label className="block text-sm">
                 <span className="text-zinc-600">Merchant / loja ID</span>
@@ -149,32 +154,10 @@ export default function MarketplaceAiqfomeSettings() {
                     placeholder="ID da loja no Aiqfome"
                 />
             </label>
-            <div className="flex items-center justify-between gap-4">
-                <div>
-                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                        Sync automático
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                        Cron horário; respeita intervalo 1–6 h.
-                    </p>
-                </div>
-                <Toggle checked={autoSyncEnabled} onChange={setAutoSyncEnabled} />
-            </div>
-            <label className="block text-sm">
-                <span className="text-zinc-600">Intervalo (horas)</span>
-                <select
-                    className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
-                    value={syncIntervalHours}
-                    onChange={(e) => setSyncIntervalHours(Number(e.target.value))}
-                    disabled={!autoSyncEnabled}
-                >
-                    {[1, 2, 3, 4, 5, 6].map((h) => (
-                        <option key={h} value={h}>
-                            A cada {h}h
-                        </option>
-                    ))}
-                </select>
-            </label>
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                Sync automático fica desligado enquanto o adapter for mock-only. Use sincronização
+                manual para testar o fluxo.
+            </p>
             {conn?.lastSyncAt ? (
                 <p className="text-xs text-zinc-500">
                     Última sync: {new Date(conn.lastSyncAt).toLocaleString("pt-BR")} · criados{" "}

@@ -66,7 +66,8 @@ export async function PATCH(req: Request) {
     };
 
     const merchantId = typeof body.merchantId === "string" ? body.merchantId.trim() : "";
-    const useMock = body.useMock == null ? true : Boolean(body.useMock);
+    // Aiqfome ainda é mock-only no adapter; força mock e desliga auto-sync.
+    const useMock = true;
 
     let encrypted: string | null | undefined;
     if (typeof body.accessToken === "string" && body.accessToken.trim()) {
@@ -81,10 +82,10 @@ export async function PATCH(req: Request) {
         provider: "aiqfome",
         merchant_id: merchantId,
         use_mock: useMock,
+        auto_sync_enabled: false,
         status: "connected",
         updated_at: new Date().toISOString(),
     };
-    if (body.autoSyncEnabled != null) patch.auto_sync_enabled = Boolean(body.autoSyncEnabled);
     if (body.syncIntervalHours != null) {
         patch.sync_interval_hours = clampCatalogSyncIntervalHours(body.syncIntervalHours);
     }
