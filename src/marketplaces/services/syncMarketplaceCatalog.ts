@@ -1,15 +1,21 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { MarketplaceSyncResult } from "@/src/types/contracts.marketplace";
+import type { MarketplaceProvider, MarketplaceSyncResult } from "@/src/types/contracts.marketplace";
 import { decryptCredential } from "@/lib/security/credentialCrypto";
-import { ifoodCatalogAdapter } from "../adapters/ifood/ifoodCatalog.adapter";
+import { aiqfomeCatalogAdapter } from "../adapters/aiqfome/aiqfomeCatalog.adapter";
+import { syncIfoodCatalogForCompany } from "./syncIfoodCatalog";
 import { syncCatalogFromSnapshot } from "./syncCatalogCore";
 
-export async function syncIfoodCatalogForCompany(
+export async function syncMarketplaceCatalogForCompany(
     admin: SupabaseClient,
-    companyId: string
+    companyId: string,
+    provider: MarketplaceProvider
 ): Promise<MarketplaceSyncResult> {
+    if (provider === "ifood") {
+        return syncIfoodCatalogForCompany(admin, companyId);
+    }
+
     const finishedAt = new Date().toISOString();
     const empty = {
         created: 0,
@@ -23,16 +29,16 @@ export async function syncIfoodCatalogForCompany(
         .from("marketplace_connections")
         .select("*")
         .eq("company_id", companyId)
-        .eq("provider", "ifood")
+        .eq("provider", "aiqfome")
         .maybeSingle();
 
     if (connErr || !conn) {
         return {
             ok: false,
-            provider: "ifood",
+            provider: "aiqfome",
             counters: empty,
             finishedAt,
-            errorMessage: "Conexão iFood não configurada. Salve merchant e ative o modo mock ou token.",
+            errorMessage: "Conexão Aiqfome não configurada.",
         };
     }
 
@@ -43,18 +49,14 @@ export async function syncIfoodCatalogForCompany(
 
     try {
         const accessToken =
-            decryptCredential(conn.encrypted_access_token as string | null) ??
-            (conn.use_mock ? "mock" : "");
-
-        const snapshot = await ifoodCatalogAdapter.fetchCatalog({
+            decryptCredential(conn.encrypted_access_token as string | null) ?? "mock";
+        const snapshot = await aiqfomeCatalogAdapter.fetchCatalog({
             companyId,
             merchantId: String(conn.merchant_id ?? ""),
             accessToken,
-            useMock: Boolean(conn.use_mock) || !accessToken || accessToken === "mock",
+            useMock: true,
         });
-
-        const result = await syncCatalogFromSnapshot(admin, companyId, "ifood", snapshot);
-
+        const result = await syncCatalogFromSnapshot(admin, companyId, "aiqfome", snapshot);
         await admin
             .from("marketplace_connections")
             .update({
@@ -69,21 +71,16 @@ export async function syncIfoodCatalogForCompany(
                 updated_at: finishedAt,
             })
             .eq("id", conn.id);
-
         return { ...result, finishedAt };
     } catch (err) {
         const message = err instanceof Error ? err.message : "sync_failed";
         await admin
             .from("marketplace_connections")
-            .update({
-                status: "error",
-                last_error: message,
-                updated_at: new Date().toISOString(),
-            })
+            .update({ status: "error", last_error: message, updated_at: new Date().toISOString() })
             .eq("id", conn.id);
         return {
             ok: false,
-            provider: "ifood",
+            provider: "aiqfome",
             counters: empty,
             finishedAt: new Date().toISOString(),
             errorMessage: message,

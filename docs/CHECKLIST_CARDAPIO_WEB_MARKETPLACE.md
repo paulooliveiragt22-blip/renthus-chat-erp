@@ -95,10 +95,10 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 
 | # | Item | Estado | Notas |
 |---|------|--------|-------|
-| F3.1 | Adapter Aiqfome no mesmo port de catálogo | [ ] | Mesmo botão sync |
-| F3.2 | Pedidos inbound iFood → `orders` + Fila | [ ] | Após catálogo estável |
-| F3.3 | Status Renthus → marketplace (confirm/dispatch) | [ ] | |
-| F3.4 | Homologação pedidos iFood | [ ] | |
+| F3.1 | Adapter Aiqfome no mesmo port de catálogo | [x] | 2026-08-04 — mock + UI sync |
+| F3.2 | Pedidos inbound iFood → `orders` + Fila | [x] | poll API + mock PLC → `marketplace_ifood` |
+| F3.3 | Status Renthus → marketplace (confirm/dispatch) | [x] | hook em PATCH `/api/admin/orders` |
+| F3.4 | Homologação pedidos iFood | [ ] | Ops — conta Developer + SLA 8 min |
 
 ### F4 — Evoluções
 

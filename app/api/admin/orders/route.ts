@@ -103,6 +103,22 @@ export async function PATCH(req: Request) {
             .single();
 
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+        // F3: espelha status para marketplace (confirm/dispatch iFood)
+        if (typeof patch.status === "string") {
+            try {
+                const { pushMarketplaceOrderStatus } = await import(
+                    "@/src/marketplaces/services/pushMarketplaceOrderStatus"
+                );
+                await pushMarketplaceOrderStatus(admin, companyId, id, String(patch.status));
+            } catch (err) {
+                console.warn(
+                    "[admin/orders] marketplace status push:",
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+
         return NextResponse.json({ ok: true, order: data });
     }
 

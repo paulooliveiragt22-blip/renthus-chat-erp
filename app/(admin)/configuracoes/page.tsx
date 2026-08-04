@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
 import MarketplaceIfoodSettings from "@/components/menu/MarketplaceIfoodSettings";
+import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSettings";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -1973,6 +1974,7 @@ function ConfiguracoesPageContent() {
                         <div className="flex flex-col gap-6">
                             <MenuCardapioSettings />
                             <MarketplaceIfoodSettings />
+                            <MarketplaceAiqfomeSettings />
                         </div>
                     )}
 

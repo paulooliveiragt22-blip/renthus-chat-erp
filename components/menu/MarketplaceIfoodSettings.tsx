@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, Save } from "lucide-react";
+import { Loader2, PackagePlus, RefreshCw, Save } from "lucide-react";
 
 type Connection = {
     merchantId: string;
@@ -43,6 +43,7 @@ export default function MarketplaceIfoodSettings() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [polling, setPolling] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
     const [merchantId, setMerchantId] = useState("");
     const [accessToken, setAccessToken] = useState("");
@@ -129,6 +130,28 @@ export default function MarketplaceIfoodSettings() {
             setMsg("Falha na sincronização.");
         } finally {
             setSyncing(false);
+        }
+    }
+
+    async function pollOrders() {
+        setPolling(true);
+        setMsg(null);
+        try {
+            const res = await fetch("/api/admin/marketplace/ifood/orders/poll", {
+                method: "POST",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            setMsg(
+                json.message ??
+                    (json.ok
+                        ? `Pedidos: ${json.imported ?? 0} importados.`
+                        : json.error ?? "Falha ao buscar pedidos")
+            );
+        } catch {
+            setMsg("Falha ao buscar pedidos iFood.");
+        } finally {
+            setPolling(false);
         }
     }
 
@@ -234,7 +257,24 @@ export default function MarketplaceIfoodSettings() {
                     )}
                     Importar / Sincronizar
                 </button>
+                <button
+                    type="button"
+                    disabled={polling}
+                    onClick={() => void pollOrders()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                    {polling ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <PackagePlus className="h-4 w-4" />
+                    )}
+                    Buscar pedidos
+                </button>
             </div>
+            <p className="text-[11px] text-zinc-400">
+                Em mock, “Buscar pedidos” cria 1 pedido de exemplo na Fila. Com token real, faz polling
+                iFood (PLC) + ACK. Ao mudar status na Fila (confirmado / em entrega), espelha confirm/dispatch.
+            </p>
         </div>
     );
 }
