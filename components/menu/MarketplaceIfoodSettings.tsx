@@ -8,6 +8,8 @@ type Connection = {
     status: string;
     useMock: boolean;
     hasAccessToken: boolean;
+    autoSyncEnabled: boolean;
+    syncIntervalHours: number;
     lastSyncAt: string | null;
     lastError: string | null;
     lastSync: {
@@ -48,6 +50,8 @@ export default function MarketplaceIfoodSettings() {
     const [merchantId, setMerchantId] = useState("");
     const [accessToken, setAccessToken] = useState("");
     const [useMock, setUseMock] = useState(true);
+    const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+    const [syncIntervalHours, setSyncIntervalHours] = useState(3);
     const [conn, setConn] = useState<Connection | null>(null);
 
     const load = useCallback(async () => {
@@ -63,6 +67,8 @@ export default function MarketplaceIfoodSettings() {
             if (c) {
                 setMerchantId(c.merchantId);
                 setUseMock(c.useMock);
+                setAutoSyncEnabled(Boolean(c.autoSyncEnabled));
+                setSyncIntervalHours(c.syncIntervalHours ?? 3);
             }
         } catch {
             setMsg("Falha ao carregar conexão iFood.");
@@ -83,6 +89,8 @@ export default function MarketplaceIfoodSettings() {
                 merchantId,
                 useMock,
                 status: "connected",
+                autoSyncEnabled,
+                syncIntervalHours,
             };
             if (accessToken.trim()) body.accessToken = accessToken.trim();
             const res = await fetch("/api/admin/marketplace/ifood", {
@@ -210,6 +218,34 @@ export default function MarketplaceIfoodSettings() {
                 </div>
                 <Toggle checked={useMock} onChange={setUseMock} />
             </div>
+
+            <div className="flex items-center justify-between gap-4">
+                <div>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                        Sync automático
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                        Cron horário no servidor; respeita o intervalo abaixo (1–6 h).
+                    </p>
+                </div>
+                <Toggle checked={autoSyncEnabled} onChange={setAutoSyncEnabled} />
+            </div>
+
+            <label className="block text-sm">
+                <span className="text-zinc-600 dark:text-zinc-400">Intervalo (horas)</span>
+                <select
+                    className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+                    value={syncIntervalHours}
+                    onChange={(e) => setSyncIntervalHours(Number(e.target.value))}
+                    disabled={!autoSyncEnabled}
+                >
+                    {[1, 2, 3, 4, 5, 6].map((h) => (
+                        <option key={h} value={h}>
+                            A cada {h}h
+                        </option>
+                    ))}
+                </select>
+            </label>
 
             {conn?.lastSyncAt ? (
                 <div className="rounded-lg bg-zinc-50 p-3 text-xs text-zinc-600 dark:bg-zinc-900/50 dark:text-zinc-400">

@@ -20,6 +20,10 @@ export interface MarketplaceConnection {
     lastError: string | null;
     /** Quando true, sync usa catálogo mock (homologação sem API iFood). */
     useMock?: boolean;
+    /** Cron F4.1 — re-sync periódico se conexão ativa. */
+    autoSyncEnabled?: boolean;
+    /** Intervalo 1–6 horas entre syncs automáticos. */
+    syncIntervalHours?: number;
 }
 
 /** Item normalizado vindo do catálogo externo (antes do upsert Renthus). */

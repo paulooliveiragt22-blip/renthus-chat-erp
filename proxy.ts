@@ -110,6 +110,8 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname.startsWith("/api/whatsapp/flows") ||
         /** Worker da fila do chatbot usa autenticação própria via CRON_SECRET. */
         pathname.startsWith("/api/chatbot/process-queue") ||
+        /** Cron sync catálogo marketplace (F4.1) — Bearer CRON_SECRET. */
+        pathname.startsWith("/api/marketplace/sync-catalog") ||
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||

@@ -7,6 +7,8 @@ type Connection = {
     merchantId: string;
     status: string;
     useMock: boolean;
+    autoSyncEnabled: boolean;
+    syncIntervalHours: number;
     lastSyncAt: string | null;
     lastError: string | null;
     lastSync: {
@@ -18,12 +20,34 @@ type Connection = {
     };
 };
 
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            onClick={() => onChange(!checked)}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                checked ? "bg-orange-600" : "bg-zinc-300 dark:bg-zinc-600"
+            }`}
+        >
+            <span
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                    checked ? "translate-x-5" : "translate-x-0"
+                }`}
+            />
+        </button>
+    );
+}
+
 export default function MarketplaceAiqfomeSettings() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
     const [merchantId, setMerchantId] = useState("");
+    const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+    const [syncIntervalHours, setSyncIntervalHours] = useState(3);
     const [conn, setConn] = useState<Connection | null>(null);
 
     const load = useCallback(async () => {
@@ -36,7 +60,11 @@ export default function MarketplaceAiqfomeSettings() {
             const json = await res.json().catch(() => ({}));
             const c = json.connection as Connection | null;
             setConn(c);
-            if (c) setMerchantId(c.merchantId);
+            if (c) {
+                setMerchantId(c.merchantId);
+                setAutoSyncEnabled(Boolean(c.autoSyncEnabled));
+                setSyncIntervalHours(c.syncIntervalHours ?? 3);
+            }
         } finally {
             setLoading(false);
         }
@@ -54,7 +82,12 @@ export default function MarketplaceAiqfomeSettings() {
                 method: "PATCH",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ merchantId, useMock: true }),
+                body: JSON.stringify({
+                    merchantId,
+                    useMock: true,
+                    autoSyncEnabled,
+                    syncIntervalHours,
+                }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -115,6 +148,32 @@ export default function MarketplaceAiqfomeSettings() {
                     onChange={(e) => setMerchantId(e.target.value)}
                     placeholder="ID da loja no Aiqfome"
                 />
+            </label>
+            <div className="flex items-center justify-between gap-4">
+                <div>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                        Sync automático
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                        Cron horário; respeita intervalo 1–6 h.
+                    </p>
+                </div>
+                <Toggle checked={autoSyncEnabled} onChange={setAutoSyncEnabled} />
+            </div>
+            <label className="block text-sm">
+                <span className="text-zinc-600">Intervalo (horas)</span>
+                <select
+                    className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+                    value={syncIntervalHours}
+                    onChange={(e) => setSyncIntervalHours(Number(e.target.value))}
+                    disabled={!autoSyncEnabled}
+                >
+                    {[1, 2, 3, 4, 5, 6].map((h) => (
+                        <option key={h} value={h}>
+                            A cada {h}h
+                        </option>
+                    ))}
+                </select>
             </label>
             {conn?.lastSyncAt ? (
                 <p className="text-xs text-zinc-500">

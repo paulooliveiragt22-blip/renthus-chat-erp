@@ -10,6 +10,7 @@ Objetivo: saber onde o Postgres vê `auth.role() = 'service_role'` (RLS contorna
 | WhatsApp Flows `POST /api/whatsapp/flows` | Payload cifrado da Meta + `flow_token` / chaves de flow |
 | Webhook Pagar.me `POST /api/billing/webhook` | `PAGARME_WEBHOOK_SECRET` (HMAC) + rate limit por IP |
 | Cron fila chatbot `GET /api/chatbot/process-queue` | `Authorization: Bearer CRON_SECRET` |
+| Cron sync catálogo marketplace `GET /api/marketplace/sync-catalog` | `Authorization: Bearer CRON_SECRET` |
 | Print agent (várias rotas `/api/agent/*`) | API key `rpa_*` validada em servidor |
 
 ## Sessão utilizador (cookie) + membership

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { encryptCredential } from "@/lib/security/credentialCrypto";
+import { clampCatalogSyncIntervalHours } from "@/src/marketplaces/services/catalogSyncSchedule";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,8 @@ function mapConnection(row: Record<string, unknown> | null) {
         status: String(row.status ?? "disconnected"),
         useMock: Boolean(row.use_mock),
         hasAccessToken: Boolean(row.encrypted_access_token),
+        autoSyncEnabled: Boolean(row.auto_sync_enabled),
+        syncIntervalHours: clampCatalogSyncIntervalHours(row.sync_interval_hours),
         lastSyncAt: row.last_sync_at == null ? null : String(row.last_sync_at),
         lastError: row.last_error == null ? null : String(row.last_error),
         lastSync: {
@@ -52,6 +55,8 @@ export async function PATCH(req: Request) {
         accessToken?: string | null;
         useMock?: boolean;
         status?: "connected" | "disconnected";
+        autoSyncEnabled?: boolean;
+        syncIntervalHours?: number;
     };
 
     const merchantId = typeof body.merchantId === "string" ? body.merchantId.trim() : "";
@@ -78,6 +83,10 @@ export async function PATCH(req: Request) {
         status: body.status ?? (useMock || encrypted ? "connected" : "disconnected"),
         updated_at: new Date().toISOString(),
     };
+    if (body.autoSyncEnabled != null) patch.auto_sync_enabled = Boolean(body.autoSyncEnabled);
+    if (body.syncIntervalHours != null) {
+        patch.sync_interval_hours = clampCatalogSyncIntervalHours(body.syncIntervalHours);
+    }
     if (encrypted !== undefined) patch.encrypted_access_token = encrypted;
 
     const { data, error } = await admin
