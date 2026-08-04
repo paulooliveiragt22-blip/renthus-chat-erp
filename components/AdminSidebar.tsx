@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bike,
   ChevronLeft,
@@ -25,6 +25,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
 const adminMenu = [
   { label: "Dashboard",     href: "/dashboard",      icon: LayoutDashboard },
@@ -35,13 +36,13 @@ const adminMenu = [
   { label: "Produtos",      href: "/produtos/lista",  icon: ShoppingBag },
   { label: "Clientes",      href: "/clientes",        icon: Users },
   { label: "Entregadores",  href: "/entregadores",    icon: Bike },
-  { label: "Estoque",       href: "/estoque",         icon: Package },
-  { label: "Financeiro",    href: "/financeiro",      icon: Wallet },
+  { label: "Estoque",       href: "/estoque",         icon: Package, feature: "estoque_full" },
+  { label: "Financeiro",    href: "/financeiro",      icon: Wallet, feature: "financeiro_full" },
   { label: "Relatórios",    href: "/relatorios",      icon: BarChart3 },
-  { label: "Impressoras",   href: "/impressoras",     icon: Printer },
+  { label: "Impressoras",   href: "/impressoras",     icon: Printer, feature: "printing_auto" },
   { label: "Suporte",       href: "/suporte",         icon: Headphones },
   { label: "Configurações", href: "/configuracoes",   icon: Settings },
-];
+] as const;
 
 interface AdminSidebarProps {
   isOpen: boolean;
@@ -101,12 +102,23 @@ export default function AdminSidebar({
   const pathname            = usePathname();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const { loading: featuresLoading, features } = usePlanFeatures();
   useEffect(() => setMounted(true), []);
 
   // Fecha sidebar ao navegar (mobile)
   useEffect(() => { onClose(); }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isDark = theme === "dark";
+
+  const visibleMenu = useMemo(() => {
+    // Enquanto carrega features: mostra tudo (fail-open). Depois filtra por plano.
+    if (featuresLoading) return adminMenu;
+    return adminMenu.filter((item) => {
+      const feat = "feature" in item ? item.feature : undefined;
+      if (!feat) return true;
+      return features.has(feat);
+    });
+  }, [featuresLoading, features]);
 
   return (
     <aside
@@ -156,7 +168,7 @@ export default function AdminSidebar({
 
       {/* ── Navegação ───────────────────────────────────────────────────────── */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto scrollbar-hide px-2 py-4">
-        {adminMenu.map((item) => (
+        {visibleMenu.map((item) => (
           <SidebarNavItem key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
         ))}
       </nav>

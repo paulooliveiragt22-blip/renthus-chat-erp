@@ -14,6 +14,7 @@ import {
     Calendar, Plus, Trash2, CheckCircle2, Clock, AlertCircle,
     ArrowDownCircle, ArrowUpCircle, X, FileText, ChevronDown,
 } from "lucide-react";
+import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -494,6 +495,12 @@ export default function FinanceiroPage() {
 
     // ─────────────────────────────────────────────────────────────────────────
     return (
+        <PlanFeatureGate
+            featureKey="financeiro_full"
+            title="Financeiro completo"
+            description="Receita, custos, despesas, extrato e lucro real do período."
+            requiredPlanLabel="Pro ou Market"
+        >
         <><div className="flex flex-col gap-6 p-6">
 
             {/* Header */}
@@ -1564,5 +1571,6 @@ export default function FinanceiroPage() {
             )}
         </dialog>
         </>
+        </PlanFeatureGate>
     );
 }

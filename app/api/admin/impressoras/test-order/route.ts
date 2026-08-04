@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import { enqueuePrintJob } from "@/lib/server/print/enqueuePrintJob";
 
 export const runtime = "nodejs";
@@ -8,6 +9,9 @@ export async function POST() {
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
+
+    const feat = await requirePlanFeature(admin, companyId, "printing_auto");
+    if (!feat.ok) return feat.response;
 
     const { data: order, error: orderErr } = await admin
         .from("orders")

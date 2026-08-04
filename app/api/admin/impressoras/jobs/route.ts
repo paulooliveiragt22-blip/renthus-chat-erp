@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
@@ -7,6 +8,9 @@ export async function GET() {
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
+
+    const feat = await requirePlanFeature(admin, companyId, "printing_auto");
+    if (!feat.ok) return feat.response;
 
     const { data, error } = await admin
         .from("print_jobs")

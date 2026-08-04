@@ -87,6 +87,9 @@ export async function DELETE(req: Request) {
   const access = await requireCompanyAccess();
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
+  const feat = await requirePlanFeature(access.admin, access.companyId, "printing_auto");
+  if (!feat.ok) return feat.response;
+
   const { agent_id } = await req.json().catch(() => ({}));
   if (!agent_id) return NextResponse.json({ error: "agent_id obrigatório" }, { status: 400 });
 

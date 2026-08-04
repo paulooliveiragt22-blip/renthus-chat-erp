@@ -9,6 +9,7 @@ import {
     DollarSign, Loader2, Package, Plus, RefreshCw, Search, Settings2,
     TrendingDown, X,
 } from "lucide-react";
+import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -211,6 +212,12 @@ export default function EstoquePage() {
     // ── render ────────────────────────────────────────────────────────────────
 
     return (
+        <PlanFeatureGate
+            featureKey="estoque_full"
+            title="Estoque completo"
+            description="Controle de saldo, mínimos e movimentações manuais por produto."
+            requiredPlanLabel="Pro ou Market"
+        >
         <div className="flex flex-col gap-6">
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -456,5 +463,6 @@ export default function EstoquePage() {
                 )}
             </Modal>
         </div>
+        </PlanFeatureGate>
     );
 }

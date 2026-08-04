@@ -21,6 +21,7 @@ import {
     XCircle,
     Zap,
 } from "lucide-react";
+import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -299,6 +300,12 @@ export default function ImpressorasPage() {
 
     // ── render ────────────────────────────────────────────────────────────────
     return (
+        <PlanFeatureGate
+            featureKey="printing_auto"
+            title="Impressão automática"
+            description="Vínculo com o Renthus Print Agent, fila de cupons e automação de impressão."
+            requiredPlanLabel="Pro ou Market"
+        >
         <div className="flex flex-col gap-6">
 
             {/* ── PAGE HEADER ─────────────────────────────────────────────── */}
@@ -771,5 +778,6 @@ export default function ImpressorasPage() {
             </div>
 
         </div>
+        </PlanFeatureGate>
     );
 }

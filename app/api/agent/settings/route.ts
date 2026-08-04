@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,9 @@ export async function GET() {
 export async function PATCH(req: Request) {
   const access = await requireCompanyAccess();
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
+
+  const feat = await requirePlanFeature(access.admin, access.companyId, "printing_auto");
+  if (!feat.ok) return feat.response;
 
   const body = await req.json().catch(() => ({})) as Partial<PrintSettings>;
 
