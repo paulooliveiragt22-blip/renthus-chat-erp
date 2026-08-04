@@ -141,7 +141,14 @@ async function runProV2InboundBranch(
 }
 
 export async function processInboundMessage(params: ProcessMessageParams): Promise<void> {
-    const tier = await getChatbotProductTier(params.admin, params.companyId);
+    const { data: botRow } = await params.admin
+        .from("chatbots")
+        .select("config")
+        .eq("company_id", params.companyId)
+        .limit(1)
+        .maybeSingle();
+    const botConfig = (botRow?.config as Record<string, unknown> | null) ?? null;
+    const tier = await getChatbotProductTier(params.admin, params.companyId, botConfig);
 
     const proV2Enabled = process.env.CHATBOT_PRO_PIPELINE_V2 === "1";
     const proV2Mode = (process.env.CHATBOT_PRO_PIPELINE_V2_MODE ?? "shadow").toLowerCase();

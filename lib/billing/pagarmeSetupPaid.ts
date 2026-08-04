@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { activateTrial } from "@/lib/billing/activateTrial";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { computeNextBillingAt } from "@/lib/billing/computeNextBillingAt";
+import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
 const TEMP_PW_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -30,13 +31,8 @@ export async function syncLogicalSubscription(
 ) {
     if (!companyId || !planKey) return;
 
-    // pagarme_subscriptions usa 'bot'/'complete'; plans table usa 'starter'/'pro'
-    const mappedKey =
-        planKey === "bot"      ? "starter" :
-        planKey === "complete" ? "pro"     :
-        planKey;
-
-    if (mappedKey !== "starter" && mappedKey !== "pro") return;
+    const mappedKey = normalizePlanKey(planKey);
+    if (!mappedKey) return;
 
     const { data: planRow, error: planErr } = await admin
         .from("plans")
@@ -146,7 +142,7 @@ async function provisionUserAfterPayment(
 export async function activateAfterSetupPayment(
     admin: ReturnType<typeof createAdminClient>,
     companyId: string,
-    plan: "bot" | "complete",
+    plan: string,
     pagarmeCustomerId?: string
 ): Promise<void> {
     const paidAt        = new Date();
@@ -213,7 +209,7 @@ export async function processSetupOrderPaid(
         .update({ status: "paid", paid_at: new Date().toISOString() })
         .eq("id", sp.id);
 
-    await activateAfterSetupPayment(admin, companyId, sp.plan as "bot" | "complete", pagarmeCustomerId);
+    await activateAfterSetupPayment(admin, companyId, String(sp.plan), pagarmeCustomerId);
     await syncLogicalSubscription(admin, companyId, sp.plan as string);
     await provisionUserAfterPayment(admin, companyId, sp.plan as string);
     return true;

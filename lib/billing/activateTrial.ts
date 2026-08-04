@@ -7,22 +7,24 @@
 
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
 export async function activateTrial(
     admin: ReturnType<typeof createAdminClient>,
     companyId: string,
-    plan: "bot" | "complete",
+    plan: string,
     pagarmeCustomerId: string
 ): Promise<string | undefined> {
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + 30);
+    const planKey = normalizePlanKey(plan) ?? "essencial";
 
     const { data, error } = await admin
         .from("pagarme_subscriptions")
         .upsert(
             {
                 company_id:          companyId,
-                plan,
+                plan:                planKey,
                 status:              "trial",
                 trial_ends_at:       trialEndsAt.toISOString(),
                 activated_at:        new Date().toISOString(),

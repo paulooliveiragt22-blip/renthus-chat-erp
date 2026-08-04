@@ -5,6 +5,7 @@
 
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
 
 const TRIAL_DAYS = Math.max(1, Math.min(90, Number(process.env.TRIAL_DAYS ?? "15")));
 
@@ -15,15 +16,16 @@ export function getTrialDays(): number {
 export async function startTrialAfterSignup(
     admin: ReturnType<typeof createAdminClient>,
     companyId: string,
-    plan: "bot" | "complete"
+    plan: CommercialPlanKey | string
 ): Promise<void> {
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+    const planKey = normalizePlanKey(plan) ?? "essencial";
 
     const { error } = await admin.from("pagarme_subscriptions").upsert(
         {
             company_id:          companyId,
-            plan,
+            plan:                planKey,
             status:              "trial",
             trial_ends_at:       trialEndsAt.toISOString(),
             activated_at:        new Date().toISOString(),
@@ -40,6 +42,6 @@ export async function startTrialAfterSignup(
     await admin.from("companies").update({ is_active: true }).eq("id", companyId);
 
     console.log(
-        `[startFreeTrial] Trial de ${TRIAL_DAYS}d para empresa ${companyId} | plano=${plan} | até ${trialEndsAt.toISOString()}`
+        `[startFreeTrial] Trial de ${TRIAL_DAYS}d para empresa ${companyId} | plano=${planKey} | até ${trialEndsAt.toISOString()}`
     );
 }

@@ -358,6 +358,9 @@ function ConfiguracoesPageContent() {
     const [msgThankYou, setMsgThankYou] = useState(
         DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_thank_you
     );
+    const [aiEnabled, setAiEnabled] = useState(true);
+    const [highValueConfirmEnabled, setHighValueConfirmEnabled] = useState(false);
+    const [highValueConfirmAmount, setHighValueConfirmAmount] = useState("150");
     const [botSaving,       setBotSaving]        = useState(false);
     const [botMsg,          setBotMsg]           = useState<string | null>(null);
     const botMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -778,6 +781,11 @@ function ConfiguracoesPageContent() {
                     mt.msg_out_for_delivery ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_out_for_delivery
                 );
                 setMsgThankYou(mt.msg_thank_you ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_thank_you);
+                setAiEnabled(json?.aiEnabled !== false);
+                setHighValueConfirmEnabled(Boolean(json?.highValueConfirmEnabled));
+                if (json?.highValueConfirmAmountBrl) {
+                    setHighValueConfirmAmount(String(json.highValueConfirmAmountBrl));
+                }
             })
             .catch(() => {});
     }, []);
@@ -830,6 +838,9 @@ function ConfiguracoesPageContent() {
                     timeout_ms:           Number(chatbotTimeout)   || 8000,
                     fallback_chain:       ["claude", "regex", "assisted"],
                     catalog_cache_ttl_min: 15,
+                    ai_enabled:           aiEnabled,
+                    high_value_confirm_enabled: highValueConfirmEnabled,
+                    high_value_confirm_amount_brl: Number(highValueConfirmAmount) || 0,
                 },
                 messageTemplates: {
                     msg_welcome_returning: msgWelcomeReturning,
@@ -1977,6 +1988,79 @@ function ConfiguracoesPageContent() {
                                     <span>→</span>
                                     <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">3 · Modo Assistido</span>
                                 </div>
+                            </div>
+
+                            <div className="space-y-4 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                            Inteligência artificial (IA)
+                                        </p>
+                                        <p className="mt-0.5 text-xs text-zinc-400">
+                                            Desligada = só Flow/catálogo WhatsApp (não consome crédito Haiku).
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={aiEnabled}
+                                        disabled={!chatbotId}
+                                        onClick={() => setAiEnabled((v) => !v)}
+                                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                                            aiEnabled ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
+                                        }`}
+                                    >
+                                        <span
+                                            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                                                aiEnabled ? "translate-x-5" : "translate-x-0"
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                            Confirmação em pedidos de valor alto
+                                        </p>
+                                        <p className="mt-0.5 text-xs text-zinc-400">
+                                            Cada loja define o valor ou desliga. Pedidos acima do valor pedem confirmação reforçada.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={highValueConfirmEnabled}
+                                        disabled={!chatbotId}
+                                        onClick={() => setHighValueConfirmEnabled((v) => !v)}
+                                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                                            highValueConfirmEnabled
+                                                ? "bg-violet-600"
+                                                : "bg-zinc-300 dark:bg-zinc-600"
+                                        }`}
+                                    >
+                                        <span
+                                            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                                                highValueConfirmEnabled ? "translate-x-5" : "translate-x-0"
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
+                                {highValueConfirmEnabled ? (
+                                    <label className="block max-w-xs">
+                                        <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                                            Valor mínimo (R$)
+                                        </span>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            value={highValueConfirmAmount}
+                                            onChange={(e) => setHighValueConfirmAmount(e.target.value)}
+                                            disabled={!chatbotId}
+                                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
+                                        />
+                                    </label>
+                                ) : null}
                             </div>
 
                             <ChatbotMessageTemplatesPanel

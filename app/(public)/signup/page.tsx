@@ -18,36 +18,47 @@ const TRIAL_DAYS = process.env.NEXT_PUBLIC_TRIAL_DAYS ?? "15";
 
 const PLANS = [
     {
-        key:          "bot" as const,
-        name:         "Bot",
+        key:          "essencial" as const,
+        name:         "Essencial",
         popular:      false,
-        description:  "Chatbot de pedidos via WhatsApp automatizado",
-        monthlyPrice: 297,
+        description:  "WhatsApp + cardápio web + IA com crédito e packs",
+        monthlyPrice: 197,
         features: [
-            "Bot de pedidos 24h",
-            "Cardápio digital",
-            "Integração WhatsApp",
-            "Relatórios básicos",
+            "Pedidos no WhatsApp (Flow + IA)",
+            "Cardápio web com capa e foto",
+            "Crédito IA incluso (10%) + packs R$10/20/50",
+            "PDV básico · 1 usuário",
         ],
     },
     {
-        key:          "complete" as const,
-        name:         "Completo",
+        key:          "pro" as const,
+        name:         "Pro",
         popular:      true,
-        description:  "Bot + ERP completo para gestão do negócio",
-        monthlyPrice: 397,
+        description:  "ERP completo + impressão + IA no canal próprio",
+        monthlyPrice: 279,
         features: [
-            "Tudo do plano Bot",
-            "ERP completo",
-            "Gestão de estoque",
+            "Tudo do Essencial",
+            "PDV, estoque e financeiro",
             "Impressão automática",
             "Relatórios avançados",
-            "Suporte prioritário",
+        ],
+    },
+    {
+        key:          "market" as const,
+        name:         "Market",
+        popular:      false,
+        description:  "Omnichannel: iFood, redes, mesa e app",
+        monthlyPrice: 349,
+        features: [
+            "Tudo do Pro",
+            "iFood + Aiqfome (próxima versão)",
+            "Instagram + Messenger (próxima versão)",
+            "Mesa/salão + app Flutter (próxima versão)",
         ],
     },
 ] as const;
 
-type PlanKey = "bot" | "complete";
+type PlanKey = "essencial" | "pro" | "market";
 
 function fmt(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

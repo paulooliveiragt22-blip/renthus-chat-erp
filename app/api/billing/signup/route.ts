@@ -6,7 +6,7 @@
  * após o pagamento o webhook reativa o acesso — sem /signup/complete nem /onboarding.
  *
  * Body: {
- *   company_name, cnpj, whatsapp, email, plan: 'bot' | 'complete',
+ *   company_name, cnpj, whatsapp, email, plan: 'essencial' | 'pro' | 'market',
  *   password (mín. 8), password_confirm
  * }
  */
@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { startTrialAfterSignup } from "@/lib/billing/startFreeTrial";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
+import { normalizePlanKey, getPlanLabel } from "@/lib/billing/planCatalog";
 
 export const runtime = "nodejs";
 
@@ -55,8 +56,12 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "As senhas não coincidem" }, { status: 400 });
         }
 
-        if (!["bot", "complete"].includes(plan)) {
-            return NextResponse.json({ error: "Plano inválido. Use 'bot' ou 'complete'" }, { status: 400 });
+        const planKey = normalizePlanKey(plan);
+        if (!planKey) {
+            return NextResponse.json(
+                { error: "Plano inválido. Use 'essencial', 'pro' ou 'market'" },
+                { status: 400 }
+            );
         }
 
         const cnpjDigits = cnpj.replaceAll(/\D/g, "");
@@ -164,8 +169,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Erro ao vincular usuário à empresa" }, { status: 500 });
         }
 
-        await startTrialAfterSignup(admin, companyId, plan as "bot" | "complete");
-        await syncLogicalSubscription(admin, companyId, plan);
+        await startTrialAfterSignup(admin, companyId, planKey);
+        await syncLogicalSubscription(admin, companyId, planKey);
 
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
         await sendBillingNotification(
@@ -174,7 +179,7 @@ export async function POST(req: Request) {
             `🆕 *Novo cadastro (trial)*\n\n` +
                 `Empresa: ${trimmedName}\n` +
                 `Email: ${emailNorm}\n` +
-                `Plano: ${plan}\n` +
+                `Plano: ${getPlanLabel(planKey)}\n` +
                 `WhatsApp: ${whatsappDigits}\n\n` +
                 `Login: ${appUrl}/login`
         );

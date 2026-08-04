@@ -2,23 +2,35 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getActiveSubscription } from "@/lib/billing/entitlements";
+import { canUseAi, isAiEnabledInBotConfig } from "@/lib/billing/aiWallet";
+import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
-/** Plano comercial → motor de chatbot. */
+/** Motor de chatbot (não confundir com plans.key comercial). */
 export type ChatbotProductTier = "starter" | "pro";
 
 /**
- * Starter = plano `starter` (ou sem subscrição ativa).
- * PRO (chatbot inteligente) = plano `pro` em `subscriptions` + `plans.key`.
+ * Essencial / Pro / Market usam motor PRO quando IA ligada e há crédito.
+ * Sem crédito ou toggle off → Flow/Starter (WhatsApp continua).
  */
 export async function getChatbotProductTier(
     admin: SupabaseClient,
-    companyId: string
+    companyId: string,
+    botConfig?: Record<string, unknown> | null
 ): Promise<ChatbotProductTier> {
     try {
         const sub = await getActiveSubscription(admin, companyId);
-        if (sub?.plan_key === "pro") return "pro";
+        const planKey = normalizePlanKey(sub?.plan_key ?? null);
+        if (!planKey) return "starter";
+
+        if (!isAiEnabledInBotConfig(botConfig ?? null)) return "starter";
+
+        const ok = await canUseAi(admin, companyId);
+        if (!ok) return "starter";
+
+        // Todos os planos comerciais atuais têm direito à IA (com crédito).
+        return "pro";
     } catch (e) {
         console.warn("[chatbot/tier] falha ao resolver plano, fallback starter:", e);
+        return "starter";
     }
-    return "starter";
 }

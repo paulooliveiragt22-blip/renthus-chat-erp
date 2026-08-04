@@ -8,6 +8,11 @@
  */
 
 import "server-only";
+import {
+    getMonthlyPriceCentsForPlan,
+    normalizePlanKey,
+    type PlanInputKey,
+} from "@/lib/billing/planCatalog";
 
 const BASE_URL = "https://api.pagar.me/core/v5";
 
@@ -425,29 +430,37 @@ export async function verifyWebhookSignature(
     return computed === signature;
 }
 
-/** Preço em centavos para cada plano (configurável via env) */
-export function getSetupPriceCents(plan: "bot" | "complete"): number {
-    if (plan === "bot") {
-        return parseInt(process.env.SETUP_PRICE_BOT_CENTS ?? "49700", 10);
+/** Preço em centavos para cada plano (configurável via env nos legados) */
+export function getSetupPriceCents(plan: PlanInputKey | string): number {
+    const key = normalizePlanKey(plan);
+    if (key === "essencial") {
+        return parseInt(process.env.SETUP_PRICE_ESSENCIAL_CENTS ?? process.env.SETUP_PRICE_BOT_CENTS ?? "0", 10);
     }
-    return parseInt(process.env.SETUP_PRICE_COMPLETE_CENTS ?? "99700", 10);
+    if (key === "market") {
+        return parseInt(process.env.SETUP_PRICE_MARKET_CENTS ?? "0", 10);
+    }
+    return parseInt(
+        process.env.SETUP_PRICE_PRO_CENTS ?? process.env.SETUP_PRICE_COMPLETE_CENTS ?? "0",
+        10
+    );
 }
 
-export function getMonthlyPriceCents(plan: "bot" | "complete"): number {
-    if (plan === "bot") {
-        return parseInt(process.env.MONTHLY_PRICE_BOT_CENTS ?? "29700", 10);
-    }
-    return parseInt(process.env.MONTHLY_PRICE_COMPLETE_CENTS ?? "49700", 10);
+export function getMonthlyPriceCents(plan: PlanInputKey | string): number {
+    const key = normalizePlanKey(plan);
+    if (!key) return getMonthlyPriceCentsForPlan("essencial");
+    const fromEnv =
+        key === "essencial"
+            ? process.env.MONTHLY_PRICE_ESSENCIAL_CENTS ?? process.env.MONTHLY_PRICE_BOT_CENTS
+            : key === "market"
+              ? process.env.MONTHLY_PRICE_MARKET_CENTS
+              : process.env.MONTHLY_PRICE_PRO_CENTS ?? process.env.MONTHLY_PRICE_COMPLETE_CENTS;
+    if (fromEnv && /^\d+$/.test(fromEnv)) return parseInt(fromEnv, 10);
+    return getMonthlyPriceCentsForPlan(key);
 }
 
-/** Preço anual em centavos (taxa única paga upfront, setup incluso) */
-export function getYearlyPriceCents(plan: "bot" | "complete"): number {
-    if (plan === "bot") {
-        // R$ 237/mês × 12 = R$ 2.844,00
-        return parseInt(process.env.YEARLY_PRICE_BOT_CENTS ?? "284400", 10);
-    }
-    // R$ 317/mês × 12 = R$ 3.804,00
-    return parseInt(process.env.YEARLY_PRICE_COMPLETE_CENTS ?? "380400", 10);
+/** Preço anual em centavos (10× mensal = 2 meses off) */
+export function getYearlyPriceCents(plan: PlanInputKey | string): number {
+    return getMonthlyPriceCents(plan) * 10;
 }
 
 export function centsToBRL(cents: number): number {

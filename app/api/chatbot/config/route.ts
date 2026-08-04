@@ -26,10 +26,17 @@ export async function GET() {
     if (!data) return NextResponse.json({ chatbot: null });
 
     const cfg = (data.config as Record<string, unknown> | null) ?? {};
+    const aiEnabled = cfg.ai_enabled === undefined || cfg.ai_enabled === null ? true : Boolean(cfg.ai_enabled);
     return NextResponse.json({
         chatbot: data,
         messageTemplates: resolveChatbotMessageTemplates(cfg),
         messageDefaults: DEFAULT_CHATBOT_MESSAGE_TEMPLATES,
+        aiEnabled,
+        highValueConfirmEnabled: Boolean(cfg.high_value_confirm_enabled),
+        highValueConfirmAmountBrl:
+            typeof cfg.high_value_confirm_amount_brl === "number"
+                ? cfg.high_value_confirm_amount_brl
+                : Number(cfg.high_value_confirm_amount_brl) || 0,
     });
 }
 

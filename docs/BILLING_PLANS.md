@@ -1,46 +1,47 @@
 # Planos e Cobrança — Renthus Chat + ERP
 
 ## Identidade do cliente pagante
-Cliente pagante = `company` (tenant).
+Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em vários dispositivos OK).
 
-## Planos base (primeira versão)
-### Plano 1: Chatbot + Mini-ERP
-Inclui:
-- Pedidos (orders), clientes (customers) e catálogo básico (products)
-- Atendimento WhatsApp (por canal) com provedor definido por contrato
-- Limites de mensagens mensais (contrato)
+## Planos (opção A fechada)
 
-Restrições (exemplos):
-- recursos avançados do ERP desabilitados por feature flags
-- menos usuários internos / menos filiais (se aplicável)
+| Key | Nome | Mensal | Posição |
+|-----|------|--------|---------|
+| `essencial` | Essencial | **R$ 197** | Entrada — canal próprio |
+| `pro` | Pro | **R$ 279** | Âncora (mais popular) — ERP + IA |
+| `market` | Market | **R$ 349** | Omni + marketplaces + mesa + app |
 
-### Plano 2: Chatbot + ERP Completo
-Inclui tudo do Mini-ERP e libera features avançadas:
-- mais perfis internos
-- relatórios mais completos
-- automações
-- integrações adicionais
+### Essencial (R$ 197)
+- WhatsApp (Meta) + Flow + cardápio web (free)
+- IA Haiku com **crédito incluso = 10% do plano** (R$ 19,70) + packs R$10/20/50
+- Toggle desligar IA a qualquer momento
+- Sem crédito IA → trava **só a IA** (cai no Flow); ERP/WhatsApp seguem
+- PDV básico · **sem** iFood/Aiqfome · **sem** impressão automática
 
-## Add-ons (independentes do plano)
-### Add-on: Impressão automática
-- habilita fila de impressão para pedidos/OS
-- cobrança fixa mensal ou por unidade (definir)
+### Pro (R$ 279)
+- Tudo do Essencial (crédito IA R$ 27,90)
+- PDV + estoque + financeiro + impressão automática
+- **Sem** marketplace (iFood/Aiqfome)
 
-## Estratégia WhatsApp (Twilio x 360dialog)
-Regra:
-- Baixa demanda -> Twilio (pay-per-use)
-- Alta demanda -> 360dialog (previsível e menor custo por volume)
-- Picos sazonais não geram migração automaticamente
-- Se uso alto for consistente, migração total de canal (novo número/provedor)
+### Market (R$ 349)
+- Tudo do Pro (crédito IA R$ 34,90)
+- **Próxima versão:** iFood + Aiqfome · Instagram + Messenger · atendimento de mesa · app Flutter
 
-## Limites e overage (excesso)
-- Cada plano define limite mensal de mensagens (in + out)
-- Excesso:
-  - mantém no Twilio
-  - cobra adicional conforme contrato
-  - marca company para análise de migração se recorrente
+## Crédito IA (Haiku 4.5)
+- Preço API: **USD $1/M input** · **$5/M output** (cache hit $0,10/M)
+- Conversão BRL: `AI_USD_BRL_RATE` (default 5,5)
+- Tabelas: `company_ai_wallets`, `company_ai_ledger`
+- Packs: 1000 / 2000 / 5000 centavos; auto-recharge opcional (cartão/PIX na sequência)
 
-## Métrica de uso
-- consolidar `usage_monthly` por company e feature (ex: whatsapp_messages)
-- permitir auditoria e export para financeiro
+## Confirmação de valor alto
+- Por loja em Configurações → Chatbot: toggle + valor em R$ (ou desligado)
+- Keys em `chatbots.config`: `high_value_confirm_enabled`, `high_value_confirm_amount_brl`
 
+## Add-ons / fora do escopo atual
+- Fiscal NFC-e / TEF → próxima etapa
+- A Prazo → só PDV
+- 2FA → adiado (1 usuário)
+
+## Legado
+Aliases aceitos na API: `bot`/`starter` → `essencial`; `complete` → `pro`.
+Catálogo canônico: `lib/billing/planCatalog.ts`.

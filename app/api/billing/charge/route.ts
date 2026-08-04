@@ -194,7 +194,7 @@ async function generateSetupCharge(
 
     const order = await createPixInvoiceOrder({
         amountCents,
-        description: `Taxa de ativação Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
+        description: `Taxa de ativação Renthus — Plano ${sub.plan}`,
         itemCode:    "setup",
         customerId:  sub.pagarme_customer_id ?? undefined,
         customer:    buildCustomerPayload(sub, company),
@@ -261,7 +261,7 @@ async function generateMonthlyInvoice(
 
     const order = await createPixInvoiceOrder({
         amountCents,
-        description: `Mensalidade Renthus — Plano ${sub.plan === "bot" ? "Bot" : "Completo"}`,
+        description: `Mensalidade Renthus — Plano ${sub.plan}`,
         customerId:  sub.pagarme_customer_id ?? undefined,
         customer:    buildCustomerPayload(sub, company),
         additionalInfo: [

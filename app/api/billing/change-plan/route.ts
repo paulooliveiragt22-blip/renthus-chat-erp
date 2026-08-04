@@ -1,13 +1,14 @@
 /**
  * POST /api/billing/change-plan
  *
- * Durante o trial: alternar entre bot e complete.
- * Com assinatura ativa ou em atraso (não bloqueada): upgrade bot → complete apenas.
+ * Trial: qualquer plano comercial.
+ * Active/overdue: só upgrade (essencial → pro → market).
  */
 
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
+import { normalizePlanKey, planRank } from "@/lib/billing/planCatalog";
 
 export const runtime = "nodejs";
 
@@ -20,10 +21,12 @@ export async function POST(req: Request) {
 
         const { admin, companyId } = ctx;
         const body = (await req.json()) as Body;
-        const plan = body?.plan;
-
-        if (plan !== "bot" && plan !== "complete") {
-            return NextResponse.json({ error: "Plano inválido. Use 'bot' ou 'complete'." }, { status: 400 });
+        const planKey = normalizePlanKey(body?.plan);
+        if (!planKey) {
+            return NextResponse.json(
+                { error: "Plano inválido. Use 'essencial', 'pro' ou 'market'." },
+                { status: 400 }
+            );
         }
 
         const { data: row, error: fetchErr } = await admin
@@ -37,8 +40,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Assinatura não encontrada para esta empresa." }, { status: 404 });
         }
 
-        const st     = String(row.status ?? "");
-        const current = String(row.plan ?? "");
+        const st = String(row.status ?? "");
+        const current = normalizePlanKey(String(row.plan ?? "")) ?? String(row.plan ?? "");
 
         if (st === "blocked" || st === "cancelled") {
             return NextResponse.json(
@@ -47,34 +50,39 @@ export async function POST(req: Request) {
             );
         }
 
-        if (current === plan) {
+        if (current === planKey) {
             return NextResponse.json({ ok: true, action: "noop", plan: current });
         }
 
         if (st === "trial") {
             const { error: upErr } = await admin
                 .from("pagarme_subscriptions")
-                .update({ plan })
+                .update({ plan: planKey })
                 .eq("id", row.id);
 
             if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
-            await syncLogicalSubscription(admin, companyId, plan);
-            return NextResponse.json({ ok: true, action: "changed", plan });
+            await syncLogicalSubscription(admin, companyId, planKey);
+            return NextResponse.json({ ok: true, action: "changed", plan: planKey });
         }
 
-        if ((st === "active" || st === "overdue") && current === "bot" && plan === "complete") {
+        if (
+            (st === "active" || st === "overdue") &&
+            planRank(planKey) > planRank(current)
+        ) {
             const { error: upErr } = await admin
                 .from("pagarme_subscriptions")
-                .update({ plan })
+                .update({ plan: planKey })
                 .eq("id", row.id);
 
             if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
-            await syncLogicalSubscription(admin, companyId, plan);
-            return NextResponse.json({ ok: true, action: "upgraded", plan });
+            await syncLogicalSubscription(admin, companyId, planKey);
+            return NextResponse.json({ ok: true, action: "upgraded", plan: planKey });
         }
 
         return NextResponse.json(
-            { error: "Alteração de plano não permitida nesta situação (ex.: downgrade ou troca fora do trial)." },
+            {
+                error: "Alteração de plano não permitida nesta situação (ex.: downgrade ou troca fora do trial).",
+            },
             { status: 400 }
         );
     } catch (e: unknown) {
