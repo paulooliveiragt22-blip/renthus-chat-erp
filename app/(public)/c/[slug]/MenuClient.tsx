@@ -100,7 +100,8 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     }
 
     function addItem(item: PublicMenuItem) {
-        if (!item.inStock) return;
+        // Cardápio web: itens ativos com preço já vêm da API; estoque_atual zerado
+        // é comum (cadastro sem controle) e não deve bloquear o pedido.
         setCart((prev) => {
             const i = prev.findIndex((l) => l.embalagemId === item.embalagemId);
             if (i >= 0) {
@@ -239,43 +240,40 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                     <div className="mt-2 flex items-center justify-between gap-2">
                                                         <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
                                                             {item.sigla}
-                                                            {!item.inStock ? " · indisponível" : ""}
                                                         </p>
-                                                        {item.inStock ? (
-                                                            q === 0 ? (
+                                                        {q === 0 ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => addItem(item)}
+                                                                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                                            >
+                                                                Adicionar
+                                                            </button>
+                                                        ) : (
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        decItem(item.embalagemId)
+                                                                    }
+                                                                    className="h-8 w-8 rounded-lg bg-zinc-100 text-sm font-bold"
+                                                                    aria-label="Diminuir"
+                                                                >
+                                                                    −
+                                                                </button>
+                                                                <span className="w-5 text-center text-sm font-semibold">
+                                                                    {q}
+                                                                </span>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => addItem(item)}
-                                                                    className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                                                    className="h-8 w-8 rounded-lg bg-zinc-900 text-sm font-bold text-white"
+                                                                    aria-label="Aumentar"
                                                                 >
-                                                                    Adicionar
+                                                                    +
                                                                 </button>
-                                                            ) : (
-                                                                <div className="flex items-center gap-2">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() =>
-                                                                            decItem(item.embalagemId)
-                                                                        }
-                                                                        className="h-8 w-8 rounded-lg bg-zinc-100 text-sm font-bold"
-                                                                        aria-label="Diminuir"
-                                                                    >
-                                                                        −
-                                                                    </button>
-                                                                    <span className="w-5 text-center text-sm font-semibold">
-                                                                        {q}
-                                                                    </span>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => addItem(item)}
-                                                                        className="h-8 w-8 rounded-lg bg-zinc-900 text-sm font-bold text-white"
-                                                                        aria-label="Aumentar"
-                                                                    >
-                                                                        +
-                                                                    </button>
-                                                                </div>
-                                                            )
-                                                        ) : null}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </li>
