@@ -7,8 +7,11 @@ import type {
     PublicMenuItem,
     PublicMenuResponse,
 } from "@/src/types/contracts.public-menu";
-import { getOrCreateMenuVisitorId } from "@/lib/public-menu/visitorId";
 import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
+import {
+    trackMenuEvent,
+    trackMenuProductViewOnce,
+} from "@/lib/public-menu/menuEvents";
 import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
 import CheckoutDrawer from "./CheckoutDrawer";
 import MyOrdersDrawer from "./MyOrdersDrawer";
@@ -80,21 +83,9 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     }, [activeCat, categories]);
 
     useEffect(() => {
-        const visitorId = getOrCreateMenuVisitorId();
-        const params = new URLSearchParams(globalThis.location.search);
-        void fetch(`/api/public/menu/${encodeURIComponent(store.slug)}/events`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                visitorId,
-                eventType: "page_view",
-                utmSource: params.get("utm_source"),
-                utmMedium: params.get("utm_medium"),
-                utmCampaign: params.get("utm_campaign"),
-                referrer: typeof document === "undefined" ? null : document.referrer || null,
-            }),
-        }).catch(() => {});
+        trackMenuEvent({ slug: store.slug, eventType: "page_view" });
 
+        const params = new URLSearchParams(globalThis.location.search);
         const wm = params.get("wm");
         if (!wm) return;
         void fetch(`/api/public/menu/${encodeURIComponent(store.slug)}/session`, {
@@ -122,6 +113,12 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     }
 
     function addItem(item: PublicMenuItem) {
+        trackMenuProductViewOnce({
+            slug: store.slug,
+            productId: item.productId,
+            categoryId: item.categoryId,
+            embalagemId: item.embalagemId,
+        });
         // Cardápio web: itens ativos com preço já vêm da API; estoque_atual zerado
         // é comum (cadastro sem controle) e não deve bloquear o pedido.
         setCart((prev) => {
@@ -231,7 +228,14 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                             <button
                                 key={c.id}
                                 type="button"
-                                onClick={() => setActiveCat(c.id)}
+                                onClick={() => {
+                                    setActiveCat(c.id);
+                                    trackMenuEvent({
+                                        slug: store.slug,
+                                        eventType: "category_view",
+                                        categoryId: c.id,
+                                    });
+                                }}
                                 className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
                                     activeCat === c.id
                                         ? "bg-zinc-900 text-white"

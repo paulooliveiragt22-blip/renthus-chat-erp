@@ -94,6 +94,36 @@ export interface MenuProfileUpsertInput {
     isActive?: boolean;
 }
 
+/** Painel F4.2 — agregados do cardápio web. */
+export interface MenuAnalyticsDay {
+    date: string;
+    pageViews: number;
+    uniqueVisitors: number;
+}
+
+export interface MenuAnalyticsTopProduct {
+    productId: string;
+    name: string;
+    views: number;
+}
+
+export interface MenuAnalyticsUtmSource {
+    utmSource: string;
+    pageViews: number;
+    uniqueVisitors: number;
+}
+
+export interface MenuAnalyticsResponse {
+    from: string;
+    to: string;
+    pageViews: number;
+    uniqueVisitors: number;
+    productViews: number;
+    days: MenuAnalyticsDay[];
+    topProducts: MenuAnalyticsTopProduct[];
+    utmSources: MenuAnalyticsUtmSource[];
+}
+
 /** Carrinho no browser (embalagem = unidade de venda). */
 export interface PublicMenuCartLine {
     embalagemId: string;

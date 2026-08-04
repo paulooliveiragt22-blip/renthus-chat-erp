@@ -24,6 +24,7 @@ Gerado para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`. Rever em cada rota
 | `app/api/catalog/search/route.ts` | `requireCompanyAccess` |
 | `app/api/chatbot/process-queue/route.ts` | `CRON_SECRET` / Bearer |
 | `app/api/marketplace/sync-catalog/route.ts` | `CRON_SECRET` / Bearer |
+| `app/api/admin/menu-analytics/route.ts` | `requireCompanyAccess` + RPC `rpc_get_menu_analytics` |
 | `app/api/chatbot/reactivate/route.ts` | Sessão |
 | `app/api/chatbot/resolve/route.ts` | Header interno ou service key (ver rota) |
 | `app/api/companies/create/route.ts` | Fluxo criação empresa |

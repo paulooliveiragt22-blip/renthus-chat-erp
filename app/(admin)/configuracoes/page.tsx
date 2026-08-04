@@ -31,6 +31,7 @@ import {
     BookOpen,
 } from "lucide-react";
 import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
+import MenuAnalyticsPanel from "@/components/menu/MenuAnalyticsPanel";
 import MarketplaceIfoodSettings from "@/components/menu/MarketplaceIfoodSettings";
 import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSettings";
 
@@ -1973,6 +1974,7 @@ function ConfiguracoesPageContent() {
                     {activeTab === "cardapio" && (
                         <div className="flex flex-col gap-6">
                             <MenuCardapioSettings />
+                            <MenuAnalyticsPanel />
                             <MarketplaceIfoodSettings />
                             <MarketplaceAiqfomeSettings />
                         </div>

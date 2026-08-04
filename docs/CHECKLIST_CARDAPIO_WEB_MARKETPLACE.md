@@ -105,7 +105,7 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 | # | Item | Estado | Notas |
 |---|------|--------|-------|
 | F4.1 | Cron sync opcional (1–6h) se conexão ativa | [x] | 2026-08-04 — `/api/marketplace/sync-catalog` + toggle UI |
-| F4.2 | Painel analytics (visitas, top produtos, origem UTM) | [ ] | |
+| F4.2 | Painel analytics (visitas, top produtos, origem UTM) | [x] | 2026-08-04 — RPC + Configurações → Cardápio |
 | F4.3 | Subdomínio custom / domínio próprio | [ ] | |
 | F4.4 | Complementos/opcionais iFood → acompanhamentos | [ ] | |
 | F4.5 | Cardápio web com fotos no Flow (só destaques) | [ ] | Opcional |
@@ -167,3 +167,4 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 | 2026-08-04 | Análise F0; contratos + migration + API pública + admin profile + testes parser |
 | 2026-08-04 | Página `/c/[slug]`, aba Configurações Cardápio, proxy/AdminShell liberados |
 | 2026-08-04 | F4.1: cron `/api/marketplace/sync-catalog` + `auto_sync_enabled` / intervalo 1–6h na UI |
+| 2026-08-04 | F4.2: painel analytics cardápio (`rpc_get_menu_analytics` + product_view/UTM) |
