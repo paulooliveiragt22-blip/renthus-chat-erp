@@ -115,7 +115,9 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname === "/api/billing/signup" ||
         /** Print agent (api_key nas rotas) + painel /api/agent/keys|settings (exige sessão na própria rota) */
         pathname.startsWith("/api/agent/") ||
-        pathname === "/api/signup/complete"
+        pathname === "/api/signup/complete" ||
+        /** Cardápio web público (rate limit nas próprias rotas). */
+        pathname.startsWith("/api/public/")
     );
 }
 
@@ -126,6 +128,8 @@ function isPublicAppRoute(pathname: string): boolean {
         pathname.startsWith("/billing/blocked") ||
         pathname.startsWith("/signup") ||
         pathname.startsWith("/onboarding") ||
+        pathname.startsWith("/c/") ||
+        pathname === "/c" ||
         pathname.startsWith("/_next") ||
         pathname === "/favicon.ico"
     );

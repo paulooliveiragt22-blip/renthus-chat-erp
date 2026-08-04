@@ -28,7 +28,9 @@ import {
     Wallet,
     CircleDollarSign,
     CalendarClock,
+    BookOpen,
 } from "lucide-react";
+import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +62,7 @@ type DeliveryRuleUi = {
     is_active: boolean;
 };
 
-type Tab = "geral" | "delivery" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
+type Tab = "geral" | "delivery" | "cardapio" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
 
 type BillingStatusJson = {
     ok?: boolean;
@@ -274,6 +276,8 @@ const TAB_QUERY_MAP: Record<string, Tab> = {
     formas:             "formas_pagamento",
     geral:              "geral",
     delivery:           "delivery",
+    cardapio:           "cardapio",
+    menu:               "cardapio",
     seguranca:          "seguranca",
     chatbot:            "chatbot",
     pedidos:            "pedidos",
@@ -844,6 +848,7 @@ function ConfiguracoesPageContent() {
     const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
         { id: "geral",              label: "Geral",                 icon: Store },
         { id: "delivery",           label: "Delivery",              icon: Truck },
+        { id: "cardapio",           label: "Cardápio web",          icon: BookOpen },
         { id: "plano",              label: "Plano e pagamentos",    icon: CircleDollarSign },
         { id: "formas_pagamento",   label: "Formas de pagamentos",  icon: Wallet },
         { id: "seguranca",          label: "Segurança",             icon: Shield },
@@ -1961,6 +1966,9 @@ function ConfiguracoesPageContent() {
                             </div>
                         </div>
                     )}
+
+                    {/* ── ABA: CARDÁPIO WEB ───────────────────────────────── */}
+                    {activeTab === "cardapio" && <MenuCardapioSettings />}
 
                     {/* ── ABA: PEDIDOS ────────────────────────────────────── */}
                     {activeTab === "pedidos" && (

@@ -17,6 +17,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         pathname === "/billing/blocked" ||
         pathname.startsWith("/signup") ||
         pathname.startsWith("/onboarding") ||
+        pathname.startsWith("/c/") ||
+        pathname === "/c" ||
         pathname.startsWith("/superadmin");
 
     if (isStandalone) return <>{children}</>;

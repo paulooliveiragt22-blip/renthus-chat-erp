@@ -61,11 +61,11 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 |---|------|--------|-------|
 | F0.1 | Coluna/tabela `company_menu_profile`: `slug` único, nome exibição, logo, WhatsApp, ativo | [x] | migration `20260804000001` |
 | F0.2 | Flag produto `show_on_menu` (ou só ativos + com preço) | [x] | `products.show_on_menu` default true |
-| F0.3 | Gerar/editar slug na UI Configurações / Produtos | [~] | API admin `GET/PATCH /api/admin/menu-profile` pronta; UI pendente |
+| F0.3 | Gerar/editar slug na UI Configurações / Produtos | [x] | Aba Configurações → Cardápio web |
 | F0.4 | API `GET /api/public/menu/[slug]` (categorias, itens, preço, foto, descrição) | [x] | + contratos + RPC `rpc_get_public_menu` |
-| F0.5 | Página pública `/c/[slug]` mobile-first (lista + foto + preço) | [ ] | Próximo |
-| F0.6 | Link copiável no admin + QR code | [ ] | Depende F0.3 UI |
-| F0.7 | Analytics mínimo: view por slug + `visitor_id` | [x] | `POST .../events` + `rpc_record_menu_page_event` |
+| F0.5 | Página pública `/c/[slug]` mobile-first (lista + foto + preço) | [x] | `app/(public)/c/[slug]` + proxy público |
+| F0.6 | Link copiável no admin + QR code | [x] | Copiar / Abrir / QR na aba Cardápio |
+| F0.7 | Analytics mínimo: view por slug + `visitor_id` | [x] | `page_view` no MenuClient |
 
 ### F1 — Sync marketplace (iFood primeiro)
 
@@ -164,3 +164,4 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 |------|------|
 | 2026-08-01 | Checklist criado; decisão: menu no Renthus + sync manual; web Next.js `/c/[slug]` |
 | 2026-08-04 | Análise F0; contratos + migration + API pública + admin profile + testes parser |
+| 2026-08-04 | Página `/c/[slug]`, aba Configurações Cardápio, proxy/AdminShell liberados |
