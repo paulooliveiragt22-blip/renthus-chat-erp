@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const type = String(req.nextUrl.searchParams.get("type") ?? "receivable") as "receivable" | "payable";
@@ -38,8 +38,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -65,8 +65,8 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const body = (await req.json().catch(() => ({}))) as {

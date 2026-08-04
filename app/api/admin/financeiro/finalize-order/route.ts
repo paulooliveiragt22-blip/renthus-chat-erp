@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
 const A_PRAZO_METHODS = new Set(["credit", "credit_installment", "boleto", "promissoria", "cheque"]);
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const body = (await req.json().catch(() => ({}))) as {

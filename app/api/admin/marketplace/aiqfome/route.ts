@@ -35,6 +35,9 @@ export async function GET() {
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 
+    const feat = await requirePlanFeature(admin, companyId, "marketplace_aiqfome");
+    if (!feat.ok) return feat.response;
+
     const { data, error } = await admin
         .from("marketplace_connections")
         .select("*")

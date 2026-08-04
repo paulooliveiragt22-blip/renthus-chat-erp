@@ -18,8 +18,8 @@ const withPWA = require("@ducanh2912/next-pwa").default({
       /\/api\/billing\/webhook/,
       /\/api\/billing\/charge/,
       /\/api\/billing\/create-invoice-checkout/,
-      /\/api\/print\/download-agent/,
       /\/api\/downloads\//,
+      /\/api\/agent\/activate/,
     ],
     runtimeCaching: [
       // Assets estáticos Next.js — CacheFirst (imutáveis com hash)
@@ -66,11 +66,6 @@ if (isProd) {
 }
 
 const nextConfig = {
-  outputFileTracingIncludes: {
-    "/api/print/download-agent": [
-      "./app/api/print/download-agent/RenthusPrintAgentInstaller-v1.0.0.exe",
-    ],
-  },
   async headers() {
     return [
       {

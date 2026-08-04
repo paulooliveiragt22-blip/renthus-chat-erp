@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     AlertTriangle, ArrowDownCircle, ArrowUpCircle, BarChart3,
@@ -45,10 +44,6 @@ function stockColorClass(atual: number, minimo: number) {
     return "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400";
 }
 
-function applyVolumeStockToItems(prev: StockItem[], pvid: string, nextStock: number): StockItem[] {
-    return prev.map((item) => (item.id === pvid ? { ...item, estoque_atual: nextStock } : item));
-}
-
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50";
@@ -88,7 +83,6 @@ function Modal({ title, open, onClose, children }: Readonly<{ title: string; ope
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 export default function EstoquePage() {
-    const supabase = useMemo(() => createClient(), []);
     const { currentCompanyId: companyId } = useWorkspace();
 
     const [items,   setItems]   = useState<StockItem[]>([]);
@@ -119,49 +113,24 @@ export default function EstoquePage() {
     const load = useCallback(async () => {
         if (!companyId) return;
         setLoading(true);
-
-        const { data, error } = await supabase
-            .from("view_products_estoque")
-            .select("id, name, codigo_interno, details, preco_custo_unitario, estoque_atual, estoque_minimo, is_active, category_name")
-            .eq("company_id", companyId)
-            .order("created_at", { ascending: false });
-
-        if (error) { console.error("[Estoque] load error:", error); setLoading(false); return; }
-
-        const mapped: StockItem[] = (data ?? []).map((p: any) => ({
-            id:                   String(p.id),
-            name:                 String(p.name ?? "—"),
-            category:             String(p.category_name ?? "—"),
-            details:              p.details ?? null,
-            codigo_interno:       p.codigo_interno ?? null,
-            preco_custo_unitario: Number(p.preco_custo_unitario ?? 0),
-            estoque_atual:        Number(p.estoque_atual ?? 0),
-            estoque_minimo:       Number(p.estoque_minimo ?? 0),
-            is_active:            Boolean(p.is_active),
-        }));
-
-        setItems(mapped);
-        setLoading(false);
-    }, [companyId, supabase]);
+        try {
+            const res = await fetch("/api/admin/estoque", {
+                credentials: "include",
+                cache: "no-store",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                console.error("[Estoque] load error:", json?.error ?? res.status);
+                setItems([]);
+                return;
+            }
+            setItems((json.items ?? []) as StockItem[]);
+        } finally {
+            setLoading(false);
+        }
+    }, [companyId]);
 
     useEffect(() => { load(); }, [load]);
-
-    // ── realtime ─────────────────────────────────────────────────────────────
-
-    useEffect(() => {
-        if (!companyId) return;
-        const ch = supabase
-            .channel("products_estoque_realtime")
-            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "product_volumes" }, (p: any) => {
-                const pvid = p?.new?.id as string | undefined;
-                if (!pvid) return;
-                const nextStock = Number(p?.new?.estoque_atual ?? 0);
-                setItems((prev) => applyVolumeStockToItems(prev, pvid, nextStock));
-                flash(pvid);
-            })
-            .subscribe((s: string) => console.log("[Estoque Realtime] status:", s));
-        return () => { supabase.removeChannel(ch); };
-    }, [companyId, supabase]);
 
     // ── movement modal ────────────────────────────────────────────────────────
 
@@ -174,18 +143,26 @@ export default function EstoquePage() {
         const qty = Number(movQty.replaceAll(",", "."));
         if (!qty || qty <= 0) { setMovMsg("Informe uma quantidade válida."); return; }
         setMovSaving(true); setMovMsg(null);
-        const cur  = movItem.estoque_atual;
-        const next =
-            movType === "entrada" ? cur + qty :
-            movType === "saida"   ? Math.max(0, cur - qty) :
-            qty;
-        const { error } = await supabase.rpc("rpc_update_product_volume_estoque", {
-            p_product_volume_id: movItem.id,
-            p_company_id:        companyId,
-            p_estoque_atual:     next,
+        const res = await fetch("/api/admin/estoque", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                productVolumeId: movItem.id,
+                type: movType,
+                qty,
+            }),
         });
-        if (error) { setMovMsg(`Erro: ${error.message}`); setMovSaving(false); return; }
-        setItems(prev => prev.map(i => i.id === movItem.id ? { ...i, estoque_atual: next } : i));
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setMovMsg(`Erro: ${json?.hint ?? json?.error ?? res.status}`);
+            setMovSaving(false);
+            return;
+        }
+        const next = Number(json.estoque_atual ?? movItem.estoque_atual);
+        setItems((prev) =>
+            prev.map((i) => (i.id === movItem.id ? { ...i, estoque_atual: next } : i))
+        );
         flash(movItem.id);
         setMovSaving(false); setMovOpen(false);
     }

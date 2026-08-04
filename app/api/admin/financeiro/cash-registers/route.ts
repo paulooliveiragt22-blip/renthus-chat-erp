@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const { data, error } = await admin

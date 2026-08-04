@@ -37,6 +37,16 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 - Por loja em Configurações → Chatbot: toggle + valor em R$ (ou desligado)
 - Keys em `chatbots.config`: `high_value_confirm_enabled`, `high_value_confirm_amount_brl`
 
+## Gates de plano (UI + API)
+- `estoque_full` · `financeiro_full` · `printing_auto` → Pro/Market (menu + APIs)
+- `marketplace_*` → Market (GET/PATCH/sync)
+- Essencial não contorna gate pela API
+
+## Print Agent
+- Pareamento: Impressoras → código → `POST /api/agent/activate`
+- Download do binário: env `NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL` (release GitHub)
+- Criptografia do código: `CREDENTIALS_ENCRYPTION_KEY` (32 bytes base64)
+
 ## Add-ons / fora do escopo atual
 - Fiscal NFC-e / TEF → próxima etapa
 - A Prazo → só PDV
