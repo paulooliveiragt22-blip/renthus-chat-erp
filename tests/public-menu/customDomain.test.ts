@@ -12,13 +12,9 @@ import { buildPublicMenuAbsoluteUrl } from "../../lib/public-menu/appBaseUrl";
 describe("customDomain F4.3", () => {
     it("normaliza host e domínio", () => {
         assert.equal(normalizeMenuHost("Cardapio.Loja.COM.BR:443"), "cardapio.loja.com.br");
-        assert.equal(normalizeCustomDomainInput("https://www.cardapio.loja.com.br/path").ok, true);
-        assert.equal(
-            normalizeCustomDomainInput("https://www.cardapio.loja.com.br/path").ok
-                ? normalizeCustomDomainInput("https://www.cardapio.loja.com.br/path").host
-                : null,
-            "cardapio.loja.com.br"
-        );
+        const norm = normalizeCustomDomainInput("https://www.cardapio.loja.com.br/path");
+        assert.equal(norm.ok, true);
+        if (norm.ok) assert.equal(norm.host, "cardapio.loja.com.br");
         assert.equal(normalizeCustomDomainInput("not a domain").ok, false);
     });
 
