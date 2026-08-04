@@ -25,6 +25,10 @@ import { handleProOrderIntent } from "./pro/handleProOrderIntent";
 import { handleProEscalationChoice } from "./pro/handleProEscalationChoice";
 import { offerCatalogToCustomer } from "./offerCatalog";
 import type { AiOrderCanonicalDraft } from "./pro/typesAiOrder";
+import {
+    applyChatbotMessageTemplate,
+    resolveChatbotMessageTemplates,
+} from "@/lib/chatbot/messageTemplates";
 
 export async function runInboundChatbotPipeline(
     params: ProcessMessageParams,
@@ -177,17 +181,6 @@ async function starterOrderFlow(
     }
 }
 
-function applyProGreetingTemplate(
-    tpl: string,
-    companyName: string,
-    customerName: string | null
-): string {
-    const nome = (customerName ?? "").trim() || "Cliente";
-    return tpl
-        .replaceAll("{empresa}", companyName)
-        .replaceAll("{nome}", nome);
-}
-
 async function sendWelcomeMenu(
     params: ProcessMessageParams,
     session: { step: string; context: Record<string, unknown> },
@@ -225,20 +218,19 @@ async function sendWelcomeMenu(
     let greetText: string;
 
     if (tier === "pro") {
-        const firstTpl   = String(botCfg.pro_greeting_first_contact ?? "").trim();
-        const routineTpl = String(botCfg.pro_greeting_routine ?? "").trim();
+        const templates = resolveChatbotMessageTemplates(botCfg);
         const hasCustomerRow = Boolean(customer?.id);
         if (!hasCustomerRow) {
-            greetText = firstTpl
-                ? applyProGreetingTemplate(firstTpl, companyName, null)
-                : `Olá! É seu primeiro contato com a *${companyName}* por aqui. 🍺\n\nPode mandar seu pedido em texto livre (bebidas, quantidades, endereço e pagamento).`;
+            greetText = applyChatbotMessageTemplate(templates.msg_welcome_first, {
+                companyName,
+                customerName: null,
+            });
         } else {
             const nm = customer?.name ? String(customer.name).trim() : null;
-            greetText = routineTpl
-                ? applyProGreetingTemplate(routineTpl, companyName, nm)
-                : nm
-                    ? `Olá, *${nm}*! Que bom te ver de novo no *${companyName}*. 🍺\n\nDiz o que pedimos hoje em texto livre.`
-                    : `Olá de novo! No *${companyName}*, o que pedimos hoje? 🍺`;
+            greetText = applyChatbotMessageTemplate(templates.msg_welcome_returning, {
+                companyName,
+                customerName: nm,
+            });
         }
         await botReply(admin, companyId, threadId, phoneE164, greetText);
         return;

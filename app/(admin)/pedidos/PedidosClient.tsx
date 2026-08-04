@@ -55,6 +55,11 @@ import {
     ORANGE,
     prettyStatus,
 } from "@/lib/orders/helpers";
+import {
+    applyChatbotMessageTemplate,
+    DEFAULT_CHATBOT_MESSAGE_TEMPLATES,
+    type ChatbotMessageTemplates,
+} from "@/lib/chatbot/messageTemplates";
 
 // ─── helpers puros ───────────────────────────────────────────────────────────
 
@@ -112,17 +117,16 @@ type OrderPrintItemInfo = {
     fator: number | null;
 };
 
-/** Texto padrão para aviso de saiu para entrega / entregue (WhatsApp). */
+/** Texto para aviso de saiu para entrega / entregue (WhatsApp) — editável em Configurações → Chatbot. */
 function deliveryStatusWhatsAppText(
     kind: "out_for_delivery" | "delivered_message",
-    customerName: string
+    customerName: string,
+    templates?: ChatbotMessageTemplates | null
 ): string {
-    const name = customerName.trim();
-    const namePart = name ? `, ${name}` : "";
-    if (kind === "out_for_delivery") {
-        return `Ótima notícia${namePart}: seu pedido já está com nosso entregador e a caminho de você! 🛵💨`;
-    }
-    return `Confirmamos que seu pedido foi entregue${namePart}! 🎉 Esperamos que tenha chegado tudo certinho. Qualquer coisa, é só chamar!`;
+    const t = templates ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES;
+    const tpl =
+        kind === "out_for_delivery" ? t.msg_out_for_delivery : t.msg_thank_you;
+    return applyChatbotMessageTemplate(tpl, { customerName });
 }
 
 type PrintEmb = {
@@ -231,6 +235,9 @@ export default function PedidosPage() {
     const [orders,  setOrders]  = useState<OrderRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [msg,     setMsg]     = useState<string | null>(null);
+    const [waMessageTemplates, setWaMessageTemplates] = useState<ChatbotMessageTemplates>(
+        DEFAULT_CHATBOT_MESSAGE_TEMPLATES
+    );
 
     const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
     const [searchText,   setSearchText]   = useState("");
@@ -251,6 +258,18 @@ export default function PedidosPage() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
+
+    useEffect(() => {
+        if (!companyId) return;
+        fetch("/api/chatbot/config", { credentials: "include", cache: "no-store" })
+            .then((r) => r.json())
+            .then((json) => {
+                if (json?.messageTemplates) {
+                    setWaMessageTemplates(json.messageTemplates as ChatbotMessageTemplates);
+                }
+            })
+            .catch(() => {});
+    }, [companyId]);
 
     // ── delivery fee ──────────────────────────────────────────────────────────
     const [deliveryFeeEnabled,     setDeliveryFeeEnabled]     = useState(false);
@@ -692,7 +711,8 @@ export default function PedidosPage() {
                             kind: "text",
                             text: deliveryStatusWhatsAppText(
                                 "delivered_message",
-                                String(full?.customers?.name ?? listCust?.name ?? "")
+                                String(full?.customers?.name ?? listCust?.name ?? ""),
+                                waMessageTemplates
                             ),
                         }),
                     });
@@ -1057,7 +1077,11 @@ export default function PedidosPage() {
         }
         const phone = String(ord.customers.phone).trim();
         if (!phone.startsWith("+")) { setMsg("Telefone precisa estar em formato internacional (+55...)."); return; }
-        const text = deliveryStatusWhatsAppText(kind, ord.customers.name || "");
+        const text = deliveryStatusWhatsAppText(
+            kind,
+            ord.customers.name || "",
+            waMessageTemplates
+        );
         try {
             setSendingOutForDelivery(true);
             setMsg(null);

@@ -1,5 +1,9 @@
 import type { IntentDecision, OutboundMessage, ProSessionState, TenantRef } from "@/src/types/contracts";
 import { buildWebMenuOfferText } from "@/lib/public-menu/menuOfferText";
+import {
+    buildWelcomeMenuBody,
+    type ChatbotMessageTemplates,
+} from "@/lib/chatbot/messageTemplates";
 import { isOrderSessionContinuityNeeded } from "../sessionOrderContext";
 import { canTransition } from "../proStepTransitions";
 
@@ -23,20 +27,6 @@ function wantsCatalogBrowse(norm: string): boolean {
     return /^(quero\s+)?(ver\s+)?(o\s+)?(cardapio|catalogo|menu)(\s+por\s+favor)?$/u.test(norm);
 }
 
-/** Saudação única: corpo do interactive (uma bolha WhatsApp). */
-function buildWelcomeBody(isReturningCustomer: boolean): string {
-    if (isReturningCustomer) {
-        return (
-            "Bem-vindo de volta! Posso agilizar seu pedido com seus dados salvos.\n\n" +
-            "Digite o que precisa (produto + endereco + pagamento) ou use os botões abaixo."
-        );
-    }
-    return (
-        "Oi! Sou o assistente da loja e te ajudo a fechar o pedido por aqui.\n\n" +
-        "Se preferir, escreva tudo em uma frase (produto + endereco + pagamento) ou use os botões abaixo."
-    );
-}
-
 function mainMenuButtons(): Array<{ id: string; title: string }> {
     return [
         { id: "btn_catalog", title: "Cardapio" },
@@ -53,8 +43,18 @@ export function routeStage(params: {
     flowCatalogId?: string | null;
     flowStatusId?: string | null;
     webMenuUrl?: string | null;
+    messageTemplates?: ChatbotMessageTemplates | null;
 }): RouteStageResult {
-    const { state, decision, inboundText, tenant, flowCatalogId, flowStatusId, webMenuUrl } = params;
+    const {
+        state,
+        decision,
+        inboundText,
+        tenant,
+        flowCatalogId,
+        flowStatusId,
+        webMenuUrl,
+        messageTemplates,
+    } = params;
     const norm = normalizeInboundId(inboundText);
 
     if (decision.intent === "human_intent") {
@@ -181,7 +181,7 @@ export function routeStage(params: {
             outbound: [
                 {
                     kind: "buttons",
-                    text: buildWelcomeBody(isReturningCustomer),
+                    text: buildWelcomeMenuBody(isReturningCustomer, messageTemplates),
                     buttons: mainMenuButtons(),
                 },
             ],

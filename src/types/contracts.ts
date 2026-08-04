@@ -149,6 +149,13 @@ export interface ProPipelineInput {
      * Preferido ao Flow no botão Cardápio.
      */
     webMenuUrl?: string | null;
+    /** Saudação / entrega / agradecimento (Configurações → Chatbot). */
+    messageTemplates?: {
+        msg_welcome_returning: string;
+        msg_welcome_first: string;
+        msg_out_for_delivery: string;
+        msg_thank_you: string;
+    } | null;
 }
 
 export interface ProPipelineOutput {

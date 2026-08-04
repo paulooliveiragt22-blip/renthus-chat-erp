@@ -357,6 +357,7 @@ export async function runProPipeline(
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
         webMenuUrl: input.webMenuUrl ?? null,
+        messageTemplates: input.messageTemplates ?? null,
     });
 
     let nextState = routed.state;

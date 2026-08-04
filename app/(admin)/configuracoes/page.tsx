@@ -34,6 +34,8 @@ import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
 import MenuAnalyticsPanel from "@/components/menu/MenuAnalyticsPanel";
 import MarketplaceIfoodSettings from "@/components/menu/MarketplaceIfoodSettings";
 import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSettings";
+import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
+import { DEFAULT_CHATBOT_MESSAGE_TEMPLATES } from "@/lib/chatbot/messageTemplates";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -344,6 +346,18 @@ function ConfiguracoesPageContent() {
     const [chatbotThreshold,setChatbotThreshold] = useState("0.75");
     const [chatbotRetries,  setChatbotRetries]   = useState("2");
     const [chatbotTimeout,  setChatbotTimeout]   = useState("8000");
+    const [msgWelcomeReturning, setMsgWelcomeReturning] = useState(
+        DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_returning
+    );
+    const [msgWelcomeFirst, setMsgWelcomeFirst] = useState(
+        DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_first
+    );
+    const [msgOutForDelivery, setMsgOutForDelivery] = useState(
+        DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_out_for_delivery
+    );
+    const [msgThankYou, setMsgThankYou] = useState(
+        DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_thank_you
+    );
     const [botSaving,       setBotSaving]        = useState(false);
     const [botMsg,          setBotMsg]           = useState<string | null>(null);
     const botMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -753,6 +767,17 @@ function ConfiguracoesPageContent() {
                 setChatbotThreshold(String(cfg.threshold  ?? "0.75"));
                 setChatbotRetries(String(cfg.max_retries ?? "2"));
                 setChatbotTimeout(String(cfg.timeout_ms  ?? "8000"));
+                const mt = json?.messageTemplates ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES;
+                setMsgWelcomeReturning(
+                    mt.msg_welcome_returning ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_returning
+                );
+                setMsgWelcomeFirst(
+                    mt.msg_welcome_first ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_first
+                );
+                setMsgOutForDelivery(
+                    mt.msg_out_for_delivery ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_out_for_delivery
+                );
+                setMsgThankYou(mt.msg_thank_you ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_thank_you);
             })
             .catch(() => {});
     }, []);
@@ -794,6 +819,7 @@ function ConfiguracoesPageContent() {
         const res = await fetch("/api/chatbot/config", {
             method:  "PATCH",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({
                 id: chatbotId,
                 config: {
@@ -804,6 +830,12 @@ function ConfiguracoesPageContent() {
                     timeout_ms:           Number(chatbotTimeout)   || 8000,
                     fallback_chain:       ["claude", "regex", "assisted"],
                     catalog_cache_ttl_min: 15,
+                },
+                messageTemplates: {
+                    msg_welcome_returning: msgWelcomeReturning,
+                    msg_welcome_first: msgWelcomeFirst,
+                    msg_out_for_delivery: msgOutForDelivery,
+                    msg_thank_you: msgThankYou,
                 },
             }),
         });
@@ -1946,6 +1978,28 @@ function ConfiguracoesPageContent() {
                                     <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">3 · Modo Assistido</span>
                                 </div>
                             </div>
+
+                            <ChatbotMessageTemplatesPanel
+                                welcomeReturning={msgWelcomeReturning}
+                                welcomeFirst={msgWelcomeFirst}
+                                outForDelivery={msgOutForDelivery}
+                                thankYou={msgThankYou}
+                                disabled={!chatbotId}
+                                onChange={(patch) => {
+                                    if (patch.welcomeReturning !== undefined) {
+                                        setMsgWelcomeReturning(patch.welcomeReturning);
+                                    }
+                                    if (patch.welcomeFirst !== undefined) {
+                                        setMsgWelcomeFirst(patch.welcomeFirst);
+                                    }
+                                    if (patch.outForDelivery !== undefined) {
+                                        setMsgOutForDelivery(patch.outForDelivery);
+                                    }
+                                    if (patch.thankYou !== undefined) {
+                                        setMsgThankYou(patch.thankYou);
+                                    }
+                                }}
+                            />
 
                             {/* save bar */}
                             {botMsg && (

@@ -17,6 +17,7 @@ import { getChatbotProductTier } from "./tier";
 import { runInboundChatbotPipeline } from "./inboundPipeline";
 import { botReply } from "./botSend";
 import { runProPipeline } from "@/src/pro/pipeline/runProPipeline";
+import { resolveChatbotMessageTemplates } from "@/lib/chatbot/messageTemplates";
 import { isProPipelineSessionLoadError } from "@/src/pro/pipeline/errors";
 import { makeProPipelineDependencies } from "@/src/pro/pipeline/deps.factory";
 import { resolveActivePublicMenuLink } from "@/lib/public-menu/resolveActiveMenuLink";
@@ -84,6 +85,15 @@ async function runProV2InboundBranch(
         const webMenu = await resolveActivePublicMenuLink(params.admin, params.companyId, {
             phoneE164: params.phoneE164,
         });
+        const { data: botRow } = await params.admin
+            .from("chatbots")
+            .select("config")
+            .eq("company_id", params.companyId)
+            .limit(1)
+            .maybeSingle();
+        const messageTemplates = resolveChatbotMessageTemplates(
+            (botRow?.config as Record<string, unknown> | null) ?? null
+        );
         await runProPipeline(
             {
                 tenant: {
@@ -104,6 +114,7 @@ async function runProV2InboundBranch(
                 flowStatusId: params.statusFlowId ?? null,
                 flowAddressRegisterId: params.addressRegisterFlowId ?? null,
                 webMenuUrl: webMenu?.url ?? null,
+                messageTemplates,
             },
             deps
         );
