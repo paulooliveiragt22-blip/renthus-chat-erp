@@ -1,6 +1,10 @@
 // proxy.ts — convenção Next.js 16+ (substitui middleware.ts na raiz do projeto)
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import {
+    lookupMenuSlugByHostViaRest,
+    resolveMenuHostRewrite,
+} from "@/lib/public-menu/menuHostRewrite";
 
 type AuthClient = {
     auth: {
@@ -143,6 +147,30 @@ export async function proxy(
     options?: { createClient?: SupabaseClientFactory }
 ) {
     const pathname = request.nextUrl.pathname;
+
+    // F4.3: subdomínio / domínio próprio → /c/{slug}
+    const hostHeader =
+        request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+    const hostRewrite = await resolveMenuHostRewrite({
+        host: hostHeader,
+        pathname,
+        lookupCustomDomainSlug:
+            supabaseUrl && serviceKey
+                ? (host) =>
+                      lookupMenuSlugByHostViaRest({
+                          host,
+                          supabaseUrl,
+                          serviceKey,
+                      })
+                : undefined,
+    });
+    if (hostRewrite.rewrite) {
+        const url = request.nextUrl.clone();
+        url.pathname = hostRewrite.pathname;
+        return NextResponse.rewrite(url);
+    }
 
     const superRes = handleSuperadminBranch(request, pathname);
     if (superRes) return superRes;

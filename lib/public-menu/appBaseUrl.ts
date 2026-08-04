@@ -1,3 +1,5 @@
+import { resolveMenuBaseDomain } from "@/lib/public-menu/customDomain";
+
 /**
  * Base URL pública do app (links para clientes — cardápio `/c/[slug]`).
  * Preferir NEXT_PUBLIC_APP_URL; em deploy Vercel, VERCEL_URL; senão fallback de produção.
@@ -21,6 +23,17 @@ export function buildPublicMenuPath(slug: string): string {
     return `/c/${slug}`;
 }
 
+function applyMenuQuery(
+    url: URL,
+    opts?: { utmSource?: string; wmToken?: string }
+): string {
+    const utm = opts?.utmSource?.trim();
+    if (utm) url.searchParams.set("utm_source", utm);
+    const wm = opts?.wmToken?.trim();
+    if (wm) url.searchParams.set("wm", wm);
+    return url.toString();
+}
+
 export function buildPublicMenuAbsoluteUrl(
     slug: string,
     opts?: {
@@ -28,14 +41,29 @@ export function buildPublicMenuAbsoluteUrl(
         /** Token assinado `wm` (WhatsApp → pré-identifica cliente). */
         wmToken?: string;
         env?: NodeJS.ProcessEnv;
+        /** Domínio próprio verificado (F4.3). */
+        customDomain?: string | null;
+        customDomainVerified?: boolean;
+        /** Força URL path `/c/{slug}` no app (ignora vanity). */
+        preferPath?: boolean;
     }
 ): string {
-    const base = resolvePublicAppBaseUrl(opts?.env);
-    const path = buildPublicMenuPath(slug);
-    const url = new URL(`${base}${path}`);
-    const utm = opts?.utmSource?.trim();
-    if (utm) url.searchParams.set("utm_source", utm);
-    const wm = opts?.wmToken?.trim();
-    if (wm) url.searchParams.set("wm", wm);
-    return url.toString();
+    const env = opts?.env ?? process.env;
+
+    if (!opts?.preferPath) {
+        if (opts?.customDomainVerified && opts.customDomain) {
+            const url = new URL(`https://${opts.customDomain}/`);
+            return applyMenuQuery(url, opts);
+        }
+
+        const menuBase = resolveMenuBaseDomain(env);
+        if (menuBase) {
+            const url = new URL(`https://${slug}.${menuBase}/`);
+            return applyMenuQuery(url, opts);
+        }
+    }
+
+    const base = resolvePublicAppBaseUrl(env);
+    const url = new URL(`${base}${buildPublicMenuPath(slug)}`);
+    return applyMenuQuery(url, opts);
 }

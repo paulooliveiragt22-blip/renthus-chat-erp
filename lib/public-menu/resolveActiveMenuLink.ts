@@ -22,7 +22,7 @@ export async function resolveActivePublicMenuLink(
 ): Promise<ActivePublicMenuLink | null> {
     const { data, error } = await admin
         .from("company_menu_profile")
-        .select("slug, is_active")
+        .select("slug, is_active, custom_domain, custom_domain_verified")
         .eq("company_id", companyId)
         .maybeSingle();
 
@@ -57,6 +57,8 @@ export async function resolveActivePublicMenuLink(
         url: buildPublicMenuAbsoluteUrl(slugParsed.slug, {
             utmSource: "whatsapp",
             wmToken,
+            customDomain: data.custom_domain == null ? null : String(data.custom_domain),
+            customDomainVerified: Boolean(data.custom_domain_verified),
         }),
     };
 }

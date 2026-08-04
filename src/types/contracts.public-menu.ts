@@ -82,6 +82,9 @@ export interface MenuProfileAdmin {
     logoUrl: string | null;
     whatsappPhone: string | null;
     isActive: boolean;
+    /** Domínio próprio (host), ex. cardapio.loja.com.br */
+    customDomain: string | null;
+    customDomainVerified: boolean;
     updatedAt: string;
 }
 
@@ -92,6 +95,8 @@ export interface MenuProfileUpsertInput {
     logoUrl?: string | null;
     whatsappPhone?: string | null;
     isActive?: boolean;
+    customDomain?: string | null;
+    customDomainVerified?: boolean;
 }
 
 /** Painel F4.2 — agregados do cardápio web. */
