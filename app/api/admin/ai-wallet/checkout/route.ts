@@ -60,7 +60,17 @@ export async function POST(req: Request) {
     const description = `Crédito IA Renthus — R$ ${brl.toFixed(2).replace(".", ",")}`;
 
     try {
-        const customerPayload = buildPagarmeCustomerPayload(company as Record<string, unknown>);
+        const customerPayload = buildPagarmeCustomerPayload({
+            id: companyId,
+            name: (company.name as string | null) ?? null,
+            nome_fantasia: (company.nome_fantasia as string | null) ?? null,
+            email: (company.email as string | null) ?? null,
+            whatsapp_phone:
+                (company.whatsapp_phone as string | null) ??
+                (company.phone as string | null) ??
+                null,
+            cnpj: (company.cnpj as string | null) ?? null,
+        });
         const order = await createPixInvoiceOrder({
             amountCents: packCents,
             description,
