@@ -7,38 +7,12 @@ type Connection = {
     merchantId: string;
     status: string;
     useMock: boolean;
-    autoSyncEnabled: boolean;
-    syncIntervalHours: number;
     lastSyncAt: string | null;
-    lastError: string | null;
     lastSync: {
         created: number;
         updated: number;
-        skipped: number;
-        imagesDownloaded: number;
-        errors: number;
     };
 };
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-    return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={checked}
-            onClick={() => onChange(!checked)}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                checked ? "bg-orange-600" : "bg-zinc-300 dark:bg-zinc-600"
-            }`}
-        >
-            <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                    checked ? "translate-x-5" : "translate-x-0"
-                }`}
-            />
-        </button>
-    );
-}
 
 export default function MarketplaceAiqfomeSettings() {
     const [loading, setLoading] = useState(true);
@@ -46,8 +20,6 @@ export default function MarketplaceAiqfomeSettings() {
     const [syncing, setSyncing] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
     const [merchantId, setMerchantId] = useState("");
-    const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
-    const [syncIntervalHours, setSyncIntervalHours] = useState(3);
     const [conn, setConn] = useState<Connection | null>(null);
 
     const load = useCallback(async () => {
@@ -60,11 +32,7 @@ export default function MarketplaceAiqfomeSettings() {
             const json = await res.json().catch(() => ({}));
             const c = json.connection as Connection | null;
             setConn(c);
-            if (c) {
-                setMerchantId(c.merchantId);
-                setAutoSyncEnabled(Boolean(c.autoSyncEnabled));
-                setSyncIntervalHours(c.syncIntervalHours ?? 3);
-            }
+            if (c) setMerchantId(c.merchantId);
         } finally {
             setLoading(false);
         }
@@ -86,7 +54,6 @@ export default function MarketplaceAiqfomeSettings() {
                     merchantId,
                     useMock: true,
                     autoSyncEnabled: false,
-                    syncIntervalHours,
                 }),
             });
             const json = await res.json().catch(() => ({}));
@@ -113,7 +80,7 @@ export default function MarketplaceAiqfomeSettings() {
             const c = json.counters ?? {};
             setMsg(
                 json.ok
-                    ? `Sync Aiqfome: ${c.created ?? 0} criados, ${c.updated ?? 0} atualizados.`
+                    ? `Sync Aiqfome (mock): ${c.created ?? 0} criados, ${c.updated ?? 0} atualizados.`
                     : json.errorMessage ?? "Falha na sync"
             );
             await load();
