@@ -9,6 +9,7 @@ import type {
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
 import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addresses";
+import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
 import { verifyWebMenuCheckoutSession } from "../sessionToken";
 
 function isPaymentMethod(v: string): v is PaymentMethod {
@@ -60,7 +61,7 @@ export async function createWebMenuOrder(
 
     const { data: embRows, error: embErr } = await admin
         .from("produto_embalagens")
-        .select("id, preco_venda, produto_id")
+        .select("id, preco_venda, produto_id, siglas_comerciais(sigla)")
         .in("id", embalagemIds)
         .eq("company_id", params.companyId);
 
@@ -90,11 +91,15 @@ export async function createWebMenuOrder(
             },
         ])
     );
+
+    type EmbRow = {
+        id: string;
+        preco_venda: number | string;
+        produto_id: string;
+        siglas_comerciais: { sigla: string } | { sigla: string }[] | null;
+    };
     const embById = new Map(
-        embRows.map((r) => [
-            String((r as { id: string }).id),
-            r as { id: string; preco_venda: number | string; produto_id: string },
-        ])
+        (embRows as unknown as EmbRow[]).map((r) => [String(r.id), r])
     );
 
     const orderItems: Array<{
@@ -121,8 +126,16 @@ export async function createWebMenuOrder(
         if (!Number.isFinite(unitPrice) || unitPrice < 0) {
             return { ok: false, error: "items_unavailable" };
         }
+        const siglaRaw = Array.isArray(row.siglas_comerciais)
+            ? row.siglas_comerciais[0]?.sigla
+            : row.siglas_comerciais?.sigla;
+        const sigla = String(siglaRaw ?? "UN").trim().toUpperCase() || "UN";
+        const productName =
+            sigla === "UN" || sigla === "UND" || sigla === "UNID"
+                ? product.name
+                : `${product.name} (${sigla})`;
         orderItems.push({
-            product_name: product.name,
+            product_name: productName,
             produto_embalagem_id: id,
             quantity: qty,
             unit_price: unitPrice,
@@ -245,6 +258,22 @@ export async function createWebMenuOrder(
     }
 
     const code = `#${String(orderId).replaceAll("-", "").slice(-6).toUpperCase()}`;
+
+    await notifyWebMenuOrderWhatsApp({
+        admin,
+        companyId: params.companyId,
+        phoneE164: session.phoneE164,
+        orderCode: code,
+        requireApproval,
+        items: orderItems,
+        deliveryFee,
+        grandTotal,
+        deliveryAddress: addressText,
+        paymentMethod,
+        changeFor,
+        etaMin: delivery.eta_min,
+    });
+
     return {
         ok: true,
         orderId: String(orderId),
