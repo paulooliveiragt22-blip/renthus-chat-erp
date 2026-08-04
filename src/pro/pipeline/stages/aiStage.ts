@@ -79,6 +79,8 @@ export async function aiStage(params: {
         ...context.session,
         draft: nextDraft,
         deliveryAddressUiConfirmed,
+        highValueAcknowledged:
+            prevFp === nextFp ? context.session.highValueAcknowledged : false,
         aiHistory: aiResult.updatedHistory ?? [],
         searchProdutoEmbalagemIds:
             raw?.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],

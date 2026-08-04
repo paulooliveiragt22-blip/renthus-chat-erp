@@ -228,3 +228,31 @@ export function parseHighValueConfirmPolicy(config: Record<string, unknown> | nu
     const amountBrl = Number.isFinite(raw) && raw > 0 ? raw : 0;
     return { enabled: enabled && amountBrl > 0, amountBrl };
 }
+
+type AnthropicUsageLike = {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+};
+
+/** Debita carteira a partir do `usage` da resposta Anthropic (best-effort). */
+export async function debitFromAnthropicUsage(
+    admin: SupabaseClient,
+    companyId: string,
+    usage: AnthropicUsageLike | null | undefined,
+    meta?: Record<string, unknown>
+): Promise<void> {
+    if (!companyId || !usage) return;
+    const inputTokens = Number(usage.input_tokens ?? 0);
+    const outputTokens = Number(usage.output_tokens ?? 0);
+    if (inputTokens <= 0 && outputTokens <= 0) return;
+    const cost = estimateHaikuCostBrlCents(inputTokens, outputTokens);
+    try {
+        await debitAiUsage(admin, companyId, cost, {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            ...(meta ?? {}),
+        });
+    } catch (e) {
+        console.warn("[aiWallet] falha ao debitar uso Anthropic:", e);
+    }
+}

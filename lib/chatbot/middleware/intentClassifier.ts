@@ -116,6 +116,8 @@ export type ClassifyIntentOptions = {
      * manter `order_intent` para o Haiku continuar o pedido ou o servidor fechar após confirmação.
      */
     proActiveCanonicalDraft?: boolean;
+    admin?: import("@supabase/supabase-js").SupabaseClient;
+    companyId?: string;
 };
 
 // ── Classificação ─────────────────────────────────────────────────────────────
@@ -169,6 +171,16 @@ Reply with ONLY the intent name in lowercase, nothing else.`,
             messages: [{ role: "user", content: trimmed }],
         });
 
+        if (options?.admin && options.companyId) {
+            try {
+                const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
+                await debitFromAnthropicUsage(options.admin, options.companyId, resp.usage, {
+                    source: "legacy_intent_classifier",
+                });
+            } catch {
+                /* ignore */
+            }
+        }
         const raw = ((resp.content[0] as { text: string }).text ?? "").trim().toLowerCase();
         return VALID_INTENTS.includes(raw as MessageIntent) ? (raw as MessageIntent) : "unknown";
     } catch (err) {

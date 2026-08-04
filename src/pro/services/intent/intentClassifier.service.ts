@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Intent, IntentDecision, PipelineContext } from "@/src/types/contracts";
 import { isOrderSessionContinuityNeeded } from "@/src/pro/pipeline/sessionOrderContext";
 import type { IntentService, IntentServiceInput } from "./intent.types";
@@ -79,7 +80,11 @@ function buildIntentClassifierContextBlock(session: PipelineContext["session"]):
     return parts.join("\n");
 }
 
-async function llmClassify(context: PipelineContext, userText: string): Promise<IntentDecision> {
+async function llmClassify(
+    context: PipelineContext,
+    userText: string,
+    admin?: SupabaseClient
+): Promise<IntentDecision> {
     if (!process.env.ANTHROPIC_API_KEY) {
         return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
     }
@@ -102,6 +107,16 @@ async function llmClassify(context: PipelineContext, userText: string): Promise<
                 "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
             messages: [{ role: "user", content: userPayload }],
         });
+        if (admin && context.tenant.companyId) {
+            try {
+                const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
+                await debitFromAnthropicUsage(admin, context.tenant.companyId, resp.usage, {
+                    source: "pro_intent_classifier",
+                });
+            } catch {
+                /* ignore billing side-effects */
+            }
+        }
         const text = (resp.content[0] as { text?: string } | undefined)?.text ?? "";
         const mapped = fromLlmLabel(text);
         if (!mapped) return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
@@ -116,6 +131,8 @@ async function llmClassify(context: PipelineContext, userText: string): Promise<
 }
 
 export class ProIntentClassifierService implements IntentService {
+    constructor(private readonly admin?: SupabaseClient) {}
+
     async classify(input: IntentServiceInput): Promise<IntentDecision> {
         const { context, userText } = input;
         const raw = userText.trim();
@@ -171,7 +188,7 @@ export class ProIntentClassifierService implements IntentService {
         if (FAQ_RE.test(raw)) return { intent: "faq", confidence: "medium", reasonCode: "regex_match" };
 
         // Camada 3: IA no ambíguo
-        return llmClassify(context, userText);
+        return llmClassify(context, userText, this.admin);
     }
 }
 

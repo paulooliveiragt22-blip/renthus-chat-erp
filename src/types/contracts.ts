@@ -101,6 +101,11 @@ export interface ProSessionState {
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */
     searchProdutoEmbalagemIds: string[];
+    /**
+     * Pedido acima do limiar da loja: primeira confirmação só “reconhece” o valor alto;
+     * a segunda (com este flag true) fecha o pedido.
+     */
+    highValueAcknowledged?: boolean;
 }
 
 export interface IntentDecision {

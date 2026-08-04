@@ -17,6 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhookSignature, extractOrderCustomerId, type PagarmeOrder } from "@/lib/billing/pagarme";
 import { processSetupOrderPaid } from "@/lib/billing/pagarmeSetupPaid";
 import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
+import { creditAiPack } from "@/lib/billing/aiWallet";
 import { billingLog } from "@/lib/billing/billingLog";
 import { tryConsumePagarmeWebhookEvent } from "@/lib/billing/tryConsumePagarmeWebhookEvent";
 import { checkRateLimit } from "@/lib/security/rateLimit";
@@ -159,6 +160,46 @@ async function handleOrderPaid(
             "[webhook/pagarme] metadata.type=setup mas nenhuma linha em setup_payments para pagarme_order_id:",
             orderId
         );
+        return;
+    }
+
+    // ── 1b) Pack de crédito IA
+    if (metaType === "ai_pack") {
+        const companyId = String(metadata.company_id ?? "");
+        const packCents = Number(metadata.pack_cents);
+        if (
+            companyId &&
+            (packCents === 1000 || packCents === 2000 || packCents === 5000)
+        ) {
+            const { data: recentCredits } = await admin
+                .from("company_ai_ledger")
+                .select("id, meta")
+                .eq("company_id", companyId)
+                .eq("kind", "pack_credit")
+                .order("created_at", { ascending: false })
+                .limit(30);
+            const already = (recentCredits ?? []).some(
+                (r) =>
+                    r.meta &&
+                    typeof r.meta === "object" &&
+                    (r.meta as { pagarme_order_id?: string }).pagarme_order_id === orderId
+            );
+            if (!already) {
+                await creditAiPack(admin, companyId, packCents as 1000 | 2000 | 5000, {
+                    pagarme_order_id: orderId,
+                    source: "pagarme_webhook",
+                });
+                billingLog("webhook", "ai_pack_credited", {
+                    order_id: orderId,
+                    company_id: companyId,
+                    pack_cents: packCents,
+                });
+            } else {
+                billingLog("webhook", "ai_pack_already_credited", { order_id: orderId });
+            }
+        } else {
+            console.warn("[webhook/pagarme] ai_pack metadata inválida:", metadata);
+        }
         return;
     }
 

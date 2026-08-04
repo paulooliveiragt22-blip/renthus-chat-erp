@@ -34,7 +34,7 @@ export function makeProPipelineDependencies(
         messageGateway: new WhatsAppMessageGateway(params.admin, params.waConfig),
         metrics: makeMetricsPort(params.admin),
         logger: new ConsoleLoggerAdapter(),
-        intentService: new ProIntentClassifierService(),
+        intentService: new ProIntentClassifierService(params.admin),
         aiService: new FullAiServiceAdapter(params.admin),
         orderService: new OrderServiceV2Adapter(params.admin),
         admin: params.admin,

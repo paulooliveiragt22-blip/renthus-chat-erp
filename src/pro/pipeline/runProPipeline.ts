@@ -269,6 +269,24 @@ export async function runProPipeline(
 
     // Prioridade: se está aguardando confirmação, resolve fechamento/erro de draft
     // antes de qualquer passagem por IA para evitar desvio de fluxo.
+    let highValuePolicy: { enabled: boolean; amountBrl: number } | undefined;
+    if (deps.admin) {
+        try {
+            const { data: botRow } = await deps.admin
+                .from("chatbots")
+                .select("config")
+                .eq("company_id", input.tenant.companyId)
+                .limit(1)
+                .maybeSingle();
+            const { parseHighValueConfirmPolicy } = await import("@/lib/billing/aiWallet");
+            highValuePolicy = parseHighValueConfirmPolicy(
+                (botRow?.config as Record<string, unknown> | null) ?? null
+            );
+        } catch {
+            highValuePolicy = undefined;
+        }
+    }
+
     const preOrder = await orderStage({
         orderService: deps.orderService,
         tenant: input.tenant,
@@ -276,6 +294,7 @@ export async function runProPipeline(
         decision,
         userText: input.inboundText,
         logger: deps.logger,
+        highValuePolicy,
     });
 
     const preOrderSideMetrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [];

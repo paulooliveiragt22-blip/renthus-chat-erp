@@ -17,6 +17,7 @@ export type OrderStageOutcome =
     | "skipped_weak_confirmation"
     | "gate_no_draft"
     | "gate_draft_incomplete"
+    | "gate_high_value"
     | "order_created_ok"
     | "order_create_failed";
 
@@ -34,8 +35,9 @@ export async function orderStage(params: {
     decision: IntentDecision;
     userText: string;
     logger?: LoggerPort;
+    highValuePolicy?: { enabled: boolean; amountBrl: number };
 }): Promise<OrderStageResult> {
-    const { orderService, tenant, state, userText, logger } = params;
+    const { orderService, tenant, state, userText, logger, highValuePolicy } = params;
     const trimmedText = userText.trim();
     const isConfirm = isExplicitOrderConfirmation(trimmedText);
 
@@ -98,6 +100,36 @@ export async function orderStage(params: {
             outboundText:
                 "Preciso que voce confirme o endereco de entrega com os botoes (Confirmar ou Alterar) antes de fechar o pedido.",
             outcome: "gate_draft_incomplete",
+        };
+    }
+
+    const itemsTotal = state.draft.items.reduce(
+        (acc, item) => acc + item.quantity * item.unitPrice,
+        0
+    );
+    if (
+        highValuePolicy?.enabled &&
+        itemsTotal >= highValuePolicy.amountBrl &&
+        state.highValueAcknowledged !== true
+    ) {
+        const totalLabel = itemsTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const limLabel = highValuePolicy.amountBrl.toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+        });
+        logger?.info("pro_pipeline.order_stage_gate", {
+            outcome: "gate_high_value",
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+            itemsTotal,
+            threshold: highValuePolicy.amountBrl,
+        });
+        return {
+            state: { ...state, highValueAcknowledged: true },
+            outboundText:
+                `Este pedido totaliza *${totalLabel}* (acima de ${limLabel}).\n\n` +
+                `Para confirmar o valor alto, toque *Confirmar* de novo ou digite *CONFIRMAR*.`,
+            outcome: "gate_high_value",
         };
     }
 

@@ -100,6 +100,8 @@ export async function runInboundChatbotPipeline(
     const draftForIntent = session.context.ai_order_canonical as AiOrderCanonicalDraft | undefined;
     const intent         = await classifyIntent(input, session.step, model, {
         proActiveCanonicalDraft: tier === "pro" && Boolean(draftForIntent),
+        admin,
+        companyId,
     });
 
     switch (intent) {

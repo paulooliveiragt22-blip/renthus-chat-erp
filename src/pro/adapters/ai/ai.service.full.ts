@@ -225,7 +225,8 @@ export class FullAiServiceAdapter implements AiService {
         messages: AnthropicMessage[],
         timeoutMs: number,
         toolChoice: ToolChoice | undefined,
-        systemPrompt: string
+        systemPrompt: string,
+        companyId?: string
     ) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(AI_TIMEOUT_CODE), Math.max(timeoutMs, 1000));
@@ -238,11 +239,18 @@ export class FullAiServiceAdapter implements AiService {
                 tools: [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"],
             };
             if (toolChoice) body.tool_choice = toolChoice;
-            return await runWithAnthropicInFlightSlot(() =>
+            const response = await runWithAnthropicInFlightSlot(() =>
                 client.messages.create(body, {
                     signal: controller.signal,
                 } as never)
             );
+            if (companyId) {
+                const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
+                await debitFromAnthropicUsage(this.admin, companyId, response.usage, {
+                    source: "pro_ai_service_full",
+                });
+            }
+            return response;
         } catch (error) {
             if (controller.signal.aborted) {
                 const timeoutError = new Error(AI_TIMEOUT_CODE);
@@ -550,7 +558,15 @@ export class FullAiServiceAdapter implements AiService {
 
         try {
             const systemPrompt = buildEffectiveSystemPrompt(input);
-            let response = await this.callModel(client, messages, input.limits.timeoutMs, undefined, systemPrompt);
+            const companyId = input.context.tenant.companyId;
+            let response = await this.callModel(
+                client,
+                messages,
+                input.limits.timeoutMs,
+                undefined,
+                systemPrompt,
+                companyId
+            );
 
             while (response.stop_reason === "tool_use" && toolRoundsUsed < input.limits.maxToolRounds) {
                 toolRoundsUsed += 1;
@@ -572,7 +588,14 @@ export class FullAiServiceAdapter implements AiService {
                     { role: "user", content: round.toolResults },
                 ];
 
-                response = await this.callModel(client, messages, input.limits.timeoutMs, undefined, systemPrompt);
+                response = await this.callModel(
+                    client,
+                    messages,
+                    input.limits.timeoutMs,
+                    undefined,
+                    systemPrompt,
+                    companyId
+                );
             }
 
             if (response.stop_reason === "tool_use") {
@@ -616,7 +639,8 @@ export class FullAiServiceAdapter implements AiService {
                     messages,
                     input.limits.timeoutMs,
                     forcePrepareChoice,
-                    systemPrompt
+                    systemPrompt,
+                    companyId
                 );
                 while (forceResponse.stop_reason === "tool_use" && toolRoundsUsed < input.limits.maxToolRounds) {
                     toolRoundsUsed += 1;
@@ -636,7 +660,14 @@ export class FullAiServiceAdapter implements AiService {
                         { role: "assistant", content: forceResponse.content },
                         { role: "user", content: round.toolResults },
                     ];
-                    forceResponse = await this.callModel(client, messages, input.limits.timeoutMs, undefined, systemPrompt);
+                    forceResponse = await this.callModel(
+                        client,
+                        messages,
+                        input.limits.timeoutMs,
+                        undefined,
+                        systemPrompt,
+                        companyId
+                    );
                 }
                 if (forceResponse.stop_reason === "tool_use") {
                     return {

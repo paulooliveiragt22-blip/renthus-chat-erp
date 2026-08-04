@@ -3,6 +3,8 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getActiveSubscription, getEnabledFeatures, checkLimit } from "@/lib/billing/entitlements";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMonthlyPriceCents, getSetupPriceCents, listCustomerCards } from "@/lib/billing/pagarme";
+import { PLAN_CATALOG, getPlanLabel, normalizePlanKey } from "@/lib/billing/planCatalog";
+import { ensureAiWallet } from "@/lib/billing/aiWallet";
 
 export const runtime = "nodejs";
 
@@ -75,18 +77,44 @@ export async function GET(req: Request) {
                 : [];
 
         const monthlyPricesBRL = {
-            bot:      getMonthlyPriceCents("bot") / 100,
-            complete: getMonthlyPriceCents("complete") / 100,
+            essencial: getMonthlyPriceCents("essencial") / 100,
+            pro:       getMonthlyPriceCents("pro") / 100,
+            market:    getMonthlyPriceCents("market") / 100,
+            // aliases legados (UI antiga)
+            bot:      getMonthlyPriceCents("essencial") / 100,
+            complete: getMonthlyPriceCents("pro") / 100,
         };
         const setupPricesBRL = {
-            bot:      getSetupPriceCents("bot") / 100,
-            complete: getSetupPriceCents("complete") / 100,
+            essencial: getSetupPriceCents("essencial") / 100,
+            pro:       getSetupPriceCents("pro") / 100,
+            market:    getSetupPriceCents("market") / 100,
+            bot:      getSetupPriceCents("essencial") / 100,
+            complete: getSetupPriceCents("pro") / 100,
         };
+
+        let aiWallet = null;
+        try {
+            aiWallet = await ensureAiWallet(admin, companyId);
+        } catch {
+            aiWallet = null;
+        }
+
+        const planKey = normalizePlanKey(
+            String((pagarmeSubRaw as { plan?: string } | null)?.plan ?? sub?.plan_key ?? "")
+        );
 
         return NextResponse.json({
             ok: true,
             company_id: companyId,
             subscription: sub,
+            plan_key: planKey,
+            plan_label: planKey ? getPlanLabel(planKey) : null,
+            plan_catalog: {
+                essencial: PLAN_CATALOG.essencial.monthlyPriceCents / 100,
+                pro: PLAN_CATALOG.pro.monthlyPriceCents / 100,
+                market: PLAN_CATALOG.market.monthlyPriceCents / 100,
+            },
+            ai_wallet: aiWallet,
             pagarme_subscription: pagarmeSubRaw ?? null,
             pending_invoice:        pendingInvoice,
             pending_setup_payment: pendingSetupPayment,

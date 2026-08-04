@@ -361,6 +361,16 @@ function ConfiguracoesPageContent() {
     const [aiEnabled, setAiEnabled] = useState(true);
     const [highValueConfirmEnabled, setHighValueConfirmEnabled] = useState(false);
     const [highValueConfirmAmount, setHighValueConfirmAmount] = useState("150");
+    const [aiWallet, setAiWallet] = useState<{
+        remainingTotalCents: number;
+        remainingIncludedCents: number;
+        prepaidBalanceCents: number;
+        includedBudgetCents: number;
+        autoRechargeEnabled: boolean;
+        autoRechargePackCents: number | null;
+    } | null>(null);
+    const [aiPackLoading, setAiPackLoading] = useState<number | null>(null);
+    const [aiPackPix, setAiPackPix] = useState<string | null>(null);
     const [botSaving,       setBotSaving]        = useState(false);
     const [botMsg,          setBotMsg]           = useState<string | null>(null);
     const botMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -786,6 +796,12 @@ function ConfiguracoesPageContent() {
                 if (json?.highValueConfirmAmountBrl) {
                     setHighValueConfirmAmount(String(json.highValueConfirmAmountBrl));
                 }
+            })
+            .catch(() => {});
+        fetch("/api/admin/ai-wallet", { credentials: "include", cache: "no-store" })
+            .then((r) => r.json())
+            .then((json) => {
+                if (json?.wallet) setAiWallet(json.wallet);
             })
             .catch(() => {});
     }, []);
@@ -2060,6 +2076,93 @@ function ConfiguracoesPageContent() {
                                             className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
                                         />
                                     </label>
+                                ) : null}
+
+                                {aiWallet ? (
+                                    <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
+                                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                            Crédito IA restante
+                                        </p>
+                                        <p className="mt-1 text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                                            {(aiWallet.remainingTotalCents / 100).toLocaleString("pt-BR", {
+                                                style: "currency",
+                                                currency: "BRL",
+                                            })}
+                                        </p>
+                                        <p className="mt-0.5 text-[11px] text-zinc-500">
+                                            Incluso do mês:{" "}
+                                            {(aiWallet.remainingIncludedCents / 100).toLocaleString("pt-BR", {
+                                                style: "currency",
+                                                currency: "BRL",
+                                            })}{" "}
+                                            de{" "}
+                                            {(aiWallet.includedBudgetCents / 100).toLocaleString("pt-BR", {
+                                                style: "currency",
+                                                currency: "BRL",
+                                            })}{" "}
+                                            · Packs:{" "}
+                                            {(aiWallet.prepaidBalanceCents / 100).toLocaleString("pt-BR", {
+                                                style: "currency",
+                                                currency: "BRL",
+                                            })}
+                                        </p>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {[1000, 2000, 5000].map((cents) => (
+                                                <button
+                                                    key={cents}
+                                                    type="button"
+                                                    disabled={aiPackLoading !== null}
+                                                    onClick={async () => {
+                                                        setAiPackLoading(cents);
+                                                        setAiPackPix(null);
+                                                        setBotMsg(null);
+                                                        try {
+                                                            const res = await fetch(
+                                                                "/api/admin/ai-wallet/checkout",
+                                                                {
+                                                                    method: "POST",
+                                                                    credentials: "include",
+                                                                    headers: {
+                                                                        "Content-Type": "application/json",
+                                                                    },
+                                                                    body: JSON.stringify({
+                                                                        packCents: cents,
+                                                                    }),
+                                                                }
+                                                            );
+                                                            const json = await res.json().catch(() => ({}));
+                                                            if (!res.ok) {
+                                                                setBotMsg(
+                                                                    json?.error ?? "Falha ao gerar PIX do pack"
+                                                                );
+                                                                return;
+                                                            }
+                                                            setAiPackPix(
+                                                                typeof json.pixQrCode === "string"
+                                                                    ? json.pixQrCode
+                                                                    : null
+                                                            );
+                                                            setBotMsg(
+                                                                "✓ PIX gerado — pague para creditar o pack (confirmação automática)"
+                                                            );
+                                                        } finally {
+                                                            setAiPackLoading(null);
+                                                        }
+                                                    }}
+                                                    className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                                                >
+                                                    {aiPackLoading === cents
+                                                        ? "…"
+                                                        : `+ R$ ${(cents / 100).toFixed(0)}`}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {aiPackPix ? (
+                                            <p className="mt-2 break-all rounded-lg bg-white px-2 py-1.5 font-mono text-[10px] text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700">
+                                                {aiPackPix}
+                                            </p>
+                                        ) : null}
+                                    </div>
                                 ) : null}
                             </div>
 
