@@ -38,7 +38,7 @@ const adminMenu = [
   { label: "Entregadores",  href: "/entregadores",    icon: Bike },
   { label: "Estoque",       href: "/estoque",         icon: Package, feature: "estoque_full" },
   { label: "Financeiro",    href: "/financeiro",      icon: Wallet, feature: "financeiro_full" },
-  { label: "Relatórios",    href: "/relatorios",      icon: BarChart3 },
+  { label: "Relatórios",    href: "/relatorios",      icon: BarChart3, feature: "financeiro_full" },
   { label: "Impressoras",   href: "/impressoras",     icon: Printer, feature: "printing_auto" },
   { label: "Suporte",       href: "/suporte",         icon: Headphones },
   { label: "Configurações", href: "/configuracoes",   icon: Settings },

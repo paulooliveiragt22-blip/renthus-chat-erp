@@ -39,6 +39,7 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 
 ## Gates de plano (UI + API)
 - `estoque_full` · `financeiro_full` · `printing_auto` → Pro/Market (menu + APIs)
+- Relatórios (`/relatorios` + `/api/reports/*`) → `financeiro_full`
 - `marketplace_*` → Market (GET/PATCH/sync)
 - Essencial não contorna gate pela API
 

@@ -1,6 +1,7 @@
 // app/api/reports/daily/route.ts
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,9 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: access.error }, { status: access.status });
         }
         const { companyId, admin } = access;
+
+        const feat = await requirePlanFeature(admin, companyId, "financeiro_full");
+        if (!feat.ok) return feat.response;
 
         // defaults
         const now = new Date();

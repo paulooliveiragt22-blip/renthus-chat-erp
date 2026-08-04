@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 function formatBRL(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -22,7 +23,7 @@ function dateDiffDays(startIso: string, endIso: string) {
     return Math.floor((e.getTime() - s.getTime()) / ms) + 1;
 }
 
-export default function RelatoriosPage() {
+function RelatoriosPageContent() {
     const [start, setStart] = useState<string>(isoDateNDaysAgo(30));
     const [end, setEnd] = useState<string>(todayIsoDate());
 
@@ -376,5 +377,18 @@ export default function RelatoriosPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function RelatoriosPage() {
+    return (
+        <PlanFeatureGate
+            featureKey="financeiro_full"
+            title="Relatórios"
+            description="Faturamento, pedidos e mensagens do período — visão gerencial do negócio."
+            requiredPlanLabel="Pro ou Market"
+        >
+            <RelatoriosPageContent />
+        </PlanFeatureGate>
     );
 }

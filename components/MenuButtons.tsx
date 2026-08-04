@@ -1,8 +1,9 @@
 // components/MenuButtons.tsx
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import Link from "next/link";
+import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
 type MenuButtonsProps = {
     compact?: boolean; // quando true renderiza só ícones
@@ -56,6 +57,8 @@ function IconReport() {
 }
 
 export default function MenuButtons({ compact = false, onNavigate, textColor = "#111", iconColor = "#3B246B" }: MenuButtonsProps) {
+    const { loading: featuresLoading, features } = usePlanFeatures();
+
     const btnStyle: React.CSSProperties = {
         display: "flex",
         alignItems: "center",
@@ -83,13 +86,22 @@ export default function MenuButtons({ compact = false, onNavigate, textColor = "
         color: iconColor,
     };
 
-    const items = [
-        { href: "/dashboard", icon: <IconHome />, label: "Dashboard" },
-        { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp" },
-        { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos" },
-        { href: "/pedidos", icon: <IconOrders />, label: "Pedidos" },
-        { href: "/relatorios", icon: <IconReport />, label: "Relatórios" },
-    ];
+    const items = useMemo(() => {
+        const base = [
+            { href: "/dashboard", icon: <IconHome />, label: "Dashboard" },
+            { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp" },
+            { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos" },
+            { href: "/pedidos", icon: <IconOrders />, label: "Pedidos" },
+            {
+                href: "/relatorios",
+                icon: <IconReport />,
+                label: "Relatórios",
+                feature: "financeiro_full" as const,
+            },
+        ];
+        if (featuresLoading) return base;
+        return base.filter((it) => !("feature" in it) || !it.feature || features.has(it.feature));
+    }, [featuresLoading, features]);
 
     return (
         <div style={{ display: "grid", gap: compact ? 6 : 8 }}>
