@@ -319,6 +319,43 @@ export function isOrderCreditPaid(order: PagarmeOrder): boolean {
     return st === "paid";
 }
 
+/** Cobrança com cartão já salvo no cliente Pagar.me (`card_id`). */
+export async function createOrderWithSavedCard(params: {
+    amountCents: number;
+    description: string;
+    itemCode?: string;
+    customerId: string;
+    cardId: string;
+    metadata?: Record<string, string>;
+}): Promise<PagarmeOrder> {
+    const body: Record<string, unknown> = {
+        customer_id: params.customerId,
+        items: [
+            {
+                amount: params.amountCents,
+                description: params.description,
+                quantity: 1,
+                code: params.itemCode ?? "ai_pack",
+            },
+        ],
+        payments: [
+            {
+                payment_method: "credit_card",
+                amount: params.amountCents,
+                credit_card: {
+                    card_id: params.cardId,
+                    recurrence: false,
+                    installments: 1,
+                    statement_descriptor: "RENTHUS",
+                    capture: true,
+                },
+            },
+        ],
+        metadata: params.metadata ?? {},
+    };
+    return pagarmeRequest<PagarmeOrder>("/orders", "POST", body);
+}
+
 // ---------------------------------------------------------------------------
 // Orders — Mensalidade (PIX)
 // ---------------------------------------------------------------------------

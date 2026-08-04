@@ -34,6 +34,7 @@ import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
 import MenuAnalyticsPanel from "@/components/menu/MenuAnalyticsPanel";
 import MarketplaceIfoodSettings from "@/components/menu/MarketplaceIfoodSettings";
 import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSettings";
+import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
 import { DEFAULT_CHATBOT_MESSAGE_TEMPLATES } from "@/lib/chatbot/messageTemplates";
 
@@ -106,8 +107,23 @@ type BillingStatusJson = {
         exp:       string;
         status:    string;
     }>;
-    monthly_prices_brl?: { bot: number; complete: number };
-    setup_prices_brl?:   { bot: number; complete: number };
+    plan_key?: string | null;
+    plan_label?: string | null;
+    monthly_prices_brl?: {
+        essencial?: number;
+        pro?: number;
+        market?: number;
+        bot?: number;
+        complete?: number;
+    };
+    setup_prices_brl?: {
+        essencial?: number;
+        pro?: number;
+        market?: number;
+        bot?: number;
+        complete?: number;
+    };
+    enabled_features?: string[];
 };
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -613,7 +629,7 @@ function ConfiguracoesPageContent() {
         }
     }, [activeTab, companyId, loadBilling]);
 
-    async function changeRenthusPlan(plan: "bot" | "complete") {
+    async function changeRenthusPlan(plan: "essencial" | "pro" | "market" | "bot" | "complete") {
         setPlanSaving(true);
         setBillingErr(null);
         try {
@@ -1225,7 +1241,17 @@ function ConfiguracoesPageContent() {
                                                     <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
                                                         Plano atual:{" "}
                                                         <span className="font-semibold">
-                                                            {plan === "complete" ? "Completo" : plan === "bot" ? "Bot" : plan || "—"}
+                                                            {billingData.plan_label ||
+                                                                (plan === "market"
+                                                                    ? "Market"
+                                                                    : plan === "pro" ||
+                                                                        plan === "complete"
+                                                                      ? "Pro"
+                                                                      : plan === "essencial" ||
+                                                                          plan === "bot" ||
+                                                                          plan === "starter"
+                                                                        ? "Essencial"
+                                                                        : plan || "—")}
                                                         </span>
                                                     </p>
                                                 </div>
@@ -1263,24 +1289,37 @@ function ConfiguracoesPageContent() {
                                     {(() => {
                                         const sub  = billingData.pagarme_subscription;
                                         const st   = sub?.status ?? "";
-                                        const pk   = sub?.plan === "complete" ? ("complete" as const) : ("bot" as const);
+                                        const rawPlan = String(sub?.plan ?? billingData.plan_key ?? "");
+                                        const pk =
+                                            rawPlan === "market"
+                                                ? ("market" as const)
+                                                : rawPlan === "pro" || rawPlan === "complete"
+                                                  ? ("pro" as const)
+                                                  : ("essencial" as const);
 
                                         const isFirstPayment = st === "trial" || st === "pending_setup";
-                                        const sp   = billingData.setup_prices_brl   ?? { bot: 497, complete: 997 };
-                                        const mp   = billingData.monthly_prices_brl ?? { bot: 297, complete: 397 };
+                                        const sp   = billingData.setup_prices_brl   ?? {};
+                                        const mp   = billingData.monthly_prices_brl ?? {};
 
                                         // Pending record: setup_payment para primeiro pagamento, invoice para os demais
                                         const pendSetup   = billingData.pending_setup_payment;
                                         const pendInv     = billingData.pending_invoice;
                                         const pendRecord  = isFirstPayment ? pendSetup : pendInv;
 
+                                        const priceFallback =
+                                            pk === "market" ? 349 : pk === "pro" ? 279 : 197;
+
                                         let refAmount: number;
                                         if (pendRecord) {
                                             refAmount = Number(pendRecord.amount);
                                         } else if (isFirstPayment) {
-                                            refAmount = sp[pk];
+                                            refAmount =
+                                                (sp as Record<string, number | undefined>)[pk] ??
+                                                priceFallback;
                                         } else {
-                                            refAmount = mp[pk];
+                                            refAmount =
+                                                (mp as Record<string, number | undefined>)[pk] ??
+                                                priceFallback;
                                         }
 
                                         const pixUrl =
@@ -1616,40 +1655,78 @@ function ConfiguracoesPageContent() {
                                             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-zinc-500">
                                                 Escolha do plano (durante o teste)
                                             </p>
-                                            <div className="grid gap-3 sm:grid-cols-2">
-                                                {(["bot", "complete"] as const).map((p) => {
+                                            <div className="grid gap-3 sm:grid-cols-3">
+                                                {(
+                                                    [
+                                                        {
+                                                            key: "essencial" as const,
+                                                            name: "Essencial",
+                                                            blurb: "WhatsApp + cardápio + IA",
+                                                        },
+                                                        {
+                                                            key: "pro" as const,
+                                                            name: "Pro",
+                                                            blurb: "ERP + impressão + IA",
+                                                            popular: true,
+                                                        },
+                                                        {
+                                                            key: "market" as const,
+                                                            name: "Market",
+                                                            blurb: "Pro + iFood/Aiqfome + omni",
+                                                        },
+                                                    ] as const
+                                                ).map((p) => {
+                                                    const cur = String(
+                                                        billingData.pagarme_subscription?.plan ?? ""
+                                                    );
                                                     const active =
-                                                        billingData.pagarme_subscription?.plan === p;
-                                                    const mp = billingData.monthly_prices_brl ?? {
-                                                        bot:      297,
-                                                        complete: 397,
-                                                    };
-                                                    const price = p === "bot" ? mp.bot : mp.complete;
+                                                        cur === p.key ||
+                                                        (p.key === "essencial" &&
+                                                            (cur === "bot" || cur === "starter")) ||
+                                                        (p.key === "pro" && cur === "complete");
+                                                    const mp = billingData.monthly_prices_brl ?? {};
+                                                    const price =
+                                                        (mp as Record<string, number>)[p.key] ??
+                                                        (p.key === "essencial"
+                                                            ? 197
+                                                            : p.key === "pro"
+                                                              ? 279
+                                                              : 349);
                                                     return (
                                                         <div
-                                                            key={p}
+                                                            key={p.key}
                                                             className={`rounded-xl border-2 p-4 ${
                                                                 active
                                                                     ? "border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/30"
                                                                     : "border-zinc-200 dark:border-zinc-700"
                                                             }`}
                                                         >
+                                                            {"popular" in p && p.popular ? (
+                                                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-violet-600">
+                                                                    Mais popular
+                                                                </p>
+                                                            ) : null}
                                                             <p className="font-bold text-zinc-900 dark:text-zinc-100">
-                                                                {p === "bot" ? "Bot" : "Completo"}
+                                                                {p.name}
+                                                            </p>
+                                                            <p className="mt-0.5 text-xs text-zinc-500">
+                                                                {p.blurb}
                                                             </p>
                                                             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
                                                                 {price.toLocaleString("pt-BR", {
-                                                                    style:    "currency",
+                                                                    style: "currency",
                                                                     currency: "BRL",
                                                                 })}
-                                                                /mês após o teste
+                                                                /mês
                                                             </p>
                                                             <button
                                                                 type="button"
                                                                 disabled={planSaving || active}
                                                                 onClick={() => {
-                                                                changeRenthusPlan(p).catch(() => {});
-                                                            }}
+                                                                    changeRenthusPlan(p.key).catch(
+                                                                        () => {}
+                                                                    );
+                                                                }}
                                                                 className="mt-3 w-full rounded-lg bg-violet-600 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
                                                             >
                                                                 {active ? "Plano atual" : "Usar este plano"}
@@ -1661,41 +1738,94 @@ function ConfiguracoesPageContent() {
                                         </div>
                                     )}
 
-                                    {billingData.pagarme_subscription?.plan === "bot" &&
-                                        (billingData.pagarme_subscription?.status === "active" ||
-                                            billingData.pagarme_subscription?.status === "overdue") && (
-                                            <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-950/30">
-                                                <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                                                    Upgrade para o plano Completo
+                                    {(() => {
+                                        const cur = String(
+                                            billingData.pagarme_subscription?.plan ?? ""
+                                        );
+                                        const st = billingData.pagarme_subscription?.status;
+                                        const paid = st === "active" || st === "overdue";
+                                        if (!paid) return null;
+                                        const isEssencial =
+                                            cur === "essencial" || cur === "bot" || cur === "starter";
+                                        const isPro = cur === "pro" || cur === "complete";
+                                        const isMarket = cur === "market";
+                                        const mp = billingData.monthly_prices_brl ?? {};
+                                        if (isMarket) {
+                                            return (
+                                                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                                                    Você já está no plano Market (máximo atual).
                                                 </p>
-                                                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                                                    Mais recursos de ERP e gestão. A próxima cobrança seguirá o valor do
-                                                    plano Completo (
-                                                    {(billingData.monthly_prices_brl?.complete ?? 397).toLocaleString("pt-BR", {
-                                                        style:    "currency",
-                                                        currency: "BRL",
-                                                    })}
-                                                    /mês).
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    disabled={planSaving}
-                                                    onClick={() => {
-                                                    changeRenthusPlan("complete").catch(() => {});
-                                                }}
-                                                    className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
-                                                >
-                                                    {planSaving ? "Salvando…" : "Fazer upgrade"}
-                                                </button>
+                                            );
+                                        }
+                                        return (
+                                            <div className="space-y-3">
+                                                {isEssencial ? (
+                                                    <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-950/30">
+                                                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                                                            Upgrade para Pro
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                                                            ERP completo + impressão automática (
+                                                            {(
+                                                                (mp as Record<string, number>).pro ??
+                                                                279
+                                                            ).toLocaleString("pt-BR", {
+                                                                style: "currency",
+                                                                currency: "BRL",
+                                                            })}
+                                                            /mês).
+                                                        </p>
+                                                        <button
+                                                            type="button"
+                                                            disabled={planSaving}
+                                                            onClick={() => {
+                                                                changeRenthusPlan("pro").catch(
+                                                                    () => {}
+                                                                );
+                                                            }}
+                                                            className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+                                                        >
+                                                            {planSaving ? "Salvando…" : "Ir para Pro"}
+                                                        </button>
+                                                    </div>
+                                                ) : null}
+                                                {(isEssencial || isPro) && (
+                                                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+                                                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                                                            Upgrade para Market
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                                                            iFood + Aiqfome + Instagram/Messenger + mesa +
+                                                            app (
+                                                            {(
+                                                                (mp as Record<string, number>)
+                                                                    .market ?? 349
+                                                            ).toLocaleString("pt-BR", {
+                                                                style: "currency",
+                                                                currency: "BRL",
+                                                            })}
+                                                            /mês). Recursos de integração na próxima
+                                                            versão.
+                                                        </p>
+                                                        <button
+                                                            type="button"
+                                                            disabled={planSaving}
+                                                            onClick={() => {
+                                                                changeRenthusPlan("market").catch(
+                                                                    () => {}
+                                                                );
+                                                            }}
+                                                            className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+                                                        >
+                                                            {planSaving
+                                                                ? "Salvando…"
+                                                                : "Ir para Market"}
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-
-                                    {billingData.pagarme_subscription?.plan === "complete" &&
-                                        billingData.pagarme_subscription?.status !== "trial" && (
-                                            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                                                Você já está no plano Completo.
-                                            </p>
-                                        )}
+                                        );
+                                    })()}
 
                                     <SectionTitle
                                         icon={CreditCard}
@@ -2106,6 +2236,93 @@ function ConfiguracoesPageContent() {
                                                 currency: "BRL",
                                             })}
                                         </p>
+                                        <div className="mt-3 flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                    Crédito automático no cartão
+                                                </p>
+                                                <p className="text-[11px] text-zinc-500">
+                                                    Ao zerar o saldo, cobra o pack escolhido no cartão
+                                                    salvo.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                role="switch"
+                                                aria-checked={aiWallet.autoRechargeEnabled}
+                                                onClick={async () => {
+                                                    const next = !aiWallet.autoRechargeEnabled;
+                                                    const pack =
+                                                        aiWallet.autoRechargePackCents ?? 2000;
+                                                    const res = await fetch("/api/admin/ai-wallet", {
+                                                        method: "PATCH",
+                                                        credentials: "include",
+                                                        headers: {
+                                                            "Content-Type": "application/json",
+                                                        },
+                                                        body: JSON.stringify({
+                                                            autoRechargeEnabled: next,
+                                                            autoRechargePackCents: next
+                                                                ? pack
+                                                                : null,
+                                                        }),
+                                                    });
+                                                    const json = await res.json().catch(() => ({}));
+                                                    if (json?.wallet) setAiWallet(json.wallet);
+                                                }}
+                                                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                                                    aiWallet.autoRechargeEnabled
+                                                        ? "bg-violet-600"
+                                                        : "bg-zinc-300 dark:bg-zinc-600"
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                                                        aiWallet.autoRechargeEnabled
+                                                            ? "translate-x-5"
+                                                            : "translate-x-0"
+                                                    }`}
+                                                />
+                                            </button>
+                                        </div>
+                                        {aiWallet.autoRechargeEnabled ? (
+                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                {([1000, 2000, 5000] as const).map((cents) => (
+                                                    <button
+                                                        key={cents}
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            const res = await fetch(
+                                                                "/api/admin/ai-wallet",
+                                                                {
+                                                                    method: "PATCH",
+                                                                    credentials: "include",
+                                                                    headers: {
+                                                                        "Content-Type":
+                                                                            "application/json",
+                                                                    },
+                                                                    body: JSON.stringify({
+                                                                        autoRechargeEnabled: true,
+                                                                        autoRechargePackCents: cents,
+                                                                    }),
+                                                                }
+                                                            );
+                                                            const json = await res
+                                                                .json()
+                                                                .catch(() => ({}));
+                                                            if (json?.wallet) setAiWallet(json.wallet);
+                                                        }}
+                                                        className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ring-1 ${
+                                                            aiWallet.autoRechargePackCents === cents
+                                                                ? "bg-violet-600 text-white ring-violet-600"
+                                                                : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-200 dark:ring-zinc-700"
+                                                        }`}
+                                                    >
+                                                        Auto R$ {(cents / 100).toFixed(0)}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : null}
                                         <div className="mt-3 flex flex-wrap gap-2">
                                             {[1000, 2000, 5000].map((cents) => (
                                                 <button
@@ -2216,8 +2433,47 @@ function ConfiguracoesPageContent() {
                         <div className="flex flex-col gap-6">
                             <MenuCardapioSettings />
                             <MenuAnalyticsPanel />
-                            <MarketplaceIfoodSettings />
-                            <MarketplaceAiqfomeSettings />
+                            <MarketPlanGate
+                                featureKey="marketplace_ifood"
+                                title="Integração iFood"
+                                description="Sincronize catálogo e pedidos do iFood no Renthus."
+                            >
+                                <MarketplaceIfoodSettings />
+                            </MarketPlanGate>
+                            <MarketPlanGate
+                                featureKey="marketplace_aiqfome"
+                                title="Integração Aiqfome"
+                                description="Sincronize catálogo e pedidos do Aiqfome no Renthus."
+                            >
+                                <MarketplaceAiqfomeSettings />
+                            </MarketPlanGate>
+                            <MarketPlanGate
+                                featureKey="omnichannel_ig_messenger"
+                                title="Instagram e Messenger"
+                                description="Atendimento do chatbot também nas redes Meta."
+                            >
+                                <div className="rounded-xl border border-zinc-100 p-5 text-sm text-zinc-500 dark:border-zinc-800">
+                                    Em breve na próxima versão — configuração será liberada aqui.
+                                </div>
+                            </MarketPlanGate>
+                            <MarketPlanGate
+                                featureKey="table_service"
+                                title="Atendimento de mesa"
+                                description="Comandas e salão no mesmo sistema do delivery."
+                            >
+                                <div className="rounded-xl border border-zinc-100 p-5 text-sm text-zinc-500 dark:border-zinc-800">
+                                    Em breve na próxima versão.
+                                </div>
+                            </MarketPlanGate>
+                            <MarketPlanGate
+                                featureKey="mobile_app"
+                                title="App Flutter"
+                                description="Mesmas funções do ERP no celular (pedidos, fila, PDV)."
+                            >
+                                <div className="rounded-xl border border-zinc-100 p-5 text-sm text-zinc-500 dark:border-zinc-800">
+                                    Em breve na próxima versão — app Dart/Flutter.
+                                </div>
+                            </MarketPlanGate>
                         </div>
                     )}
 

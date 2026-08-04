@@ -134,8 +134,97 @@ export async function ensureAiWallet(
 }
 
 export async function canUseAi(admin: SupabaseClient, companyId: string): Promise<boolean> {
-    const snap = await ensureAiWallet(admin, companyId);
+    let snap = await ensureAiWallet(admin, companyId);
+    if (snap.remainingTotalCents > 0) return true;
+    const recharged = await tryAutoRechargeAiWallet(admin, companyId);
+    if (!recharged) return false;
+    snap = await ensureAiWallet(admin, companyId);
     return snap.remainingTotalCents > 0;
+}
+
+/**
+ * Se auto-recarga estiver ligada e o saldo estiver baixo/zerado, cobra o pack
+ * no cartão salvo (Pagar.me) e credita a carteira.
+ */
+export async function tryAutoRechargeAiWallet(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<boolean> {
+    const snap = await ensureAiWallet(admin, companyId);
+    if (!snap.autoRechargeEnabled || !snap.autoRechargePackCents) return false;
+    if (snap.remainingTotalCents > 50) return false;
+
+    const pack = snap.autoRechargePackCents as 1000 | 2000 | 5000;
+    if (pack !== 1000 && pack !== 2000 && pack !== 5000) return false;
+
+    // Debounce: não disparar outra recarga se já houve pack nos últimos 15 min
+    const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: recent } = await admin
+        .from("company_ai_ledger")
+        .select("id, meta, created_at")
+        .eq("company_id", companyId)
+        .eq("kind", "pack_credit")
+        .gte("created_at", since)
+        .limit(10);
+    const recentAuto = (recent ?? []).some(
+        (r) =>
+            r.meta &&
+            typeof r.meta === "object" &&
+            (r.meta as { source?: string }).source === "auto_recharge_card"
+    );
+    if (recentAuto) return false;
+
+    const { data: pagarmeSub } = await admin
+        .from("pagarme_subscriptions")
+        .select("pagarme_customer_id")
+        .eq("company_id", companyId)
+        .maybeSingle();
+    const customerId = pagarmeSub?.pagarme_customer_id;
+    if (!customerId || typeof customerId !== "string") {
+        console.warn("[aiWallet] auto-recharge: sem pagarme_customer_id", companyId);
+        return false;
+    }
+
+    try {
+        const { createOrderWithSavedCard, isOrderCreditPaid, listCustomerCards } = await import(
+            "@/lib/billing/pagarme"
+        );
+        const cards = await listCustomerCards(customerId);
+        const cardId = cards.find((c) => c.status === "active" || !c.status)?.id ?? cards[0]?.id;
+        if (!cardId) {
+            console.warn("[aiWallet] auto-recharge: sem cartão salvo", companyId);
+            return false;
+        }
+
+        const brl = (pack / 100).toFixed(2).replace(".", ",");
+        const order = await createOrderWithSavedCard({
+            amountCents: pack,
+            description: `Crédito IA automático Renthus — R$ ${brl}`,
+            itemCode: `ai_pack_auto_${pack}`,
+            customerId,
+            cardId,
+            metadata: {
+                type: "ai_pack",
+                company_id: companyId,
+                pack_cents: String(pack),
+                source: "auto_recharge",
+            },
+        });
+
+        if (!isOrderCreditPaid(order)) {
+            console.warn("[aiWallet] auto-recharge: cartão não aprovado", order.id, order.status);
+            return false;
+        }
+
+        await creditAiPack(admin, companyId, pack, {
+            pagarme_order_id: order.id,
+            source: "auto_recharge_card",
+        });
+        return true;
+    } catch (e) {
+        console.warn("[aiWallet] auto-recharge falhou:", e);
+        return false;
+    }
 }
 
 /** Debita incluso primeiro; depois prepaid. Retorna false se não houver saldo. */
@@ -181,6 +270,12 @@ export async function debitAiUsage(
             updated_at: new Date().toISOString(),
         })
         .eq("company_id", companyId);
+
+    const remTotal =
+        Math.max(0, snap.includedBudgetCents - includedSpent) + Math.max(0, prepaid);
+    if (remTotal <= 50) {
+        void tryAutoRechargeAiWallet(admin, companyId).catch(() => {});
+    }
 
     return true;
 }

@@ -23,6 +23,7 @@ import {
 import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
 import { activateAfterSetupPayment, syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
+import { getPlanLabel } from "@/lib/billing/planCatalog";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,7 @@ async function persistCardBillingOrder(
     p: {
         companyId: string;
         subId: string;
-        plan: "bot" | "complete";
+        plan: string;
         amountCents: number;
         installments: number;
         orderId: string;
@@ -80,7 +81,7 @@ async function persistPixBillingOrder(
     p: {
         companyId: string;
         subId: string;
-        plan: "bot" | "complete";
+        plan: string;
         amountCents: number;
         orderId: string;
         pixUrl: string | null;
@@ -171,7 +172,7 @@ export async function POST(req: Request) {
         const isFirstPayment =
             sub.status === "trial" || sub.status === "pending_setup";
 
-        const plan = sub.plan as "bot" | "complete";
+        const plan = String(sub.plan ?? "essencial");
 
         // Busca registro pendente de acordo com o tipo de pagamento
         const [{ data: pendingSetup }, { data: pendingInv }] = await Promise.all([
@@ -233,7 +234,7 @@ export async function POST(req: Request) {
             subscription_id: sub.id,
             plan:            String(plan),
         };
-        const planLabel = plan === "bot" ? "Bot" : "Completo";
+        const planLabel = getPlanLabel(plan);
 
         if (paymentMethod === "credit_card") {
             const token = body.card_token?.trim();

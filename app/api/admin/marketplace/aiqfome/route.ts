@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import { encryptCredential } from "@/lib/security/credentialCrypto";
 import { clampCatalogSyncIntervalHours } from "@/src/marketplaces/services/catalogSyncSchedule";
 
@@ -49,6 +50,9 @@ export async function PATCH(req: Request) {
     const ctx = await requireCompanyAccess(["owner", "admin"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
+
+    const feat = await requirePlanFeature(admin, companyId, "marketplace_aiqfome");
+    if (!feat.ok) return feat.response;
 
     const body = (await req.json().catch(() => ({}))) as {
         merchantId?: string;
