@@ -18,6 +18,8 @@ export interface MarketplaceConnection {
     status: MarketplaceConnectionStatus;
     lastSyncAt: string | null;
     lastError: string | null;
+    /** Quando true, sync usa catálogo mock (homologação sem API iFood). */
+    useMock?: boolean;
 }
 
 /** Item normalizado vindo do catálogo externo (antes do upsert Renthus). */
@@ -69,5 +71,6 @@ export interface MarketplaceCatalogPort {
         companyId: string;
         merchantId: string;
         accessToken: string;
+        useMock?: boolean;
     }): Promise<MarketplaceCatalogSnapshot>;
 }

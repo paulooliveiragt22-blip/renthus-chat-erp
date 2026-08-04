@@ -31,6 +31,7 @@ import {
     BookOpen,
 } from "lucide-react";
 import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
+import MarketplaceIfoodSettings from "@/components/menu/MarketplaceIfoodSettings";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -1968,7 +1969,12 @@ function ConfiguracoesPageContent() {
                     )}
 
                     {/* ── ABA: CARDÁPIO WEB ───────────────────────────────── */}
-                    {activeTab === "cardapio" && <MenuCardapioSettings />}
+                    {activeTab === "cardapio" && (
+                        <div className="flex flex-col gap-6">
+                            <MenuCardapioSettings />
+                            <MarketplaceIfoodSettings />
+                        </div>
+                    )}
 
                     {/* ── ABA: PEDIDOS ────────────────────────────────────── */}
                     {activeTab === "pedidos" && (

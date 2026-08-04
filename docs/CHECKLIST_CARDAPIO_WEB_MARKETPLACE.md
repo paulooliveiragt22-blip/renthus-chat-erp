@@ -72,14 +72,14 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 
 | # | Item | Estado | Notas |
 |---|------|--------|-------|
-| F1.1 | Tabela `marketplace_connections` (company, provider, merchant_id, tokens encrypted, status) | [ ] | |
-| F1.2 | Tabela `marketplace_catalog_map` (external_id → product_id / embalagem_id) | [ ] | |
-| F1.3 | Adapter `src/marketplaces/adapters/ifood` (auth + Catalog API list) | [ ] | Mock até credenciais |
-| F1.4 | Job import: categoria, nome, descrição, preço → `products` + `produto_embalagens` | [ ] | UN padrão |
-| F1.5 | Download foto → Storage → `product_images` | [ ] | |
-| F1.6 | UI: Conectar iFood + **Importar / Sincronizar cardápio** | [ ] | Botão manual |
-| F1.7 | Exibir “Última sync” + contadores (criados/atualizados/erros) | [ ] | |
-| F1.8 | Conta iFood Developer + homologação (ops, fora do código) | [ ] | Bloqueante produção |
+| F1.1 | Tabela `marketplace_connections` (company, provider, merchant_id, tokens encrypted, status) | [x] | 2026-08-04 — migration `20260804140000` |
+| F1.2 | Tabela `marketplace_catalog_map` (external_id → product_id / embalagem_id) | [x] | 2026-08-04 |
+| F1.3 | Adapter `src/marketplaces/adapters/ifood` (auth + Catalog API list) | [x] | Mock default; live se token |
+| F1.4 | Job import: categoria, nome, descrição, preço → `products` + `produto_embalagens` | [x] | UN padrão via sync service |
+| F1.5 | Download foto → Storage → `product_images` | [x] | best-effort se URL pública |
+| F1.6 | UI: Conectar iFood + **Importar / Sincronizar cardápio** | [x] | Configurações → Cardápio web |
+| F1.7 | Exibir “Última sync” + contadores (criados/atualizados/erros) | [x] | na mesma UI |
+| F1.8 | Conta iFood Developer + homologação (ops, fora do código) | [ ] | Bloqueante produção real |
 
 ### F2 — Pedido a partir do cardápio web
 
