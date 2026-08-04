@@ -94,6 +94,107 @@ export interface MenuProfileUpsertInput {
     isActive?: boolean;
 }
 
+/** Carrinho no browser (embalagem = unidade de venda). */
+export interface PublicMenuCartLine {
+    embalagemId: string;
+    productId: string;
+    name: string;
+    sigla: string;
+    unitPrice: number;
+    qty: number;
+}
+
+export interface PublicMenuSavedAddress {
+    id: string;
+    title: string;
+    description: string;
+    logradouro: string;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    cidade: string;
+    estado: string;
+    cep: string | null;
+    isPrincipal: boolean;
+}
+
+export interface PublicMenuNewAddressInput {
+    apelido?: string | null;
+    logradouro: string;
+    numero: string;
+    complemento?: string | null;
+    bairro: string;
+    cidade: string;
+    estado: string;
+    cep?: string | null;
+}
+
+export interface PublicMenuSessionOk {
+    ok: true;
+    sessionToken: string;
+    customer: {
+        id: string;
+        name: string | null;
+        phoneE164: string;
+        isNew: boolean;
+    };
+    addresses: PublicMenuSavedAddress[];
+}
+
+export type PublicMenuSessionError =
+    | { ok: false; error: "menu_not_found" | "menu_inactive" | "phone_invalid" | "token_invalid" | "customer_failed" | "rate_limit_exceeded" | "name_required" };
+
+export type PublicMenuSessionResult = PublicMenuSessionOk | PublicMenuSessionError;
+
+export interface PublicMenuCheckoutInput {
+    items: Array<{ embalagemId: string; qty: number }>;
+    paymentMethod: "pix" | "cash" | "card";
+    changeFor?: number | string | null;
+    savedAddressId?: string | null;
+    newAddress?: PublicMenuNewAddressInput | null;
+}
+
+export type PublicMenuCheckoutResult =
+    | {
+          ok: true;
+          orderId: string;
+          orderCode: string;
+          requireApproval: boolean;
+          subtotal: number;
+          deliveryFee: number;
+          grandTotal: number;
+          deliveryAddress: string;
+          etaMin: number | null;
+      }
+    | {
+          ok: false;
+          error: string;
+          message?: string;
+          minOrder?: number;
+          grandTotal?: number;
+      };
+
+export interface PublicMenuDeliveryQuoteOk {
+    ok: true;
+    served: boolean;
+    fee: number;
+    minOrder: number | null;
+    etaMin: number | null;
+    label: string;
+    reason: string | null;
+    cepLookup?: {
+        logradouro: string;
+        bairro: string;
+        cidade: string;
+        estado: string;
+        cep: string;
+    } | null;
+}
+
+export type PublicMenuDeliveryQuoteResult =
+    | PublicMenuDeliveryQuoteOk
+    | { ok: false; error: string };
+
 /** Linha bruta retornada pelo RPC (jsonb interno / PostgREST). */
 export interface PublicMenuRpcStoreRow {
     company_id: string;

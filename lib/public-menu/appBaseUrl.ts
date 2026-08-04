@@ -23,13 +23,19 @@ export function buildPublicMenuPath(slug: string): string {
 
 export function buildPublicMenuAbsoluteUrl(
     slug: string,
-    opts?: { utmSource?: string; env?: NodeJS.ProcessEnv }
+    opts?: {
+        utmSource?: string;
+        /** Token assinado `wm` (WhatsApp → pré-identifica cliente). */
+        wmToken?: string;
+        env?: NodeJS.ProcessEnv;
+    }
 ): string {
     const base = resolvePublicAppBaseUrl(opts?.env);
     const path = buildPublicMenuPath(slug);
-    const url = `${base}${path}`;
+    const url = new URL(`${base}${path}`);
     const utm = opts?.utmSource?.trim();
-    if (!utm) return url;
-    const sep = url.includes("?") ? "&" : "?";
-    return `${url}${sep}utm_source=${encodeURIComponent(utm)}`;
+    if (utm) url.searchParams.set("utm_source", utm);
+    const wm = opts?.wmToken?.trim();
+    if (wm) url.searchParams.set("wm", wm);
+    return url.toString();
 }

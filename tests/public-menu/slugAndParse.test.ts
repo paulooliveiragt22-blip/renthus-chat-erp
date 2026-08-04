@@ -7,6 +7,7 @@ import {
     resolvePublicAppBaseUrl,
 } from "../../lib/public-menu/appBaseUrl";
 import { buildWebMenuOfferText } from "../../lib/public-menu/menuOfferText";
+import { normalizeBrPhone } from "../../lib/public-menu/phone";
 
 describe("public-menu slug", () => {
     it("normaliza acentos e espaços", () => {
@@ -116,7 +117,18 @@ describe("public-menu app URL + offer text", () => {
             utmSource: "whatsapp",
             env: { NEXT_PUBLIC_APP_URL: "https://app.renthus.com.br" } as NodeJS.ProcessEnv,
         });
-        assert.equal(url, "https://app.renthus.com.br/c/disk-teste?utm_source=whatsapp");
+        const parsed = new URL(url);
+        assert.equal(parsed.origin + parsed.pathname, "https://app.renthus.com.br/c/disk-teste");
+        assert.equal(parsed.searchParams.get("utm_source"), "whatsapp");
+    });
+
+    it("buildPublicMenuAbsoluteUrl anexa token wm", () => {
+        const url = buildPublicMenuAbsoluteUrl("disk-teste", {
+            utmSource: "whatsapp",
+            wmToken: "abc.def",
+            env: { NEXT_PUBLIC_APP_URL: "https://app.renthus.com.br" } as NodeJS.ProcessEnv,
+        });
+        assert.equal(new URL(url).searchParams.get("wm"), "abc.def");
     });
 
     it("buildWebMenuOfferText inclui URL e nome", () => {
@@ -126,5 +138,14 @@ describe("public-menu app URL + offer text", () => {
         });
         assert.ok(text.includes("Disk X"));
         assert.ok(text.includes("https://app.renthus.com.br/c/x"));
+    });
+
+    it("normalizeBrPhone aceita celular com DDD", () => {
+        const r = normalizeBrPhone("(11) 98888-7777");
+        assert.equal(r.ok, true);
+        if (r.ok) {
+            assert.equal(r.phoneE164, "+5511988887777");
+            assert.equal(r.digits, "11988887777");
+        }
     });
 });

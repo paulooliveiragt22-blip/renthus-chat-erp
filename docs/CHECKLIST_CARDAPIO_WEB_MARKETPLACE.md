@@ -85,11 +85,11 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 
 | # | Item | Estado | Notas |
 |---|------|--------|-------|
-| F2.1 | Carrinho no browser + resumo | [ ] | |
-| F2.2 | CTA WhatsApp com texto do pedido (deep link `wa.me`) | [ ] | MVP pedido |
-| F2.3 | (Opcional) Checkout web → `create_order_with_items` + `source=web_menu` | [ ] | |
-| F2.4 | Endereço / taxa delivery (reusar policy Renthus) | [ ] | |
-| F2.5 | Identificar cliente por telefone se já existir em `customers` | [ ] | |
+| F2.1 | Carrinho no browser + resumo | [x] | 2026-08-04 — MenuClient + localStorage |
+| F2.2 | CTA WhatsApp com texto do pedido (deep link `wa.me`) | [ ] | Opcional — checkout web cobre o pedido |
+| F2.3 | Checkout web → `create_order_with_items` + `source=web_menu` | [x] | 2026-08-04 — APIs session/quote/checkout |
+| F2.4 | Endereço / taxa delivery (reusar policy Renthus) | [x] | salvos + novo + delivery policy |
+| F2.5 | Identificar cliente por telefone se já existir em `customers` | [x] | token `wm` no link WA + form manual |
 
 ### F3 — Aiqfome + pedidos marketplace
 

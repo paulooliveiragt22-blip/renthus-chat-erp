@@ -38,7 +38,7 @@ export async function offerCatalogToCustomer(params: {
         flowCtaLabel,
     } = params;
 
-    const web = await resolveActivePublicMenuLink(admin, companyId);
+    const web = await resolveActivePublicMenuLink(admin, companyId, { phoneE164 });
     if (web) {
         await botReply(
             admin,

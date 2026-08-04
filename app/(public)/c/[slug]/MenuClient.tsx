@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { PublicMenuCategory, PublicMenuResponse } from "@/src/types/contracts.public-menu";
+import type {
+    PublicMenuCartLine,
+    PublicMenuCategory,
+    PublicMenuItem,
+    PublicMenuResponse,
+} from "@/src/types/contracts.public-menu";
 import { getOrCreateMenuVisitorId } from "@/lib/public-menu/visitorId";
+import CheckoutDrawer from "./CheckoutDrawer";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function toWaMe(phone: string | null, text: string): string | null {
-    if (!phone) return null;
-    const digits = phone.replaceAll(/\D/g, "");
-    if (digits.length < 10) return null;
-    return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
 
 function ProductThumb({ src, alt }: { src: string | null; alt: string }) {
@@ -37,9 +36,38 @@ function ProductThumb({ src, alt }: { src: string | null; alt: string }) {
     );
 }
 
+function cartKey(slug: string): string {
+    return `renthus_menu_cart_${slug}`;
+}
+
+function loadCart(slug: string): PublicMenuCartLine[] {
+    try {
+        const raw = globalThis.localStorage?.getItem(cartKey(slug));
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as PublicMenuCartLine[];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
 export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     const [activeCat, setActiveCat] = useState<string | "all">("all");
+    const [cart, setCart] = useState<PublicMenuCartLine[]>([]);
+    const [checkoutOpen, setCheckoutOpen] = useState(false);
     const store = menu.store;
+
+    useEffect(() => {
+        setCart(loadCart(store.slug));
+    }, [store.slug]);
+
+    useEffect(() => {
+        try {
+            globalThis.localStorage?.setItem(cartKey(store.slug), JSON.stringify(cart));
+        } catch {
+            /* ignore */
+        }
+    }, [cart, store.slug]);
 
     const categories = menu.categories;
     const visible: PublicMenuCategory[] = useMemo(() => {
@@ -64,13 +92,51 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
         }).catch(() => {});
     }, [store.slug]);
 
-    const waHref = toWaMe(
-        store.whatsappPhone,
-        `Olá! Vi o cardápio de *${store.displayName}* e quero fazer um pedido.`
-    );
+    const cartQty = cart.reduce((s, l) => s + l.qty, 0);
+    const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.qty, 0);
+
+    function qtyOf(embalagemId: string): number {
+        return cart.find((l) => l.embalagemId === embalagemId)?.qty ?? 0;
+    }
+
+    function addItem(item: PublicMenuItem) {
+        if (!item.inStock) return;
+        setCart((prev) => {
+            const i = prev.findIndex((l) => l.embalagemId === item.embalagemId);
+            if (i >= 0) {
+                const next = [...prev];
+                const cur = next[i]!;
+                next[i] = { ...cur, qty: Math.min(99, cur.qty + 1), unitPrice: item.price };
+                return next;
+            }
+            return [
+                ...prev,
+                {
+                    embalagemId: item.embalagemId,
+                    productId: item.productId,
+                    name: item.name,
+                    sigla: item.sigla,
+                    unitPrice: item.price,
+                    qty: 1,
+                },
+            ];
+        });
+    }
+
+    function decItem(embalagemId: string) {
+        setCart((prev) => {
+            const i = prev.findIndex((l) => l.embalagemId === embalagemId);
+            if (i < 0) return prev;
+            const cur = prev[i]!;
+            if (cur.qty <= 1) return prev.filter((l) => l.embalagemId !== embalagemId);
+            const next = [...prev];
+            next[i] = { ...cur, qty: cur.qty - 1 };
+            return next;
+        });
+    }
 
     return (
-        <div className="min-h-dvh bg-[#f6f3ee] text-zinc-900">
+        <div className="min-h-dvh bg-[#f6f3ee] text-zinc-900 pb-24">
             <header className="border-b border-zinc-200/80 bg-[#1c1917] text-[#faf7f2]">
                 <div className="mx-auto flex max-w-lg flex-col gap-3 px-4 pb-5 pt-8">
                     {store.logoUrl ? (
@@ -85,7 +151,9 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200/80">
                             Cardápio
                         </p>
-                        <h1 className="mt-1 text-2xl font-semibold tracking-tight">{store.displayName}</h1>
+                        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+                            {store.displayName}
+                        </h1>
                         {store.tagline ? (
                             <p className="mt-1 text-sm text-zinc-300">{store.tagline}</p>
                         ) : null}
@@ -95,16 +163,6 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                             </p>
                         )}
                     </div>
-                    {waHref && (
-                        <a
-                            href={waHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex w-fit items-center justify-center rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400"
-                        >
-                            Pedir no WhatsApp
-                        </a>
-                    )}
                 </div>
             </header>
 
@@ -156,39 +214,106 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                     {cat.name}
                                 </h2>
                                 <ul className="divide-y divide-zinc-200 overflow-hidden rounded-xl bg-white ring-1 ring-zinc-200">
-                                    {cat.items.map((item) => (
-                                        <li key={item.embalagemId} className="flex gap-3 p-3">
-                                            <ProductThumb
-                                                src={item.thumbnailUrl ?? item.imageUrl}
-                                                alt={item.name}
-                                            />
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <p className="text-sm font-semibold leading-snug text-zinc-900">
-                                                        {item.name}
-                                                    </p>
-                                                    <p className="shrink-0 text-sm font-bold text-zinc-900">
-                                                        {formatBRL(item.price)}
-                                                    </p>
+                                    {cat.items.map((item) => {
+                                        const q = qtyOf(item.embalagemId);
+                                        return (
+                                            <li key={item.embalagemId} className="flex gap-3 p-3">
+                                                <ProductThumb
+                                                    src={item.thumbnailUrl ?? item.imageUrl}
+                                                    alt={item.name}
+                                                />
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <p className="text-sm font-semibold leading-snug text-zinc-900">
+                                                            {item.name}
+                                                        </p>
+                                                        <p className="shrink-0 text-sm font-bold text-zinc-900">
+                                                            {formatBRL(item.price)}
+                                                        </p>
+                                                    </div>
+                                                    {item.description ? (
+                                                        <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">
+                                                            {item.description}
+                                                        </p>
+                                                    ) : null}
+                                                    <div className="mt-2 flex items-center justify-between gap-2">
+                                                        <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                                                            {item.sigla}
+                                                            {!item.inStock ? " · indisponível" : ""}
+                                                        </p>
+                                                        {item.inStock ? (
+                                                            q === 0 ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => addItem(item)}
+                                                                    className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                                                >
+                                                                    Adicionar
+                                                                </button>
+                                                            ) : (
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            decItem(item.embalagemId)
+                                                                        }
+                                                                        className="h-8 w-8 rounded-lg bg-zinc-100 text-sm font-bold"
+                                                                        aria-label="Diminuir"
+                                                                    >
+                                                                        −
+                                                                    </button>
+                                                                    <span className="w-5 text-center text-sm font-semibold">
+                                                                        {q}
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => addItem(item)}
+                                                                        className="h-8 w-8 rounded-lg bg-zinc-900 text-sm font-bold text-white"
+                                                                        aria-label="Aumentar"
+                                                                    >
+                                                                        +
+                                                                    </button>
+                                                                </div>
+                                                            )
+                                                        ) : null}
+                                                    </div>
                                                 </div>
-                                                {item.description ? (
-                                                    <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">
-                                                        {item.description}
-                                                    </p>
-                                                ) : null}
-                                                <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                                                    {item.sigla}
-                                                    {!item.inStock ? " · indisponível" : ""}
-                                                </p>
-                                            </div>
-                                        </li>
-                                    ))}
+                                            </li>
+                                        );
+                                    })}
                                 </ul>
                             </section>
                         ))}
                     </div>
                 )}
             </main>
+
+            {cartQty > 0 && !checkoutOpen && (
+                <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur">
+                    <div className="mx-auto max-w-lg">
+                        <button
+                            type="button"
+                            onClick={() => setCheckoutOpen(true)}
+                            className="flex w-full items-center justify-between rounded-xl bg-emerald-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg"
+                        >
+                            <span>
+                                Ver pedido · {cartQty} {cartQty === 1 ? "item" : "itens"}
+                            </span>
+                            <span>{formatBRL(cartTotal)}</span>
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {checkoutOpen && (
+                <CheckoutDrawer
+                    slug={store.slug}
+                    storeName={store.displayName}
+                    cart={cart}
+                    onClose={() => setCheckoutOpen(false)}
+                    onClearCart={() => setCart([])}
+                />
+            )}
 
             <footer className="mx-auto max-w-lg px-4 pb-10 pt-2 text-center text-[11px] text-zinc-400">
                 Powered by Renthus

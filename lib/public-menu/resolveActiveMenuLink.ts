@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildPublicMenuAbsoluteUrl } from "./appBaseUrl";
 import { parseMenuSlug } from "./slug";
+import { signWebMenuLinkToken } from "./sessionToken";
+import { normalizeBrPhone } from "./phone";
 
 export type ActivePublicMenuLink = {
     slug: string;
@@ -10,12 +12,13 @@ export type ActivePublicMenuLink = {
 };
 
 /**
- * Se a empresa tem cardápio web ativo, devolve URL absoluta (`/c/{slug}?utm_source=whatsapp`).
- * Usado no chatbot para oferecer o link em vez do WhatsApp Flow.
+ * Se a empresa tem cardápio web ativo, devolve URL absoluta.
+ * Com `phoneE164`, anexa token `wm` para pré-carregar cadastro/endereços no checkout.
  */
 export async function resolveActivePublicMenuLink(
     admin: SupabaseClient,
-    companyId: string
+    companyId: string,
+    opts?: { phoneE164?: string | null }
 ): Promise<ActivePublicMenuLink | null> {
     const { data, error } = await admin
         .from("company_menu_profile")
@@ -32,9 +35,29 @@ export async function resolveActivePublicMenuLink(
     const slugParsed = parseMenuSlug(data.slug);
     if (!slugParsed.ok) return null;
 
+    let wmToken: string | undefined;
+    const phoneRaw = opts?.phoneE164?.trim();
+    if (phoneRaw) {
+        const phone = normalizeBrPhone(phoneRaw);
+        if (phone.ok) {
+            try {
+                wmToken = signWebMenuLinkToken({
+                    companyId,
+                    phoneE164: phone.phoneE164,
+                    slug: slugParsed.slug,
+                });
+            } catch (err) {
+                console.warn("[public-menu] wm token skip:", err instanceof Error ? err.message : err);
+            }
+        }
+    }
+
     return {
         slug: slugParsed.slug,
-        url: buildPublicMenuAbsoluteUrl(slugParsed.slug, { utmSource: "whatsapp" }),
+        url: buildPublicMenuAbsoluteUrl(slugParsed.slug, {
+            utmSource: "whatsapp",
+            wmToken,
+        }),
     };
 }
 

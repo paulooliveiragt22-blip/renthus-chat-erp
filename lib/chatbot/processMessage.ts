@@ -81,7 +81,9 @@ async function runProV2InboundBranch(
                 ? { overrides: params.proPipelineDependencyOverrides }
                 : undefined
         );
-        const webMenu = await resolveActivePublicMenuLink(params.admin, params.companyId);
+        const webMenu = await resolveActivePublicMenuLink(params.admin, params.companyId, {
+            phoneE164: params.phoneE164,
+        });
         await runProPipeline(
             {
                 tenant: {
