@@ -4,7 +4,6 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { Check, Clock, MessageCircle, Pencil, RefreshCcw, ShieldAlert, ShieldCheck, X } from "lucide-react";
-import { playBeep } from "@/lib/utils/playBeep";
 import { FilaOrderEditOverlay } from "@/components/fila/FilaOrderEditOverlay";
 import WhatsAppInbox from "@/components/whatsapp/WhatsAppInbox";
 
@@ -154,7 +153,6 @@ export default function FilaClient() {
   const [loading,    setLoading]    = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
   const [msg,        setMsg]        = useState<{ ok: boolean; text: string } | null>(null);
-  const prevCountRef  = useRef(0);
   const prevIdsRef    = useRef<Set<string>>(new Set());
   const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
   const [requireApproval, setRequireApproval] = useState(false);
@@ -176,17 +174,15 @@ export default function FilaClient() {
 
     const next = (json.orders ?? []) as PendingOrder[];
 
-    // Detecta pedidos novos (apareceram após o primeiro carregamento)
+    // Flash visual em pedidos novos (som fica a cargo do GlobalOrderNotifier)
     const nextIds = new Set(next.map((o) => o.id));
-    if (prevCountRef.current > 0 && next.length > prevCountRef.current) {
-      playBeep();
+    if (prevIdsRef.current.size > 0) {
       const addedIds = next.map((o) => o.id).filter((id) => !prevIdsRef.current.has(id));
       if (addedIds.length > 0) {
         setNewOrderIds((prev) => new Set([...prev, ...addedIds]));
         scheduleClearNewOrderFlash(addedIds, setNewOrderIds);
       }
     }
-    prevCountRef.current = next.length;
     prevIdsRef.current   = nextIds;
 
     setOrders(next);
