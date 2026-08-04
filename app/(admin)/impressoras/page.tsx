@@ -517,23 +517,18 @@ export default function ImpressorasPage() {
                             {testLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
                             Pedido de Teste
                         </button>
-                        {process.env.NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL ? (
-                            <a
-                                href={process.env.NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-700/40 dark:bg-violet-900/20 dark:text-violet-300"
-                            >
-                                <Download className="h-3 w-3" />
-                                Baixar Agente
-                            </a>
-                        ) : (
-                            <span className="text-[11px] text-zinc-400">
-                                Download do agente: release no GitHub (configure{" "}
-                                <code className="font-mono">NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL</code>
-                                ).
-                            </span>
-                        )}
+                        <a
+                            href={
+                                process.env.NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL ||
+                                "https://github.com/paulooliveiragt22-blip/renthus-chat-erp/releases/download/print-agent-v1.1.3/renthus-print-agent-1.1.3-win.zip"
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-700/40 dark:bg-violet-900/20 dark:text-violet-300"
+                        >
+                            <Download className="h-3 w-3" />
+                            Baixar Agente
+                        </a>
                     </div>
                     {testMsg && <p className="text-xs text-zinc-500">{testMsg}</p>}
                 </div>

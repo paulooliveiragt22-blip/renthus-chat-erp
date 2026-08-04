@@ -12,6 +12,8 @@ import {
   FileText, TrendingDown, TrendingUp, Clock,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
+import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -120,6 +122,9 @@ function useF2(cb: () => void) {
 
 export default function PDVPage() {
   const { currentCompanyId: companyId } = useWorkspace();
+  const { loading: planLoading, has } = usePlanFeatures();
+  const canUsePrazo = has("pdv");
+  const canAutoPrint = has("printing_auto");
   const searchParams = useSearchParams();
   const fromOrderId  = searchParams.get("from_order");
   const [fromOrderBanner,  setFromOrderBanner]  = useState<string | null>(null);
@@ -165,9 +170,14 @@ export default function PDVPage() {
   // ── checkout ─────────────────────────────────────────────────────────
   const [showCheckout, setShowCheckout] = useState(false);
   const [payments,     setPayments]     = useState<PayLine[]>([{ id:"1", method:"pix", value:"", received:"" }]);
-  const [autoPrint,    setAutoPrint]    = useState(true);
+  const [autoPrint,    setAutoPrint]    = useState(false);
   const [finalizing,   setFinalizing]   = useState(false);
   const [saleOk,       setSaleOk]       = useState(false);
+
+  useEffect(() => {
+    if (!planLoading && canAutoPrint) setAutoPrint(true);
+    if (!planLoading && !canAutoPrint) setAutoPrint(false);
+  }, [planLoading, canAutoPrint]);
 
   // refs for smart payment UX
   const payInputRefs   = useRef<Record<string, HTMLInputElement | null>>({});
@@ -482,9 +492,10 @@ export default function PDVPage() {
   const addPayLine = () => {
     const used = new Set(payments.map(p => p.method));
     const vistaOptions: PayMethod[] = (["pix","card","debit","cash"] as PayMethod[]).filter(m => !used.has(m));
-    const prazoOptions: PayMethod[] = selectedCustomer
-      ? (["credit","boleto","cheque","promissoria"] as PayMethod[]).filter(m => !used.has(m))
-      : [];
+    const prazoOptions: PayMethod[] =
+      canUsePrazo && selectedCustomer
+        ? (["credit","boleto","cheque","promissoria"] as PayMethod[]).filter(m => !used.has(m))
+        : [];
     const allMethods: PayMethod[] = [...vistaOptions, ...prazoOptions];
     const next = allMethods[0];
     if (!next) return;
@@ -645,7 +656,12 @@ export default function PDVPage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    /* Root: full viewport, dark mode ativado */
+    <PlanFeatureGate
+      anyOfFeatureKeys={["pdv_basic", "pdv"]}
+      title="PDV / Balcão"
+      description="Vendas no balcão com caixa e pagamentos à vista. A Prazo e impressão automática no Pro/Market."
+      requiredPlanLabel="Essencial, Pro ou Market"
+    >
     <div className="dark absolute inset-0 flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden z-10">
 
       {/* ── Caixa status bar ──────────────────────────────────────────── */}
@@ -1091,6 +1107,7 @@ export default function PDVPage() {
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none" />
                 </div>
               ))}
+              {canUsePrazo ? (
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Limite de Crédito (Fiado)</label>
                 <div className="flex items-center overflow-hidden rounded-xl border border-zinc-700 bg-zinc-800">
@@ -1100,6 +1117,7 @@ export default function PDVPage() {
                     className="flex-1 bg-transparent py-2 pr-3 text-sm text-zinc-100 focus:outline-none" />
                 </div>
               </div>
+              ) : null}
               <div className="border-t border-zinc-800 pt-3">
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
                   CEP {cepLoading && <span className="text-orange-400">(buscando…)</span>}
@@ -1216,7 +1234,9 @@ export default function PDVPage() {
                               onChange={e=>updPay(pay.id,"method",e.target.value as PayMethod)}
                               className="appearance-none rounded-lg bg-zinc-900/60 pl-2.5 pr-6 py-1 text-xs font-medium text-zinc-200 border border-zinc-700 focus:outline-none">
                               {(["pix","card","debit","cash",
-                                 ...(selectedCustomer ? ["credit","boleto","cheque","promissoria"] : [])] as PayMethod[])
+                                 ...(canUsePrazo && selectedCustomer
+                                   ? ["credit","boleto","cheque","promissoria"]
+                                   : [])] as PayMethod[])
                                 .filter(m => m === pay.method || !payments.some(p => p.id !== pay.id && p.method === m))
                                 .map(m => <option key={m} value={m}>{PAY[m].label}</option>)}
                             </select>
@@ -1304,7 +1324,8 @@ export default function PDVPage() {
                   </div>
                 </div>
 
-                {/* Auto-print toggle */}
+                {/* Auto-print toggle (Pro/Market) */}
+                {canAutoPrint ? (
                 <div className="border-t border-zinc-800 px-5 py-3">
                   <label className="flex items-center gap-3 cursor-pointer">
                     <button type="button" onClick={()=>setAutoPrint(v=>!v)}
@@ -1315,6 +1336,7 @@ export default function PDVPage() {
                     <span className="text-xs text-zinc-400">Imprimir comprovante</span>
                   </label>
                 </div>
+                ) : null}
 
                 {/* Confirm */}
                 <div className="border-t border-zinc-800 px-5 pb-5 pt-3">
@@ -1483,5 +1505,6 @@ export default function PDVPage() {
         </div>
       )}
     </div>
+    </PlanFeatureGate>
   );
 }

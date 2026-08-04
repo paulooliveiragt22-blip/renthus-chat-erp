@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import {
+    requireCompanyAnyPlanFeature,
+    PDV_ACCESS_FEATURES,
+    hasAnyPlanFeature,
+} from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const q = String(req.nextUrl.searchParams.get("q") ?? "").trim();
@@ -23,8 +27,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -36,6 +40,10 @@ export async function POST(req: Request) {
     const numero     = String(body.numero ?? "").trim();
     const bairro       = String(body.bairro ?? "").trim();
 
+    const canSetCredit = await hasAnyPlanFeature(admin, companyId, ["pdv"]);
+    const requestedLimit = Number.parseFloat(String(body.limite_credito ?? "0")) || 0;
+    const limiteCredito = canSetCredit ? requestedLimit : 0;
+
     const rpcPayload: {
         customer: Record<string, unknown>;
         address?: Record<string, unknown>;
@@ -45,7 +53,7 @@ export async function POST(req: Request) {
             name,
             phone,
             cpf_cnpj: String(body.cpf_cnpj ?? "").trim() || null,
-            limite_credito: Number.parseFloat(String(body.limite_credito ?? "0")) || 0,
+            limite_credito: limiteCredito,
         },
     };
     if (logradouro || bairro || numero) {

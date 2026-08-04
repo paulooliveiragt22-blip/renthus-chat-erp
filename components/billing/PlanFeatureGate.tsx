@@ -6,7 +6,10 @@ import { Lock, Loader2 } from "lucide-react";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
 type Props = {
-    featureKey: string;
+    /** Uma feature obrigatória (ou use anyOfFeatureKeys). */
+    featureKey?: string;
+    /** Libera se tiver qualquer uma destas features. */
+    anyOfFeatureKeys?: string[];
     title: string;
     description: string;
     /** Plano sugerido no CTA (só texto). */
@@ -16,6 +19,7 @@ type Props = {
 
 export default function PlanFeatureGate({
     featureKey,
+    anyOfFeatureKeys,
     title,
     description,
     requiredPlanLabel = "Pro ou Market",
@@ -32,7 +36,12 @@ export default function PlanFeatureGate({
         );
     }
 
-    if (has(featureKey)) return <>{children}</>;
+    const allowed = anyOfFeatureKeys?.length
+        ? anyOfFeatureKeys.some((k) => has(k))
+        : featureKey
+          ? has(featureKey)
+          : false;
+    if (allowed) return <>{children}</>;
 
     return (
         <div className="rounded-xl border border-dashed border-violet-300/80 bg-violet-50/60 p-6 dark:border-violet-800 dark:bg-violet-950/20">

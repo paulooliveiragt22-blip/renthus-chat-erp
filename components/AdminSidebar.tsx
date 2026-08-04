@@ -31,7 +31,7 @@ const adminMenu = [
   { label: "Dashboard",     href: "/dashboard",      icon: LayoutDashboard },
   { label: "Pedidos",       href: "/pedidos",         icon: Receipt },
   { label: "Fila",          href: "/fila",            icon: Clock },
-  { label: "PDV / Balcão",  href: "/pdv",             icon: ShoppingCart },
+  { label: "PDV / Balcão",  href: "/pdv",             icon: ShoppingCart, anyOf: ["pdv_basic", "pdv"] as const },
   { label: "WhatsApp",      href: "/whatsapp",        icon: MessageCircle },
   { label: "Produtos",      href: "/produtos/lista",  icon: ShoppingBag },
   { label: "Clientes",      href: "/clientes",        icon: Users },
@@ -114,6 +114,8 @@ export default function AdminSidebar({
     // Enquanto carrega features: mostra tudo (fail-open). Depois filtra por plano.
     if (featuresLoading) return adminMenu;
     return adminMenu.filter((item) => {
+      const anyOf = "anyOf" in item ? item.anyOf : undefined;
+      if (anyOf?.length) return anyOf.some((k) => features.has(k));
       const feat = "feature" in item ? item.feature : undefined;
       if (!feat) return true;
       return features.has(feat);

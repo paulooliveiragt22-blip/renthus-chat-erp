@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCompanyAnyPlanFeature, PDV_ACCESS_FEATURES, requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
 
@@ -10,8 +10,8 @@ function isPrazo(method: string): boolean {
 }
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const body = (await req.json().catch(() => ({}))) as {
@@ -48,6 +48,16 @@ export async function POST(req: Request) {
     const hasCreditPayment = payments.some((p) => isPrazo(p.method));
     if (hasCreditPayment && !String(body.customer_id ?? "").trim()) {
         return NextResponse.json({ error: "customer_required_for_prazo" }, { status: 400 });
+    }
+    if (hasCreditPayment) {
+        const prazoFeat = await requirePlanFeature(admin, companyId, "pdv");
+        if (!prazoFeat.ok) return prazoFeat.response;
+    }
+
+    const wantsPrint = body.auto_print === true;
+    if (wantsPrint) {
+        const printFeat = await requirePlanFeature(admin, companyId, "printing_auto");
+        if (!printFeat.ok) return printFeat.response;
     }
 
     const { data: cr, error: crErr } = await admin

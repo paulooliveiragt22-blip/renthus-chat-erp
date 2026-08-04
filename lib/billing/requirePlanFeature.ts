@@ -15,7 +15,44 @@ const FEATURE_HINTS: Record<string, string> = {
     estoque_full: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
     financeiro_full: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
     pdv: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
+    pdv_basic: "Disponível nos planos Essencial, Pro ou Market.",
 };
+
+/** True se a empresa tem ao menos uma das features. */
+export async function hasAnyPlanFeature(
+    admin: SupabaseClient,
+    companyId: string,
+    featureKeys: string[]
+): Promise<boolean> {
+    for (const key of featureKeys) {
+        if (await hasFeature(admin, companyId, key)) return true;
+    }
+    return false;
+}
+
+/** 403 se nenhuma das features estiver no plano. */
+export async function requireAnyPlanFeature(
+    admin: SupabaseClient,
+    companyId: string,
+    featureKeys: string[]
+): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
+    if (await hasAnyPlanFeature(admin, companyId, featureKeys)) return { ok: true };
+    const primary = featureKeys[0] ?? "feature";
+    return {
+        ok: false,
+        response: NextResponse.json(
+            {
+                error: "plan_feature_required",
+                feature: primary,
+                features: featureKeys,
+                hint:
+                    FEATURE_HINTS[primary] ??
+                    "Recurso não incluído no seu plano. Faça upgrade em Configurações → Plano.",
+            },
+            { status: 403 }
+        ),
+    };
+}
 
 /** 403 se a empresa não tiver a feature no plano atual. */
 export async function requirePlanFeature(
@@ -71,3 +108,37 @@ export async function requireCompanyPlanFeature(
         role: ctx.role,
     };
 }
+
+/** Sessão + workspace + qualquer feature da lista (ex.: pdv_basic | pdv). */
+export async function requireCompanyAnyPlanFeature(
+    featureKeys: string[],
+    allowedRoles?: string[]
+): Promise<
+    | {
+          ok: true;
+          admin: SupabaseClient;
+          companyId: string;
+          userId: string;
+          role: string;
+      }
+    | { ok: false; response: NextResponse }
+> {
+    const ctx = await requireCompanyAccess(allowedRoles);
+    if (!ctx.ok) {
+        return {
+            ok: false,
+            response: NextResponse.json({ error: ctx.error }, { status: ctx.status }),
+        };
+    }
+    const feat = await requireAnyPlanFeature(ctx.admin, ctx.companyId, featureKeys);
+    if (!feat.ok) return feat;
+    return {
+        ok: true,
+        admin: ctx.admin,
+        companyId: ctx.companyId,
+        userId: ctx.userId,
+        role: ctx.role,
+    };
+}
+
+export const PDV_ACCESS_FEATURES = ["pdv_basic", "pdv"] as const;

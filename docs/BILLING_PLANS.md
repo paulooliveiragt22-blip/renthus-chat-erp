@@ -44,8 +44,14 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 
 ## Print Agent
 - Pareamento: Impressoras → código → `POST /api/agent/activate`
-- Download do binário: env `NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL` (release GitHub)
+- Release: [print-agent-v1.1.3](https://github.com/paulooliveiragt22-blip/renthus-chat-erp/releases/tag/print-agent-v1.1.3)
+- Download: `…/releases/download/print-agent-v1.1.3/renthus-print-agent-1.1.3-win.zip` (override via `NEXT_PUBLIC_PRINT_AGENT_DOWNLOAD_URL`)
 - Criptografia do código: `CREDENTIALS_ENCRYPTION_KEY` (32 bytes base64)
+
+## PDV por plano
+- Essencial (`pdv_basic`): venda à vista, caixa, cliente sem limite de crédito
+- Pro/Market (`pdv`): + A Prazo / boleto / cheque / promissória + limite de crédito
+- Impressão automática: só com `printing_auto` (Pro/Market)
 
 ## Add-ons / fora do escopo atual
 - Fiscal NFC-e / TEF → próxima etapa

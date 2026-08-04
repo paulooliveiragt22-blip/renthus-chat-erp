@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import { enqueuePrintJob } from "@/lib/server/print/enqueuePrintJob";
 
 export const runtime = "nodejs";
@@ -11,6 +12,9 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   const access = await requireCompanyAccess();
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
+
+  const feat = await requirePlanFeature(access.admin, access.companyId, "printing_auto");
+  if (!feat.ok) return feat.response;
 
   const { order_id, change } = await req.json().catch(() => ({}));
   if (!order_id) return NextResponse.json({ error: "order_id obrigatório" }, { status: 400 });
