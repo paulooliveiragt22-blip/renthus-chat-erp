@@ -13,6 +13,9 @@
   "include": [
     "proxy.ts",
     "lib/billing/computeNextBillingAt.ts",
+    "lib/public-menu/**/*.ts",
+    "src/types/contracts.public-menu.ts",
+    "src/types/contracts.marketplace.ts",
     "tests/**/*.ts",
     "lib/chatbot/processMessage.ts",
     "lib/whatsapp/send.ts",

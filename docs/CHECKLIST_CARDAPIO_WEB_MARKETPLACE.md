@@ -59,13 +59,13 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 
 | # | Item | Estado | Notas |
 |---|------|--------|-------|
-| F0.1 | Coluna/tabela `company_menu_profile`: `slug` único, nome exibição, logo, WhatsApp, ativo | [ ] | |
-| F0.2 | Flag produto `show_on_menu` (ou só ativos + com preço) | [ ] | |
-| F0.3 | Gerar/editar slug na UI Configurações / Produtos | [ ] | |
-| F0.4 | API `GET /api/public/menu/[slug]` (categorias, itens, preço, foto, descrição) | [ ] | Rate limit |
-| F0.5 | Página pública `/c/[slug]` mobile-first (lista + foto + preço) | [ ] | Sem cards genéricos excessivos; 1 composição |
-| F0.6 | Link copiável no admin + QR code | [ ] | |
-| F0.7 | Analytics mínimo: view por slug + `visitor_id` | [ ] | Tabela `menu_page_events` |
+| F0.1 | Coluna/tabela `company_menu_profile`: `slug` único, nome exibição, logo, WhatsApp, ativo | [x] | migration `20260804000001` |
+| F0.2 | Flag produto `show_on_menu` (ou só ativos + com preço) | [x] | `products.show_on_menu` default true |
+| F0.3 | Gerar/editar slug na UI Configurações / Produtos | [~] | API admin `GET/PATCH /api/admin/menu-profile` pronta; UI pendente |
+| F0.4 | API `GET /api/public/menu/[slug]` (categorias, itens, preço, foto, descrição) | [x] | + contratos + RPC `rpc_get_public_menu` |
+| F0.5 | Página pública `/c/[slug]` mobile-first (lista + foto + preço) | [ ] | Próximo |
+| F0.6 | Link copiável no admin + QR code | [ ] | Depende F0.3 UI |
+| F0.7 | Analytics mínimo: view por slug + `visitor_id` | [x] | `POST .../events` + `rpc_record_menu_page_event` |
 
 ### F1 — Sync marketplace (iFood primeiro)
 
@@ -144,8 +144,23 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 
 ---
 
+## Ajustes da análise (2026-08-04)
+
+| Ajuste | Decisão |
+|--------|---------|
+| Slug | `company_menu_profile.slug` é a URL pública; seed a partir de `companies.slug` / nome fantasia |
+| Leitura pública | **RPC** `rpc_get_public_menu(p_slug)` — não reutilizar `/api/catalog/*` (é por `company_id`, top sellers) |
+| Tipagem | Contratos camelCase em `src/types/contracts.public-menu.ts` + parsers (Zod ainda não está no app) |
+| Visibilidade | `products.show_on_menu` + `is_active` + embalagem com preço |
+| Segurança | Mesmo padrão do catalog: admin client no server + rate limit; RPC só `service_role` |
+| Feature flag | Seed `web_menu` em `features` (gate admin depois; público exige `profile.is_active`) |
+| Não usar | `view_chat_produtos` direto no browser; consulta live iFood |
+
+---
+
 ## Registro
 
 | Data | Nota |
 |------|------|
 | 2026-08-01 | Checklist criado; decisão: menu no Renthus + sync manual; web Next.js `/c/[slug]` |
+| 2026-08-04 | Análise F0; contratos + migration + API pública + admin profile + testes parser |
