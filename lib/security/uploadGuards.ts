@@ -2,10 +2,11 @@
  * Validação comum de uploads (tamanho + MIME) para rotas que enviam ficheiros ao Storage.
  */
 
-export type UploadKind = "whatsapp_outbound" | "product_image";
+export type UploadKind = "whatsapp_outbound" | "product_image" | "menu_branding";
 
 const WHATSAPP_MAX_BYTES = 16 * 1024 * 1024; // alinhado ao limite comum da Meta para mídia
 const PRODUCT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const MENU_BRANDING_MAX_BYTES = 8 * 1024 * 1024;
 
 const WHATSAPP_MIMES = new Set([
     "image/jpeg",
@@ -27,7 +28,11 @@ export function assertUploadAllowed(
     kind: UploadKind
 ): { ok: true } | { ok: false; status: number; error: string } {
     const max =
-        kind === "whatsapp_outbound" ? WHATSAPP_MAX_BYTES : PRODUCT_IMAGE_MAX_BYTES;
+        kind === "whatsapp_outbound"
+            ? WHATSAPP_MAX_BYTES
+            : kind === "menu_branding"
+              ? MENU_BRANDING_MAX_BYTES
+              : PRODUCT_IMAGE_MAX_BYTES;
     if (file.size > max) {
         return {
             ok:     false,

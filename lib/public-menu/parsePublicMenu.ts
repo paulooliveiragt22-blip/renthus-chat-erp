@@ -46,6 +46,7 @@ function parseStoreRow(raw: unknown): PublicMenuStore | null {
         displayName: asString(raw.display_name, "Cardápio") || "Cardápio",
         tagline: asNullableString(raw.tagline),
         logoUrl: asNullableString(raw.logo_url),
+        coverUrl: asNullableString(raw.cover_url),
         whatsappPhone: asNullableString(raw.whatsapp_phone),
         city: asNullableString(raw.city),
         state: asNullableString(raw.state),

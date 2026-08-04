@@ -8,7 +8,7 @@ import type { MenuProfileAdmin, MenuProfileUpsertInput } from "@/src/types/contr
 export const runtime = "nodejs";
 
 const SELECT_COLS =
-    "company_id, slug, display_name, tagline, logo_url, whatsapp_phone, is_active, custom_domain, custom_domain_verified, updated_at";
+    "company_id, slug, display_name, tagline, logo_url, cover_url, whatsapp_phone, is_active, custom_domain, custom_domain_verified, updated_at";
 
 function mapProfile(row: Record<string, unknown>, companyId: string): MenuProfileAdmin {
     const slugParsed = parseMenuSlug(String(row.slug ?? ""));
@@ -20,6 +20,7 @@ function mapProfile(row: Record<string, unknown>, companyId: string): MenuProfil
         displayName: String(row.display_name ?? "Cardápio"),
         tagline: row.tagline == null ? null : String(row.tagline),
         logoUrl: row.logo_url == null ? null : String(row.logo_url),
+        coverUrl: row.cover_url == null ? null : String(row.cover_url),
         whatsappPhone: row.whatsapp_phone == null ? null : String(row.whatsapp_phone),
         isActive: Boolean(row.is_active),
         customDomain: row.custom_domain == null ? null : String(row.custom_domain),
@@ -104,12 +105,11 @@ export async function PATCH(req: Request) {
     }
     if (!customDomain) customDomainVerified = false;
 
-    const patch = {
+    const patch: Record<string, unknown> = {
         company_id: companyId,
         slug: slugParsed.slug,
         display_name: displayName.slice(0, 120),
         tagline: body.tagline == null ? null : String(body.tagline).trim().slice(0, 200) || null,
-        logo_url: body.logoUrl == null ? null : String(body.logoUrl).trim().slice(0, 500) || null,
         whatsapp_phone:
             body.whatsappPhone == null
                 ? null
@@ -119,6 +119,14 @@ export async function PATCH(req: Request) {
         custom_domain_verified: customDomainVerified,
         updated_at: new Date().toISOString(),
     };
+    if (body.logoUrl !== undefined) {
+        patch.logo_url =
+            body.logoUrl == null ? null : String(body.logoUrl).trim().slice(0, 500) || null;
+    }
+    if (body.coverUrl !== undefined) {
+        patch.cover_url =
+            body.coverUrl == null ? null : String(body.coverUrl).trim().slice(0, 500) || null;
+    }
 
     const { data, error } = await admin
         .from("company_menu_profile")

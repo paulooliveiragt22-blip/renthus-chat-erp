@@ -12,7 +12,10 @@ export interface PublicMenuStore {
     slug: MenuSlug;
     displayName: string;
     tagline: string | null;
+    /** Foto de perfil (avatar circular). */
     logoUrl: string | null;
+    /** Capa do restaurante (estilo Facebook). */
+    coverUrl: string | null;
     whatsappPhone: string | null;
     city: string | null;
     state: string | null;
@@ -80,6 +83,7 @@ export interface MenuProfileAdmin {
     displayName: string;
     tagline: string | null;
     logoUrl: string | null;
+    coverUrl: string | null;
     whatsappPhone: string | null;
     isActive: boolean;
     /** Domínio próprio (host), ex. cardapio.loja.com.br */
@@ -93,6 +97,7 @@ export interface MenuProfileUpsertInput {
     displayName: string;
     tagline?: string | null;
     logoUrl?: string | null;
+    coverUrl?: string | null;
     whatsappPhone?: string | null;
     isActive?: boolean;
     customDomain?: string | null;
@@ -275,6 +280,7 @@ export interface PublicMenuRpcStoreRow {
     display_name: string;
     tagline: string | null;
     logo_url: string | null;
+    cover_url?: string | null;
     whatsapp_phone: string | null;
     city: string | null;
     state: string | null;

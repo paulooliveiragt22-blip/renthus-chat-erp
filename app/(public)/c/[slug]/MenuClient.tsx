@@ -25,7 +25,7 @@ function ProductThumb({ src, alt }: { src: string | null; alt: string }) {
         return (
             <div
                 aria-hidden
-                className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-zinc-200 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500"
+                className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-zinc-200 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 sm:h-24 sm:w-24 md:h-[6.5rem] md:w-[6.5rem]"
             >
                 sem foto
             </div>
@@ -36,7 +36,7 @@ function ProductThumb({ src, alt }: { src: string | null; alt: string }) {
         <img
             src={src}
             alt={alt}
-            className="h-16 w-16 shrink-0 rounded-lg object-cover bg-zinc-200 dark:bg-zinc-800"
+            className="h-20 w-20 shrink-0 rounded-xl object-cover bg-zinc-200 sm:h-24 sm:w-24 md:h-[6.5rem] md:w-[6.5rem]"
             loading="lazy"
         />
     );
@@ -170,53 +170,85 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
         setCart((prev) => prev.filter((l) => l.embalagemId !== embalagemId));
     }
 
+    const shell = "mx-auto w-full max-w-xl px-3 sm:max-w-2xl sm:px-5 md:max-w-3xl lg:max-w-4xl";
+
     return (
-        <div className="min-h-dvh bg-[#f6f3ee] text-zinc-900 pb-24">
-            <header className="border-b border-zinc-200/80 bg-[#1c1917] text-[#faf7f2]">
-                <div className="mx-auto flex max-w-lg flex-col gap-3 px-4 pb-5 pt-8">
-                    {store.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            src={store.logoUrl}
-                            alt=""
-                            className="h-14 w-14 rounded-full object-cover ring-2 ring-white/20"
-                        />
-                    ) : null}
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200/80">
-                                Cardápio
-                            </p>
-                            <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-                                {store.displayName}
-                            </h1>
-                            {store.tagline ? (
-                                <p className="mt-1 text-sm text-zinc-300">{store.tagline}</p>
-                            ) : null}
-                            {(store.city || store.state) && (
-                                <p className="mt-2 text-xs text-zinc-400">
-                                    {[store.city, store.state].filter(Boolean).join(" · ")}
-                                </p>
-                            )}
+        <div className="min-h-dvh bg-[#f0f2f5] text-zinc-900 pb-28">
+            <header className="bg-white shadow-sm">
+                <div className="relative">
+                    <div className="relative h-40 overflow-hidden bg-gradient-to-br from-zinc-400 to-zinc-600 sm:h-52 md:h-64 lg:h-72">
+                        {store.coverUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={store.coverUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                            />
+                        ) : (
+                            <div
+                                aria-hidden
+                                className="h-full w-full bg-[linear-gradient(135deg,#78716c_0%,#44403c_55%,#292524_100%)]"
+                            />
+                        )}
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/35 to-transparent" />
+                    </div>
+
+                    <div className={`${shell} relative pb-4 pt-0`}>
+                        <div className="-mt-12 flex flex-col gap-3 sm:-mt-14 sm:flex-row sm:items-end sm:justify-between sm:gap-4 md:-mt-16">
+                            <div className="flex min-w-0 items-end gap-3 sm:gap-4">
+                                {store.logoUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                        src={store.logoUrl}
+                                        alt=""
+                                        className="h-24 w-24 shrink-0 rounded-full object-cover ring-4 ring-white shadow-md sm:h-28 sm:w-28 md:h-32 md:w-32"
+                                    />
+                                ) : (
+                                    <div
+                                        aria-hidden
+                                        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-2xl font-bold text-zinc-600 ring-4 ring-white shadow-md sm:h-28 sm:w-28 sm:text-3xl md:h-32 md:w-32"
+                                    >
+                                        {store.displayName.trim().charAt(0).toUpperCase() || "?"}
+                                    </div>
+                                )}
+                                <div className="min-w-0 pb-1 sm:pb-2">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-[11px]">
+                                        Cardápio
+                                    </p>
+                                    <h1 className="mt-0.5 truncate text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl md:text-3xl">
+                                        {store.displayName}
+                                    </h1>
+                                    {store.tagline ? (
+                                        <p className="mt-0.5 line-clamp-2 text-sm text-zinc-600 sm:text-[15px]">
+                                            {store.tagline}
+                                        </p>
+                                    ) : null}
+                                    {(store.city || store.state) && (
+                                        <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
+                                            {[store.city, store.state].filter(Boolean).join(" · ")}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setOrdersOpen(true)}
+                                className="shrink-0 self-start rounded-lg bg-zinc-100 px-3.5 py-2 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 transition hover:bg-zinc-200 sm:self-auto sm:text-sm"
+                            >
+                                Meus pedidos
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setOrdersOpen(true)}
-                            className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-amber-100 ring-1 ring-white/20 transition hover:bg-white/15"
-                        >
-                            Meus pedidos
-                        </button>
                     </div>
                 </div>
             </header>
 
             {categories.length > 1 && (
-                <nav className="sticky top-0 z-10 border-b border-zinc-200 bg-[#f6f3ee]/90 backdrop-blur">
-                    <div className="mx-auto flex max-w-lg gap-2 overflow-x-auto px-4 py-3">
+                <nav className="sticky top-0 z-10 border-b border-zinc-200/80 bg-[#f0f2f5]/95 backdrop-blur">
+                    <div className={`${shell} flex gap-2 overflow-x-auto py-3`}>
                         <button
                             type="button"
                             onClick={() => setActiveCat("all")}
-                            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                            className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold sm:text-sm ${
                                 activeCat === "all"
                                     ? "bg-zinc-900 text-white"
                                     : "bg-white text-zinc-600 ring-1 ring-zinc-200"
@@ -236,7 +268,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                         categoryId: c.id,
                                     });
                                 }}
-                                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                                className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold sm:text-sm ${
                                     activeCat === c.id
                                         ? "bg-zinc-900 text-white"
                                         : "bg-white text-zinc-600 ring-1 ring-zinc-200"
@@ -249,53 +281,56 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 </nav>
             )}
 
-            <main className="mx-auto max-w-lg px-4 py-6">
+            <main className={`${shell} py-5 sm:py-7`}>
                 {menu.itemCount === 0 ? (
-                    <p className="py-16 text-center text-sm text-zinc-500">
+                    <p className="py-16 text-center text-sm text-zinc-500 sm:text-base">
                         Nenhum item disponível no cardápio no momento.
                     </p>
                 ) : (
-                    <div className="flex flex-col gap-8">
+                    <div className="flex flex-col gap-7 sm:gap-9">
                         {visible.map((cat) => (
                             <section key={cat.id} aria-labelledby={`cat-${cat.id}`}>
                                 <h2
                                     id={`cat-${cat.id}`}
-                                    className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500"
+                                    className="mb-3 text-xs font-bold uppercase tracking-wider text-zinc-500 sm:text-sm"
                                 >
                                     {cat.name}
                                 </h2>
-                                <ul className="divide-y divide-zinc-200 overflow-hidden rounded-xl bg-white ring-1 ring-zinc-200">
+                                <ul className="divide-y divide-zinc-200 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-zinc-200/80">
                                     {cat.items.map((item) => {
                                         const q = qtyOf(item.embalagemId);
                                         return (
-                                            <li key={item.embalagemId} className="flex gap-3 p-3">
+                                            <li
+                                                key={item.embalagemId}
+                                                className="flex gap-3 p-3.5 sm:gap-4 sm:p-4"
+                                            >
                                                 <ProductThumb
                                                     src={item.thumbnailUrl ?? item.imageUrl}
                                                     alt={item.name}
                                                 />
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-start justify-between gap-2">
-                                                        <p className="text-sm font-semibold leading-snug text-zinc-900">
+                                                        <p className="text-[15px] font-semibold leading-snug text-zinc-900 sm:text-base">
                                                             {item.name}
                                                         </p>
-                                                        <p className="shrink-0 text-sm font-bold text-zinc-900">
+                                                        <p className="shrink-0 text-[15px] font-bold text-zinc-900 sm:text-base">
                                                             {formatBRL(item.price)}
                                                         </p>
                                                     </div>
                                                     {item.description ? (
-                                                        <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">
+                                                        <p className="mt-1 line-clamp-2 text-xs text-zinc-500 sm:text-sm">
                                                             {item.description}
                                                         </p>
                                                     ) : null}
-                                                    <div className="mt-2 flex items-center justify-between gap-2">
-                                                        <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                                                    <div className="mt-2.5 flex items-center justify-between gap-2">
+                                                        <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 sm:text-[11px]">
                                                             {item.sigla}
                                                         </p>
                                                         {q === 0 ? (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => addItem(item)}
-                                                                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                                                className="rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-white sm:text-sm"
                                                             >
                                                                 Adicionar
                                                             </button>
@@ -306,18 +341,18 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                                     onClick={() =>
                                                                         decItem(item.embalagemId)
                                                                     }
-                                                                    className="h-8 w-8 rounded-lg bg-zinc-100 text-sm font-bold"
+                                                                    className="h-9 w-9 rounded-lg bg-zinc-100 text-base font-bold"
                                                                     aria-label="Diminuir"
                                                                 >
                                                                     −
                                                                 </button>
-                                                                <span className="w-5 text-center text-sm font-semibold">
+                                                                <span className="w-6 text-center text-sm font-semibold sm:text-base">
                                                                     {q}
                                                                 </span>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => addItem(item)}
-                                                                    className="h-8 w-8 rounded-lg bg-zinc-900 text-sm font-bold text-white"
+                                                                    className="h-9 w-9 rounded-lg bg-zinc-900 text-base font-bold text-white"
                                                                     aria-label="Aumentar"
                                                                 >
                                                                     +
@@ -337,12 +372,12 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
             </main>
 
             {cartQty > 0 && !checkoutOpen && !ordersOpen && (
-                <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur">
-                    <div className="mx-auto max-w-lg">
+                <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur sm:p-4">
+                    <div className={shell}>
                         <button
                             type="button"
                             onClick={() => setCheckoutOpen(true)}
-                            className="flex w-full items-center justify-between rounded-xl bg-emerald-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg"
+                            className="flex w-full items-center justify-between rounded-xl bg-emerald-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg sm:py-4 sm:text-base"
                         >
                             <span>
                                 Ver pedido · {cartQty} {cartQty === 1 ? "item" : "itens"}
@@ -375,7 +410,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 />
             )}
 
-            <footer className="mx-auto max-w-lg px-4 pb-10 pt-2 text-center text-[11px] text-zinc-400">
+            <footer className={`${shell} pb-10 pt-2 text-center text-[11px] text-zinc-400 sm:text-xs`}>
                 Powered by Renthus
             </footer>
         </div>

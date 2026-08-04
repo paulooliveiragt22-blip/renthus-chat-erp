@@ -1,7 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, ExternalLink, Link2, Loader2, QrCode, Save } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    Check,
+    Copy,
+    ExternalLink,
+    ImagePlus,
+    Link2,
+    Loader2,
+    QrCode,
+    Save,
+    Trash2,
+    UserCircle,
+} from "lucide-react";
 import type { MenuProfileAdmin } from "@/src/types/contracts.public-menu";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -43,6 +54,11 @@ export default function MenuCardapioSettings() {
     const [copied, setCopied] = useState(false);
     const [showQr, setShowQr] = useState(false);
     const [preferredUrl, setPreferredUrl] = useState<string | null>(null);
+    const [logoUrl, setLogoUrl] = useState<string | null>(null);
+    const [coverUrl, setCoverUrl] = useState<string | null>(null);
+    const [uploading, setUploading] = useState<"logo" | "cover" | null>(null);
+    const logoInputRef = useRef<HTMLInputElement>(null);
+    const coverInputRef = useRef<HTMLInputElement>(null);
 
     const baseDomain = useMemo(() => menuBaseDomain(), []);
 
@@ -63,6 +79,8 @@ export default function MenuCardapioSettings() {
                 setIsActive(profile.isActive);
                 setCustomDomain(profile.customDomain ?? "");
                 setCustomDomainVerified(Boolean(profile.customDomainVerified));
+                setLogoUrl(profile.logoUrl ?? null);
+                setCoverUrl(profile.coverUrl ?? null);
             }
             if (typeof json.publicUrl === "string") setPreferredUrl(json.publicUrl);
         } finally {
@@ -144,6 +162,77 @@ export default function MenuCardapioSettings() {
         }
     }
 
+    async function uploadBranding(kind: "logo" | "cover", file: File) {
+        setUploading(kind);
+        setMsg(null);
+        try {
+            const fd = new FormData();
+            fd.set("kind", kind);
+            fd.set("file", file);
+            const res = await fetch("/api/admin/menu-profile/upload", {
+                method: "POST",
+                credentials: "include",
+                body: fd,
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const errMap: Record<string, string> = {
+                    profile_missing: "Salve o cardápio (nome/link) antes de enviar fotos.",
+                    file_too_large: "Arquivo muito grande (máx. 8 MB).",
+                    unsupported_media_type: "Use JPG, PNG, WebP ou GIF.",
+                };
+                const code = String(json?.error ?? "");
+                setMsg(
+                    errMap[code] ??
+                        (code.startsWith("file_too_large")
+                            ? errMap.file_too_large
+                            : json?.error ?? "Falha no upload")
+                );
+                return;
+            }
+            const url = typeof json.url === "string" ? json.url : null;
+            if (kind === "logo") setLogoUrl(url);
+            else setCoverUrl(url);
+            setMsg(kind === "logo" ? "✓ Foto de perfil atualizada" : "✓ Capa atualizada");
+            setTimeout(() => setMsg(null), 4000);
+        } finally {
+            setUploading(null);
+        }
+    }
+
+    async function clearBranding(kind: "logo" | "cover") {
+        setUploading(kind);
+        setMsg(null);
+        try {
+            const res = await fetch("/api/admin/menu-profile", {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    slug,
+                    displayName,
+                    tagline: tagline || null,
+                    whatsappPhone: whatsappPhone || null,
+                    isActive,
+                    customDomain: customDomain.trim() || null,
+                    customDomainVerified,
+                    ...(kind === "logo" ? { logoUrl: null } : { coverUrl: null }),
+                }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMsg(json?.error ?? "Erro ao remover imagem");
+                return;
+            }
+            if (kind === "logo") setLogoUrl(null);
+            else setCoverUrl(null);
+            setMsg("✓ Imagem removida");
+            setTimeout(() => setMsg(null), 3000);
+        } finally {
+            setUploading(null);
+        }
+    }
+
     if (loading) {
         return (
             <div className="flex items-center gap-2 py-10 text-sm text-zinc-400">
@@ -217,7 +306,141 @@ export default function MenuCardapioSettings() {
                         placeholder="Gelada na porta em minutos"
                     />
                 </label>
+            </div>
 
+            <div className="space-y-4 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
+                <div>
+                    <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                        Visual do cardápio
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-400">
+                        Capa + foto de perfil no estilo Facebook. Aparecem na página pública.
+                    </p>
+                </div>
+
+                <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) void uploadBranding("cover", f);
+                    }}
+                />
+                <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) void uploadBranding("logo", f);
+                    }}
+                />
+
+                <div className="overflow-hidden rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-700">
+                    <div className="relative h-36 bg-gradient-to-br from-zinc-300 to-zinc-400 dark:from-zinc-700 dark:to-zinc-800 sm:h-44">
+                        {coverUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={coverUrl}
+                                alt="Capa"
+                                className="h-full w-full object-cover"
+                            />
+                        ) : (
+                            <div className="flex h-full items-center justify-center text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                                Sem capa
+                            </div>
+                        )}
+                        <div className="absolute right-2 top-2 flex gap-1.5">
+                            <button
+                                type="button"
+                                disabled={uploading !== null || !displayName.trim()}
+                                onClick={() => coverInputRef.current?.click()}
+                                className="inline-flex items-center gap-1 rounded-lg bg-black/55 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-black/70 disabled:opacity-50"
+                            >
+                                {uploading === "cover" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <ImagePlus className="h-3.5 w-3.5" />
+                                )}
+                                Capa
+                            </button>
+                            {coverUrl ? (
+                                <button
+                                    type="button"
+                                    disabled={uploading !== null}
+                                    onClick={() => void clearBranding("cover")}
+                                    className="inline-flex items-center rounded-lg bg-black/55 p-1.5 text-white hover:bg-black/70 disabled:opacity-50"
+                                    aria-label="Remover capa"
+                                >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                            ) : null}
+                        </div>
+                    </div>
+                    <div className="relative bg-white px-4 pb-4 pt-0 dark:bg-zinc-900">
+                        <div className="-mt-10 flex items-end gap-3 sm:-mt-12">
+                            <div className="relative">
+                                {logoUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                        src={logoUrl}
+                                        alt="Foto de perfil"
+                                        className="h-20 w-20 rounded-full object-cover ring-4 ring-white dark:ring-zinc-900 sm:h-24 sm:w-24"
+                                    />
+                                ) : (
+                                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-zinc-200 ring-4 ring-white dark:bg-zinc-700 dark:ring-zinc-900 sm:h-24 sm:w-24">
+                                        <UserCircle className="h-10 w-10 text-zinc-500" />
+                                    </div>
+                                )}
+                            </div>
+                            <div className="min-w-0 flex-1 pb-1">
+                                <p className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                                    {displayName || "Nome do restaurante"}
+                                </p>
+                                {tagline ? (
+                                    <p className="truncate text-xs text-zinc-500">{tagline}</p>
+                                ) : null}
+                            </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                disabled={uploading !== null || !displayName.trim()}
+                                onClick={() => logoInputRef.current?.click()}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                            >
+                                {uploading === "logo" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <UserCircle className="h-3.5 w-3.5" />
+                                )}
+                                Foto de perfil
+                            </button>
+                            {logoUrl ? (
+                                <button
+                                    type="button"
+                                    disabled={uploading !== null}
+                                    onClick={() => void clearBranding("logo")}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                                >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Remover foto
+                                </button>
+                            ) : null}
+                        </div>
+                        <p className="mt-2 text-[11px] text-zinc-400">
+                            Capa recomendada 1600×630. Foto de perfil quadrada (ex.: 512×512).
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div className="space-y-4 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
                 <label className="block">
                     <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
                         WhatsApp do pedido (com DDI)
