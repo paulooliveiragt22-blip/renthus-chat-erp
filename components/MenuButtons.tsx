@@ -88,7 +88,7 @@ export default function MenuButtons({ compact = false, onNavigate, textColor = "
         { href: "/whatsapp", icon: <IconWhatsApp />, label: "WhatsApp" },
         { href: "/produtos/lista", icon: <IconProducts />, label: "Produtos" },
         { href: "/pedidos", icon: <IconOrders />, label: "Pedidos" },
-        { href: "/relatorio", icon: <IconReport />, label: "Relatório" },
+        { href: "/relatorios", icon: <IconReport />, label: "Relatórios" },
     ];
 
     return (
