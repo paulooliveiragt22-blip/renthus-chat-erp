@@ -8,12 +8,13 @@ import type {
     PublicMenuSavedAddress,
     PublicMenuSessionOk,
 } from "@/src/types/contracts.public-menu";
+import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-type Step = "identify" | "address" | "payment" | "done";
+type Step = "cart" | "identify" | "address" | "payment" | "done";
 
 type Props = {
     slug: string;
@@ -21,6 +22,10 @@ type Props = {
     cart: PublicMenuCartLine[];
     onClose: () => void;
     onClearCart: () => void;
+    onInc: (embalagemId: string) => void;
+    onDec: (embalagemId: string) => void;
+    onRemove: (embalagemId: string) => void;
+    onAddMore: () => void;
 };
 
 const emptyAddress: PublicMenuNewAddressInput = {
@@ -40,8 +45,12 @@ export default function CheckoutDrawer({
     cart,
     onClose,
     onClearCart,
+    onInc,
+    onDec,
+    onRemove,
+    onAddMore,
 }: Props) {
-    const [step, setStep] = useState<Step>("identify");
+    const [step, setStep] = useState<Step>("cart");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -88,7 +97,7 @@ export default function CheckoutDrawer({
                     return;
                 }
                 applySession(json);
-                setStep(json.addresses.length > 0 ? "address" : "address");
+                // Mantém no carrinho — não pula para endereço
             })
             .catch(() => {
                 if (!cancelled) setError("Falha ao carregar seus dados.");
@@ -108,6 +117,11 @@ export default function CheckoutDrawer({
         setCustomerPhone(json.customer.phoneE164);
         setIsNewCustomer(json.customer.isNew);
         setAddresses(json.addresses);
+        saveStoredMenuSession(slug, {
+            sessionToken: json.sessionToken,
+            customerName: json.customer.name,
+            phoneE164: json.customer.phoneE164,
+        });
         if (json.addresses.length > 0) {
             setAddressMode("saved");
             const principal =
@@ -118,6 +132,19 @@ export default function CheckoutDrawer({
             setAddressMode("new");
             setSavedAddressId(null);
         }
+    }
+
+    function continueFromCart() {
+        setError(null);
+        if (cart.length === 0) {
+            setError("Adicione pelo menos um item ao pedido.");
+            return;
+        }
+        if (sessionToken) {
+            setStep("address");
+            return;
+        }
+        setStep("identify");
     }
 
     async function identifyManual() {
@@ -312,6 +339,17 @@ export default function CheckoutDrawer({
     const grand =
         subtotal + (deliveryFee != null && Number.isFinite(deliveryFee) ? deliveryFee : 0);
 
+    const stepTitle =
+        step === "cart"
+            ? "Seu pedido"
+            : step === "identify"
+              ? "Seus dados"
+              : step === "address"
+                ? "Entrega"
+                : step === "payment"
+                  ? "Pagamento"
+                  : "Pronto";
+
     return (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#f6f3ee]">
             <header className="flex items-center justify-between border-b border-zinc-200 bg-[#1c1917] px-4 py-3 text-[#faf7f2]">
@@ -322,7 +360,9 @@ export default function CheckoutDrawer({
                 >
                     Voltar
                 </button>
-                <p className="text-sm font-semibold">Checkout · {storeName}</p>
+                <p className="text-sm font-semibold">
+                    {stepTitle} · {storeName}
+                </p>
                 <span className="w-12" />
             </header>
 
@@ -333,13 +373,94 @@ export default function CheckoutDrawer({
                     </p>
                 ) : null}
 
+                {step === "cart" && (
+                    <section className="space-y-4">
+                        <h2 className="text-lg font-semibold text-zinc-900">Itens selecionados</h2>
+                        {cart.length === 0 ? (
+                            <p className="text-sm text-zinc-500">
+                                Seu carrinho está vazio. Adicione itens no cardápio.
+                            </p>
+                        ) : (
+                            <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl bg-white ring-1 ring-zinc-200">
+                                {cart.map((l) => (
+                                    <li key={l.embalagemId} className="flex items-center gap-3 p-3">
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-semibold text-zinc-900">
+                                                {l.name}
+                                            </p>
+                                            <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                                                {l.sigla} · {formatBRL(l.unitPrice)}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => onDec(l.embalagemId)}
+                                                className="h-8 w-8 rounded-lg bg-zinc-100 text-sm font-bold"
+                                                aria-label="Diminuir"
+                                            >
+                                                −
+                                            </button>
+                                            <span className="w-6 text-center text-sm font-semibold">
+                                                {l.qty}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => onInc(l.embalagemId)}
+                                                className="h-8 w-8 rounded-lg bg-zinc-900 text-sm font-bold text-white"
+                                                aria-label="Aumentar"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                        <div className="w-16 text-right">
+                                            <p className="text-sm font-bold">
+                                                {formatBRL(l.unitPrice * l.qty)}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => onRemove(l.embalagemId)}
+                                                className="text-[10px] font-medium text-red-600"
+                                            >
+                                                Excluir
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        <div className="flex justify-between text-sm font-semibold text-zinc-800">
+                            <span>Subtotal</span>
+                            <span>{formatBRL(subtotal)}</span>
+                        </div>
+                        {sessionToken ? (
+                            <p className="text-xs text-emerald-700">
+                                Identificado: {customerName || customerPhone}
+                            </p>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={onAddMore}
+                            className="w-full rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-300"
+                        >
+                            + Adicionar mais itens
+                        </button>
+                        <button
+                            type="button"
+                            disabled={busy || cart.length === 0}
+                            onClick={continueFromCart}
+                            className="w-full rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                        >
+                            Continuar
+                        </button>
+                    </section>
+                )}
+
                 {step === "identify" && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold text-zinc-900">Seus dados</h2>
                         <p className="text-sm text-zinc-500">
-                            {sessionToken
-                                ? "Dados carregados do WhatsApp. Confira e continue."
-                                : "Informe telefone com DDD. Se já for cliente, buscamos seus endereços."}
+                            Informe telefone com DDD. Se já for cliente, buscamos seus endereços.
                         </p>
                         <label className="block text-sm">
                             <span className="text-zinc-600">Telefone (WhatsApp)</span>
@@ -349,7 +470,6 @@ export default function CheckoutDrawer({
                                 onChange={(e) => setCustomerPhone(e.target.value)}
                                 inputMode="tel"
                                 placeholder="(11) 99999-9999"
-                                disabled={Boolean(sessionToken)}
                             />
                         </label>
                         {(isNewCustomer || !sessionToken) && (
@@ -360,29 +480,26 @@ export default function CheckoutDrawer({
                                     value={customerName}
                                     onChange={(e) => setCustomerName(e.target.value)}
                                     placeholder="Seu nome"
-                                    disabled={Boolean(sessionToken) && !isNewCustomer}
                                 />
                             </label>
                         )}
-                        {sessionToken ? (
+                        <div className="flex gap-2">
                             <button
                                 type="button"
-                                disabled={busy}
-                                onClick={() => setStep("address")}
-                                className="w-full rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white"
+                                onClick={() => setStep("cart")}
+                                className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
                             >
-                                Continuar
+                                Voltar
                             </button>
-                        ) : (
                             <button
                                 type="button"
                                 disabled={busy || !customerPhone.trim()}
                                 onClick={() => void identifyManual()}
-                                className="w-full rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                                className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
                             >
                                 {busy ? "Carregando…" : "Continuar"}
                             </button>
-                        )}
+                        </div>
                     </section>
                 )}
 
@@ -486,17 +603,24 @@ export default function CheckoutDrawer({
                                         ["cidade", "Cidade"],
                                         ["apelido", "Apelido (Casa, Trabalho…)"],
                                     ] as const
-                                ).map(([key, label]) => (
-                                    <label key={key} className="block text-sm">
+                                ).map(([fieldKey, label]) => (
+                                    <label key={fieldKey} className="block text-sm">
                                         <span className="text-zinc-600">{label}</span>
                                         <input
                                             className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
-                                            value={String(newAddress[key] ?? "")}
+                                            value={String(newAddress[fieldKey] ?? "")}
                                             onChange={(e) =>
-                                                setNewAddress((p) => ({ ...p, [key]: e.target.value }))
+                                                setNewAddress((p) => ({
+                                                    ...p,
+                                                    [fieldKey]: e.target.value,
+                                                }))
                                             }
                                             onBlur={(ev) => {
-                                                if (key === "bairro" && sessionToken && ev.target.value.trim()) {
+                                                if (
+                                                    fieldKey === "bairro" &&
+                                                    sessionToken &&
+                                                    ev.target.value.trim()
+                                                ) {
                                                     void quoteDelivery({
                                                         sessionToken,
                                                         neighborhood: ev.target.value.trim(),
@@ -520,7 +644,7 @@ export default function CheckoutDrawer({
                         <div className="flex gap-2">
                             <button
                                 type="button"
-                                onClick={() => setStep("identify")}
+                                onClick={() => setStep(sessionToken ? "cart" : "identify")}
                                 className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
                             >
                                 Voltar
@@ -635,8 +759,8 @@ export default function CheckoutDrawer({
                         </h2>
                         <p className="text-sm text-zinc-600">
                             {orderResult.requireApproval
-                                ? "Recebemos seu pedido e estamos confirmando. Aguarde retorno!"
-                                : "Pedido confirmado! Em breve saímos para entrega."}
+                                ? "Recebemos seu pedido e estamos confirmando. Aguarde retorno no WhatsApp!"
+                                : "Pedido confirmado! Enviamos os detalhes no WhatsApp."}
                         </p>
                         <p className="text-sm text-zinc-500">{orderResult.deliveryAddress}</p>
                         <p className="text-lg font-bold">{formatBRL(orderResult.grandTotal)}</p>

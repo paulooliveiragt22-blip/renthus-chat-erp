@@ -8,7 +8,10 @@ import type {
     PublicMenuResponse,
 } from "@/src/types/contracts.public-menu";
 import { getOrCreateMenuVisitorId } from "@/lib/public-menu/visitorId";
+import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
+import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
 import CheckoutDrawer from "./CheckoutDrawer";
+import MyOrdersDrawer from "./MyOrdersDrawer";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -55,6 +58,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     const [activeCat, setActiveCat] = useState<string | "all">("all");
     const [cart, setCart] = useState<PublicMenuCartLine[]>([]);
     const [checkoutOpen, setCheckoutOpen] = useState(false);
+    const [ordersOpen, setOrdersOpen] = useState(false);
     const store = menu.store;
 
     useEffect(() => {
@@ -90,6 +94,24 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 referrer: typeof document === "undefined" ? null : document.referrer || null,
             }),
         }).catch(() => {});
+
+        const wm = params.get("wm");
+        if (!wm) return;
+        void fetch(`/api/public/menu/${encodeURIComponent(store.slug)}/session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ wmToken: wm }),
+        })
+            .then(async (res) => {
+                const json = (await res.json()) as PublicMenuSessionOk | { ok: false };
+                if (!json.ok) return;
+                saveStoredMenuSession(store.slug, {
+                    sessionToken: json.sessionToken,
+                    customerName: json.customer.name,
+                    phoneE164: json.customer.phoneE164,
+                });
+            })
+            .catch(() => {});
     }, [store.slug]);
 
     const cartQty = cart.reduce((s, l) => s + l.qty, 0);
@@ -136,6 +158,21 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
         });
     }
 
+    function incCartLine(embalagemId: string) {
+        setCart((prev) => {
+            const i = prev.findIndex((l) => l.embalagemId === embalagemId);
+            if (i < 0) return prev;
+            const next = [...prev];
+            const cur = next[i]!;
+            next[i] = { ...cur, qty: Math.min(99, cur.qty + 1) };
+            return next;
+        });
+    }
+
+    function removeCartLine(embalagemId: string) {
+        setCart((prev) => prev.filter((l) => l.embalagemId !== embalagemId));
+    }
+
     return (
         <div className="min-h-dvh bg-[#f6f3ee] text-zinc-900 pb-24">
             <header className="border-b border-zinc-200/80 bg-[#1c1917] text-[#faf7f2]">
@@ -148,21 +185,30 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                             className="h-14 w-14 rounded-full object-cover ring-2 ring-white/20"
                         />
                     ) : null}
-                    <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200/80">
-                            Cardápio
-                        </p>
-                        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-                            {store.displayName}
-                        </h1>
-                        {store.tagline ? (
-                            <p className="mt-1 text-sm text-zinc-300">{store.tagline}</p>
-                        ) : null}
-                        {(store.city || store.state) && (
-                            <p className="mt-2 text-xs text-zinc-400">
-                                {[store.city, store.state].filter(Boolean).join(" · ")}
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200/80">
+                                Cardápio
                             </p>
-                        )}
+                            <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+                                {store.displayName}
+                            </h1>
+                            {store.tagline ? (
+                                <p className="mt-1 text-sm text-zinc-300">{store.tagline}</p>
+                            ) : null}
+                            {(store.city || store.state) && (
+                                <p className="mt-2 text-xs text-zinc-400">
+                                    {[store.city, store.state].filter(Boolean).join(" · ")}
+                                </p>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setOrdersOpen(true)}
+                            className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-amber-100 ring-1 ring-white/20 transition hover:bg-white/15"
+                        >
+                            Meus pedidos
+                        </button>
                     </div>
                 </div>
             </header>
@@ -286,7 +332,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 )}
             </main>
 
-            {cartQty > 0 && !checkoutOpen && (
+            {cartQty > 0 && !checkoutOpen && !ordersOpen && (
                 <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur">
                     <div className="mx-auto max-w-lg">
                         <button
@@ -310,6 +356,18 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     cart={cart}
                     onClose={() => setCheckoutOpen(false)}
                     onClearCart={() => setCart([])}
+                    onInc={incCartLine}
+                    onDec={decItem}
+                    onRemove={removeCartLine}
+                    onAddMore={() => setCheckoutOpen(false)}
+                />
+            )}
+
+            {ordersOpen && (
+                <MyOrdersDrawer
+                    slug={store.slug}
+                    storeName={store.displayName}
+                    onClose={() => setOrdersOpen(false)}
                 />
             )}
 

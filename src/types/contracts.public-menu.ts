@@ -195,6 +195,44 @@ export type PublicMenuDeliveryQuoteResult =
     | PublicMenuDeliveryQuoteOk
     | { ok: false; error: string };
 
+export interface PublicMenuOrderItem {
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+}
+
+export interface PublicMenuOrderSummary {
+    id: string;
+    orderCode: string;
+    createdAt: string;
+    status: string;
+    confirmationStatus: string | null;
+    statusLabel: string;
+    grandTotal: number;
+    itemCount: number;
+    paymentMethod: string | null;
+}
+
+export interface PublicMenuOrderDetail extends PublicMenuOrderSummary {
+    subtotal: number;
+    deliveryFee: number;
+    deliveryAddress: string | null;
+    changeFor: number | null;
+    paymentLabel: string;
+    items: PublicMenuOrderItem[];
+    source: string | null;
+    channel: string | null;
+}
+
+export type PublicMenuOrdersListResult =
+    | { ok: true; orders: PublicMenuOrderSummary[] }
+    | { ok: false; error: string };
+
+export type PublicMenuOrderDetailResult =
+    | { ok: true; order: PublicMenuOrderDetail }
+    | { ok: false; error: string };
+
 /** Linha bruta retornada pelo RPC (jsonb interno / PostgREST). */
 export interface PublicMenuRpcStoreRow {
     company_id: string;
