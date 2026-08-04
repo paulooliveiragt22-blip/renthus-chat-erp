@@ -107,7 +107,7 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 | F4.1 | Cron sync opcional (1–6h) se conexão ativa | [x] | 2026-08-04 — `/api/marketplace/sync-catalog` + toggle UI |
 | F4.2 | Painel analytics (visitas, top produtos, origem UTM) | [x] | 2026-08-04 — RPC + Configurações → Cardápio |
 | F4.3 | Subdomínio custom / domínio próprio | [x] | 2026-08-04 — host rewrite + `custom_domain`; ops: wildcard/CNAME Vercel |
-| F4.4 | Complementos/opcionais iFood → acompanhamentos | [ ] | |
+| F4.4 | Complementos/opcionais iFood → acompanhamentos | [x] | 2026-08-04 — optionGroups→produtos + link ≤2; metadata no map |
 | F4.5 | Cardápio web com fotos no Flow (só destaques) | [ ] | Opcional |
 
 ---
@@ -170,3 +170,4 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 | 2026-08-04 | F4.1: cron `/api/marketplace/sync-catalog` + `auto_sync_enabled` / intervalo 1–6h na UI |
 | 2026-08-04 | F4.2: painel analytics cardápio (`rpc_get_menu_analytics` + product_view/UTM) |
 | 2026-08-04 | F4.3: domínio próprio / subdomínio (`NEXT_PUBLIC_MENU_BASE_DOMAIN` + rewrite no proxy) |
+| 2026-08-04 | F4.4: complementos iFood → produtos + `produto_embalagem_acompanhamentos` (≤2) |

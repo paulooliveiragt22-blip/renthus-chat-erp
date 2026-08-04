@@ -3,6 +3,10 @@ import type {
     MarketplaceCatalogPort,
     MarketplaceCatalogSnapshot,
 } from "@/src/types/contracts.marketplace";
+import {
+    flattenIfoodCatalogItem,
+    isSyncableCatalogItem,
+} from "./flattenIfoodCatalogItems";
 
 const IFOOD_AUTH = "https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token";
 const IFOOD_CATALOG = "https://merchant-api.ifood.com.br/catalog/v2.0";
@@ -52,6 +56,64 @@ export function buildMockIfoodCatalog(merchantId: string): MarketplaceCatalogSna
             imageUrl: null,
             available: true,
             externalCode: "AGUA-500",
+        },
+        // F4.4 — combo com option group → acompanhamentos
+        {
+            provider: "ifood",
+            externalItemId: "mock-item-combo-burger",
+            externalProductId: "mock-prod-combo-burger",
+            externalCategoryId: "mock-cat-lanches",
+            categoryName: "Lanches",
+            name: "Combo X-Burger",
+            description: "Hambúrguer + escolha de acompanhamento (mock iFood)",
+            price: 28.9,
+            currency: "BRL",
+            imageUrl: null,
+            available: true,
+            externalCode: "COMBO-XB",
+            optionGroups: [
+                {
+                    externalGroupId: "mock-og-extras",
+                    name: "Adicionais",
+                    min: 0,
+                    max: 2,
+                    optionExternalIds: ["mock-opt-batata", "mock-opt-refri"],
+                },
+            ],
+        },
+        {
+            provider: "ifood",
+            externalItemId: "mock-opt-batata",
+            externalProductId: "mock-prod-batata",
+            externalCategoryId: "mock-cat-lanches",
+            categoryName: "Lanches · Complementos",
+            name: "Batata frita P",
+            description: "Complemento do Combo X-Burger",
+            price: 8.0,
+            currency: "BRL",
+            imageUrl: null,
+            available: true,
+            externalCode: "BAT-P",
+            isComplement: true,
+            parentExternalItemId: "mock-item-combo-burger",
+            showOnMenu: false,
+        },
+        {
+            provider: "ifood",
+            externalItemId: "mock-opt-refri",
+            externalProductId: "mock-prod-refri",
+            externalCategoryId: "mock-cat-lanches",
+            categoryName: "Lanches · Complementos",
+            name: "Refrigerante lata",
+            description: "Complemento do Combo X-Burger",
+            price: 6.0,
+            currency: "BRL",
+            imageUrl: null,
+            available: true,
+            externalCode: "REFRI-LATA",
+            isComplement: true,
+            parentExternalItemId: "mock-item-combo-burger",
+            showOnMenu: false,
         },
     ];
     return {
@@ -150,42 +212,18 @@ export async function fetchIfoodCatalogLive(params: {
             : ((catsJson as { categories?: unknown[] }).categories ?? []);
 
         const items: MarketplaceCatalogItem[] = [];
+        const seen = new Set<string>();
         for (const cat of categories as Array<Record<string, unknown>>) {
             const categoryName = String(cat.name ?? cat.title ?? "Geral");
             const categoryId = cat.id != null ? String(cat.id) : null;
             const catItems = (cat.items ?? cat.itens ?? []) as Array<Record<string, unknown>>;
             for (const it of catItems) {
-                const priceObj = it.price as { value?: number } | number | undefined;
-                const price =
-                    typeof priceObj === "number"
-                        ? priceObj
-                        : Number((priceObj as { value?: number } | undefined)?.value ?? it.unitPrice ?? 0);
-                const products = (it.products as Array<Record<string, unknown>> | undefined) ?? [];
-                const productName =
-                    String(products[0]?.name ?? it.name ?? it.externalCode ?? "Item iFood").trim() ||
-                    "Item iFood";
-                const imageUrl =
-                    (products[0]?.imagePath as string | undefined) ??
-                    (it.imagePath as string | undefined) ??
-                    (it.imageUrl as string | undefined) ??
-                    null;
-                items.push({
-                    provider: "ifood",
-                    externalItemId: String(it.id ?? it.externalCode ?? `${categoryId}-${productName}`),
-                    externalProductId: products[0]?.id != null ? String(products[0].id) : null,
-                    externalCategoryId: categoryId,
-                    categoryName,
-                    name: productName,
-                    description:
-                        (products[0]?.description as string | null | undefined) ??
-                        (it.description as string | null | undefined) ??
-                        null,
-                    price: Number.isFinite(price) ? price : 0,
-                    currency: "BRL",
-                    imageUrl,
-                    available: String(it.status ?? "AVAILABLE").toUpperCase() !== "UNAVAILABLE",
-                    externalCode: (it.externalCode as string | null | undefined) ?? null,
-                });
+                for (const flat of flattenIfoodCatalogItem(it, categoryName, categoryId)) {
+                    if (!isSyncableCatalogItem(flat)) continue;
+                    if (seen.has(flat.externalItemId)) continue;
+                    seen.add(flat.externalItemId);
+                    items.push(flat);
+                }
             }
         }
 
@@ -193,7 +231,7 @@ export async function fetchIfoodCatalogLive(params: {
             provider: "ifood",
             merchantId,
             fetchedAt: new Date().toISOString(),
-            items: items.filter((i) => i.price > 0 && i.name),
+            items,
         };
     } catch (err) {
         console.warn("[ifood] fetchCatalogLive:", err instanceof Error ? err.message : err);

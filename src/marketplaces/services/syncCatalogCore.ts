@@ -106,13 +106,26 @@ async function upsertItem(
 
     const categoryId = await ensureCategory(admin, companyId, item.categoryName);
 
+    const showOnMenu = item.showOnMenu !== false && !item.isComplement;
+    const mapMetadata =
+        item.optionGroups && item.optionGroups.length > 0
+            ? {
+                  optionGroups: item.optionGroups,
+                  isComplement: Boolean(item.isComplement),
+                  parentExternalItemId: item.parentExternalItemId ?? null,
+              }
+            : {
+                  isComplement: Boolean(item.isComplement),
+                  parentExternalItemId: item.parentExternalItemId ?? null,
+              };
+
     if (mapRow?.product_id && mapRow?.produto_embalagem_id) {
         await admin
             .from("products")
             .update({
                 name: item.name.slice(0, 200),
                 is_active: item.available,
-                show_on_menu: true,
+                show_on_menu: showOnMenu,
                 category_id: categoryId,
             })
             .eq("id", mapRow.product_id)
@@ -133,6 +146,7 @@ async function upsertItem(
                 last_synced_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 category_id: categoryId,
+                metadata: mapMetadata,
             })
             .eq("id", mapRow.id);
 
@@ -147,7 +161,7 @@ async function upsertItem(
             name: item.name.slice(0, 200),
             category_id: categoryId,
             is_active: item.available,
-            show_on_menu: true,
+            show_on_menu: showOnMenu,
             estoque_atual: 0,
             estoque_minimo: 0,
             preco_custo_unitario: 0,
@@ -184,6 +198,7 @@ async function upsertItem(
                 product_id: byName.id,
                 produto_embalagem_id: embExist?.id ?? null,
                 category_id: categoryId,
+                metadata: mapMetadata,
                 last_synced_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             },
@@ -210,6 +225,7 @@ async function upsertItem(
             descricao: item.description?.slice(0, 300) ?? null,
             fator_conversao: 1,
             preco_venda: item.price,
+            // Flag do pai = “oferece upsells”; ligado depois em linkParentOptionGroups
             is_acompanhamento: false,
         })
         .select("id")
@@ -230,6 +246,7 @@ async function upsertItem(
             product_id: product.id,
             produto_embalagem_id: emb.id,
             category_id: categoryId,
+            metadata: mapMetadata,
             last_synced_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         },
@@ -239,6 +256,91 @@ async function upsertItem(
     const imgOk = await downloadImageBestEffort(admin, companyId, product.id, item.imageUrl);
     if (imgOk) counters.imagesDownloaded += 1;
     counters.created += 1;
+}
+
+/**
+ * Liga até 2 opções do option group em produto_embalagem_acompanhamentos
+ * e marca o pai com is_acompanhamento=true (padrão chatbot/admin).
+ */
+async function linkParentOptionGroups(
+    admin: SupabaseClient,
+    companyId: string,
+    provider: MarketplaceProvider,
+    snapshot: MarketplaceCatalogSnapshot
+): Promise<void> {
+    for (const item of snapshot.items) {
+        const groups = item.optionGroups ?? [];
+        if (groups.length === 0 || item.isComplement) continue;
+
+        const optionExternalIds = groups.flatMap((g) => g.optionExternalIds).slice(0, 2);
+        if (optionExternalIds.length === 0) continue;
+
+        const { data: parentMap } = await admin
+            .from("marketplace_catalog_map")
+            .select("id, produto_embalagem_id")
+            .eq("company_id", companyId)
+            .eq("provider", provider)
+            .eq("external_item_id", item.externalItemId)
+            .maybeSingle();
+
+        const parentEmbId = parentMap?.produto_embalagem_id
+            ? String(parentMap.produto_embalagem_id)
+            : null;
+        if (!parentEmbId) continue;
+
+        const { data: optMaps } = await admin
+            .from("marketplace_catalog_map")
+            .select("external_item_id, produto_embalagem_id")
+            .eq("company_id", companyId)
+            .eq("provider", provider)
+            .in("external_item_id", optionExternalIds);
+
+        const embByExt = new Map(
+            (optMaps ?? [])
+                .filter((r) => r.produto_embalagem_id)
+                .map((r) => [String(r.external_item_id), String(r.produto_embalagem_id)])
+        );
+
+        const linked: string[] = [];
+        for (const extId of optionExternalIds) {
+            const embId = embByExt.get(extId);
+            if (embId && embId !== parentEmbId) linked.push(embId);
+        }
+        if (linked.length === 0) continue;
+
+        await admin
+            .from("produto_embalagens")
+            .update({ is_acompanhamento: true })
+            .eq("id", parentEmbId)
+            .eq("company_id", companyId);
+
+        await admin
+            .from("produto_embalagem_acompanhamentos")
+            .delete()
+            .eq("produto_embalagem_id", parentEmbId);
+
+        for (let i = 0; i < linked.length; i++) {
+            const { error } = await admin.from("produto_embalagem_acompanhamentos").insert({
+                produto_embalagem_id: parentEmbId,
+                acompanhamento_produto_embalagem_id: linked[i],
+                ordem: i + 1,
+            });
+            if (error) {
+                console.warn("[marketplace/sync] link acompanhamento:", error.message);
+            }
+        }
+
+        await admin
+            .from("marketplace_catalog_map")
+            .update({
+                metadata: {
+                    optionGroups: groups,
+                    linkedAcompanhamentoEmbalagemIds: linked,
+                },
+                updated_at: new Date().toISOString(),
+            })
+            .eq("id", parentMap!.id);
+    }
 }
 
 export async function syncCatalogFromSnapshot(
@@ -267,7 +369,13 @@ export async function syncCatalogFromSnapshot(
         };
     }
 
-    for (const item of snapshot.items) {
+    // Complementos depois dos pais (mesma lista: pais primeiro no mock/live flatten)
+    const ordered = [
+        ...snapshot.items.filter((i) => !i.isComplement),
+        ...snapshot.items.filter((i) => i.isComplement),
+    ];
+
+    for (const item of ordered) {
         try {
             await upsertItem(admin, companyId, provider, item, unSiglaId, counters);
         } catch (err) {
@@ -278,6 +386,15 @@ export async function syncCatalogFromSnapshot(
                 err instanceof Error ? err.message : err
             );
         }
+    }
+
+    try {
+        await linkParentOptionGroups(admin, companyId, provider, snapshot);
+    } catch (err) {
+        console.warn(
+            "[marketplace/sync] link option groups:",
+            err instanceof Error ? err.message : err
+        );
     }
 
     const ok = counters.errors === 0 || counters.created + counters.updated > 0;

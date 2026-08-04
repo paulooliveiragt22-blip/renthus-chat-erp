@@ -3,6 +3,7 @@ import type {
     MarketplaceOrderEvent,
     MarketplaceOrdersPort,
 } from "@/src/types/contracts.marketplace-orders";
+import { flattenIfoodOrderItems } from "./flattenIfoodOrderItems";
 
 const EVENTS_BASE = "https://merchant-api.ifood.com.br/events/v1.0";
 const ORDER_BASE = "https://merchant-api.ifood.com.br/order/v1.0";
@@ -20,19 +21,25 @@ function buildMockPlacedOrder(externalOrderId: string): MarketplaceExternalOrder
         paymentMethod: "online",
         items: [
             {
+                externalItemId: "mock-item-combo-burger",
+                name: "Combo X-Burger",
+                quantity: 1,
+                unitPrice: 28.9,
+            },
+            {
+                externalItemId: "mock-opt-batata",
+                name: "Batata frita P",
+                quantity: 1,
+                unitPrice: 8.0,
+            },
+            {
                 externalItemId: "mock-item-heineken-ln",
                 name: "Heineken Long Neck",
                 quantity: 2,
                 unitPrice: 10.9,
             },
-            {
-                externalItemId: "mock-item-agua",
-                name: "Água mineral 500ml",
-                quantity: 1,
-                unitPrice: 3.5,
-            },
         ],
-        raw: { mock: true, id: externalOrderId },
+        raw: { mock: true, id: externalOrderId, hasOptions: true },
     };
 }
 
@@ -171,12 +178,7 @@ export class IfoodOrdersAdapter implements MarketplaceOrdersPort {
                       : methodName.includes("credit") || methodName.includes("debit")
                         ? "card"
                         : "online",
-                items: itemsRaw.map((it) => ({
-                    externalItemId: it.id != null ? String(it.id) : it.externalCode != null ? String(it.externalCode) : null,
-                    name: String(it.name ?? "Item iFood"),
-                    quantity: Math.max(1, Math.floor(Number(it.quantity ?? 1))),
-                    unitPrice: Number(it.unitPrice ?? it.price ?? 0) || 0,
-                })),
+                items: flattenIfoodOrderItems(itemsRaw),
                 raw: o,
             };
         } catch (err) {

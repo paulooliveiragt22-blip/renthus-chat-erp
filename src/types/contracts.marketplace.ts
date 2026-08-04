@@ -26,6 +26,15 @@ export interface MarketplaceConnection {
     syncIntervalHours?: number;
 }
 
+/** Grupo de opcionais/complementos (iFood optionGroups). */
+export interface MarketplaceCatalogOptionGroup {
+    externalGroupId: string;
+    name: string;
+    min: number;
+    max: number;
+    optionExternalIds: string[];
+}
+
 /** Item normalizado vindo do catálogo externo (antes do upsert Renthus). */
 export interface MarketplaceCatalogItem {
     provider: MarketplaceProvider;
@@ -40,6 +49,14 @@ export interface MarketplaceCatalogItem {
     imageUrl: string | null;
     available: boolean;
     externalCode: string | null;
+    /** true = complemento/opcional (não lista sozinho no cardápio web). */
+    isComplement?: boolean;
+    /** Item pai (combo) quando isComplement. */
+    parentExternalItemId?: string | null;
+    /** Grupos de opção no item pai (F4.4). */
+    optionGroups?: MarketplaceCatalogOptionGroup[];
+    /** Default true; complementos usam false. */
+    showOnMenu?: boolean;
 }
 
 export interface MarketplaceCatalogSnapshot {

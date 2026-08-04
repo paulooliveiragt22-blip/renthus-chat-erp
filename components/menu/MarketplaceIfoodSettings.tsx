@@ -178,8 +178,9 @@ export default function MarketplaceIfoodSettings() {
                     iFood — importar cardápio
                 </h3>
                 <p className="mt-1 text-xs text-zinc-500">
-                    Sincronização manual para o cadastro Renthus (produtos + embalagem UN). Sem consulta
-                    live no WhatsApp. Homologação iFood (F1.8) é ops fora do código.
+                    Sincronização manual para o cadastro Renthus (produtos + embalagem UN). Option
+                    groups/complementos viram acompanhamentos (até 2 no chatbot). Sem consulta live no
+                    WhatsApp. Homologação iFood (F1.8) é ops fora do código.
                 </p>
             </div>
 

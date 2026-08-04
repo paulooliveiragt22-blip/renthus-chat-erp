@@ -8,6 +8,7 @@ describe("ifood mock catalog", () => {
         assert.equal(snap.provider, "ifood");
         assert.equal(snap.merchantId, "merchant-1");
         assert.ok(snap.items.length >= 3);
-        assert.ok(snap.items.every((i) => i.price > 0 && i.name && i.externalItemId));
+        assert.ok(snap.items.every((i) => i.price >= 0 && i.name && i.externalItemId));
+        assert.ok(snap.items.some((i) => i.externalItemId === "mock-item-combo-burger"));
     });
 });
