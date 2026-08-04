@@ -104,7 +104,7 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 
 | # | Item | Estado | Notas |
 |---|------|--------|-------|
-| F4.1 | Cron sync opcional (1–6h) se conexão ativa | [x] | 2026-08-04 — `/api/marketplace/sync-catalog` + toggle UI |
+| F4.1 | Cron sync opcional (1–6h) se conexão ativa | [x] | 2026-08-04 — job Vercel diário (`0 4 * * *`; Hobby não aceita horário); intervalo 1–6h no código se Pro/externo |
 | F4.2 | Painel analytics (visitas, top produtos, origem UTM) | [x] | 2026-08-04 — RPC + Configurações → Cardápio |
 | F4.3 | Subdomínio custom / domínio próprio | [x] | 2026-08-04 — host rewrite + `custom_domain`; ops: wildcard/CNAME Vercel |
 | F4.4 | Complementos/opcionais iFood → acompanhamentos | [x] | 2026-08-04 — optionGroups→produtos + link ≤2; metadata no map |

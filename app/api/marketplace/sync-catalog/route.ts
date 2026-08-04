@@ -1,6 +1,7 @@
 /**
  * Cron F4.1: sync automático de catálogo marketplace (iFood / Aiqfome).
- * Vercel: a cada hora; cada conexão respeita sync_interval_hours (1–6).
+ * Vercel Hobby: 1x/dia (`0 4 * * *` em vercel.json). Pro/externo pode chamar
+ * com mais frequência; cada conexão respeita sync_interval_hours (1–6).
  */
 
 import { NextResponse } from "next/server";
