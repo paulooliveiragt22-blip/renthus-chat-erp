@@ -2,7 +2,8 @@
  * POST /api/products/upload-image
  *
  * Upload e otimização de imagem de produto.
- * Form fields: product_id (string), file (File), is_primary ("true"|"false")
+ * Form fields: product_id (string), file (File), is_primary ("true"|"false"),
+ *              product_volume_id (string, opcional — imagem por embalagem/volume)
  *
  * Processa:
  *   - Redimensiona para 800x800 max (JPEG 80%)
@@ -12,7 +13,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { assertUploadAllowed } from "@/lib/security/uploadGuards";
 import sharp from "sharp";
@@ -35,7 +35,10 @@ export async function POST(request: NextRequest) {
 
   const productId = formData.get("product_id") as string | null;
   const file      = formData.get("file") as File | null;
-  const isPrimary = formData.get("is_primary") === "true";
+  const isPrimary = formData.get("is_primary") !== "false";
+  const volumeRaw = formData.get("product_volume_id");
+  const productVolumeId =
+    typeof volumeRaw === "string" && volumeRaw.trim() ? volumeRaw.trim() : null;
 
   if (!productId || !file) {
     return NextResponse.json({ error: "product_id and file required" }, { status: 400 });
@@ -58,6 +61,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "product not found" }, { status: 404 });
   }
 
+  if (productVolumeId) {
+    const { data: vol } = await admin
+      .from("product_volumes")
+      .select("id")
+      .eq("id", productVolumeId)
+      .eq("product_id", productId)
+      .maybeSingle();
+    if (!vol) {
+      return NextResponse.json({ error: "product_volume_not_found" }, { status: 404 });
+    }
+  }
+
   // Converte para buffer
   const arrayBuffer = await file.arrayBuffer();
   const buffer      = Buffer.from(arrayBuffer);
@@ -74,9 +89,12 @@ export async function POST(request: NextRequest) {
     .jpeg({ quality: 70 })
     .toBuffer();
 
-  const ts           = Date.now();
-  const mainFilename = `${productId}/${ts}.jpg`;
-  const thumbFilename = `${productId}/${ts}_thumb.jpg`;
+  const ts = Date.now();
+  const folder = productVolumeId
+    ? `${ctx.companyId}/${productId}/${productVolumeId}`
+    : `${ctx.companyId}/${productId}`;
+  const mainFilename = `${folder}/${ts}.jpg`;
+  const thumbFilename = `${folder}/${ts}_thumb.jpg`;
 
   // Upload imagem principal
   const { error: uploadErr } = await admin.storage
@@ -109,16 +127,29 @@ export async function POST(request: NextRequest) {
     .from("product-images")
     .getPublicUrl(thumbFilename);
 
+  // Nova upload vira principal no mesmo escopo (produto ou volume).
+  if (isPrimary) {
+    let demote = admin
+      .from("product_images")
+      .update({ is_primary: false })
+      .eq("product_id", productId);
+    demote = productVolumeId
+      ? demote.eq("product_volume_id", productVolumeId)
+      : demote.is("product_volume_id", null);
+    await demote;
+  }
+
   // Salva no banco
   const { data: imageRecord, error: dbErr } = await admin
     .from("product_images")
     .insert({
-      product_id:    productId,
-      url:           publicUrl,
-      thumbnail_url: thumbUrl,
-      is_primary:    isPrimary,
-      file_size:     optimized.length,
-      uploaded_by:   userId,
+      product_id:         productId,
+      product_volume_id:  productVolumeId,
+      url:                publicUrl,
+      thumbnail_url:      thumbUrl,
+      is_primary:         isPrimary,
+      file_size:          optimized.length,
+      uploaded_by:        userId,
     })
     .select("id")
     .single();
@@ -130,10 +161,12 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     success: true,
     image: {
-      id:            imageRecord.id,
-      url:           publicUrl,
-      thumbnail_url: thumbUrl,
-      file_size:     optimized.length,
+      id:                imageRecord.id,
+      url:               publicUrl,
+      thumbnail_url:     thumbUrl,
+      file_size:         optimized.length,
+      product_volume_id: productVolumeId,
+      is_primary:        isPrimary,
     },
   });
 }

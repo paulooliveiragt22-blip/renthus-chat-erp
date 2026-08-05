@@ -324,6 +324,16 @@ export function parseHighValueConfirmPolicy(config: Record<string, unknown> | nu
     return { enabled: enabled && amountBrl > 0, amountBrl };
 }
 
+/** Mensagem PT-BR pedindo segunda confirmação quando o pedido passa o limiar da loja. */
+export function buildHighValueConfirmMessage(itemsTotal: number, amountBrl: number): string {
+    const totalLabel = itemsTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const limLabel = amountBrl.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    return (
+        `Este pedido totaliza *${totalLabel}* (acima de ${limLabel}).\n\n` +
+        `Para confirmar o valor alto, toque *Confirmar* de novo ou digite *CONFIRMAR*.`
+    );
+}
+
 type AnthropicUsageLike = {
     input_tokens?: number | null;
     output_tokens?: number | null;

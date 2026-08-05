@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data, error } = await admin
         .from("product_images")
-        .select("id, url, thumbnail_url, is_primary, file_size, created_at")
+        .select("id, url, thumbnail_url, is_primary, file_size, created_at, product_volume_id")
         .eq("product_id", productId)
         .order("is_primary", { ascending: false })
         .order("created_at", { ascending: true });
@@ -75,6 +75,26 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const imageId = String(req.nextUrl.searchParams.get("image_id") ?? "").trim();
     if (!imageId) return NextResponse.json({ error: "image_id_required" }, { status: 400 });
+
+    const { data: img, error: fetchErr } = await admin
+        .from("product_images")
+        .select("id, url, thumbnail_url")
+        .eq("id", imageId)
+        .eq("product_id", productId)
+        .maybeSingle();
+    if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+    if (!img) return NextResponse.json({ error: "image_not_found" }, { status: 404 });
+
+    const storagePaths: string[] = [];
+    for (const u of [img.url, img.thumbnail_url]) {
+        if (!u || typeof u !== "string") continue;
+        const marker = "/product-images/";
+        const idx = u.indexOf(marker);
+        if (idx >= 0) storagePaths.push(u.slice(idx + marker.length));
+    }
+    if (storagePaths.length) {
+        await admin.storage.from("product-images").remove(storagePaths);
+    }
 
     const { error } = await admin.from("product_images").delete().eq("id", imageId).eq("product_id", productId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

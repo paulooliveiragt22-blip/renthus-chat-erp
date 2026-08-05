@@ -112,11 +112,7 @@ export async function orderStage(params: {
         itemsTotal >= highValuePolicy.amountBrl &&
         state.highValueAcknowledged !== true
     ) {
-        const totalLabel = itemsTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        const limLabel = highValuePolicy.amountBrl.toLocaleString("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-        });
+        const { buildHighValueConfirmMessage } = await import("@/lib/billing/aiWallet");
         logger?.info("pro_pipeline.order_stage_gate", {
             outcome: "gate_high_value",
             companyId: tenant.companyId,
@@ -126,9 +122,7 @@ export async function orderStage(params: {
         });
         return {
             state: { ...state, highValueAcknowledged: true },
-            outboundText:
-                `Este pedido totaliza *${totalLabel}* (acima de ${limLabel}).\n\n` +
-                `Para confirmar o valor alto, toque *Confirmar* de novo ou digite *CONFIRMAR*.`,
+            outboundText: buildHighValueConfirmMessage(itemsTotal, highValuePolicy.amountBrl),
             outcome: "gate_high_value",
         };
     }

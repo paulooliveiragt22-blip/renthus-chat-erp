@@ -19,6 +19,10 @@ import { prepareOrderDraftFromTool, type PrepareDraftToolInput } from "./prepare
 import { runSearchProdutos } from "./searchProdutos";
 import { buildOrderHintsPayload } from "./orderHints";
 import { shouldIncrementProMisunderstandingStreak } from "./orderProgressHeuristic";
+import {
+    buildHighValueConfirmMessage,
+    parseHighValueConfirmPolicy,
+} from "@/lib/billing/aiWallet";
 
 const MAX_MISUNDERSTANDING = 4;
 const MAX_TOOL_ROUNDS      = 12;
@@ -412,12 +416,58 @@ export async function handleProOrderIntent(params: {
                     pro_anthropic_messages:      [],
                     pro_misunderstanding_streak: 0,
                     pro_escalation_tier:         0,
+                    high_value_acknowledged:     undefined,
                 },
             });
             await botReply(admin, companyId, threadId, phoneE164, "Tudo bem — cancelei esse pedido. Quando quiser, é só dizer o que precisa. 😊");
             return;
         }
         if (isPortugueseOrderConfirmation(input)) {
+            // Mesmo gate do PRO V2 (`orderStage`): 1ª confirmação só reconhece valor alto.
+            const { data: botRow } = await admin
+                .from("chatbots")
+                .select("config")
+                .eq("company_id", companyId)
+                .eq("is_active", true)
+                .limit(1)
+                .maybeSingle();
+            const highValuePolicy = parseHighValueConfirmPolicy(
+                (botRow?.config as Record<string, unknown> | null) ?? null
+            );
+            const itemsTotal = draftExisting.items.reduce(
+                (acc, item) => acc + item.quantity * item.unit_price,
+                0
+            );
+            const alreadyAcked = session.context.high_value_acknowledged === true;
+            if (
+                highValuePolicy.enabled &&
+                itemsTotal >= highValuePolicy.amountBrl &&
+                !alreadyAcked
+            ) {
+                await saveSession(admin, threadId, companyId, {
+                    context: {
+                        ...session.context,
+                        high_value_acknowledged: true,
+                    },
+                });
+                session.context = { ...session.context, high_value_acknowledged: true };
+                const msg = buildHighValueConfirmMessage(itemsTotal, highValuePolicy.amountBrl);
+                if (waConfig) {
+                    await sendInteractiveButtons(
+                        phoneE164,
+                        msg,
+                        [
+                            { id: "confirmar_pedido", title: "Confirmar" },
+                            { id: "cancelar_pedido", title: "Cancelar" },
+                        ],
+                        waConfig
+                    );
+                } else {
+                    await botReply(admin, companyId, threadId, phoneE164, msg);
+                }
+                return;
+            }
+
             const placed = await tryFinalizeAiOrderFromDraft({
                 admin,
                 companyId,
@@ -434,6 +484,7 @@ export async function handleProOrderIntent(params: {
                         pro_anthropic_messages:      [],
                         pro_misunderstanding_streak: 0,
                         pro_escalation_tier:         0,
+                        high_value_acknowledged:     undefined,
                     },
                 });
                 await botReply(admin, companyId, threadId, phoneE164, placed.customerMessage);

@@ -44,6 +44,23 @@ const CONFIRM_PHRASES = [
     "fecha aí",
 ];
 
+/** IDs de botão WhatsApp (incoming usa `button_reply.id` como texto). */
+const CONFIRM_BUTTON_IDS = new Set([
+    "confirmar",
+    "confirmar_pedido",
+    "confirm_order",
+    "pro_confirm_order",
+    "btn_confirm_order",
+    "btn_confirmar",
+]);
+
+const REJECT_BUTTON_IDS = new Set([
+    "cancelar",
+    "cancelar_pedido",
+    "btn_cancel",
+    "btn_cancelar",
+]);
+
 const NEGATION_PHRASES = [
     "nao",
     "não",
@@ -65,6 +82,8 @@ const NEGATION_PHRASES = [
 export function isPortugueseOrderConfirmation(text: string): boolean {
     const n = normalize(text);
     if (n.length < 2 || n.length > 120) return false;
+    if (CONFIRM_BUTTON_IDS.has(n)) return true;
+    if (REJECT_BUTTON_IDS.has(n)) return false;
     if (NEGATION_PHRASES.some((p) => n.includes(normalize(p)))) return false;
     return CONFIRM_PHRASES.some((p) => n.includes(normalize(p)));
 }
@@ -72,5 +91,6 @@ export function isPortugueseOrderConfirmation(text: string): boolean {
 export function isPortugueseOrderRejection(text: string): boolean {
     const n = normalize(text);
     if (n.length < 2 || n.length > 120) return false;
+    if (REJECT_BUTTON_IDS.has(n)) return true;
     return NEGATION_PHRASES.some((p) => n.includes(normalize(p)));
 }

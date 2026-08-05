@@ -453,41 +453,46 @@ export default function ProdutosListaPage() {
     useEffect(() => { load(); }, [companyId]);
 
     async function loadProductImages(productId: string) {
-        const { data } = await supabase
-            .from("product_images")
-            .select("id, url, thumbnail_url, is_primary, product_volume_id")
-            .eq("product_id", productId)
-            .order("is_primary", { ascending: false });
-        setEditImages(((data ?? []) as ProductImage[]));
+        try {
+            const res = await fetch(`/api/admin/products/${productId}/images`, {
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setEditImages([]);
+                return;
+            }
+            setEditImages(
+                ((json.images ?? []) as Array<ProductImage & { product_volume_id?: string | null }>).map(
+                    (img) => ({
+                        id: img.id,
+                        url: img.url,
+                        thumbnail_url: img.thumbnail_url ?? null,
+                        is_primary: Boolean(img.is_primary),
+                        product_volume_id: img.product_volume_id ?? null,
+                    })
+                )
+            );
+        } catch {
+            setEditImages([]);
+        }
     }
 
     async function uploadProductImage(productId: string, file: File, volumeId?: string | null) {
         setImageUploading(true);
         try {
-            const ext  = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-            const folder = volumeId ? `${companyId}/${productId}/${volumeId}` : `${companyId}/${productId}`;
-            const path = `${folder}/${Date.now()}.${ext}`;
-            const { error: upErr } = await supabase.storage
-                .from("product-images")
-                .upload(path, file, { upsert: false });
-            if (upErr) throw new Error(upErr.message);
-            const { data: urlData } = supabase.storage.from("product-images").getPublicUrl(path);
-            const publicUrl = urlData.publicUrl;
-            // Set current images with the same scope (same volume or product-level) as non-primary
-            const updateQuery = supabase.from("product_images").update({ is_primary: false }).eq("product_id", productId);
-            if (volumeId) {
-                await updateQuery.eq("product_volume_id", volumeId);
-            } else {
-                await updateQuery.is("product_volume_id", null);
-            }
-            await supabase.from("product_images").insert({
-                product_id:        productId,
-                product_volume_id: volumeId ?? null,
-                url:               publicUrl,
-                thumbnail_url:     publicUrl,
-                is_primary:        true,
-                file_size:         file.size,
+            const formData = new FormData();
+            formData.append("product_id", productId);
+            formData.append("file", file);
+            formData.append("is_primary", "true");
+            if (volumeId) formData.append("product_volume_id", volumeId);
+            const res = await fetch("/api/products/upload-image", {
+                method: "POST",
+                body: formData,
+                credentials: "include",
             });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(String(json?.error ?? "upload_failed"));
             await loadProductImages(productId);
             setMsg("✓ Imagem salva.");
         } catch (e: any) {
@@ -500,13 +505,17 @@ export default function ProdutosListaPage() {
     }
 
     async function deleteProductImage(imageId: string, productId: string) {
-        const img = editImages.find((i) => i.id === imageId);
-        if (img) {
-            const storagePath = img.url.split("/product-images/")[1];
-            if (storagePath) await supabase.storage.from("product-images").remove([storagePath]);
+        try {
+            const res = await fetch(
+                `/api/admin/products/${productId}/images?image_id=${encodeURIComponent(imageId)}`,
+                { method: "DELETE", credentials: "include" }
+            );
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(String(json?.error ?? "delete_failed"));
+            await loadProductImages(productId);
+        } catch (e: any) {
+            setMsg(`Erro ao remover imagem: ${String(e?.message ?? e)}`);
         }
-        await supabase.from("product_images").delete().eq("id", imageId);
-        await loadProductImages(productId);
     }
 
     async function searchProductsByName(q: string) {
