@@ -178,14 +178,19 @@ export type PagarmeCustomer = {
     email: string;
 };
 
+export type PagarmePixTransaction = {
+    qr_code?: string;
+    qr_code_url?: string;
+    pdf?: string;
+    /** Algumas respostas usam camelCase alternativo */
+    qrCode?: string;
+    qrCodeUrl?: string;
+};
+
 export type PagarmeCharge = {
     id: string;
     status: string;
-    last_transaction?: {
-        qr_code?: string;
-        qr_code_url?: string;
-        pdf?: string;
-    };
+    last_transaction?: PagarmePixTransaction;
 };
 
 export type PagarmeCheckout = {
@@ -429,28 +434,136 @@ export async function createPixInvoiceOrder(params: {
 export function isPixEmvPayload(raw: string): boolean {
     const s = raw.trim();
     if (!s || s.startsWith("http://") || s.startsWith("https://")) return false;
-    // Payload BR Code começa com 000201…
+    // Docs Pagar.me: BR Code começa com 000201…
     if (s.startsWith("000201")) return true;
     // Fallback: string longa sem URL
     return s.length >= 40 && !s.includes("://");
 }
 
+function pixTxFromCharge(charge: PagarmeCharge | undefined): PagarmePixTransaction | undefined {
+    return charge?.last_transaction;
+}
+
+function extractPixCodeFromTx(tx: PagarmePixTransaction | undefined): string | null {
+    if (!tx) return null;
+    const candidates = [tx.qr_code, tx.qrCode];
+    for (const raw of candidates) {
+        if (typeof raw === "string" && isPixEmvPayload(raw)) return raw.trim();
+    }
+    return null;
+}
+
+function extractPixUrlFromTx(tx: PagarmePixTransaction | undefined): string | null {
+    if (!tx) return null;
+    for (const raw of [tx.qr_code_url, tx.qrCodeUrl, tx.pdf]) {
+        if (typeof raw === "string" && raw.startsWith("http")) return raw;
+    }
+    // Mundipagg às vezes coloca a URL da página em `qr_code` (não é o EMV).
+    for (const raw of [tx.qr_code, tx.qrCode]) {
+        if (typeof raw === "string" && raw.startsWith("http")) return raw.trim();
+    }
+    return null;
+}
+
+/** Busca profunda por string EMV `000201…` no JSON da cobrança/pedido. */
+function findEmvInUnknown(node: unknown, depth = 0): string | null {
+    if (depth > 6 || node == null) return null;
+    if (typeof node === "string") {
+        return isPixEmvPayload(node) ? node.trim() : null;
+    }
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const hit = findEmvInUnknown(item, depth + 1);
+            if (hit) return hit;
+        }
+        return null;
+    }
+    if (typeof node === "object") {
+        for (const v of Object.values(node as Record<string, unknown>)) {
+            const hit = findEmvInUnknown(v, depth + 1);
+            if (hit) return hit;
+        }
+    }
+    return null;
+}
+
 /** Extrai URL de pagamento PIX (imagem QR ou página) do order do Pagar.me */
 export function extractPixUrl(order: PagarmeOrder): string | null {
-    const tx = order.charges?.[0]?.last_transaction;
-    const url = tx?.qr_code_url ?? tx?.pdf ?? null;
-    if (typeof url === "string" && url.startsWith("http")) return url;
-    // Em alguns ambientes o Pagar.me/Mundipagg coloca a URL em `qr_code`
-    const maybeUrl = typeof tx?.qr_code === "string" ? tx.qr_code.trim() : "";
-    if (maybeUrl.startsWith("http")) return maybeUrl;
-    return null;
+    return extractPixUrlFromTx(pixTxFromCharge(order.charges?.[0]));
 }
 
 /** Extrai código PIX copia-e-cola (EMV). Ignora URLs. */
 export function extractPixCode(order: PagarmeOrder): string | null {
-    const raw = order.charges?.[0]?.last_transaction?.qr_code;
-    if (typeof raw !== "string" || !raw.trim()) return null;
-    return isPixEmvPayload(raw) ? raw.trim() : null;
+    const fromTx = extractPixCodeFromTx(pixTxFromCharge(order.charges?.[0]));
+    if (fromTx) return fromTx;
+    return findEmvInUnknown(order.charges?.[0] ?? order);
+}
+
+export async function getPagarmeOrder(orderId: string): Promise<PagarmeOrder> {
+    return pagarmeRequest<PagarmeOrder>(`/orders/${encodeURIComponent(orderId)}`, "GET");
+}
+
+export async function getPagarmeCharge(chargeId: string): Promise<PagarmeCharge> {
+    return pagarmeRequest<PagarmeCharge>(`/charges/${encodeURIComponent(chargeId)}`, "GET");
+}
+
+/**
+ * Resolve QR + copia-e-cola conforme docs Pagar.me v5:
+ * - `last_transaction.qr_code` = EMV (copia e cola)
+ * - `last_transaction.qr_code_url` = imagem do QR
+ * Se o create só devolver URL Mundipagg, refetch GET /orders/{id} e GET /charges/{id}.
+ */
+export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
+    order: PagarmeOrder;
+    pixCode: string | null;
+    pixUrl: string | null;
+}> {
+    let current = order;
+    let pixCode = extractPixCode(current);
+    let pixUrl = extractPixUrl(current);
+
+    if (!pixCode && current.id) {
+        try {
+            current = await getPagarmeOrder(current.id);
+            pixCode = extractPixCode(current) ?? pixCode;
+            pixUrl = extractPixUrl(current) ?? pixUrl;
+        } catch (e) {
+            console.warn("[pagarme] get order for PIX EMV failed:", e);
+        }
+    }
+
+    const chargeId = current.charges?.[0]?.id;
+    if (!pixCode && chargeId) {
+        try {
+            const charge = await getPagarmeCharge(chargeId);
+            pixCode = extractPixCodeFromTx(charge.last_transaction) ?? findEmvInUnknown(charge);
+            pixUrl = extractPixUrlFromTx(charge.last_transaction) ?? pixUrl;
+            if (pixCode || charge.last_transaction) {
+                current = {
+                    ...current,
+                    charges: [
+                        {
+                            ...(current.charges?.[0] ?? { id: chargeId, status: charge.status }),
+                            ...charge,
+                            last_transaction: charge.last_transaction,
+                        },
+                    ],
+                };
+            }
+        } catch (e) {
+            console.warn("[pagarme] get charge for PIX EMV failed:", e);
+        }
+    }
+
+    if (!pixCode) {
+        console.warn("[pagarme] PIX sem EMV (copia e cola). order=", current.id, {
+            charge: current.charges?.[0]?.id,
+            qr_code_sample: String(current.charges?.[0]?.last_transaction?.qr_code ?? "").slice(0, 80),
+            qr_code_url: current.charges?.[0]?.last_transaction?.qr_code_url ?? null,
+        });
+    }
+
+    return { order: current, pixCode, pixUrl };
 }
 
 /** Verifica assinatura HMAC-SHA256 do webhook do Pagar.me */

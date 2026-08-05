@@ -8,8 +8,7 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import {
     createPixInvoiceOrder,
-    extractPixCode,
-    extractPixUrl,
+    resolvePixFromOrder,
     centsToBRL,
 } from "@/lib/billing/pagarme";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
@@ -71,12 +70,14 @@ export async function POST(req: Request) {
                 null,
             cnpj: (company.cnpj as string | null) ?? null,
         });
-        const order = await createPixInvoiceOrder({
+        const created = await createPixInvoiceOrder({
             amountCents: packCents,
             description,
             itemCode: `ai_pack_${packCents}`,
             expiresInSeconds: 3600,
             customerId,
+            // Docs PIX: customer com name/email/document/phones; se só customer_id,
+            // ainda assim resolvePixFromOrder refetch GET /orders e /charges.
             customer: customerId ? undefined : customerPayload,
             metadata: {
                 type: "ai_pack",
@@ -85,16 +86,24 @@ export async function POST(req: Request) {
             },
         });
 
-        const pixCode = extractPixCode(order);
-        const pixUrl = extractPixUrl(order);
+        const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
+
+        if (!pixCode && !pixUrl) {
+            return NextResponse.json(
+                { error: "pix_payload_missing", orderId: order.id },
+                { status: 502 }
+            );
+        }
 
         return NextResponse.json({
             ok: true,
             orderId: order.id,
             amountBrl: brl,
             packCents,
+            // Docs: qr_code = EMV copia-e-cola; qr_code_url = imagem
             pixQrCode: pixCode,
             pixUrl,
+            hasCopyPaste: Boolean(pixCode),
         });
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

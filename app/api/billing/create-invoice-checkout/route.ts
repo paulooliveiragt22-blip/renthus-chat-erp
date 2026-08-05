@@ -12,8 +12,7 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import {
     createPixInvoiceOrder,
     createSetupOrder,
-    extractPixCode,
-    extractPixUrl,
+    resolvePixFromOrder,
     extractOrderCustomerId,
     getMonthlyPriceCents,
     getSetupPriceCents,
@@ -353,7 +352,7 @@ export async function POST(req: Request) {
             || (company.name as string | null)?.trim()
             || "Renthus";
 
-        const order = await createPixInvoiceOrder({
+        const created = await createPixInvoiceOrder({
             amountCents,
             description: isFirstPayment
                 ? `Taxa de ativação Renthus — Plano ${planLabel}`
@@ -368,8 +367,7 @@ export async function POST(req: Request) {
             metadata: orderMeta,
         });
 
-        const pixUrl  = extractPixUrl(order);
-        const pixCode = extractPixCode(order);
+        const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
 
         if (!pixCode && !pixUrl) {
             return NextResponse.json({ error: "Erro ao gerar PIX" }, { status: 500 });

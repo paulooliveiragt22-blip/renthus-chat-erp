@@ -18,8 +18,7 @@ import {
     getMonthlyPriceCents,
     getSetupPriceCents,
     centsToBRL,
-    extractPixUrl,
-    extractPixCode,
+    resolvePixFromOrder,
 } from "@/lib/billing/pagarme";
 import {
     sendBillingNotification,
@@ -192,7 +191,7 @@ async function generateSetupCharge(
     const amountCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
     const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
-    const order = await createPixInvoiceOrder({
+    const created = await createPixInvoiceOrder({
         amountCents,
         description: `Taxa de ativação Renthus — Plano ${sub.plan}`,
         itemCode:    "setup",
@@ -210,8 +209,7 @@ async function generateSetupCharge(
         },
     });
 
-    const pixUrl  = extractPixUrl(order);
-    const pixCode = extractPixCode(order);
+    const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
 
     await admin.from("setup_payments").insert({
         company_id:          sub.company_id,
@@ -259,7 +257,7 @@ async function generateMonthlyInvoice(
     const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
     const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
-    const order = await createPixInvoiceOrder({
+    const created = await createPixInvoiceOrder({
         amountCents,
         description: `Mensalidade Renthus — Plano ${sub.plan}`,
         customerId:  sub.pagarme_customer_id ?? undefined,
@@ -276,8 +274,7 @@ async function generateMonthlyInvoice(
         },
     });
 
-    const pixUrl  = extractPixUrl(order);
-    const pixCode = extractPixCode(order);
+    const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
 
     await admin.from("invoices").insert({
         company_id:          sub.company_id,

@@ -64,4 +64,24 @@ describe("PIX extract (Pagar.me)", () => {
         assert.equal(extractPixCode(urlOnly), null);
         assert.equal(extractPixUrl(urlOnly), "https://digital.mundipagg.com/pix/only");
     });
+
+    it("extractPixCode acha EMV aninhado quando qr_code é URL Mundipagg", () => {
+        const emv = "00020126580014br.gov.bcb.pix0136nested-emv-payload-ok";
+        const order = {
+            id: "o4",
+            status: "pending",
+            charges: [
+                {
+                    id: "c4",
+                    status: "pending",
+                    last_transaction: {
+                        qr_code: "https://digital.mundipagg.com/pix/xyz",
+                        qr_code_url: "https://digital.mundipagg.com/pix/xyz.png",
+                        gateway_response: { emv },
+                    },
+                },
+            ],
+        } as unknown as PagarmeOrder;
+        assert.equal(extractPixCode(order), emv);
+    });
 });
