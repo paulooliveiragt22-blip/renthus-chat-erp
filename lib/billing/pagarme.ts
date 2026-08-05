@@ -512,12 +512,15 @@ export async function getPagarmeCharge(chargeId: string): Promise<PagarmeCharge>
  * - `last_transaction.qr_code` = EMV (copia e cola)
  * - `last_transaction.qr_code_url` = imagem do QR
  * Se o create só devolver URL Mundipagg, refetch GET /orders/{id} e GET /charges/{id}.
+ * Fallback: decodifica o QR da imagem/página (Mundipagg às vezes omite o EMV no JSON).
  */
 export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
     order: PagarmeOrder;
     pixCode: string | null;
     pixUrl: string | null;
 }> {
+    const { recoverPixEmvFromUrl } = await import("@/lib/billing/decodePixQrFromUrl");
+
     let current = order;
     let pixCode = extractPixCode(current);
     let pixUrl = extractPixUrl(current);
@@ -552,6 +555,22 @@ export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
             }
         } catch (e) {
             console.warn("[pagarme] get charge for PIX EMV failed:", e);
+        }
+    }
+
+    if (!pixCode) {
+        const urls = new Set<string>();
+        if (pixUrl) urls.add(pixUrl);
+        const tx = current.charges?.[0]?.last_transaction;
+        for (const raw of [tx?.qr_code_url, tx?.qrCodeUrl, tx?.qr_code, tx?.qrCode, tx?.pdf]) {
+            if (typeof raw === "string" && raw.startsWith("http")) urls.add(raw);
+        }
+        for (const url of urls) {
+            const recovered = await recoverPixEmvFromUrl(url);
+            if (recovered) {
+                pixCode = recovered;
+                break;
+            }
         }
     }
 
