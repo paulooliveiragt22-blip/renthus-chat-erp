@@ -11,14 +11,14 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 | P0.2 | **Claim não-atómico desligado em produção** — nunca `runFallbackProcessing` com `NODE_ENV=production` | [x] | `process-queue/route.ts`: `ALLOW_CLAIM_FALLBACK = NODE_ENV !== "production"` (não há env `CHATBOT_QUEUE_ALLOW_CLAIM_FALLBACK`) |
 | P0.3 | **Worker:** em produção, falhar job se não existir canal Meta activo para `company_id` (sem token global como substituto) | [x] | `processJob` em `process-queue/route.ts` |
 | P0.4a | `active` + exceção do V2: **bloquear** legado de pedido; `botReply` com texto fixo PT-BR | [x] | `lib/chatbot/processMessage.ts` |
-| P0.4b | Sincronizar `ai_order_canonical` ↔ `__pro_v2_state` em cenários híbridos restantes (se existirem) | [ ] | Só se métrica/bug justificar |
+| P0.4b | Sync legado ↔ V2 | [x] | N/A — motor PRO legado removido; estado só `__pro_v2_state` |
 
 ## P1 — Operação e carga
 
 | # | Item | Estado | Notas |
 |---|------|--------|--------|
-| P1.1 | PRO em produção: `CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIPELINE_V2_MODE=active`; **shadow em prod** → log de erro explícito | [x] | `lib/chatbot/processMessage.ts` |
-| P1.2 | Limite **in-flight** + resiliência 429 Anthropic (por instância) | [x] | `anthropicInFlightGate.ts` + `anthropicResilience.ts` (retry/circuit); hot paths: PRO V2, intent (legado+PRO), FAQ, `handleProOrderIntent`. Env: `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT`, `ANTHROPIC_CIRCUIT_OPEN_MS` |
+| P1.1 | PRO = sempre `runProPipeline` (flags shadow/`CHATBOT_PRO_PIPELINE_V2*` removidas) | [x] | `lib/chatbot/processMessage.ts` |
+| P1.2 | Limite **in-flight** + resiliência 429 Anthropic (por instância) | [x] | `anthropicInFlightGate.ts` + `anthropicResilience.ts`; hot paths: PRO V2, intent, FAQ. Env: `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT`, `ANTHROPIC_CIRCUIT_OPEN_MS` |
 | P1.3 | Fairness por `company_id` no claim / pré-IA | [x] | Interleave no batch + **claim SQL** `max_per_company` + skip thread `processing` (`20260805100000_claim_chatbot_queue_jobs_fair_company.sql`) |
 | P1.4 | Evidências `CHATBOT_PROD.md` (p95 webhook, replay `message_id`, runbook) | [ ] | Método + tabela: [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md) — marcar `[x]` aqui e nos checkboxes do `CHATBOT_PROD.md` **só** após colher dados reais |
 

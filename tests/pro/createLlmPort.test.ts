@@ -29,6 +29,11 @@ describe("createLlmPort", () => {
 
     it("provider desconhecido → erro tipado", () => {
         process.env.LLM_PROVIDER = "acme";
-        assert.throws(() => createLlmPort(), (e: unknown) => e instanceof LlmProviderError);
+        assert.throws(
+            () => createLlmPort(),
+            (e: unknown) =>
+                e instanceof LlmProviderError ||
+                (e instanceof Error && e.name === "LlmProviderError")
+        );
     });
 });

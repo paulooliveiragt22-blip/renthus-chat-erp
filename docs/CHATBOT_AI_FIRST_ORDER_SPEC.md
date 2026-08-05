@@ -1,6 +1,8 @@
 # Especificação — Pedido com IA primeiro, Flow após falhas (estrutura)
 
-Documento de desenho e **fases de implementação**. **Fase 1 + fecho de pedido (PRO)** no código: plano `pro` usa `handleProOrderIntent` com tools `search_produtos`, `get_order_hints`, `prepare_order_draft`; rascunho canónico em `context.ai_order_canonical`; confirmação PT-BR validada no servidor (`confirmationPt.ts`); criação via RPC `create_order_with_items` (`p_source`: `ai_chat_pro`); stock/preço revalidados no finalize; plano `starter` mantém o flow-first. As secções abaixo descrevem o produto alvo e alinhamento contínuo.
+> **ARQUIVO HISTÓRICO.** O motor PRO canónico é `src/pro/pipeline/runProPipeline.ts` (`p_source`: `ai_chat_pro_v2`, estado `__pro_v2_state`). `handleProOrderIntent` / `ai_order_canonical` foram removidos. Ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) e [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md).
+
+Documento de desenho original (fases). As secções abaixo **não** descrevem o código atual.
 
 ---
 

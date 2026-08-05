@@ -66,9 +66,9 @@ Cada linha: **ficheiro** — contrato / nota.
 | Ficheiro | Contratos / papel |
 |----------|-------------------|
 | [`adapters/ai/ai.service.full.ts`](../src/pro/adapters/ai/ai.service.full.ts) | Tooling / Haiku; timeouts `AiServiceResult.errorCode`. |
-| [`adapters/ai/ai.service.basic.ts`](../src/pro/adapters/ai/ai.service.basic.ts) | Variante simples / testes. |
+| ~~`adapters/ai/ai.service.basic.ts`~~ | **Removido** — só `FullAiServiceAdapter`. |
 | [`adapters/order/order.service.v2.ts`](../src/pro/adapters/order/order.service.v2.ts) | `OrderServiceResult` a partir de Supabase/RPC. |
-| [`adapters/order/order.service.legacy.ts`](../src/pro/adapters/order/order.service.legacy.ts) | Ponte legada — contrair quando V2 for único caminho. |
+| ~~`adapters/order/order.service.legacy.ts`~~ | **Removido** — só `OrderServiceV2Adapter`. |
 | [`adapters/supabase/session.repository.supabase.ts`](../src/pro/adapters/supabase/session.repository.supabase.ts) | Persistência `ProSessionState`. |
 | [`adapters/whatsapp/message.gateway.whatsapp.ts`](../src/pro/adapters/whatsapp/message.gateway.whatsapp.ts) | Dedup outbound; `OutboundMessage`. |
 | [`adapters/metrics/metrics.console.ts`](../src/pro/adapters/metrics/metrics.console.ts) | Implementação `MetricsPort`. |
@@ -282,7 +282,7 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 
 **Próximo na sequência sugerida:**
 1. **Evidências P1.4** — colher p95/replay/stress ([`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md)).
-2. **OpenAI / STT** — **feito** (`LLM_PROVIDER=openai`, Whisper no `incoming`); próximo: migrar `handleProOrderIntent` legado se ainda usado em shadow.
+2. **OpenAI / STT** — **feito**; motor PRO legado (`handleProOrderIntent` / shadow) **removido** — PRO = só V2.
 3. **Redis** teto Anthropic multi-réplica — só se 429 entre instâncias persistir (P2p.4).
 4. ADR opcional se desviar de [`CHATBOT_PROD.md`](./CHATBOT_PROD.md); manter runbook e testes de regressão ao alterar confirmação ou adapters.
 

@@ -14,8 +14,7 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - **Orquestrador PRO V2 (já no código):** saudação com botões (`routeStage`), checkout com botões / troco (`runProPipeline` + `checkoutPostProcess`) e **slots de passo** (`orderSlotStep` — ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md); decisão de produto em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) secção *Order Finalization Orchestrator*).
 
 ## Pré-requisitos obrigatórios
-- `CHATBOT_PRO_PIPELINE_V2=1`
-- `CHATBOT_PRO_PIPELINE_V2_MODE=active`
+- Empresa com plano/crédito que resolva `tier === "pro"` (motor = `runProPipeline`, sem flags V2)
 - `CHATBOT_QUEUE_ENABLED=1`
 - `CRON_SECRET` configurado
 - `ANTHROPIC_API_KEY` válido
@@ -182,11 +181,9 @@ Reutilizar o procedimento canónico em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md#com
 
 ## Rollback mínimo
 Se qualquer critério NO-GO ocorrer:
-1. Trocar `CHATBOT_PRO_PIPELINE_V2_MODE=shadow` imediatamente.
-2. Se necessário, desativar fila assíncrona:
-   - `CHATBOT_QUEUE_ENABLED=0`
-3. Manter coleta de logs por 30 min.
-4. Abrir correção e só voltar para `active` após novo smoke completo.
+1. Se necessário, desativar fila assíncrona: `CHATBOT_QUEUE_ENABLED=0` (dev/local; não é o alvo de produção).
+2. Manter coleta de logs por 30 min.
+3. Corrigir o V2 e repetir smoke — não há modo shadow nem motor PRO legado.
 
 ## Consultas rápidas sugeridas (opcional)
 - Fila pendente:

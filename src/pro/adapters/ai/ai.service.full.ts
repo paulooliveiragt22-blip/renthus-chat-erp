@@ -785,8 +785,10 @@ export class FullAiServiceAdapter implements AiService {
             }
 
             const text = response.content
-                .filter((b) => b.type === "text")
-                .map((b) => b.text)
+                .filter((b): b is { type: "text"; text: string } =>
+                    Boolean(b && typeof b === "object" && (b as { type?: string }).type === "text")
+                )
+                .map((b) => String(b.text ?? ""))
                 .join("\n")
                 .trim();
 

@@ -123,7 +123,7 @@ function diagramIngressWorker() {
         box(980, 180, 260, 72, "processInboundMessage", "lib/chatbot/processMessage.ts") +
         arrow(560, 216, 700, 216) +
         arrow(920, 216, 980, 216) +
-        box(700, 300, 540, 88, "Proximo: tier PRO + runProPipeline", "CHATBOT_PRO_PIPELINE_V2=1");
+        box(700, 300, 540, 88, "Proximo: tier PRO + runProPipeline", "sem flags — sempre V2");
     return svgFrame(inner);
 }
 
@@ -299,7 +299,7 @@ async function main() {
     await addDiagramPage(
         doc,
         "Figura 2 — Ramo PRO vs legado",
-        "processMessage.ts: se plano PRO e CHATBOT_PRO_PIPELINE_V2=1 corre deps.factory + runProPipeline; senao inboundPipeline.",
+        "processMessage.ts: se plano PRO corre deps.factory + runProPipeline; senao inboundPipeline (Starter).",
         diagramTierBranch()
     );
 

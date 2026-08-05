@@ -1,12 +1,8 @@
 /**
- * Pipeline único de mensagens inbound do chatbot.
- * Ramifica por plano: Starter (flow-first actual) vs PRO (IA + tool + Flow após falhas).
+ * Pipeline Starter de mensagens inbound (flow-first / catálogo).
  *
- * **Fronteira com PRO Pipeline V2** (`lib/chatbot/processMessage.ts`):
- * - Com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO, `processInboundMessage` corre **primeiro** o V2 (`runProPipeline`).
- * - Modo **`active`**: em sucesso do V2, **não** se chama esta função na mesma mensagem (evita dupla semântica).
- * - Modo **`shadow`** (após V2 com sucesso, ou após **exceção** do V2): esta função corre na sequência (ver `CHATBOT_PROD.md`). Modo **`active`** com exceção do V2: **não** entra aqui — `processMessage.ts` envia mensagem fixa e retorna.
- * Não adicionar aqui um `return` genérico “V2 active” sem orquestração em `processInboundMessage` — quebraria o fluxo `shadow`.
+ * Plano **PRO** nunca entra aqui — `processInboundMessage` chama só `runProPipeline`.
+ * Chamadas diretas com `tier === "pro"` são rejeitadas (defesa).
  */
 
 import type { ProcessMessageParams, CompanyConfig } from "./types";
@@ -21,21 +17,19 @@ import { replyWithOrderStatus } from "./db/orders";
 import { botReply } from "./botSend";
 import { sendFlowMessage, sendInteractiveButtons } from "../whatsapp/send";
 import { clampChatbotInputForRegex, isWithinBusinessHours } from "./utils";
-import { handleProOrderIntent } from "./pro/handleProOrderIntent";
-import { handleProEscalationChoice } from "./pro/handleProEscalationChoice";
 import { offerCatalogToCustomer } from "./offerCatalog";
-import type { AiOrderCanonicalDraft } from "./pro/typesAiOrder";
-import {
-    applyChatbotMessageTemplate,
-    resolveChatbotMessageTemplates,
-} from "@/lib/chatbot/messageTemplates";
 
 export async function runInboundChatbotPipeline(
     params: ProcessMessageParams,
     tier: ChatbotProductTier
 ): Promise<void> {
-    // Orquestração V2 + legado: sempre `processInboundMessage`. Chamadas diretas a esta função
-    // ignoram o V2 (ex.: testes legados) — não é o caminho de produção com fila + PRO.
+    if (tier === "pro") {
+        console.error(
+            "[chatbot] inboundPipeline chamado com tier pro — use processInboundMessage (runProPipeline). Abortando."
+        );
+        return;
+    }
+
     const { admin, companyId, threadId, waConfig, catalogFlowId } = params;
     const input = clampChatbotInputForRegex(params.text.trim());
     if (!input) return;
@@ -84,26 +78,7 @@ export async function runInboundChatbotPipeline(
         return;
     }
 
-    if (tier === "pro" && session.step === "pro_escalation_choice" && waConfig) {
-        await handleProEscalationChoice({
-            admin,
-            companyId,
-            threadId,
-            phoneE164,
-            input,
-            session,
-            waConfig,
-            effectiveCatalogId,
-            companyName,
-            model,
-            profileName: params.profileName,
-        });
-        return;
-    }
-
-    const draftForIntent = session.context.ai_order_canonical as AiOrderCanonicalDraft | undefined;
-    const intent         = await classifyIntent(input, session.step, model, {
-        proActiveCanonicalDraft: tier === "pro" && Boolean(draftForIntent),
+    const intent = await classifyIntent(input, session.step, model, {
         admin,
         companyId,
     });
@@ -111,28 +86,11 @@ export async function runInboundChatbotPipeline(
     switch (intent) {
         case "greeting":
         case "unknown":
-            await sendWelcomeMenu(params, session, config, tier);
+            await sendWelcomeMenu(params, session, config);
             break;
 
         case "order_intent":
-            if (tier === "pro" && waConfig) {
-                await handleProOrderIntent({
-                    admin,
-                    companyId,
-                    threadId,
-                    phoneE164,
-                    input,
-                    session,
-                    effectiveCatalogId,
-                    companyName,
-                    model,
-                    waConfig,
-                    profileName: params.profileName,
-                    aiOrderModePolicy,
-                });
-            } else {
-                await starterOrderFlow(params, session, config, effectiveCatalogId, companyName);
-            }
+            await starterOrderFlow(params, session, config, effectiveCatalogId, companyName);
             break;
 
         case "status_intent":
@@ -160,7 +118,6 @@ export async function runInboundChatbotPipeline(
             await handleFAQ(params, session, config);
             break;
     }
-
 }
 
 async function starterOrderFlow(
@@ -184,15 +141,14 @@ async function starterOrderFlow(
         flowCtaLabel: "Ver Catálogo",
     });
     if (offered === "none") {
-        await sendWelcomeMenu(params, session, config, "starter");
+        await sendWelcomeMenu(params, session, config);
     }
 }
 
 async function sendWelcomeMenu(
     params: ProcessMessageParams,
     session: { step: string; context: Record<string, unknown> },
-    config: CompanyConfig,
-    tier: ChatbotProductTier
+    config: CompanyConfig
 ): Promise<void> {
     const { admin, companyId, threadId, phoneE164, waConfig } = params;
     if (!waConfig) {
@@ -201,7 +157,6 @@ async function sendWelcomeMenu(
     }
     const companyName = config.name;
     const settings    = config.settings;
-    const botCfg      = config.botConfig;
 
     if (!isWithinBusinessHours(settings)) {
         const msg = (settings?.closed_message as string) ??
@@ -224,24 +179,7 @@ async function sendWelcomeMenu(
     const isFirstMessage = session.step === "welcome";
     let greetText: string;
 
-    if (tier === "pro") {
-        const templates = resolveChatbotMessageTemplates(botCfg);
-        const hasCustomerRow = Boolean(customer?.id);
-        if (!hasCustomerRow) {
-            greetText = applyChatbotMessageTemplate(templates.msg_welcome_first, {
-                companyName,
-                customerName: null,
-            });
-        } else {
-            const nm = customer?.name ? String(customer.name).trim() : null;
-            greetText = applyChatbotMessageTemplate(templates.msg_welcome_returning, {
-                companyName,
-                customerName: nm,
-            });
-        }
-        await botReply(admin, companyId, threadId, phoneE164, greetText);
-        return;
-    } else if (!isFirstMessage) {
+    if (!isFirstMessage) {
         greetText = `Como posso te ajudar no *${companyName}*? 🍺`;
     } else if (customer?.name) {
         greetText = `Olá, *${(customer.name as string).trim()}*! 🍺\n\nComo posso te ajudar?`;
@@ -312,5 +250,4 @@ async function handleAwaitingFlow(
             "Você tem um formulário aberto. Preencha-o pelo botão acima ou diga *cancelar* para voltar. 😊"
         );
     }
-
 }

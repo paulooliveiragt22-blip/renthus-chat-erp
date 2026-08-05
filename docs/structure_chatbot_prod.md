@@ -134,9 +134,7 @@ lib/chatbot/
     handleMainMenu.ts
     handleFAQ.ts
   pro/                           ← Ramo PRO (IA, tools, pedido)
-    handleProOrderIntent.ts
-    handleProEscalationChoice.ts
-    finalizeAiOrder.ts
+    (pedido PRO: src/pro/ — handlers legado removidos)
     prepareOrderDraft.ts
     searchProdutos.ts
     catalogSearchCache.ts       ← TTL in-memory busca catálogo
@@ -144,7 +142,6 @@ lib/chatbot/
     checkoutPhasePolicy.ts      ← fase checkout + scrub de CTAs mistos
     typesAiOrder.ts
     orderHints.ts
-    orderProgressHeuristic.ts
     parseAddressLoosePt.ts
     parseQtyPt.ts
     confirmationPt.ts
@@ -229,7 +226,7 @@ tests/integration/
 | `app/superadmin/` | Dashboard operacional: fila `chatbot_queue`, falhas, dedup (`getQueueHealthStats`). |
 | `lib/superadmin/actions.ts` | Server actions do superadmin (estatísticas globais + saúde da fila). |
 | `app/api/chatbot/resolve/` | Caminho administrativo / service key para disparar o motor sem passar pelo webhook Meta. |
-| `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`); com `CHATBOT_PRO_PIPELINE_V2=1` e plano PRO corre `runProPipeline` antes do legado. **Produção:** `CHATBOT_PRO_PIPELINE_V2_MODE=active` (ver decisões operacionais em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). |
+| `lib/chatbot/processMessage.ts` | Resolve tier (`tier.ts`); plano **PRO** → `runProInbound` → `runProPipeline`; **Starter** → `inboundPipeline`. Ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md). |
 | `lib/chatbot/inboundPipeline.ts` | Orquestração legada: sessão, intents, steps Starter vs PRO, envio via `botSend` / `lib/whatsapp/send`. |
 | `src/pro/pipeline/` | Motor PRO V2: estado `ProStep`, gates de pedido, **sincronização de passo por draft** (`orderSlotStep.ts`, ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md)), métricas `pro_pipeline.*`, persistência `__pro_v2_state`; **checkout com botões** e quick actions em `runProPipeline.ts` + saudação/menu em `stages/routeStage.ts` (ver *Order Finalization Orchestrator* em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md)). |
 | `src/pro/adapters/` | IA, pedido (RPC), sessão Supabase, WhatsApp, métricas/log. |
@@ -310,7 +307,7 @@ Cruzar com checkboxes em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 
 | # | Tarefa | Onde tocar |
 |---|--------|------------|
-| 2.1 | Cap rígido de histórico / persistência mínima para tools | **Parcial:** `MAX_STORED_MESSAGES` em `handleProOrderIntent`; redesign “parar replay quando estado basta” ainda aberto |
+| 2.1 | Cap rígido de histórico / persistência mínima para tools | **Parcial:** histórico no estado V2 (`__pro_v2_state`); redesign “parar replay quando estado basta” ainda aberto |
 | 2.2 | Limite de concorrência Anthropic por instância + resiliência 429 | **Feito:** `anthropicInFlightGate` + `anthropicResilience` nos hot paths. Redis global: CHECKLIST P2p.4 |
 | 2.3 | Fairness por `company_id` no claim + interleave no batch + skip thread busy | **Feito:** `20260805100000_…` + `interleaveQueueJobsByCompany.ts` |
 | 2.4 | Refinar somente Bloco PRO de classificação/ordenação sem alterar heurísticas do Starter | `lib/chatbot/pro/*`, com alterações mínimas em `inboundPipeline.ts` |

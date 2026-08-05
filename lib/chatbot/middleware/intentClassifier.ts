@@ -9,7 +9,6 @@
  */
 
 import { clampChatbotInputForRegex, normalize } from "../utils";
-import { isPortugueseOrderConfirmation, isPortugueseOrderRejection } from "../pro/confirmationPt";
 import type { MessageIntent } from "@/src/types/contracts.legacy";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 import { extractLlmPlainText, hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
@@ -101,22 +100,7 @@ const VALID_INTENTS: MessageIntent[] = [
     "order_intent", "status_intent", "human_intent", "faq", "greeting", "unknown",
 ];
 
-/** Respostas curtas de forma de pagamento / continuação de pedido (PRO com rascunho ativo). */
-function isProPaymentOrOrderSnippet(trimmed: string): boolean {
-    const t = trimmed.trim();
-    if (t.length === 0) return false;
-    if (/^(pix|no pix|dinheiro|no dinheiro|cart[aã]o|no cart[aã]o|d[eé]bito|cr[eé]dito)\s*[!.?]*$/iu.test(t)) return true;
-    if (t.length <= 24 && /\b(pix|dinheiro|cart[aã]o|d[eé]bito|cr[eé]dito)\b/iu.test(t)) return true;
-    if (/^troco\s+(para|de)?\s*R?\$?\s*\d/iu.test(t)) return true;
-    return false;
-}
-
 export type ClassifyIntentOptions = {
-    /**
-     * Chatbot PRO com `ai_order_canonical` na sessão — não classificar "sim"/"pix"/"dinheiro" como saudação;
-     * manter `order_intent` para o Haiku continuar o pedido ou o servidor fechar após confirmação.
-     */
-    proActiveCanonicalDraft?: boolean;
     admin?: import("@supabase/supabase-js").SupabaseClient;
     companyId?: string;
 };
@@ -131,13 +115,6 @@ export async function classifyIntent(
 ): Promise<MessageIntent> {
     const trimmed = clampChatbotInputForRegex(text.trim());
     const norm    = normalize(trimmed);
-
-    if (options?.proActiveCanonicalDraft) {
-        if (isPortugueseOrderConfirmation(trimmed) || isPortugueseOrderRejection(trimmed)) {
-            return "order_intent";
-        }
-        if (isProPaymentOrOrderSnippet(trimmed)) return "order_intent";
-    }
 
     // Botões exatos do menu (string fixa, sem ambiguidade)
     if (BTN_CATALOG.has(trimmed)) return "order_intent";
@@ -164,7 +141,7 @@ export async function classifyIntent(
             maxTokens: 10,
             timeoutMs: 12_000,
             companyId: options?.companyId,
-            purpose: "legacy_intent_classifier",
+            purpose: "starter_intent_classifier",
             system: `Classify the user's WhatsApp message to a Brazilian delivery store into exactly one intent:
 - order_intent: wants to order, buy, browse products or catalog
 - status_intent: asking about order status or delivery time

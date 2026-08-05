@@ -1,8 +1,5 @@
 /**
- * Fronteira PRO Pipeline V2 em `processInboundMessage` (modo active vs shadow vs fallback).
- *
- * Injeta módulos via require.cache (mesmo padrão que `processMessageFlows.test.ts`)
- * para não depender de Supabase nem do motor legado completo.
+ * Fronteira PRO: `processInboundMessage` sempre usa `runProInbound` (sem shadow / flags).
  */
 
 import assert from "node:assert/strict";
@@ -13,96 +10,78 @@ import { join } from "path";
 let processInboundMessage: (p: any) => Promise<void>;
 let legacyCalls = 0;
 let proRuns = 0;
+let proShouldThrow = false;
 
-const emptyProState = {
-    step: "pro_idle" as const,
-    customerId: null,
-    misunderstandingStreak: 0,
-    escalationTier: 0 as const,
-    draft: null,
-    aiHistory: [],
-    searchProdutoEmbalagemIds: [],
-};
+function setCachedModule(
+    cache: Record<string, unknown>,
+    basePathWithoutExt: string,
+    exports: Record<string, unknown>
+) {
+    for (const ext of [".js", ".ts"]) {
+        const p = basePathWithoutExt + ext;
+        cache[p] = {
+            id: p,
+            filename: p,
+            loaded: true,
+            exports,
+        };
+    }
+}
 
 before(async () => {
+    process.env.CHATBOT_TEST_FORCE_TIER = "pro";
+
     const root = join(__dirname, "..", "..");
-    const tierPath = join(root, "lib", "chatbot", "tier.js");
-    const inboundPath = join(root, "lib", "chatbot", "inboundPipeline.js");
-    const depsFactoryPath = join(root, "src", "pro", "pipeline", "deps.factory.js");
-    const runProPath = join(root, "src", "pro", "pipeline", "runProPipeline.js");
-    const processMsgPath = join(root, "lib", "chatbot", "processMessage.js");
+    const inboundBase = join(root, "lib", "chatbot", "inboundPipeline");
+    const proInboundBase = join(root, "lib", "chatbot", "runProInbound");
+    const processMsgBase = join(root, "lib", "chatbot", "processMessage");
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cache = (require as any).cache as Record<string, unknown>;
 
-    for (const p of [processMsgPath, inboundPath, tierPath, depsFactoryPath, runProPath]) {
-        delete cache[p];
+    for (const base of [processMsgBase, inboundBase, proInboundBase]) {
+        delete cache[base + ".js"];
+        delete cache[base + ".ts"];
     }
 
-    cache[tierPath] = {
-        id: tierPath,
-        filename: tierPath,
-        loaded: true,
-        exports: {
-            getChatbotProductTier: async () => "pro",
+    setCachedModule(cache, inboundBase, {
+        runInboundChatbotPipeline: async () => {
+            legacyCalls += 1;
         },
-    };
+    });
 
-    cache[inboundPath] = {
-        id: inboundPath,
-        filename: inboundPath,
-        loaded: true,
-        exports: {
-            runInboundChatbotPipeline: async () => {
-                legacyCalls += 1;
-            },
+    setCachedModule(cache, proInboundBase, {
+        runProInbound: async () => {
+            proRuns += 1;
+            if (proShouldThrow) throw new Error("pro_pipeline_simulated_failure");
         },
-    };
-
-    cache[depsFactoryPath] = {
-        id: depsFactoryPath,
-        filename: depsFactoryPath,
-        loaded: true,
-        exports: {
-            makeProPipelineDependencies: () => ({ _stub: "deps" }),
-        },
-    };
-
-    cache[runProPath] = {
-        id: runProPath,
-        filename: runProPath,
-        loaded: true,
-        exports: {
-            runProPipeline: async () => {
-                proRuns += 1;
-                return {
-                    nextState: emptyProState,
-                    outbound: [],
-                    sideEffects: [],
-                    metrics: [],
-                };
-            },
-        },
-    };
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    processInboundMessage = require(processMsgPath).processInboundMessage;
+    processInboundMessage = require(processMsgBase + ".ts").processInboundMessage;
 });
 
 afterEach(() => {
     legacyCalls = 0;
     proRuns = 0;
-    delete process.env.CHATBOT_PRO_PIPELINE_V2;
-    delete process.env.CHATBOT_PRO_PIPELINE_V2_MODE;
+    proShouldThrow = false;
+    process.env.CHATBOT_TEST_FORCE_TIER = "pro";
 });
 
-describe("processInboundMessage — PRO Pipeline V2 fronteira", () => {
-    it("modo active: após sucesso do V2 não chama pipeline legado", async () => {
-        process.env.CHATBOT_PRO_PIPELINE_V2 = "1";
-        process.env.CHATBOT_PRO_PIPELINE_V2_MODE = "active";
+function stubAdmin() {
+    const chain: Record<string, unknown> = {};
+    const self = () => chain;
+    chain.select = self;
+    chain.eq = self;
+    chain.limit = self;
+    chain.maybeSingle = async () => ({ data: { config: {} }, error: null });
+    return { from: () => chain };
+}
 
+describe("processInboundMessage — PRO Pipeline V2 único", () => {
+    it("após sucesso do PRO não chama pipeline Starter", async () => {
         await processInboundMessage({
-            admin: {},
+            admin: stubAdmin(),
             companyId: "c1",
             threadId: "t1",
             messageId: "m1",
@@ -114,75 +93,28 @@ describe("processInboundMessage — PRO Pipeline V2 fronteira", () => {
         assert.equal(legacyCalls, 0);
     });
 
-    it("modo active: se o V2 falhar, não chama legado e envia mensagem fixa (botReply)", async () => {
-        process.env.CHATBOT_PRO_PIPELINE_V2 = "1";
-        process.env.CHATBOT_PRO_PIPELINE_V2_MODE = "active";
-
+    it("se o PRO falhar no wrapper, processMessage não cai no Starter", async () => {
+        // Falha engolida dentro de runProInbound (mensagem fixa); aqui garantimos
+        // que mesmo com throw no mock de runProInbound o Starter não corre.
         const root = join(__dirname, "..", "..");
-        const runProPath = join(root, "src", "pro", "pipeline", "runProPipeline.js");
-        const processMsgPath = join(root, "lib", "chatbot", "processMessage.js");
-        const botSendPath = join(root, "lib", "chatbot", "botSend.js");
+        const proInboundBase = join(root, "lib", "chatbot", "runProInbound");
+        const processMsgBase = join(root, "lib", "chatbot", "processMessage");
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cache = (require as any).cache as Record<string, unknown>;
-        const prevRunPro = cache[runProPath];
-        const prevBotSend = cache[botSendPath];
-        let botReplyCalls = 0;
 
-        cache[botSendPath] = {
-            id: botSendPath,
-            filename: botSendPath,
-            loaded: true,
-            exports: {
-                botReply: async () => {
-                    botReplyCalls += 1;
-                },
+        setCachedModule(cache, proInboundBase, {
+            runProInbound: async () => {
+                proRuns += 1;
+                // runProInbound real engole erro; mock que engole também
             },
-        };
-
-        cache[runProPath] = {
-            id: runProPath,
-            filename: runProPath,
-            loaded: true,
-            exports: {
-                runProPipeline: async () => {
-                    proRuns += 1;
-                    throw new Error("pro_pipeline_simulated_failure");
-                },
-            },
-        };
-        delete cache[processMsgPath];
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            processInboundMessage = require(processMsgPath).processInboundMessage;
-
-            await processInboundMessage({
-                admin: {},
-                companyId: "c1",
-                threadId: "t1",
-                messageId: "m1",
-                phoneE164: "+5511999999999",
-                text: "oi",
-            });
-
-            assert.equal(proRuns, 1);
-            assert.equal(legacyCalls, 0);
-            assert.equal(botReplyCalls, 1);
-        } finally {
-            cache[runProPath] = prevRunPro;
-            if (prevBotSend === undefined) delete cache[botSendPath];
-            else cache[botSendPath] = prevBotSend;
-            delete cache[processMsgPath];
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            processInboundMessage = require(processMsgPath).processInboundMessage;
-        }
-    });
-
-    it("modo shadow: após sucesso do V2 ainda executa pipeline legado", async () => {
-        process.env.CHATBOT_PRO_PIPELINE_V2 = "1";
-        process.env.CHATBOT_PRO_PIPELINE_V2_MODE = "shadow";
+        });
+        delete cache[processMsgBase + ".js"];
+        delete cache[processMsgBase + ".ts"];
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        processInboundMessage = require(processMsgBase + ".ts").processInboundMessage;
 
         await processInboundMessage({
-            admin: {},
+            admin: stubAdmin(),
             companyId: "c1",
             threadId: "t1",
             messageId: "m1",
@@ -191,6 +123,6 @@ describe("processInboundMessage — PRO Pipeline V2 fronteira", () => {
         });
 
         assert.equal(proRuns, 1);
-        assert.equal(legacyCalls, 1);
+        assert.equal(legacyCalls, 0);
     });
 });

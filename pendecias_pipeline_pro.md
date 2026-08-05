@@ -24,7 +24,7 @@
 | Tema | Onde | Nota |
 |------|------|------|
 | Evidências release (p95, replay, stress) | [`docs/EVIDENCE_CHECKLIST_P14.md`](./docs/EVIDENCE_CHECKLIST_P14.md) | Método em `CHATBOT_PROD.md` |
-| Sync legado ↔ V2 (híbrido) | CHECKLIST P0.4b | Só se bug/métrica |
+| Sync legado ↔ V2 (híbrido) | CHECKLIST P0.4b | **Feito** — legado PRO removido |
 | Unificar state machines | `PRO_ORDER_SLOT_MACHINE.md` §6 | `applyAiStateTransition` ↔ `resolveProStepFromDraft` |
 | Redis concurrency Anthropic | CHECKLIST P2p.4 | Só se 429 multi-réplica |
 

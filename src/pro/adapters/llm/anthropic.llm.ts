@@ -43,7 +43,7 @@ export class AnthropicLlmAdapter implements LlmPort {
                 messages: req.messages as MessageCreateParams["messages"],
             };
             if (req.tools?.length) {
-                body.tools = req.tools as MessageCreateParams["tools"];
+                body.tools = req.tools as unknown as MessageCreateParams["tools"];
             }
             if (req.toolChoice) {
                 body.tool_choice = req.toolChoice as ToolChoice;

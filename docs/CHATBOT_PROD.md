@@ -21,7 +21,7 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 1. **Webhook** (`POST` Meta): validação, persistência mínima, **dedup** de curta janela (texto), **enqueue** em `chatbot_queue`, **200** rápido.
 2. **Fila:** Postgres (`chatbot_queue`) com **claim exclusivo** (RPC / equivalente) e idempotência **`(company_id, message_id)`** onde aplicável.
 3. **Worker** (`GET /api/chatbot/process-queue` autenticado): claim → **loop limitado** (batch + tempo dentro do `maxDuration`) → `processInboundMessage` → estado `done` / `failed` / retry.
-4. **Pipeline:** `lib/chatbot/processMessage.ts` (PRO V2 quando flags ativas; senão legado).
+4. **Pipeline:** `lib/chatbot/processMessage.ts` — plano **PRO** → `runProPipeline` (`src/pro/`); **Starter** → `inboundPipeline`.
 5. **Resposta:** envio WhatsApp dentro do pipeline / camadas já existentes; manter idempotência de **efeito** (pedido, outbound).
 
 **Gatilho do worker (decisão de produto, não detalhe de deploy):**
@@ -264,7 +264,7 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 
 #### Estado no código (**já executado**)
 
-Implementação actual no PRO V2 (`CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIPELINE_V2_MODE=active`):
+Implementação actual no PRO (`runProPipeline` — único motor para plano PRO):
 
 | Peça | Onde | O que faz |
 |------|------|-------------|
@@ -289,22 +289,19 @@ Implementação actual no PRO V2 (`CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIP
 
 **Estratégia de refatoração por fases** (ordem, gates, entregáveis, riscos): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
 
-### PRO Pipeline V2 — flags e fronteira com o legado
+### PRO Pipeline — env e fronteira
 
-Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeline/runProPipeline.ts`) **antes** de `runInboundChatbotPipeline` quando o plano é **PRO** e `CHATBOT_PRO_PIPELINE_V2=1`.
+Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `runProPipeline` (`src/pro/pipeline/runProPipeline.ts`) e **não** entra em `runInboundChatbotPipeline`. Se o V2 lançar exceção: **mensagem fixa** ao cliente (`botReply`) e fim (sem fallback Starter de pedido). Starter continua em `inboundPipeline`.
 
 | Variável | Valor | Comportamento |
 |----------|--------|----------------|
-| `CHATBOT_PRO_PIPELINE_V2` | `1` | Executa o motor PRO V2 (além do plano PRO). |
-| `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão técnica) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem. **Uso pretendido:** homologação / comparação de métricas — **não** é alvo de produção (duplica trabalho, custo e latência). |
-| `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, **não** há fallback para o pipeline legado de pedido: envia-se **mensagem fixa** ao cliente (`botReply`) e termina (evita `ai_order_canonical` desalinhado de `__pro_v2_state`). **Alvo de produção** para empresas PRO. |
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
-| `LLM_PROVIDER` | (omissão = **anthropic**) | `anthropic` \| `openai`. `LlmPort` usado por PRO (`FullAiServiceAdapter`), intent (legado+PRO) e FAQ. |
+| `LLM_PROVIDER` | (omissão = **anthropic**) | `anthropic` \| `openai`. `LlmPort` usado por PRO (`FullAiServiceAdapter`), intent (Starter+PRO) e FAQ. |
 | `LLM_MODEL` | default do provider | Ex.: `claude-haiku-4-5-20251001` ou `gpt-4o-mini`. |
 | `OPENAI_API_KEY` | — | Obrigatório se `LLM_PROVIDER=openai` e/ou STT Whisper. |
 | `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. |
 | `LLM_STT_MODEL` | `whisper-1` | Modelo STT OpenAI. |
-| `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas `messages.create` em paralelo **por instância** (gate compartilhado: PRO V2, intent classifier, FAQ legado, `handleProOrderIntent`). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
+| `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas `messages.create` em paralelo **por instância** (gate compartilhado: PRO V2, intent, FAQ). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
 | `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos, abre circuit breaker local por N ms (`anthropic_circuit_open`). |
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |
 | `WHATSAPP_429_MAX_RETRIES` | (omissão = **3**) | Retries em 429 Meta (honra `Retry-After` quando presente). |
@@ -316,14 +313,14 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 
 ### Decisões operacionais (produção — aplicar)
 
-1. **Um motor por mensagem (tenant PRO):** `CHATBOT_PRO_PIPELINE_V2=1` e **`CHATBOT_PRO_PIPELINE_V2_MODE=active`**. Manter `shadow` só em ambientes de **homologação** ou janelas curtas de comparação de telemetria — não como estado estável em produção. Com `NODE_ENV=production` e V2 ligado em modo **≠ `active`**, o motor regista **um** `console.error` por processo a alertar o risco.
+1. **Um motor por mensagem (tenant PRO):** sempre `runProPipeline`. Não há modo shadow nem flags `CHATBOT_PRO_PIPELINE_V2*`.
 2. **Fila ligada:** `CHATBOT_QUEUE_ENABLED=1` — o webhook não deve aguardar Anthropic nem pipeline completo (SLO de ingresso: secção *Critérios de aceite (release)* neste documento). Worker: em **`NODE_ENV=production`**, o claim **best-effort** da fila está **desligado** (só RPC atómica; fallback inseguro entre instâncias não corre, independentemente de variáveis antigas). Em produção o worker **falha o job** se não existir **canal Meta activo** resolvido para a empresa (não usa token global como substituto de tenant).
 3. **Gates antes de confirmação:** não tratar “resumo bonito” no LLM como substituto de draft válido no servidor. Só pedir confirmação explícita (“sim” / “ok”) quando itens, endereço, pagamento e regras de entrega (zona, mínimo, etc.) estiverem consistentes no estado canónico / tool `prepare_order_draft`. Falha na criação (`create_order_with_items` / RPCs associadas): mensagem ao cliente **acionável** (o que falhou + o que fazer), evitando “erro técnico” genérico e evitando pedir de novo dados já persistidos sem motivo de domínio.
 4. **Dedup de texto na fila:** `INBOUND_DEDUP_WINDOW_SECONDS` (default **20** no código) — suprime segundo job na mesma thread para o mesmo texto normalizado dentro da janela (double-tap / retry). Valores maiores reduzem duplicata e custo; valores excessivos atrasam reenvio intencional da mesma frase — ajustar só com métrica.
 5. **Métricas PRO em painel:** `PRO_PIPELINE_METRICS_STORE=supabase` alinhado ao bloco «Métricas PRO pipeline» no Super Admin (`getProPipelineHealthStats`).
 6. **Thresholds de alerta (UI):** `NEXT_PUBLIC_PRO_METRICS_ALERT_HARD_FAILURES_THRESHOLD` e `NEXT_PUBLIC_PRO_METRICS_ALERT_AMBIGUOUS_THRESHOLD` — defaults no código **3** e **2**; valores **maiores** (ex.: 5 e 3) diminuem alerta falso em tenant ruidoso; não há “valor certo” universal — calibrar após 1–2 semanas de tráfego.
 
-**Checklist mínimo de env em produção (além das flags PRO/fila/métricas):**
+**Checklist mínimo de env em produção (além de fila/métricas):**
 
 | Variável | Papel |
 |----------|--------|
@@ -332,7 +329,7 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 | `ANTHROPIC_API_KEY` | Motor PRO (e classificadores que usam Haiku). |
 | Credenciais Meta / canal | Já exigidas pelo ingresso (`WHATSAPP_APP_SECRET`, tokens de canal, etc.). |
 
-Estado persistido do V2: `session.context.__pro_v2_state` (ver adapter `session.repository.supabase`). O legado mantém o seu próprio `session.step` / `context.ai_order_canonical`; não misturar escritas de draft entre as duas stacks sem plano explícito (ver matriz R2 na estratégia).
+Estado persistido do PRO: `session.context.__pro_v2_state` (ver adapter `session.repository.supabase`). O motor PRO legado (`handleProOrderIntent` / `ai_order_canonical`) foi removido.
 
 Homologação manual: [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md). Matriz obrigatória de falhas simuladas: secção 10 de [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
 
