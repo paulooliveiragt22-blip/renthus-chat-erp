@@ -50,6 +50,7 @@ import { inferPaymentMethodFromText } from "./inferPaymentFromText";
 import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { parseMultiItemOrderSegments } from "./parseMultiItemOrderSegments";
+import { parseCheckoutSwapIntent } from "./editIntentParse";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -272,6 +273,7 @@ export async function runProPipeline(
     /**
      * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.
      * Evita draft só com salgadinho e Heineken/burger só na prosa.
+     * Nunca no texto de troca ("troca X pela Y") — senão acrescenta CX sem remover o UN.
      */
     let bootstrapOutbound: OutboundMessage[] = [];
     if (
@@ -279,6 +281,7 @@ export async function runProPipeline(
         !isInfoOnlyMode(aiPolicy) &&
         !input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) &&
         parseProductPickIndex(input.inboundText) == null &&
+        !parseCheckoutSwapIntent(input.inboundText) &&
         parseMultiItemOrderSegments(input.inboundText).length >= 1 &&
         (!(stateBeforePick.draft?.items?.length) || stateBeforePick.checkoutEditHold === true)
     ) {

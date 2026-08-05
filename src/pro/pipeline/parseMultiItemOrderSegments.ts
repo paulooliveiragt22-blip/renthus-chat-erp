@@ -25,6 +25,9 @@ export function parseMultiItemOrderSegments(text: string): string[] {
     let t = normalizePt(text);
     if (!t || t.length < 6) return [];
 
+    /** Troca/substitui é fluxo de edição — não tratar como pedido multi-item. */
+    if (/^(?:troca(?:r)?|substitui(?:r)?)\b/u.test(t)) return [];
+
     t = t.replace(LEAD_IN, "").replace(NOISE_PHRASES, " ").replaceAll(/\s+/g, " ").trim();
     if (!t) return [];
 

@@ -85,3 +85,57 @@ describe("removeDraftItemsMatchingName", () => {
         assert.equal(next!.totalItems, 85);
     });
 });
+
+describe("removeDraftItemsMatchingNameExcept", () => {
+    it("mantém CX escolhido e remove UN no mesmo hint salgadinho", async () => {
+        const { removeDraftItemsMatchingNameExcept } = await import(
+            "../../src/pro/pipeline/mergeOrderDraft"
+        );
+        const draft = {
+            items: [
+                {
+                    produtoEmbalagemId: "salg-un",
+                    productName: "SALGADINHO",
+                    quantity: 1,
+                    unitPrice: 15,
+                    fatorConversao: 1,
+                    productVolumeId: null,
+                    estoqueUnidades: 5,
+                },
+                {
+                    produtoEmbalagemId: "salg-cx",
+                    productName: "SALGADINHO CX 15UN (CX c/15)",
+                    quantity: 1,
+                    unitPrice: 220,
+                    fatorConversao: 15,
+                    productVolumeId: null,
+                    estoqueUnidades: 5,
+                },
+                {
+                    produtoEmbalagemId: "burger",
+                    productName: "BURGER",
+                    quantity: 1,
+                    unitPrice: 25,
+                    fatorConversao: 1,
+                    productVolumeId: null,
+                    estoqueUnidades: 5,
+                },
+            ],
+            address: null,
+            paymentMethod: "pix" as const,
+            changeFor: null,
+            deliveryFee: 15,
+            deliveryZoneId: null,
+            deliveryAddressText: null,
+            deliveryMinOrder: null,
+            deliveryEtaMin: null,
+            totalItems: 260,
+            grandTotal: 275,
+            pendingConfirmation: false,
+            version: 1 as const,
+        };
+        const next = removeDraftItemsMatchingNameExcept(draft, "salgadinho", ["salg-cx"]);
+        const ids = (next?.items ?? []).map((i) => i.produtoEmbalagemId);
+        assert.deepEqual(ids.sort(), ["burger", "salg-cx"].sort());
+    });
+});

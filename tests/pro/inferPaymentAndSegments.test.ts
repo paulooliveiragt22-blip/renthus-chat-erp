@@ -39,6 +39,13 @@ describe("parseMultiItemOrderSegments", () => {
         const segs = parseMultiItemOrderSegments("quero também uma trezentinha");
         assert.deepEqual(segs, ["trezentinha"]);
     });
+
+    it("troca X pela Y nao vira segmento de pedido", () => {
+        assert.deepEqual(
+            parseMultiItemOrderSegments("troca o salgadinho pela caixa de 15"),
+            []
+        );
+    });
 });
 
 describe("stripInternalCatalogIdsFromCustomerText", () => {

@@ -12,6 +12,7 @@ import {
 import {
     mergePreparedDraftIntoCurrent,
     removeDraftItemsMatchingName,
+    removeDraftItemsMatchingNameExcept,
     unionAllowlistWithDraftIds,
 } from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
@@ -56,7 +57,7 @@ export async function serverPrepareAfterProductPick(params: {
 
     /** Troca: remove linhas do nome pendente antes de acrescentar o SKU novo. */
     let state = params.state;
-    const swapHint = state.pendingSwapRemoveName?.trim();
+    const swapHint = state.pendingSwapRemoveName?.trim() || null;
     if (swapHint) {
         const beforeIds = new Set(
             (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
@@ -142,7 +143,10 @@ export async function serverPrepareAfterProductPick(params: {
         toolInput,
         catalogPolicy
     );
-    const nextDraft: OrderDraft | null = mergePreparedDraftIntoCurrent(state.draft, prepared.draft);
+    let nextDraft: OrderDraft | null = mergePreparedDraftIntoCurrent(state.draft, prepared.draft);
+    if (swapHint && nextDraft) {
+        nextDraft = removeDraftItemsMatchingNameExcept(nextDraft, swapHint, [embId]);
+    }
     if (!nextDraft?.items?.length) {
         return {
             state: { ...state, bootstrapResolvedEmbalagemIds: resolvedIds },
@@ -152,10 +156,13 @@ export async function serverPrepareAfterProductPick(params: {
         };
     }
 
+    const keptIds = new Set(nextDraft.items.map((i) => i.produtoEmbalagemId).filter(Boolean));
+    const nextBoot = resolvedIds.filter((id) => keptIds.has(id) || id === embId);
+
     let nextState: ProSessionState = {
         ...state,
         draft: nextDraft,
-        bootstrapResolvedEmbalagemIds: resolvedIds,
+        bootstrapResolvedEmbalagemIds: nextBoot,
         checkoutEditHold: false,
         pendingSwapRemoveName: null,
         lastSearchPicks: [],

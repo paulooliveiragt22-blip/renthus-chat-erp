@@ -20,18 +20,7 @@ function productNameMatchesHint(productName: string, nameHint: string): boolean 
     return tokens.every((t) => pn.includes(t));
 }
 
-/**
- * Remove linhas do draft cujo nome casa com o hint (ex.: "salgadinho" → UN e CX).
- * Usado em troca/substituição antes de acrescentar o SKU novo.
- */
-export function removeDraftItemsMatchingName(
-    draft: OrderDraft | null,
-    nameHint: string
-): OrderDraft | null {
-    if (!draft?.items?.length) return draft;
-    const kept = draft.items.filter((it) => !productNameMatchesHint(it.productName, nameHint));
-    if (kept.length === draft.items.length) return draft;
-
+function rebuildDraftTotals(draft: OrderDraft, kept: DraftItem[]): OrderDraft {
     const totalItems = roundBrl(kept.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
     const deliveryFee = draft.deliveryFee ?? 0;
     const grandTotal = roundBrl(totalItems + deliveryFee);
@@ -58,6 +47,38 @@ export function removeDraftItemsMatchingName(
                 (draft.paymentMethod !== "cash" || draft.changeFor != null)
         ),
     };
+}
+
+/**
+ * Remove linhas do draft cujo nome casa com o hint (ex.: "salgadinho" → UN e CX).
+ * Usado em troca/substituição antes de acrescentar o SKU novo.
+ */
+export function removeDraftItemsMatchingName(
+    draft: OrderDraft | null,
+    nameHint: string
+): OrderDraft | null {
+    if (!draft?.items?.length) return draft;
+    const kept = draft.items.filter((it) => !productNameMatchesHint(it.productName, nameHint));
+    if (kept.length === draft.items.length) return draft;
+    return rebuildDraftTotals(draft, kept);
+}
+
+/**
+ * Após troca: remove linhas que casam com o hint, exceto os IDs do substituto
+ * (CX também contém "salgadinho" no nome).
+ */
+export function removeDraftItemsMatchingNameExcept(
+    draft: OrderDraft | null,
+    nameHint: string,
+    keepEmbalagemIds: readonly string[]
+): OrderDraft | null {
+    if (!draft?.items?.length) return draft;
+    const keep = new Set(keepEmbalagemIds.map((id) => String(id ?? "").trim()).filter(Boolean));
+    const kept = draft.items.filter(
+        (it) => keep.has(it.produtoEmbalagemId) || !productNameMatchesHint(it.productName, nameHint)
+    );
+    if (kept.length === draft.items.length) return draft;
+    return rebuildDraftTotals(draft, kept);
 }
 
 /** Remove linhas do draft pelos IDs de embalagem (opções rejeitadas na clarificação). */

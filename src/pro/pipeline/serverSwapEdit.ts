@@ -4,7 +4,10 @@ import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
 import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
 import { parseCheckoutSwapIntent } from "./editIntentParse";
-import { removeDraftItemsMatchingName } from "./mergeOrderDraft";
+import {
+    removeDraftItemsMatchingName,
+    removeDraftItemsMatchingNameExcept,
+} from "./mergeOrderDraft";
 import { serverPrepareAfterProductPick } from "./serverPrepareAfterPick";
 import { withResolvedSlotStep } from "./orderSlotStep";
 import { checkoutPostProcessForQuickAction } from "./stages/checkoutPostProcess";
@@ -117,11 +120,26 @@ export async function tryServerSwapEdit(params: {
             state: baseState,
             pickedEmbalagemId: sole.embalagemId,
         });
-        if (prepared.skipAi) {
+        const cleanedDraft = removeDraftItemsMatchingNameExcept(
+            prepared.state.draft,
+            swap.removeName,
+            [sole.embalagemId]
+        );
+        const keptIds = new Set(
+            (cleanedDraft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
+        );
+        const cleanedState: ProSessionState = {
+            ...prepared.state,
+            draft: cleanedDraft,
+            pendingSwapRemoveName: null,
+            bootstrapResolvedEmbalagemIds: (
+                prepared.state.bootstrapResolvedEmbalagemIds ?? []
+            ).filter((id) => id && keptIds.has(id)),
+        };
+        if (prepared.skipAi && cleanedDraft) {
             const finalState = withResolvedSlotStep({
-                ...prepared.state,
+                ...cleanedState,
                 checkoutEditHold: false,
-                pendingSwapRemoveName: null,
             });
             return {
                 handled: true,
@@ -134,9 +152,8 @@ export async function tryServerSwapEdit(params: {
             handled: true,
             finalized: false,
             state: {
-                ...prepared.state,
+                ...cleanedState,
                 checkoutEditHold: true,
-                pendingSwapRemoveName: null,
             },
             outbound: [
                 {
