@@ -1,8 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Intent, IntentDecision, PipelineContext } from "@/src/types/contracts";
 import { isOrderSessionContinuityNeeded } from "@/src/pro/pipeline/sessionOrderContext";
 import type { IntentService, IntentServiceInput } from "./intent.types";
+import { createLlmPort, getConfiguredLlmProvider } from "@/src/pro/adapters/llm/createLlmPort";
+import { extractLlmPlainText, hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 
 const BTN_CATALOG = new Set(["btn_catalog"]);
 const BTN_STATUS = new Set(["btn_status"]);
@@ -85,45 +86,38 @@ async function llmClassify(
     userText: string,
     admin?: SupabaseClient
 ): Promise<IntentDecision> {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!hasLlmApiKey()) {
         return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
     }
 
     try {
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        const provider = getConfiguredLlmProvider();
+        const model =
+            process.env.LLM_MODEL?.trim() ||
+            (provider === "openai" ? "gpt-4o-mini" : "claude-haiku-4-5-20251001");
         const sessionBlock = buildIntentClassifierContextBlock(context.session);
         const userPayload =
             `Contexto da sessão (use para desambiguar respostas curtas como quantidade ou "sim"):\n${sessionBlock}\n\n` +
             `Mensagem actual do cliente a classificar:\n---\n${userText.trim()}\n---\n\n` +
             `Responda só com um label: order_intent, status_intent, human_intent, faq, greeting, unknown.`;
 
-        const { runAnthropicWithResilience } = await import("@/lib/chatbot/anthropicResilience");
-        const resp = await runAnthropicWithResilience(
-            () =>
-                client.messages.create({
-                    model: "claude-haiku-4-5-20251001",
-                    max_tokens: 12,
-                    system:
-                        "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
-                        "If the session shows an active order (draft with items, or recent user messages about products) " +
-                        "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
-                        "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
-                    messages: [{ role: "user", content: userPayload }],
-                }),
-            { maxRetries: 2 }
-        );
-        if (admin && context.tenant.companyId) {
-            try {
-                const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
-                await debitFromAnthropicUsage(admin, context.tenant.companyId, resp.usage, {
-                    source: "pro_intent_classifier",
-                });
-            } catch {
-                /* ignore billing side-effects */
-            }
-        }
-        const text = (resp.content[0] as { text?: string } | undefined)?.text ?? "";
-        const mapped = fromLlmLabel(text);
+        const llm = createLlmPort(admin ?? null);
+        const resp = await llm.chat({
+            model,
+            maxTokens: 12,
+            timeoutMs: 12_000,
+            companyId: context.tenant.companyId,
+            purpose: "pro_intent_classifier",
+            system:
+                "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
+                "If the session shows an active order (draft with items, or recent user messages about products) " +
+                "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
+                "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
+            messages: [{ role: "user", content: userPayload }],
+        });
+
+        const text = extractLlmPlainText(resp.content);
+        const mapped = fromLlmLabel(text.split(/\s+/)[0] ?? text);
         if (!mapped) return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
         return {
             intent: mapped,

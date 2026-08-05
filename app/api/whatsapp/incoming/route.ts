@@ -26,6 +26,7 @@ import { checkRateLimit } from "@/lib/security/rateLimit";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 import { maybeSendBacklogNotice } from "@/lib/chatbot/backlogNotice";
+import { tryTranscribeInboundAudio } from "@/lib/chatbot/transcribeInboundAudio";
 
 export const runtime = "nodejs";
 const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
@@ -325,7 +326,18 @@ async function processSingleInboundMessage(params: {
     const phoneE164 = fromRaw.startsWith("+") ? fromRaw : `+${fromRaw}`;
     const contact = (value?.contacts ?? []).find((c: any) => c.wa_id === fromRaw);
     const profileName: string | null = contact?.profile?.name ?? null;
-    const bodyText = extractMessageText(msg, msgType);
+    let bodyText = extractMessageText(msg, msgType);
+
+    // Áudio / nota de voz → STT (Whisper) quando configurado
+    if (!bodyText.trim() && (msgType === "audio" || msgType === "voice")) {
+        const transcribed = await tryTranscribeInboundAudio({
+            msg,
+            msgType,
+            waConfig,
+            companyId: channel.company_id,
+        });
+        if (transcribed) bodyText = transcribed;
+    }
 
     const threadId = await upsertThread({
         admin,
@@ -352,7 +364,7 @@ async function processSingleInboundMessage(params: {
         .from("whatsapp_threads")
         .update({
             last_message_at: new Date().toISOString(),
-            last_message_preview: bodyText.slice(0, 120) || null,
+            last_message_preview: bodyText.slice(0, 120) || (msgType === "audio" || msgType === "voice" ? "[áudio]" : null),
         })
         .eq("id", threadId);
 

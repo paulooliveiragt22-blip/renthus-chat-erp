@@ -282,7 +282,7 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 
 **Próximo na sequência sugerida:**
 1. **Evidências P1.4** — colher p95/replay/stress ([`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md)).
-2. **OpenAI / STT** atrás de `LlmPort` (`LLM_PROVIDER`, futuro áudio) — sem reescrever o pipeline.
+2. **OpenAI / STT** — **feito** (`LLM_PROVIDER=openai`, Whisper no `incoming`); próximo: migrar `handleProOrderIntent` legado se ainda usado em shadow.
 3. **Redis** teto Anthropic multi-réplica — só se 429 entre instâncias persistir (P2p.4).
 4. ADR opcional se desviar de [`CHATBOT_PROD.md`](./CHATBOT_PROD.md); manter runbook e testes de regressão ao alterar confirmação ou adapters.
 

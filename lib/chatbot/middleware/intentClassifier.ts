@@ -8,10 +8,11 @@
  * Nível 2: Claude Haiku (fallback para mensagens ambíguas).
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { clampChatbotInputForRegex, normalize } from "../utils";
 import { isPortugueseOrderConfirmation, isPortugueseOrderRejection } from "../pro/confirmationPt";
 import type { MessageIntent } from "@/src/types/contracts.legacy";
+import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
+import { extractLlmPlainText, hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 
 // ── Regex Level 1 ──────────────────────────────────────────────────────────────
 // Vários padrões pequenos (S5843) em vez de um único regex com alta complexidade.
@@ -153,16 +154,18 @@ export async function classifyIntent(
     // Mensagens muito curtas sem match → provavelmente saudação ou desconhecido
     if (trimmed.length <= 3) return "greeting";
 
-    // Claude Haiku para mensagens ambíguas
+    // LLM (LlmPort — Anthropic ou OpenAI) para mensagens ambíguas
+    if (!hasLlmApiKey()) return "unknown";
+
     try {
-        const { runAnthropicWithResilience } = await import("@/lib/chatbot/anthropicResilience");
-        const client = new Anthropic();
-        const resp = await runAnthropicWithResilience(
-            () =>
-                client.messages.create({
-                    model,
-                    max_tokens: 10,
-                    system: `Classify the user's WhatsApp message to a Brazilian delivery store into exactly one intent:
+        const llm = createLlmPort(options?.admin ?? null);
+        const resp = await llm.chat({
+            model,
+            maxTokens: 10,
+            timeoutMs: 12_000,
+            companyId: options?.companyId,
+            purpose: "legacy_intent_classifier",
+            system: `Classify the user's WhatsApp message to a Brazilian delivery store into exactly one intent:
 - order_intent: wants to order, buy, browse products or catalog
 - status_intent: asking about order status or delivery time
 - human_intent: wants to talk to a human attendant
@@ -171,25 +174,14 @@ export async function classifyIntent(
 - unknown: none of the above
 
 Reply with ONLY the intent name in lowercase, nothing else.`,
-                    messages: [{ role: "user", content: trimmed }],
-                }),
-            { maxRetries: 2 }
-        );
+            messages: [{ role: "user", content: trimmed }],
+        });
 
-        if (options?.admin && options.companyId) {
-            try {
-                const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
-                await debitFromAnthropicUsage(options.admin, options.companyId, resp.usage, {
-                    source: "legacy_intent_classifier",
-                });
-            } catch {
-                /* ignore */
-            }
-        }
-        const raw = ((resp.content[0] as { text: string }).text ?? "").trim().toLowerCase();
-        return VALID_INTENTS.includes(raw as MessageIntent) ? (raw as MessageIntent) : "unknown";
+        const raw = extractLlmPlainText(resp.content).toLowerCase();
+        const label = raw.split(/\s+/)[0] ?? "";
+        return VALID_INTENTS.includes(label as MessageIntent) ? (label as MessageIntent) : "unknown";
     } catch (err) {
-        console.error("[intentClassifier] Claude error:", err);
+        console.error("[intentClassifier] LLM error:", err);
         return "unknown";
     }
 }

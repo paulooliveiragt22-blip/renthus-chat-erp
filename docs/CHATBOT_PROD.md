@@ -299,8 +299,11 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 | `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão técnica) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem. **Uso pretendido:** homologação / comparação de métricas — **não** é alvo de produção (duplica trabalho, custo e latência). |
 | `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, **não** há fallback para o pipeline legado de pedido: envia-se **mensagem fixa** ao cliente (`botReply`) e termina (evita `ai_order_canonical` desalinhado de `__pro_v2_state`). **Alvo de produção** para empresas PRO. |
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
-| `LLM_PROVIDER` | (omissão = **anthropic**) | Provider do `LlmPort` (`src/pro/ports/llm.port.ts`). `openai` reservado (adapter futuro). Pipeline PRO usa o port via `FullAiServiceAdapter`. |
-| `LLM_MODEL` | (omissão = modelo default do provider) | Override de modelo (ex. Haiku / futuro gpt-4o-mini). |
+| `LLM_PROVIDER` | (omissão = **anthropic**) | `anthropic` \| `openai`. `LlmPort` usado por PRO (`FullAiServiceAdapter`), intent (legado+PRO) e FAQ. |
+| `LLM_MODEL` | default do provider | Ex.: `claude-haiku-4-5-20251001` ou `gpt-4o-mini`. |
+| `OPENAI_API_KEY` | — | Obrigatório se `LLM_PROVIDER=openai` e/ou STT Whisper. |
+| `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. |
+| `LLM_STT_MODEL` | `whisper-1` | Modelo STT OpenAI. |
 | `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas `messages.create` em paralelo **por instância** (gate compartilhado: PRO V2, intent classifier, FAQ legado, `handleProOrderIntent`). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
 | `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos, abre circuit breaker local por N ms (`anthropic_circuit_open`). |
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |
@@ -381,6 +384,8 @@ Manter fronteiras claras sem microserviço:
 - Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/` (orquestrador: `runProPipeline.ts`, `stages/routeStage.ts`, `stages/checkoutPostProcess.ts`, intents: `services/intent/intentClassifier.service.ts`)
 - Checkout / CTAs: `lib/chatbot/pro/checkoutPhasePolicy.ts` (scrub de botões vs fase; evita CTA misto endereço+confirmação)
 - Busca catálogo: `lib/chatbot/pro/searchProdutos.ts` + RPC `rpc_search_chat_produtos` (fuzzy/`pg_trgm`, migração `20260805080000_…`) + cache TTL `catalogSearchCache.ts`
+- LLM multi-provider: `src/pro/ports/llm.port.ts`, `adapters/llm/{anthropic,openai,createLlmPort}.ts`
+- STT áudio: `src/pro/ports/speechToText.port.ts`, `adapters/stt/openai.whisper.ts`, `lib/chatbot/transcribeInboundAudio.ts`
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)
 - Fila: `process-queue/route.ts`, `queueWorkerWake.ts`, `backlogNotice.ts`; RPC `claim_chatbot_queue_jobs` (fair + skip busy thread); reclaim `reclaim_stuck_chatbot_queue_jobs`
 - Ingresso: `app/api/whatsapp/incoming/route.ts` — enqueue + wake + aviso de backlog (`after()`)

@@ -182,7 +182,8 @@ src/pro/                       ← Motor PRO Pipeline V2 (tier PRO + flags; ver 
     stages/                      ← loadState, guardRails, intent, order, route, ai, persistAndEmit
   adapters/
     ai/                          ← FullAiServiceAdapter (orquestra tools; chama LlmPort)
-    llm/                         ← AnthropicLlmAdapter + createLlmPort (LLM_PROVIDER)
+    llm/                         ← Anthropic + OpenAI adapters + createLlmPort
+    stt/                         ← Whisper (áudio WhatsApp → texto)
     order/                       ← ex.: order.service.v2.ts
     supabase/session.repository.supabase.ts  ← estado `context.__pro_v2_state`
     whatsapp/, metrics/, logger/

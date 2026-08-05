@@ -1,19 +1,18 @@
 /**
  * lib/chatbot/handlers/handleFAQ.ts
  *
- * Responde dúvidas do cliente usando Claude Haiku.
+ * Responde dúvidas do cliente via `LlmPort` (Anthropic ou OpenAI).
  * NUNCA aceita pedidos nem confirma compras — oferece cardápio web (se ativo) ou Flow.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import Anthropic from "@anthropic-ai/sdk";
-import { runAnthropicWithResilience } from "@/lib/chatbot/anthropicResilience";
-import type { Session, CompanyConfig } from "../types";
-import type { ProcessMessageParams } from "../types";
+import type { Session, CompanyConfig, ProcessMessageParams } from "../types";
 import { botReply } from "../botSend";
 import { sendInteractiveButtons } from "../../whatsapp/send";
 import { sanitizeClaudeReply } from "../utils";
 import { offerCatalogToCustomer } from "../offerCatalog";
+import { createLlmPort, getConfiguredLlmProvider } from "@/src/pro/adapters/llm/createLlmPort";
+import { extractLlmPlainText, hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 
 // ── Cache de produtos para FAQ ─────────────────────────────────────────────────
 
@@ -59,20 +58,33 @@ export async function handleFAQ(
 ): Promise<void> {
     const { admin, companyId, threadId, phoneE164, waConfig, catalogFlowId } = params;
     const companyName = config.name;
-    const model       = String(config.botConfig.model ?? "claude-haiku-4-5-20251001");
+    const provider = getConfiguredLlmProvider();
+    const defaultModel =
+        provider === "openai" ? "gpt-4o-mini" : "claude-haiku-4-5-20251001";
+    const model = String(config.botConfig.model ?? process.env.LLM_MODEL ?? defaultModel);
 
     const products    = await getFAQProducts(admin, companyId);
     const productList = products.slice(0, 60)
         .map((p) => `• ${p.name}: R$ ${p.price.toFixed(2)}`)
         .join("\n");
 
-    const client = new Anthropic();
-
-    try {
-        const resp = await runAnthropicWithResilience(() =>
-            client.messages.create({
+    if (!hasLlmApiKey(provider)) {
+        await botReply(
+            admin,
+            companyId,
+            threadId,
+            phoneE164,
+            "Não consegui buscar essa informação agora. Veja nosso catálogo ou fale com um atendente. 😊"
+        );
+    } else {
+        try {
+            const llm = createLlmPort(admin);
+            const resp = await llm.chat({
                 model,
-                max_tokens: 250,
+                maxTokens: 250,
+                timeoutMs: 25_000,
+                companyId,
+                purpose: "legacy_faq",
                 system: `Você é um assistente do ${companyName}. REGRAS ABSOLUTAS:
 1. Responda dúvidas sobre produtos, preços, horários, entrega e formas de pagamento.
 2. NUNCA faça pedidos, confirme compras, adicione itens ou realize transações.
@@ -84,18 +96,23 @@ export async function handleFAQ(
 PRODUTOS DISPONÍVEIS:
 ${productList || "Catálogo em atualização. Use o botão abaixo para ver os produtos."}`,
                 messages: [{ role: "user", content: params.text }],
-            })
-        );
+            });
 
-        const rawReply  = ((resp.content[0] as { text: string }).text ?? "").trim();
-        const catalogPrices = products.map((p) => p.price);
-        const safeReply = sanitizeClaudeReply(rawReply, catalogPrices);
+            const rawReply = extractLlmPlainText(resp.content);
+            const catalogPrices = products.map((p) => p.price);
+            const safeReply = sanitizeClaudeReply(rawReply, catalogPrices);
 
-        await botReply(admin, companyId, threadId, phoneE164, safeReply);
-    } catch (err) {
-        console.error("[handleFAQ] Claude error:", err);
-        await botReply(admin, companyId, threadId, phoneE164,
-            "Não consegui buscar essa informação agora. Veja nosso catálogo ou fale com um atendente. 😊");
+            await botReply(admin, companyId, threadId, phoneE164, safeReply);
+        } catch (err) {
+            console.error("[handleFAQ] LLM error:", err);
+            await botReply(
+                admin,
+                companyId,
+                threadId,
+                phoneE164,
+                "Não consegui buscar essa informação agora. Veja nosso catálogo ou fale com um atendente. 😊"
+            );
+        }
     }
 
     // Sempre oferece o catálogo após responder (web menu ativo → link; senão Flow)

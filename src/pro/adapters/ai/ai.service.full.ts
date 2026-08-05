@@ -10,6 +10,7 @@ import type {
 import type { AiService } from "../../services/ai/ai.types";
 import type { LlmPort } from "@/src/pro/ports/llm.port";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
+import { hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
 import {
     buildDeliverySpecialistSystemPreamble,
@@ -627,8 +628,7 @@ export class FullAiServiceAdapter implements AiService {
             emptySearchStreak: input.context.session.emptySearchStreak ?? 0,
         };
 
-        const provider = (process.env.LLM_PROVIDER ?? "anthropic").trim().toLowerCase();
-        if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+        if (!hasLlmApiKey()) {
             return {
                 action: "error",
                 replyText: "Estou sem conexão com IA agora. Pode tentar novamente em instantes?",

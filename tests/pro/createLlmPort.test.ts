@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it, afterEach } from "node:test";
 import { createLlmPort, getConfiguredLlmProvider } from "../../src/pro/adapters/llm/createLlmPort";
 import { AnthropicLlmAdapter } from "../../src/pro/adapters/llm/anthropic.llm";
+import { OpenAiLlmAdapter } from "../../src/pro/adapters/llm/openai.llm";
 import { LlmProviderError } from "../../src/pro/ports/llm.port";
 
 describe("createLlmPort", () => {
@@ -21,8 +22,13 @@ describe("createLlmPort", () => {
         assert.ok(createLlmPort() instanceof AnthropicLlmAdapter);
     });
 
-    it("openai ainda não implementado → erro tipado", () => {
+    it("openai → OpenAiLlmAdapter", () => {
         process.env.LLM_PROVIDER = "openai";
+        assert.ok(createLlmPort() instanceof OpenAiLlmAdapter);
+    });
+
+    it("provider desconhecido → erro tipado", () => {
+        process.env.LLM_PROVIDER = "acme";
         assert.throws(() => createLlmPort(), (e: unknown) => e instanceof LlmProviderError);
     });
 });
