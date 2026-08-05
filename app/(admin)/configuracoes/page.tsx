@@ -226,6 +226,54 @@ function SectionTitle({ icon: Icon, title, desc }: { icon: React.ElementType; ti
     );
 }
 
+/** Medidor visual de crédito IA (sem R$) — estilo slider roxo. */
+function AiCreditUsageMeter({
+    remainingTotalCents,
+    includedBudgetCents,
+    prepaidBalanceCents,
+}: {
+    remainingTotalCents: number;
+    includedBudgetCents: number;
+    prepaidBalanceCents: number;
+}) {
+    const capacity = Math.max(
+        includedBudgetCents + prepaidBalanceCents,
+        remainingTotalCents,
+        1
+    );
+    const ratio = Math.min(1, Math.max(0, remainingTotalCents / capacity));
+    const pct = Math.round(ratio * 100);
+    const thumbLeft = `calc(${pct}% - 8px)`;
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Uso da IA</p>
+                <p className="text-xs font-bold text-violet-700 dark:text-violet-300">{pct}% disponível</p>
+            </div>
+            <div className="relative h-3 w-full">
+                <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                <div
+                    className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-violet-600"
+                    style={{ width: `${pct}%` }}
+                />
+                <div
+                    className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-violet-600 shadow-sm ring-2 ring-white dark:ring-zinc-900"
+                    style={{ left: thumbLeft }}
+                    aria-hidden
+                />
+            </div>
+            <div className="flex justify-between text-[10px] text-zinc-400">
+                <span>0 esgotado</span>
+                <span>1.0 cheio</span>
+            </div>
+            <p className="text-[11px] text-zinc-400">
+                Incluso do mês + packs. Sem crédito a IA cai para Flow/catálogo.
+            </p>
+        </div>
+    );
+}
+
 function SaveBar({ saving, msg, onSave }: { saving: boolean; msg: string | null; onSave: () => void }) {
     return (
         <div className="flex items-center justify-between border-t border-zinc-100 pt-5 dark:border-zinc-800">
@@ -359,9 +407,6 @@ function ConfiguracoesPageContent() {
     // chatbot config
     const [chatbotId,       setChatbotId]       = useState<string | null>(null);
     const [chatbotModel,    setChatbotModel]     = useState("claude-haiku-4-5-20251001");
-    const [chatbotThreshold,setChatbotThreshold] = useState("0.75");
-    const [chatbotRetries,  setChatbotRetries]   = useState("2");
-    const [chatbotTimeout,  setChatbotTimeout]   = useState("8000");
     const [msgWelcomeReturning, setMsgWelcomeReturning] = useState(
         DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_returning
     );
@@ -792,10 +837,7 @@ function ConfiguracoesPageContent() {
                 if (!cb) return;
                 setChatbotId(cb.id);
                 const cfg = cb.config ?? {};
-                setChatbotModel(cfg.model     ?? "claude-haiku-4-5-20251001");
-                setChatbotThreshold(String(cfg.threshold  ?? "0.75"));
-                setChatbotRetries(String(cfg.max_retries ?? "2"));
-                setChatbotTimeout(String(cfg.timeout_ms  ?? "8000"));
+                setChatbotModel(cfg.model ?? "claude-haiku-4-5-20251001");
                 const mt = json?.messageTemplates ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES;
                 setMsgWelcomeReturning(
                     mt.msg_welcome_returning ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_returning
@@ -863,14 +905,9 @@ function ConfiguracoesPageContent() {
             body: JSON.stringify({
                 id: chatbotId,
                 config: {
-                    provider:             "anthropic",
-                    model:                chatbotModel,
-                    threshold:            Number(chatbotThreshold) || 0.75,
-                    max_retries:          Number(chatbotRetries)   || 2,
-                    timeout_ms:           Number(chatbotTimeout)   || 8000,
-                    fallback_chain:       ["claude", "regex", "assisted"],
-                    catalog_cache_ttl_min: 15,
-                    ai_enabled:           aiEnabled,
+                    provider: "anthropic",
+                    model: chatbotModel,
+                    ai_enabled: aiEnabled,
                     high_value_confirm_enabled: highValueConfirmEnabled,
                     high_value_confirm_amount_brl: Number(highValueConfirmAmount) || 0,
                 },
@@ -2046,7 +2083,11 @@ function ConfiguracoesPageContent() {
                     {/* ── ABA: CHATBOT ───────────────────────────────────── */}
                     {activeTab === "chatbot" && (
                         <div className="flex flex-col gap-6">
-                            <SectionTitle icon={Bot} title="Configurações do Chatbot" desc="Ajuste o modelo de IA e os parâmetros de resposta" />
+                            <SectionTitle
+                                icon={Bot}
+                                title="Configurações do Chatbot"
+                                desc="IA, confirmação de pedidos e mensagens ao cliente"
+                            />
 
                             {!chatbotId && (
                                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-400">
@@ -2054,96 +2095,31 @@ function ConfiguracoesPageContent() {
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                                {/* Modelo */}
-                                <div className="flex flex-col gap-1 sm:col-span-2">
-                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Modelo de IA</label>
+                            <div className="space-y-5 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                        Modelo de IA
+                                    </label>
                                     <select
                                         value={chatbotModel}
                                         onChange={(e) => setChatbotModel(e.target.value)}
                                         disabled={!chatbotId}
                                         className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
                                     >
-                                        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — rápido e econômico (recomendado)</option>
-                                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — mais inteligente, maior custo</option>
+                                        <option value="claude-haiku-4-5-20251001">
+                                            Claude Haiku 4.5 — recomendado
+                                        </option>
+                                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
                                     </select>
-                                    <p className="text-[11px] text-zinc-400">O modelo é usado para interpretar pedidos em linguagem natural.</p>
                                 </div>
 
-                                {/* Threshold */}
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                                        Confiança mínima ({chatbotThreshold})
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0.5" max="1" step="0.05"
-                                        value={chatbotThreshold}
-                                        onChange={(e) => setChatbotThreshold(e.target.value)}
-                                        disabled={!chatbotId}
-                                        className="w-full accent-violet-600 disabled:opacity-50"
-                                    />
-                                    <div className="flex justify-between text-[10px] text-zinc-400">
-                                        <span>0.5 — permissivo</span>
-                                        <span>1.0 — rígido</span>
-                                    </div>
-                                    <p className="text-[11px] text-zinc-400">Abaixo desse valor o bot cai para o modo Regex / Assistido.</p>
-                                </div>
-
-                                {/* Max retries */}
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Tentativas máximas da IA</label>
-                                    <select
-                                        value={chatbotRetries}
-                                        onChange={(e) => setChatbotRetries(e.target.value)}
-                                        disabled={!chatbotId}
-                                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
-                                    >
-                                        <option value="1">1 tentativa</option>
-                                        <option value="2">2 tentativas (padrão)</option>
-                                        <option value="3">3 tentativas</option>
-                                    </select>
-                                    <p className="text-[11px] text-zinc-400">Número de re-tentativas quando a IA falha ou excede o timeout.</p>
-                                </div>
-
-                                {/* Timeout */}
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Timeout da IA (ms)</label>
-                                    <select
-                                        value={chatbotTimeout}
-                                        onChange={(e) => setChatbotTimeout(e.target.value)}
-                                        disabled={!chatbotId}
-                                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
-                                    >
-                                        <option value="5000">5 segundos</option>
-                                        <option value="8000">8 segundos (padrão)</option>
-                                        <option value="12000">12 segundos</option>
-                                        <option value="15000">15 segundos</option>
-                                    </select>
-                                    <p className="text-[11px] text-zinc-400">Se a IA demorar mais que isso, cai para o Regex.</p>
-                                </div>
-                            </div>
-
-                            {/* info fallback chain */}
-                            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-2">Cadeia de fallback (automática)</p>
-                                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 flex-wrap">
-                                    <span className="rounded-full bg-violet-100 px-2.5 py-0.5 font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">1 · Claude IA</span>
-                                    <span>→</span>
-                                    <span className="rounded-full bg-sky-100 px-2.5 py-0.5 font-semibold text-sky-700 dark:bg-sky-500/20 dark:text-sky-300">2 · Regex / Fuse.js</span>
-                                    <span>→</span>
-                                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">3 · Modo Assistido</span>
-                                </div>
-                            </div>
-
-                            <div className="space-y-4 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
                                 <div className="flex items-center justify-between gap-4">
                                     <div>
                                         <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                                             Inteligência artificial (IA)
                                         </p>
                                         <p className="mt-0.5 text-xs text-zinc-400">
-                                            Desligada = só Flow/catálogo WhatsApp (não consome crédito Haiku).
+                                            Desligada = só Flow/catálogo (não consome crédito).
                                         </p>
                                     </div>
                                     <button
@@ -2163,13 +2139,153 @@ function ConfiguracoesPageContent() {
                                         />
                                     </button>
                                 </div>
+
+                                {aiWallet ? (
+                                    <AiCreditUsageMeter
+                                        remainingTotalCents={aiWallet.remainingTotalCents}
+                                        includedBudgetCents={aiWallet.includedBudgetCents}
+                                        prepaidBalanceCents={aiWallet.prepaidBalanceCents}
+                                    />
+                                ) : null}
+
+                                <div className="flex items-center justify-between gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                                    <div>
+                                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                            Recarga automática
+                                        </p>
+                                        <p className="text-[11px] text-zinc-500">
+                                            Ao zerar o crédito, cobra o pack no cartão salvo.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={Boolean(aiWallet?.autoRechargeEnabled)}
+                                        disabled={!aiWallet}
+                                        onClick={async () => {
+                                            if (!aiWallet) return;
+                                            const next = !aiWallet.autoRechargeEnabled;
+                                            const pack = aiWallet.autoRechargePackCents ?? 2000;
+                                            const res = await fetch("/api/admin/ai-wallet", {
+                                                method: "PATCH",
+                                                credentials: "include",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({
+                                                    autoRechargeEnabled: next,
+                                                    autoRechargePackCents: next ? pack : null,
+                                                }),
+                                            });
+                                            const json = await res.json().catch(() => ({}));
+                                            if (json?.wallet) setAiWallet(json.wallet);
+                                        }}
+                                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                                            aiWallet?.autoRechargeEnabled
+                                                ? "bg-violet-600"
+                                                : "bg-zinc-300 dark:bg-zinc-600"
+                                        }`}
+                                    >
+                                        <span
+                                            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                                                aiWallet?.autoRechargeEnabled
+                                                    ? "translate-x-5"
+                                                    : "translate-x-0"
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
+                                {aiWallet?.autoRechargeEnabled ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {([1000, 2000, 5000] as const).map((cents) => (
+                                            <button
+                                                key={cents}
+                                                type="button"
+                                                onClick={async () => {
+                                                    const res = await fetch("/api/admin/ai-wallet", {
+                                                        method: "PATCH",
+                                                        credentials: "include",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({
+                                                            autoRechargeEnabled: true,
+                                                            autoRechargePackCents: cents,
+                                                        }),
+                                                    });
+                                                    const json = await res.json().catch(() => ({}));
+                                                    if (json?.wallet) setAiWallet(json.wallet);
+                                                }}
+                                                className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ring-1 ${
+                                                    aiWallet.autoRechargePackCents === cents
+                                                        ? "bg-violet-600 text-white ring-violet-600"
+                                                        : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-200 dark:ring-zinc-700"
+                                                }`}
+                                            >
+                                                Pack {cents / 100}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : null}
+
+                                <div className="flex flex-wrap gap-2">
+                                    {[1000, 2000, 5000].map((cents) => (
+                                        <button
+                                            key={cents}
+                                            type="button"
+                                            disabled={aiPackLoading !== null}
+                                            onClick={async () => {
+                                                setAiPackLoading(cents);
+                                                setAiPackPix(null);
+                                                setBotMsg(null);
+                                                try {
+                                                    const res = await fetch(
+                                                        "/api/admin/ai-wallet/checkout",
+                                                        {
+                                                            method: "POST",
+                                                            credentials: "include",
+                                                            headers: {
+                                                                "Content-Type": "application/json",
+                                                            },
+                                                            body: JSON.stringify({ packCents: cents }),
+                                                        }
+                                                    );
+                                                    const json = await res.json().catch(() => ({}));
+                                                    if (!res.ok) {
+                                                        setBotMsg(
+                                                            json?.error ?? "Falha ao gerar PIX do pack"
+                                                        );
+                                                        return;
+                                                    }
+                                                    setAiPackPix(
+                                                        typeof json.pixQrCode === "string"
+                                                            ? json.pixQrCode
+                                                            : null
+                                                    );
+                                                    setBotMsg(
+                                                        "✓ PIX gerado — pague para creditar o pack"
+                                                    );
+                                                } finally {
+                                                    setAiPackLoading(null);
+                                                }
+                                            }}
+                                            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                                        >
+                                            {aiPackLoading === cents ? "…" : `+ Pack ${cents / 100}`}
+                                        </button>
+                                    ))}
+                                </div>
+                                {aiPackPix ? (
+                                    <p className="break-all rounded-lg bg-zinc-50 px-2 py-1.5 font-mono text-[10px] text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700">
+                                        {aiPackPix}
+                                    </p>
+                                ) : null}
+                            </div>
+
+                            <div className="space-y-4 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
                                 <div className="flex items-center justify-between gap-4">
                                     <div>
                                         <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                                             Confirmação em pedidos de valor alto
                                         </p>
                                         <p className="mt-0.5 text-xs text-zinc-400">
-                                            Cada loja define o valor ou desliga. Pedidos acima do valor pedem confirmação reforçada.
+                                            Pedidos acima do valor pedem confirmação reforçada no WhatsApp.
                                         </p>
                                     </div>
                                     <button
@@ -2206,180 +2322,6 @@ function ConfiguracoesPageContent() {
                                             className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
                                         />
                                     </label>
-                                ) : null}
-
-                                {aiWallet ? (
-                                    <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
-                                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                                            Crédito IA restante
-                                        </p>
-                                        <p className="mt-1 text-lg font-bold text-zinc-900 dark:text-zinc-50">
-                                            {(aiWallet.remainingTotalCents / 100).toLocaleString("pt-BR", {
-                                                style: "currency",
-                                                currency: "BRL",
-                                            })}
-                                        </p>
-                                        <p className="mt-0.5 text-[11px] text-zinc-500">
-                                            Incluso do mês:{" "}
-                                            {(aiWallet.remainingIncludedCents / 100).toLocaleString("pt-BR", {
-                                                style: "currency",
-                                                currency: "BRL",
-                                            })}{" "}
-                                            de{" "}
-                                            {(aiWallet.includedBudgetCents / 100).toLocaleString("pt-BR", {
-                                                style: "currency",
-                                                currency: "BRL",
-                                            })}{" "}
-                                            · Packs:{" "}
-                                            {(aiWallet.prepaidBalanceCents / 100).toLocaleString("pt-BR", {
-                                                style: "currency",
-                                                currency: "BRL",
-                                            })}
-                                        </p>
-                                        <div className="mt-3 flex items-center justify-between gap-3">
-                                            <div>
-                                                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                                                    Crédito automático no cartão
-                                                </p>
-                                                <p className="text-[11px] text-zinc-500">
-                                                    Ao zerar o saldo, cobra o pack escolhido no cartão
-                                                    salvo.
-                                                </p>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                role="switch"
-                                                aria-checked={aiWallet.autoRechargeEnabled}
-                                                onClick={async () => {
-                                                    const next = !aiWallet.autoRechargeEnabled;
-                                                    const pack =
-                                                        aiWallet.autoRechargePackCents ?? 2000;
-                                                    const res = await fetch("/api/admin/ai-wallet", {
-                                                        method: "PATCH",
-                                                        credentials: "include",
-                                                        headers: {
-                                                            "Content-Type": "application/json",
-                                                        },
-                                                        body: JSON.stringify({
-                                                            autoRechargeEnabled: next,
-                                                            autoRechargePackCents: next
-                                                                ? pack
-                                                                : null,
-                                                        }),
-                                                    });
-                                                    const json = await res.json().catch(() => ({}));
-                                                    if (json?.wallet) setAiWallet(json.wallet);
-                                                }}
-                                                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                                                    aiWallet.autoRechargeEnabled
-                                                        ? "bg-violet-600"
-                                                        : "bg-zinc-300 dark:bg-zinc-600"
-                                                }`}
-                                            >
-                                                <span
-                                                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                                                        aiWallet.autoRechargeEnabled
-                                                            ? "translate-x-5"
-                                                            : "translate-x-0"
-                                                    }`}
-                                                />
-                                            </button>
-                                        </div>
-                                        {aiWallet.autoRechargeEnabled ? (
-                                            <div className="mt-2 flex flex-wrap gap-2">
-                                                {([1000, 2000, 5000] as const).map((cents) => (
-                                                    <button
-                                                        key={cents}
-                                                        type="button"
-                                                        onClick={async () => {
-                                                            const res = await fetch(
-                                                                "/api/admin/ai-wallet",
-                                                                {
-                                                                    method: "PATCH",
-                                                                    credentials: "include",
-                                                                    headers: {
-                                                                        "Content-Type":
-                                                                            "application/json",
-                                                                    },
-                                                                    body: JSON.stringify({
-                                                                        autoRechargeEnabled: true,
-                                                                        autoRechargePackCents: cents,
-                                                                    }),
-                                                                }
-                                                            );
-                                                            const json = await res
-                                                                .json()
-                                                                .catch(() => ({}));
-                                                            if (json?.wallet) setAiWallet(json.wallet);
-                                                        }}
-                                                        className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ring-1 ${
-                                                            aiWallet.autoRechargePackCents === cents
-                                                                ? "bg-violet-600 text-white ring-violet-600"
-                                                                : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-200 dark:ring-zinc-700"
-                                                        }`}
-                                                    >
-                                                        Auto R$ {(cents / 100).toFixed(0)}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        ) : null}
-                                        <div className="mt-3 flex flex-wrap gap-2">
-                                            {[1000, 2000, 5000].map((cents) => (
-                                                <button
-                                                    key={cents}
-                                                    type="button"
-                                                    disabled={aiPackLoading !== null}
-                                                    onClick={async () => {
-                                                        setAiPackLoading(cents);
-                                                        setAiPackPix(null);
-                                                        setBotMsg(null);
-                                                        try {
-                                                            const res = await fetch(
-                                                                "/api/admin/ai-wallet/checkout",
-                                                                {
-                                                                    method: "POST",
-                                                                    credentials: "include",
-                                                                    headers: {
-                                                                        "Content-Type": "application/json",
-                                                                    },
-                                                                    body: JSON.stringify({
-                                                                        packCents: cents,
-                                                                    }),
-                                                                }
-                                                            );
-                                                            const json = await res.json().catch(() => ({}));
-                                                            if (!res.ok) {
-                                                                setBotMsg(
-                                                                    json?.error ?? "Falha ao gerar PIX do pack"
-                                                                );
-                                                                return;
-                                                            }
-                                                            setAiPackPix(
-                                                                typeof json.pixQrCode === "string"
-                                                                    ? json.pixQrCode
-                                                                    : null
-                                                            );
-                                                            setBotMsg(
-                                                                "✓ PIX gerado — pague para creditar o pack (confirmação automática)"
-                                                            );
-                                                        } finally {
-                                                            setAiPackLoading(null);
-                                                        }
-                                                    }}
-                                                    className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-                                                >
-                                                    {aiPackLoading === cents
-                                                        ? "…"
-                                                        : `+ R$ ${(cents / 100).toFixed(0)}`}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        {aiPackPix ? (
-                                            <p className="mt-2 break-all rounded-lg bg-white px-2 py-1.5 font-mono text-[10px] text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700">
-                                                {aiPackPix}
-                                            </p>
-                                        ) : null}
-                                    </div>
                                 ) : null}
                             </div>
 

@@ -70,7 +70,7 @@ export async function PATCH(req: Request) {
     if (!existing) return NextResponse.json({ error: "chatbot not found" }, { status: 404 });
 
     const prevCfg = (existing.config as Record<string, unknown> | null) ?? {};
-    // Preserva mensagens já salvas se o PATCH só alterar modelo/threshold
+    // Merge: preserva chaves antigas (threshold etc.) se o PATCH não as enviar
     let nextConfig = { ...prevCfg, ...body.config };
     if (body.messageTemplates) {
         nextConfig = mergeMessageTemplatesIntoBotConfig(nextConfig, body.messageTemplates);
