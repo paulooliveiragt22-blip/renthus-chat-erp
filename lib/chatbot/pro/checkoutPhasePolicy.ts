@@ -1,0 +1,142 @@
+/**
+ * Política de fase do checkout PRO: textos canônicos e scrub de confirmação precoce.
+ */
+import type { OutboundMessage, ProStep } from "@/src/types/contracts";
+
+export type CheckoutPhase =
+    | "collect_items"
+    | "confirm_address"
+    | "register_address"
+    | "collect_payment"
+    | "confirm_order"
+    | "idle";
+
+export function phaseFromProStep(step: ProStep | string | null | undefined): CheckoutPhase {
+    switch (step) {
+        case "pro_awaiting_address_confirmation":
+            return "confirm_address";
+        case "pro_awaiting_payment_method":
+        case "pro_awaiting_change_amount":
+            return "collect_payment";
+        case "pro_awaiting_confirmation":
+            return "confirm_order";
+        case "pro_collecting_order":
+            return "collect_items";
+        default:
+            return "idle";
+    }
+}
+
+/** Playbook curto injetado no system prompt (especialista delivery). */
+export function buildPhasePlaybookForModel(params: {
+    step: ProStep | string | null | undefined;
+    deliveryAddressUiConfirmed?: boolean;
+    hasDraftItems?: boolean;
+    hasPayment?: boolean;
+    addressComplete?: boolean;
+}): string {
+    const phase = phaseFromProStep(params.step);
+    const lines = [
+        "--- Fase atual do checkout (servidor; obedeça) ---",
+        `fase=${phase}`,
+        `step=${params.step ?? "pro_idle"}`,
+        `endereco_ui_confirmado=${params.deliveryAddressUiConfirmed === true}`,
+        `tem_itens=${Boolean(params.hasDraftItems)}`,
+        `endereco_completo=${Boolean(params.addressComplete)}`,
+        `tem_pagamento=${Boolean(params.hasPayment)}`,
+    ];
+
+    if (phase === "confirm_address" || (params.addressComplete && params.deliveryAddressUiConfirmed !== true)) {
+        lines.push(
+            "NÃO peça confirmação final do pedido (sim/ok do pedido).",
+            "Diga de forma curta que o próximo passo é confirmar o ENDEREÇO nos botões do WhatsApp.",
+            "Não invente botões; o servidor envia Confirmar/Alterar endereço."
+        );
+    } else if (phase === "collect_payment") {
+        lines.push(
+            "Endereço já confirmado. Oriente pagamento (PIX/cartão/dinheiro) sem pedir 'sim' do pedido ainda."
+        );
+    } else if (phase === "confirm_order") {
+        lines.push(
+            "Agora sim: resuma itens + endereço + taxa + total do draft e peça confirmação explícita (sim/ok ou botão Confirmar)."
+        );
+    } else if (phase === "collect_items") {
+        lines.push(
+            "Foque em entender o pedido. Se search_produtos trouxer did_you_mean ou várias opções, ofereça as opções sem inventar preço."
+        );
+    }
+
+    lines.push("--- Fim fase ---");
+    return lines.join("\n");
+}
+
+function normalizePt(text: string): string {
+    return text
+        .toLowerCase()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "");
+}
+
+/** Detecta texto de IA pedindo confirmação final do pedido (conflita com CTA de endereço). */
+export function looksLikeFinalOrderConfirmAsk(text: string): boolean {
+    const flat = normalizePt(text);
+    const hints = [
+        "confirme o pedido",
+        "confirmar o pedido",
+        "confirma o pedido",
+        "pode confirmar o pedido",
+        "pedido pronto",
+        "pedido montado",
+        "revise os dados e confirme",
+        "digite sim",
+        "responda sim",
+        "me confirme com um sim",
+        "posso confirmar",
+        "fechamos o pedido",
+        "finalizar o pedido",
+        "confirme para eu finalizar",
+    ];
+    return hints.some((h) => flat.includes(h));
+}
+
+/**
+ * Em hold de endereço: remove prosa de “confirme o pedido” e mantém só CTAs/fases.
+ * Se sobrar só lixo, injeta texto curto canônico.
+ */
+export function scrubOutboundForAddressHold(
+    outbound: OutboundMessage[],
+    opts?: { canonicalText?: string }
+): OutboundMessage[] {
+    const kept: OutboundMessage[] = [];
+    for (const m of outbound) {
+        if (m.kind !== "text") {
+            kept.push(m);
+            continue;
+        }
+        const t = String(m.text ?? "").trim();
+        if (!t) continue;
+        if (looksLikeFinalOrderConfirmAsk(t)) continue;
+        kept.push(m);
+    }
+    const hasInteractive = kept.some((m) => m.kind === "buttons" || m.kind === "flow");
+    const hasText = kept.some((m) => m.kind === "text");
+    if (hasInteractive && !hasText) {
+        kept.unshift({
+            kind: "text",
+            text:
+                opts?.canonicalText ??
+                "Quase la! Confirme o endereco de entrega nos botoes abaixo para continuar o pedido.",
+        });
+    }
+    return kept;
+}
+
+export function buildDeliverySpecialistSystemPreamble(): string {
+    return `Você é especialista em atendimento de delivery pelo WhatsApp (planos PRO/Market).
+- Tom: cordial, objetivo, PT-BR do Brasil; frases curtas; sem jargão técnico.
+- Contexto: o cliente pode digitar errado (hamburgueres→hambúrguer). Use search_produtos; se vier did_you_mean, ofereça essas opções.
+- Nunca invente produto, preço, estoque, taxa ou ETA — só tools.
+- Upsell leve só se fizer sentido (ex.: caixa quando pediu unidade), sem pressão.
+- Checkout é faseado pelo servidor: endereço → pagamento → confirmação final. Respeite o bloco "Fase atual".
+- Quando houver várias embalagens, liste opções claras; o servidor pode enviar botões de escolha.`;
+}

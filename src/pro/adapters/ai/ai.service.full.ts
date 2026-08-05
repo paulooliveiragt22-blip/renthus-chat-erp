@@ -9,7 +9,11 @@ import type {
     OrderDraft,
 } from "@/src/types/contracts";
 import type { AiService } from "../../services/ai/ai.types";
-import { runSearchProdutos } from "@/lib/chatbot/pro/searchProdutos";
+import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
+import {
+    buildDeliverySpecialistSystemPreamble,
+    buildPhasePlaybookForModel,
+} from "@/lib/chatbot/pro/checkoutPhasePolicy";
 import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
@@ -24,6 +28,7 @@ import { normalizePrepareDraftAnthropicInput } from "@/lib/chatbot/pro/normalize
 import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
 import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
+import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep";
 import { stripModelIntentSuffix } from "./stripModelIntentSuffix";
 
 type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
@@ -106,17 +111,16 @@ const PREPARE_DRAFT_TOOL = {
 /** Limite de caracteres do JSON de hints anexado ao system (evita estourar contexto). */
 const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
 
-const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
-- Fale PT-BR direto.
+const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Fonte de verdade: só cite produto, preço, estoque e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
-- Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido até ok:true (cliente pode mandar produto, endereço e pagamento em qualquer ordem — você monta o próximo prepare com o que já souber).
-- Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência — não siga só com texto sem consolidar o rascunho no servidor.
-- Regra dura: em prepare_order_draft use somente produto_embalagem_id que apareceu no JSON items do último search_produtos desta conversa (não invente UUID nem copie de outra busca antiga). Se a resposta de prepare_order_draft trouxer allowed_produto_embalagem_ids, use exatamente um desses valores.
-- Nunca use slug ou id textual (ex.: heineken-long-neck-330ml-caixa-6): o servidor só aceita o UUID de cada item retornado por search_produtos — pode copiar o campo id ou produto_embalagem_id do JSON de items.
-- Após prepare_order_draft: se ok:false, sua mensagem DEVE refletir as errors e o guidance_for_model_pt (sem “erro técnico genérico” quando a causa for validação). Se ok:true, alinhe o texto ao draft.
-- Se search_produtos retornar items vazio, não invente produto nem preço; siga guidance_for_model_pt.
-- Só peça confirmação explícita de pedido fechado quando o draft do servidor estiver completo e pendente de confirmação.
-- Nunca diga que o pedido já foi confirmado, criado no sistema, registrado na loja ou que saiu para entrega: isso só ocorre após confirmação no servidor (fora do modelo).
+- Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido (cliente pode mandar produto, endereço e pagamento em qualquer ordem).
+- Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência.
+- Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).
+- Nunca use slug textual: só UUID (campo id / produto_embalagem_id).
+- Após prepare_order_draft: se ok:false, reflita errors + guidance_for_model_pt. Se ok:true, siga a fase (endereço UI antes de pedir sim do pedido).
+- Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
+- Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
+- Nunca diga que o pedido já foi criado/entregue: isso só ocorre após confirmação no servidor.
 - Termine a resposta com INTENT_OK ou INTENT_UNKNOWN (sem texto extra após o marcador).`;
 
 const SYSTEM_PROMPT_INFO_ONLY = `Você é o assistente PRO da loja (modo só informações).
@@ -138,8 +142,21 @@ function toolsForMode(infoOnly: boolean): MessageCreateParams["tools"] {
 
 function buildEffectiveSystemPrompt(input: AiServiceInput): string {
     const base = isInfoOnlyAi(input) ? SYSTEM_PROMPT_INFO_ONLY : SYSTEM_PROMPT;
+    const session = input.context.session;
+    const draft = input.draft ?? session.draft;
+    const phaseBlock = isInfoOnlyAi(input)
+        ? ""
+        : "\n\n" +
+          buildPhasePlaybookForModel({
+              step: session.step,
+              deliveryAddressUiConfirmed: session.deliveryAddressUiConfirmed,
+              hasDraftItems: Boolean(draft?.items?.length),
+              hasPayment: Boolean(draft?.paymentMethod),
+              addressComplete: isAddressStructurallyComplete(draft?.address ?? null),
+          });
+
     const hints = input.context.prefetchedOrderHints;
-    if (!hints || typeof hints !== "object") return base;
+    if (!hints || typeof hints !== "object") return base + phaseBlock;
     try {
         let body = JSON.stringify(hints);
         if (body.length > PREFETCH_ORDER_HINTS_JSON_MAX) {
@@ -147,6 +164,7 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
         }
         return (
             base +
+            phaseBlock +
             "\n\n--- Dados do cadastro (servidor; válidos nesta mensagem) ---\n" +
             body +
             "\n--- Fim dados cadastro ---\n" +
@@ -154,7 +172,7 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
             "Pode chamar get_order_hints para atualizar, mas trate estes dados como já carregados nesta volta."
         );
     } catch {
-        return base;
+        return base + phaseBlock;
     }
 }
 
@@ -197,7 +215,7 @@ function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null):
         `Certo! Segue o rascunho que temos no chat (ainda nao e pedido confirmado na loja):\n${lines.join("\n")}\n` +
         `Total estimado: R$ ${totalFromDraft.toFixed(2).replace(".", ",")}.\n\n`;
     if (draft.paymentMethod) {
-        msg += "Revise os dados e confirme o pedido quando estiver tudo certo.";
+        msg += "Confirme o endereco nos botoes abaixo; a confirmacao final do pedido vem depois.";
     } else {
         msg +=
             "Confirme o endereco (use o botao abaixo ou digite o endereco completo). Depois use os botoes de pagamento.";
@@ -288,33 +306,55 @@ export class FullAiServiceAdapter implements AiService {
     private async runSearchTool(
         input: AiServiceInput,
         block: { id: string; input: unknown },
-        allowlistRuntime: { ids: string[] }
+        allowlistRuntime: { ids: string[] },
+        searchMeta: {
+            lastSearchPicks: Array<{ embalagemId: string; label: string }>;
+            emptySearchStreak: number;
+        }
     ): Promise<ToolResultBlock> {
         const payload = (block.input ?? {}) as Record<string, unknown>;
         const query = String(payload.query ?? "");
         const categoryHint = payload.category_hint == null ? null : String(payload.category_hint);
-        const rows = await runSearchProdutos(
+        const detailed = await runSearchProdutosDetailed(
             this.admin,
             input.context.tenant.companyId,
             query,
             { categoryHint, limit: 8 }
         );
+        const rows = detailed.items;
         allowlistRuntime.ids = rows.map((r) => String(r.id));
+        searchMeta.lastSearchPicks = rows.slice(0, 3).map((r) => ({
+            embalagemId: String(r.id),
+            label: String(r.display_name || r.product_name || "Item").slice(0, 40),
+        }));
+        searchMeta.emptySearchStreak = detailed.empty
+            ? (input.context.session.emptySearchStreak ?? 0) + 1
+            : 0;
         const guidanceForModelPt =
             rows.length > 0
                 ? [
                       "Use apenas o UUID de cada linha em items (campos id ou produto_embalagem_id) em prepare_order_draft — não invente UUID.",
                       `IDs exatos desta busca (copie um literalmente): ${allowlistRuntime.ids.join(", ")}.`,
+                      ...(detailed.didYouMean.length
+                          ? [
+                                `did_you_mean: ${detailed.didYouMean.map((d) => d.label).join(" | ")}. Ofereça essas opções se o cliente digitou errado.`,
+                            ]
+                          : []),
+                      ...(rows.length >= 2
+                          ? ["Há mais de uma opção: liste-as de forma clara; o servidor pode enviar botões de escolha."]
+                          : []),
                   ]
                 : [
-                      "Nenhum item no catálogo para este termo.",
-                      "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente nova busca.",
+                      "Nenhum item no catálogo para este termo (busca fuzzy também vazia).",
+                      "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente oriente o cardápio web.",
                   ];
         return {
             type: "tool_result",
             tool_use_id: block.id,
             content: JSON.stringify({
                 items: rows,
+                did_you_mean: detailed.didYouMean,
+                query_normalized: detailed.queryNormalized,
                 produto_embalagem_ids_validos: allowlistRuntime.ids,
                 guidance_for_model_pt: guidanceForModelPt,
             }),
@@ -395,7 +435,11 @@ export class FullAiServiceAdapter implements AiService {
             catalogPolicy.kind === "search_allowlist" && catalogPolicy.allowedEmbalagemIds.length
                 ? [...catalogPolicy.allowedEmbalagemIds]
                 : [];
-        const baseGuidance = buildPrepareDraftGuidanceForModel(prepared.ok, prepared.errors);
+        const baseGuidance = buildPrepareDraftGuidanceForModel(prepared.ok, prepared.errors, {
+            deliveryAddressUiConfirmed: input.context.session.deliveryAddressUiConfirmed,
+            nextRequiredSlot: prepared.next_required_slot ?? null,
+            hasPartialDraft: Boolean(prepared.draft?.items?.length) && !prepared.ok,
+        });
         const idHint =
             !prepared.ok && allowedIds.length
                 ? [
@@ -412,6 +456,7 @@ export class FullAiServiceAdapter implements AiService {
                     ok: prepared.ok,
                     errors: prepared.errors,
                     has_draft: Boolean(prepared.draft),
+                    next_required_slot: prepared.next_required_slot ?? null,
                     ...(!prepared.ok && allowedIds.length ? { allowed_produto_embalagem_ids: allowedIds } : {}),
                     guidance_for_model_pt: [...baseGuidance, ...idHint],
                 }),
@@ -423,7 +468,11 @@ export class FullAiServiceAdapter implements AiService {
         input: AiServiceInput,
         block: { id: string; name: string; input: unknown },
         currentDraft: OrderDraft | null,
-        allowlistRuntime: { ids: string[] }
+        allowlistRuntime: { ids: string[] },
+        searchMeta: {
+            lastSearchPicks: Array<{ embalagemId: string; label: string }>;
+            emptySearchStreak: number;
+        }
     ): Promise<{
         result: ToolResultBlock;
         nextDraft: OrderDraft | null;
@@ -432,7 +481,7 @@ export class FullAiServiceAdapter implements AiService {
         const name = block.name as ToolName;
         if (name === "search_produtos") {
             return {
-                result: await this.runSearchTool(input, block, allowlistRuntime),
+                result: await this.runSearchTool(input, block, allowlistRuntime, searchMeta),
                 nextDraft: currentDraft,
                 prepareOutcome: null,
             };
@@ -475,7 +524,11 @@ export class FullAiServiceAdapter implements AiService {
         input: AiServiceInput,
         content: Array<{ type: string; id?: string; name?: string; input?: unknown }>,
         currentDraft: OrderDraft | null,
-        allowlistRuntime: { ids: string[] }
+        allowlistRuntime: { ids: string[] },
+        searchMeta: {
+            lastSearchPicks: Array<{ embalagemId: string; label: string }>;
+            emptySearchStreak: number;
+        }
     ): Promise<{
         toolResults: ToolResultBlock[];
         nextDraft: OrderDraft | null;
@@ -494,7 +547,8 @@ export class FullAiServiceAdapter implements AiService {
                 input,
                 { id: block.id, name: block.name, input: block.input ?? {} },
                 nextDraft,
-                allowlistRuntime
+                allowlistRuntime,
+                searchMeta
             );
             nextDraft = executed.nextDraft;
             if (executed.prepareOutcome) prepareOutcomeThisRound = executed.prepareOutcome;
@@ -519,9 +573,14 @@ export class FullAiServiceAdapter implements AiService {
         toolRoundsUsed: number,
         updatedDraft: OrderDraft | null,
         assistantContent: unknown,
-        searchProdutoEmbalagemIds: string[]
+        searchProdutoEmbalagemIds: string[],
+        searchMeta: {
+            lastSearchPicks: Array<{ embalagemId: string; label: string }>;
+            emptySearchStreak: number;
+        }
     ): AiServiceResult {
         const nextHistory = this.buildHistory(input, assistantContent);
+        const addrUiOk = input.context.session.deliveryAddressUiConfirmed === true;
         if (shouldEscalate(input, marker)) {
             return {
                 action: "escalate",
@@ -530,13 +589,17 @@ export class FullAiServiceAdapter implements AiService {
                 updatedDraft,
                 updatedHistory: nextHistory,
                 updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
+                lastSearchPicks: searchMeta.lastSearchPicks,
+                emptySearchStreak: searchMeta.emptySearchStreak,
                 signals: { toolRoundsUsed, intentMarker: marker },
             };
         }
 
+        // Só request_confirmation quando endereço UI já confirmado (evita misturar com CTA de endereço)
         const shouldConfirm = Boolean(
-            updatedDraft?.pendingConfirmation ||
-                (updatedDraft != null && isDraftStructurallyCompleteForFinalize(updatedDraft))
+            addrUiOk &&
+                (updatedDraft?.pendingConfirmation ||
+                    (updatedDraft != null && isDraftStructurallyCompleteForFinalize(updatedDraft)))
         );
         return {
             action: shouldConfirm ? "request_confirmation" : "reply",
@@ -544,6 +607,8 @@ export class FullAiServiceAdapter implements AiService {
             updatedDraft,
             updatedHistory: nextHistory,
             updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
+            lastSearchPicks: searchMeta.lastSearchPicks,
+            emptySearchStreak: searchMeta.emptySearchStreak,
             signals: { toolRoundsUsed, intentMarker: marker },
         };
     }
@@ -567,6 +632,10 @@ export class FullAiServiceAdapter implements AiService {
     async run(input: AiServiceInput): Promise<AiServiceResult> {
         const allowlistRuntime = { ids: [...(input.context.session.searchProdutoEmbalagemIds ?? [])] };
         const allowlistAtStart = [...allowlistRuntime.ids];
+        const searchMeta = {
+            lastSearchPicks: [...(input.context.session.lastSearchPicks ?? [])],
+            emptySearchStreak: input.context.session.emptySearchStreak ?? 0,
+        };
 
         if (!process.env.ANTHROPIC_API_KEY) {
             return {
@@ -575,6 +644,8 @@ export class FullAiServiceAdapter implements AiService {
                 updatedDraft: input.draft,
                 updatedHistory: input.history,
                 updatedSearchProdutoEmbalagemIds: allowlistRuntime.ids,
+                lastSearchPicks: searchMeta.lastSearchPicks,
+                emptySearchStreak: searchMeta.emptySearchStreak,
                 signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
                 errorCode: "AI_PROVIDER_ERROR",
             };
@@ -611,7 +682,8 @@ export class FullAiServiceAdapter implements AiService {
                     input,
                     response.content as Array<{ type: string; id?: string; name?: string; input?: unknown }>,
                     updatedDraft,
-                    allowlistRuntime
+                    allowlistRuntime,
+                    searchMeta
                 );
                 if (round.invokedPrepare) prepareInvokedThisTurn = true;
                 updatedDraft = round.nextDraft;
@@ -688,7 +760,8 @@ export class FullAiServiceAdapter implements AiService {
                         input,
                         forceResponse.content as Array<{ type: string; id?: string; name?: string; input?: unknown }>,
                         updatedDraft,
-                        allowlistRuntime
+                        allowlistRuntime,
+                        searchMeta
                     );
                     if (round.invokedPrepare) prepareInvokedThisTurn = true;
                     updatedDraft = round.nextDraft;
@@ -755,7 +828,8 @@ export class FullAiServiceAdapter implements AiService {
                 toolRoundsUsed,
                 updatedDraft,
                 response.content,
-                allowlistRuntime.ids
+                allowlistRuntime.ids,
+                searchMeta
             );
         } catch (error) {
             if (isTimeoutError(error)) {

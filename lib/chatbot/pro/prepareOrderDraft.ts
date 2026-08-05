@@ -174,6 +174,8 @@ export async function prepareOrderDraftFromTool(
     ok:    boolean;
     draft: AiOrderCanonicalDraft | null;
     errors: string[];
+    /** Próximo slot faltante quando ok=false mas há draft parcial. */
+    next_required_slot?: "items" | "address" | "payment" | "fix_errors" | null;
 }> {
     const errors: string[] = [];
 
@@ -374,31 +376,46 @@ export async function prepareOrderDraftFromTool(
     }
 
     const baseErrors = [...errors];
+    const addressUsable =
+        Boolean(address) &&
+        !baseErrors.some((e) => /endereço incompleto|endereco incompleto|fora da área|fora da area/i.test(e));
+    const fullOk = baseErrors.length === 0 && itemsOut.length > 0 && Boolean(addressUsable) && Boolean(pm);
+
+    // Draft completo OU parcial (itens válidos mesmo sem endereço/pagamento) — IA continua o fluxo.
     const draft: AiOrderCanonicalDraft | null =
-        baseErrors.length === 0 && itemsOut.length && address && pm
+        itemsOut.length > 0
             ? {
-                items:                  itemsOut,
-                address,
-                payment_method:         pm,
-                change_for:             body.change_for ?? null,
-                delivery_fee,
-                delivery_zone_id,
-                delivery_address_text,
-                delivery_min_order,
-                delivery_eta_min,
-                total_items,
-                grand_total,
-                // Rascunho só existe com itens+endereço+pagamento válidos; sempre aguardar "sim"/"ok" no servidor
-                // (a IA costuma esquecer ready_for_confirmation=true e o pedido nunca fechava).
-                pending_confirmation: true,
-                address_resolution_note: addressNote,
-            }
+                  items: itemsOut,
+                  address: addressUsable ? address : null,
+                  payment_method: pm,
+                  change_for: body.change_for ?? null,
+                  delivery_fee: addressUsable ? delivery_fee : 0,
+                  delivery_zone_id: addressUsable ? delivery_zone_id : null,
+                  delivery_address_text: addressUsable ? delivery_address_text : null,
+                  delivery_min_order: addressUsable ? delivery_min_order : null,
+                  delivery_eta_min: addressUsable ? delivery_eta_min : null,
+                  total_items,
+                  grand_total: addressUsable ? grand_total : total_items,
+                  pending_confirmation: fullOk,
+                  address_resolution_note: addressUsable ? addressNote : null,
+              }
             : null;
 
+    const nextRequiredSlot = fullOk
+        ? null
+        : !itemsOut.length
+          ? "items"
+          : !addressUsable
+            ? "address"
+            : !pm
+              ? "payment"
+              : "fix_errors";
+
     return {
-        ok:     draft !== null,
+        ok: fullOk,
         draft,
-        errors: draft ? [] : (baseErrors.length ? baseErrors : ["Rascunho incompleto."]),
+        errors: fullOk ? [] : baseErrors.length ? baseErrors : ["Rascunho incompleto."],
+        next_required_slot: nextRequiredSlot,
     };
 }
 
@@ -406,12 +423,43 @@ export async function prepareOrderDraftFromTool(
  * Instruções estáveis para o modelo após `prepare_order_draft`, alinhadas aos `errors` reais do servidor.
  * Reduz “erro técnico genérico” e respostas que ignoram validação (endereço, estoque, pagamento, etc.).
  */
-export function buildPrepareDraftGuidanceForModel(ok: boolean, errors: string[]): string[] {
+export function buildPrepareDraftGuidanceForModel(
+    ok: boolean,
+    errors: string[],
+    opts?: {
+        deliveryAddressUiConfirmed?: boolean;
+        nextRequiredSlot?: "items" | "address" | "payment" | "fix_errors" | null;
+        hasPartialDraft?: boolean;
+    }
+): string[] {
     if (ok) {
+        if (opts?.deliveryAddressUiConfirmed !== true) {
+            return [
+                "Rascunho aceito no servidor (itens+endereço+pagamento).",
+                "NÃO peça confirmação final do pedido (sim/ok do pedido) nesta mensagem.",
+                "Diga em 1 frase que o próximo passo é confirmar o ENDEREÇO nos botões do WhatsApp (o servidor envia Confirmar/Alterar).",
+                "Pode citar itens/total de forma breve, sem pedir 'confirme o pedido'.",
+            ];
+        }
         return [
-            "Rascunho aceito no servidor.",
+            "Rascunho aceito no servidor e endereço já confirmado na UI.",
             "Resposta ao cliente: resuma itens, endereço, taxa e total exatamente como no draft (sem alterar preços).",
-            "Se o draft estiver completo e pendente de confirmação, peça confirmação explícita (sim/ok ou botão) antes de considerar o pedido fechado.",
+            "Peça confirmação explícita do pedido (sim/ok ou botão Confirmar).",
+        ];
+    }
+
+    if (opts?.hasPartialDraft && opts.nextRequiredSlot === "address") {
+        return [
+            "Há rascunho parcial com itens no servidor.",
+            "Não diga erro técnico. Peça ou confirme o endereço (rua, número, bairro, cidade, UF) ou use saved_address_id.",
+            "Depois chame prepare_order_draft de novo.",
+        ];
+    }
+    if (opts?.hasPartialDraft && opts.nextRequiredSlot === "payment") {
+        return [
+            "Há rascunho parcial com itens (e talvez endereço) no servidor.",
+            "Pergunte PIX, cartão ou dinheiro e chame prepare_order_draft com payment_method.",
+            "NÃO peça confirmação final do pedido ainda.",
         ];
     }
 

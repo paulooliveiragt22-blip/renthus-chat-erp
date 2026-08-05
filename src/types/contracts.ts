@@ -101,6 +101,10 @@ export interface ProSessionState {
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */
     searchProdutoEmbalagemIds: string[];
+    /** Últimas opções de search para botões de clarificação (até 3). */
+    lastSearchPicks?: Array<{ embalagemId: string; label: string }>;
+    /** Buscas vazias consecutivas — escala para cardápio web. */
+    emptySearchStreak?: number;
     /**
      * Pedido acima do limiar da loja: primeira confirmação só “reconhece” o valor alto;
      * a segunda (com este flag true) fecha o pedido.
@@ -276,6 +280,9 @@ export interface AiServiceResult {
     updatedHistory?: AiTurn[];
     /** Atualização da allowlist de catálogo após rodadas de tool (PRO V2). */
     updatedSearchProdutoEmbalagemIds?: string[];
+    /** Opções para botões WhatsApp após busca ambígua. */
+    lastSearchPicks?: Array<{ embalagemId: string; label: string }>;
+    emptySearchStreak?: number;
     signals: {
         toolRoundsUsed: number;
         /** Heurística a partir do sufixo da resposta do modelo (não é payload de WhatsApp). */

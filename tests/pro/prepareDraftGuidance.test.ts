@@ -7,10 +7,20 @@ import {
 } from "../../lib/chatbot/pro/prepareOrderDraft";
 
 describe("buildPrepareDraftGuidanceForModel", () => {
-    it("quando ok, orienta alinhamento ao draft", () => {
-        const g = buildPrepareDraftGuidanceForModel(true, []);
+    it("quando ok sem endereco UI, nao pede sim do pedido", () => {
+        const g = buildPrepareDraftGuidanceForModel(true, [], {
+            deliveryAddressUiConfirmed: false,
+        });
         assert.ok(g.some((l) => l.toLowerCase().includes("aceito")));
-        assert.ok(g.some((l) => l.toLowerCase().includes("draft")));
+        assert.ok(g.some((l) => l.toLowerCase().includes("endereço") || l.toLowerCase().includes("endereco")));
+        assert.ok(g.some((l) => l.includes("NÃO") || l.includes("NAO") || l.toLowerCase().includes("não")));
+    });
+
+    it("quando ok com endereco UI, pede confirmacao do pedido", () => {
+        const g = buildPrepareDraftGuidanceForModel(true, [], {
+            deliveryAddressUiConfirmed: true,
+        });
+        assert.ok(g.some((l) => l.toLowerCase().includes("confirmação") || l.toLowerCase().includes("confirmacao")));
     });
 
     it("quando falta pagamento, sugere próximo passo de payment_method", () => {

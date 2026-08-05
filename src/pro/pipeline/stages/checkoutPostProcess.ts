@@ -1,4 +1,5 @@
 import type { OutboundMessage, OrderDraft, ProSessionState } from "@/src/types/contracts";
+import { scrubOutboundForAddressHold } from "@/lib/chatbot/pro/checkoutPhasePolicy";
 import {
     isAddressStructurallyComplete,
     resolveProStepFromDraft,
@@ -272,6 +273,48 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
 
 const ORPHAN_FINAL_CONFIRM_IDS = new Set(["pro_confirm_order", "btn_confirm_order", "btn_confirmar"]);
 
+export const PICK_EMB_PREFIX = "pro_pick_emb:";
+
+export function buildClarificationButtons(
+    picks: Array<{ embalagemId: string; label: string }>
+): OutboundMessage | null {
+    const top = picks.slice(0, 3);
+    if (top.length < 2) return null;
+    return {
+        kind: "buttons",
+        text: "Qual opcao voce quer?",
+        buttons: top.map((p, i) => ({
+            id: `${PICK_EMB_PREFIX}${p.embalagemId}`,
+            title: String(p.label ?? `Opcao ${i + 1}`)
+                .replaceAll(/\s+/g, " ")
+                .trim()
+                .slice(0, 20),
+        })),
+    };
+}
+
+/** Narrow allowlist when client taps clarification button. */
+export function applyProductPickFromButton(
+    text: string,
+    state: ProSessionState
+): { state: ProSessionState; syntheticUserText: string | null } {
+    const raw = text.trim();
+    if (!raw.toLowerCase().startsWith(PICK_EMB_PREFIX)) {
+        return { state, syntheticUserText: null };
+    }
+    const embId = raw.slice(PICK_EMB_PREFIX.length).trim();
+    if (!embId) return { state, syntheticUserText: null };
+    const pick = (state.lastSearchPicks ?? []).find((p) => p.embalagemId === embId);
+    const label = pick?.label ?? "item";
+    return {
+        state: {
+            ...state,
+            searchProdutoEmbalagemIds: [embId],
+        },
+        syntheticUserText: `Quero ${label}. Use produto_embalagem_id=${embId} em prepare_order_draft com quantity 1 (ou a quantidade que eu ja pedi).`,
+    };
+}
+
 export function applyQuickAction(
     text: string,
     state: ProSessionState,
@@ -424,7 +467,7 @@ export function applyQuickAction(
                                 "Toque no botao abaixo para abrir o cadastro de endereco (CEP opcional). " +
                                 "Se preferir, pode enviar o endereco em texto: rua, numero, bairro, cidade e UF. " +
                                 "Ex.: Rua Tangara, 850, Sao Mateus, Sorriso-MT.",
-                            ctaLabel: "Abrir cadastro",
+                            ctaLabel: "Cadastrar endereço",
                         },
                     },
                 ],
@@ -485,7 +528,7 @@ export function checkoutPostProcess(params: {
                     flowToken: `${ref.threadId}|${ref.companyId}|address_register`,
                     bodyText:
                         "Abra o formulario para cadastrar o endereco de entrega. Voce tambem pode enviar o endereco em texto no chat.",
-                    ctaLabel: "Abrir cadastro",
+                    ctaLabel: "Cadastrar endereço",
                 },
             }
         );
@@ -499,7 +542,36 @@ export function checkoutPostProcess(params: {
         (!nextState.draft.paymentMethod ||
             shouldHoldAwaitingAddressUi(nextState.draft, nextState.deliveryAddressUiConfirmed));
     if (showAddressConfirm && nextState.draft) {
+        // Remove resumo da IA pedindo "sim" do pedido — só CTA de endereço nesta fase
+        const scrubbed = scrubOutboundForAddressHold(outbound);
+        outbound.length = 0;
+        outbound.push(...scrubbed);
         outbound.push(...buildAddressConfirmationMessage(nextState.draft));
+    }
+
+    // Clarificação de produto (2–3 opções) quando não estamos em hold de endereço/pagamento final
+    if (
+        params.mode === "ai" &&
+        !showAddressConfirm &&
+        !showAddressRegistrationPrompt &&
+        nextState.deliveryAddressUiConfirmed !== true &&
+        (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
+        !(nextState.draft?.items?.length)
+    ) {
+        const clarify = buildClarificationButtons(nextState.lastSearchPicks ?? []);
+        if (clarify) outbound.push(clarify);
+    }
+
+    // Escalação suave: muitas buscas vazias → cardápio
+    if (
+        params.mode === "ai" &&
+        (nextState.emptySearchStreak ?? 0) >= 2 &&
+        !(nextState.draft?.items?.length)
+    ) {
+        outbound.push({
+            kind: "text",
+            text: "Nao encontrei esse produto no catalogo. Tente outro nome, ou abra o cardapio pelo botao Cardapio / menu da loja.",
+        });
     }
 
     nextState = {

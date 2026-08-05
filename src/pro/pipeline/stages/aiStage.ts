@@ -84,6 +84,9 @@ export async function aiStage(params: {
         aiHistory: aiResult.updatedHistory ?? [],
         searchProdutoEmbalagemIds:
             raw?.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],
+        lastSearchPicks: raw?.lastSearchPicks ?? context.session.lastSearchPicks,
+        emptySearchStreak:
+            raw?.emptySearchStreak ?? context.session.emptySearchStreak ?? 0,
     };
 
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];

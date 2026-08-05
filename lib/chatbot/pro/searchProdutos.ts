@@ -4,6 +4,7 @@ import {
     shouldHideWhenOutOfStock,
 } from "@/lib/products/stockPolicy";
 import { buildPackDisplayName } from "@/lib/products/packDisplayName";
+import { expandSearchVariants, scoreDidYouMean } from "./searchNormalize";
 
 export type ChatProdutoRow = {
     id:                   string;
@@ -21,8 +22,15 @@ export type ChatProdutoRow = {
     produto_id?:          string | null;
     estoque_unidades?:    number;
     vender_com_estoque_zero?: boolean;
-    /** Unidades de venda disponíveis (estoque_base / fator). */
     disponivel_venda?:    number;
+    score?:               number;
+};
+
+export type SearchProdutosResult = {
+    items: ChatProdutoRow[];
+    didYouMean: Array<{ id: string; label: string; score: number }>;
+    empty: boolean;
+    queryNormalized: string;
 };
 
 function sanitizeSearchQuery(raw: string): string {
@@ -30,7 +38,7 @@ function sanitizeSearchQuery(raw: string): string {
 }
 
 const SELECT_FULL =
-    "id, produto_id, product_name, display_name, descricao, detalhes, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id, estoque_unidades, vender_com_estoque_zero, thumbnail_url, image_url";
+    "id, produto_id, product_name, display_name, descricao, detalhes, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id, estoque_unidades, vender_com_estoque_zero, thumbnail_url, image_url, tags, tags_auto";
 const SELECT_LEGACY =
     "id, produto_id, product_name, descricao, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id";
 
@@ -38,21 +46,9 @@ async function attachEstoqueFallback(
     admin: SupabaseClient,
     rows: ChatProdutoRow[]
 ): Promise<void> {
-    const needFallback = rows.filter((r) => {
-        const n = Number(r.estoque_unidades);
-        return !Number.isFinite(n);
-    });
-    // Também completa quem veio 0 sem volume id resolvido via product_id
-    const needProductFallback = rows.filter(
-        (r) => !r.product_volume_id && r.produto_id && !Number.isFinite(Number(r.estoque_unidades))
-    );
-
+    const needFallback = rows.filter((r) => !Number.isFinite(Number(r.estoque_unidades)));
     const volIds = [
-        ...new Set(
-            [...needFallback, ...needProductFallback]
-                .map((r) => r.product_volume_id)
-                .filter(Boolean)
-        ),
+        ...new Set(needFallback.map((r) => r.product_volume_id).filter(Boolean)),
     ] as string[];
     const productIds = [
         ...new Set(
@@ -121,7 +117,6 @@ function enrichAndFilter(rows: ChatProdutoRow[]): ChatProdutoRow[] {
                 fatorConversao: r.fator_conversao,
             });
         r.display_name = display;
-        // IA / draft usam product_name como rótulo ao cliente
         r.product_name = display;
         out.push(r);
     }
@@ -136,14 +131,98 @@ async function finalizeRows(
     return enrichAndFilter(rows);
 }
 
-export async function runSearchProdutos(
+function buildDidYouMean(query: string, rows: ChatProdutoRow[]) {
+    return rows
+        .map((r) => ({
+            id: String(r.id),
+            label: String(r.display_name || r.product_name || "").trim(),
+            score: Number(r.score ?? scoreDidYouMean(query, String(r.product_name ?? ""))),
+        }))
+        .filter((x) => x.label && x.score > 0 && x.score < 0.92)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3);
+}
+
+async function searchViaRpc(
+    admin: SupabaseClient,
+    companyId: string,
+    query: string,
+    limit: number
+): Promise<ChatProdutoRow[] | null> {
+    const { data, error } = await admin.rpc("rpc_search_chat_produtos", {
+        p_company_id: companyId,
+        p_query: query,
+        p_limit: limit,
+    });
+    if (error || !data || typeof data !== "object") return null;
+    const items = (data as { items?: unknown }).items;
+    if (!Array.isArray(items)) return null;
+    return items as ChatProdutoRow[];
+}
+
+/** Fallback: OR ILIKE em name/descricao/tags/display com variantes de plural. */
+async function searchViaIlikeFallback(
+    admin: SupabaseClient,
+    companyId: string,
+    query: string,
+    limit: number
+): Promise<ChatProdutoRow[]> {
+    const variants = expandSearchVariants(query);
+    if (!variants.length) return [];
+
+    const cols = ["product_name", "descricao", "display_name", "tags", "tags_auto", "detalhes"] as const;
+    const orFilter = variants
+        .flatMap((v) => {
+            const safe = v.replaceAll(",", " ").replaceAll("%", "");
+            return cols.map((col) => `${col}.ilike.%${safe}%`);
+        })
+        .join(",");
+
+    const full = await admin
+        .from("view_chat_produtos")
+        .select(SELECT_FULL)
+        .eq("company_id", companyId)
+        .or(orFilter)
+        .limit(limit * 3);
+
+    let rows = (full.data ?? []) as ChatProdutoRow[];
+    if (full.error) {
+        const simpleOr = variants
+            .flatMap((v) => {
+                const safe = v.replaceAll(",", " ").replaceAll("%", "");
+                return [`product_name.ilike.%${safe}%`, `descricao.ilike.%${safe}%`];
+            })
+            .join(",");
+        const legacy = await admin
+            .from("view_chat_produtos")
+            .select(SELECT_LEGACY)
+            .eq("company_id", companyId)
+            .or(simpleOr)
+            .limit(limit * 3);
+        rows = (legacy.data ?? []) as ChatProdutoRow[];
+    }
+
+    // Score em memória
+    for (const r of rows) {
+        const label = `${r.product_name ?? ""} ${r.descricao ?? ""} ${r.display_name ?? ""}`;
+        r.score = Math.max(
+            ...variants.map((v) => scoreDidYouMean(v, label)),
+            scoreDidYouMean(query, label)
+        );
+    }
+    rows.sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0));
+    return rows.slice(0, limit * 2);
+}
+
+export async function runSearchProdutosDetailed(
     admin: SupabaseClient,
     companyId: string,
     query: string,
     opts?: { categoryHint?: string | null; limit?: number }
-): Promise<ChatProdutoRow[]> {
+): Promise<SearchProdutosResult> {
     const limit = Math.min(Math.max(opts?.limit ?? 8, 1), 20);
-    const q     = sanitizeSearchQuery(query);
+    const q = sanitizeSearchQuery(query);
+    const queryNormalized = expandSearchVariants(q)[0] ?? q;
 
     if (opts?.categoryHint) {
         const hint = sanitizeSearchQuery(opts.categoryHint);
@@ -175,50 +254,43 @@ export async function runSearchProdutos(
                     catRows = (legacy.data ?? []) as ChatProdutoRow[];
                 }
                 const rows = await finalizeRows(admin, catRows ?? []);
-                return rows.slice(0, limit);
+                const items = rows.slice(0, limit);
+                return {
+                    items,
+                    didYouMean: [],
+                    empty: items.length === 0,
+                    queryNormalized: hint,
+                };
             }
         }
     }
 
-    if (!q) return [];
-
-    const pattern = `%${q}%`;
-
-    const byNameRes = await admin
-        .from("view_chat_produtos")
-        .select(SELECT_FULL)
-        .eq("company_id", companyId)
-        .ilike("product_name", pattern)
-        .limit(limit * 2);
-    let rows = (byNameRes.data ?? []) as ChatProdutoRow[];
-    if (byNameRes.error) {
-        const legacy = await admin
-            .from("view_chat_produtos")
-            .select(SELECT_LEGACY)
-            .eq("company_id", companyId)
-            .ilike("product_name", pattern)
-            .limit(limit * 2);
-        rows = (legacy.data ?? []) as ChatProdutoRow[];
+    if (!q) {
+        return { items: [], didYouMean: [], empty: true, queryNormalized: "" };
     }
 
+    let rows = (await searchViaRpc(admin, companyId, q, limit)) ?? [];
     if (!rows.length) {
-        const byDescRes = await admin
-            .from("view_chat_produtos")
-            .select(SELECT_FULL)
-            .eq("company_id", companyId)
-            .ilike("descricao", pattern)
-            .limit(limit * 2);
-        rows = (byDescRes.data ?? []) as ChatProdutoRow[];
-        if (byDescRes.error) {
-            const legacy = await admin
-                .from("view_chat_produtos")
-                .select(SELECT_LEGACY)
-                .eq("company_id", companyId)
-                .ilike("descricao", pattern)
-                .limit(limit * 2);
-            rows = (legacy.data ?? []) as ChatProdutoRow[];
-        }
+        rows = await searchViaIlikeFallback(admin, companyId, q, limit);
     }
+
     const finalized = await finalizeRows(admin, rows);
-    return finalized.slice(0, limit);
+    const items = finalized.slice(0, limit);
+    return {
+        items,
+        didYouMean: buildDidYouMean(q, items),
+        empty: items.length === 0,
+        queryNormalized,
+    };
+}
+
+/** Compat: retorna só as linhas (handlers legados). */
+export async function runSearchProdutos(
+    admin: SupabaseClient,
+    companyId: string,
+    query: string,
+    opts?: { categoryHint?: string | null; limit?: number }
+): Promise<ChatProdutoRow[]> {
+    const r = await runSearchProdutosDetailed(admin, companyId, query, opts);
+    return r.items;
 }

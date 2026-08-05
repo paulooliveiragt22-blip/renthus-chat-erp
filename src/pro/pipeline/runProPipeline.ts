@@ -27,6 +27,7 @@ import { orderStage } from "./stages/orderStage";
 import { persistAndEmit } from "./stages/persistAndEmit";
 import { routeStage } from "./stages/routeStage";
 import {
+    applyProductPickFromButton,
     applyQuickAction,
     checkoutPostProcess,
     checkoutPostProcessForQuickAction,
@@ -248,7 +249,11 @@ export async function runProPipeline(
         };
     }
 
-    const quick = applyQuickAction(input.inboundText, guarded.state, {
+    const pickApplied = applyProductPickFromButton(input.inboundText, guarded.state);
+    const stateAfterPick = pickApplied.state;
+    const inboundTextForPipeline = pickApplied.syntheticUserText ?? input.inboundText;
+
+    const quick = applyQuickAction(inboundTextForPipeline, stateAfterPick, {
         flowAddressRegister: input.flowAddressRegisterId
             ? {
                   flowId:    input.flowAddressRegisterId,
@@ -285,10 +290,14 @@ export async function runProPipeline(
         };
     }
 
+    // Estado após pick de produto (allowlist estreita) ou estado do guard
+    let pipelineState = stateAfterPick;
+    const contextForStages: PipelineContext = { ...context, session: pipelineState };
+
     const decision = await intentStage({
         intentService: deps.intentService,
-        context,
-        userText: input.inboundText,
+        context: contextForStages,
+        userText: inboundTextForPipeline,
     });
 
     // Prioridade: se está aguardando confirmação, resolve fechamento/erro de draft
@@ -315,9 +324,9 @@ export async function runProPipeline(
     const preOrder = await orderStage({
         orderService: deps.orderService,
         tenant: input.tenant,
-        state: guarded.state,
+        state: pipelineState,
         decision,
-        userText: input.inboundText,
+        userText: inboundTextForPipeline,
         logger: deps.logger,
         highValuePolicy,
         blockFinalize: infoOnly,
@@ -396,9 +405,9 @@ export async function runProPipeline(
     }
 
     const routed = routeStage({
-        state: guarded.state,
+        state: pipelineState,
         decision,
-        inboundText: input.inboundText,
+        inboundText: inboundTextForPipeline,
         tenant: input.tenant,
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
@@ -469,7 +478,7 @@ export async function runProPipeline(
                 aiService: deps.aiService,
                 context: aiContext,
                 decision,
-                userText: input.inboundText,
+                userText: inboundTextForPipeline,
                 logger: deps.logger,
             });
             invalidAiSanitized = ai.invalidAiSanitized;
@@ -478,7 +487,7 @@ export async function runProPipeline(
             outbound.push(...ai.outbound);
             logSessionDraftSnapshot(deps.logger, "pro_pipeline.post_ai_session", input.tenant, nextState, {
                 intent: decision.intent,
-                inboundSample: input.inboundText.trim().slice(0, 120),
+                inboundSample: inboundTextForPipeline.trim().slice(0, 120),
                 aiAction: ai.aiResult.action,
                 aiErrorCode: ai.aiResult.errorCode ?? null,
                 toolRoundsUsed: ai.aiResult.signals.toolRoundsUsed,

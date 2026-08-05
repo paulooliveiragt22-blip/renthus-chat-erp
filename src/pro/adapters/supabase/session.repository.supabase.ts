@@ -24,6 +24,8 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
     return {
         ...raw,
         searchProdutoEmbalagemIds: raw.searchProdutoEmbalagemIds ?? [],
+        lastSearchPicks: raw.lastSearchPicks ?? [],
+        emptySearchStreak: raw.emptySearchStreak ?? 0,
         aiTurnCount: raw.aiTurnCount,
         aiWindowStartedAt: raw.aiWindowStartedAt ?? null,
     };
