@@ -409,6 +409,42 @@ export async function runProPipeline(
                 });
                 stateAfterPick = serverPrep.state;
                 serverPreparedOnPick = Boolean(serverPrep.state.draft?.items?.length);
+                /** Ainda há itens ambíguos do bootstrap (ex.: salgadinho após Heineken). */
+                if (serverPrep.clarificationOutbound.length > 0) {
+                    const synced = withResolvedSlotStep(stateAfterPick);
+                    await persistAndEmit({
+                        tenant: input.tenant,
+                        state: synced,
+                        outbound: serverPrep.clarificationOutbound,
+                        sessionRepo: deps.sessionRepo,
+                        messageGateway: deps.messageGateway,
+                        metrics: deps.metrics,
+                        logger: deps.logger,
+                    });
+                    const metrics: PipelineMetric[] = [
+                        {
+                            name: "pro_pipeline.server_prepare_pick",
+                            value: 1,
+                            tags: { skipped_ai: "1", pending_clarify: "1" },
+                        },
+                        {
+                            name: "pro_pipeline.outbound_count",
+                            value: serverPrep.clarificationOutbound.length,
+                        },
+                    ];
+                    flushPipelineRunMetrics(
+                        deps.metrics,
+                        input.tenant,
+                        metrics,
+                        new Set(["pro_pipeline.outbound_count"])
+                    );
+                    return {
+                        nextState: synced,
+                        outbound: serverPrep.clarificationOutbound,
+                        sideEffects: [],
+                        metrics,
+                    };
+                }
                 if (serverPrep.skipAi) {
                     const finalState = withResolvedSlotStep({
                         ...stateAfterPick,

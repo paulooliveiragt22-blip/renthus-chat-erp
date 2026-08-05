@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OrderDraft, PrepareDraftToolInput, ProSessionState } from "@/src/types/contracts";
+import type {
+    OrderDraft,
+    OutboundMessage,
+    PrepareDraftToolInput,
+    ProSessionState,
+} from "@/src/types/contracts";
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
@@ -11,10 +16,15 @@ import {
 } from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { inferPaymentMethodFromText } from "./inferPaymentFromText";
+import {
+    dequeueBootstrapClarification,
+    hasPendingBootstrapClarifications,
+} from "./bootstrapClarifyQueue";
 
 /**
  * Prepare determinístico após pick de embalagem (botão / "opção N").
  * Evita 1–2 rodadas de LLM só para acrescentar um SKU já escolhido.
+ * Se ainda houver clarificações do bootstrap, devolve o próximo card em vez do resumo.
  */
 export async function serverPrepareAfterProductPick(params: {
     admin: SupabaseClient;
@@ -30,11 +40,18 @@ export async function serverPrepareAfterProductPick(params: {
     /** Draft ficou completo o bastante para ir ao resumo sem IA. */
     skipAi: boolean;
     preparedOk: boolean;
+    /** Próxima clarificação multi-item (se houver). */
+    clarificationOutbound: OutboundMessage[];
 }> {
     const { admin, companyId, customerId, pickedEmbalagemId, recentUserText } = params;
     const embId = pickedEmbalagemId.trim();
     if (!embId) {
-        return { state: params.state, skipAi: false, preparedOk: false };
+        return {
+            state: params.state,
+            skipAi: false,
+            preparedOk: false,
+            clarificationOutbound: [],
+        };
     }
 
     /** Troca: remove linhas do nome pendente antes de acrescentar o SKU novo. */
@@ -56,7 +73,7 @@ export async function serverPrepareAfterProductPick(params: {
             quantity: it.quantity,
         });
     }
-    /** Bootstrap: reancora Heineken/burger resolvidos antes da clarificação. */
+    /** Bootstrap: reancora SKUs resolvidos antes da clarificação. */
     for (const id of state.bootstrapResolvedEmbalagemIds ?? []) {
         const sid = String(id ?? "").trim();
         if (!sid || byId.has(sid)) continue;
@@ -64,6 +81,10 @@ export async function serverPrepareAfterProductPick(params: {
     }
     const prev = byId.get(embId);
     byId.set(embId, { produtoEmbalagemId: embId, quantity: prev?.quantity ?? 1 });
+
+    const resolvedIds = [
+        ...new Set([...(state.bootstrapResolvedEmbalagemIds ?? []), embId]),
+    ];
 
     const addr = state.draft?.address;
     const paymentMethod =
@@ -95,7 +116,7 @@ export async function serverPrepareAfterProductPick(params: {
         allowedEmbalagemIds: unionAllowlistWithDraftIds(
             [
                 ...(state.searchProdutoEmbalagemIds ?? []),
-                ...(state.bootstrapResolvedEmbalagemIds ?? []),
+                ...resolvedIds,
                 embId,
             ],
             state.draft
@@ -111,19 +132,40 @@ export async function serverPrepareAfterProductPick(params: {
     );
     const nextDraft: OrderDraft | null = mergePreparedDraftIntoCurrent(state.draft, prepared.draft);
     if (!nextDraft?.items?.length) {
-        return { state, skipAi: false, preparedOk: prepared.ok };
+        return {
+            state: { ...state, bootstrapResolvedEmbalagemIds: resolvedIds },
+            skipAi: false,
+            preparedOk: prepared.ok,
+            clarificationOutbound: [],
+        };
     }
 
-    const nextState: ProSessionState = {
+    let nextState: ProSessionState = {
         ...state,
         draft: nextDraft,
+        bootstrapResolvedEmbalagemIds: resolvedIds,
         checkoutEditHold: false,
         pendingSwapRemoveName: null,
         lastSearchPicks: [],
     };
 
+    if (hasPendingBootstrapClarifications(nextState)) {
+        const nextClarify = dequeueBootstrapClarification(nextState);
+        return {
+            state: nextClarify.state,
+            skipAi: false,
+            preparedOk: prepared.ok,
+            clarificationOutbound: nextClarify.outbound,
+        };
+    }
+
     const skipAi = isDraftStructurallyCompleteForFinalize(nextDraft);
-    return { state: nextState, skipAi, preparedOk: prepared.ok };
+    return {
+        state: nextState,
+        skipAi,
+        preparedOk: prepared.ok,
+        clarificationOutbound: [],
+    };
 }
 
 /** Extrai o id do pick (primeiro da allowlist pós-`applyPick`). */

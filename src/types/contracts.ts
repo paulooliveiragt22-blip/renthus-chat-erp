@@ -143,6 +143,14 @@ export interface ProSessionState {
      */
     bootstrapResolvedEmbalagemIds?: string[];
     /**
+     * Fila de clarificações ainda pendentes do bootstrap multi-item
+     * (ex.: após escolher Heineken, ainda falta perguntar salgadinho UN/CX).
+     */
+    bootstrapPendingClarifications?: Array<{
+        segment: string;
+        picks: Array<{ embalagemId: string; label: string; price?: number | null }>;
+    }>;
+    /**
      * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */

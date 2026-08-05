@@ -11,13 +11,15 @@ import {
     inferPaymentMethodFromText,
     inferUseSavedAddressFromText,
 } from "./inferPaymentFromText";
-import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
-import { PICK_EMB_PREFIX } from "./productPickText";
 import { resolveSegmentPick, type SegmentPickRow } from "./resolveSegmentPick";
+import {
+    dequeueBootstrapClarification,
+    type BootstrapPendingClarification,
+} from "./bootstrapClarifyQueue";
 
 /**
  * Bootstrap no servidor: pagamento/endereço do texto + prepare dos segmentos unívocos;
- * se algum for ambíguo, devolve picks de clarificação (sem depender da IA).
+ * se algum for ambíguo, devolve picks de clarificação e enfileira os demais.
  */
 export async function tryServerBootstrapOrderFromText(params: {
     admin: SupabaseClient;
@@ -53,15 +55,15 @@ export async function tryServerBootstrapOrderFromText(params: {
     }
 
     const uniqueIds: string[] = [];
-    let firstAmbiguous: SegmentPickRow[] | null = null;
+    const ambiguousAll: BootstrapPendingClarification[] = [];
 
     for (const segment of segments) {
         const detailed = await runSearchProdutosDetailed(admin, companyId, segment, { limit: 8 });
         const resolved = resolveSegmentPick(segment, detailed.items);
         if (resolved.kind === "unique") {
             uniqueIds.push(resolved.pick.embalagemId);
-        } else if (resolved.kind === "ambiguous" && !firstAmbiguous) {
-            firstAmbiguous = resolved.picks;
+        } else if (resolved.kind === "ambiguous") {
+            ambiguousAll.push({ segment, picks: resolved.picks });
         }
     }
 
@@ -70,6 +72,7 @@ export async function tryServerBootstrapOrderFromText(params: {
     state = {
         ...state,
         bootstrapResolvedEmbalagemIds: resolvedIds,
+        bootstrapPendingClarifications: ambiguousAll.slice(1),
     };
 
     const allIds = [...new Set([...existingIds, ...resolvedIds])];
@@ -122,35 +125,32 @@ export async function tryServerBootstrapOrderFromText(params: {
     }
 
     const outbound: OutboundMessage[] = [];
+    const firstAmbiguous: SegmentPickRow[] | null = ambiguousAll[0]?.picks ?? null;
     if (firstAmbiguous && firstAmbiguous.length >= 2) {
-        state = {
+        // Coloca a 1ª na "fila ativa" via dequeue: lastSearchPicks + outbound
+        const withFirst: ProSessionState = {
             ...state,
-            lastSearchPicks: firstAmbiguous,
-            searchProdutoEmbalagemIds: [
-                ...firstAmbiguous.map((p) => p.embalagemId),
-                ...(state.searchProdutoEmbalagemIds ?? []),
-                ...resolvedIds,
+            bootstrapPendingClarifications: [
+                { segment: ambiguousAll[0]!.segment, picks: firstAmbiguous },
+                ...(state.bootstrapPendingClarifications ?? []),
             ],
         };
-        outbound.push({
-            kind: "buttons",
-            text: formatSearchPicksClarificationBody(firstAmbiguous),
-            buttons: firstAmbiguous.map((p, i) => ({
-                id: `${PICK_EMB_PREFIX}${p.embalagemId}`,
-                title: String(p.label ?? `Opcao ${i + 1}`)
-                    .replaceAll(/\s+/g, " ")
-                    .trim()
-                    .slice(0, 20),
-            })),
-        });
+        const dequeued = dequeueBootstrapClarification(withFirst);
+        state = dequeued.state;
+        outbound.push(...dequeued.outbound);
     } else {
-        state = { ...state, lastSearchPicks: [] };
+        state = { ...state, lastSearchPicks: [], bootstrapPendingClarifications: [] };
     }
 
     return {
         state,
         outbound,
         hasClarification: outbound.length > 0,
-        bootstrapped: Boolean(state.draft?.items?.length || payment || resolvedIds.length),
+        bootstrapped: Boolean(
+            state.draft?.items?.length ||
+                payment ||
+                resolvedIds.length ||
+                ambiguousAll.length
+        ),
     };
 }
