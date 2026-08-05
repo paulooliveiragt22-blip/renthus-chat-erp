@@ -148,6 +148,21 @@ function toolsForMode(infoOnly: boolean): MessageCreateParams["tools"] {
     return [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"];
 }
 
+function buildDraftSnapshotForModel(draft: OrderDraft | null): string {
+    if (!draft?.items?.length) return "";
+    const lines = draft.items.map(
+        (i, idx) =>
+            `${idx + 1}. id=${i.produtoEmbalagemId} | ${i.productName} | qty=${i.quantity} | R$ ${i.unitPrice.toFixed(2)}`
+    );
+    return (
+        "\n\n--- Rascunho atual no servidor (não apague itens sem o cliente pedir) ---\n" +
+        lines.join("\n") +
+        `\npagamento=${draft.paymentMethod ?? "null"} | endereco=${draft.address ? "sim" : "nao"}` +
+        "\nEm troca/substituição: search_produtos.query DEVE incluir o nome do produto trocado (ex.: salgadinho), nunca só 'caixa de 15'." +
+        "\n--- Fim rascunho ---\n"
+    );
+}
+
 function buildEffectiveSystemPrompt(input: AiServiceInput): string {
     const base = isInfoOnlyAi(input) ? SYSTEM_PROMPT_INFO_ONLY : SYSTEM_PROMPT;
     const session = input.context.session;
@@ -162,17 +177,22 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
               hasPayment: Boolean(draft?.paymentMethod),
               addressComplete: isAddressStructurallyComplete(draft?.address ?? null),
           });
+    const editHoldBlock =
+        session.checkoutEditHold && !isInfoOnlyAi(input)
+            ? "\n\nModo edição (Corrigir/Adicionar): NÃO reconstrua o carrinho do zero. Mantenha itens existentes; prepare_order_draft é aditivo.\n"
+            : "";
+    const draftBlock = isInfoOnlyAi(input) ? "" : buildDraftSnapshotForModel(draft);
 
+    const prefix = base + phaseBlock + editHoldBlock + draftBlock;
     const hints = input.context.prefetchedOrderHints;
-    if (!hints || typeof hints !== "object") return base + phaseBlock;
+    if (!hints || typeof hints !== "object") return prefix;
     try {
         let body = JSON.stringify(hints);
         if (body.length > PREFETCH_ORDER_HINTS_JSON_MAX) {
             body = body.slice(0, PREFETCH_ORDER_HINTS_JSON_MAX) + "…[truncado]";
         }
         return (
-            base +
-            phaseBlock +
+            prefix +
             "\n\n--- Dados do cadastro (servidor; válidos nesta mensagem) ---\n" +
             body +
             "\n--- Fim dados cadastro ---\n" +
@@ -180,7 +200,7 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
             "Pode chamar get_order_hints para atualizar, mas trate estes dados como já carregados nesta volta."
         );
     } catch {
-        return base + phaseBlock;
+        return prefix;
     }
 }
 

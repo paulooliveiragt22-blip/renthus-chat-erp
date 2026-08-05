@@ -1,6 +1,65 @@
 import type { DraftItem, OrderDraft } from "@/src/types/contracts";
 import { roundBrl } from "@/lib/chatbot/utils";
 
+function normalizeNameKey(text: string): string {
+    return String(text ?? "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "")
+        .replaceAll(/\s+/g, " ")
+        .trim();
+}
+
+function productNameMatchesHint(productName: string, nameHint: string): boolean {
+    const pn = normalizeNameKey(productName);
+    const hint = normalizeNameKey(nameHint);
+    if (!pn || !hint) return false;
+    if (pn.includes(hint) || hint.includes(pn)) return true;
+    const tokens = hint.split(" ").filter((t) => t.length >= 3);
+    if (!tokens.length) return false;
+    return tokens.every((t) => pn.includes(t));
+}
+
+/**
+ * Remove linhas do draft cujo nome casa com o hint (ex.: "salgadinho" → UN e CX).
+ * Usado em troca/substituição antes de acrescentar o SKU novo.
+ */
+export function removeDraftItemsMatchingName(
+    draft: OrderDraft | null,
+    nameHint: string
+): OrderDraft | null {
+    if (!draft?.items?.length) return draft;
+    const kept = draft.items.filter((it) => !productNameMatchesHint(it.productName, nameHint));
+    if (kept.length === draft.items.length) return draft;
+
+    const totalItems = roundBrl(kept.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
+    const deliveryFee = draft.deliveryFee ?? 0;
+    const grandTotal = roundBrl(totalItems + deliveryFee);
+
+    if (!kept.length) {
+        return {
+            ...draft,
+            items: [],
+            totalItems: 0,
+            grandTotal: deliveryFee,
+            pendingConfirmation: false,
+        };
+    }
+
+    return {
+        ...draft,
+        items: kept,
+        totalItems,
+        grandTotal,
+        pendingConfirmation: Boolean(
+            kept.length &&
+                draft.address &&
+                draft.paymentMethod &&
+                (draft.paymentMethod !== "cash" || draft.changeFor != null)
+        ),
+    };
+}
+
 /**
  * Une itens do prepare atual com o draft da sessão (union por `produtoEmbalagemId`).
  * Impede que uma clarificação/pick com 1 SKU apague linhas já aceitas.

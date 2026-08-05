@@ -128,6 +128,11 @@ export interface ProSessionState {
      */
     checkoutEditHold?: boolean;
     /**
+     * Troca em andamento: ao confirmar pick, remover do draft itens cujo nome casa com este hint
+     * (ex.: "salgadinho") antes de acrescentar o SKU novo.
+     */
+    pendingSwapRemoveName?: string | null;
+    /**
      * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */

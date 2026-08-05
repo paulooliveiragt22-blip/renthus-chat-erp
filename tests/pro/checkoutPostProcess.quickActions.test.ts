@@ -174,11 +174,16 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
                 step: "pro_awaiting_confirmation",
                 draft: minimalDraft({ paymentMethod: "pix" }),
                 deliveryAddressUiConfirmed: true,
+                lastSearchPicks: [
+                    { embalagemId: "x", label: "HAMBURGUER VELHO", price: 1 },
+                    { embalagemId: "y", label: "OUTRO", price: 2 },
+                ],
             })
         );
         assert.equal(r.handled, true);
         assert.equal(r.state.checkoutEditHold, true);
         assert.equal(r.state.step, "pro_collecting_order");
+        assert.equal(r.state.lastSearchPicks?.length ?? 0, 0);
         const synced = withResolvedSlotStep(r.state);
         assert.equal(synced.step, "pro_collecting_order");
         const out = checkoutPostProcessForQuickAction({ state: synced, outbound: r.outbound });

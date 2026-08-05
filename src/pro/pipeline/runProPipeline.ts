@@ -44,6 +44,7 @@ import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
+import { tryServerSwapEdit } from "./serverSwapEdit";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -357,6 +358,63 @@ export async function runProPipeline(
             sideEffects: [],
             metrics,
         };
+    }
+
+    /** Troca/substitui no servidor (Corrigir → "troca X pela Y") — evita busca errada da IA. */
+    if (
+        deps.admin &&
+        !isInfoOnlyMode(aiPolicy) &&
+        !productPickApplied &&
+        stateAfterPick.draft?.items?.length
+    ) {
+        try {
+            const swapEdit = await tryServerSwapEdit({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                customerId: stateAfterPick.customerId,
+                state: stateAfterPick,
+                userText: inboundTextForPipeline,
+            });
+            if (swapEdit.handled) {
+                const syncedSwap = withResolvedSlotStep(swapEdit.state);
+                const outboundFinal = swapEdit.outbound;
+                await persistAndEmit({
+                    tenant: input.tenant,
+                    state: syncedSwap,
+                    outbound: outboundFinal,
+                    sessionRepo: deps.sessionRepo,
+                    messageGateway: deps.messageGateway,
+                    metrics: deps.metrics,
+                    logger: deps.logger,
+                });
+                const metrics: PipelineMetric[] = [
+                    {
+                        name: "pro_pipeline.server_swap_edit",
+                        value: 1,
+                        tags: { finalized: swapEdit.finalized ? "1" : "0" },
+                    },
+                    { name: "pro_pipeline.outbound_count", value: outboundFinal.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"])
+                );
+                return {
+                    nextState: syncedSwap,
+                    outbound: outboundFinal,
+                    sideEffects: [],
+                    metrics,
+                };
+            }
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.server_swap_edit_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
 
     // Estado após pick de produto (allowlist estreita) ou estado do guard

@@ -62,6 +62,11 @@ export function buildPhasePlaybookForModel(params: {
         lines.push(
             "Foque em entender o pedido. Se houver várias opções, NÃO liste preços — o servidor envia botões; peça número ou toque no botão."
         );
+        if (params.hasDraftItems) {
+            lines.push(
+                "Já há itens no rascunho: em troca/edição, busque pelo NOME do produto (ex.: salgadinho caixa), não só embalagem; não apague outros itens."
+            );
+        }
     }
 
     lines.push("--- Fim fase ---");

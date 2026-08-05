@@ -321,7 +321,14 @@ export function applyQuickAction(
         return {
             handled: true,
             actionTag: action,
-            state: { ...state, step: "pro_collecting_order", checkoutEditHold: true },
+            state: {
+                ...state,
+                step: "pro_collecting_order",
+                checkoutEditHold: true,
+                /** Evita botões de clarificação velhos (ex.: hambúrguer) após Corrigir. */
+                lastSearchPicks: [],
+                pendingSwapRemoveName: null,
+            },
             outbound: [{ kind: "text", text: "Perfeito. Me diga o que voce quer editar no pedido." }],
         };
     }
@@ -330,8 +337,45 @@ export function applyQuickAction(
         return {
             handled: true,
             actionTag: action,
-            state: { ...state, step: "pro_collecting_order", checkoutEditHold: true },
+            state: {
+                ...state,
+                step: "pro_collecting_order",
+                checkoutEditHold: true,
+                lastSearchPicks: [],
+                pendingSwapRemoveName: null,
+            },
             outbound: [{ kind: "text", text: "Certo. Me diga os produtos que quer adicionar." }],
+        };
+    }
+
+    /** Retomada de carrinho abandonado: o card do passo certo vem do post-process. */
+    if (action === "pro_recover_cart" || action === "btn_recover_cart") {
+        if (!state.draft || state.draft.items.length === 0) {
+            return {
+                handled: true,
+                actionTag: "pro_recover_cart_expired",
+                state: { ...state, step: "pro_idle", draft: null, checkoutEditHold: false },
+                outbound: [
+                    {
+                        kind: "text",
+                        text: "Esse carrinho nao esta mais disponivel. Me diga o que voce precisa que eu monto de novo.",
+                    },
+                ],
+            };
+        }
+        const resumed = withResolvedSlotStep({ ...state, checkoutEditHold: false });
+        return {
+            handled: true,
+            actionTag: "pro_recover_cart",
+            state: resumed,
+            outbound: isAddressStructurallyComplete(resumed.draft?.address ?? null)
+                ? []
+                : [
+                      {
+                          kind: "text",
+                          text: "Otimo! Falta so o endereco de entrega: rua, numero, bairro, cidade e UF.",
+                      },
+                  ],
         };
     }
 

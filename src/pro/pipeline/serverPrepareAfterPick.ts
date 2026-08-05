@@ -4,7 +4,11 @@ import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
 } from "@/lib/chatbot/pro/prepareOrderDraft";
-import { mergePreparedDraftIntoCurrent, unionAllowlistWithDraftIds } from "./mergeOrderDraft";
+import {
+    mergePreparedDraftIntoCurrent,
+    removeDraftItemsMatchingName,
+    unionAllowlistWithDraftIds,
+} from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 
 /**
@@ -24,10 +28,22 @@ export async function serverPrepareAfterProductPick(params: {
     skipAi: boolean;
     preparedOk: boolean;
 }> {
-    const { admin, companyId, customerId, state, pickedEmbalagemId } = params;
+    const { admin, companyId, customerId, pickedEmbalagemId } = params;
     const embId = pickedEmbalagemId.trim();
     if (!embId) {
-        return { state, skipAi: false, preparedOk: false };
+        return { state: params.state, skipAi: false, preparedOk: false };
+    }
+
+    /** Troca: remove linhas do nome pendente antes de acrescentar o SKU novo. */
+    let state = params.state;
+    const swapHint = state.pendingSwapRemoveName?.trim();
+    if (swapHint) {
+        const stripped = removeDraftItemsMatchingName(state.draft, swapHint);
+        state = {
+            ...state,
+            draft: stripped,
+            pendingSwapRemoveName: null,
+        };
     }
 
     const byId = new Map<string, { produtoEmbalagemId: string; quantity: number }>();
@@ -84,6 +100,7 @@ export async function serverPrepareAfterProductPick(params: {
         ...state,
         draft: nextDraft,
         checkoutEditHold: false,
+        pendingSwapRemoveName: null,
         lastSearchPicks: [],
     };
 
