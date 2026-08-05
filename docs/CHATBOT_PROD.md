@@ -145,7 +145,7 @@ Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos ú
 |------|------|
 | `pro_anthropic_messages` | **Cap rígido** de turnos e/ou parar de persistir replay completo quando estado de negócio bastar (`ai_order_canonical`, step, `customer_id`) |
 | Tool chain | Manter saneamento até cap estar validado em staging |
-| Concorrência na IA | **Primeiro:** limite **global** de chamadas Anthropic em voo (evita martelar quota e 429 em cascata). **Depois**, com métrica de *noisy neighbor*: limite simples de jobs/concorrência **por `company_id`** no `claim` ou no estágio de chamada — evitar fila interna complexa na v1 |
+| Concorrência na IA | **Feito (por instância):** `runAnthropicWithResilience` = in-flight + retry 429 + circuit (`lib/chatbot/anthropicResilience.ts`). **Fairness de fila por `company_id`:** no **claim SQL** (`max_per_company`) — não é teto Anthropic por tenant. **Ainda adiado:** Redis/semáforo **global entre réplicas**; teto Anthropic **por `company_id`** só se métrica de *noisy neighbor* na IA (não na fila) justificar. |
 
 **Pronto:** não reproduzir erro 400 `tool_use`/`tool_result` em conversas longas; degradação previsível sob carga (fila/latência), não falha opaca do webhook.
 
@@ -229,7 +229,7 @@ Objetivo: fechar os checkboxes dos **critérios de aceite** com método repetív
 - “Degradação automática para regex/Starter” na mesma entrega da Fase 1 — segundo motor de bugs/testes.
 - “Resumo com LLM” antes de **cap + estado de pedido** — custo e complexidade sem necessidade comprovada.
 - **Kafka / microserviço de fila** antes de **wake + loop limitado + métricas de profundidade/idade p95** — overengineering operacional.
-- **Fairness por empresa:** no Hobby pode ficar só **limite global** + observabilidade; no **médio prazo / multi-tenant denso**, introduzir **quota simples por `company_id`** no claim ou no batch **antes** de broker externo (ver “Arquitetura por horizonte”).
+- **Fairness de fila por empresa:** já no claim SQL (`CHATBOT_QUEUE_MAX_PER_COMPANY`) + interleave no batch — **não** reabrir como “próximo”. Ainda adiado: broker externo e Redis para teto Anthropic multi-réplica (só com métrica).
 
 ---
 
@@ -376,10 +376,14 @@ Manter fronteiras claras sem microserviço:
 
 ## Referências no repositório
 
-- Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/` (orquestrador de checkout: `runProPipeline.ts`, saída interactiva: `stages/routeStage.ts`, intents de botão: `services/intent/intentClassifier.service.ts`)
-- Fila: `app/api/chatbot/process-queue/route.ts`, migrações `chatbot_queue` / RPC `claim_chatbot_queue_jobs`
-- Ingresso WhatsApp: `app/api/whatsapp/incoming/route.ts` — com `CHATBOT_QUEUE_ENABLED=1`, **enqueue e retorno rápido**; processamento pesado no worker
+- Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/` (orquestrador: `runProPipeline.ts`, `stages/routeStage.ts`, `stages/checkoutPostProcess.ts`, intents: `services/intent/intentClassifier.service.ts`)
+- Checkout / CTAs: `lib/chatbot/pro/checkoutPhasePolicy.ts` (scrub de botões vs fase; evita CTA misto endereço+confirmação)
+- Busca catálogo: `lib/chatbot/pro/searchProdutos.ts` + RPC `rpc_search_chat_produtos` (fuzzy/`pg_trgm`, migração `20260805080000_…`) + cache TTL `catalogSearchCache.ts`
+- Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)
+- Fila: `process-queue/route.ts`, `queueWorkerWake.ts`, `backlogNotice.ts`; RPC `claim_chatbot_queue_jobs` (fair + skip busy thread); reclaim `reclaim_stuck_chatbot_queue_jobs`
+- Ingresso: `app/api/whatsapp/incoming/route.ts` — enqueue + wake + aviso de backlog (`after()`)
 - Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
+- Checklist escala: [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md)
 
 ---
 

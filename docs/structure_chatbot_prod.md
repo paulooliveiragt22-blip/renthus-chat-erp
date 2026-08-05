@@ -10,7 +10,7 @@ Este ficheiro descreve **a estrutura real do repositório**, **fluxo entre módu
 |----------|-----|
 | [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | **Decisões canónicas:** princípios, arquitetura por horizonte (Hobby / médio prazo / escala), gatilho wake + scheduler, **pedido PRO / IA**, fases 0–3, tetos externos, limites honestos, evidências p95/replay/carga |
 | [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) | **Estratégia de refatoração** do fecho de pedido PRO: fases R0–R4, gates, anti-padrões, critérios de “feito” |
-| [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) | **Checklist operacional** (fila, claim, canal no worker, V2 `active`, teto Anthropic in-flight, pendências P0.4 / fairness) |
+| [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) | **Checklist operacional** (fila, claim justo, canal no worker, V2 `active`, resiliência Anthropic/Meta, P2-peak; pendências P0.4b / P1.4 / Redis) |
 | [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md) | **P1.4** — tabela para fechar critérios de aceite em `CHATBOT_PROD.md` (p95, replay, runbook) com evidência real |
 | Este ficheiro | Árvore de código, responsabilidades, fluxo atual vs alvo, checklist por ficheiro |
 
@@ -49,7 +49,7 @@ Revisar e dividir ownership antes do primeiro cliente real em produção.
 | Item | Responsible | Accountable | Consulted | Informed |
 |------|-------------|-------------|-----------|----------|
 | Migração idempotência fila `(company_id, message_id)` | Backend Plataforma | Backend Plataforma (Tech Lead) | Produto Chatbot, SRE/DevOps | Suporte/CS |
-| Cron/worker produção (`process-queue`) + **wake** pós-enqueue (quando implementado) | Backend Plataforma | SRE/DevOps (Tech Lead) | Produto Chatbot | Suporte/CS |
+| Cron/worker produção (`process-queue`) + **wake** pós-enqueue + self-wake / reclaim | Backend Plataforma | SRE/DevOps (Tech Lead) | Produto Chatbot | Suporte/CS |
 | Alertas e thresholds | SRE/DevOps | SRE/DevOps (Tech Lead) | Backend Plataforma | Produto Chatbot |
 | Regressão Starter (gate de merge) | Produto Chatbot | Produto Chatbot (Lead) | Backend Plataforma | Suporte/CS |
 | Go/No-Go de release | Backend Plataforma | Produto Chatbot (Lead) | SRE/DevOps | Suporte/CS |
@@ -101,7 +101,7 @@ app/api/whatsapp/
     [threadId]/read/threads-read-route.ts
 
 app/api/chatbot/
-  process-queue/route.ts        ← Worker cron: claim → processInboundMessage
+  process-queue/route.ts        ← Worker: reclaim → claim justo → processInboundMessage → self-wake
   resolve/route.ts              ← POST: reprocessar (interno ou sessão)
   assistant-tools/route.ts
   reactivate/route.ts
@@ -113,6 +113,11 @@ app/superadmin/
 lib/chatbot/
   processMessage.ts             ← processInboundMessage (entrada única do motor)
   inboundPipeline.ts            ← runInboundChatbotPipeline
+  queueWorkerWake.ts            ← wake HTTP do process-queue (enqueue + self-drain)
+  backlogNotice.ts              ← aviso PT-BR sob pressão da fila
+  interleaveQueueJobsByCompany.ts
+  anthropicInFlightGate.ts
+  anthropicResilience.ts        ← in-flight + retry 429 + circuit
   types.ts
   tier.ts
   session.ts
@@ -134,6 +139,9 @@ lib/chatbot/
     finalizeAiOrder.ts
     prepareOrderDraft.ts
     searchProdutos.ts
+    catalogSearchCache.ts       ← TTL in-memory busca catálogo
+    searchNormalize.ts
+    checkoutPhasePolicy.ts      ← fase checkout + scrub de CTAs mistos
     typesAiOrder.ts
     orderHints.ts
     orderProgressHeuristic.ts
@@ -146,8 +154,9 @@ lib/chatbot/
     AlertService.ts
 
 lib/whatsapp/
-  send.ts                        ← sendWhatsAppMessage, interativos/flows
+  send.ts                        ← sendWhatsAppMessage, interativos/flows (via metaGraphFetch)
   sendMessage.ts
+  metaGraphFetch.ts              ← throttle por phone_number_id + retry 429
   channelCredentials.ts
   flowCrypto.ts
   getConfig.ts
@@ -185,12 +194,22 @@ lib/security/
 supabase/migrations/
   20260320700001_chatbot_queue.sql
   20260320700002_chatbot_queue_rpc.sql
+  20260805080000_rpc_search_chat_produtos_fuzzy.sql
+  20260805090000_chatbot_queue_reclaim_stuck.sql
+  20260805100000_claim_chatbot_queue_jobs_fair_company.sql
 
 tests/chatbot/
   processMessageFlows.test.ts
+  queueWorkerWake.test.ts
+  interleaveQueueJobsByCompany.test.ts
+  backlogNotice.test.ts
+  anthropicResilience.test.ts
+  metaGraphFetch.test.ts
+  catalogSearchCache.test.ts
 
 tests/integration/
   webhook-integration.test.ts
+  chatbot-queue-e2e.test.ts
   mocks/meta-webhook.mock.ts
 ```
 
@@ -202,9 +221,9 @@ tests/integration/
 
 | Local | Responsabilidade |
 |-------|-------------------|
-| `app/api/whatsapp/incoming/` | Webhook Meta: HMAC, rate limit, canal → `company_id`, upsert thread, insert `whatsapp_messages`, lógica de handover timeout, **alvo:** enqueue + 200 rápido. |
+| `app/api/whatsapp/incoming/` | Webhook Meta: HMAC, rate limit, canal → `company_id`, upsert thread, insert `whatsapp_messages`, handover; com fila: **enqueue + wake + backlog notice** (`after()`) + 200 rápido. |
 | `app/api/whatsapp/*` (resto) | APIs de aplicação (threads, envio, media); não substituem o burst do webhook. |
-| `app/api/chatbot/process-queue/` | Consumer: `claim_chatbot_queue_jobs` (ou fallback), `processJob`, atualizar `done`/`failed`, limpeza de jobs antigos. |
+| `app/api/chatbot/process-queue/` | Consumer: reclaim stuck → `claim_chatbot_queue_jobs` (fair + skip busy thread; fallback só fora de prod) → `processJob` → `done`/`failed` → self-wake se pending. |
 | `app/superadmin/` | Dashboard operacional: fila `chatbot_queue`, falhas, dedup (`getQueueHealthStats`). |
 | `lib/superadmin/actions.ts` | Server actions do superadmin (estatísticas globais + saúde da fila). |
 | `app/api/chatbot/resolve/` | Caminho administrativo / service key para disparar o motor sem passar pelo webhook Meta. |
@@ -216,8 +235,10 @@ tests/integration/
 | `lib/chatbot/handlers/` | Menu, FAQ, handover, fluxos não-PRO. |
 | `lib/chatbot/pro/` | Pedido assistido por IA, tools, endereço, finalização; manter mutações de pedido via **RPCs** já usadas no fluxo. |
 | `lib/chatbot/db/` | Leituras de apoio ao domínio no motor. |
-| `lib/whatsapp/` | Graph API: credenciais de canal, envio, flows. |
-| `supabase/migrations/*chatbot_queue*` | Tabela `chatbot_queue` + função `claim_chatbot_queue_jobs`. |
+| `lib/whatsapp/` | Graph API: credenciais, envio (`metaGraphFetch`), flows. |
+| `lib/chatbot/queueWorkerWake.ts` / `backlogNotice.ts` | Wake do worker; aviso de fila sob pressão. |
+| `lib/chatbot/anthropicResilience.ts` | Gate in-flight + backoff 429 + circuit breaker (por instância). |
+| `supabase/migrations/*chatbot_queue*` | Tabela `chatbot_queue` + claim justo + reclaim stuck. |
 
 ---
 
@@ -234,23 +255,25 @@ Meta POST
   → NextResponse 200 rápido
 ```
 
-### 4.2 Caminho assíncrono já existente (cron)
+### 4.2 Caminho assíncrono (wake + scheduler + self-drain)
 
 ```
-Cron GET /api/chatbot/process-queue
+Wake / Cron / self-wake GET /api/chatbot/process-queue
   → validateCronAuthorization (lib/security/cronAuth.ts)
-  → rpc("claim_chatbot_queue_jobs") ou runFallbackProcessing
-  → processJob → processInboundMessage → mesmo pipeline da §4.1
+  → reclaim_stuck_chatbot_queue_jobs
+  → rpc("claim_chatbot_queue_jobs", max_per_company)  [prod: sem fallback]
+  → interleaveQueueJobsByCompany → processJob → processInboundMessage
+  → self-wake se ainda há pending (?drain=N)
 ```
 
-### 4.3 Alvo (Fase 1 — alinhado a CHATBOT_PROD)
+### 4.3 Fase 1 — estado actual (não é “alvo futuro”)
 
 ```
-Meta POST → incoming/route.ts → insert chatbot_queue (+ payload mínimo) → 200 rápido
-Cron      → process-queue/route.ts → claim → processInboundMessage → pipeline
+Meta POST → incoming → chatbot_queue → 200 + after(wake) + after(backlogNotice?)
+Worker   → reclaim → claim justo → processInboundMessage → pipeline
 ```
 
-O motor **não** muda de pasta: só **quem chama** `processInboundMessage` deixa de ser o webhook por defeito.
+O motor **não** muda de pasta: só **quem chama** `processInboundMessage` (worker, não o webhook com fila ligada).
 
 ---
 
@@ -285,9 +308,9 @@ Cruzar com checkboxes em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 
 | # | Tarefa | Onde tocar |
 |---|--------|------------|
-| 2.1 | Cap rígido de histórico / persistência mínima para tools | Tabelas/serviços usados pelo PRO (ex. mensagens Anthropic); localizar writes em `lib/chatbot/pro/` |
-| 2.2 | Limite global de concorrência para chamadas Anthropic (sem fairness por empresa na v1) | Wrapper de chamada ou semáforo no caminho PRO |
-| 2.3 | Fairness por `company_id` — **v1:** intercalar jobs do mesmo batch no worker (`interleaveQueueJobsByCompany.ts`). Ajuste no `claim_*` / pré-IA só após métrica | `process-queue/route.ts`, `lib/chatbot/interleaveQueueJobsByCompany.ts` |
+| 2.1 | Cap rígido de histórico / persistência mínima para tools | **Parcial:** `MAX_STORED_MESSAGES` em `handleProOrderIntent`; redesign “parar replay quando estado basta” ainda aberto |
+| 2.2 | Limite de concorrência Anthropic por instância + resiliência 429 | **Feito:** `anthropicInFlightGate` + `anthropicResilience` nos hot paths. Redis global: CHECKLIST P2p.4 |
+| 2.3 | Fairness por `company_id` no claim + interleave no batch + skip thread busy | **Feito:** `20260805100000_…` + `interleaveQueueJobsByCompany.ts` |
 | 2.4 | Refinar somente Bloco PRO de classificação/ordenação sem alterar heurísticas do Starter | `lib/chatbot/pro/*`, com alterações mínimas em `inboundPipeline.ts` |
 
 ### Fase 3 — Escala
@@ -306,24 +329,30 @@ Cruzar com checkboxes em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
 |------|----------|
 | Webhook aguarda motor | **Resolvido**: com `CHATBOT_QUEUE_ENABLED=1` o webhook só enfileira e responde rápido. |
 | Unique na fila | **Resolvido**: unique parcial em `(company_id, message_id)` (`message_id IS NOT NULL`) aplicado; índice legado em `message_id` isolado removido. |
-| Fallback do claim | Parcial: fail-fast em produção implementado por default; fallback fica restrito a dev/teste (ou env explícita). |
+| Fallback do claim | **Feito em prod:** fail-fast (`NODE_ENV=production`); fallback só em dev/teste. |
+| Fairness SQL / skip busy thread | **Feito:** `max_per_company` + NOT EXISTS processing no mesmo `thread_id`. |
+| Wake / self-wake / reclaim / backlog UX | **Feito:** ver `CHATBOT_PROD.md` estado da implementação. |
+| Cache busca + fuzzy RPC | **Feito:** `catalogSearchCache` + `rpc_search_chat_produtos`. |
+| Evidências P1.4 (p95, replay, stress) | **Aberto:** [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md). |
 
 ---
 
 ## 7. Critérios rápidos antes de merge da Fase 1
 
+Critérios = **evidência operacional** (código já cumpre o desenho). Marcar em [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md):
+
 - [ ] `POST` `incoming` não excede p95 acordado sem esperar Anthropic/pipeline completo.
 - [ ] Job duplicado (mesmo evento) não gera segundo efeito colateral: tratar conflito na fila + dedup em `whatsapp_messages`.
-- [ ] `process-queue` processa fila com RPC ativa; teste manual com várias mensagens.
-- [ ] Runbook atualizado (worker, secrets Meta, quota Anthropic) — pode ser secção no `CHATBOT_PROD.md` ou wiki ops.
+- [ ] `process-queue` processa fila com RPC activa; teste manual com várias mensagens.
+- [ ] Runbook actualizado (worker, secrets Meta, quota Anthropic) — `SMOKE_RUNBOOK` + `CHATBOT_PROD.md`.
 - [ ] Regressão Starter aprovada com casos mínimos: saudação, `btn_catalog`, `btn_status`, `btn_support`, mensagem de FAQ, handover.
 
 ---
 
 ## 8. Decisão operacional (resumo)
 
-**Motor:** `lib/chatbot/processMessage.ts` → `inboundPipeline.ts`.  
-**Fila:** `chatbot_queue` + `claim_chatbot_queue_jobs`.  
+**Motor:** `lib/chatbot/processMessage.ts` → V2 (`runProPipeline`) e/ou `inboundPipeline.ts`.  
+**Fila:** `chatbot_queue` + claim justo + reclaim + wake/self-wake.  
 **Escopo do ciclo atual:** Starter congelado; refatoração só no PRO.  
-**Fase 1 (desacoplamento):** implementada no código com `CHATBOT_QUEUE_ENABLED=1` (`incoming` enfileira + wake opcional), worker em `process-queue`, idempotência `(company_id, message_id)` na fila e dedup em `whatsapp_messages` — alinhar com a §6 deste ficheiro.  
-**Próximos passos:** fechar os critérios da §7 com evidência (p95 webhook, replay `message_id`, regressão Starter); depois Fases 0/2/3 em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (instrumentação, caps IA PRO, escala quando métricas justificarem).
+**Fase 1 (desacoplamento) + P2-peak (fairness/UX/cache):** implementadas no código.  
+**Próximos passos:** fechar §7 / P1.4 com evidência; unificar máquinas de estado (REFACTOR); Redis só se 429 multi-réplica; Fase 3 com métrica.

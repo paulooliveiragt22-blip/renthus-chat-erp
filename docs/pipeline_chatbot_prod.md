@@ -19,11 +19,13 @@ Todas convergem em **`processInboundMessage`** (`lib/chatbot/processMessage.ts`)
 
 | Peça | Função |
 |------|--------|
-| **Wake imediato** (alvo) | Após `enqueue` bem-sucedido no webhook, disparar **assíncrono** o `GET /api/chatbot/process-queue` com `Authorization: Bearer <CRON_SECRET>` para reduzir latência sem esperar o scheduler. |
-| **Scheduler** | **Backup**: Vercel Cron (frequência conforme plano) e/ou serviço externo no Hobby; cobre falha do wake, burst e jobs presos. |
-| **Worker** | Uma invocação deve **processar em loop limitado** (batch + tempo) até esgotar `maxDuration` ou fila vazia no lote claimado. |
+| **Wake imediato** (feito) | Após `enqueue` bem-sucedido: `after()` → `lib/chatbot/queueWorkerWake.ts` → `GET /api/chatbot/process-queue` com `Bearer CRON_SECRET`. |
+| **Self-wake** (feito) | Worker agenda outra invocação se ainda há `pending` (`?drain=N`, teto `CHATBOT_QUEUE_DRAIN_MAX`) — batch cheio ou claim parcial (fairness / skip-busy). |
+| **Reclaim stuck** (feito) | `reclaim_stuck_chatbot_queue_jobs` no início do worker (`CHATBOT_QUEUE_STALE_MINUTES`). |
+| **Scheduler** | **Rede de segurança:** cron-job.org ≈1 min (Hobby); Vercel Cron `0 3 * * *` terciário. Cobre falha do wake, burst e jobs reclaimados. |
+| **Worker** | Uma invocação: reclaim → claim justo (batch) → processar lote → self-wake se pending; `maxDuration` limita o request serverless. |
 
-*Nota:* o wake está em `incoming/route.ts` (`scheduleQueueWorkerWake`); se URL/secret faltarem, o scheduler continua sendo o único gatilho útil — ver runbook.
+*Nota:* se URL/secret do wake faltarem, o scheduler é o único gatilho útil — ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) e runbook.
 
 ---
 
@@ -114,15 +116,18 @@ Numeração contínua do pedido HTTP até resposta ao cliente.
 | 0.11 | Texto vazio | `incoming/route.ts` | `continue` — **sem** motor. |
 | 0.12 | `bot_active` + handover | `incoming/route.ts` | Se handover recente → **skip**. Se timeout → reativar bot + mensagem fixa + segue para enqueue. |
 | 0.13 | Dedup inbound curta janela | `incoming/route.ts` | Coalescing por `thread_id + phone + normalized_text` (text-only) antes de inserir na fila. |
+| 0.14 | Enqueue + wake + backlog notice | `incoming/route.ts` | Insert `chatbot_queue` → `scheduleQueueWorkerWake`; `after(maybeSendBacklogNotice)` se pressão de fila (depth/idade + cooldown por thread). |
 
 **Entrada B (`processJob`) antes do motor:**
 
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
+| 0.B.0 | Reclaim stuck | `process-queue/route.ts` | `reclaim_stuck_chatbot_queue_jobs` — `processing` antigo → `pending`. |
 | 0.B.1 | Carregar canal Meta | `process-queue/route.ts` | `waConfig`, `catalogFlowId`. Fora de produção: canal ausente pode cair em env (dev local). **`NODE_ENV=production`:** sem canal Meta **active** para a empresa → **erro** no job (sem fallback de token global — evita cross-tenant). |
 | 0.B.2 | `bot_active` / handover | `process-queue/route.ts` | Handover ativo → **return** (job pode marcar-se `done` sem `processInboundMessage`); expirado → reativa + opcional mensagem + **apaga** `chatbot_sessions`. |
-| 0.B.3 | Claim RPC fail-fast | `process-queue/route.ts` | Em produção: se RPC de claim falhar → **503 + alerta** (sem fallback concorrente inseguro). |
-| 0.B.4 | Ordem no batch (fairness v1) | `process-queue/route.ts` | Após carregar jobs claimados, **`interleaveQueueJobsByCompany`** evita processar o mesmo `company_id` em sequência no lote (best-effort; não substitui fairness no SQL). |
+| 0.B.3 | Claim RPC fail-fast + fairness | `process-queue/route.ts` | `claim_chatbot_queue_jobs(batch, max_attempts, max_per_company)`: teto por empresa + skip `thread_id` já em `processing`. Em produção: falha da RPC → **503** (sem fallback concorrente). |
+| 0.B.4 | Ordem no batch | `process-queue/route.ts` | Após claim, **`interleaveQueueJobsByCompany`** evita processar o mesmo `company_id` em sequência no lote (complementa o fair claim SQL). |
+| 0.B.5 | Self-wake | `process-queue/route.ts` | Se ainda há `pending` após o lote → `scheduleQueueWorkerWake({ drainDepth })`. |
 
 **Falhas típicas (Bloco 0):** rede Meta duplicada (ok com 0.9), secret errado (401), DB indisponível (500 ou skip silencioso), canal desconfigurado (mensagem ignorada).
 
@@ -217,7 +222,9 @@ Depende de `intent` e `tier`:
 | 4.P.2 | Confirmação PT-BR | `confirmationPt` + fluxo servidor. |
 | 4.P.3 | Fecho | **`tryFinalizeAiOrderFromDraft`** → `finalizeAiOrder.ts` — **RPC** de criação de pedido (regra de negócio no servidor). |
 
-**Orquestrador de fechamento (PRO V2, produção) — `runProPipeline.ts` + `checkoutPostProcess.ts` + `orderSlotStep.ts`:**
+**Orquestrador de fechamento (PRO V2, produção) — `runProPipeline.ts` + `checkoutPostProcess.ts` + `orderSlotStep.ts` + `checkoutPhasePolicy.ts`:**
+- Política de fase / CTAs: `lib/chatbot/pro/checkoutPhasePolicy.ts` evita misturar botões de endereço com texto de confirmação final no mesmo turno.
+- Busca catálogo: `searchProdutos.ts` → RPC fuzzy `rpc_search_chat_produtos` + fallback ILIKE; cache TTL `catalogSearchCache.ts`.
 - `pro_edit_order` → volta para `pro_collecting_order` com instrução objetiva de edição.
 - `pro_add_items` → mantém draft e continua coleta de itens.
 - `pro_cancel_order` → limpa draft e retorna ao menu.
@@ -239,11 +246,11 @@ Depende de `intent` e `tier`:
 
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
-| 5.1 | Texto | `botReply` → `lib/whatsapp/sendMessage.ts` | Persiste `whatsapp_messages` + envia Graph API. |
-| 5.2 | Botões / listas / flows | `lib/whatsapp/send.ts`, `sendFlowMessage`, etc. | Templates Meta; requer `waConfig` válido. |
+| 5.1 | Texto | `botReply` → `lib/whatsapp/sendMessage.ts` | Persiste `whatsapp_messages` + envia Graph via `metaGraphFetch` (throttle + retry 429). |
+| 5.2 | Botões / listas / flows | `lib/whatsapp/send.ts` → `metaGraphFetch` | Templates Meta; requer `waConfig` válido. |
 | 5.3 | Erro de envio | `botSend.ts` / send | Log `Falha ao enviar mensagem`; **cliente pode não ver** a resposta. |
 
-**Falhas:** token revogado, número limitado, quality rating, payload inválido, timeout HTTP para Meta.
+**Falhas:** token revogado, número limitado, quality rating, payload inválido, timeout HTTP / 429 Meta (mitigado por `WHATSAPP_MIN_GAP_MS` / `WHATSAPP_429_MAX_RETRIES`).
 
 ---
 

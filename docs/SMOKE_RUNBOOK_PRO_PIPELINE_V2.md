@@ -26,20 +26,29 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - rota `GET /api/chatbot/process-queue` acessível com header:
   - `Authorization: Bearer <CRON_SECRET>`
 
-## Modo Hobby (sem cron por minuto)
-- **Wake:** com `CHATBOT_QUEUE_ENABLED=1` e wake ligado (default), o `incoming` agenda `GET /api/chatbot/process-queue` após responder ao Meta (`after()`). Defina **`NEXT_PUBLIC_APP_URL`** (ou `CHATBOT_QUEUE_WAKE_URL` / deploy na Vercel com `VERCEL_URL`) e **`CRON_SECRET`** para o wake funcionar em dev/local.
-- No plano Hobby, execute o worker manualmente:
-  - chamar `GET /api/chatbot/process-queue` apos cada mensagem de teste.
-- Para operação contínua no Hobby, use scheduler externo (cron-job.org/UptimeRobot) chamando:
+### Env opcionais de pico / resiliência (defaults no código)
+| Variável | Default | Papel |
+|----------|---------|--------|
+| `CHATBOT_QUEUE_MAX_PER_COMPANY` | `2` | Fairness no claim SQL |
+| `CHATBOT_QUEUE_STALE_MINUTES` | `3` | Reclaim de `processing` stuck |
+| `CHATBOT_QUEUE_DRAIN_MAX` | `5` | Teto da cadeia self-wake |
+| `CHATBOT_BACKLOG_DEPTH` / `_AGE_SECONDS` / `_NOTICE_COOLDOWN_SEC` | `8` / `45` / `120` | Aviso WhatsApp de fila |
+| `CHATBOT_CATALOG_CACHE_TTL_SEC` | `60` | Cache in-memory de busca |
+| `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` / `ANTHROPIC_CIRCUIT_OPEN_MS` | `8` / `30000` | Gate + circuit Anthropic |
+| `WHATSAPP_MIN_GAP_MS` / `WHATSAPP_429_MAX_RETRIES` | `100` / `3` | Throttle Meta Graph |
+
+## Modo Hobby (rede de segurança = cron-job.org ~1 min)
+- **Wake:** com `CHATBOT_QUEUE_ENABLED=1` e wake ligado (default), o `incoming` agenda `GET /api/chatbot/process-queue` após responder ao Meta (`after()`). Defina **`NEXT_PUBLIC_APP_URL`** (ou `CHATBOT_QUEUE_WAKE_URL` / deploy na Vercel com `VERCEL_URL`) e **`CRON_SECRET`**.
+- **Self-wake / reclaim:** o worker drena pending remanescente e recupera jobs `processing` stuck — ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
+- Em teste local sem wake: chamar `GET /api/chatbot/process-queue` após cada mensagem.
+- **Produção Hobby:** scheduler externo (cron-job.org) a cada **1 minuto** é a rede de segurança obrigatória (Vercel cron nativo do repo é só diário).
   - método: `GET`
   - URL: `https://SEU_DOMINIO/api/chatbot/process-queue`
   - header: `Authorization: Bearer <CRON_SECRET>`
-  - intervalo: `1 minuto`
-- Sequência recomendada:
+- Sequência recomendada (teste):
   1. enviar mensagem no WhatsApp
-  2. chamar `process-queue` manual
-  3. validar resposta no WhatsApp e status da fila
-- Só migrar para cron recorrente (`* * * * *`) quando mudar para Pro.
+  2. confirmar wake ou chamar `process-queue` manual
+  3. validar resposta no WhatsApp e status da fila (`reclaimed` / `continued` no JSON se aplicável)
 
 ## Plano de execução (15-20 min)
 

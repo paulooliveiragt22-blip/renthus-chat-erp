@@ -275,8 +275,15 @@ Cada fase deve terminar com **testes** (`npm test`, fluxos manuais do runbook) e
 | 2026-04-16 | `CHECKLIST_ARCH_PRO_SCALE.md`, `process-queue/route.ts`, `processMessage.ts`, `anthropicInFlightGate.ts`, `ai.service.full.ts`, `CHATBOT_PROD.md`, `pipeline_chatbot_prod.md`, `structure_chatbot_prod.md` | Escala/regressão: claim fallback **proibido** em `NODE_ENV=production`; worker exige canal Meta em prod; aviso `console.error` se PRO+V2≠`active` em prod; teto in-flight Anthropic no adapter PRO V2; doc alinhada. |
 | 2026-04-16 | `processMessage.ts`, `botSend.ts`, `inboundPipeline.ts`, `processMessage.proV2.test.ts`, `CHATBOT_PROD.md`, `pipeline_chatbot_prod.md`, `CHECKLIST_ARCH_PRO_SCALE.md` | Modo `active`: exceção do `runProPipeline` → `botReply` com mensagem fixa PT-BR e **return** (sem legado de pedido). |
 | 2026-04-16 | `interleaveQueueJobsByCompany.ts`, `process-queue/route.ts`, `EVIDENCE_CHECKLIST_P14.md`, docs checklist/structure/pipeline | P1.3 fairness v1 no batch; P1.4 artefacto de evidências + link em `CHATBOT_PROD.md`. |
+| 2026-08-05 | claim fair SQL, backlogNotice, catalogSearchCache, anthropicResilience, metaGraphFetch, docs sync | Pico Hobby: fairness + UX fila + resiliência; **R4** quota/cache encerrado no código. |
 
-**Próximo na sequência sugerida (§0):** **R4** (quota por `company_id` / cache seguro de catálogo) **só** com evidência em produção (ver `CHATBOT_PROD.md`); unificar `applyAiStateTransition` com `resolveProStepFromDraft` (ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md) §6); ADR opcional se houver desvio desta estratégia; manter runbook e testes de regressão ao alterar confirmação ou adapters.
+**R4 (quota claim + cache catálogo):** **cumprido** em 2026-08-05 — claim SQL `max_per_company` + skip thread busy; `catalogSearchCache` TTL; ver [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) P2p / P1.3.
+
+**Próximo na sequência sugerida:**
+1. **Evidências P1.4** — colher p95/replay/stress ([`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md)).
+2. **Unificar** `applyAiStateTransition` com `resolveProStepFromDraft` ([`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md) §6).
+3. **Redis** teto Anthropic multi-réplica — só se 429 entre instâncias persistir (P2p.4).
+4. ADR opcional se desviar de [`CHATBOT_PROD.md`](./CHATBOT_PROD.md); manter runbook e testes de regressão ao alterar confirmação ou adapters.
 
 ---
 
