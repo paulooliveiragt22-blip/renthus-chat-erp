@@ -30,7 +30,7 @@ describe("checkoutPhasePolicy", () => {
     });
 });
 
-describe("checkoutPostProcess address-hold", () => {
+describe("checkoutPostProcess — resumo final canónico", () => {
     function draft(): OrderDraft {
         return {
             items: [
@@ -66,9 +66,9 @@ describe("checkoutPostProcess address-hold", () => {
         };
     }
 
-    it("nao mantém texto pedindo sim do pedido junto com CTA de endereco", () => {
+    it("com draft completo: card Confirmar inclui taxa; sem CTA de endereço", () => {
         const state: ProSessionState = {
-            step: "pro_awaiting_address_confirmation",
+            step: "pro_collecting_order",
             customerId: "c1",
             misunderstandingStreak: 0,
             escalationTier: 0,
@@ -87,15 +87,16 @@ describe("checkoutPostProcess address-hold", () => {
                 },
             ],
         });
-        const hasAddrBtn = r.outbound.some(
-            (m) =>
-                m.kind === "buttons" &&
-                (m.buttons ?? []).some((b) => b.id.includes("address"))
+        assert.equal(r.state.step, "pro_awaiting_confirmation");
+        const confirm = r.outbound.find(
+            (m) => m.kind === "buttons" && (m.buttons ?? []).some((b) => b.id === "pro_confirm_order")
         );
-        assert.equal(hasAddrBtn, true);
+        assert.ok(confirm);
+        assert.match(String(confirm?.text ?? ""), /Taxa de entrega: R\$ 5,00/);
+        assert.match(String(confirm?.text ?? ""), /Total: R\$ 15,00/);
         assert.ok(
             !r.outbound.some(
-                (m) => m.kind === "text" && looksLikeFinalOrderConfirmAsk(m.text ?? "")
+                (m) => m.kind === "buttons" && (m.buttons ?? []).some((b) => b.id.includes("address"))
             )
         );
     });

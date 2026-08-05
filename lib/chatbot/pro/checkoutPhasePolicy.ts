@@ -46,23 +46,21 @@ export function buildPhasePlaybookForModel(params: {
         `tem_pagamento=${Boolean(params.hasPayment)}`,
     ];
 
-    if (phase === "confirm_address" || (params.addressComplete && params.deliveryAddressUiConfirmed !== true)) {
+    if (phase === "confirm_address") {
         lines.push(
-            "NÃO peça confirmação final do pedido (sim/ok do pedido).",
-            "Diga de forma curta que o próximo passo é confirmar o ENDEREÇO nos botões do WhatsApp.",
-            "Não invente botões; o servidor envia Confirmar/Alterar endereço."
+            "Fase rara (legado). Se endereço já tem rua/número/bairro/cidade/UF, NÃO peça confirmar endereço — o servidor avança."
         );
     } else if (phase === "collect_payment") {
         lines.push(
-            "Endereço já confirmado. Oriente pagamento (PIX/cartão/dinheiro) sem pedir 'sim' do pedido ainda."
+            "Endereço já resolvido. Oriente pagamento (PIX/cartão/dinheiro) sem pedir 'sim' do pedido ainda. Não invente totais."
         );
     } else if (phase === "confirm_order") {
         lines.push(
-            "Agora sim: resuma itens + endereço + taxa + total do draft e peça confirmação explícita (sim/ok ou botão Confirmar)."
+            "O servidor envia o resumo oficial com taxa e botões Confirmar/Corrigir. Não invente totais nem peça 'sim' em texto paralelo."
         );
     } else if (phase === "collect_items") {
         lines.push(
-            "Foque em entender o pedido. Se search_produtos trouxer did_you_mean ou várias opções, ofereça as opções sem inventar preço."
+            "Foque em entender o pedido. Se houver várias opções, NÃO liste preços — o servidor envia botões; peça número ou toque no botão."
         );
     }
 

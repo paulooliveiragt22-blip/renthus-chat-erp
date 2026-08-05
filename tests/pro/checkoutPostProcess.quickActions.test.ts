@@ -70,7 +70,7 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.equal(r.handled, false);
     });
 
-    it("strict gate: em coleta com endereco completo, cartão exige confirmar endereco (CTA)", () => {
+    it("strict gate: em coleta com endereco completo, texto Cartão não bloqueia por endereço", () => {
         const g = strictCheckoutStructuredGate(
             "Cartão",
             state({
@@ -78,9 +78,7 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
                 draft: minimalDraft(),
             })
         );
-        assert.ok(g && g.handled);
-        assert.equal(g.actionTag, "strict_address_before_payment");
-        assert.ok(g.outbound.some((m) => m.kind === "buttons"));
+        assert.equal(g, null);
     });
 
     it("strict gate: em awaiting_payment_method texto livre reenvia botoes de pagamento", () => {
@@ -152,19 +150,18 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         const flow = r.outbound[0];
         assert.equal(flow?.kind, "flow");
         assert.equal(flow?.flow?.flowToken, "thread-1|company-1|address_register");
-        assert.equal(flow?.flow?.ctaLabel, "Abrir cadastro");
+        assert.equal(flow?.flow?.ctaLabel, "Cadastrar endereço");
     });
 
-    it("strict gate: com pagamento no draft e endereco nao confirmado na UI, pix exige confirmar endereco", () => {
+    it("strict gate: com pagamento e endereco completo, texto pix nao bloqueia", () => {
         const g = strictCheckoutStructuredGate(
             "pix",
             state({
-                step: "pro_awaiting_address_confirmation",
+                step: "pro_awaiting_confirmation",
                 draft: minimalDraft({ paymentMethod: "pix" }),
+                deliveryAddressUiConfirmed: true,
             })
         );
-        assert.ok(g && g.handled);
-        assert.equal(g.actionTag, "strict_address_before_payment");
-        assert.ok(g.outbound.some((m) => m.kind === "buttons"));
+        assert.equal(g, null);
     });
 });

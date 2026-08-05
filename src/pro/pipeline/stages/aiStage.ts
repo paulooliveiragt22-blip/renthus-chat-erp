@@ -9,6 +9,7 @@ import type {
 } from "@/src/types/contracts";
 import { stripHallucinatedOrderPersistenceClaims } from "@/src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
 import {
+    isAddressStructurallyComplete,
     orderDraftFingerprintForAddressConfirm,
     withResolvedSlotStep,
 } from "../orderSlotStep";
@@ -75,8 +76,10 @@ export async function aiStage(params: {
     const nextDraft = aiResult.updatedDraft ?? null;
     const prevFp = orderDraftFingerprintForAddressConfirm(context.session.draft);
     const nextFp = orderDraftFingerprintForAddressConfirm(nextDraft);
-    const deliveryAddressUiConfirmed =
-        context.session.deliveryAddressUiConfirmed === true && prevFp === nextFp && nextFp !== "";
+    /** Endereço completo (match servidor) = confirmado; senão mantém flag só se fingerprint estável. */
+    const deliveryAddressUiConfirmed = isAddressStructurallyComplete(nextDraft?.address ?? null)
+        ? true
+        : context.session.deliveryAddressUiConfirmed === true && prevFp === nextFp && nextFp !== "";
 
     const nextStateBase = {
         ...context.session,

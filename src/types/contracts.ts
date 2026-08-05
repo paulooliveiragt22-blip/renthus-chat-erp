@@ -92,8 +92,9 @@ export interface ProSessionState {
     draft: OrderDraft | null;
     aiHistory: AiTurn[];
     /**
-     * Cliente confirmou explicitamente o endereço de entrega (botão ou fluxo equivalente).
-     * Enquanto `false`/ausente com draft completo, o passo fica em `pro_awaiting_address_confirmation` mesmo com pagamento já preenchido.
+     * Endereço de entrega aceito para checkout.
+     * Com rua+número+bairro(+cidade/UF) resolvidos no servidor, fica `true` automaticamente
+     * (sem segundo “Confirma este endereço?”). Botões legados ainda podem setar.
      */
     deliveryAddressUiConfirmed?: boolean;
     /**
@@ -102,7 +103,7 @@ export interface ProSessionState {
      */
     searchProdutoEmbalagemIds: string[];
     /** Últimas opções de search para botões de clarificação (até 3). */
-    lastSearchPicks?: Array<{ embalagemId: string; label: string }>;
+    lastSearchPicks?: Array<{ embalagemId: string; label: string; price?: number | null }>;
     /** Buscas vazias consecutivas — escala para cardápio web. */
     emptySearchStreak?: number;
     /**
@@ -281,7 +282,7 @@ export interface AiServiceResult {
     /** Atualização da allowlist de catálogo após rodadas de tool (PRO V2). */
     updatedSearchProdutoEmbalagemIds?: string[];
     /** Opções para botões WhatsApp após busca ambígua. */
-    lastSearchPicks?: Array<{ embalagemId: string; label: string }>;
+    lastSearchPicks?: Array<{ embalagemId: string; label: string; price?: number | null }>;
     emptySearchStreak?: number;
     signals: {
         toolRoundsUsed: number;

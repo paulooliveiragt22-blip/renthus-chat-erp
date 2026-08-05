@@ -7,20 +7,21 @@ import {
 } from "../../lib/chatbot/pro/prepareOrderDraft";
 
 describe("buildPrepareDraftGuidanceForModel", () => {
-    it("quando ok sem endereco UI, nao pede sim do pedido", () => {
+    it("quando ok, nao pede confirmar endereco nem inventar totais", () => {
         const g = buildPrepareDraftGuidanceForModel(true, [], {
             deliveryAddressUiConfirmed: false,
         });
-        assert.ok(g.some((l) => l.toLowerCase().includes("aceito")));
-        assert.ok(g.some((l) => l.toLowerCase().includes("endereço") || l.toLowerCase().includes("endereco")));
-        assert.ok(g.some((l) => l.includes("NÃO") || l.includes("NAO") || l.toLowerCase().includes("não")));
+        const blob = g.join("\n");
+        assert.match(blob, /aceito/i);
+        assert.match(blob, /NÃO invente|NAO invente/i);
+        assert.match(blob, /confirmação de endereço|confirmacao de endereco/i);
     });
 
-    it("quando ok com endereco UI, pede confirmacao do pedido", () => {
+    it("quando ok (flag UI true), mesma politica de resumo no servidor", () => {
         const g = buildPrepareDraftGuidanceForModel(true, [], {
             deliveryAddressUiConfirmed: true,
         });
-        assert.ok(g.some((l) => l.toLowerCase().includes("confirmação") || l.toLowerCase().includes("confirmacao")));
+        assert.ok(g.some((l) => l.toLowerCase().includes("servidor")));
     });
 
     it("quando falta pagamento, sugere próximo passo de payment_method", () => {

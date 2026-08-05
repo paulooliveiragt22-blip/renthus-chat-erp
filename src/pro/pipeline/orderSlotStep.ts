@@ -35,27 +35,26 @@ export function orderDraftFingerprintForAddressConfirm(draft: OrderDraft | null)
 }
 
 /**
- * Draft já tem itens, endereço mínimo, pagamento e troco (se dinheiro), mas o cliente ainda não
- * confirmou o endereço na UI — não avançar para `pro_awaiting_confirmation`.
+ * @deprecated Hold de endereço na UI removido: com rua+número+bairro(+cidade/UF) resolvidos
+ * no servidor, segue direto para pagamento / resumo final. Mantido por compat de imports.
  */
 export function shouldHoldAwaitingAddressUi(
-    draft: OrderDraft | null,
-    deliveryAddressUiConfirmed: boolean | undefined
+    _draft: OrderDraft | null,
+    _deliveryAddressUiConfirmed: boolean | undefined
 ): boolean {
-    if (draft == null || draft.items.length === 0) return false;
-    if (!isAddressStructurallyComplete(draft.address)) return false;
-    if (!draft.paymentMethod) return false;
-    if (draft.paymentMethod === "cash" && draft.changeFor == null) return false;
-    if (!isDraftStructurallyCompleteForFinalize(draft)) return false;
-    return deliveryAddressUiConfirmed !== true;
+    return false;
+}
+
+/** Endereço completo no draft ⇒ tratado como confirmado (match interno). */
+export function isDeliveryAddressAutoConfirmed(draft: OrderDraft | null): boolean {
+    return isAddressStructurallyComplete(draft?.address ?? null);
 }
 
 /** Chamado só com endereço já estruturalmente completo e sem `paymentMethod`. */
 function resolveStepWhenPaymentMissing(step: ProStep): ProStep {
     if (step === "pro_awaiting_payment_method") return "pro_awaiting_payment_method";
-    if (step === "pro_awaiting_address_confirmation") return "pro_awaiting_address_confirmation";
-    /** Primeira vez com endereço completo (salvo ou digitado): confirmação antes do pagamento. */
-    return "pro_awaiting_address_confirmation";
+    /** Endereço já batido no servidor — não pedir "Confirma este endereço?". */
+    return "pro_awaiting_payment_method";
 }
 
 /**
@@ -74,7 +73,7 @@ export function resolveProStepFromDraft(params: {
     draft: OrderDraft | null;
     deliveryAddressUiConfirmed?: boolean;
 }): ProStep {
-    const { step, draft, deliveryAddressUiConfirmed } = params;
+    const { step, draft } = params;
 
     if (step === "handover") return "handover";
     if (step === "pro_escalation_choice") {
@@ -91,9 +90,6 @@ export function resolveProStepFromDraft(params: {
     }
 
     if (!draft.paymentMethod) {
-        if (isAddressStructurallyComplete(draft.address) && deliveryAddressUiConfirmed === true) {
-            return "pro_awaiting_payment_method";
-        }
         return resolveStepWhenPaymentMissing(step);
     }
 
@@ -102,9 +98,6 @@ export function resolveProStepFromDraft(params: {
     }
 
     if (isDraftStructurallyCompleteForFinalize(draft)) {
-        if (shouldHoldAwaitingAddressUi(draft, deliveryAddressUiConfirmed)) {
-            return "pro_awaiting_address_confirmation";
-        }
         return "pro_awaiting_confirmation";
     }
 
@@ -113,12 +106,15 @@ export function resolveProStepFromDraft(params: {
 
 /** Aplica `resolveProStepFromDraft` ao estado (uso após quick actions / checkout). */
 export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
+    const deliveryAddressUiConfirmed =
+        isDeliveryAddressAutoConfirmed(state.draft) || state.deliveryAddressUiConfirmed === true;
     return {
         ...state,
+        deliveryAddressUiConfirmed,
         step: resolveProStepFromDraft({
             step: state.step,
             draft: state.draft,
-            deliveryAddressUiConfirmed: state.deliveryAddressUiConfirmed,
+            deliveryAddressUiConfirmed,
         }),
     };
 }

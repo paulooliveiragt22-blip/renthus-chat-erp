@@ -433,18 +433,11 @@ export function buildPrepareDraftGuidanceForModel(
     }
 ): string[] {
     if (ok) {
-        if (opts?.deliveryAddressUiConfirmed !== true) {
-            return [
-                "Rascunho aceito no servidor (itens+endereço+pagamento).",
-                "NÃO peça confirmação final do pedido (sim/ok do pedido) nesta mensagem.",
-                "Diga em 1 frase que o próximo passo é confirmar o ENDEREÇO nos botões do WhatsApp (o servidor envia Confirmar/Alterar).",
-                "Pode citar itens/total de forma breve, sem pedir 'confirme o pedido'.",
-            ];
-        }
         return [
-            "Rascunho aceito no servidor e endereço já confirmado na UI.",
-            "Resposta ao cliente: resuma itens, endereço, taxa e total exatamente como no draft (sem alterar preços).",
-            "Peça confirmação explícita do pedido (sim/ok ou botão Confirmar).",
+            "Rascunho aceito no servidor (itens + endereço resolvido + pagamento).",
+            "NÃO peça confirmação de endereço de novo (já batido no servidor se rua/número/bairro/cidade/UF ok).",
+            "NÃO invente subtotal/taxa/total — o servidor envia o resumo oficial com taxa nos botões.",
+            "No máximo 1 frase curta de confirmação de entendimento; sem listar preços nem pedir 'sim' do pedido (botão Confirmar do servidor).",
         ];
     }
 

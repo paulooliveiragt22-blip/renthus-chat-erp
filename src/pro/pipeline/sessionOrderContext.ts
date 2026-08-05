@@ -19,5 +19,6 @@ const STEPS_IMPLYING_ORDER_SESSION: ReadonlySet<ProStep> = new Set([
 export function isOrderSessionContinuityNeeded(session: ProSessionState): boolean {
     if (session.step === "handover" || session.step === "pro_escalation_choice") return false;
     if (session.draft?.items?.length) return true;
+    if ((session.lastSearchPicks?.length ?? 0) >= 2) return true;
     return STEPS_IMPLYING_ORDER_SESSION.has(session.step);
 }

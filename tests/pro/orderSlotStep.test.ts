@@ -51,7 +51,14 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
-    it("com endereco salvo e sem pagamento: collecting → confirmação de endereço", () => {
+    it("endereço completo sem pagamento: vai direto a payment (sem confirmar endereço)", () => {
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_collecting_order", draft: draft() }),
+            "pro_awaiting_payment_method"
+        );
+    });
+
+    it("endereço salvo completo sem pagamento: payment method", () => {
         const d = draft({
             address: {
                 logradouro: "Rua A",
@@ -65,31 +72,13 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
-            "pro_awaiting_address_confirmation"
+            "pro_awaiting_payment_method"
         );
     });
 
-    it("sem enderecoClienteId e sem pagamento: aguarda confirmação do endereço digitado", () => {
+    it("mantém pro_awaiting_payment_method", () => {
         assert.equal(
-            resolveProStepFromDraft({ step: "pro_collecting_order", draft: draft() }),
-            "pro_awaiting_address_confirmation"
-        );
-    });
-
-    it("mantém pro_awaiting_payment_method após confirmar endereço salvo (evita regressão)", () => {
-        const d = draft({
-            address: {
-                logradouro: "Rua A",
-                numero: "1",
-                bairro: "Centro",
-                cidade: "Sorriso",
-                estado: "MT",
-                complemento: null,
-                enderecoClienteId: "addr-1",
-            },
-        });
-        assert.equal(
-            resolveProStepFromDraft({ step: "pro_awaiting_payment_method", draft: d }),
+            resolveProStepFromDraft({ step: "pro_awaiting_payment_method", draft: draft() }),
             "pro_awaiting_payment_method"
         );
     });
@@ -105,37 +94,18 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
-    it("rascunho completo com pagamento não-dinheiro: aguarda confirmação de endereço na UI", () => {
+    it("rascunho completo com pix: confirmação final (sem hold de endereço)", () => {
         const d = draft({
             paymentMethod: "pix",
             changeFor: null,
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
-            "pro_awaiting_address_confirmation"
+            "pro_awaiting_confirmation"
         );
     });
 
-    it("rascunho estruturalmente completo sem pendingConfirmation: ainda aguarda confirmação de endereço na UI", () => {
-        const d = draft({
-            paymentMethod: "pix",
-            changeFor: null,
-            pendingConfirmation: false,
-        });
-        assert.equal(
-            resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
-            "pro_awaiting_address_confirmation"
-        );
-    });
-
-    it("pro_escalation_choice sem itens: mantém escolha", () => {
-        assert.equal(
-            resolveProStepFromDraft({ step: "pro_escalation_choice", draft: null }),
-            "pro_escalation_choice"
-        );
-    });
-
-    it("pro_escalation_choice com rascunho completo: re-alinha para confirmação de endereço na UI", () => {
+    it("pro_escalation_choice com rascunho completo: confirmação final", () => {
         const d = draft({
             paymentMethod: "pix",
             changeFor: null,
@@ -143,53 +113,26 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         });
         assert.equal(
             resolveProStepFromDraft({ step: "pro_escalation_choice", draft: d }),
-            "pro_awaiting_address_confirmation"
-        );
-    });
-
-    it("com deliveryAddressUiConfirmed e pagamento: confirmação final", () => {
-        const d = draft({
-            paymentMethod: "pix",
-            changeFor: null,
-        });
-        assert.equal(
-            resolveProStepFromDraft({
-                step: "pro_collecting_order",
-                draft: d,
-                deliveryAddressUiConfirmed: true,
-            }),
             "pro_awaiting_confirmation"
         );
     });
 
-    it("withResolvedSlotStep aplica resolve", () => {
+    it("withResolvedSlotStep auto-confirma endereço e vai ao resumo", () => {
         const s: ProSessionState = {
             step: "pro_collecting_order",
             customerId: "c1",
             misunderstandingStreak: 0,
             escalationTier: 0,
-            draft: draft({ paymentMethod: "pix" }),
+            draft: draft({ paymentMethod: "pix", deliveryFee: 15, grandTotal: 25 }),
             aiHistory: [],
             searchProdutoEmbalagemIds: [],
         };
-        assert.equal(withResolvedSlotStep(s).step, "pro_awaiting_address_confirmation");
+        const next = withResolvedSlotStep(s);
+        assert.equal(next.deliveryAddressUiConfirmed, true);
+        assert.equal(next.step, "pro_awaiting_confirmation");
     });
 
-    it("withResolvedSlotStep com endereço confirmado na UI: resumo final", () => {
-        const s: ProSessionState = {
-            step: "pro_collecting_order",
-            customerId: "c1",
-            misunderstandingStreak: 0,
-            escalationTier: 0,
-            draft: draft({ paymentMethod: "pix" }),
-            deliveryAddressUiConfirmed: true,
-            aiHistory: [],
-            searchProdutoEmbalagemIds: [],
-        };
-        assert.equal(withResolvedSlotStep(s).step, "pro_awaiting_confirmation");
-    });
-
-    it("withResolvedSlotStepUnlessAwaitingConfirmation não rebaixa de confirmation com draft null", () => {
+    it("withResolvedSlotStepUnlessAwaitingConfirmation não desce o passo", () => {
         const s: ProSessionState = {
             step: "pro_awaiting_confirmation",
             customerId: "c1",

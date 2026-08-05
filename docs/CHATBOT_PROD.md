@@ -258,8 +258,8 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 - **Saudação contextual:** no início da conversa, distinguir primeiro acesso vs cliente recorrente e mostrar botões (`Cardápio`, `Meu pedido`, `Falar com atendente`).
 - **Mensagem inicial já completa (itens + endereço + pagamento):** devolver resumo entendido e botões `Confirmar`, `Corrigir`, `Adicionar produtos`.
 - **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`). Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
-- **Endereço (salvo ou digitado):** com morada estruturalmente completa, mensagem “é este?” + texto livre para corrigir + botão `Confirmar endereço` (`pro_confirm_saved_address` ou `pro_confirm_typed_address` sem `enderecoClienteId`).
-- **Resumo final:** botões `Confirmar`, `Corrigir`, `Adicionar produtos`; cancelamento por botão `pro_cancel_order` ou texto curto (`cancelar`, `desistir`, etc.). Fechamento só via RPC quando os gates de draft estiverem completos.
+- **Endereço:** se o servidor resolver rua+número+bairro+cidade+UF (salvo ou digitado), **não** pede “Confirma este endereço?” — avança para pagamento ou resumo. Corrigir endereço continua via `Corrigir` / flow.
+- **Resumo final:** card único do servidor com itens, **taxa**, total e botões `Confirmar` / `Corrigir` / `Adicionar produtos` (não depender da IA para R$). Clarificação de produto: só botões/lista do servidor; “Opção 2” mapeia para a embalagem.
 - **Proibição de UX enganosa:** não emitir “pedido confirmado” antes de retorno `ok` do RPC de criação.
 
 #### Estado no código (**já executado**)

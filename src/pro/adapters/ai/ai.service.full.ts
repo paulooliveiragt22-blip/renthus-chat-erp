@@ -317,6 +317,10 @@ export class FullAiServiceAdapter implements AiService {
         searchMeta.lastSearchPicks = rows.slice(0, 3).map((r) => ({
             embalagemId: String(r.id),
             label: String(r.display_name || r.product_name || "Item").slice(0, 40),
+            price: Number((r as { preco_venda?: unknown }).preco_venda ?? NaN),
+        })).map((p) => ({
+            ...p,
+            price: Number.isFinite(p.price) ? p.price : null,
         }));
         searchMeta.emptySearchStreak = detailed.empty
             ? (input.context.session.emptySearchStreak ?? 0) + 1
@@ -332,7 +336,9 @@ export class FullAiServiceAdapter implements AiService {
                             ]
                           : []),
                       ...(rows.length >= 2
-                          ? ["Há mais de uma opção: liste-as de forma clara; o servidor pode enviar botões de escolha."]
+                          ? [
+                                "Há mais de uma opção: NÃO liste preços/opções no texto — o servidor envia botões/lista. Só confirme que há opções e peça para tocar no botão ou responder com o número.",
+                            ]
                           : []),
                   ]
                 : [

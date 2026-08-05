@@ -1,9 +1,12 @@
 import type { OutboundMessage, OrderDraft, ProSessionState } from "@/src/types/contracts";
-import { scrubOutboundForAddressHold } from "@/lib/chatbot/pro/checkoutPhasePolicy";
+import {
+    formatCanonicalDraftSummary,
+    formatSearchPicksClarificationBody,
+} from "../orderDraftPresenter";
+import { PICK_EMB_PREFIX } from "../productPickText";
 import {
     isAddressStructurallyComplete,
     resolveProStepFromDraft,
-    shouldHoldAwaitingAddressUi,
     withResolvedSlotStep,
 } from "../orderSlotStep";
 
@@ -53,57 +56,16 @@ function buildPaymentButtons(): OutboundMessage {
     };
 }
 
-function buildConfirmationActionButtons(): OutboundMessage {
+function buildConfirmationActionButtons(draft: OrderDraft): OutboundMessage {
     return {
         kind: "buttons",
-        text: "Revise o resumo acima e escolha uma opcao:",
+        text: formatCanonicalDraftSummary(draft),
         buttons: [
             { id: "pro_confirm_order", title: "Confirmar" },
             { id: "pro_edit_order", title: "Corrigir" },
             { id: "pro_add_items", title: "Adicionar produtos" },
         ],
     };
-}
-
-function formatDraftAddressLine(draft: OrderDraft): string {
-    const a = draft.address;
-    if (!a) return "";
-    return [
-        a.logradouro,
-        a.numero,
-        a.complemento,
-        a.bairroLabel ?? a.bairro,
-        a.cidade,
-        a.estado,
-        a.cep,
-    ]
-        .filter(Boolean)
-        .join(", ");
-}
-
-/** Endereço salvo em `enderecos_cliente` ou digitado: confirmar; salvo também permite cadastrar outro via flow. */
-function buildAddressConfirmationMessage(draft: OrderDraft): OutboundMessage[] {
-    if (!isAddressStructurallyComplete(draft.address)) return [];
-    const addr = formatDraftAddressLine(draft);
-    const confirmId = draft.address?.enderecoClienteId
-        ? "pro_confirm_saved_address"
-        : "pro_confirm_typed_address";
-    const buttons = draft.address?.enderecoClienteId
-        ? [
-              { id: confirmId, title: "Confirmar" },
-              { id: "pro_new_address_flow", title: "Novo endereco" },
-          ]
-        : [
-              { id: confirmId, title: "Confirmar" },
-              { id: "pro_edit_delivery_address", title: "Alterar" },
-          ];
-    return [
-        {
-            kind: "buttons",
-            text: `Confirma a entrega neste endereco?\n\n${addr}`,
-            buttons,
-        },
-    ];
 }
 
 /** WhatsApp: mensagens interactivas primeiro, depois texto (melhor UX e alinhado a “botão primeiro”). */
@@ -115,36 +77,22 @@ export function prioritizeInteractiveFirst(messages: OutboundMessage[]): Outboun
 
 function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
     if (!state.draft) return [];
-    const addrOk =
-        state.draft.items.length > 0 && isAddressStructurallyComplete(state.draft.address);
-    const addrUiPending = addrOk && state.deliveryAddressUiConfirmed !== true;
-    if (
-        addrUiPending &&
-        (state.step === "pro_awaiting_address_confirmation" || state.step === "pro_collecting_order")
-    ) {
-        return [];
-    }
     if (!state.draft.paymentMethod) {
-        /** Aguardando confirmação de endereço (salvo ou digitado): não mostrar pagamento ainda. */
+        /** Itens sem endereço completo: não mostrar pagamento. */
         if (
-            state.step === "pro_awaiting_address_confirmation" ||
-            (state.step === "pro_collecting_order" &&
-                state.draft.items.length > 0 &&
-                isAddressStructurallyComplete(state.draft.address))
-        ) {
-            return [];
-        }
-        /** Itens no rascunho mas endereco ainda incompleto: não mostrar pagamento até cadastro/texto. */
-        if (
-            state.step === "pro_collecting_order" &&
             state.draft.items.length > 0 &&
             !isAddressStructurallyComplete(state.draft.address)
         ) {
             return [];
         }
-        return [buildPaymentButtons()];
+        if (state.draft.items.length > 0 && isAddressStructurallyComplete(state.draft.address)) {
+            return [buildPaymentButtons()];
+        }
+        return [];
     }
-    if (state.step === "pro_awaiting_confirmation") return [buildConfirmationActionButtons()];
+    if (state.step === "pro_awaiting_confirmation") {
+        return [buildConfirmationActionButtons(state.draft)];
+    }
     return [];
 }
 
@@ -227,62 +175,22 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
         };
     }
 
-    const payTextOnly = PAYMENT_WORD_ONLY_RE.test(action) && !PAYMENT_BUTTON_IDS.has(action);
-    const paymentAttempt = payTextOnly || PAYMENT_BUTTON_IDS.has(action);
-    if (
-        d &&
-        d.items.length > 0 &&
-        isAddressStructurallyComplete(d.address) &&
-        action &&
-        !isCancelOrderPlainText(text)
-    ) {
-        const addrUiPending = state.deliveryAddressUiConfirmed !== true;
-        const blockUntilAddrUi =
-            addrUiPending &&
-            paymentAttempt &&
-            (state.step === "pro_collecting_order" || state.step === "pro_awaiting_address_confirmation");
-        const blockPaymentWithoutMethod =
-            !d.paymentMethod &&
-            paymentAttempt &&
-            (state.step === "pro_collecting_order" || state.step === "pro_awaiting_address_confirmation");
-
-        if (blockUntilAddrUi || blockPaymentWithoutMethod) {
-            const addrMsg = buildAddressConfirmationMessage(d);
-            if (addrMsg.length === 0) return null;
-            const hint =
-                addrUiPending && d.paymentMethod
-                    ? "Confirme o endereco com o botao antes de alterar o pagamento."
-                    : "Confirme o endereco com o botao antes de escolher o pagamento.";
-            return {
-                handled: true,
-                actionTag: "strict_address_before_payment",
-                state,
-                outbound: prioritizeInteractiveFirst([
-                    {
-                        kind: "text",
-                        text: hint,
-                    },
-                    ...addrMsg,
-                ]),
-            };
-        }
-    }
-
     return null;
 }
 
 const ORPHAN_FINAL_CONFIRM_IDS = new Set(["pro_confirm_order", "btn_confirm_order", "btn_confirmar"]);
 
-export const PICK_EMB_PREFIX = "pro_pick_emb:";
+export { PICK_EMB_PREFIX } from "../productPickText";
+export { applyProductPickFromInbound as applyProductPickFromButton } from "../productPickText";
 
 export function buildClarificationButtons(
-    picks: Array<{ embalagemId: string; label: string }>
+    picks: Array<{ embalagemId: string; label: string; price?: number | null }>
 ): OutboundMessage | null {
     const top = picks.slice(0, 3);
     if (top.length < 2) return null;
     return {
         kind: "buttons",
-        text: "Qual opcao voce quer?",
+        text: formatSearchPicksClarificationBody(top),
         buttons: top.map((p, i) => ({
             id: `${PICK_EMB_PREFIX}${p.embalagemId}`,
             title: String(p.label ?? `Opcao ${i + 1}`)
@@ -293,26 +201,47 @@ export function buildClarificationButtons(
     };
 }
 
-/** Narrow allowlist when client taps clarification button. */
-export function applyProductPickFromButton(
-    text: string,
-    state: ProSessionState
-): { state: ProSessionState; syntheticUserText: string | null } {
-    const raw = text.trim();
-    if (!raw.toLowerCase().startsWith(PICK_EMB_PREFIX)) {
-        return { state, syntheticUserText: null };
-    }
-    const embId = raw.slice(PICK_EMB_PREFIX.length).trim();
-    if (!embId) return { state, syntheticUserText: null };
-    const pick = (state.lastSearchPicks ?? []).find((p) => p.embalagemId === embId);
-    const label = pick?.label ?? "item";
-    return {
-        state: {
-            ...state,
-            searchProdutoEmbalagemIds: [embId],
-        },
-        syntheticUserText: `Quero ${label}. Use produto_embalagem_id=${embId} em prepare_order_draft com quantity 1 (ou a quantidade que eu ja pedi).`,
-    };
+/** Remove prosa da IA quando o servidor já envia o card de opções. */
+function stripAiOptionListText(messages: OutboundMessage[]): OutboundMessage[] {
+    return messages.filter((m) => {
+        if (m.kind !== "text") return true;
+        const t = String(m.text ?? "");
+        const flat = t
+            .toLowerCase()
+            .normalize("NFD")
+            .replaceAll(/\p{Diacritic}/gu, "");
+        if (/^\s*\d+\s*[).:-]/mu.test(t) && (flat.includes("r$") || flat.includes("opcao") || flat.includes("heineken") || flat.includes("prefere"))) {
+            return false;
+        }
+        if (flat.includes("encontrei algumas opcoes") || flat.includes("qual voce prefere")) {
+            return false;
+        }
+        if (flat.includes("seu pedido") && flat.includes("proximo passo")) {
+            return false;
+        }
+        return true;
+    });
+}
+
+/** Em confirmação final: só o card canónico (sem texto IA paralelo). */
+function keepOnlyFinalConfirmationCard(messages: OutboundMessage[], draft: OrderDraft): OutboundMessage[] {
+    const card = buildConfirmationActionButtons(draft);
+    const others = messages.filter(
+        (m) => !(m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order"))
+    );
+    const nonCheckoutText = others.filter((m) => {
+        if (m.kind !== "text") return m.kind === "flow";
+        const flat = String(m.text ?? "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replaceAll(/\p{Diacritic}/gu, "");
+        if (flat.includes("resumo") || flat.includes("seu pedido") || flat.includes("endereco confirmado")) {
+            return false;
+        }
+        if (flat.includes("r$") && flat.includes("pagamento")) return false;
+        return flat.length > 0 && flat.length < 80 && !flat.includes("pedido");
+    });
+    return [...nonCheckoutText, card];
 }
 
 export function applyQuickAction(
@@ -429,12 +358,13 @@ export function applyQuickAction(
         (action === "pro_confirm_saved_address" || action === "pro_confirm_typed_address") &&
         state.draft?.address
     ) {
+        /** Botões legados: só marca confirmado; o card de resumo vem do post-process. */
         const merged: ProSessionState = { ...state, deliveryAddressUiConfirmed: true };
         return {
             handled: true,
             actionTag: action,
             state: withResolvedSlotStep(merged),
-            outbound: [{ kind: "text", text: "Endereco confirmado." }],
+            outbound: [],
         };
     }
 
@@ -533,33 +463,19 @@ export function checkoutPostProcess(params: {
             }
         );
     }
-    const showAddressConfirm =
-        params.mode === "ai" &&
-        nextState.draft &&
-        nextState.draft.items.length > 0 &&
-        addrComplete &&
-        nextState.deliveryAddressUiConfirmed !== true &&
-        (!nextState.draft.paymentMethod ||
-            shouldHoldAwaitingAddressUi(nextState.draft, nextState.deliveryAddressUiConfirmed));
-    if (showAddressConfirm && nextState.draft) {
-        // Remove resumo da IA pedindo "sim" do pedido — só CTA de endereço nesta fase
-        const scrubbed = scrubOutboundForAddressHold(outbound);
-        outbound.length = 0;
-        outbound.push(...scrubbed);
-        outbound.push(...buildAddressConfirmationMessage(nextState.draft));
-    }
-
-    // Clarificação de produto (2–3 opções) quando não estamos em hold de endereço/pagamento final
+    // Clarificação de produto: uma UI só (servidor), sem lista duplicada da IA
     if (
         params.mode === "ai" &&
-        !showAddressConfirm &&
         !showAddressRegistrationPrompt &&
-        nextState.deliveryAddressUiConfirmed !== true &&
         (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
         !(nextState.draft?.items?.length)
     ) {
         const clarify = buildClarificationButtons(nextState.lastSearchPicks ?? []);
-        if (clarify) outbound.push(clarify);
+        if (clarify) {
+            const stripped = stripAiOptionListText(outbound);
+            outbound.length = 0;
+            outbound.push(...stripped, clarify);
+        }
     }
 
     // Escalação suave: muitas buscas vazias → cardápio
@@ -574,16 +490,25 @@ export function checkoutPostProcess(params: {
         });
     }
 
-    nextState = {
+    nextState = withResolvedSlotStep({
         ...nextState,
         step: resolveProStepFromDraft({
             step: nextState.step,
             draft: nextState.draft,
             deliveryAddressUiConfirmed: nextState.deliveryAddressUiConfirmed,
         }),
-    };
-    outbound.push(...checkoutButtonsForState(nextState));
+    });
 
+    const checkoutCards = checkoutButtonsForState(nextState);
+    if (nextState.step === "pro_awaiting_confirmation" && nextState.draft) {
+        const composed = keepOnlyFinalConfirmationCard(
+            [...outbound, ...checkoutCards],
+            nextState.draft
+        );
+        return { state: nextState, outbound: composed };
+    }
+
+    outbound.push(...checkoutCards);
     return { state: nextState, outbound: prioritizeInteractiveFirst(outbound) };
 }
 
@@ -591,5 +516,10 @@ export function checkoutPostProcessForQuickAction(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
 }): OutboundMessage[] {
-    return prioritizeInteractiveFirst([...params.outbound, ...checkoutButtonsForState(params.state)]);
+    const state = withResolvedSlotStep(params.state);
+    const cards = checkoutButtonsForState(state);
+    if (state.step === "pro_awaiting_confirmation" && state.draft) {
+        return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft);
+    }
+    return prioritizeInteractiveFirst([...params.outbound, ...cards]);
 }
