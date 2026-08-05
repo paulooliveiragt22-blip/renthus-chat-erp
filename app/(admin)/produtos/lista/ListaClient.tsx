@@ -335,6 +335,8 @@ export default function ProdutosListaPage() {
     const [openCreate, setOpenCreate] = useState(false);
     const [selected, setSelected] = useState<Row | null>(null);
     const [saving,   setSaving]   = useState(false);
+    /** Chave `volId:itemId` enquanto salva um item (dados + foto). */
+    const [savingItemKey, setSavingItemKey] = useState<string | null>(null);
     const [editLoading, setEditLoading] = useState(false);
 
     const [isActive,    setIsActive]    = useState(true);
@@ -814,21 +816,16 @@ export default function ProdutosListaPage() {
 
     // ── save edit ─────────────────────────────────────────────────────────────
 
-    async function saveEdit() {
-        if (!selected || !companyId) return;
-        setSaving(true); setMsg(null);
-        if (!categoryId) { setMsg("Selecione uma categoria."); setSaving(false); return; }
+    function buildEditVolumesPayload() {
         const volumesWithItems = formVolumes.filter((v) => v.items.length > 0);
-        if (volumesWithItems.length === 0) { setMsg("Adicione pelo menos um volume com itens."); setSaving(false); return; }
-        const hasInvalidFator = volumesWithItems.some((v) => v.items.some((i) => !i.fator_conversao || i.fator_conversao < 1));
-        if (hasInvalidFator) { setMsg("Campo Fator é obrigatório e deve ser maior que zero em todos os itens."); setSaving(false); return; }
-
-        const volumesPayload = volumesWithItems.map((vol) => {
+        return volumesWithItems.map((vol) => {
             const volQty = vol.volume_quantidade ? Number(vol.volume_quantidade.replaceAll(",", ".")) : null;
             const volUnitTypeId = vol.id_unit_type || null;
             const volEstoque = vol.estoque_atual ? Math.round(Number(vol.estoque_atual.replaceAll(",", ".")) || 0) : 0;
             const volEstoqueMin = vol.estoque_minimo ? Math.round(Number(vol.estoque_minimo.replaceAll(",", ".")) || 0) : 0;
             return {
+                id: vol.id,
+                volume_id: vol.id,
                 volume_quantidade: volQty,
                 id_unit_type: volUnitTypeId,
                 estoque_atual: volEstoque,
@@ -836,8 +833,11 @@ export default function ProdutosListaPage() {
                 items: vol.items.map((it) => {
                     const fator = Math.max(1, it.fator_conversao);
                     const itemEstoque = it.estoque ? Math.round(Number(String(it.estoque).replaceAll(",", ".")) || 0) : null;
-                    const itemEstoqueMin = it.estoque_minimo ? Math.round(Number(String(it.estoque_minimo).replaceAll(",", ".")) || 0) : null;
+                    const itemEstoqueMin = it.estoque_minimo
+                        ? Math.round(Number(String(it.estoque_minimo).replaceAll(",", ".")) || 0)
+                        : null;
                     return {
+                        id: it.id,
                         id_sigla_comercial: it.id_sigla_comercial,
                         descricao: it.descricao.trim().toUpperCase() || null,
                         detalhes: it.detalhes.trim() || null,
@@ -849,11 +849,41 @@ export default function ProdutosListaPage() {
                         tags: it.tags.trim() || null,
                         is_acompanhamento: isAccomp,
                         estoque: itemEstoque != null && itemEstoque > 0 ? String(itemEstoque) : null,
-                        estoque_minimo: itemEstoqueMin != null && itemEstoqueMin >= 0 ? String(itemEstoqueMin) : null,
+                        estoque_minimo:
+                            itemEstoqueMin != null && itemEstoqueMin >= 0 ? String(itemEstoqueMin) : null,
                     };
                 }),
             };
         });
+    }
+
+    async function persistProductEdit(opts?: {
+        volumeIdForImage?: string | null;
+        closeOnSuccess?: boolean;
+        itemKey?: string | null;
+    }): Promise<boolean> {
+        if (!selected || !companyId) return false;
+        if (!categoryId) {
+            setMsg("Selecione uma categoria.");
+            return false;
+        }
+        const volumesPayload = buildEditVolumesPayload();
+        if (volumesPayload.length === 0) {
+            setMsg("Adicione pelo menos um volume com itens.");
+            return false;
+        }
+        const hasInvalidFator = volumesPayload.some((v) =>
+            v.items.some((i) => !i.fator_conversao || i.fator_conversao < 1)
+        );
+        if (hasInvalidFator) {
+            setMsg("Campo Fator é obrigatório e deve ser maior que zero em todos os itens.");
+            return false;
+        }
+
+        const itemKey = opts?.itemKey ?? null;
+        if (itemKey) setSavingItemKey(itemKey);
+        else setSaving(true);
+        setMsg(null);
 
         try {
             const res = await fetch(`/api/admin/products/${selected.product_id}`, {
@@ -865,28 +895,110 @@ export default function ProdutosListaPage() {
                     is_active: isActive,
                     vender_com_estoque_zero: venderComEstoqueZero,
                     volumes: volumesPayload,
-                    acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
+                    acompanhamento_ids:
+                        isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
                 }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
                 setMsg(`Erro: ${String(json?.error ?? "falha ao salvar")}`);
-                setSaving(false);
-                return;
+                return false;
             }
 
-            if (imageFile && selected?.product_id) {
+            // Foto do produto (nível produto) — só no Salvar geral
+            if (!opts?.volumeIdForImage && imageFile && selected.product_id) {
                 await uploadProductImage(selected.product_id, imageFile, null);
             }
 
-            setSaving(false);
-            setOpen(false);
-            setSelected(null);
+            // Foto do tamanho (volume) — no Salvar do item
+            const volId = opts?.volumeIdForImage;
+            if (volId && volumeImageFiles[volId] && selected.product_id) {
+                await uploadProductImage(selected.product_id, volumeImageFiles[volId], volId);
+                setVolumeImageFiles((prev) => {
+                    const next = { ...prev };
+                    delete next[volId];
+                    return next;
+                });
+            }
+
+            // Recarrega IDs reais (volume/item) para próximos saves/upserts
+            const qs = new URLSearchParams({ embalagem_id: selected.id });
+            const fullRes = await fetch(`/api/admin/products/${selected.product_id}?${qs}`, {
+                credentials: "include",
+            });
+            const fullJson = await fullRes.json().catch(() => ({}));
+            if (fullRes.ok && fullJson?.product?.volumes) {
+                const vols: FormVolume[] = (fullJson.product.volumes as any[]).map((v: any) => {
+                    const volEstoque = Number(v.estoque_atual ?? 0);
+                    const volEstoqueMin = Number(v.estoque_minimo ?? 0);
+                    return {
+                        id: String(v.volume_id ?? crypto.randomUUID()),
+                        volume_quantidade: v.volume_quantidade != null ? String(v.volume_quantidade) : "",
+                        id_unit_type: v.id_unit_type ?? null,
+                        unitLabel: String(v.unit_sigla ?? "ml"),
+                        estoque_atual: String(volEstoque),
+                        estoque_minimo: String(volEstoqueMin),
+                        items: (v.items ?? []).map((it: any) => {
+                            const fator = Math.max(1, Number(it.fator_conversao ?? 1));
+                            const itemEstoque = volEstoque > 0 ? Math.round(volEstoque / fator) : 0;
+                            const itemEstoqueMin =
+                                volEstoqueMin >= 0 ? Math.round(volEstoqueMin / fator) : 0;
+                            return {
+                                id: String(it.id ?? crypto.randomUUID()),
+                                id_sigla_comercial: String(it.id_sigla_comercial ?? ""),
+                                siglaLabel: String(it.sigla ?? ""),
+                                descricao: String(it.descricao ?? ""),
+                                detalhes: String(it.detalhes ?? ""),
+                                fator_conversao: fator,
+                                preco_venda:
+                                    it.preco_venda != null
+                                        ? formatBRLInput(String(Math.round(Number(it.preco_venda) * 100)))
+                                        : "0,00",
+                                preco_custo:
+                                    it.preco_custo != null
+                                        ? formatBRLInput(String(Math.round(Number(it.preco_custo) * 100)))
+                                        : "0,00",
+                                codigo_interno: String(it.codigo_interno ?? ""),
+                                codigo_barras_ean: String(it.codigo_barras_ean ?? ""),
+                                tags: String(it.tags ?? ""),
+                                estoque: String(itemEstoque),
+                                estoque_minimo: String(itemEstoqueMin),
+                                is_acompanhamento: !!it.is_acompanhamento,
+                            };
+                        }),
+                    };
+                });
+                setFormVolumes(vols);
+            }
+
+            await loadProductImages(selected.product_id);
             await load();
+            setMsg("✓ Item salvo.");
+
+            if (opts?.closeOnSuccess !== false && !opts?.volumeIdForImage) {
+                setOpen(false);
+                setSelected(null);
+            }
+            return true;
         } catch (e: any) {
             setMsg(`Erro: ${String(e?.message ?? e)}`);
+            return false;
+        } finally {
             setSaving(false);
+            setSavingItemKey(null);
         }
+    }
+
+    async function saveEdit() {
+        await persistProductEdit({ closeOnSuccess: true });
+    }
+
+    async function saveItemWithImage(volId: string, itemId: string) {
+        await persistProductEdit({
+            volumeIdForImage: volId,
+            closeOnSuccess: false,
+            itemKey: `${volId}:${itemId}`,
+        });
     }
 
     async function saveCreate() {
@@ -1224,17 +1336,22 @@ export default function ProdutosListaPage() {
                                         ) : (
                                             <div className="space-y-2">
                                                 {vol.items.map((it) => {
+                                                    const itemKey = `${vol.id}:${it.id}`;
+                                                    const itemSaving = savingItemKey === itemKey;
+                                                    const pendingVolFile = volumeImageFiles[vol.id];
                                                     const volImg =
                                                         editImages.find((i) => i.product_volume_id === vol.id && i.is_primary) ||
                                                         editImages.find((i) => i.product_volume_id === vol.id);
                                                     const prodImg =
                                                         editImages.find((i) => i.product_volume_id == null && i.is_primary) ||
                                                         editImages.find((i) => i.product_volume_id == null);
-                                                    const avatarSrc = volImg
-                                                        ? (volImg.thumbnail_url ?? volImg.url)
-                                                        : prodImg
-                                                          ? (prodImg.thumbnail_url ?? prodImg.url)
-                                                          : null;
+                                                    const avatarSrc = pendingVolFile
+                                                        ? URL.createObjectURL(pendingVolFile)
+                                                        : volImg
+                                                          ? (volImg.thumbnail_url ?? volImg.url)
+                                                          : prodImg
+                                                            ? (prodImg.thumbnail_url ?? prodImg.url)
+                                                            : null;
                                                     return (
                                                     <div key={it.id} className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-900/50">
                                                         <div className="mb-2 flex items-start gap-3">
@@ -1249,7 +1366,7 @@ export default function ProdutosListaPage() {
                                                                 </div>
                                                                 <label className="flex cursor-pointer items-center gap-0.5 text-[9px] font-semibold text-violet-700 dark:text-violet-300">
                                                                     <Camera className="h-3 w-3" />
-                                                                    {volumeImageFiles[vol.id] ? "arquivo" : "foto"}
+                                                                    {pendingVolFile ? "trocar" : "foto"}
                                                                     <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                                                                         onChange={(e) => {
                                                                             const f = e.target.files?.[0];
@@ -1257,22 +1374,13 @@ export default function ProdutosListaPage() {
                                                                         }}
                                                                     />
                                                                 </label>
-                                                                {volumeImageFiles[vol.id] && selected && (
-                                                                    <button type="button" disabled={imageUploading}
-                                                                        onClick={async () => {
-                                                                            await uploadProductImage(selected.product_id, volumeImageFiles[vol.id], vol.id);
-                                                                            setVolumeImageFiles((prev) => { const n = { ...prev }; delete n[vol.id]; return n; });
-                                                                        }}
-                                                                        className="text-[9px] font-bold text-violet-700 disabled:opacity-60"
-                                                                    >
-                                                                        {imageUploading ? "…" : "enviar"}
-                                                                    </button>
-                                                                )}
                                                                 {volImg && selected && (
                                                                     <button type="button" onClick={() => deleteProductImage(volImg.id, selected.product_id)} className="text-[9px] text-red-500">remover</button>
                                                                 )}
                                                                 <p className="text-center text-[8px] leading-tight text-zinc-400">
-                                                                    {volImg ? "foto do tamanho" : "fallback produto"}
+                                                                    {volImg || pendingVolFile
+                                                                        ? "foto deste tamanho"
+                                                                        : "usa foto do produto"}
                                                                 </p>
                                                             </div>
                                                             <div className="min-w-0 flex-1">
@@ -1344,6 +1452,25 @@ export default function ProdutosListaPage() {
                                                                 <input value={it.tags} onChange={(e) => updateFormItem(vol.id, it.id, { tags: e.target.value })} placeholder="latinha, gelada…" className={`${inputCls} py-1.5 text-xs`} />
                                                             </div>
                                                         </div>
+                                                        <div className="mt-3 flex justify-end">
+                                                            <button
+                                                                type="button"
+                                                                disabled={itemSaving || saving || imageUploading || editLoading}
+                                                                onClick={() => saveItemWithImage(vol.id, it.id)}
+                                                                className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+                                                            >
+                                                                {itemSaving ? (
+                                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                ) : (
+                                                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                                                )}
+                                                                {itemSaving
+                                                                    ? "Salvando…"
+                                                                    : pendingVolFile
+                                                                      ? "Salvar item + foto"
+                                                                      : "Salvar item"}
+                                                            </button>
+                                                        </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1395,12 +1522,16 @@ export default function ProdutosListaPage() {
                     {msg && <p className={`text-xs font-semibold ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
 
                     <div className="flex gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                        <button onClick={saveEdit} disabled={saving || editLoading} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
+                        <button onClick={saveEdit} disabled={saving || editLoading || !!savingItemKey} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
                             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                            {saving ? "Salvando…" : "Salvar alterações"}
+                            {saving ? "Salvando…" : "Salvar produto"}
                         </button>
                         <button onClick={() => { setOpen(false); setSelected(null); }} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
                     </div>
+                    <p className="text-[11px] text-zinc-400">
+                        Use <span className="font-semibold">Salvar item</span> em cada embalagem para gravar dados + foto daquele tamanho.
+                        UN/CX do mesmo tamanho compartilham a foto.
+                    </p>
                 </div>
 
                 {/* Sub-modal: nova categoria */}

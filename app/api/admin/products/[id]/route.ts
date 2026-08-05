@@ -9,6 +9,7 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 export const runtime = "nodejs";
 
 type VolumeItemBody = {
+    id?: string | null;
     id_sigla_comercial?: string;
     descricao?: string | null;
     detalhes?: string | null;
@@ -24,6 +25,8 @@ type VolumeItemBody = {
 };
 
 type VolumeBody = {
+    id?: string | null;
+    volume_id?: string | null;
     volume_quantidade?: number | null;
     id_unit_type?: string | null;
     estoque_atual?: number;
