@@ -9,6 +9,7 @@ import type {
     PublicMenuSessionOk,
 } from "@/src/types/contracts.public-menu";
 import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
+import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -389,11 +390,8 @@ export default function CheckoutDrawer({
                                                 {l.name}
                                             </p>
                                             <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                                                {l.sigla}
-                                                {Number(l.fatorConversao) > 1
-                                                    ? ` · c/${l.fatorConversao}`
-                                                    : ""}{" "}
-                                                · {formatBRL(l.unitPrice)}
+                                                {formatPackSiglaLabel(l.sigla, l.fatorConversao)} ·{" "}
+                                                {formatBRL(l.unitPrice)}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-1.5">

@@ -13,6 +13,7 @@ import {
     trackMenuProductViewOnce,
 } from "@/lib/public-menu/menuEvents";
 import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
+import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 import CheckoutDrawer from "./CheckoutDrawer";
 import MyOrdersDrawer from "./MyOrdersDrawer";
 
@@ -325,11 +326,10 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                     ) : null}
                                                     <div className="mt-2.5 flex items-center justify-between gap-2">
                                                         <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 sm:text-[11px]">
-                                                            {/* Mantém UN/CX e acrescenta o fator ao lado (ex.: CX · c/8) */}
-                                                            {item.sigla}
-                                                            {Number(item.fatorConversao) > 1
-                                                                ? ` · c/${item.fatorConversao}`
-                                                                : ""}
+                                                            {formatPackSiglaLabel(
+                                                                item.sigla,
+                                                                item.fatorConversao
+                                                            )}
                                                         </p>
                                                         {q === 0 ? (
                                                             <button

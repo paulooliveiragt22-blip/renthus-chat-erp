@@ -17,15 +17,14 @@ function isUnSigla(sigla: string): boolean {
     return s === "UN" || s === "UND" || s === "UNID" || s === "UNIDADE";
 }
 
-/** Rótulo da sigla para UI (cardápio/PDV): `CX c/8` ou `UN`. */
+/** Rótulo da sigla para UI: sempre com fator — `UN c/1`, `CX c/8`. */
 export function formatPackSiglaLabel(
     sigla: string | null | undefined,
     fatorConversao?: number | string | null
 ): string {
     const s = String(sigla ?? "UN").trim().toUpperCase() || "UN";
-    if (isUnSigla(s)) return s;
-    const fator = Number(fatorConversao ?? 0);
-    return fator > 1 ? `${s} c/${fator}` : s;
+    const fator = Math.max(1, Number(fatorConversao ?? 1) || 1);
+    return `${s} c/${fator}`;
 }
 
 function hasPackCountHint(text: string): boolean {
@@ -39,7 +38,7 @@ export function buildPackDisplayName(input: PackDisplayNameInput): string {
     const vol = Number(input.volumeQuantidade ?? 0);
     const unit = String(input.unitSigla ?? "").trim();
     const volPart = vol > 0 && unit ? `${vol}${unit}` : "";
-    const fator = Number(input.fatorConversao ?? 0);
+    const fator = Math.max(1, Number(input.fatorConversao ?? 1) || 1);
 
     let name: string;
     if (item) {
@@ -54,8 +53,9 @@ export function buildPackDisplayName(input: PackDisplayNameInput): string {
         name = [product, volPart].filter(Boolean).join(" ").replaceAll(/\s+/g, " ").trim();
     }
 
-    if (sigla && !isUnSigla(sigla) && !hasPackCountHint(name)) {
-        const pack = fator > 1 ? `${sigla} c/${fator}` : sigla;
+    // Todas as siglas: inclui c/fator no nome (exceto se já houver)
+    if (sigla && !hasPackCountHint(name)) {
+        const pack = `${sigla} c/${fator}`;
         if (!name.toUpperCase().includes(`(${sigla}`)) {
             name = `${name} (${pack})`.replaceAll(/\s+/g, " ").trim();
         }
