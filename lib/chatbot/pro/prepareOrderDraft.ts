@@ -10,6 +10,7 @@ import { parsePtQuantity } from "./parseQtyPt";
 import { tryParseAddressOneLine } from "./parseAddressLoosePt";
 import { roundBrl } from "../utils";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
+import { canFulfillQty } from "@/lib/products/stockPolicy";
 
 export type { PrepareDraftToolInput };
 
@@ -48,41 +49,69 @@ export async function loadPackRowForValidation(
         id: string; product_name: string; preco_venda: number; fator_conversao: number; product_volume_id: string | null;
     };
     estoque: number;
+    venderComEstoqueZero: boolean;
 } | null> {
     const { data: pe } = await admin
         .from("view_chat_produtos")
-        .select("id, company_id, product_name, preco_venda, fator_conversao, product_volume_id")
+        .select(
+            "id, company_id, product_name, preco_venda, fator_conversao, product_volume_id, estoque_unidades, vender_com_estoque_zero, produto_id"
+        )
         .eq("id", packId)
         .maybeSingle();
 
     if (!pe || String((pe as { company_id: string }).company_id) !== companyId) return null;
 
     const productVolumeId = (pe as { product_volume_id: string | null }).product_volume_id;
-    let estoque           = 0;
-    if (productVolumeId) {
-        const { data: vol } = await admin
-            .from("product_volumes")
-            .select("estoque_atual")
-            .eq("id", productVolumeId)
-            .maybeSingle();
-        estoque = Number(vol?.estoque_atual ?? 0);
-    } else {
-        const { data: emb } = await admin
-            .from("produto_embalagens")
-            .select("produto_id")
-            .eq("id", packId)
-            .eq("company_id", companyId)
-            .maybeSingle();
-        const produtoId = emb?.produto_id as string | undefined;
-        if (produtoId) {
+    let estoque = Number((pe as { estoque_unidades?: number }).estoque_unidades ?? NaN);
+    let venderComEstoqueZero =
+        (pe as { vender_com_estoque_zero?: boolean }).vender_com_estoque_zero !== false;
+
+    if (!Number.isFinite(estoque)) {
+        estoque = 0;
+        if (productVolumeId) {
             const { data: vol } = await admin
                 .from("product_volumes")
                 .select("estoque_atual")
-                .eq("product_id", produtoId)
-                .order("volume_quantidade", { ascending: true, nullsFirst: true })
-                .limit(1)
+                .eq("id", productVolumeId)
                 .maybeSingle();
             estoque = Number(vol?.estoque_atual ?? 0);
+        } else {
+            const produtoId =
+                ((pe as { produto_id?: string }).produto_id as string | undefined) ??
+                (
+                    await admin
+                        .from("produto_embalagens")
+                        .select("produto_id")
+                        .eq("id", packId)
+                        .eq("company_id", companyId)
+                        .maybeSingle()
+                ).data?.produto_id;
+            if (produtoId) {
+                const { data: vol } = await admin
+                    .from("product_volumes")
+                    .select("estoque_atual")
+                    .eq("product_id", produtoId)
+                    .order("volume_quantidade", { ascending: true, nullsFirst: true })
+                    .limit(1)
+                    .maybeSingle();
+                estoque = Number(vol?.estoque_atual ?? 0);
+            }
+        }
+    }
+
+    // Flag pode ainda não estar na view (pré-migration): ler products
+    if ((pe as { vender_com_estoque_zero?: boolean }).vender_com_estoque_zero === undefined) {
+        const produtoId = (pe as { produto_id?: string }).produto_id;
+        if (produtoId) {
+            const { data: prod } = await admin
+                .from("products")
+                .select("vender_com_estoque_zero")
+                .eq("id", produtoId)
+                .eq("company_id", companyId)
+                .maybeSingle();
+            if (prod && "vender_com_estoque_zero" in prod) {
+                venderComEstoqueZero = prod.vender_com_estoque_zero !== false;
+            }
         }
     }
 
@@ -95,6 +124,7 @@ export async function loadPackRowForValidation(
             product_volume_id: productVolumeId,
         },
         estoque,
+        venderComEstoqueZero,
     };
 }
 
@@ -262,9 +292,15 @@ export async function prepareOrderDraftFromTool(
             errors.push(`Embalagem inválida ou de outra empresa: ${pid}`);
             continue;
         }
-        const { row, estoque } = loaded;
-        const need = qty * row.fator_conversao;
-        if (estoque < need) {
+        const { row, estoque, venderComEstoqueZero } = loaded;
+        if (
+            !canFulfillQty({
+                venderComEstoqueZero,
+                estoqueUnidades: estoque,
+                fatorConversao: row.fator_conversao,
+                qty,
+            })
+        ) {
             errors.push(
                 `Estoque insuficiente para "${row.product_name}" (pediu ${qty}; disponível ~${Math.floor(estoque / row.fator_conversao)} na unidade de venda).`
             );

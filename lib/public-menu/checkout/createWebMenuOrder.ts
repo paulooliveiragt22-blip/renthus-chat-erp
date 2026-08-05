@@ -11,6 +11,7 @@ import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnde
 import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addresses";
 import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
 import { verifyWebMenuCheckoutSession } from "../sessionToken";
+import { canFulfillQty } from "@/lib/products/stockPolicy";
 
 function isPaymentMethod(v: string): v is PaymentMethod {
     return v === "pix" || v === "cash" || v === "card";
@@ -61,7 +62,7 @@ export async function createWebMenuOrder(
 
     const { data: embRows, error: embErr } = await admin
         .from("produto_embalagens")
-        .select("id, preco_venda, produto_id, siglas_comerciais(sigla)")
+        .select("id, preco_venda, produto_id, fator_conversao, product_volume_id, siglas_comerciais(sigla)")
         .in("id", embalagemIds)
         .eq("company_id", params.companyId);
 
@@ -74,11 +75,24 @@ export async function createWebMenuOrder(
             embRows.map((r) => String((r as { produto_id: string }).produto_id)).filter(Boolean)
         ),
     ];
-    const { data: productRows } = await admin
-        .from("products")
-        .select("id, name, is_active, show_on_menu")
-        .in("id", productIds)
-        .eq("company_id", params.companyId);
+    const volumeIds = [
+        ...new Set(
+            embRows
+                .map((r) => (r as { product_volume_id?: string | null }).product_volume_id)
+                .filter((id): id is string => Boolean(id))
+        ),
+    ];
+
+    const [{ data: productRows }, { data: volumeRows }] = await Promise.all([
+        admin
+            .from("products")
+            .select("id, name, is_active, show_on_menu, vender_com_estoque_zero")
+            .in("id", productIds)
+            .eq("company_id", params.companyId),
+        volumeIds.length
+            ? admin.from("product_volumes").select("id, estoque_atual").in("id", volumeIds)
+            : Promise.resolve({ data: [] as Array<{ id: string; estoque_atual: number }> }),
+    ]);
 
     const productsById = new Map(
         (productRows ?? []).map((p) => [
@@ -88,14 +102,20 @@ export async function createWebMenuOrder(
                 name: string;
                 is_active: boolean;
                 show_on_menu: boolean | null;
+                vender_com_estoque_zero?: boolean | null;
             },
         ])
+    );
+    const estoqueByVolume = new Map(
+        (volumeRows ?? []).map((v) => [String(v.id), Number(v.estoque_atual ?? 0)])
     );
 
     type EmbRow = {
         id: string;
         preco_venda: number | string;
         produto_id: string;
+        fator_conversao?: number | string | null;
+        product_volume_id?: string | null;
         siglas_comerciais: { sigla: string } | { sigla: string }[] | null;
     };
     const embById = new Map(
@@ -120,6 +140,19 @@ export async function createWebMenuOrder(
         if (!row) return { ok: false, error: "items_unavailable" };
         const product = productsById.get(String(row.produto_id));
         if (!product || product.is_active === false || product.show_on_menu === false) {
+            return { ok: false, error: "items_unavailable" };
+        }
+        const estoque = row.product_volume_id
+            ? (estoqueByVolume.get(String(row.product_volume_id)) ?? 0)
+            : 0;
+        if (
+            !canFulfillQty({
+                venderComEstoqueZero: product.vender_com_estoque_zero,
+                estoqueUnidades: estoque,
+                fatorConversao: Number(row.fator_conversao ?? 1) || 1,
+                qty,
+            })
+        ) {
             return { ok: false, error: "items_unavailable" };
         }
         const unitPrice = Number(row.preco_venda);

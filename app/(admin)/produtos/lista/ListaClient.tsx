@@ -66,6 +66,7 @@ type Row = {
     case_sigla_id: string | null;
     case_codigo_interno: string | null;
     is_active:   boolean;
+    vender_com_estoque_zero: boolean;
     product_volume_id: string | null;
     estoque_un:  number | null;
     estoque_cx:  number | null;
@@ -121,6 +122,7 @@ function normalizeRowsFromView(input: unknown): Row[] {
             case_codigo_interno: r?.case_codigo_interno ?? null,
             id_unit_type: r?.id_unit_type ?? null,
             is_active:    Boolean(r?.is_active),
+            vender_com_estoque_zero: r?.vender_com_estoque_zero !== false,
             product_volume_id: r?.product_volume_id ?? null,
             estoque_un:   r?.estoque_un != null ? Number(r.estoque_un) : null,
             estoque_cx:   r?.estoque_cx != null ? Number(r.estoque_cx) : null,
@@ -333,6 +335,7 @@ export default function ProdutosListaPage() {
     const [editLoading, setEditLoading] = useState(false);
 
     const [isActive,    setIsActive]    = useState(true);
+    const [venderComEstoqueZero, setVenderComEstoqueZero] = useState(true);
     const [isAccomp,    setIsAccomp]    = useState(false);
 
     // edit fields — product base
@@ -726,12 +729,14 @@ export default function ProdutosListaPage() {
                 name?: string;
                 category_id?: string;
                 is_active?: boolean;
+                vender_com_estoque_zero?: boolean;
                 volumes?: any[];
             } | null;
             if (!prod) { setMsg("Produto não encontrado."); setEditLoading(false); return; }
 
             setProductName(prod.name ?? "");
             setIsActive(!!prod.is_active);
+            setVenderComEstoqueZero(prod.vender_com_estoque_zero !== false);
             setCategoryId(prod.category_id ?? "");
 
             const vols: FormVolume[] = (prod.volumes ?? []).map((v: any) => {
@@ -789,6 +794,7 @@ export default function ProdutosListaPage() {
         setSelected(null);
         setMsg(null);
         setIsActive(true);
+        setVenderComEstoqueZero(true);
         setIsAccomp(false);
         setAcompSelected([]);
         setCategoryId("");
@@ -851,6 +857,7 @@ export default function ProdutosListaPage() {
                 body: JSON.stringify({
                     category_id: categoryId,
                     is_active: isActive,
+                    vender_com_estoque_zero: venderComEstoqueZero,
                     volumes: volumesPayload,
                     acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
                 }),
@@ -926,6 +933,7 @@ export default function ProdutosListaPage() {
                     name: nameToUse,
                     category_id: categoryId,
                     is_active: isActive,
+                    vender_com_estoque_zero: venderComEstoqueZero,
                     volumes: volumesPayload,
                     acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
                 }),
@@ -1326,6 +1334,15 @@ export default function ProdutosListaPage() {
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Vender com estoque zero</p>
+                                <p className="text-xs text-zinc-400">
+                                    Não = some do cardápio web e o chatbot não vende quando zerar.
+                                </p>
+                            </div>
+                            <Toggle checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
                                 <p className="text-xs text-zinc-400">O bot sugere estes itens após o pedido (até 2).</p>
                             </div>
@@ -1639,13 +1656,20 @@ export default function ProdutosListaPage() {
                         )}
                     </div>
 
-                    {/* Ativo + Acompanhamento */}
-                    <div className="grid grid-cols-2 gap-4">
+                    {/* Ativo + estoque zero + Acompanhamento */}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
                             <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Ativo no catálogo</p>
                             <Toggle checked={isActive} onChange={setIsActive} />
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800">
+                            <div>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Vender com estoque zero</p>
+                                <p className="text-[10px] text-zinc-400">Não = some do web e chatbot ao zerar.</p>
+                            </div>
+                            <Toggle checked={venderComEstoqueZero} onChange={setVenderComEstoqueZero} />
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border border-zinc-100 p-3 dark:border-zinc-800 sm:col-span-2">
                             <div>
                                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Acompanhamento (Chatbot)</p>
                                 <p className="text-[10px] text-zinc-400">O bot sugere estes itens após o pedido.</p>

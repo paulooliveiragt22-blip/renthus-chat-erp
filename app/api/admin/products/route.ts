@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
         name?: string;
         category_id?: string;
         is_active?: boolean;
+        vender_com_estoque_zero?: boolean;
         volumes?: VolumeBody[];
         acompanhamento_ids?: string[];
     };
@@ -110,6 +111,17 @@ export async function POST(req: NextRequest) {
         data && typeof data === "object" && "product_id" in data
             ? String((data as { product_id?: unknown }).product_id ?? "")
             : "";
+
+    if (productId) {
+        const { error: flagErr } = await admin.rpc("rpc_set_product_vender_com_estoque_zero", {
+            p_product_id: productId,
+            p_company_id: companyId,
+            p_value: body.vender_com_estoque_zero !== false,
+        });
+        if (flagErr) {
+            return NextResponse.json({ error: flagErr.message }, { status: 500 });
+        }
+    }
 
     return NextResponse.json({ ok: true, product_id: productId || null, data });
 }

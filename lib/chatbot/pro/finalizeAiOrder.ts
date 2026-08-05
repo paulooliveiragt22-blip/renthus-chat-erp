@@ -5,6 +5,7 @@ import type { OrderServiceResult } from "@/src/types/contracts.legacy";
 import { getOrCreateCustomer } from "../db/orders";
 import { formatCart, formatCurrency } from "../utils";
 import { loadPackRowForValidation } from "./prepareOrderDraft";
+import { canFulfillQty } from "@/lib/products/stockPolicy";
 
 export async function revalidateDraftAgainstDb(
     admin: SupabaseClient,
@@ -20,8 +21,14 @@ export async function revalidateDraftAgainstDb(
         if (!priceOk) {
             return { ok: false, message: "O preço de um item mudou. Peça um novo resumo no chat, por favor." };
         }
-        const need = it.quantity * loaded.row.fator_conversao;
-        if (loaded.estoque < need) {
+        if (
+            !canFulfillQty({
+                venderComEstoqueZero: loaded.venderComEstoqueZero,
+                estoqueUnidades: loaded.estoque,
+                fatorConversao: loaded.row.fator_conversao,
+                qty: it.quantity,
+            })
+        ) {
             return { ok: false, message: `Estoque insuficiente para "${it.product_name}".` };
         }
     }

@@ -84,14 +84,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const body = (await req.json().catch(() => ({}))) as {
         is_active?: boolean;
+        vender_com_estoque_zero?: boolean;
         category_id?: string;
         volumes?: VolumeBody[];
         acompanhamento_ids?: string[];
         toggle_only?: boolean;
+        toggle_vender_estoque_zero?: boolean;
     };
 
+    // Toggle rápido: vender com estoque zero
+    if (body.toggle_vender_estoque_zero === true && typeof body.vender_com_estoque_zero === "boolean") {
+        const { error } = await admin.rpc("rpc_set_product_vender_com_estoque_zero", {
+            p_product_id: productId,
+            p_company_id: companyId,
+            p_value: body.vender_com_estoque_zero,
+        });
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({
+            ok: true,
+            vender_com_estoque_zero: body.vender_com_estoque_zero,
+        });
+    }
+
     // Toggle rápido (lista)
-    if (body.toggle_only === true || (body.volumes === undefined && typeof body.is_active === "boolean")) {
+    if (body.toggle_only === true || (body.volumes === undefined && typeof body.is_active === "boolean" && body.vender_com_estoque_zero === undefined)) {
         const { error } = await admin.rpc("rpc_toggle_product_active", {
             p_product_id: productId,
             p_company_id: companyId,
@@ -118,5 +134,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (typeof body.vender_com_estoque_zero === "boolean") {
+        const { error: flagErr } = await admin.rpc("rpc_set_product_vender_com_estoque_zero", {
+            p_product_id: productId,
+            p_company_id: companyId,
+            p_value: body.vender_com_estoque_zero,
+        });
+        if (flagErr) return NextResponse.json({ error: flagErr.message }, { status: 500 });
+    }
     return NextResponse.json({ ok: true });
 }

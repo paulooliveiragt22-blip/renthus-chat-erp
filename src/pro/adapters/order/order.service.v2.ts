@@ -3,6 +3,7 @@ import type { OrderService } from "../../services/order/order.types";
 import type { DraftAddress, OrderDraft, OrderServiceResult } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { loadPackRowForValidation } from "@/lib/chatbot/pro/prepareOrderDraft";
+import { canFulfillQty } from "@/lib/products/stockPolicy";
 
 type OrderFailCode = Extract<OrderServiceResult, { ok: false }>["errorCode"];
 
@@ -149,8 +150,14 @@ export class OrderServiceV2Adapter implements OrderService {
                 };
             }
 
-            const need = item.quantity * loaded.row.fator_conversao;
-            if (loaded.estoque < need) {
+            if (
+                !canFulfillQty({
+                    venderComEstoqueZero: loaded.venderComEstoqueZero,
+                    estoqueUnidades: loaded.estoque,
+                    fatorConversao: loaded.row.fator_conversao,
+                    qty: item.quantity,
+                })
+            ) {
                 return {
                     ok: false,
                     message: buildOrderErrorMessage("OUT_OF_STOCK", { itemName: item.productName }),
