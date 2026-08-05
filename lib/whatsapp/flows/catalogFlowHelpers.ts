@@ -34,7 +34,7 @@ function buildProductItemsForFlow(rows: any[]): Array<Record<string, unknown>> {
         const detalhes = String(p.detalhes ?? "").trim();
         const price = `R$ ${(Number.parseFloat(p.preco_venda) || 0).toFixed(2).replaceAll(".", ",")}`;
         const fatorSafe = Math.max(1, fator || 1);
-        const packHint = sigla ? `${sigla} c/${fatorSafe}` : "";
+        const packHint = sigla ? `${sigla}:${fatorSafe}` : "";
         const desc = [detalhes, packHint, price].filter(Boolean).join(" — ");
 
         return {

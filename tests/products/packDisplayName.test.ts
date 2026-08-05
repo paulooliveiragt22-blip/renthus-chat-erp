@@ -6,15 +6,15 @@ import {
 } from "../../lib/products/packDisplayName";
 
 describe("buildPackDisplayName", () => {
-    it("une produto + nome do item e acrescenta fator da sigla", () => {
+    it("une produto + nome do item sem sigla/fator", () => {
         assert.equal(
             buildPackDisplayName({
                 productName: "Heineken",
-                itemName: "CX 15UN",
+                itemName: "LATA",
                 sigla: "CX",
-                fatorConversao: 15,
+                fatorConversao: 8,
             }),
-            "Heineken CX 15UN (CX c/15)"
+            "Heineken LATA"
         );
     });
 
@@ -30,7 +30,7 @@ describe("buildPackDisplayName", () => {
         );
     });
 
-    it("fallback com sigla/volume sem nome do item", () => {
+    it("fallback volume sem nome do item e sem sigla no título", () => {
         assert.equal(
             buildPackDisplayName({
                 productName: "Heineken",
@@ -39,7 +39,7 @@ describe("buildPackDisplayName", () => {
                 unitSigla: "ml",
                 fatorConversao: 24,
             }),
-            "Heineken 350ml (CX c/24)"
+            "Heineken 350ml"
         );
     });
 
@@ -54,43 +54,19 @@ describe("buildPackDisplayName", () => {
             "Heineken LATA"
         );
     });
-
-    it("com nome do item ainda acrescenta c/fator na CX", () => {
-        assert.equal(
-            buildPackDisplayName({
-                productName: "Heineken",
-                itemName: "LATA",
-                sigla: "CX",
-                fatorConversao: 8,
-            }),
-            "Heineken LATA (CX c/8)"
-        );
-    });
-
-    it("não duplica c/fator se já estiver no nome", () => {
-        assert.equal(
-            buildPackDisplayName({
-                productName: "Heineken",
-                itemName: "CX c/15",
-                sigla: "CX",
-                fatorConversao: 15,
-            }),
-            "Heineken CX c/15"
-        );
-    });
 });
 
 describe("formatPackSiglaLabel", () => {
-    it("UN com fator", () => {
-        assert.equal(formatPackSiglaLabel("UN", 1), "UN c/1");
+    it("UN com quantidade cadastrada", () => {
+        assert.equal(formatPackSiglaLabel("UN", 1), "UN:1");
     });
 
-    it("CX com fator", () => {
-        assert.equal(formatPackSiglaLabel("CX", 8), "CX c/8");
+    it("CX com fator cadastrado", () => {
+        assert.equal(formatPackSiglaLabel("CX", 8), "CX:8");
     });
 
-    it("todas as siglas mostram fator", () => {
-        assert.equal(formatPackSiglaLabel("FARD", 6), "FARD c/6");
-        assert.equal(formatPackSiglaLabel("PAC", 12), "PAC c/12");
+    it("outras siglas no mesmo padrão", () => {
+        assert.equal(formatPackSiglaLabel("FARD", 6), "FARD:6");
+        assert.equal(formatPackSiglaLabel("PAC", 12), "PAC:12");
     });
 });

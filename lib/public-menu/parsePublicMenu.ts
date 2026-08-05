@@ -8,8 +8,15 @@ import type {
     PublicMenuRpcStoreRow,
     PublicMenuStore,
 } from "@/src/types/contracts.public-menu";
-import { buildPackDisplayName } from "@/lib/products/packDisplayName";
 import { parseMenuSlug } from "./slug";
+
+/** Remove sufixos tipo (CX c/8) ou (UN:1) que o RPC legado pode embutir no nome. */
+function stripSiglaFatorFromTitle(name: string): string {
+    return name
+        .replace(/\s*\([A-Za-zÀ-ÿ]{1,12}\s*c\/\s*\d+\)\s*$/i, "")
+        .replace(/\s*\([A-Za-zÀ-ÿ]{1,12}\s*:\s*\d+\)\s*$/i, "")
+        .trim();
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
     return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -59,16 +66,11 @@ function parseItemRow(raw: unknown): PublicMenuItem | null {
     if (!isRecord(raw)) return null;
     const embalagemId = asString(raw.embalagem_id);
     const productId = asString(raw.product_id);
-    const rawName = asString(raw.name).trim();
+    const rawName = stripSiglaFatorFromTitle(asString(raw.name).trim());
     if (!embalagemId || !productId || !rawName) return null;
     const sigla = (asNullableString(raw.sigla) ?? "UN").toUpperCase();
     const fatorConversao = Math.max(1, asNumber(raw.fator_conversao) || 1);
-    // Garante "… (CX c/8)" no título mesmo quando o RPC só manda o nome do item
-    const name = buildPackDisplayName({
-        productName: rawName,
-        sigla,
-        fatorConversao,
-    });
+    const name = rawName;
     return {
         embalagemId,
         productId,
