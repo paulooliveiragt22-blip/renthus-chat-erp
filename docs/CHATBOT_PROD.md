@@ -417,6 +417,8 @@ O texto sai do snapshot do rascunho (`buildCartRecoveryMessage`), sem passar por
 
 Auth das duas rotas: `Bearer CRON_SECRET`, igual ao `process-queue`. O `vercel.json` traz as duas em cron **diário** (backup do Hobby); a frequência útil (~5 min) vem do **scheduler externo**, como já acontece com `process-queue` e `reactivate`.
 
+**Allowlist do `proxy.ts`:** toda rota de scheduler precisa estar em `isTechnicalApiPublic`, senão o proxy devolve **307 → `/login`** antes de a rota rodar e o `CRON_SECRET` nunca é avaliado — no painel do cron-job.org isso aparece como "redirecionamento detectado", não como erro de auth. As quatro rotas com `validateCronAuthorization` (`process-queue`, `reactivate`, `detect-abandoned-carts`, `outbound-worker`) estão liberadas **uma a uma**, de propósito: liberar `/api/chatbot/*` por prefixo exporia `config` e `resolve`, que dependem da sessão validada no proxy. Coberto por `tests/proxy.test.ts`.
+
 ### Risco a monitorar
 
 O risco real não é técnico: marketing mal calibrado gera *block/report* e derruba o tier de mensagens da empresa na Meta, o que mata o canal inteiro — inclusive o transacional. Por isso o teto padrão é **uma** proativa por cliente a cada 72h. Antes de habilitar qualquer coisa fora da janela (HSM de categoria MARKETING), é obrigatório implementar consentimento e opt-out (Fase 2), que **hoje não existem** em schema nem no ingresso.

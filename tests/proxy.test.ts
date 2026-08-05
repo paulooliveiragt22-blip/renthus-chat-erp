@@ -51,6 +51,35 @@ describe("proxy auth routing", () => {
         assert.strictEqual(printResponse.headers.get("location"), null);
     });
 
+    it("exempts scheduler routes that authenticate via CRON_SECRET", async () => {
+        const paths = [
+            "/api/chatbot/process-queue",
+            "/api/chatbot/reactivate",
+            "/api/chatbot/detect-abandoned-carts",
+            "/api/chatbot/outbound-worker",
+        ];
+
+        for (const path of paths) {
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.headers.get("location"), null, path);
+        }
+
+        assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
+    it("keeps session-backed chatbot routes behind auth", async () => {
+        for (const path of ["/api/chatbot/config", "/api/chatbot/resolve"]) {
+            const { factory: protectedFactory } = createMockClient(null);
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: protectedFactory,
+            });
+            assert.strictEqual(response.status, 307, path);
+            assert.strictEqual(response.headers.get("location"), "https://example.com/login");
+        }
+    });
+
     it("redirects unauthenticated users on protected routes", async () => {
         const { factory: protectedFactory } = createMockClient(null);
         const response = await proxy(createRequest("/dashboard"), undefined, {

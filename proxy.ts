@@ -112,8 +112,15 @@ function isTechnicalApiPublic(pathname: string): boolean {
         /** Webhook + Flows: chamados pela Meta sem cookie de sessão. Demais /api/whatsapp/* exigem login aqui. */
         pathname.startsWith("/api/whatsapp/incoming") ||
         pathname.startsWith("/api/whatsapp/flows") ||
-        /** Worker da fila do chatbot usa autenticação própria via CRON_SECRET. */
+        /**
+         * Rotas de scheduler do chatbot: autenticação própria via Bearer CRON_SECRET
+         * (`validateCronAuthorization`). Não incluir `/api/chatbot/*` por prefixo —
+         * `config` e `resolve` dependem da sessão validada aqui.
+         */
         pathname.startsWith("/api/chatbot/process-queue") ||
+        pathname.startsWith("/api/chatbot/reactivate") ||
+        pathname.startsWith("/api/chatbot/detect-abandoned-carts") ||
+        pathname.startsWith("/api/chatbot/outbound-worker") ||
         /** Cron sync catálogo marketplace (F4.1) — Bearer CRON_SECRET. */
         pathname.startsWith("/api/marketplace/sync-catalog") ||
         pathname.startsWith("/api/print/") ||
