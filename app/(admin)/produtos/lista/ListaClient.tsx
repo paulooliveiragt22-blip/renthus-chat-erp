@@ -598,11 +598,17 @@ export default function ProdutosListaPage() {
 
     function addFormItem(volId: string) {
         const un = siglas.find((s) => s.sigla === "UN");
+        const vol = formVolumes.find((v) => v.id === volId);
+        // Mesmo volume → herda o nome do item irmão (editável depois)
+        const siblingName =
+            vol?.items.find((i) => i.descricao.trim())?.descricao.trim() ??
+            vol?.items[0]?.descricao?.trim() ??
+            "";
         const newItem: FormItem = {
             id: crypto.randomUUID(),
             id_sigla_comercial: un?.id ?? siglas[0]?.id ?? "",
             siglaLabel: un?.sigla ?? siglas[0]?.sigla ?? "",
-            descricao: "",
+            descricao: siblingName,
             detalhes: "",
             fator_conversao: 1,
             preco_venda: "0,00",

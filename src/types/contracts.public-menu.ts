@@ -34,6 +34,8 @@ export interface PublicMenuItem {
     price: number;
     currency: "BRL";
     sigla: string;
+    /** Unidades por embalagem (ex.: CX c/8 → 8). */
+    fatorConversao: number;
     thumbnailUrl: string | null;
     imageUrl: string | null;
     inStock: boolean;
@@ -140,6 +142,7 @@ export interface PublicMenuCartLine {
     productId: string;
     name: string;
     sigla: string;
+    fatorConversao?: number;
     unitPrice: number;
     qty: number;
 }
@@ -296,6 +299,7 @@ export interface PublicMenuRpcItemRow {
     description: string | null;
     price: number | string;
     sigla: string | null;
+    fator_conversao?: number | string | null;
     thumbnail_url: string | null;
     image_url: string | null;
     in_stock: boolean;

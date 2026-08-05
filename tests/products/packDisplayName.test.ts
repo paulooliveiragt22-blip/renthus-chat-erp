@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildPackDisplayName } from "../../lib/products/packDisplayName";
+import {
+    buildPackDisplayName,
+    formatPackSiglaLabel,
+} from "../../lib/products/packDisplayName";
 
 describe("buildPackDisplayName", () => {
     it("une produto + nome do item", () => {
@@ -28,5 +31,39 @@ describe("buildPackDisplayName", () => {
             }),
             "Heineken 350ml (CX c/24)"
         );
+    });
+
+    it("com nome do item ainda acrescenta c/fator na CX", () => {
+        assert.equal(
+            buildPackDisplayName({
+                productName: "Heineken",
+                itemName: "LATA",
+                sigla: "CX",
+                fatorConversao: 8,
+            }),
+            "Heineken LATA (CX c/8)"
+        );
+    });
+
+    it("não duplica c/fator se já estiver no nome", () => {
+        assert.equal(
+            buildPackDisplayName({
+                productName: "Heineken",
+                itemName: "CX c/15",
+                sigla: "CX",
+                fatorConversao: 15,
+            }),
+            "Heineken CX c/15"
+        );
+    });
+});
+
+describe("formatPackSiglaLabel", () => {
+    it("UN sem fator", () => {
+        assert.equal(formatPackSiglaLabel("UN", 1), "UN");
+    });
+
+    it("CX com fator", () => {
+        assert.equal(formatPackSiglaLabel("CX", 8), "CX c/8");
     });
 });
