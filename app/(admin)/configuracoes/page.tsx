@@ -2206,10 +2206,16 @@ function ConfiguracoesPageContent() {
                                                             );
                                                             return;
                                                         }
-                                                        const code =
-                                                            typeof json.pixQrCode === "string" &&
-                                                            json.pixQrCode.trim()
+                                                        const rawCode =
+                                                            typeof json.pixQrCode === "string"
                                                                 ? String(json.pixQrCode).trim()
+                                                                : "";
+                                                        // Só EMV BR Code (000201…) — rejeita PNG/binário
+                                                        const code =
+                                                            rawCode.startsWith("000201") &&
+                                                            /br\.gov\.bcb\.pix/i.test(rawCode) &&
+                                                            /^[\x20-\x7E]+$/.test(rawCode)
+                                                                ? rawCode
                                                                 : null;
                                                         const url =
                                                             typeof json.pixUrl === "string" &&

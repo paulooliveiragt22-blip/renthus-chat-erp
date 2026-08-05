@@ -13,6 +13,9 @@ import {
     normalizePlanKey,
     type PlanInputKey,
 } from "@/lib/billing/planCatalog";
+import { isPixEmvPayload } from "@/lib/billing/pixEmv";
+
+export { isPixEmvPayload };
 
 const BASE_URL = "https://api.pagar.me/core/v5";
 
@@ -430,16 +433,6 @@ export async function createPixInvoiceOrder(params: {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** EMV PIX (copia-e-cola) vs URL de QR/página Mundipagg. */
-export function isPixEmvPayload(raw: string): boolean {
-    const s = raw.trim();
-    if (!s || s.startsWith("http://") || s.startsWith("https://")) return false;
-    // Docs Pagar.me: BR Code começa com 000201…
-    if (s.startsWith("000201")) return true;
-    // Fallback: string longa sem URL
-    return s.length >= 40 && !s.includes("://");
-}
-
 function pixTxFromCharge(charge: PagarmeCharge | undefined): PagarmePixTransaction | undefined {
     return charge?.last_transaction;
 }
@@ -567,7 +560,7 @@ export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
         }
         for (const url of urls) {
             const recovered = await recoverPixEmvFromUrl(url);
-            if (recovered) {
+            if (recovered && isPixEmvPayload(recovered)) {
                 pixCode = recovered;
                 break;
             }

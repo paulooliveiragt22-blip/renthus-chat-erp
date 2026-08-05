@@ -8,9 +8,15 @@ import {
 } from "../../lib/billing/pagarme";
 
 describe("PIX extract (Pagar.me)", () => {
-    it("isPixEmvPayload distingue EMV de URL Mundipagg", () => {
-        assert.equal(isPixEmvPayload("00020126580014br.gov.bcb.pix0136abc"), true);
+    it("isPixEmvPayload distingue EMV de URL/PNG binário", () => {
+        const emv =
+            "00020126580014br.gov.bcb.pix013612345678901234567890123456520400005303986540510.005802BR5913TESTE PIX6009SAO PAULO62070503***6304ABCD";
+        assert.equal(isPixEmvPayload(emv), true);
         assert.equal(isPixEmvPayload("https://digital.mundipagg.com/pix/abc"), false);
+        // PNG interpretado como texto (IEND) NÃO pode virar copia-e-cola
+        assert.equal(isPixEmvPayload("\uFFFDPNG\r\n....IEND\uFFFD"), false);
+        assert.equal(isPixEmvPayload("x".repeat(80)), false);
+        assert.equal(isPixEmvPayload("000201short"), false);
     });
 
     it("extractPixCode ignora URL em qr_code", () => {
@@ -33,7 +39,8 @@ describe("PIX extract (Pagar.me)", () => {
     });
 
     it("extractPixCode retorna EMV e extractPixUrl usa qr_code se for http", () => {
-        const emv = "00020126580014br.gov.bcb.pix01361234567890";
+        const emv =
+            "00020126580014br.gov.bcb.pix013612345678901234567890123456520400005303986540510.00";
         const withEmv = {
             id: "o2",
             status: "pending",
@@ -66,7 +73,8 @@ describe("PIX extract (Pagar.me)", () => {
     });
 
     it("extractPixCode acha EMV aninhado quando qr_code é URL Mundipagg", () => {
-        const emv = "00020126580014br.gov.bcb.pix0136nested-emv-payload-ok";
+        const emv =
+            "00020126580014br.gov.bcb.pix0136nested-emv-payload-ok-123456789052040000";
         const order = {
             id: "o4",
             status: "pending",
