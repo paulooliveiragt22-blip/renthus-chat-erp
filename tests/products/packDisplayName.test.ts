@@ -26,7 +26,7 @@ describe("buildPackDisplayName", () => {
                 sigla: "UN",
                 fatorConversao: 1,
             }),
-            "Heineken Long Neck (UN c/1)"
+            "Heineken Long Neck"
         );
     });
 
@@ -43,7 +43,7 @@ describe("buildPackDisplayName", () => {
         );
     });
 
-    it("UN também mostra fator", () => {
+    it("UN não coloca fator no título", () => {
         assert.equal(
             buildPackDisplayName({
                 productName: "Heineken",
@@ -51,7 +51,7 @@ describe("buildPackDisplayName", () => {
                 sigla: "UN",
                 fatorConversao: 1,
             }),
-            "Heineken LATA (UN c/1)"
+            "Heineken LATA"
         );
     });
 

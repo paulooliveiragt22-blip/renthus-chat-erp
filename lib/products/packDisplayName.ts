@@ -17,7 +17,7 @@ function isUnSigla(sigla: string): boolean {
     return s === "UN" || s === "UND" || s === "UNID" || s === "UNIDADE";
 }
 
-/** Rótulo da sigla para UI: sempre com fator — `UN c/1`, `CX c/8`. */
+/** Badge da sigla (cardápio): sempre com fator — `UN c/1`, `CX c/8`. Não vai no título. */
 export function formatPackSiglaLabel(
     sigla: string | null | undefined,
     fatorConversao?: number | string | null
@@ -53,8 +53,8 @@ export function buildPackDisplayName(input: PackDisplayNameInput): string {
         name = [product, volPart].filter(Boolean).join(" ").replaceAll(/\s+/g, " ").trim();
     }
 
-    // Todas as siglas: inclui c/fator no nome (exceto se já houver)
-    if (sigla && !hasPackCountHint(name)) {
+    // Packs (CX/FARD/…): inclui c/fator no título. UN fica só no badge (UN c/N).
+    if (sigla && !isUnSigla(sigla) && !hasPackCountHint(name)) {
         const pack = `${sigla} c/${fator}`;
         if (!name.toUpperCase().includes(`(${sigla}`)) {
             name = `${name} (${pack})`.replaceAll(/\s+/g, " ").trim();
