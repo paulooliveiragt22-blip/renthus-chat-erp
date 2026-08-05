@@ -5,6 +5,11 @@ import {
 } from "@/lib/products/stockPolicy";
 import { buildPackDisplayName } from "@/lib/products/packDisplayName";
 import { expandSearchVariants, scoreDidYouMean } from "./searchNormalize";
+import {
+    catalogSearchCacheKey,
+    getCachedCatalogSearch,
+    setCachedCatalogSearch,
+} from "./catalogSearchCache";
 
 export type ChatProdutoRow = {
     id:                   string;
@@ -223,6 +228,20 @@ export async function runSearchProdutosDetailed(
     const limit = Math.min(Math.max(opts?.limit ?? 8, 1), 20);
     const q = sanitizeSearchQuery(query);
     const queryNormalized = expandSearchVariants(q)[0] ?? q;
+    const cacheKey = catalogSearchCacheKey({
+        companyId,
+        query: q,
+        categoryHint: opts?.categoryHint,
+        limit,
+    });
+    const cached = getCachedCatalogSearch(cacheKey);
+    if (cached) {
+        return {
+            ...cached,
+            items: cached.items.map((r) => ({ ...r })),
+            didYouMean: cached.didYouMean.map((d) => ({ ...d })),
+        };
+    }
 
     if (opts?.categoryHint) {
         const hint = sanitizeSearchQuery(opts.categoryHint);
@@ -255,12 +274,14 @@ export async function runSearchProdutosDetailed(
                 }
                 const rows = await finalizeRows(admin, catRows ?? []);
                 const items = rows.slice(0, limit);
-                return {
+                const result: SearchProdutosResult = {
                     items,
                     didYouMean: [],
                     empty: items.length === 0,
                     queryNormalized: hint,
                 };
+                setCachedCatalogSearch(cacheKey, result);
+                return result;
             }
         }
     }
@@ -276,12 +297,14 @@ export async function runSearchProdutosDetailed(
 
     const finalized = await finalizeRows(admin, rows);
     const items = finalized.slice(0, limit);
-    return {
+    const result: SearchProdutosResult = {
         items,
         didYouMean: buildDidYouMean(q, items),
         empty: items.length === 0,
         queryNormalized,
     };
+    setCachedCatalogSearch(cacheKey, result);
+    return result;
 }
 
 /** Compat: retorna só as linhas (handlers legados). */

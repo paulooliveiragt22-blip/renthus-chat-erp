@@ -19,7 +19,7 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 |---|------|--------|--------|
 | P1.1 | PRO em produção: `CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIPELINE_V2_MODE=active`; **shadow em prod** → log de erro explícito | [x] | `lib/chatbot/processMessage.ts` |
 | P1.2 | Limite de **in-flight** por instância no caminho Anthropic pesado do PRO V2 (`FullAiServiceAdapter`) | [x] | `lib/chatbot/anthropicInFlightGate.ts` + env `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` (default 8) |
-| P1.3 | Fairness por `company_id` no claim / pré-IA | [x] | Intercalação **dentro do batch** claimado: `lib/chatbot/interleaveQueueJobsByCompany.ts` + `process-queue/route.ts` (v1; fairness no SQL/claim fica para quando houver métrica) |
+| P1.3 | Fairness por `company_id` no claim / pré-IA | [x] | Interleave no batch + **claim SQL** `max_per_company` + skip thread `processing` (`20260805100000_claim_chatbot_queue_jobs_fair_company.sql`) |
 | P1.4 | Evidências `CHATBOT_PROD.md` (p95 webhook, replay `message_id`, runbook) | [ ] | Método + tabela: [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md) — marcar `[x]` aqui e nos checkboxes do `CHATBOT_PROD.md` **só** após colher dados reais |
 
 ## P2 — Documentação cruzada
@@ -28,6 +28,15 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 |---|------|--------|--------|
 | P2.1 | `CHATBOT_PROD.md` — variáveis novas / reforços (claim, canal, in-flight) | [x] | Secção flags / worker |
 | P2.2 | `pipeline_chatbot_prod.md` — Bloco 0.B canal em prod | [x] | Nota em worker |
+
+## P2-peak — Fila / UX / cache (sem Redis)
+
+| # | Item | Estado | Notas |
+|---|------|--------|--------|
+| P2p.1 | Claim justo SQL + skip thread busy | [x] | `claim_chatbot_queue_jobs(..., max_per_company)` |
+| P2p.2 | Aviso WhatsApp de backlog | [x] | `lib/chatbot/backlogNotice.ts` + `incoming` |
+| P2p.3 | Cache TTL busca catálogo | [x] | `catalogSearchCache.ts` |
+| P2p.4 | Redis concurrency global Anthropic | [ ] | Só se 429 multi-réplica persistir |
 
 ---
 
@@ -38,3 +47,4 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 | 2026-04-16 | P0.1–P0.3, P1.1–P1.2, P2.1–P2.2 aplicados no repo; P0.4, P1.3–P1.4 pendentes |
 | 2026-04-16 | P0.4a: falha V2 em `active` → mensagem fixa, sem `inboundPipeline` / pedido legado |
 | 2026-04-16 | P1.3: intercalação de jobs por `company_id` no batch do worker; P1.4: `EVIDENCE_CHECKLIST_P14.md` |
+| 2026-08-05 | P2-peak: claim fair + backlog UX + catalog cache TTL |

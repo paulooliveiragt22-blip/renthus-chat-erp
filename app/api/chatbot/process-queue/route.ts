@@ -42,6 +42,7 @@ function getPositiveIntEnv(name: string, fallback: number): number {
 
 const STALE_PROCESSING_MINUTES = getPositiveIntEnv("CHATBOT_QUEUE_STALE_MINUTES", 3);
 const INBOUND_COALESCE_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
+const MAX_PER_COMPANY = getPositiveIntEnv("CHATBOT_QUEUE_MAX_PER_COMPANY", 2);
 
 function parseDrainDepth(req: Request): number {
     try {
@@ -95,7 +96,11 @@ export async function GET(req: Request) {
     //         RETURNING id — apenas o que este cron vai processar
     const { data: claimed, error: claimErr } = await admin.rpc(
         "claim_chatbot_queue_jobs",
-        { batch_size: BATCH_SIZE, max_attempts: MAX_ATTEMPTS }
+        {
+            batch_size: BATCH_SIZE,
+            max_attempts: MAX_ATTEMPTS,
+            max_per_company: MAX_PER_COMPANY,
+        }
     );
 
     if (claimErr) {
@@ -194,18 +199,24 @@ export async function GET(req: Request) {
 
     await cleanupOldJobs(admin);
 
-    // Self-wake: batch cheio ⇒ provavelmente ainda há pending (pico fim de semana)
+    // Self-wake: batch cheio OU claim parcial com pending (fairness / skip-busy thread)
     let continued = false;
-    if (jobIds.length >= BATCH_SIZE) {
+    {
         const { count: pendingLeft } = await admin
             .from("chatbot_queue")
             .select("id", { count: "exact", head: true })
             .eq("status", "pending")
             .lt("attempts", MAX_ATTEMPTS);
-        if ((pendingLeft ?? 0) > 0) {
+        const shouldContinue =
+            (pendingLeft ?? 0) > 0 &&
+            (jobIds.length >= BATCH_SIZE || jobIds.length > 0);
+        if (shouldContinue) {
             scheduleQueueWorkerWake({
                 drainDepth: drainDepth + 1,
-                reason: "self_drain",
+                reason:
+                    jobIds.length >= BATCH_SIZE
+                        ? "self_drain"
+                        : "self_drain_partial_fair",
             });
             continued = true;
         }

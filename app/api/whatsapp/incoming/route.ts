@@ -25,6 +25,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
+import { maybeSendBacklogNotice } from "@/lib/chatbot/backlogNotice";
 
 export const runtime = "nodejs";
 const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
@@ -377,6 +378,7 @@ async function processSingleInboundMessage(params: {
             profileName,
             phoneNumberId,
             msgType,
+            waConfig,
         });
         return;
     }
@@ -486,8 +488,20 @@ async function enqueueInboundIfNeeded(params: {
     profileName: string | null;
     phoneNumberId: string;
     msgType: string;
+    waConfig: WaConfig;
 }): Promise<void> {
-    const { admin, channel, threadId, phoneE164, waId, bodyText, profileName, phoneNumberId, msgType } = params;
+    const {
+        admin,
+        channel,
+        threadId,
+        phoneE164,
+        waId,
+        bodyText,
+        profileName,
+        phoneNumberId,
+        msgType,
+        waConfig,
+    } = params;
 
     const dedupCutoff = new Date(Date.now() - INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS * 1000).toISOString();
     const normalizedBody = normalizeInboundText(bodyText);
@@ -540,6 +554,16 @@ async function enqueueInboundIfNeeded(params: {
 
     if (!queueErr) {
         scheduleQueueWorkerWake();
+        // Aviso de fila sem atrasar o 200 ao Meta
+        after(() => {
+            void maybeSendBacklogNotice({
+                admin,
+                companyId: channel.company_id,
+                threadId,
+                phoneE164,
+                waConfig,
+            });
+        });
     }
 }
 

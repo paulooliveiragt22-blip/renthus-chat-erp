@@ -33,8 +33,11 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 
 *Estado da implementação:*
 - Wake pós-enqueue: `incoming` → `after()` → `lib/chatbot/queueWorkerWake.ts` → `GET /api/chatbot/process-queue` (`Bearer CRON_SECRET`).
-- Self-wake (pico): worker drena batch cheio e agenda outra invocação (`?drain=N`, teto `CHATBOT_QUEUE_DRAIN_MAX`, default 5).
+- Self-wake (pico): worker agenda outra invocação se ainda há `pending` após o claim (`?drain=N`, teto `CHATBOT_QUEUE_DRAIN_MAX`, default 5) — cobre batch cheio e claim parcial (fairness / skip-busy).
 - Reclaim: RPC `reclaim_stuck_chatbot_queue_jobs` devolve `processing` stuck (> `CHATBOT_QUEUE_STALE_MINUTES`, default 3) para `pending`.
+- **Claim justo (P2):** `claim_chatbot_queue_jobs(batch, max_attempts, max_per_company)` — teto por `company_id` + não claima `thread_id` já em `processing` (single-flight por conversa).
+- **Backlog UX:** se a fila da empresa estiver profunda/atrasada, `incoming` envia aviso PT-BR (cooldown por thread) via `lib/chatbot/backlogNotice.ts`.
+- **Cache busca catálogo:** TTL in-memory em `lib/chatbot/pro/catalogSearchCache.ts` (por instância).
 - Desligar wake: `CHATBOT_QUEUE_WAKE_ENABLED=0`.
 
 ### Scheduler externo (cron-job.org) — rede de segurança obrigatória no Hobby
@@ -68,7 +71,7 @@ Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos ú
 - **Wake imediato** após enqueue já é o **caminho feliz** implementado (`incoming` → `after()` → `GET /api/chatbot/process-queue`); nesta fase o foco passa a **confiabilidade e observabilidade** (logs, métricas, p95), não “ligar o wake”.
 - Preferir **cron Vercel com frequência útil** quando o plano Pro permitir, **em conjunto** com wake (o scheduler externo deixa de ser tão crítico para UX, mas permanece como rede de segurança).
 - Avaliar **fila com entrega** (ex.: QStash / Inngest / SQS) **só** quando métricas ou operação justificarem (profundidade, idade p95, falhas de poll, custo humano).
-- **Fairness simples por `company_id`** (quota de jobs por ciclo ou por invocação) **antes** de investir em broker pesado — mitiga *noisy neighbor* com pouco código.
+- **Fairness por `company_id` no claim SQL** já implementada (`max_per_company` + interleave no batch); Redis/broker só se métrica de multi-réplica justificar.
 
 ### Escala alvo — **~100 empresas × ~10k pedidos/mês** (~1M pedidos/mês agregado)
 
@@ -300,6 +303,11 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 | `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos, abre circuit breaker local por N ms (`anthropic_circuit_open`). |
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |
 | `WHATSAPP_429_MAX_RETRIES` | (omissão = **3**) | Retries em 429 Meta (honra `Retry-After` quando presente). |
+| `CHATBOT_QUEUE_MAX_PER_COMPANY` | (omissão = **2**) | Máx. jobs da mesma empresa por claim (fairness SQL). |
+| `CHATBOT_BACKLOG_DEPTH` | (omissão = **8**) | Pending da empresa ≥ N ⇒ candidata a aviso de fila. |
+| `CHATBOT_BACKLOG_AGE_SECONDS` | (omissão = **45**) | Idade do pending mais antigo ≥ N s ⇒ aviso. |
+| `CHATBOT_BACKLOG_NOTICE_COOLDOWN_SEC` | (omissão = **120**) | Cooldown do aviso por thread. |
+| `CHATBOT_CATALOG_CACHE_TTL_SEC` | (omissão = **60**) | TTL do cache in-memory de `search_produtos` (0 desliga). |
 
 ### Decisões operacionais (produção — aplicar)
 
