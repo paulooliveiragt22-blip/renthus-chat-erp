@@ -1,6 +1,7 @@
 /**
- * GET   /api/admin/products/[id] — produto completo (rpc_get_product_full) + acompanhamentos
- * PATCH /api/admin/products/[id] — update completo ou toggle is_active
+ * GET    /api/admin/products/[id] — produto completo (rpc_get_product_full) + acompanhamentos
+ * PATCH  /api/admin/products/[id] — update completo, toggle produto/item, vender_estoque_zero
+ * DELETE /api/admin/products/[id] — exclui se nunca vendido; senão desativa
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,6 +21,7 @@ type VolumeItemBody = {
     codigo_barras_ean?: string | null;
     tags?: string | null;
     is_acompanhamento?: boolean;
+    is_active?: boolean;
     estoque?: string | null;
     estoque_minimo?: string | null;
 };
@@ -50,7 +52,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data) return NextResponse.json({ error: "product_not_found" }, { status: 404 });
 
-    // Preferência: embalagem da linha da lista (mesmo comportamento do client antigo).
     const embFromQuery = String(req.nextUrl.searchParams.get("embalagem_id") ?? "").trim();
     const prod = data as { volumes?: Array<{ items?: Array<{ id?: string }> }> };
     const embIdsFromProduct = (prod.volumes ?? [])
@@ -87,6 +88,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!productId) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
     const body = (await req.json().catch(() => ({}))) as {
+        name?: string;
         is_active?: boolean;
         vender_com_estoque_zero?: boolean;
         category_id?: string;
@@ -94,9 +96,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         acompanhamento_ids?: string[];
         toggle_only?: boolean;
         toggle_vender_estoque_zero?: boolean;
+        toggle_item?: { embalagem_id?: string; is_active?: boolean };
     };
 
-    // Toggle rápido: vender com estoque zero
+    // Toggle item (embalagem)
+    if (body.toggle_item?.embalagem_id && typeof body.toggle_item.is_active === "boolean") {
+        const { error } = await admin.rpc("rpc_toggle_produto_embalagem_active", {
+            p_embalagem_id: String(body.toggle_item.embalagem_id),
+            p_company_id: companyId,
+            p_is_active: body.toggle_item.is_active,
+        });
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({
+            ok: true,
+            embalagem_id: String(body.toggle_item.embalagem_id),
+            is_active: body.toggle_item.is_active,
+        });
+    }
+
     if (body.toggle_vender_estoque_zero === true && typeof body.vender_com_estoque_zero === "boolean") {
         const { error } = await admin.rpc("rpc_set_product_vender_com_estoque_zero", {
             p_product_id: productId,
@@ -110,8 +127,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         });
     }
 
-    // Toggle rápido (lista)
-    if (body.toggle_only === true || (body.volumes === undefined && typeof body.is_active === "boolean" && body.vender_com_estoque_zero === undefined)) {
+    if (
+        body.toggle_only === true ||
+        (body.volumes === undefined &&
+            typeof body.is_active === "boolean" &&
+            body.vender_com_estoque_zero === undefined &&
+            body.name === undefined)
+    ) {
         const { error } = await admin.rpc("rpc_toggle_product_active", {
             p_product_id: productId,
             p_company_id: companyId,
@@ -128,6 +150,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         return NextResponse.json({ error: "volumes_required" }, { status: 400 });
     }
 
+    const nameTrim = body.name != null ? String(body.name).trim() : "";
+
     const { error } = await admin.rpc("rpc_update_product_with_items", {
         p_company_id: companyId,
         p_product_id: productId,
@@ -135,6 +159,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         p_is_active: body.is_active !== false,
         p_volumes: volumes,
         p_acompanhamento_ids: Array.isArray(body.acompanhamento_ids) ? body.acompanhamento_ids : [],
+        p_name: nameTrim || null,
     });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -165,4 +190,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const { id: rawId } = await params;
+    const ctx = await requireCompanyAccess(["owner", "admin"]);
+    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const { admin, companyId } = ctx;
+
+    const productId = String(rawId ?? "").trim();
+    if (!productId) return NextResponse.json({ error: "id_required" }, { status: 400 });
+
+    const { data, error } = await admin.rpc("rpc_delete_or_deactivate_product", {
+        p_product_id: productId,
+        p_company_id: companyId,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const result = (data ?? {}) as { action?: string; message?: string };
+    return NextResponse.json({
+        ok: true,
+        action: result.action ?? "unknown",
+        message: result.message ?? null,
+    });
 }

@@ -36,6 +36,8 @@ type FormItem = {
     estoque: string;
     estoque_minimo: string;
     is_acompanhamento?: boolean;
+    /** Ativo no PDV/chat/cardápio (produto_embalagens.is_active) */
+    is_active: boolean;
 };
 
 type FormVolume = {
@@ -598,6 +600,7 @@ export default function ProdutosListaPage() {
             tags: "",
             estoque: "",
             estoque_minimo: "",
+            is_active: true,
         };
         setFormVolumes((prev) => volumesWithFormItemAppended(prev, volId, newItem));
     }
@@ -767,6 +770,7 @@ export default function ProdutosListaPage() {
                         estoque: String(itemEstoque),
                         estoque_minimo: String(itemEstoqueMin),
                         is_acompanhamento: !!it.is_acompanhamento,
+                        is_active: it.is_active !== false,
                     };
                 });
                 return {
@@ -848,6 +852,7 @@ export default function ProdutosListaPage() {
                         codigo_barras_ean: it.codigo_barras_ean.trim() || null,
                         tags: it.tags.trim() || null,
                         is_acompanhamento: isAccomp,
+                        is_active: it.is_active !== false,
                         estoque: itemEstoque != null && itemEstoque > 0 ? String(itemEstoque) : null,
                         estoque_minimo:
                             itemEstoqueMin != null && itemEstoqueMin >= 0 ? String(itemEstoqueMin) : null,
@@ -891,6 +896,7 @@ export default function ProdutosListaPage() {
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    name: (productName || "").trim().toUpperCase() || undefined,
                     category_id: categoryId,
                     is_active: isActive,
                     vender_com_estoque_zero: venderComEstoqueZero,
@@ -964,6 +970,7 @@ export default function ProdutosListaPage() {
                                 estoque: String(itemEstoque),
                                 estoque_minimo: String(itemEstoqueMin),
                                 is_acompanhamento: !!it.is_acompanhamento,
+                                is_active: it.is_active !== false,
                             };
                         }),
                     };
@@ -1222,10 +1229,17 @@ export default function ProdutosListaPage() {
                         </div>
                     ) : (
                         <>
-                    {/* Nome do produto (fixo) */}
+                    {/* Nome do produto (editável) */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
-                        <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Produto</p>
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{productName || selected?.products?.name || "—"}</p>
+                        <label className="mb-1 block text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                            Nome do produto
+                        </label>
+                        <input
+                            value={productName}
+                            onChange={(e) => setProductName(e.target.value.toUpperCase())}
+                            placeholder="Ex: HEINEKEN"
+                            className={`${inputCls} uppercase`}
+                        />
                     </div>
 
                     {/* Foto do produto (nível produto, sem volume) */}
@@ -1353,7 +1367,14 @@ export default function ProdutosListaPage() {
                                                             ? (prodImg.thumbnail_url ?? prodImg.url)
                                                             : null;
                                                     return (
-                                                    <div key={it.id} className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-900/50">
+                                                    <div
+                                                        key={it.id}
+                                                        className={`rounded border p-3 dark:bg-zinc-900/50 ${
+                                                            it.is_active
+                                                                ? "border-zinc-200 bg-white dark:border-zinc-600"
+                                                                : "border-amber-200/80 bg-amber-50/40 opacity-80 dark:border-amber-900/40 dark:bg-amber-950/20"
+                                                        }`}
+                                                    >
                                                         <div className="mb-2 flex items-start gap-3">
                                                             <div className="flex w-[72px] shrink-0 flex-col items-center gap-1">
                                                                 <div className="relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800">
@@ -1384,9 +1405,31 @@ export default function ProdutosListaPage() {
                                                                 </p>
                                                             </div>
                                                             <div className="min-w-0 flex-1">
-                                                        <div className="mb-2 flex items-center justify-between">
+                                                        <div className="mb-2 flex items-center justify-between gap-2">
                                                             <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">{it.siglaLabel}</span>
-                                                            <button type="button" onClick={() => removeFormItem(vol.id, it.id)} className="text-zinc-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    title={it.is_active ? "Item ativo — clique para desativar" : "Item inativo — clique para ativar"}
+                                                                    onClick={() => updateFormItem(vol.id, it.id, { is_active: !it.is_active })}
+                                                                    className="flex items-center gap-1 text-[10px] font-semibold"
+                                                                >
+                                                                    {it.is_active ? (
+                                                                        <>
+                                                                            <ToggleRight className="h-4 w-4 text-violet-600" />
+                                                                            <span className="text-violet-700 dark:text-violet-300">Ativo</span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <ToggleLeft className="h-4 w-4 text-zinc-400" />
+                                                                            <span className="text-zinc-400">Inativo</span>
+                                                                        </>
+                                                                    )}
+                                                                </button>
+                                                                <button type="button" onClick={() => removeFormItem(vol.id, it.id)} className="text-zinc-400 hover:text-red-500" title="Remover do formulário (se já vendido, será só desativado ao salvar)">
+                                                                    <X className="h-3.5 w-3.5" />
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                                                             <div>
@@ -1521,16 +1564,57 @@ export default function ProdutosListaPage() {
 
                     {msg && <p className={`text-xs font-semibold ${msg.startsWith("✓") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
 
-                    <div className="flex gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                    <div className="flex flex-wrap gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
                         <button onClick={saveEdit} disabled={saving || editLoading || !!savingItemKey} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
                             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                             {saving ? "Salvando…" : "Salvar produto"}
                         </button>
+                        <button
+                            type="button"
+                            disabled={saving || editLoading || !!savingItemKey || !selected}
+                            onClick={async () => {
+                                if (!selected) return;
+                                const ok = window.confirm(
+                                    "Excluir este produto?\n\nSe já tiver sido vendido, ele será apenas desativado (não apaga o histórico)."
+                                );
+                                if (!ok) return;
+                                setSaving(true);
+                                setMsg(null);
+                                try {
+                                    const res = await fetch(`/api/admin/products/${selected.product_id}`, {
+                                        method: "DELETE",
+                                        credentials: "include",
+                                    });
+                                    const json = await res.json().catch(() => ({}));
+                                    if (!res.ok) {
+                                        setMsg(`Erro: ${String(json?.error ?? "falha ao excluir")}`);
+                                        return;
+                                    }
+                                    setOpen(false);
+                                    setSelected(null);
+                                    await load();
+                                    setMsg(
+                                        json?.action === "deactivated"
+                                            ? "✓ Produto desativado (já havia vendas)."
+                                            : "✓ Produto excluído."
+                                    );
+                                } catch (e: any) {
+                                    setMsg(`Erro: ${String(e?.message ?? e)}`);
+                                } finally {
+                                    setSaving(false);
+                                }
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                            Excluir
+                        </button>
                         <button onClick={() => { setOpen(false); setSelected(null); }} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
                     </div>
                     <p className="text-[11px] text-zinc-400">
-                        Use <span className="font-semibold">Salvar item</span> em cada embalagem para gravar dados + foto daquele tamanho.
-                        UN/CX do mesmo tamanho compartilham a foto.
+                        Use <span className="font-semibold">Salvar item</span> para dados + foto do tamanho.
+                        Item <span className="font-semibold">Inativo</span> some do PDV/chat/cardápio.
+                        Produto já vendido não é apagado — só desativa.
                     </p>
                 </div>
 
