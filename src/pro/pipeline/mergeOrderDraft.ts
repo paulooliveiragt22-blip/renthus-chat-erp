@@ -60,6 +60,45 @@ export function removeDraftItemsMatchingName(
     };
 }
 
+/** Remove linhas do draft pelos IDs de embalagem (opções rejeitadas na clarificação). */
+export function removeDraftItemsByEmbalagemIds(
+    draft: OrderDraft | null,
+    embIds: readonly string[]
+): OrderDraft | null {
+    if (!draft?.items?.length || !embIds.length) return draft;
+    const reject = new Set(embIds.map((id) => String(id ?? "").trim()).filter(Boolean));
+    if (!reject.size) return draft;
+    const kept = draft.items.filter((it) => !reject.has(it.produtoEmbalagemId));
+    if (kept.length === draft.items.length) return draft;
+
+    const totalItems = roundBrl(kept.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
+    const deliveryFee = draft.deliveryFee ?? 0;
+    const grandTotal = roundBrl(totalItems + deliveryFee);
+
+    if (!kept.length) {
+        return {
+            ...draft,
+            items: [],
+            totalItems: 0,
+            grandTotal: deliveryFee,
+            pendingConfirmation: false,
+        };
+    }
+
+    return {
+        ...draft,
+        items: kept,
+        totalItems,
+        grandTotal,
+        pendingConfirmation: Boolean(
+            kept.length &&
+                draft.address &&
+                draft.paymentMethod &&
+                (draft.paymentMethod !== "cash" || draft.changeFor != null)
+        ),
+    };
+}
+
 /**
  * Une itens do prepare atual com o draft da sessão (union por `produtoEmbalagemId`).
  * Impede que uma clarificação/pick com 1 SKU apague linhas já aceitas.

@@ -3,6 +3,7 @@
  */
 
 import type { ProSessionState } from "@/src/types/contracts";
+import { removeDraftItemsByEmbalagemIds } from "./mergeOrderDraft";
 
 export const PICK_EMB_PREFIX = "pro_pick_emb:";
 
@@ -83,8 +84,19 @@ function applyPick(
     label: string,
     state: ProSessionState
 ): { state: ProSessionState; syntheticUserText: string } {
-    const draftIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean);
-    const bootIds = (state.bootstrapResolvedEmbalagemIds ?? []).filter((id) => id && id !== embId);
+    /** Outras opções do mesmo card de clarificação — não podem voltar no prepare. */
+    const rejectedSiblingIds = (state.lastSearchPicks ?? [])
+        .map((p) => String(p.embalagemId ?? "").trim())
+        .filter((id) => id && id !== embId);
+    const rejectSet = new Set(rejectedSiblingIds);
+
+    const draftAfterReject = removeDraftItemsByEmbalagemIds(state.draft, rejectedSiblingIds);
+    const bootIds = (state.bootstrapResolvedEmbalagemIds ?? []).filter(
+        (id) => id && id !== embId && !rejectSet.has(id)
+    );
+    const draftIds = (draftAfterReject?.items ?? [])
+        .map((i) => i.produtoEmbalagemId)
+        .filter((id) => id && !rejectSet.has(id));
     const allow = [embId, ...draftIds.filter((id) => id !== embId), ...bootIds.filter((id) => id !== embId)];
     const step =
         state.step === "pro_idle" || state.step === "pro_awaiting_confirmation"
@@ -94,11 +106,16 @@ function applyPick(
         state: {
             ...state,
             step,
+            draft: draftAfterReject,
+            bootstrapResolvedEmbalagemIds: bootIds,
             checkoutEditHold: state.step === "pro_awaiting_confirmation" ? true : state.checkoutEditHold,
             searchProdutoEmbalagemIds: allow,
             lastSearchPicks: [],
         },
-        syntheticUserText: buildAppendSyntheticText(label, embId, state),
+        syntheticUserText: buildAppendSyntheticText(label, embId, {
+            ...state,
+            draft: draftAfterReject,
+        }),
     };
 }
 

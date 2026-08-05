@@ -287,6 +287,9 @@ export function applyQuickAction(
             misunderstandingStreak: 0,
             escalationTier: 0,
             searchProdutoEmbalagemIds: [],
+            bootstrapResolvedEmbalagemIds: [],
+            bootstrapPendingClarifications: [],
+            lastSearchPicks: [],
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
         };
@@ -306,6 +309,9 @@ export function applyQuickAction(
             misunderstandingStreak: 0,
             escalationTier: 0,
             searchProdutoEmbalagemIds: [],
+            bootstrapResolvedEmbalagemIds: [],
+            bootstrapPendingClarifications: [],
+            lastSearchPicks: [],
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
         };

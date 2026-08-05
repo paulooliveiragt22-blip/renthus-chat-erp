@@ -68,7 +68,15 @@ export async function tryServerBootstrapOrderFromText(params: {
     }
 
     const existingIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId);
-    const resolvedIds = [...new Set([...(state.bootstrapResolvedEmbalagemIds ?? []), ...uniqueIds])];
+    const draftIdSet = new Set(existingIds);
+    /**
+     * Pedido novo: descarta boot antigo (evita CX de clarificação/troca anterior).
+     * Adicionar produtos: só mantém IDs que ainda estão no draft.
+     */
+    const keptBoot = draftIdSet.size
+        ? (state.bootstrapResolvedEmbalagemIds ?? []).filter((id) => draftIdSet.has(id))
+        : [];
+    const resolvedIds = [...new Set([...keptBoot, ...uniqueIds])];
     state = {
         ...state,
         bootstrapResolvedEmbalagemIds: resolvedIds,
