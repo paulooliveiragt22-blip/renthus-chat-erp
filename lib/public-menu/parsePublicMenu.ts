@@ -8,6 +8,7 @@ import type {
     PublicMenuRpcStoreRow,
     PublicMenuStore,
 } from "@/src/types/contracts.public-menu";
+import { buildPackDisplayName } from "@/lib/products/packDisplayName";
 import { parseMenuSlug } from "./slug";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -58,8 +59,16 @@ function parseItemRow(raw: unknown): PublicMenuItem | null {
     if (!isRecord(raw)) return null;
     const embalagemId = asString(raw.embalagem_id);
     const productId = asString(raw.product_id);
-    const name = asString(raw.name).trim();
-    if (!embalagemId || !productId || !name) return null;
+    const rawName = asString(raw.name).trim();
+    if (!embalagemId || !productId || !rawName) return null;
+    const sigla = (asNullableString(raw.sigla) ?? "UN").toUpperCase();
+    const fatorConversao = Math.max(1, asNumber(raw.fator_conversao) || 1);
+    // Garante "… (CX c/8)" no título mesmo quando o RPC só manda o nome do item
+    const name = buildPackDisplayName({
+        productName: rawName,
+        sigla,
+        fatorConversao,
+    });
     return {
         embalagemId,
         productId,
@@ -69,8 +78,8 @@ function parseItemRow(raw: unknown): PublicMenuItem | null {
         description: asNullableString(raw.description),
         price: asNumber(raw.price),
         currency: "BRL",
-        sigla: (asNullableString(raw.sigla) ?? "UN").toUpperCase(),
-        fatorConversao: Math.max(1, asNumber(raw.fator_conversao) || 1),
+        sigla,
+        fatorConversao,
         thumbnailUrl: asNullableString(raw.thumbnail_url),
         imageUrl: asNullableString(raw.image_url),
         inStock: asBool(raw.in_stock, true),
