@@ -414,8 +414,11 @@ O texto sai do snapshot do rascunho (`buildCartRecoveryMessage`), sem passar por
 | `OUTBOUND_FREQUENCY_WINDOW_HOURS` | `72` | Janela do teto de frequência. |
 | `OUTBOUND_MAX_PER_CUSTOMER` | `1` | Máx. proativas não-transacionais por cliente na janela. |
 | `OUTBOUND_JOB_RETENTION_DAYS` | `30` | Limpeza de jobs terminais. |
+| `OUTBOUND_WORKER_WAKE_ENABLED` | `1` | `0` desliga o wake detector → worker. |
 
 Auth das duas rotas: `Bearer CRON_SECRET`, igual ao `process-queue`. O `vercel.json` traz as duas em cron **diário** (backup do Hobby); a frequência útil (~5 min) vem do **scheduler externo**, como já acontece com `process-queue` e `reactivate`.
+
+**Gatilho (mesmo padrão do `process-queue`):** o caminho feliz é o detector acordar o worker via `after()` (`lib/chatbot/outbound/outboundWorkerWake.ts`) assim que enfileira; o cron do worker é rede de segurança para retry e reclaim. Com isso os dois jobs do scheduler podem rodar no mesmo minuto — não é preciso escalonar minutos no cron-job.org. Sem loop: o worker não acorda o detector.
 
 **Allowlist do `proxy.ts`:** toda rota de scheduler precisa estar em `isTechnicalApiPublic`, senão o proxy devolve **307 → `/login`** antes de a rota rodar e o `CRON_SECRET` nunca é avaliado — no painel do cron-job.org isso aparece como "redirecionamento detectado", não como erro de auth. As quatro rotas com `validateCronAuthorization` (`process-queue`, `reactivate`, `detect-abandoned-carts`, `outbound-worker`) estão liberadas **uma a uma**, de propósito: liberar `/api/chatbot/*` por prefixo exporia `config` e `resolve`, que dependem da sessão validada no proxy. Coberto por `tests/proxy.test.ts`.
 

@@ -8,12 +8,15 @@
  * antes disso, e o índice parcial único faz a deduplicação por thread.
  *
  * Gatilho: scheduler externo a cada ~5 min (o cron nativo diário é só backup).
+ * Ao enfileirar, acorda o `outbound-worker` via `after()` — assim a mensagem não
+ * espera o tick seguinte do scheduler e a ordem dos dois crons deixa de importar.
  */
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { buildCartRecoveryMessage } from "@/lib/chatbot/outbound/cartRecoveryMessage";
+import { scheduleOutboundWorkerWake } from "@/lib/chatbot/outbound/outboundWorkerWake";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -66,6 +69,10 @@ export async function GET(req: Request) {
     const carts = (data ?? []) as DetectedCart[];
     const { enqueued, discarded } = await enqueueRecoveryJobs(admin, carts);
     const expired = await expireStaleCarts(admin);
+
+    if (enqueued > 0) {
+        after(() => scheduleOutboundWorkerWake("cart_recovery_enqueue"));
+    }
 
     const result = { detected: carts.length, enqueued, discarded, expired };
     console.info("[metric] cart_recovery_detect", { ...result, ms: Date.now() - t0 });
