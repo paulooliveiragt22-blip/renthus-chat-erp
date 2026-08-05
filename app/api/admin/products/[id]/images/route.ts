@@ -29,7 +29,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data, error } = await admin
         .from("product_images")
-        .select("id, url, thumbnail_url, is_primary, file_size, created_at, product_volume_id")
+        .select(
+            "id, url, thumbnail_url, is_primary, file_size, created_at, product_volume_id, produto_embalagem_id"
+        )
         .eq("product_id", productId)
         .order("is_primary", { ascending: false })
         .order("created_at", { ascending: true });
@@ -55,21 +57,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const { data: target, error: tErr } = await admin
         .from("product_images")
-        .select("id, product_volume_id")
+        .select("id, product_volume_id, produto_embalagem_id")
         .eq("id", imageId)
         .eq("product_id", productId)
         .maybeSingle();
     if (tErr) return NextResponse.json({ error: tErr.message }, { status: 500 });
     if (!target) return NextResponse.json({ error: "image_not_found" }, { status: 404 });
 
-    // Demote só no mesmo escopo (produto geral ou volume)
+    // Demote só no mesmo escopo (item / volume / produto)
     let demote = admin
         .from("product_images")
         .update({ is_primary: false })
         .eq("product_id", productId);
-    demote = target.product_volume_id
-        ? demote.eq("product_volume_id", target.product_volume_id)
-        : demote.is("product_volume_id", null);
+    if (target.produto_embalagem_id) {
+        demote = demote.eq("produto_embalagem_id", target.produto_embalagem_id);
+    } else if (target.product_volume_id) {
+        demote = demote
+            .is("produto_embalagem_id", null)
+            .eq("product_volume_id", target.product_volume_id);
+    } else {
+        demote = demote.is("produto_embalagem_id", null).is("product_volume_id", null);
+    }
     const { error: u1 } = await demote;
     if (u1) return NextResponse.json({ error: u1.message }, { status: 500 });
 

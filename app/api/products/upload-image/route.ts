@@ -1,15 +1,9 @@
 /**
  * POST /api/products/upload-image
  *
- * Upload e otimização de imagem de produto.
- * Form fields: product_id (string), file (File), is_primary ("true"|"false"),
- *              product_volume_id (string, opcional — imagem por embalagem/volume)
- *
- * Processa:
- *   - Redimensiona para 800x800 max (JPEG 80%)
- *   - Gera thumbnail 200x200 (JPEG 70%)
- *   - Faz upload para Supabase Storage bucket "product-images"
- *   - Salva registro em product_images
+ * Form: product_id, file, is_primary,
+ *       produto_embalagem_id (preferido — foto por sigla/item),
+ *       product_volume_id (legado — foto por tamanho).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,7 +14,6 @@ import sharp from "sharp";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  // Requer autenticação (rota do dashboard)
   const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
   if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -34,10 +27,13 @@ export async function POST(request: NextRequest) {
   }
 
   const productId = formData.get("product_id") as string | null;
-  const file      = formData.get("file") as File | null;
+  const file = formData.get("file") as File | null;
   const isPrimary = formData.get("is_primary") !== "false";
+  const embRaw = formData.get("produto_embalagem_id");
   const volumeRaw = formData.get("product_volume_id");
-  const productVolumeId =
+  const produtoEmbalagemId =
+    typeof embRaw === "string" && embRaw.trim() ? embRaw.trim() : null;
+  let productVolumeId =
     typeof volumeRaw === "string" && volumeRaw.trim() ? volumeRaw.trim() : null;
 
   if (!productId || !file) {
@@ -49,7 +45,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
 
-  // Valida que o produto pertence à empresa do usuário
   const { data: product } = await admin
     .from("products")
     .select("id, company_id")
@@ -61,7 +56,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "product not found" }, { status: 404 });
   }
 
-  if (productVolumeId) {
+  if (produtoEmbalagemId) {
+    const { data: emb } = await admin
+      .from("produto_embalagens")
+      .select("id, product_volume_id")
+      .eq("id", produtoEmbalagemId)
+      .eq("produto_id", productId)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle();
+    if (!emb) {
+      return NextResponse.json({ error: "produto_embalagem_not_found" }, { status: 404 });
+    }
+    // Preenche volume auxiliar (não define o escopo da primary)
+    if (!productVolumeId && emb.product_volume_id) {
+      productVolumeId = String(emb.product_volume_id);
+    }
+  } else if (productVolumeId) {
     const { data: vol } = await admin
       .from("product_volumes")
       .select("id")
@@ -73,83 +83,79 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Converte para buffer
   const arrayBuffer = await file.arrayBuffer();
-  const buffer      = Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(arrayBuffer);
 
-  // Otimiza imagem principal (max 800x800, JPEG 80%)
   const optimized = await sharp(buffer)
     .resize(800, 800, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 80 })
     .toBuffer();
 
-  // Gera thumbnail (200x200 crop, JPEG 70%)
   const thumbnail = await sharp(buffer)
     .resize(200, 200, { fit: "cover" })
     .jpeg({ quality: 70 })
     .toBuffer();
 
   const ts = Date.now();
-  const folder = productVolumeId
-    ? `${ctx.companyId}/${productId}/${productVolumeId}`
-    : `${ctx.companyId}/${productId}`;
+  const folder = produtoEmbalagemId
+    ? `${ctx.companyId}/${productId}/emb/${produtoEmbalagemId}`
+    : productVolumeId
+      ? `${ctx.companyId}/${productId}/${productVolumeId}`
+      : `${ctx.companyId}/${productId}`;
   const mainFilename = `${folder}/${ts}.jpg`;
   const thumbFilename = `${folder}/${ts}_thumb.jpg`;
 
-  // Upload imagem principal
   const { error: uploadErr } = await admin.storage
     .from("product-images")
     .upload(mainFilename, optimized, {
-      contentType:  "image/jpeg",
+      contentType: "image/jpeg",
       cacheControl: "31536000",
-      upsert:       false,
+      upsert: false,
     });
 
   if (uploadErr) {
     return NextResponse.json({ error: uploadErr.message }, { status: 500 });
   }
 
-  // Upload thumbnail
-  await admin.storage
-    .from("product-images")
-    .upload(thumbFilename, thumbnail, {
-      contentType:  "image/jpeg",
-      cacheControl: "31536000",
-      upsert:       false,
-    });
+  await admin.storage.from("product-images").upload(thumbFilename, thumbnail, {
+    contentType: "image/jpeg",
+    cacheControl: "31536000",
+    upsert: false,
+  });
 
-  // URLs públicas
-  const { data: { publicUrl } } = admin.storage
-    .from("product-images")
-    .getPublicUrl(mainFilename);
+  const {
+    data: { publicUrl },
+  } = admin.storage.from("product-images").getPublicUrl(mainFilename);
+  const {
+    data: { publicUrl: thumbUrl },
+  } = admin.storage.from("product-images").getPublicUrl(thumbFilename);
 
-  const { data: { publicUrl: thumbUrl } } = admin.storage
-    .from("product-images")
-    .getPublicUrl(thumbFilename);
-
-  // Nova upload vira principal no mesmo escopo (produto ou volume).
   if (isPrimary) {
     let demote = admin
       .from("product_images")
       .update({ is_primary: false })
       .eq("product_id", productId);
-    demote = productVolumeId
-      ? demote.eq("product_volume_id", productVolumeId)
-      : demote.is("product_volume_id", null);
+    if (produtoEmbalagemId) {
+      demote = demote.eq("produto_embalagem_id", produtoEmbalagemId);
+    } else if (productVolumeId) {
+      demote = demote.is("produto_embalagem_id", null).eq("product_volume_id", productVolumeId);
+    } else {
+      demote = demote.is("produto_embalagem_id", null).is("product_volume_id", null);
+    }
     await demote;
   }
 
-  // Salva no banco
   const { data: imageRecord, error: dbErr } = await admin
     .from("product_images")
     .insert({
-      product_id:         productId,
-      product_volume_id:  productVolumeId,
-      url:                publicUrl,
-      thumbnail_url:      thumbUrl,
-      is_primary:         isPrimary,
-      file_size:          optimized.length,
-      uploaded_by:        userId,
+      product_id: productId,
+      product_volume_id: productVolumeId,
+      produto_embalagem_id: produtoEmbalagemId,
+      url: publicUrl,
+      thumbnail_url: thumbUrl,
+      is_primary: isPrimary,
+      file_size: optimized.length,
+      uploaded_by: userId,
     })
     .select("id")
     .single();
@@ -161,12 +167,13 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     success: true,
     image: {
-      id:                imageRecord.id,
-      url:               publicUrl,
-      thumbnail_url:     thumbUrl,
-      file_size:         optimized.length,
+      id: imageRecord.id,
+      url: publicUrl,
+      thumbnail_url: thumbUrl,
+      file_size: optimized.length,
       product_volume_id: productVolumeId,
-      is_primary:        isPrimary,
+      produto_embalagem_id: produtoEmbalagemId,
+      is_primary: isPrimary,
     },
   });
 }

@@ -359,10 +359,18 @@ export default function ProdutosListaPage() {
     const [acompSelected, setAcompSelected] = useState<{ id: string; name: string }[]>([]);
 
     // product images
-    type ProductImage = { id: string; url: string; thumbnail_url: string | null; is_primary: boolean; product_volume_id: string | null };
+    type ProductImage = {
+        id: string;
+        url: string;
+        thumbnail_url: string | null;
+        is_primary: boolean;
+        product_volume_id: string | null;
+        produto_embalagem_id: string | null;
+    };
     const [editImages,       setEditImages]       = useState<ProductImage[]>([]);
     const [imageFile,        setImageFile]        = useState<File | null>(null);
-    const [volumeImageFiles, setVolumeImageFiles] = useState<Record<string, File>>({});
+    /** Arquivo pendente por id da embalagem (FormItem.id). */
+    const [itemImageFiles, setItemImageFiles] = useState<Record<string, File>>({});
     const [createImageFile,  setCreateImageFile]  = useState<File | null>(null);
     const [imageUploading,   setImageUploading]   = useState(false);
 
@@ -480,29 +488,33 @@ export default function ProdutosListaPage() {
                 return;
             }
             setEditImages(
-                ((json.images ?? []) as Array<ProductImage & { product_volume_id?: string | null }>).map(
-                    (img) => ({
-                        id: img.id,
-                        url: img.url,
-                        thumbnail_url: img.thumbnail_url ?? null,
-                        is_primary: Boolean(img.is_primary),
-                        product_volume_id: img.product_volume_id ?? null,
-                    })
-                )
+                ((json.images ?? []) as Array<ProductImage>).map((img) => ({
+                    id: img.id,
+                    url: img.url,
+                    thumbnail_url: img.thumbnail_url ?? null,
+                    is_primary: Boolean(img.is_primary),
+                    product_volume_id: img.product_volume_id ?? null,
+                    produto_embalagem_id: img.produto_embalagem_id ?? null,
+                }))
             );
         } catch {
             setEditImages([]);
         }
     }
 
-    async function uploadProductImage(productId: string, file: File, volumeId?: string | null) {
+    async function uploadProductImage(
+        productId: string,
+        file: File,
+        opts?: { embalagemId?: string | null; volumeId?: string | null }
+    ) {
         setImageUploading(true);
         try {
             const formData = new FormData();
             formData.append("product_id", productId);
             formData.append("file", file);
             formData.append("is_primary", "true");
-            if (volumeId) formData.append("product_volume_id", volumeId);
+            if (opts?.embalagemId) formData.append("produto_embalagem_id", opts.embalagemId);
+            else if (opts?.volumeId) formData.append("product_volume_id", opts.volumeId);
             const res = await fetch("/api/products/upload-image", {
                 method: "POST",
                 body: formData,
@@ -727,7 +739,7 @@ export default function ProdutosListaPage() {
         setAcompSelected([]);
         setEditImages([]);
         setImageFile(null);
-        setVolumeImageFiles({});
+        setItemImageFiles({});
         try {
             const qs = new URLSearchParams({ embalagem_id: r.id });
             const res = await fetch(`/api/admin/products/${r.product_id}?${qs}`, { credentials: "include" });
@@ -813,7 +825,7 @@ export default function ProdutosListaPage() {
         setProductNameSearch("");
         setFormVolumes([]);
         setEditImages([]);
-        setVolumeImageFiles({});
+        setItemImageFiles({});
         setCreateImageFile(null);
         setOpenCreate(true);
     }
@@ -863,7 +875,7 @@ export default function ProdutosListaPage() {
     }
 
     async function persistProductEdit(opts?: {
-        volumeIdForImage?: string | null;
+        itemIdForImage?: string | null;
         closeOnSuccess?: boolean;
         itemKey?: string | null;
     }): Promise<boolean> {
@@ -912,20 +924,12 @@ export default function ProdutosListaPage() {
             }
 
             // Foto do produto (nível produto) — só no Salvar geral
-            if (!opts?.volumeIdForImage && imageFile && selected.product_id) {
-                await uploadProductImage(selected.product_id, imageFile, null);
+            if (!opts?.itemIdForImage && imageFile && selected.product_id) {
+                await uploadProductImage(selected.product_id, imageFile, {});
             }
 
-            // Foto do tamanho (volume) — no Salvar do item
-            const volId = opts?.volumeIdForImage;
-            if (volId && volumeImageFiles[volId] && selected.product_id) {
-                await uploadProductImage(selected.product_id, volumeImageFiles[volId], volId);
-                setVolumeImageFiles((prev) => {
-                    const next = { ...prev };
-                    delete next[volId];
-                    return next;
-                });
-            }
+            // Snapshot dos ids do form antes do reload (ids temporários → reais)
+            const volumesBeforeReload = formVolumes;
 
             // Recarrega IDs reais (volume/item) para próximos saves/upserts
             const qs = new URLSearchParams({ embalagem_id: selected.id });
@@ -933,8 +937,9 @@ export default function ProdutosListaPage() {
                 credentials: "include",
             });
             const fullJson = await fullRes.json().catch(() => ({}));
+            let reloadedVols: FormVolume[] | null = null;
             if (fullRes.ok && fullJson?.product?.volumes) {
-                const vols: FormVolume[] = (fullJson.product.volumes as any[]).map((v: any) => {
+                reloadedVols = (fullJson.product.volumes as any[]).map((v: any) => {
                     const volEstoque = Number(v.estoque_atual ?? 0);
                     const volEstoqueMin = Number(v.estoque_minimo ?? 0);
                     return {
@@ -975,14 +980,46 @@ export default function ProdutosListaPage() {
                         }),
                     };
                 });
-                setFormVolumes(vols);
+                setFormVolumes(reloadedVols);
+            }
+
+            // Foto por item/sigla — após upsert (id real da embalagem)
+            const pendingItemId = opts?.itemIdForImage;
+            if (pendingItemId && itemImageFiles[pendingItemId] && selected.product_id) {
+                let embIdForUpload = pendingItemId;
+                // Se o id era temporário, resolve pelo código/sigla após reload
+                const stillExists = reloadedVols?.some((v) =>
+                    v.items.some((i) => i.id === pendingItemId)
+                );
+                if (!stillExists && reloadedVols) {
+                    const before = volumesBeforeReload
+                        .flatMap((v) => v.items.map((i) => ({ ...i, volId: v.id })))
+                        .find((i) => i.id === pendingItemId);
+                    const match = reloadedVols
+                        .flatMap((v) => v.items)
+                        .find(
+                            (i) =>
+                                before &&
+                                i.id_sigla_comercial === before.id_sigla_comercial &&
+                                i.codigo_interno === before.codigo_interno
+                        );
+                    if (match) embIdForUpload = match.id;
+                }
+                await uploadProductImage(selected.product_id, itemImageFiles[pendingItemId], {
+                    embalagemId: embIdForUpload,
+                });
+                setItemImageFiles((prev) => {
+                    const next = { ...prev };
+                    delete next[pendingItemId];
+                    return next;
+                });
             }
 
             await loadProductImages(selected.product_id);
             await load();
             setMsg("✓ Item salvo.");
 
-            if (opts?.closeOnSuccess !== false && !opts?.volumeIdForImage) {
+            if (opts?.closeOnSuccess !== false && !opts?.itemIdForImage) {
                 setOpen(false);
                 setSelected(null);
             }
@@ -1002,7 +1039,7 @@ export default function ProdutosListaPage() {
 
     async function saveItemWithImage(volId: string, itemId: string) {
         await persistProductEdit({
-            volumeIdForImage: volId,
+            itemIdForImage: itemId,
             closeOnSuccess: false,
             itemKey: `${volId}:${itemId}`,
         });
@@ -1245,9 +1282,9 @@ export default function ProdutosListaPage() {
                     {/* Foto do produto (nível produto, sem volume) */}
                     <div className="rounded-lg border border-zinc-100 p-4 dark:border-zinc-800">
                         <p className="mb-3 text-xs font-bold text-zinc-700 dark:text-zinc-300">Foto do produto <span className="font-normal text-zinc-400">(geral — aparece quando não há foto de embalagem)</span></p>
-                        {editImages.filter((i) => i.product_volume_id === null).length > 0 && (
+                        {editImages.filter((i) => !i.produto_embalagem_id && i.product_volume_id == null).length > 0 && (
                             <div className="mb-3 flex flex-wrap gap-3">
-                                {editImages.filter((i) => i.product_volume_id === null).map((img) => (
+                                {editImages.filter((i) => !i.produto_embalagem_id && i.product_volume_id == null).map((img) => (
                                     <div key={img.id} className="relative">
                                         <img
                                             src={img.thumbnail_url ?? img.url}
@@ -1284,7 +1321,7 @@ export default function ProdutosListaPage() {
                             <button
                                 type="button"
                                 disabled={imageUploading}
-                                onClick={() => selected && uploadProductImage(selected.product_id, imageFile, null)}
+                                onClick={() => selected && uploadProductImage(selected.product_id, imageFile, {})}
                                 className="mt-2 flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-60"
                             >
                                 {imageUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
@@ -1352,20 +1389,50 @@ export default function ProdutosListaPage() {
                                                 {vol.items.map((it) => {
                                                     const itemKey = `${vol.id}:${it.id}`;
                                                     const itemSaving = savingItemKey === itemKey;
-                                                    const pendingVolFile = volumeImageFiles[vol.id];
+                                                    const pendingItemFile = itemImageFiles[it.id];
+                                                    const embImg =
+                                                        editImages.find(
+                                                            (i) =>
+                                                                i.produto_embalagem_id === it.id &&
+                                                                i.is_primary
+                                                        ) ||
+                                                        editImages.find(
+                                                            (i) => i.produto_embalagem_id === it.id
+                                                        );
                                                     const volImg =
-                                                        editImages.find((i) => i.product_volume_id === vol.id && i.is_primary) ||
-                                                        editImages.find((i) => i.product_volume_id === vol.id);
+                                                        editImages.find(
+                                                            (i) =>
+                                                                !i.produto_embalagem_id &&
+                                                                i.product_volume_id === vol.id &&
+                                                                i.is_primary
+                                                        ) ||
+                                                        editImages.find(
+                                                            (i) =>
+                                                                !i.produto_embalagem_id &&
+                                                                i.product_volume_id === vol.id
+                                                        );
                                                     const prodImg =
-                                                        editImages.find((i) => i.product_volume_id == null && i.is_primary) ||
-                                                        editImages.find((i) => i.product_volume_id == null);
-                                                    const avatarSrc = pendingVolFile
-                                                        ? URL.createObjectURL(pendingVolFile)
-                                                        : volImg
-                                                          ? (volImg.thumbnail_url ?? volImg.url)
-                                                          : prodImg
-                                                            ? (prodImg.thumbnail_url ?? prodImg.url)
-                                                            : null;
+                                                        editImages.find(
+                                                            (i) =>
+                                                                !i.produto_embalagem_id &&
+                                                                i.product_volume_id == null &&
+                                                                i.is_primary
+                                                        ) ||
+                                                        editImages.find(
+                                                            (i) =>
+                                                                !i.produto_embalagem_id &&
+                                                                i.product_volume_id == null
+                                                        );
+                                                    const boundImg = embImg || volImg || null;
+                                                    const avatarSrc = pendingItemFile
+                                                        ? URL.createObjectURL(pendingItemFile)
+                                                        : embImg
+                                                          ? (embImg.thumbnail_url ?? embImg.url)
+                                                          : volImg
+                                                            ? (volImg.thumbnail_url ?? volImg.url)
+                                                            : prodImg
+                                                              ? (prodImg.thumbnail_url ?? prodImg.url)
+                                                              : null;
                                                     return (
                                                     <div
                                                         key={it.id}
@@ -1387,21 +1454,23 @@ export default function ProdutosListaPage() {
                                                                 </div>
                                                                 <label className="flex cursor-pointer items-center gap-0.5 text-[9px] font-semibold text-violet-700 dark:text-violet-300">
                                                                     <Camera className="h-3 w-3" />
-                                                                    {pendingVolFile ? "trocar" : "foto"}
+                                                                    {pendingItemFile ? "trocar" : "foto"}
                                                                     <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                                                                         onChange={(e) => {
                                                                             const f = e.target.files?.[0];
-                                                                            if (f) setVolumeImageFiles((prev) => ({ ...prev, [vol.id]: f }));
+                                                                            if (f) setItemImageFiles((prev) => ({ ...prev, [it.id]: f }));
                                                                         }}
                                                                     />
                                                                 </label>
-                                                                {volImg && selected && (
-                                                                    <button type="button" onClick={() => deleteProductImage(volImg.id, selected.product_id)} className="text-[9px] text-red-500">remover</button>
+                                                                {boundImg && selected && (
+                                                                    <button type="button" onClick={() => deleteProductImage(boundImg.id, selected.product_id)} className="text-[9px] text-red-500">remover</button>
                                                                 )}
                                                                 <p className="text-center text-[8px] leading-tight text-zinc-400">
-                                                                    {volImg || pendingVolFile
-                                                                        ? "foto deste tamanho"
-                                                                        : "usa foto do produto"}
+                                                                    {embImg || pendingItemFile
+                                                                        ? "foto desta sigla"
+                                                                        : volImg
+                                                                          ? "foto do tamanho"
+                                                                          : "usa foto do produto"}
                                                                 </p>
                                                             </div>
                                                             <div className="min-w-0 flex-1">
@@ -1509,7 +1578,7 @@ export default function ProdutosListaPage() {
                                                                 )}
                                                                 {itemSaving
                                                                     ? "Salvando…"
-                                                                    : pendingVolFile
+                                                                    : pendingItemFile
                                                                       ? "Salvar item + foto"
                                                                       : "Salvar item"}
                                                             </button>
@@ -1612,7 +1681,7 @@ export default function ProdutosListaPage() {
                         <button onClick={() => { setOpen(false); setSelected(null); }} className="rounded-lg border border-zinc-200 px-4 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300">Cancelar</button>
                     </div>
                     <p className="text-[11px] text-zinc-400">
-                        Use <span className="font-semibold">Salvar item</span> para dados + foto do tamanho.
+                        Use <span className="font-semibold">Salvar item + foto</span> — cada sigla (UN/CX) tem foto própria.
                         Item <span className="font-semibold">Inativo</span> some do PDV/chat/cardápio.
                         Produto já vendido não é apagado — só desativa.
                     </p>
