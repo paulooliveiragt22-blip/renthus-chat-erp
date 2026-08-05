@@ -1,14 +1,17 @@
 /**
  * app/api/chatbot/process-queue/route.ts
  *
- * Cron: processa jobs pendentes da chatbot_queue.
- * Chamado a cada minuto pelo Vercel Cron.
+ * Worker da chatbot_queue. Gatilhos:
+ *   - Wake imediato pós-enqueue (`incoming`)
+ *   - Self-wake ao drenar batch cheio (pico)
+ *   - Scheduler externo (cron-job.org ≈1 min) + Vercel Cron diário (backup)
  *
- * Fluxo por job:
- *   1. Claim atômico (status pending → processing)
- *   2. Verifica bot_active (fresh) + handover timeout configurável
- *   3. Chama processInboundMessage
- *   4. Marca done ou failed
+ * Fluxo por invocação:
+ *   0. Reclaim jobs `processing` stuck
+ *   1. Claim atômico (pending → processing)
+ *   2. processInboundMessage por job
+ *   3. done / failed / retry
+ *   4. Self-wake se ainda houver pending
  *   5. Limpa jobs > 24h
  */
 
@@ -16,6 +19,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { interleaveQueueJobsByCompany } from "@/lib/chatbot/interleaveQueueJobsByCompany";
+import { scheduleQueueWorkerWake } from "@/lib/chatbot/queueWorkerWake";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
@@ -25,9 +29,30 @@ export const maxDuration = 60;
 
 const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 3;
-const INBOUND_COALESCE_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
 /** Em produção nunca usar claim best-effort: duplo processamento entre instâncias. */
 const ALLOW_CLAIM_FALLBACK = process.env.NODE_ENV !== "production";
+
+function getPositiveIntEnv(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 1) return fallback;
+    return Math.floor(value);
+}
+
+const STALE_PROCESSING_MINUTES = getPositiveIntEnv("CHATBOT_QUEUE_STALE_MINUTES", 3);
+const INBOUND_COALESCE_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
+
+function parseDrainDepth(req: Request): number {
+    try {
+        const url = new URL(req.url);
+        const raw = Number(url.searchParams.get("drain") ?? "0");
+        if (!Number.isFinite(raw) || raw < 0) return 0;
+        return Math.floor(raw);
+    } catch {
+        return 0;
+    }
+}
 
 const REACTIVATE_MSG =
     "😔 No momento não há atendentes disponíveis.\n" +
@@ -41,6 +66,29 @@ export async function GET(req: Request) {
 
     const admin = createAdminClient();
     const t0 = Date.now();
+    const drainDepth = parseDrainDepth(req);
+
+    // ── 0. Reclaim stuck processing (timeout serverless / crash) ─────────────
+    let reclaimed = 0;
+    try {
+        const { data: reclaimCount, error: reclaimErr } = await admin.rpc(
+            "reclaim_stuck_chatbot_queue_jobs",
+            { stale_minutes: STALE_PROCESSING_MINUTES }
+        );
+        if (reclaimErr) {
+            console.warn("[process-queue] reclaim_stuck:", reclaimErr.message);
+        } else {
+            reclaimed = Number(reclaimCount ?? 0) || 0;
+            if (reclaimed > 0) {
+                console.info("[process-queue] reclaimed stuck jobs", { reclaimed });
+            }
+        }
+    } catch (err: unknown) {
+        console.warn(
+            "[process-queue] reclaim_stuck failed:",
+            err instanceof Error ? err.message : err
+        );
+    }
 
     // ── 1. Claim jobs atomicamente via RPC ────────────────────────────────────
     // Atomic: UPDATE ... WHERE status='pending' AND attempts < MAX_ATTEMPTS
@@ -56,9 +104,22 @@ export async function GET(req: Request) {
 
     const jobIds: string[] = (claimed ?? []).map((r: any) => r.id);
     if (!jobIds.length) {
+        // Reclaimou mas outro worker claimou na frente → tenta de novo via wake
+        if (reclaimed > 0) {
+            scheduleQueueWorkerWake({
+                drainDepth: drainDepth + 1,
+                reason: "post_reclaim_empty_claim",
+            });
+        }
         await cleanupOldJobs(admin);
-        await emitQueueMetrics({ processed: 0, failed: 0, coalesced: 0 });
-        return NextResponse.json({ ok: true, processed: 0, ms: Date.now() - t0 });
+        await emitQueueMetrics({ processed: 0, failed: 0, coalesced: 0, reclaimed });
+        return NextResponse.json({
+            ok: true,
+            processed: 0,
+            reclaimed,
+            drainDepth,
+            ms: Date.now() - t0,
+        });
     }
 
     // Busca detalhes dos jobs claimados
@@ -132,13 +193,35 @@ export async function GET(req: Request) {
     }
 
     await cleanupOldJobs(admin);
-    await emitQueueMetrics({ processed, failed, coalesced });
+
+    // Self-wake: batch cheio ⇒ provavelmente ainda há pending (pico fim de semana)
+    let continued = false;
+    if (jobIds.length >= BATCH_SIZE) {
+        const { count: pendingLeft } = await admin
+            .from("chatbot_queue")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "pending")
+            .lt("attempts", MAX_ATTEMPTS);
+        if ((pendingLeft ?? 0) > 0) {
+            scheduleQueueWorkerWake({
+                drainDepth: drainDepth + 1,
+                reason: "self_drain",
+            });
+            continued = true;
+        }
+    }
+
+    await emitQueueMetrics({ processed, failed, coalesced, reclaimed });
 
     return NextResponse.json({
         ok: true,
         processed,
         coalesced,
         failed,
+        reclaimed,
+        claimed: jobIds.length,
+        drainDepth,
+        continued,
         ms: Date.now() - t0,
     });
 }
@@ -480,18 +563,16 @@ async function hasRecentEquivalentProcessed(
     return false;
 }
 
-function getPositiveIntEnv(name: string, fallback: number): number {
-    const raw = process.env[name];
-    if (!raw) return fallback;
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value < 1) return fallback;
-    return Math.floor(value);
-}
-
-async function emitQueueMetrics(counts: { processed: number; failed: number; coalesced: number }) {
+async function emitQueueMetrics(counts: {
+    processed: number;
+    failed: number;
+    coalesced: number;
+    reclaimed?: number;
+}) {
     const payload = {
         source: "chatbot_process_queue",
         ts: Date.now(),
+        reclaimed: 0,
         ...counts,
     };
 

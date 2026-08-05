@@ -24,6 +24,7 @@ import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 
 export const runtime = "nodejs";
 const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
@@ -88,56 +89,13 @@ function getPositiveIntEnv(name: string, fallback: number): number {
 }
 
 /**
- * Base URL para o wake HTTP do worker (`GET /api/chatbot/process-queue`).
- * Ordem: `CHATBOT_QUEUE_WAKE_URL` → `APP_INTERNAL_URL` → `NEXT_PUBLIC_APP_URL` → `VERCEL_URL` (só em deploy Vercel).
- */
-function resolveQueueWorkerWakeOrigin(): string | null {
-    const direct =
-        process.env.CHATBOT_QUEUE_WAKE_URL?.trim() ||
-        process.env.APP_INTERNAL_URL?.trim() ||
-        process.env.NEXT_PUBLIC_APP_URL?.trim();
-    if (direct) {
-        const trimmed = direct.replace(/\/+$/, "");
-        if (/^https?:\/\//i.test(trimmed)) return trimmed;
-        return `https://${trimmed}`;
-    }
-    const vercel = process.env.VERCEL_URL?.trim();
-    if (!vercel) return null;
-    const host = vercel.replace(/^https?:\/\//, "").split("/")[0]?.replace(/\/+$/, "") ?? "";
-    return host ? `https://${host}` : null;
-}
-
-/**
- * Agenda `GET /api/chatbot/process-queue` após a resposta ao Meta (`after()`), para não depender só do scheduler.
+ * Agenda `GET /api/chatbot/process-queue` após a resposta ao Meta (`after()`).
+ * Rede de segurança: cron-job.org (≈1 min) + reclaim/self-wake no worker.
  */
 function scheduleQueueWorkerWake(): void {
     if (!CHATBOT_QUEUE_WAKE_ENABLED) return;
-
-    const origin = resolveQueueWorkerWakeOrigin();
-    const secret = process.env.CRON_SECRET?.trim();
-    if (!origin || !secret) {
-        if (process.env.NODE_ENV === "development") {
-            console.warn(
-                "[wa/incoming] wake skipped: define CRON_SECRET e uma base URL " +
-                    "(CHATBOT_QUEUE_WAKE_URL | APP_INTERNAL_URL | NEXT_PUBLIC_APP_URL ou deploy na Vercel com VERCEL_URL)"
-            );
-        }
-        return;
-    }
-
-    const url = `${origin}/api/chatbot/process-queue`;
-    after(async () => {
-        try {
-            const res = await fetch(url, {
-                method: "GET",
-                headers: { authorization: `Bearer ${secret}` },
-            });
-            if (!res.ok) {
-                console.warn("[wa/incoming] wake HTTP", res.status, res.statusText);
-            }
-        } catch (err: unknown) {
-            console.warn("[wa/incoming] wake fetch failed:", err instanceof Error ? err.message : err);
-        }
+    after(() => {
+        scheduleQueueWorkerWakeShared({ reason: "inbound_enqueue" });
     });
 }
 

@@ -31,7 +31,24 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 | **Caminho feliz** | **Wake imediato** após enqueue (HTTP interno assíncrono / fire-and-forget para `process-queue` com o mesmo `CRON_SECRET`) para não depender do próximo tick do scheduler. |
 | **Rede de segurança** | **Scheduler** (Vercel Cron quando o plano permitir frequência útil, ou serviço externo no Hobby) para jobs presos, falhas intermitentes do wake, ou burst. |
 
-*Estado da implementação:* wake pós-enqueue está em `app/api/whatsapp/incoming/route.ts` via `after()` → `GET /api/chatbot/process-queue` com `Authorization: Bearer <CRON_SECRET>`. O scheduler externo/cron continua como **rede de segurança**. Desligar: `CHATBOT_QUEUE_WAKE_ENABLED=0`.
+*Estado da implementação:*
+- Wake pós-enqueue: `incoming` → `after()` → `lib/chatbot/queueWorkerWake.ts` → `GET /api/chatbot/process-queue` (`Bearer CRON_SECRET`).
+- Self-wake (pico): worker drena batch cheio e agenda outra invocação (`?drain=N`, teto `CHATBOT_QUEUE_DRAIN_MAX`, default 5).
+- Reclaim: RPC `reclaim_stuck_chatbot_queue_jobs` devolve `processing` stuck (> `CHATBOT_QUEUE_STALE_MINUTES`, default 3) para `pending`.
+- Desligar wake: `CHATBOT_QUEUE_WAKE_ENABLED=0`.
+
+### Scheduler externo (cron-job.org) — rede de segurança obrigatória no Hobby
+
+O cron nativo em `vercel.json` para `process-queue` está em **`0 3 * * *` (1×/dia)** — só backup terciário. No Hobby a frequência útil é o **cron-job.org** (ou equivalente).
+
+| Campo | Valor esperado |
+|-------|----------------|
+| URL | `GET https://<seu-app>/api/chatbot/process-queue` (ex. `CHATBOT_QUEUE_WAKE_URL`) |
+| Auth | Header `Authorization: Bearer <CRON_SECRET>` (mesmo secret do `.env`) |
+| Cadência | **a cada 1 minuto** (recomendado para fim de semana) |
+| Papel | Cobre falha do wake, burst e jobs reclaimados |
+
+Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos últimos runs. Sem isso, picos de sábado dependem só do wake pós-mensagem (e se um wake falhar, a fila envelhece).
 
 ---
 
