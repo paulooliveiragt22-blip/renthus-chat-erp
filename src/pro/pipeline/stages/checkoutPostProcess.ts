@@ -514,10 +514,11 @@ export function checkoutPostProcess(params: {
         );
     }
     // Clarificação de produto: uma UI só (servidor), mesmo com draft parcial multi-item
+    // (também em Corrigir/Adicionar com hold — step fica collecting).
     if (
-        params.mode === "ai" &&
         !showAddressRegistrationPrompt &&
         (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
+        (params.mode === "ai" || nextState.checkoutEditHold === true) &&
         nextState.step !== "pro_awaiting_confirmation"
     ) {
         const clarify = buildClarificationButtons(nextState.lastSearchPicks ?? []);
@@ -559,6 +560,16 @@ export function checkoutPostProcess(params: {
     }
 
     outbound.push(...checkoutCards);
+
+    /** Rede de segurança: com picks pendentes, nunca terminar sem UI de escolha. */
+    if (
+        (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
+        !outbound.some((m) => m.kind === "buttons")
+    ) {
+        const clarify = buildClarificationButtons(nextState.lastSearchPicks ?? []);
+        if (clarify) outbound.push(clarify);
+    }
+
     return { state: nextState, outbound: prioritizeInteractiveFirst(outbound) };
 }
 

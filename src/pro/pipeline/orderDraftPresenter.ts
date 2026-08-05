@@ -66,10 +66,18 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
 
 /** Lista numerada para clarificação de produto (body dos botões). */
 export function formatSearchPicksClarificationBody(
-    picks: Array<{ embalagemId: string; label: string; price?: number | null }>
+    picks: Array<{ embalagemId: string; label: string; price?: number | null }>,
+    opts?: { productHint?: string | null }
 ): string {
     const top = picks.slice(0, 3);
-    const lines = ["Qual opcao voce quer?", ""];
+    const hint = String(opts?.productHint ?? "")
+        .replaceAll(/\s+/g, " ")
+        .trim()
+        .slice(0, 40);
+    const headline = hint
+        ? `Qual opcao de ${hint} voce quer?`
+        : "Qual opcao voce quer?";
+    const lines = [headline, ""];
     top.forEach((p, i) => {
         const label = String(p.label ?? `Opcao ${i + 1}`).replaceAll(/\s+/g, " ").trim();
         const price =

@@ -47,9 +47,9 @@ export async function botSendButtons(
     body: string,
     buttons: { id: string; title: string }[],
     waConfig?: WaConfig
-): Promise<void> {
+): Promise<{ ok: boolean; messageId?: string; error?: string }> {
     /** Uma só bolha: o interactive já leva o corpo; texto duplicado quebrava UX no WhatsApp. */
-    await _sendInteractiveButtons(phoneE164, body, buttons, waConfig);
+    return _sendInteractiveButtons(phoneE164, body, buttons, waConfig);
 }
 
 // ─── Lista interativa ──────────────────────────────────────────────────────────

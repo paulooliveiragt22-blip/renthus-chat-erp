@@ -29,6 +29,7 @@ export class WhatsAppMessageGateway implements MessageGateway {
     async send(tenant: TenantRef, message: OutboundMessage): Promise<void> {
         if (message.kind === "text") {
             const text = message.text ?? "";
+            if (!text.trim()) return;
             if (await this.isRecentDuplicateText(tenant, text)) return;
             await botReply(this.admin, tenant.companyId, tenant.threadId, tenant.phoneE164, text);
             return;
@@ -36,16 +37,24 @@ export class WhatsAppMessageGateway implements MessageGateway {
 
         if (message.kind === "buttons") {
             const text = message.text ?? "Como posso ajudar?";
-            if (await this.isRecentDuplicateText(tenant, text)) return;
-            await botSendButtons(
+            const buttons = message.buttons ?? [];
+            /**
+             * Não deduplicar só pelo body: clarificações repetem "Qual opcao..."
+             * com botões diferentes (Heineken → salgadinho → trezentinha).
+             */
+            if (!buttons.length) return;
+            const result = await botSendButtons(
                 this.admin,
                 tenant.companyId,
                 tenant.threadId,
                 tenant.phoneE164,
                 text,
-                message.buttons ?? [],
+                buttons,
                 this.waConfig
             );
+            if (result && result.ok === false) {
+                throw new Error(`whatsapp_buttons_failed: ${result.error ?? "unknown"}`);
+            }
             return;
         }
 

@@ -54,4 +54,15 @@ describe("orderDraftPresenter", () => {
         assert.match(body, /1\) UN — R\$ 10,00/);
         assert.match(body, /numero/i);
     });
+
+    it("clarificação com hint do produto", () => {
+        const body = formatSearchPicksClarificationBody(
+            [
+                { embalagemId: "a", label: "UN", price: 5 },
+                { embalagemId: "b", label: "CX", price: 90 },
+            ],
+            { productHint: "trezentinha" }
+        );
+        assert.match(body, /Qual opcao de trezentinha/i);
+    });
 });

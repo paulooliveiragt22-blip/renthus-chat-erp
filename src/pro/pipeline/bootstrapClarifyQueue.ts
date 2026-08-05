@@ -7,13 +7,14 @@ export type BootstrapPendingClarification = NonNullable<
 >[number];
 
 function buildClarifyOutbound(
-    picks: Array<{ embalagemId: string; label: string; price?: number | null }>
+    picks: Array<{ embalagemId: string; label: string; price?: number | null }>,
+    productHint?: string | null
 ): OutboundMessage | null {
     const top = picks.slice(0, 3);
     if (top.length < 2) return null;
     return {
         kind: "buttons",
-        text: formatSearchPicksClarificationBody(top),
+        text: formatSearchPicksClarificationBody(top, { productHint }),
         buttons: top.map((p, i) => ({
             id: `${PICK_EMB_PREFIX}${p.embalagemId}`,
             title: String(p.label ?? `Opcao ${i + 1}`)
@@ -37,7 +38,7 @@ export function dequeueBootstrapClarification(state: ProSessionState): {
     }
     const next = queue.shift()!;
     const picks = (next.picks ?? []).slice(0, 3);
-    const clarify = buildClarifyOutbound(picks);
+    const clarify = buildClarifyOutbound(picks, next.segment);
     if (!clarify) {
         return dequeueBootstrapClarification({
             ...state,

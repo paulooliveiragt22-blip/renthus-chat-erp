@@ -280,7 +280,7 @@ export async function runProPipeline(
         !input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) &&
         parseProductPickIndex(input.inboundText) == null &&
         parseMultiItemOrderSegments(input.inboundText).length >= 1 &&
-        !(stateBeforePick.draft?.items?.length)
+        (!(stateBeforePick.draft?.items?.length) || stateBeforePick.checkoutEditHold === true)
     ) {
         try {
             const boot = await tryServerBootstrapOrderFromText({

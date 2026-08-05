@@ -34,6 +34,11 @@ describe("parseMultiItemOrderSegments", () => {
         assert.ok(segs.some((s) => /heineken/i.test(s)));
         assert.ok(segs.some((s) => /hamburguer|salgadinho/i.test(s)));
     });
+
+    it("Adicionar: quero tambem uma trezentinha → segmento limpo", () => {
+        const segs = parseMultiItemOrderSegments("quero também uma trezentinha");
+        assert.deepEqual(segs, ["trezentinha"]);
+    });
 });
 
 describe("stripInternalCatalogIdsFromCustomerText", () => {

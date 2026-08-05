@@ -13,7 +13,7 @@ function normalizePt(text: string): string {
 }
 
 const LEAD_IN =
-    /^(?:ola|oi|bom\s+dia|boa\s+tarde|boa\s+noite)?\s*(?:[,!]?\s*)?(?:quero|queria|manda|pode|preciso|me\s+traz)?\s*/u;
+    /^(?:ola|oi|bom\s+dia|boa\s+tarde|boa\s+noite)?\s*(?:[,!]?\s*)?(?:quero|queria|manda|pode|preciso|me\s+traz)?\s*(?:tambem|também)?\s*/u;
 
 const NOISE_PHRASES =
     /\b(?:no\s+mesmo\s+endereco(?:\s+de\s+sempre)?|endereco\s+de\s+sempre|pagamento\s+no\s+\w+|pagando\s+(?:no|em)\s+\w+|via\s+(?:pix|cartao|dinheiro))\b/giu;
@@ -31,7 +31,12 @@ export function parseMultiItemOrderSegments(text: string): string[] {
     // Separadores: vírgula, " e ", " mais "
     const rough = t
         .split(/\s*,\s*|\s+e\s+|\s+mais\s+/u)
-        .map((s) => s.replace(/^(?:um|uma|uns|umas|o|a|os|as)\s+/u, "").trim())
+        .map((s) =>
+            s
+                .replace(/^(?:tambem|também)\s+/u, "")
+                .replace(/^(?:um|uma|uns|umas|o|a|os|as)\s+/u, "")
+                .trim()
+        )
         .filter((s) => s.length >= 3);
 
     // Filtra ruído residual
