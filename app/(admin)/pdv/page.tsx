@@ -14,6 +14,7 @@ import {
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
+import { looksLikeScanCode, normalizeScanDigits } from "@/lib/pdv/scanCode";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,27 @@ interface PendingOrder {
   created_at: string;
   source: string | null;
   channel: string | null;
+}
+
+function mapPdvRowToVariant(r: Record<string, unknown>): Variant {
+  const sigla = String(r.sigla_comercial ?? "UN").toUpperCase();
+  return {
+    id: String(r.id),
+    produto_id: String(r.produto_id),
+    product_name: String(r.product_name ?? "Produto"),
+    category: String(r.category_name ?? "Geral"),
+    sigla_comercial: sigla,
+    sigla_humanizada: String(r.sigla_humanizada ?? sigla),
+    volume_formatado: r.volume_formatado != null ? String(r.volume_formatado) : null,
+    fator_conversao: Number(r.fator_conversao ?? 1),
+    unit_price: Number(r.preco_venda ?? 0),
+    codigo_interno: r.codigo_interno != null ? String(r.codigo_interno) : null,
+    codigo_barras_ean: r.codigo_barras_ean != null ? String(r.codigo_barras_ean) : null,
+    details: r.descricao != null ? String(r.descricao) : null,
+    tags: r.tags != null ? String(r.tags) : null,
+    is_active: true,
+    sales_count: Number(r.sales_count ?? 0),
+  };
 }
 
 const PAY: Record<PayMethod, { label:string; icon:React.ElementType; color:string; bg:string; prazo?:boolean }> = {
@@ -192,30 +214,8 @@ export default function PDVPage() {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) console.error("[pdv] loadVariants:", json?.error ?? res.statusText);
 
-    const rows = (json.rows ?? []) as any[];
-    setVariants(rows.map((r: any) => {
-      const sigla = String(r.sigla_comercial ?? "UN").toUpperCase();
-      return {
-        id: String(r.id),
-        produto_id: String(r.produto_id),
-        product_name: r.product_name ?? "Produto",
-        category: r.category_name ?? "Geral",
-
-        sigla_comercial: sigla,
-        sigla_humanizada: r.sigla_humanizada ?? sigla,
-        volume_formatado: r.volume_formatado ?? null,
-        fator_conversao: Number(r.fator_conversao ?? 1),
-        unit_price: Number(r.preco_venda ?? 0),
-
-        codigo_interno: r.codigo_interno ?? null,
-        codigo_barras_ean: r.codigo_barras_ean ?? null,
-
-        details: r.descricao ?? null,
-        tags: r.tags ?? null,
-        is_active: true,
-        sales_count: Number(r.sales_count ?? 0),
-      };
-    }));
+    const rows = (json.rows ?? []) as Record<string, unknown>[];
+    setVariants(rows.map((r) => mapPdvRowToVariant(r)));
     setLoadingProd(false);
   }, [companyId]);
 
@@ -428,23 +428,30 @@ export default function PDVPage() {
   );
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    const list = variants.filter(v => {
+    const qRaw = search.trim();
+    const q = qRaw.toLowerCase();
+    const list = variants.filter((v) => {
       const mc = activeCat === "Todos" || v.category === activeCat;
       if (!q) return mc;
 
-      const qDigits = q.replaceAll(/\D/g, "");
-      const internalOk = Boolean(v.codigo_interno) && String(v.codigo_interno).toLowerCase().includes(q);
-      const eanRaw = v.codigo_barras_ean ?? "";
-      const eanDigits = String(eanRaw).replaceAll(/\D/g, "");
-      const eanOk = qDigits.length >= 8 && eanDigits && eanDigits === qDigits;
+      // Bipagem: só match exato de código interno ou EAN (embalagem certa).
+      if (looksLikeScanCode(qRaw)) {
+        const qDigits = normalizeScanDigits(qRaw);
+        const internalOk =
+          Boolean(v.codigo_interno) && String(v.codigo_interno).toLowerCase() === q;
+        const eanDigits = normalizeScanDigits(String(v.codigo_barras_ean ?? ""));
+        const eanOk = qDigits.length >= 4 && eanDigits.length > 0 && eanDigits === qDigits;
+        return mc && (internalOk || eanOk);
+      }
 
+      const internalOk =
+        Boolean(v.codigo_interno) && String(v.codigo_interno).toLowerCase().includes(q);
       const textOk =
         v.product_name.toLowerCase().includes(q) ||
         (v.details?.toLowerCase().includes(q) ?? false) ||
         (v.tags?.toLowerCase().includes(q) ?? false);
 
-      return mc && (internalOk || eanOk || textOk);
+      return mc && (internalOk || textOk);
     });
     return [...list].sort((a, b) => (b.sales_count ?? 0) - (a.sales_count ?? 0));
   }, [variants, search, activeCat]);
@@ -472,8 +479,51 @@ export default function PDVPage() {
 
   const rmFromCart = useCallback((id: string) => setCart(p => p.filter(i => i.variant.id !== id)), []);
 
-  const handleEnter = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && filtered.length > 0) addToCart(filtered[0]);
+  const scanningRef = useRef(false);
+
+  const handleEnter = async (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const qRaw = search.trim();
+    if (!qRaw || scanningRef.current) return;
+
+    // Bip: consulta API por match exato (codigo_interno / EAN → embalagem).
+    if (looksLikeScanCode(qRaw)) {
+      scanningRef.current = true;
+      try {
+        const localExact = filtered.find(
+          (v) =>
+            (v.codigo_interno && v.codigo_interno.toLowerCase() === qRaw.toLowerCase()) ||
+            (normalizeScanDigits(String(v.codigo_barras_ean ?? "")) === normalizeScanDigits(qRaw) &&
+              normalizeScanDigits(qRaw).length >= 4)
+        );
+        if (localExact) {
+          addToCart(localExact);
+          setSearch("");
+          return;
+        }
+        const res = await fetch(
+          `/api/admin/pdv/products?code=${encodeURIComponent(qRaw)}`,
+          { credentials: "include", cache: "no-store" }
+        );
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.match) {
+          const v = mapPdvRowToVariant(json.match as Record<string, unknown>);
+          addToCart(v);
+          setVariants((prev) => (prev.some((x) => x.id === v.id) ? prev : [...prev, v]));
+          setSearch("");
+          return;
+        }
+      } finally {
+        scanningRef.current = false;
+      }
+      return;
+    }
+
+    if (filtered.length > 0) {
+      addToCart(filtered[0]);
+      setSearch("");
+    }
   };
 
   // ── payments ─────────────────────────────────────────────────────────────
