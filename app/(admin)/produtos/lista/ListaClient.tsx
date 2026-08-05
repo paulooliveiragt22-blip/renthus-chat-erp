@@ -379,75 +379,82 @@ export default function ProdutosListaPage() {
     async function load() {
         if (!companyId) { setLoading(false); return; }
         setLoading(true); setMsg(null);
-        const [prodRes, catRes] = await Promise.all([
-            supabase.from("view_produtos_lista")
-                .select("*")
-                .eq("company_id", companyId)
-                .limit(500),
-            supabase.from("view_categories")
-                .select("id, name")
-                .eq("is_active", true)
-                .eq("company_id", companyId)
-                .order("name"),
-        ]);
-
-        if (prodRes.error) {
-            setMsg(`Erro: ${prodRes.error?.message ?? ""}`);
-            setLoading(false);
-            return;
-        }
-
-        setRows(normalizeRowsFromView(prodRes.data));
-        if (!catRes.error) setCategories(((catRes.data ?? []) as any[]).map((c) => ({
-            id: String(c.id),
-            name: typeof c.name === "string" ? c.name : "",
-        })));
-
-        const [{ data: siglasData }, { data: unitTypesData }] = await Promise.all([
-            supabase.from("view_siglas_comerciais").select("id, sigla").eq("company_id", companyId),
-            supabase.from("view_unit_types").select("id, sigla").eq("company_id", companyId),
-        ]);
-        if (siglasData?.length) {
-            const mappedSiglas = (siglasData as any[]).map((s) => ({
+        try {
+            const res = await fetch("/api/admin/products", { credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMsg(`Erro: ${String(json?.error ?? "falha ao carregar")}`);
+                setLoading(false);
+                return;
+            }
+            setRows(normalizeRowsFromView(json.rows));
+            setCategories(
+                ((json.categories ?? []) as Category[]).map((c) => ({
+                    id: String(c.id),
+                    name: typeof c.name === "string" ? c.name : "",
+                }))
+            );
+            const mappedSiglas = ((json.siglas ?? []) as { id: string; sigla: string }[]).map((s) => ({
                 id: String(s.id),
                 sigla: String(s.sigla ?? "").toUpperCase(),
             }));
-            setSiglas(mappedSiglas);
-            const cx = mappedSiglas.find((s) => s.sigla === "CX");
-            if (cx) {
-                setSiglaExtraId((prev) => prev ?? cx.id);
+            if (mappedSiglas.length) {
+                setSiglas(mappedSiglas);
+                const cx = mappedSiglas.find((s) => s.sigla === "CX");
+                if (cx) setSiglaExtraId((prev) => prev ?? cx.id);
             }
+            setUnitTypes(
+                ((json.unitTypes ?? []) as { id: string; sigla: string }[]).map((u) => ({
+                    id: String(u.id),
+                    sigla: String(u.sigla ?? ""),
+                }))
+            );
+        } catch (e: any) {
+            setMsg(`Erro: ${String(e?.message ?? e)}`);
+        } finally {
+            setLoading(false);
         }
-        if (unitTypesData?.length) {
-            setUnitTypes((unitTypesData as any[]).map((u) => ({ id: String(u.id), sigla: String(u.sigla ?? "") })));
-        }
-        setLoading(false);
     }
 
     async function reloadCategories() {
         if (!companyId) return;
-        const { data } = await supabase.from("view_categories").select("id, name").eq("is_active", true).eq("company_id", companyId).order("name");
-        if (data) setCategories((data as any[]).map((c) => ({
-            id: String(c.id),
-            name: typeof c.name === "string" ? c.name : "",
-        })));
+        try {
+            const res = await fetch("/api/admin/products/categories", { credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) return;
+            setCategories(
+                ((json.categories ?? []) as Category[]).map((c) => ({
+                    id: String(c.id),
+                    name: typeof c.name === "string" ? c.name : "",
+                }))
+            );
+        } catch {
+            /* ignore */
+        }
     }
 
     async function quickCreateSigla(sigla: string, descricao: string) {
         if (!sigla.trim() || !companyId) return null;
-        const { data, error } = await supabase.rpc("rpc_create_sigla", {
-            p_company_id: companyId,
-            p_sigla: sigla.trim(),
-            p_descricao: descricao.trim() || null,
-        });
-        if (error) {
-            setMsg(`Erro: ${error.message}`);
+        try {
+            const res = await fetch("/api/admin/products/siglas", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sigla: sigla.trim(), descricao: descricao.trim() || null }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMsg(`Erro: ${String(json?.error ?? "falha ao criar sigla")}`);
+                return null;
+            }
+            const created = { id: String(json.id), sigla: String(json.sigla ?? sigla.trim().toUpperCase()) };
+            setSiglas((prev) => [...prev, created]);
+            if (!siglaExtraId) setSiglaExtraId(created.id);
+            return created.id;
+        } catch (e: any) {
+            setMsg(`Erro: ${String(e?.message ?? e)}`);
             return null;
         }
-        const created = { id: String(data), sigla: sigla.trim().toUpperCase() };
-        setSiglas((prev) => [...prev, created]);
-        if (!siglaExtraId) setSiglaExtraId(created.id);
-        return created.id;
     }
 
     useEffect(() => { load(); }, [companyId]);
@@ -520,12 +527,23 @@ export default function ProdutosListaPage() {
 
     async function searchProductsByName(q: string) {
         if (!companyId) return;
-        const { data } = await supabase.rpc("rpc_search_products_by_name", {
-            p_company_id: companyId,
-            p_search: q.trim() || null,
-            p_limit: 15,
-        });
-        setProductNameOptions(((data ?? []) as { id: string; name: string }[]).map((r) => ({ id: r.id, name: r.name })));
+        try {
+            const qs = new URLSearchParams({ q: q.trim() });
+            const res = await fetch(`/api/admin/products/names?${qs}`, { credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setProductNameOptions([]);
+                return;
+            }
+            setProductNameOptions(
+                ((json.products ?? []) as { id: string; name: string }[]).map((r) => ({
+                    id: String(r.id),
+                    name: String(r.name ?? ""),
+                }))
+            );
+        } catch {
+            setProductNameOptions([]);
+        }
     }
 
     useEffect(() => {
@@ -638,10 +656,13 @@ export default function ProdutosListaPage() {
         setCodigoLoadingItemId(itemId);
         setMsg(null);
         try {
-            const { data, error } = await supabase.rpc("gerar_proximo_codigo_interno", { p_company_id: companyId });
-            if (error) throw new Error(error.message);
-            const codigo = String(data ?? "");
-            setFormVolumes((prev) => mapVolumesApplyCodigo(prev, itemId, codigo));
+            const res = await fetch("/api/admin/products/next-codigo", {
+                method: "POST",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(String(json?.error ?? "falha ao gerar código"));
+            setFormVolumes((prev) => mapVolumesApplyCodigo(prev, itemId, String(json.codigo ?? "")));
         } catch (e: any) {
             setMsg(`Erro ao gerar código: ${String(e?.message ?? e)}`);
         } finally {
@@ -663,9 +684,25 @@ export default function ProdutosListaPage() {
 
     async function toggleActive(row: Row) {
         const next = !row.is_active;
-        setRows((prev) => prev.map((r) => r.id === row.id ? { ...r, is_active: next } : r));
-        await supabase.rpc("rpc_toggle_product_active", { p_product_id: row.product_id, p_company_id: companyId, p_is_active: next });
-        flashRow(row.id);
+        setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, is_active: next } : r)));
+        try {
+            const res = await fetch(`/api/admin/products/${row.product_id}`, {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ toggle_only: true, is_active: next }),
+            });
+            if (!res.ok) {
+                const json = await res.json().catch(() => ({}));
+                setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, is_active: !next } : r)));
+                setMsg(`Erro: ${String(json?.error ?? "falha ao atualizar status")}`);
+                return;
+            }
+            flashRow(row.id);
+        } catch (e: any) {
+            setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, is_active: !next } : r)));
+            setMsg(`Erro: ${String(e?.message ?? e)}`);
+        }
     }
 
     // ── open edit ─────────────────────────────────────────────────────────────
@@ -680,12 +717,17 @@ export default function ProdutosListaPage() {
         setImageFile(null);
         setVolumeImageFiles({});
         try {
-            const { data, error } = await supabase.rpc("rpc_get_product_full", {
-                p_product_id: r.product_id,
-                p_company_id: companyId,
-            });
-            if (error) throw new Error(error.message);
-            const prod = data as { id?: string; name?: string; category_id?: string; is_active?: boolean; volumes?: any[] } | null;
+            const qs = new URLSearchParams({ embalagem_id: r.id });
+            const res = await fetch(`/api/admin/products/${r.product_id}?${qs}`, { credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(String(json?.error ?? "falha ao carregar"));
+            const prod = json.product as {
+                id?: string;
+                name?: string;
+                category_id?: string;
+                is_active?: boolean;
+                volumes?: any[];
+            } | null;
             if (!prod) { setMsg("Produto não encontrado."); setEditLoading(false); return; }
 
             setProductName(prod.name ?? "");
@@ -728,12 +770,7 @@ export default function ProdutosListaPage() {
             setFormVolumes(vols);
             setIsAccomp(vols.some((v) => v.items.some((i) => i.is_acompanhamento)));
 
-            const { data: ac } = await supabase
-                .from("view_produto_embalagem_acompanhamentos")
-                .select("acompanhamento_produto_embalagem_id")
-                .eq("produto_embalagem_id", r.id)
-                .order("ordem");
-            const ids = ((ac ?? []) as any[]).map((x) => String(x.acompanhamento_produto_embalagem_id));
+            const ids = ((json.acompanhamento_ids ?? []) as string[]).map(String);
             const sel = ids.map((embId) => {
                 const row = rows.find((x) => x.id === embId);
                 const name = row ? [row.products?.categories?.name, row.details].filter(Boolean).join(" ") || row.products?.name || "—" : "—";
@@ -806,25 +843,37 @@ export default function ProdutosListaPage() {
             };
         });
 
-        const { error } = await supabase.rpc("rpc_update_product_with_items", {
-            p_company_id: companyId,
-            p_product_id: selected.product_id,
-            p_category_id: categoryId,
-            p_is_active: isActive,
-            p_volumes: volumesPayload,
-            p_acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
-        });
+        try {
+            const res = await fetch(`/api/admin/products/${selected.product_id}`, {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    category_id: categoryId,
+                    is_active: isActive,
+                    volumes: volumesPayload,
+                    acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
+                }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMsg(`Erro: ${String(json?.error ?? "falha ao salvar")}`);
+                setSaving(false);
+                return;
+            }
 
-        if (error) { setMsg(`Erro: ${error.message}`); setSaving(false); return; }
+            if (imageFile && selected?.product_id) {
+                await uploadProductImage(selected.product_id, imageFile, null);
+            }
 
-        if (imageFile && selected?.product_id) {
-            await uploadProductImage(selected.product_id, imageFile, null);
+            setSaving(false);
+            setOpen(false);
+            setSelected(null);
+            await load();
+        } catch (e: any) {
+            setMsg(`Erro: ${String(e?.message ?? e)}`);
+            setSaving(false);
         }
-
-        setSaving(false);
-        setOpen(false);
-        setSelected(null);
-        await load();
     }
 
     async function saveCreate() {
@@ -869,18 +918,22 @@ export default function ProdutosListaPage() {
         });
 
         try {
-            const { data: rpcData, error } = await supabase.rpc("rpc_create_product_with_items", {
-                p_company_id: companyId,
-                p_name: nameToUse,
-                p_category_id: categoryId,
-                p_is_active: isActive,
-                p_volumes: volumesPayload,
-                p_acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
+            const res = await fetch("/api/admin/products", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: nameToUse,
+                    category_id: categoryId,
+                    is_active: isActive,
+                    volumes: volumesPayload,
+                    acompanhamento_ids: isAccomp && acompSelected.length > 0 ? acompSelected.map((a) => a.id) : [],
+                }),
             });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(String(json?.error ?? "falha ao criar"));
 
-            if (error) throw new Error(error.message);
-
-            const newProductId = (rpcData as any)?.product_id as string | undefined;
+            const newProductId = json.product_id ? String(json.product_id) : undefined;
             if (createImageFile && newProductId) {
                 await uploadProductImage(newProductId, createImageFile);
             }
@@ -898,10 +951,24 @@ export default function ProdutosListaPage() {
 
     async function quickCreateCategory(name: string) {
         if (!name.trim() || !companyId) return null;
-        const { data, error } = await supabase.rpc("rpc_create_category", { p_company_id: companyId, p_name: name.trim() });
-        if (error) { setMsg(`Erro: ${error.message}`); return null; }
-        await reloadCategories();
-        return String(data);
+        try {
+            const res = await fetch("/api/admin/products/categories", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name.trim() }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMsg(`Erro: ${String(json?.error ?? "falha ao criar categoria")}`);
+                return null;
+            }
+            await reloadCategories();
+            return String(json.id);
+        } catch (e: any) {
+            setMsg(`Erro: ${String(e?.message ?? e)}`);
+            return null;
+        }
     }
 
     // ── filter ────────────────────────────────────────────────────────────────
