@@ -10,6 +10,7 @@ import {
     getCachedCatalogSearch,
     setCachedCatalogSearch,
 } from "./catalogSearchCache";
+import { applySearchRelevanceRerank } from "./searchRelevance";
 
 export type ChatProdutoRow = {
     id:                   string;
@@ -290,13 +291,16 @@ export async function runSearchProdutosDetailed(
         return { items: [], didYouMean: [], empty: true, queryNormalized: "" };
     }
 
-    let rows = (await searchViaRpc(admin, companyId, q, limit)) ?? [];
+    /** Pool maior para rerank (descritor/CX/volume) antes de cortar o top-N. */
+    const poolLimit = Math.min(limit * 3, 20);
+    let rows = (await searchViaRpc(admin, companyId, q, poolLimit)) ?? [];
     if (!rows.length) {
-        rows = await searchViaIlikeFallback(admin, companyId, q, limit);
+        rows = await searchViaIlikeFallback(admin, companyId, q, poolLimit);
     }
 
     const finalized = await finalizeRows(admin, rows);
-    const items = finalized.slice(0, limit);
+    const ranked = applySearchRelevanceRerank(q, finalized);
+    const items = ranked.slice(0, limit);
     const result: SearchProdutosResult = {
         items,
         didYouMean: buildDidYouMean(q, items),

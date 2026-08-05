@@ -70,7 +70,7 @@ const AI_TIMEOUT_CODE = "AI_TIMEOUT";
 const SEARCH_TOOL = {
     name: "search_produtos",
     description:
-        "Busca catálogo real da empresa por nome/termo/categoria. A resposta inclui guidance_for_model_pt — siga quando items estiver vazio.",
+        "Busca catálogo real da empresa. Em `query` mantenha o termo do cliente completo (ex.: 'Heineken long neck caixa'), não só a marca. A resposta inclui guidance_for_model_pt.",
     input_schema: {
         type: "object" as const,
         properties: {
