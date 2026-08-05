@@ -36,8 +36,20 @@ export async function orderStage(params: {
     userText: string;
     logger?: LoggerPort;
     highValuePolicy?: { enabled: boolean; amountBrl: number };
+    /** Quando true (modo info_only), não fecha pedido pelo WhatsApp. */
+    blockFinalize?: boolean;
+    blockFinalizeMessage?: string;
 }): Promise<OrderStageResult> {
-    const { orderService, tenant, state, userText, logger, highValuePolicy } = params;
+    const {
+        orderService,
+        tenant,
+        state,
+        userText,
+        logger,
+        highValuePolicy,
+        blockFinalize,
+        blockFinalizeMessage,
+    } = params;
     const trimmedText = userText.trim();
     const isConfirm = isExplicitOrderConfirmation(trimmedText);
 
@@ -53,6 +65,19 @@ export async function orderStage(params: {
 
     if (state.step !== "pro_awaiting_confirmation") {
         return { state, outcome: "skipped_not_awaiting" };
+    }
+    if (blockFinalize && isConfirm) {
+        logger?.info("pro_pipeline.order_stage.blocked_info_only", {
+            companyId: tenant.companyId,
+            threadId: tenant.threadId,
+        });
+        return {
+            state: { ...state, step: "pro_collecting_order", draft: null },
+            outboundText:
+                blockFinalizeMessage ??
+                "Neste modo a IA só tira dúvidas e não fecha pedido pelo WhatsApp.",
+            outcome: "gate_no_draft",
+        };
     }
     if (!isConfirm) {
         logger?.info("pro_pipeline.order_stage.skip_weak_confirmation", {

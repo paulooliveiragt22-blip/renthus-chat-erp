@@ -6,6 +6,7 @@ import {
     resolveChatbotMessageTemplates,
     type ChatbotMessageTemplates,
 } from "@/lib/chatbot/messageTemplates";
+import { parseAiOrderModePolicy } from "@/lib/chatbot/aiOrderModePolicy";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,7 @@ export async function GET() {
 
     const cfg = (data.config as Record<string, unknown> | null) ?? {};
     const aiEnabled = cfg.ai_enabled === undefined || cfg.ai_enabled === null ? true : Boolean(cfg.ai_enabled);
+    const aiOrderModePolicy = parseAiOrderModePolicy(cfg);
     return NextResponse.json({
         chatbot: data,
         messageTemplates: resolveChatbotMessageTemplates(cfg),
@@ -37,6 +39,10 @@ export async function GET() {
             typeof cfg.high_value_confirm_amount_brl === "number"
                 ? cfg.high_value_confirm_amount_brl
                 : Number(cfg.high_value_confirm_amount_brl) || 0,
+        aiOrderMode: aiOrderModePolicy.mode,
+        sessionIdleMinutes: aiOrderModePolicy.sessionIdleMinutes,
+        aiSessionWindowMinutes: aiOrderModePolicy.aiSessionWindowMinutes,
+        aiMaxTurnsPerSession: aiOrderModePolicy.aiMaxTurnsPerSession,
     });
 }
 
@@ -76,6 +82,17 @@ export async function PATCH(req: Request) {
         nextConfig = mergeMessageTemplatesIntoBotConfig(nextConfig, body.messageTemplates);
     }
 
+    // Normaliza chaves de modo/limites da IA (defaults seguros).
+    const normalized = parseAiOrderModePolicy(nextConfig);
+    nextConfig = {
+        ...nextConfig,
+        ai_order_mode: normalized.mode,
+        session_idle_minutes: normalized.sessionIdleMinutes,
+        ai_session_window_minutes: normalized.aiSessionWindowMinutes,
+        ai_max_turns_per_session:
+            normalized.mode === "info_only" ? normalized.aiMaxTurnsPerSession : 0,
+    };
+
     const { error } = await admin
         .from("chatbots")
         .update({ config: nextConfig })
@@ -86,5 +103,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({
         ok: true,
         messageTemplates: resolveChatbotMessageTemplates(nextConfig),
+        aiOrderMode: normalized.mode,
+        sessionIdleMinutes: normalized.sessionIdleMinutes,
+        aiSessionWindowMinutes: normalized.aiSessionWindowMinutes,
+        aiMaxTurnsPerSession: normalized.aiMaxTurnsPerSession,
     });
 }

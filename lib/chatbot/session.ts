@@ -8,11 +8,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Session, CartItem, HistoryEntry } from "./types";
 
 const HISTORY_WINDOW = 8; // máx 8 entradas (4 trocas user/bot)
+const DEFAULT_SESSION_IDLE_MINUTES = 120;
+
+function sessionExpiresAtIso(idleMinutes?: number): string {
+    const mins =
+        typeof idleMinutes === "number" && Number.isFinite(idleMinutes) && idleMinutes > 0
+            ? idleMinutes
+            : DEFAULT_SESSION_IDLE_MINUTES;
+    return new Date(Date.now() + mins * 60_000).toISOString();
+}
 
 export async function getOrCreateSession(
     admin: SupabaseClient,
     threadId: string,
-    companyId: string
+    companyId: string,
+    options?: { idleMinutes?: number }
 ): Promise<Session> {
     const { data } = await admin
         .from("chatbot_sessions")
@@ -32,7 +42,7 @@ export async function getOrCreateSession(
         };
     }
 
-    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    const expiresAt = sessionExpiresAtIso(options?.idleMinutes);
 
     const { data: created } = await admin
         .from("chatbot_sessions")
@@ -64,9 +74,10 @@ export async function saveSession(
     admin: SupabaseClient,
     threadId: string,
     companyId: string,
-    patch: Partial<Omit<Session, "id">>
+    patch: Partial<Omit<Session, "id">>,
+    options?: { idleMinutes?: number }
 ): Promise<void> {
-    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    const expiresAt = sessionExpiresAtIso(options?.idleMinutes);
 
     // Trunca histórico para as últimas HISTORY_WINDOW entradas antes de persistir
     const history = patch.history

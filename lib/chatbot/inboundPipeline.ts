@@ -53,9 +53,13 @@ export async function runInboundChatbotPipeline(
     }
 
     const botConfig = (botRows[0]?.config as Record<string, unknown>) ?? {};
+    const { parseAiOrderModePolicy } = await import("@/lib/chatbot/aiOrderModePolicy");
+    const aiOrderModePolicy = parseAiOrderModePolicy(botConfig);
     const [company, session] = await Promise.all([
         getCompanyInfo(admin, companyId),
-        getOrCreateSession(admin, threadId, companyId),
+        getOrCreateSession(admin, threadId, companyId, {
+            idleMinutes: aiOrderModePolicy.sessionIdleMinutes,
+        }),
     ]);
 
     const config: CompanyConfig = {
@@ -124,6 +128,7 @@ export async function runInboundChatbotPipeline(
                     model,
                     waConfig,
                     profileName: params.profileName,
+                    aiOrderModePolicy,
                 });
             } else {
                 await starterOrderFlow(params, session, config, effectiveCatalogId, companyName);

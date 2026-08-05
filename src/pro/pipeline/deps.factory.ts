@@ -15,6 +15,8 @@ export type ProPipelineDependencyOverrides = Partial<PipelineDependencies>;
 
 export interface MakeProPipelineDependenciesOptions {
     overrides?: ProPipelineDependencyOverrides;
+    /** Idle WhatsApp da sessão (minutos); default 120 no repositório/session. */
+    sessionIdleMinutes?: number;
 }
 
 function makeMetricsPort(admin: ProcessMessageParams["admin"]): MetricsPort {
@@ -30,7 +32,9 @@ export function makeProPipelineDependencies(
     options?: MakeProPipelineDependenciesOptions
 ): PipelineDependencies {
     const base: PipelineDependencies = {
-        sessionRepo: new SupabaseSessionRepository(params.admin),
+        sessionRepo: new SupabaseSessionRepository(params.admin, {
+            idleMinutes: options?.sessionIdleMinutes,
+        }),
         messageGateway: new WhatsAppMessageGateway(params.admin, params.waConfig),
         metrics: makeMetricsPort(params.admin),
         logger: new ConsoleLoggerAdapter(),

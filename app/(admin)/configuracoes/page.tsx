@@ -420,6 +420,10 @@ function ConfiguracoesPageContent() {
         DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_thank_you
     );
     const [aiEnabled, setAiEnabled] = useState(true);
+    const [aiOrderMode, setAiOrderMode] = useState<"close_orders" | "info_only">("close_orders");
+    const [sessionIdleMinutes, setSessionIdleMinutes] = useState("120");
+    const [aiSessionWindowMinutes, setAiSessionWindowMinutes] = useState("60");
+    const [aiMaxTurnsPerSession, setAiMaxTurnsPerSession] = useState("0");
     const [highValueConfirmEnabled, setHighValueConfirmEnabled] = useState(false);
     const [highValueConfirmAmount, setHighValueConfirmAmount] = useState("150");
     const [aiWallet, setAiWallet] = useState<{
@@ -855,6 +859,16 @@ function ConfiguracoesPageContent() {
                 );
                 setMsgThankYou(mt.msg_thank_you ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_thank_you);
                 setAiEnabled(json?.aiEnabled !== false);
+                setAiOrderMode(json?.aiOrderMode === "info_only" ? "info_only" : "close_orders");
+                if (json?.sessionIdleMinutes != null) {
+                    setSessionIdleMinutes(String(json.sessionIdleMinutes));
+                }
+                if (json?.aiSessionWindowMinutes != null) {
+                    setAiSessionWindowMinutes(String(json.aiSessionWindowMinutes));
+                }
+                if (json?.aiMaxTurnsPerSession != null) {
+                    setAiMaxTurnsPerSession(String(json.aiMaxTurnsPerSession));
+                }
                 setHighValueConfirmEnabled(Boolean(json?.highValueConfirmEnabled));
                 if (json?.highValueConfirmAmountBrl) {
                     setHighValueConfirmAmount(String(json.highValueConfirmAmountBrl));
@@ -913,6 +927,11 @@ function ConfiguracoesPageContent() {
                     provider: "anthropic",
                     model: chatbotModel,
                     ai_enabled: aiEnabled,
+                    ai_order_mode: aiOrderMode,
+                    session_idle_minutes: Number(sessionIdleMinutes) || 120,
+                    ai_session_window_minutes: Number(aiSessionWindowMinutes) || 60,
+                    ai_max_turns_per_session:
+                        aiOrderMode === "info_only" ? Number(aiMaxTurnsPerSession) || 0 : 0,
                     high_value_confirm_enabled: highValueConfirmEnabled,
                     high_value_confirm_amount_brl: Number(highValueConfirmAmount) || 0,
                 },
@@ -2143,6 +2162,99 @@ function ConfiguracoesPageContent() {
                                             }`}
                                         />
                                     </button>
+                                </div>
+
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                        Modo da IA no WhatsApp
+                                    </label>
+                                    <select
+                                        value={aiOrderMode}
+                                        onChange={(e) =>
+                                            setAiOrderMode(
+                                                e.target.value === "info_only"
+                                                    ? "info_only"
+                                                    : "close_orders"
+                                            )
+                                        }
+                                        disabled={!chatbotId || !aiEnabled}
+                                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                                    >
+                                        <option value="close_orders">
+                                            Fecha pedidos (padrão)
+                                        </option>
+                                        <option value="info_only">
+                                            Só informações (pedido no cardápio web)
+                                        </option>
+                                    </select>
+                                    <p className="text-[11px] text-zinc-400">
+                                        Em “Só informações” a IA não fecha pedido pelo chat; o cliente
+                                        usa o cardápio web, Flow ou atendente.
+                                    </p>
+                                </div>
+
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                            Idle da sessão (minutos)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={15}
+                                            max={1440}
+                                            value={sessionIdleMinutes}
+                                            onChange={(e) => setSessionIdleMinutes(e.target.value)}
+                                            disabled={!chatbotId}
+                                            className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                                        />
+                                        <p className="text-[11px] text-zinc-400">
+                                            Sem mensagem neste tempo, a conversa WhatsApp reinicia
+                                            (padrão 120).
+                                        </p>
+                                    </div>
+                                    {aiOrderMode === "info_only" ? (
+                                        <>
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                    Janela da cota IA (minutos)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min={5}
+                                                    max={1440}
+                                                    value={aiSessionWindowMinutes}
+                                                    onChange={(e) =>
+                                                        setAiSessionWindowMinutes(e.target.value)
+                                                    }
+                                                    disabled={!chatbotId || !aiEnabled}
+                                                    className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                                                />
+                                                <p className="text-[11px] text-zinc-400">
+                                                    Contador wall-clock da cota (padrão 60).
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-col gap-1 sm:col-span-2">
+                                                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                    Máx. mensagens IA por janela (0 = ilimitado)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    max={500}
+                                                    value={aiMaxTurnsPerSession}
+                                                    onChange={(e) =>
+                                                        setAiMaxTurnsPerSession(e.target.value)
+                                                    }
+                                                    disabled={!chatbotId || !aiEnabled}
+                                                    className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                                                />
+                                                <p className="text-[11px] text-zinc-400">
+                                                    Ao estourar, a IA para e o bot oferece cardápio /
+                                                    atendente / Flow (sem chamar Anthropic).
+                                                </p>
+                                            </div>
+                                        </>
+                                    ) : null}
                                 </div>
 
                                 {aiWallet ? (

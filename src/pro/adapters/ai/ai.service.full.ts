@@ -119,17 +119,34 @@ const SYSTEM_PROMPT = `Você é o assistente PRO de delivery.
 - Nunca diga que o pedido já foi confirmado, criado no sistema, registrado na loja ou que saiu para entrega: isso só ocorre após confirmação no servidor (fora do modelo).
 - Termine a resposta com INTENT_OK ou INTENT_UNKNOWN (sem texto extra após o marcador).`;
 
+const SYSTEM_PROMPT_INFO_ONLY = `Você é o assistente PRO da loja (modo só informações).
+- Fale PT-BR direto.
+- Tire dúvidas sobre produtos, preços e estoque usando search_produtos e get_order_hints.
+- NÃO feche pedido, NÃO monte rascunho de pedido e NÃO peça confirmação de compra pelo WhatsApp.
+- Se o cliente quiser pedir, oriente a usar o cardápio web / menu da loja ou falar com um atendente.
+- Fonte de verdade: só cite produto, preço e estoque vindos dos JSONs das tools. Nunca invente.
+- Termine a resposta com INTENT_OK ou INTENT_UNKNOWN (sem texto extra após o marcador).`;
+
+function isInfoOnlyAi(input: AiServiceInput): boolean {
+    return input.context.aiOrderMode === "info_only";
+}
+
+function toolsForMode(infoOnly: boolean): MessageCreateParams["tools"] {
+    if (infoOnly) return [SEARCH_TOOL, HINTS_TOOL] as MessageCreateParams["tools"];
+    return [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"];
+}
 
 function buildEffectiveSystemPrompt(input: AiServiceInput): string {
+    const base = isInfoOnlyAi(input) ? SYSTEM_PROMPT_INFO_ONLY : SYSTEM_PROMPT;
     const hints = input.context.prefetchedOrderHints;
-    if (!hints || typeof hints !== "object") return SYSTEM_PROMPT;
+    if (!hints || typeof hints !== "object") return base;
     try {
         let body = JSON.stringify(hints);
         if (body.length > PREFETCH_ORDER_HINTS_JSON_MAX) {
             body = body.slice(0, PREFETCH_ORDER_HINTS_JSON_MAX) + "…[truncado]";
         }
         return (
-            SYSTEM_PROMPT +
+            base +
             "\n\n--- Dados do cadastro (servidor; válidos nesta mensagem) ---\n" +
             body +
             "\n--- Fim dados cadastro ---\n" +
@@ -137,7 +154,7 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
             "Pode chamar get_order_hints para atualizar, mas trate estes dados como já carregados nesta volta."
         );
     } catch {
-        return SYSTEM_PROMPT;
+        return base;
     }
 }
 
@@ -226,7 +243,8 @@ export class FullAiServiceAdapter implements AiService {
         timeoutMs: number,
         toolChoice: ToolChoice | undefined,
         systemPrompt: string,
-        companyId?: string
+        companyId: string | undefined,
+        tools: MessageCreateParams["tools"]
     ) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(AI_TIMEOUT_CODE), Math.max(timeoutMs, 1000));
@@ -236,7 +254,7 @@ export class FullAiServiceAdapter implements AiService {
                 max_tokens: 900,
                 system: systemPrompt,
                 messages: messages as MessageCreateParams["messages"],
-                tools: [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL] as MessageCreateParams["tools"],
+                tools,
             };
             if (toolChoice) body.tool_choice = toolChoice;
             const response = await runWithAnthropicInFlightSlot(() =>
@@ -423,6 +441,22 @@ export class FullAiServiceAdapter implements AiService {
             return { result: await this.runHintsTool(input, block), nextDraft: currentDraft, prepareOutcome: null };
         }
         if (name === "prepare_order_draft") {
+            if (isInfoOnlyAi(input)) {
+                return {
+                    result: {
+                        type: "tool_result",
+                        tool_use_id: block.id,
+                        content: JSON.stringify({
+                            ok: false,
+                            error: "info_only_mode",
+                            guidance_for_model_pt:
+                                "Modo só informações: não feche pedido. Oriente cardápio web ou atendente.",
+                        }),
+                    },
+                    nextDraft: currentDraft,
+                    prepareOutcome: { ok: false, errors: ["info_only_mode"] },
+                };
+            }
             const out = await this.runPrepareDraftTool(input, block, currentDraft, allowlistRuntime);
             return { result: out.result, nextDraft: out.nextDraft, prepareOutcome: out.prepareOutcome };
         }
@@ -557,6 +591,8 @@ export class FullAiServiceAdapter implements AiService {
         let prepareInvokedThisTurn = false;
 
         try {
+            const infoOnly = isInfoOnlyAi(input);
+            const tools = toolsForMode(infoOnly);
             const systemPrompt = buildEffectiveSystemPrompt(input);
             const companyId = input.context.tenant.companyId;
             let response = await this.callModel(
@@ -565,7 +601,8 @@ export class FullAiServiceAdapter implements AiService {
                 input.limits.timeoutMs,
                 undefined,
                 systemPrompt,
-                companyId
+                companyId,
+                tools
             );
 
             while (response.stop_reason === "tool_use" && toolRoundsUsed < input.limits.maxToolRounds) {
@@ -594,7 +631,8 @@ export class FullAiServiceAdapter implements AiService {
                     input.limits.timeoutMs,
                     undefined,
                     systemPrompt,
-                    companyId
+                    companyId,
+                    tools
                 );
             }
 
@@ -612,6 +650,7 @@ export class FullAiServiceAdapter implements AiService {
             }
 
             if (
+                !infoOnly &&
                 shouldForcePrepareAfterEmbalagemChoice({
                     intent: input.intentDecision.intent,
                     step: input.context.session.step,
@@ -640,7 +679,8 @@ export class FullAiServiceAdapter implements AiService {
                     input.limits.timeoutMs,
                     forcePrepareChoice,
                     systemPrompt,
-                    companyId
+                    companyId,
+                    tools
                 );
                 while (forceResponse.stop_reason === "tool_use" && toolRoundsUsed < input.limits.maxToolRounds) {
                     toolRoundsUsed += 1;
@@ -666,7 +706,8 @@ export class FullAiServiceAdapter implements AiService {
                         input.limits.timeoutMs,
                         undefined,
                         systemPrompt,
-                        companyId
+                        companyId,
+                        tools
                     );
                 }
                 if (forceResponse.stop_reason === "tool_use") {

@@ -23,6 +23,16 @@ import {
     buildHighValueConfirmMessage,
     parseHighValueConfirmPolicy,
 } from "@/lib/billing/aiWallet";
+import {
+    buildAiLimitExceededOutbound,
+    buildInfoOnlyOrderBlockedText,
+    bumpAiTurnCount,
+    isAiTurnLimitExceeded,
+    isInfoOnlyMode,
+    parseAiOrderModePolicy,
+    type AiOrderModePolicy,
+} from "@/lib/chatbot/aiOrderModePolicy";
+import { resolveActivePublicMenuLink } from "@/lib/public-menu/resolveActiveMenuLink";
 
 const MAX_MISUNDERSTANDING = 4;
 const MAX_TOOL_ROUNDS      = 12;
@@ -312,8 +322,21 @@ async function runProTool(params: {
     phoneE164:   string;
     profileName: string | null | undefined;
     session:     Session;
+    infoOnly?:   boolean;
+    idleMinutes?: number;
 }): Promise<{ toolResultJson: string; sessionPatch?: Partial<Session> }> {
-    const { name, rawInput, admin, companyId, threadId, phoneE164, profileName, session } = params;
+    const {
+        name,
+        rawInput,
+        admin,
+        companyId,
+        threadId,
+        phoneE164,
+        profileName,
+        session,
+        infoOnly,
+        idleMinutes,
+    } = params;
     const input = (rawInput ?? {}) as Record<string, unknown>;
 
     if (name === "search_produtos") {
@@ -337,6 +360,16 @@ async function runProTool(params: {
     }
 
     if (name === "prepare_order_draft") {
+        if (infoOnly) {
+            return {
+                toolResultJson: JSON.stringify({
+                    ok: false,
+                    error: "info_only_mode",
+                    guidance_for_model_pt:
+                        "Modo só informações: não feche pedido. Oriente cardápio web ou atendente.",
+                }),
+            };
+        }
         const body: PrepareDraftToolInput = {
             items:                    (input.items as PrepareDraftToolInput["items"]) ?? [],
             address:                  (input.address as PrepareDraftToolInput["address"]) ?? null,
@@ -350,12 +383,18 @@ async function runProTool(params: {
         const customerId = session.customer_id;
         const res          = await prepareOrderDraftFromTool(admin, companyId, customerId, body);
         if (res.draft) {
-            await saveSession(admin, threadId, companyId, {
-                context: {
-                    ...session.context,
-                    ai_order_canonical: res.draft,
+            await saveSession(
+                admin,
+                threadId,
+                companyId,
+                {
+                    context: {
+                        ...session.context,
+                        ai_order_canonical: res.draft,
+                    },
                 },
-            });
+                { idleMinutes }
+            );
             Object.assign(session.context, { ai_order_canonical: res.draft });
         }
         const payload = {
@@ -387,6 +426,7 @@ export async function handleProOrderIntent(params: {
     model:                 string;
     waConfig:              ProcessMessageParams["waConfig"];
     profileName?:          string | null;
+    aiOrderModePolicy?:    AiOrderModePolicy;
 }): Promise<void> {
     const {
         admin, companyId, threadId, phoneE164, input, session,
@@ -398,10 +438,54 @@ export async function handleProOrderIntent(params: {
         return;
     }
 
+    const { data: botCfgRow } = await admin
+        .from("chatbots")
+        .select("config")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+    const aiPolicy =
+        params.aiOrderModePolicy ??
+        parseAiOrderModePolicy((botCfgRow?.config as Record<string, unknown> | null) ?? null);
+    const infoOnly = isInfoOnlyMode(aiPolicy);
+    const idleMinutes = aiPolicy.sessionIdleMinutes;
+    const nowMs = Date.now();
+    const quotaState = {
+        aiTurnCount: Number(session.context.ai_turn_count ?? 0) || 0,
+        aiWindowStartedAt:
+            session.context.ai_window_started_at != null
+                ? String(session.context.ai_window_started_at)
+                : null,
+    };
+
+    if (isAiTurnLimitExceeded(quotaState, aiPolicy, nowMs)) {
+        const webMenu = await resolveActivePublicMenuLink(admin, companyId, {
+            phoneE164,
+        }).catch(() => null);
+        const outbound = buildAiLimitExceededOutbound({
+            webMenuUrl: webMenu?.url ?? null,
+            flowCatalogId: params.effectiveCatalogId ?? null,
+        });
+        for (const msg of outbound) {
+            if (msg.kind === "text" && msg.text) {
+                await botReply(admin, companyId, threadId, phoneE164, msg.text);
+            } else if (msg.kind === "buttons" && msg.text && msg.buttons?.length && waConfig) {
+                await sendInteractiveButtons(
+                    phoneE164,
+                    msg.text,
+                    msg.buttons.map((b) => ({ id: b.id, title: b.title })),
+                    waConfig
+                );
+            }
+        }
+        return;
+    }
+
     const cust = await getOrCreateCustomer(admin, companyId, phoneE164, profileName ?? null);
     if (cust?.id && session.customer_id !== cust.id) {
         session.customer_id = cust.id;
-        await saveSession(admin, threadId, companyId, { customer_id: cust.id });
+        await saveSession(admin, threadId, companyId, { customer_id: cust.id }, { idleMinutes });
     }
 
     const draftExisting = session.context.ai_order_canonical as AiOrderCanonicalDraft | undefined;
@@ -423,16 +507,22 @@ export async function handleProOrderIntent(params: {
             return;
         }
         if (isPortugueseOrderConfirmation(input)) {
+            if (infoOnly) {
+                const webMenu = await resolveActivePublicMenuLink(admin, companyId, {
+                    phoneE164,
+                }).catch(() => null);
+                await botReply(
+                    admin,
+                    companyId,
+                    threadId,
+                    phoneE164,
+                    buildInfoOnlyOrderBlockedText(webMenu?.url ?? null)
+                );
+                return;
+            }
             // Mesmo gate do PRO V2 (`orderStage`): 1ª confirmação só reconhece valor alto.
-            const { data: botRow } = await admin
-                .from("chatbots")
-                .select("config")
-                .eq("company_id", companyId)
-                .eq("is_active", true)
-                .limit(1)
-                .maybeSingle();
             const highValuePolicy = parseHighValueConfirmPolicy(
-                (botRow?.config as Record<string, unknown> | null) ?? null
+                (botCfgRow?.config as Record<string, unknown> | null) ?? null
             );
             const itemsTotal = draftExisting.items.reduce(
                 (acc, item) => acc + item.quantity * item.unit_price,
@@ -499,14 +589,20 @@ export async function handleProOrderIntent(params: {
     let streak          = Number(session.context.pro_misunderstanding_streak ?? 0);
 
     const client = new Anthropic();
+    const tools = infoOnly
+        ? [SEARCH_TOOL, HINTS_TOOL]
+        : [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL];
+    const systemPrompt = infoOnly
+        ? `Você é o assistente da loja (modo só informações). Tire dúvidas com search_produtos/get_order_hints. NÃO feche pedido pelo WhatsApp — oriente cardápio web ou atendente.\n\nLoja: ${companyName}.`
+        : `${PRO_ORDER_SYSTEM}\n\nLoja: ${companyName}.`;
 
     let messages = [...loadStoredMessages(session.context), { role: "user" as const, content: input }] as MessageParam[];
 
     let response = await client.messages.create({
         model,
         max_tokens: 1200,
-        system:     `${PRO_ORDER_SYSTEM}\n\nLoja: ${companyName}.`,
-        tools:      [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL],
+        system:     systemPrompt,
+        tools,
         messages,
     });
 
@@ -530,10 +626,18 @@ export async function handleProOrderIntent(params: {
                 phoneE164,
                 profileName,
                 session,
+                infoOnly,
+                idleMinutes,
             });
             if (sessionPatch?.customer_id) {
                 session.customer_id = sessionPatch.customer_id;
-                await saveSession(admin, threadId, companyId, { customer_id: sessionPatch.customer_id });
+                await saveSession(
+                    admin,
+                    threadId,
+                    companyId,
+                    { customer_id: sessionPatch.customer_id },
+                    { idleMinutes }
+                );
             }
             toolResults.push({
                 type:         "tool_result",
@@ -553,8 +657,8 @@ export async function handleProOrderIntent(params: {
         response = await client.messages.create({
             model,
             max_tokens: 1200,
-            system:     `${PRO_ORDER_SYSTEM}\n\nLoja: ${companyName}.`,
-            tools:      [SEARCH_TOOL, HINTS_TOOL, PREPARE_DRAFT_TOOL],
+            system:     systemPrompt,
+            tools,
             messages,
         });
     }
@@ -602,15 +706,24 @@ export async function handleProOrderIntent(params: {
         }
     }
 
+    const bumped = bumpAiTurnCount(quotaState, aiPolicy, nowMs);
     const nextCtx: Record<string, unknown> = {
         ...session.context,
         pro_misunderstanding_streak: streak,
         pro_escalation_tier:         nextTier,
         pro_anthropic_messages:      (clearAiDraft ? [] : messages) as unknown as Record<string, unknown>,
+        ai_turn_count: bumped.aiTurnCount ?? quotaState.aiTurnCount,
+        ai_window_started_at: bumped.aiWindowStartedAt ?? quotaState.aiWindowStartedAt,
     };
     if (clearAiDraft) nextCtx.ai_order_canonical = undefined;
 
-    await saveSession(admin, threadId, companyId, { step: nextStep, context: nextCtx });
+    await saveSession(
+        admin,
+        threadId,
+        companyId,
+        { step: nextStep, context: nextCtx },
+        { idleMinutes }
+    );
     session.step    = nextStep;
     session.context = nextCtx;
 

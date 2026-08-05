@@ -106,6 +106,10 @@ export interface ProSessionState {
      * a segunda (com este flag true) fecha o pedido.
      */
     highValueAcknowledged?: boolean;
+    /** Turnos Anthropic cobrados na janela wall-clock atual (`info_only` + limite > 0). */
+    aiTurnCount?: number;
+    /** ISO do início da janela de cota de turnos IA. */
+    aiWindowStartedAt?: string | null;
 }
 
 export interface IntentDecision {
@@ -161,6 +165,16 @@ export interface ProPipelineInput {
         msg_out_for_delivery: string;
         msg_thank_you: string;
     } | null;
+    /**
+     * Modo da IA e limites (Configurações → Chatbot).
+     * Default implícito: close_orders, idle 120, janela 60, max turns 0 (ilimitado).
+     */
+    aiOrderModePolicy?: {
+        mode: "close_orders" | "info_only";
+        sessionIdleMinutes: number;
+        aiSessionWindowMinutes: number;
+        aiMaxTurnsPerSession: number;
+    } | null;
 }
 
 export interface ProPipelineOutput {
@@ -212,6 +226,8 @@ export interface PipelineContext {
     flowStatusId?: string | null;
     flowAddressRegisterId?: string | null;
     webMenuUrl?: string | null;
+    /** close_orders (default) fecha pedido; info_only só tira dúvidas. */
+    aiOrderMode?: "close_orders" | "info_only";
     /**
      * Snapshot do mesmo payload de `get_order_hints`, carregado no servidor antes da IA
      * quando há `order_intent` e `session.customerId` — endereços/favoritos não dependem só da tool.

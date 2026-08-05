@@ -24,18 +24,25 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
     return {
         ...raw,
         searchProdutoEmbalagemIds: raw.searchProdutoEmbalagemIds ?? [],
+        aiTurnCount: raw.aiTurnCount,
+        aiWindowStartedAt: raw.aiWindowStartedAt ?? null,
     };
 }
 
 export class SupabaseSessionRepository implements SessionRepository {
-    constructor(private readonly admin: SupabaseClient) {}
+    constructor(
+        private readonly admin: SupabaseClient,
+        private readonly options?: { idleMinutes?: number }
+    ) {}
 
     /**
      * Lê `ProSessionState` em `context.__pro_v2_state` ou deriva snapshot mínimo da sessão legada.
      * Erros de rede/Supabase propagam-se; `loadState` encapsula-os em `ProPipelineSessionLoadError`.
      */
     async load(companyId: string, threadId: string): Promise<ProSessionState | null> {
-        const session = await getOrCreateSession(this.admin, threadId, companyId);
+        const session = await getOrCreateSession(this.admin, threadId, companyId, {
+            idleMinutes: this.options?.idleMinutes,
+        });
         const raw = session.context?.[PRO_V2_STATE_KEY];
         const state =
             raw !== null && raw !== undefined && typeof raw === "object"
@@ -45,17 +52,24 @@ export class SupabaseSessionRepository implements SessionRepository {
     }
 
     async save(companyId: string, threadId: string, state: ProSessionState): Promise<void> {
-        const current = await getOrCreateSession(this.admin, threadId, companyId);
+        const current = await getOrCreateSession(this.admin, threadId, companyId, {
+            idleMinutes: this.options?.idleMinutes,
+        });
         const context = {
             ...(current.context ?? {}),
             [PRO_V2_STATE_KEY]: state,
         };
 
-        await saveSession(this.admin, threadId, companyId, {
-            step: state.step,
-            customer_id: state.customerId,
-            context,
-        });
+        await saveSession(
+            this.admin,
+            threadId,
+            companyId,
+            {
+                step: state.step,
+                customer_id: state.customerId,
+                context,
+            },
+            { idleMinutes: this.options?.idleMinutes }
+        );
     }
 }
-

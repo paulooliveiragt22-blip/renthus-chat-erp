@@ -7,6 +7,15 @@ import type {
     ProSessionState,
 } from "@/src/types/contracts";
 import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
+import {
+    buildAiLimitExceededOutbound,
+    buildInfoOnlyOrderBlockedText,
+    bumpAiTurnCount,
+    isAiTurnLimitExceeded,
+    isInfoOnlyMode,
+    parseAiOrderModePolicy,
+    type AiOrderModePolicy,
+} from "@/lib/chatbot/aiOrderModePolicy";
 import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -30,6 +39,18 @@ import {
     withResolvedSlotStepUnlessAwaitingConfirmation,
 } from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
+
+function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
+    if (input.aiOrderModePolicy) {
+        return parseAiOrderModePolicy({
+            ai_order_mode: input.aiOrderModePolicy.mode,
+            session_idle_minutes: input.aiOrderModePolicy.sessionIdleMinutes,
+            ai_session_window_minutes: input.aiOrderModePolicy.aiSessionWindowMinutes,
+            ai_max_turns_per_session: input.aiOrderModePolicy.aiMaxTurnsPerSession,
+        });
+    }
+    return parseAiOrderModePolicy(null);
+}
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
 
@@ -159,6 +180,9 @@ export async function runProPipeline(
         };
     }
 
+    const aiPolicy = resolvePipelineAiPolicy(input);
+    const nowMs = Date.parse(input.nowIso) || Date.now();
+
     const loadedState = await loadState({ sessionRepo: deps.sessionRepo, tenant: input.tenant });
     const sessionWithCustomer = await enrichProSessionCustomerFromPhone({
         admin: deps.admin,
@@ -287,6 +311,7 @@ export async function runProPipeline(
         }
     }
 
+    const infoOnly = isInfoOnlyMode(aiPolicy);
     const preOrder = await orderStage({
         orderService: deps.orderService,
         tenant: input.tenant,
@@ -295,6 +320,8 @@ export async function runProPipeline(
         userText: input.inboundText,
         logger: deps.logger,
         highValuePolicy,
+        blockFinalize: infoOnly,
+        blockFinalizeMessage: buildInfoOnlyOrderBlockedText(input.webMenuUrl),
     });
 
     const preOrderSideMetrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [];
@@ -385,64 +412,99 @@ export async function runProPipeline(
     let invalidAiSanitized = false;
     let aiServiceErrorCode: string | undefined;
     let checkoutOrderHints: Record<string, unknown> | null = null;
+    let aiLimitExceeded = false;
     if (routed.mode === "ai") {
-        let aiContext: PipelineContext = { ...context, session: nextState };
-        if (decision.intent === "order_intent" && deps.admin && nextState.customerId) {
-            try {
-                const prefetchedOrderHints = await buildOrderHintsPayload({
-                    admin: deps.admin,
-                    companyId: input.tenant.companyId,
-                    phoneE164: input.tenant.phoneE164,
-                    name: input.actor.profileName ?? null,
-                });
-                aiContext = { ...aiContext, prefetchedOrderHints };
-            } catch (err) {
-                deps.logger?.warn("pro_pipeline.prefetch_order_hints_failed", {
-                    companyId: input.tenant.companyId,
-                    threadId: input.tenant.threadId,
-                    message: err instanceof Error ? err.message : String(err),
-                });
+        if (isAiTurnLimitExceeded(nextState, aiPolicy, nowMs)) {
+            aiLimitExceeded = true;
+            outbound.length = 0;
+            outbound.push(
+                ...buildAiLimitExceededOutbound({
+                    webMenuUrl: input.webMenuUrl,
+                    flowCatalogId: input.flowCatalogId,
+                })
+            );
+            deps.logger?.info("pro_pipeline.ai_turn_limit_exceeded", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                aiTurnCount: nextState.aiTurnCount ?? 0,
+                maxTurns: aiPolicy.aiMaxTurnsPerSession,
+            });
+        } else {
+            // info_only: não mantém rascunho/confirmação de pedido no WhatsApp
+            if (infoOnly && nextState.draft) {
+                nextState = {
+                    ...nextState,
+                    draft: null,
+                    step:
+                        nextState.step === "pro_awaiting_confirmation" ||
+                        nextState.step === "pro_collecting_order"
+                            ? "pro_idle"
+                            : nextState.step,
+                };
             }
-        }
-        const ai = await aiStage({
-            aiService: deps.aiService,
-            context: aiContext,
-            decision,
-            userText: input.inboundText,
-            logger: deps.logger,
-        });
-        invalidAiSanitized = ai.invalidAiSanitized;
-        aiServiceErrorCode = ai.aiResult.errorCode;
-        nextState = ai.state;
-        outbound.push(...ai.outbound);
-        logSessionDraftSnapshot(deps.logger, "pro_pipeline.post_ai_session", input.tenant, nextState, {
-            intent: decision.intent,
-            inboundSample: input.inboundText.trim().slice(0, 120),
-            aiAction: ai.aiResult.action,
-            aiErrorCode: ai.aiResult.errorCode ?? null,
-            toolRoundsUsed: ai.aiResult.signals.toolRoundsUsed,
-            invalidAiSanitized,
-        });
-        const d = nextState.draft;
-        if (
-            deps.admin &&
-            d &&
-            d.items.length > 0 &&
-            !isAddressStructurallyComplete(d.address ?? null)
-        ) {
-            try {
-                checkoutOrderHints = await buildOrderHintsPayload({
-                    admin:     deps.admin,
-                    companyId: input.tenant.companyId,
-                    phoneE164: input.tenant.phoneE164,
-                    name:      input.actor.profileName ?? null,
-                });
-            } catch (err) {
-                deps.logger?.warn("pro_pipeline.prefetch_checkout_order_hints_failed", {
-                    companyId: input.tenant.companyId,
-                    threadId:  input.tenant.threadId,
-                    message:   err instanceof Error ? err.message : String(err),
-                });
+            let aiContext: PipelineContext = { ...context, session: nextState };
+            if (
+                !infoOnly &&
+                decision.intent === "order_intent" &&
+                deps.admin &&
+                nextState.customerId
+            ) {
+                try {
+                    const prefetchedOrderHints = await buildOrderHintsPayload({
+                        admin: deps.admin,
+                        companyId: input.tenant.companyId,
+                        phoneE164: input.tenant.phoneE164,
+                        name: input.actor.profileName ?? null,
+                    });
+                    aiContext = { ...aiContext, prefetchedOrderHints };
+                } catch (err) {
+                    deps.logger?.warn("pro_pipeline.prefetch_order_hints_failed", {
+                        companyId: input.tenant.companyId,
+                        threadId: input.tenant.threadId,
+                        message: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
+            const ai = await aiStage({
+                aiService: deps.aiService,
+                context: aiContext,
+                decision,
+                userText: input.inboundText,
+                logger: deps.logger,
+            });
+            invalidAiSanitized = ai.invalidAiSanitized;
+            aiServiceErrorCode = ai.aiResult.errorCode;
+            nextState = bumpAiTurnCount(ai.state, aiPolicy, nowMs);
+            outbound.push(...ai.outbound);
+            logSessionDraftSnapshot(deps.logger, "pro_pipeline.post_ai_session", input.tenant, nextState, {
+                intent: decision.intent,
+                inboundSample: input.inboundText.trim().slice(0, 120),
+                aiAction: ai.aiResult.action,
+                aiErrorCode: ai.aiResult.errorCode ?? null,
+                toolRoundsUsed: ai.aiResult.signals.toolRoundsUsed,
+                invalidAiSanitized,
+            });
+            const d = nextState.draft;
+            if (
+                deps.admin &&
+                d &&
+                d.items.length > 0 &&
+                !isAddressStructurallyComplete(d.address ?? null)
+            ) {
+                try {
+                    checkoutOrderHints = await buildOrderHintsPayload({
+                        admin:     deps.admin,
+                        companyId: input.tenant.companyId,
+                        phoneE164: input.tenant.phoneE164,
+                        name:      input.actor.profileName ?? null,
+                    });
+                } catch (err) {
+                    deps.logger?.warn("pro_pipeline.prefetch_checkout_order_hints_failed", {
+                        companyId: input.tenant.companyId,
+                        threadId:  input.tenant.threadId,
+                        message:   err instanceof Error ? err.message : String(err),
+                    });
+                }
             }
         }
     }
@@ -454,13 +516,15 @@ export async function runProPipeline(
               companyId: input.tenant.companyId,
           }
         : null;
-    const checkout = checkoutPostProcess({
-        state: nextState,
-        outbound,
-        mode: routed.mode,
-        flowAddressRegister: flowRef,
-        orderHints:          checkoutOrderHints,
-    });
+    const checkout = aiLimitExceeded
+        ? { state: nextState, outbound }
+        : checkoutPostProcess({
+              state: nextState,
+              outbound,
+              mode: routed.mode,
+              flowAddressRegister: flowRef,
+              orderHints: checkoutOrderHints,
+          });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;
 
@@ -485,6 +549,13 @@ export async function runProPipeline(
         { name: "pro_pipeline.run", value: 1, tags: { intent: decision.intent } },
         { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
     ];
+    if (aiLimitExceeded) {
+        runMetrics.push({
+            name: "pro_pipeline.ai_turn_limit_exceeded",
+            value: 1,
+            tags: { intent: decision.intent, reason: "ai_turn_limit" },
+        });
+    }
     appendAiOutcomeMetrics(runMetrics, decision.intent, invalidAiSanitized, aiServiceErrorCode);
 
     flushPipelineRunMetrics(deps.metrics, input.tenant, runMetrics, new Set(["pro_pipeline.outbound_count"]));

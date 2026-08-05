@@ -76,12 +76,6 @@ async function runProV2InboundBranch(
     proV2Active: boolean
 ): Promise<boolean> {
     try {
-        const deps = makeProPipelineDependencies(
-            params,
-            params.proPipelineDependencyOverrides
-                ? { overrides: params.proPipelineDependencyOverrides }
-                : undefined
-        );
         const webMenu = await resolveActivePublicMenuLink(params.admin, params.companyId, {
             phoneE164: params.phoneE164,
         });
@@ -91,9 +85,16 @@ async function runProV2InboundBranch(
             .eq("company_id", params.companyId)
             .limit(1)
             .maybeSingle();
-        const messageTemplates = resolveChatbotMessageTemplates(
-            (botRow?.config as Record<string, unknown> | null) ?? null
-        );
+        const botConfig = (botRow?.config as Record<string, unknown> | null) ?? null;
+        const { parseAiOrderModePolicy } = await import("@/lib/chatbot/aiOrderModePolicy");
+        const aiOrderModePolicy = parseAiOrderModePolicy(botConfig);
+        const deps = makeProPipelineDependencies(params, {
+            sessionIdleMinutes: aiOrderModePolicy.sessionIdleMinutes,
+            ...(params.proPipelineDependencyOverrides
+                ? { overrides: params.proPipelineDependencyOverrides }
+                : {}),
+        });
+        const messageTemplates = resolveChatbotMessageTemplates(botConfig);
         await runProPipeline(
             {
                 tenant: {
@@ -115,6 +116,7 @@ async function runProV2InboundBranch(
                 flowAddressRegisterId: params.addressRegisterFlowId ?? null,
                 webMenuUrl: webMenu?.url ?? null,
                 messageTemplates,
+                aiOrderModePolicy,
             },
             deps
         );

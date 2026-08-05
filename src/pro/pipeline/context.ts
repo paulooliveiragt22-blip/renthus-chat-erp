@@ -49,6 +49,7 @@ export function buildPipelineContext(params: {
         flowStatusId: input.flowStatusId ?? null,
         flowAddressRegisterId: input.flowAddressRegisterId ?? null,
         webMenuUrl: input.webMenuUrl ?? null,
+        aiOrderMode: input.aiOrderModePolicy?.mode === "info_only" ? "info_only" : "close_orders",
     };
 }
 
