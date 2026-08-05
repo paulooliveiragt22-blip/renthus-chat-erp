@@ -138,6 +138,11 @@ export interface ProSessionState {
      */
     inferredPaymentMethod?: PaymentMethod | null;
     /**
+     * Embalagens resolvidas no bootstrap multi-item (antes das clarificações).
+     * O prepare do pick deve reincluir estes IDs para não perder Heineken/burger.
+     */
+    bootstrapResolvedEmbalagemIds?: string[];
+    /**
      * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */

@@ -292,12 +292,8 @@ export async function runProPipeline(
             });
             stateBeforePick = boot.state;
             bootstrapOutbound = boot.outbound;
-            if (
-                boot.hasClarification &&
-                boot.state.draft &&
-                boot.state.draft.items.length > 0 &&
-                !isDraftStructurallyCompleteForFinalize(boot.state.draft)
-            ) {
+            /** Clarificação do bootstrap: sempre responde já (mesmo se prepare parcial falhou). */
+            if (boot.hasClarification && bootstrapOutbound.length > 0) {
                 const syncedBoot = withResolvedSlotStep(boot.state);
                 await persistAndEmit({
                     tenant: input.tenant,
@@ -312,7 +308,10 @@ export async function runProPipeline(
                     {
                         name: "pro_pipeline.server_bootstrap_order",
                         value: 1,
-                        tags: { clarify: "1" },
+                        tags: {
+                            clarify: "1",
+                            draft_items: String(boot.state.draft?.items?.length ?? 0),
+                        },
                     },
                     { name: "pro_pipeline.outbound_count", value: bootstrapOutbound.length },
                 ];

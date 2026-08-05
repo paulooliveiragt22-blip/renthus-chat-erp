@@ -84,7 +84,8 @@ function applyPick(
     state: ProSessionState
 ): { state: ProSessionState; syntheticUserText: string } {
     const draftIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean);
-    const allow = [embId, ...draftIds.filter((id) => id !== embId)];
+    const bootIds = (state.bootstrapResolvedEmbalagemIds ?? []).filter((id) => id && id !== embId);
+    const allow = [embId, ...draftIds.filter((id) => id !== embId), ...bootIds.filter((id) => id !== embId)];
     const step =
         state.step === "pro_idle" || state.step === "pro_awaiting_confirmation"
             ? "pro_collecting_order"

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { OrderDraft, PrepareDraftToolInput, ProSessionState } from "@/src/types/contracts";
+import type { OrderDraft, PrepareDraftToolInput, ProSessionState, OutboundMessage } from "@/src/types/contracts";
 import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
 import {
     prepareOrderDraftFromTool,
@@ -13,57 +13,7 @@ import {
 } from "./inferPaymentFromText";
 import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
-import type { OutboundMessage } from "@/src/types/contracts";
-
-type PickRow = { embalagemId: string; label: string; price?: number | null };
-
-function rowToPick(r: {
-    id: string;
-    display_name?: string | null;
-    product_name?: string | null;
-    preco_venda?: number | null;
-}): PickRow {
-    return {
-        embalagemId: String(r.id),
-        label: String(r.display_name || r.product_name || "Item").slice(0, 40),
-        price: Number.isFinite(Number(r.preco_venda)) ? Number(r.preco_venda) : null,
-    };
-}
-
-function prefersCase(segment: string): boolean {
-    const t = segment.toLowerCase().normalize("NFD").replaceAll(/\p{Diacritic}/gu, "");
-    return /\b(caixa|cx|fardo|pack)\b/u.test(t);
-}
-
-/**
- * Se o segmento pede caixa e há exatamente uma linha CX nos resultados, resolve sozinho.
- * Se há 1 resultado no total, resolve. Caso contrário, ambíguo.
- */
-function resolveSegmentPick(
-    segment: string,
-    items: Array<{
-        id: string;
-        display_name?: string | null;
-        product_name?: string | null;
-        preco_venda?: number | null;
-        sigla_comercial?: string | null;
-    }>
-): { kind: "unique"; pick: PickRow } | { kind: "ambiguous"; picks: PickRow[] } | { kind: "empty" } {
-    if (!items.length) return { kind: "empty" };
-    if (items.length === 1) return { kind: "unique", pick: rowToPick(items[0]!) };
-
-    if (prefersCase(segment)) {
-        const cx = items.filter((r) => {
-            const sigla = String(r.sigla_comercial ?? "").toUpperCase();
-            const name = String(r.display_name || r.product_name || "").toUpperCase();
-            return sigla.includes("CX") || /\bCX\b|CAIXA|C\/\d+/u.test(name);
-        });
-        if (cx.length === 1) return { kind: "unique", pick: rowToPick(cx[0]!) };
-        if (cx.length >= 2) return { kind: "ambiguous", picks: cx.slice(0, 3).map(rowToPick) };
-    }
-
-    return { kind: "ambiguous", picks: items.slice(0, 3).map(rowToPick) };
-}
+import { resolveSegmentPick, type SegmentPickRow } from "./resolveSegmentPick";
 
 /**
  * Bootstrap no servidor: pagamento/endereço do texto + prepare dos segmentos unívocos;
@@ -78,7 +28,6 @@ export async function tryServerBootstrapOrderFromText(params: {
 }): Promise<{
     state: ProSessionState;
     outbound: OutboundMessage[];
-    /** Há ambiguidades — não pular IA se ainda precisar de prosa; mas clarify já vai no outbound. */
     hasClarification: boolean;
     bootstrapped: boolean;
 }> {
@@ -104,17 +53,11 @@ export async function tryServerBootstrapOrderFromText(params: {
     }
 
     const uniqueIds: string[] = [];
-    let firstAmbiguous: PickRow[] | null = null;
+    let firstAmbiguous: SegmentPickRow[] | null = null;
 
     for (const segment of segments) {
-        const detailed = await runSearchProdutosDetailed(admin, companyId, segment, { limit: 6 });
-        const resolved = resolveSegmentPick(segment, detailed.items as Array<{
-            id: string;
-            display_name?: string | null;
-            product_name?: string | null;
-            preco_venda?: number | null;
-            sigla_comercial?: string | null;
-        }>);
+        const detailed = await runSearchProdutosDetailed(admin, companyId, segment, { limit: 8 });
+        const resolved = resolveSegmentPick(segment, detailed.items);
         if (resolved.kind === "unique") {
             uniqueIds.push(resolved.pick.embalagemId);
         } else if (resolved.kind === "ambiguous" && !firstAmbiguous) {
@@ -122,12 +65,14 @@ export async function tryServerBootstrapOrderFromText(params: {
         }
     }
 
-    if (!uniqueIds.length && !firstAmbiguous) {
-        return { state, outbound: [], hasClarification: false, bootstrapped: Boolean(payment) };
-    }
-
     const existingIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId);
-    const allIds = [...new Set([...existingIds, ...uniqueIds])];
+    const resolvedIds = [...new Set([...(state.bootstrapResolvedEmbalagemIds ?? []), ...uniqueIds])];
+    state = {
+        ...state,
+        bootstrapResolvedEmbalagemIds: resolvedIds,
+    };
+
+    const allIds = [...new Set([...existingIds, ...resolvedIds])];
 
     if (allIds.length) {
         const addr = state.draft?.address;
@@ -171,10 +116,7 @@ export async function tryServerBootstrapOrderFromText(params: {
             state = {
                 ...state,
                 draft: nextDraft,
-                searchProdutoEmbalagemIds: unionAllowlistWithDraftIds(
-                    allIds,
-                    nextDraft
-                ),
+                searchProdutoEmbalagemIds: unionAllowlistWithDraftIds(allIds, nextDraft),
             };
         }
     }
@@ -187,6 +129,7 @@ export async function tryServerBootstrapOrderFromText(params: {
             searchProdutoEmbalagemIds: [
                 ...firstAmbiguous.map((p) => p.embalagemId),
                 ...(state.searchProdutoEmbalagemIds ?? []),
+                ...resolvedIds,
             ],
         };
         outbound.push({
@@ -208,6 +151,6 @@ export async function tryServerBootstrapOrderFromText(params: {
         state,
         outbound,
         hasClarification: outbound.length > 0,
-        bootstrapped: Boolean(state.draft?.items?.length || payment),
+        bootstrapped: Boolean(state.draft?.items?.length || payment || resolvedIds.length),
     };
 }

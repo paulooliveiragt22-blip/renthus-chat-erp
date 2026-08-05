@@ -56,6 +56,12 @@ export async function serverPrepareAfterProductPick(params: {
             quantity: it.quantity,
         });
     }
+    /** Bootstrap: reancora Heineken/burger resolvidos antes da clarificação. */
+    for (const id of state.bootstrapResolvedEmbalagemIds ?? []) {
+        const sid = String(id ?? "").trim();
+        if (!sid || byId.has(sid)) continue;
+        byId.set(sid, { produtoEmbalagemId: sid, quantity: 1 });
+    }
     const prev = byId.get(embId);
     byId.set(embId, { produtoEmbalagemId: embId, quantity: prev?.quantity ?? 1 });
 
@@ -87,7 +93,11 @@ export async function serverPrepareAfterProductPick(params: {
     const catalogPolicy: PrepareOrderDraftCatalogPolicy = {
         kind: "search_allowlist",
         allowedEmbalagemIds: unionAllowlistWithDraftIds(
-            state.searchProdutoEmbalagemIds ?? [],
+            [
+                ...(state.searchProdutoEmbalagemIds ?? []),
+                ...(state.bootstrapResolvedEmbalagemIds ?? []),
+                embId,
+            ],
             state.draft
         ),
     };
