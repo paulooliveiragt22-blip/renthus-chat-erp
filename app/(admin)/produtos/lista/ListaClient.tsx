@@ -23,7 +23,10 @@ type FormItem = {
     id: string;
     id_sigla_comercial: string;
     siglaLabel: string;
+    /** Nome do item/embalagem (DB: produto_embalagens.descricao) */
     descricao: string;
+    /** Descrição longa (DB: produto_embalagens.detalhes) */
+    detalhes: string;
     fator_conversao: number;
     preco_venda: string;
     preco_custo: string;
@@ -584,6 +587,7 @@ export default function ProdutosListaPage() {
             id_sigla_comercial: un?.id ?? siglas[0]?.id ?? "",
             siglaLabel: un?.sigla ?? siglas[0]?.sigla ?? "",
             descricao: "",
+            detalhes: "",
             fator_conversao: 1,
             preco_venda: "0,00",
             preco_custo: "0,00",
@@ -751,6 +755,7 @@ export default function ProdutosListaPage() {
                         id_sigla_comercial: String(it.id_sigla_comercial ?? ""),
                         siglaLabel: String(it.sigla ?? ""),
                         descricao: String(it.descricao ?? ""),
+                        detalhes: String(it.detalhes ?? ""),
                         fator_conversao: fator,
                         preco_venda: it.preco_venda != null ? formatBRLInput(String(Math.round(Number(it.preco_venda) * 100))) : "0,00",
                         preco_custo: it.preco_custo != null ? formatBRLInput(String(Math.round(Number(it.preco_custo) * 100))) : "0,00",
@@ -835,6 +840,7 @@ export default function ProdutosListaPage() {
                     return {
                         id_sigla_comercial: it.id_sigla_comercial,
                         descricao: it.descricao.trim().toUpperCase() || null,
+                        detalhes: it.detalhes.trim() || null,
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -910,6 +916,7 @@ export default function ProdutosListaPage() {
                     return {
                         id_sigla_comercial: it.id_sigla_comercial,
                         descricao: it.descricao.trim().toUpperCase() || null,
+                        detalhes: it.detalhes.trim() || null,
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -1212,45 +1219,63 @@ export default function ProdutosListaPage() {
                                                 <button type="button" onClick={() => removeFormVolume(vol.id)} className="rounded-md border border-zinc-200 p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:border-zinc-700"><X className="h-4 w-4" /></button>
                                             </div>
                                         </div>
-                                        {/* Foto por embalagem */}
-                                        <div className="mb-3 rounded border border-dashed border-zinc-200 p-2 dark:border-zinc-700">
-                                            <p className="mb-1 text-[10px] font-semibold text-zinc-500">Foto desta embalagem (opcional)</p>
-                                            {editImages.filter((i) => i.product_volume_id === vol.id).map((img) => (
-                                                <div key={img.id} className="mb-2 flex items-center gap-2">
-                                                    <img src={img.thumbnail_url ?? img.url} alt="emb" className="h-12 w-12 rounded object-cover border border-violet-300" />
-                                                    <button type="button" onClick={() => selected && deleteProductImage(img.id, selected.product_id)} className="text-xs text-red-500 hover:underline">remover</button>
-                                                </div>
-                                            ))}
-                                            <div className="flex items-center gap-2">
-                                                <label className="flex cursor-pointer items-center gap-1.5 rounded border border-zinc-200 px-2 py-1 text-[10px] text-zinc-500 hover:bg-zinc-50 dark:border-zinc-600">
-                                                    <Camera className="h-3 w-3" />
-                                                    {volumeImageFiles[vol.id] ? volumeImageFiles[vol.id].name : "Selecionar foto"}
-                                                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                                                        onChange={(e) => {
-                                                            const f = e.target.files?.[0];
-                                                            if (f) setVolumeImageFiles((prev) => ({ ...prev, [vol.id]: f }));
-                                                        }}
-                                                    />
-                                                </label>
-                                                {volumeImageFiles[vol.id] && selected && (
-                                                    <button type="button" disabled={imageUploading}
-                                                        onClick={async () => {
-                                                            await uploadProductImage(selected.product_id, volumeImageFiles[vol.id], vol.id);
-                                                            setVolumeImageFiles((prev) => { const n = { ...prev }; delete n[vol.id]; return n; });
-                                                        }}
-                                                        className="rounded border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-700 dark:bg-violet-900/30"
-                                                    >
-                                                        {imageUploading ? "Enviando…" : "Enviar"}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
                                         {vol.items.length === 0 ? (
                                             <p className="rounded border border-dashed border-zinc-200 py-3 text-center text-xs text-zinc-400 dark:border-zinc-600">Nenhum item. Clique em &quot;+ Item&quot;.</p>
                                         ) : (
                                             <div className="space-y-2">
-                                                {vol.items.map((it) => (
+                                                {vol.items.map((it) => {
+                                                    const volImg =
+                                                        editImages.find((i) => i.product_volume_id === vol.id && i.is_primary) ||
+                                                        editImages.find((i) => i.product_volume_id === vol.id);
+                                                    const prodImg =
+                                                        editImages.find((i) => i.product_volume_id == null && i.is_primary) ||
+                                                        editImages.find((i) => i.product_volume_id == null);
+                                                    const avatarSrc = volImg
+                                                        ? (volImg.thumbnail_url ?? volImg.url)
+                                                        : prodImg
+                                                          ? (prodImg.thumbnail_url ?? prodImg.url)
+                                                          : null;
+                                                    return (
                                                     <div key={it.id} className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-900/50">
+                                                        <div className="mb-2 flex items-start gap-3">
+                                                            <div className="flex w-[72px] shrink-0 flex-col items-center gap-1">
+                                                                <div className="relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800">
+                                                                    {avatarSrc ? (
+                                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                                        <img src={avatarSrc} alt={it.siglaLabel} className="h-full w-full object-cover" />
+                                                                    ) : (
+                                                                        <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-400">sem foto</div>
+                                                                    )}
+                                                                </div>
+                                                                <label className="flex cursor-pointer items-center gap-0.5 text-[9px] font-semibold text-violet-700 dark:text-violet-300">
+                                                                    <Camera className="h-3 w-3" />
+                                                                    {volumeImageFiles[vol.id] ? "arquivo" : "foto"}
+                                                                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                                                                        onChange={(e) => {
+                                                                            const f = e.target.files?.[0];
+                                                                            if (f) setVolumeImageFiles((prev) => ({ ...prev, [vol.id]: f }));
+                                                                        }}
+                                                                    />
+                                                                </label>
+                                                                {volumeImageFiles[vol.id] && selected && (
+                                                                    <button type="button" disabled={imageUploading}
+                                                                        onClick={async () => {
+                                                                            await uploadProductImage(selected.product_id, volumeImageFiles[vol.id], vol.id);
+                                                                            setVolumeImageFiles((prev) => { const n = { ...prev }; delete n[vol.id]; return n; });
+                                                                        }}
+                                                                        className="text-[9px] font-bold text-violet-700 disabled:opacity-60"
+                                                                    >
+                                                                        {imageUploading ? "…" : "enviar"}
+                                                                    </button>
+                                                                )}
+                                                                {volImg && selected && (
+                                                                    <button type="button" onClick={() => deleteProductImage(volImg.id, selected.product_id)} className="text-[9px] text-red-500">remover</button>
+                                                                )}
+                                                                <p className="text-center text-[8px] leading-tight text-zinc-400">
+                                                                    {volImg ? "foto do tamanho" : "fallback produto"}
+                                                                </p>
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
                                                         <div className="mb-2 flex items-center justify-between">
                                                             <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">{it.siglaLabel}</span>
                                                             <button type="button" onClick={() => removeFormItem(vol.id, it.id)} className="text-zinc-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
@@ -1296,8 +1321,12 @@ export default function ProdutosListaPage() {
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Nome do item</label>
                                                                 <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value.toUpperCase() })} placeholder="Ex: CX 15UN" className={`${inputCls} py-1.5 text-xs uppercase`} />
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
+                                                                <input value={it.detalhes} onChange={(e) => updateFormItem(vol.id, it.id, { detalhes: e.target.value })} placeholder="Texto longo do cardápio/chat…" className={`${inputCls} py-1.5 text-xs`} />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>
@@ -1311,12 +1340,15 @@ export default function ProdutosListaPage() {
                                                                 <input value={it.codigo_barras_ean} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_barras_ean: e.target.value })} placeholder="789..." className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
                                                             </div>
                                                             <div className="sm:col-span-2">
-                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Tags / Sinônimos <span className="font-normal text-zinc-400">(usado no chatbot)</span></label>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Tags / Sinônimos <span className="font-normal text-zinc-400">(busca chatbot)</span></label>
                                                                 <input value={it.tags} onChange={(e) => updateFormItem(vol.id, it.id, { tags: e.target.value })} placeholder="latinha, gelada…" className={`${inputCls} py-1.5 text-xs`} />
                                                             </div>
                                                         </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </div>
@@ -1625,8 +1657,12 @@ export default function ProdutosListaPage() {
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Nome do item</label>
                                                                 <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value.toUpperCase() })} placeholder="Ex: CX 15UN" className={`${inputCls} py-1.5 text-xs uppercase`} />
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
+                                                                <input value={it.detalhes} onChange={(e) => updateFormItem(vol.id, it.id, { detalhes: e.target.value })} placeholder="Texto longo do cardápio/chat…" className={`${inputCls} py-1.5 text-xs`} />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>

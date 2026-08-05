@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const CHAT_PRODUTOS_SELECT =
-    "id, product_name, descricao, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, sigla_comercial, thumbnail_url, image_url";
+    "id, product_name, display_name, descricao, detalhes, preco_venda, volume_quantidade, fator_conversao, id_unit_type, product_volume_id, unit_type_sigla, sigla_comercial, thumbnail_url, image_url";
 
 export type CatalogCategoryOption = { id: string; title: string; description: string };
 
@@ -30,26 +30,16 @@ function buildProductItemsForFlow(rows: any[]): Array<Record<string, unknown>> {
     return rows.map((p: any) => {
         const sigla     = String(p.sigla_comercial ?? "").toUpperCase();
         const fator     = Number(p.fator_conversao ?? 0);
-        const vol       = Number(p.volume_quantidade ?? 0);
-        const unit      = String(p.unit_type_sigla ?? "").trim();
-        const descricao = String(p.descricao ?? "").trim();
-
-        const volPart = vol > 0 && unit ? `${vol}${unit}` : "";
-        const detail  = [descricao, volPart].filter(Boolean).join(" ");
-        let packStr = "";
-        if (sigla && sigla !== "UN") {
-            const fatorPart = fator > 1 ? ` C/${fator}UN` : "";
-            packStr = `${detail} ${sigla}${fatorPart}`.trim();
-        } else {
-            packStr = detail;
-        }
-
+        const title = String(p.display_name || p.product_name || "").trim();
+        const detalhes = String(p.detalhes ?? "").trim();
         const price = `R$ ${(Number.parseFloat(p.preco_venda) || 0).toFixed(2).replaceAll(".", ",")}`;
-        const desc  = [packStr, price].filter(Boolean).join(" — ");
+        const packHint =
+            sigla && sigla !== "UN" && fator > 1 ? `${sigla} c/${fator}` : sigla && sigla !== "UN" ? sigla : "";
+        const desc = [detalhes, packHint, price].filter(Boolean).join(" — ");
 
         return {
             id:          p.id,
-            title:       String(p.product_name ?? "").toUpperCase().slice(0, 30),
+            title:       title.toUpperCase().slice(0, 30),
             description: desc.slice(0, 300),
         };
     });

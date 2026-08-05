@@ -53,10 +53,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const imageId = String(body.image_id ?? "").trim();
     if (!imageId) return NextResponse.json({ error: "image_id_required" }, { status: 400 });
 
-    const { error: u1 } = await admin.from("product_images").update({ is_primary: false }).eq("product_id", productId);
+    const { data: target, error: tErr } = await admin
+        .from("product_images")
+        .select("id, product_volume_id")
+        .eq("id", imageId)
+        .eq("product_id", productId)
+        .maybeSingle();
+    if (tErr) return NextResponse.json({ error: tErr.message }, { status: 500 });
+    if (!target) return NextResponse.json({ error: "image_not_found" }, { status: 404 });
+
+    // Demote só no mesmo escopo (produto geral ou volume)
+    let demote = admin
+        .from("product_images")
+        .update({ is_primary: false })
+        .eq("product_id", productId);
+    demote = target.product_volume_id
+        ? demote.eq("product_volume_id", target.product_volume_id)
+        : demote.is("product_volume_id", null);
+    const { error: u1 } = await demote;
     if (u1) return NextResponse.json({ error: u1.message }, { status: 500 });
 
-    const { error: u2 } = await admin.from("product_images").update({ is_primary: true }).eq("id", imageId).eq("product_id", productId);
+    const { error: u2 } = await admin
+        .from("product_images")
+        .update({ is_primary: true })
+        .eq("id", imageId)
+        .eq("product_id", productId);
     if (u2) return NextResponse.json({ error: u2.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });

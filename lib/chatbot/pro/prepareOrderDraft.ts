@@ -11,6 +11,7 @@ import { tryParseAddressOneLine } from "./parseAddressLoosePt";
 import { roundBrl } from "../utils";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
+import { buildPackDisplayName } from "@/lib/products/packDisplayName";
 
 export type { PrepareDraftToolInput };
 
@@ -54,7 +55,7 @@ export async function loadPackRowForValidation(
     const { data: pe } = await admin
         .from("view_chat_produtos")
         .select(
-            "id, company_id, product_name, preco_venda, fator_conversao, product_volume_id, estoque_unidades, vender_com_estoque_zero, produto_id"
+            "id, company_id, product_name, display_name, descricao, sigla_comercial, volume_quantidade, unit_type_sigla, preco_venda, fator_conversao, product_volume_id, estoque_unidades, vender_com_estoque_zero, produto_id"
         )
         .eq("id", packId)
         .maybeSingle();
@@ -115,12 +116,33 @@ export async function loadPackRowForValidation(
         }
     }
 
+    const peRow = pe as {
+        product_name?: string;
+        display_name?: string | null;
+        descricao?: string | null;
+        sigla_comercial?: string | null;
+        volume_quantidade?: number | string | null;
+        unit_type_sigla?: string | null;
+        preco_venda?: unknown;
+        fator_conversao?: unknown;
+    };
+    const displayName =
+        (typeof peRow.display_name === "string" && peRow.display_name.trim()) ||
+        buildPackDisplayName({
+            productName: peRow.product_name,
+            itemName: peRow.descricao,
+            sigla: peRow.sigla_comercial,
+            volumeQuantidade: peRow.volume_quantidade,
+            unitSigla: peRow.unit_type_sigla,
+            fatorConversao: peRow.fator_conversao as number,
+        });
+
     return {
         row: {
             id:                pe.id as string,
-            product_name:      String((pe as { product_name: string }).product_name ?? ""),
-            preco_venda:       roundBrl(Number.parseFloat(String((pe as { preco_venda: unknown }).preco_venda ?? "0"))),
-            fator_conversao:   Number.parseFloat(String((pe as { fator_conversao: unknown }).fator_conversao ?? "1")) || 1,
+            product_name:      displayName,
+            preco_venda:       roundBrl(Number.parseFloat(String(peRow.preco_venda ?? "0"))),
+            fator_conversao:   Number.parseFloat(String(peRow.fator_conversao ?? "1")) || 1,
             product_volume_id: productVolumeId,
         },
         estoque,

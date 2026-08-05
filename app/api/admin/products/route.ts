@@ -53,6 +53,7 @@ export async function GET() {
 type VolumeItemBody = {
     id_sigla_comercial?: string;
     descricao?: string | null;
+    detalhes?: string | null;
     fator_conversao?: number;
     preco_venda?: number;
     preco_custo?: number | null;
@@ -120,6 +121,24 @@ export async function POST(req: NextRequest) {
         });
         if (flagErr) {
             return NextResponse.json({ error: flagErr.message }, { status: 500 });
+        }
+
+        const detalheItems = volumes.flatMap((vol) =>
+            (vol.items ?? []).map((it) => ({
+                id_sigla_comercial: it.id_sigla_comercial,
+                fator_conversao: it.fator_conversao ?? 1,
+                detalhes: it.detalhes ?? null,
+            }))
+        );
+        if (detalheItems.length) {
+            const { error: detErr } = await admin.rpc("rpc_apply_produto_embalagens_detalhes", {
+                p_company_id: companyId,
+                p_product_id: productId,
+                p_items: detalheItems,
+            });
+            if (detErr) {
+                return NextResponse.json({ error: detErr.message }, { status: 500 });
+            }
         }
     }
 

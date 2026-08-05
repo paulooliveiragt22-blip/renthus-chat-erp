@@ -3,11 +3,14 @@ import {
     disponivelVenda,
     shouldHideWhenOutOfStock,
 } from "@/lib/products/stockPolicy";
+import { buildPackDisplayName } from "@/lib/products/packDisplayName";
 
 export type ChatProdutoRow = {
     id:                   string;
     product_name:         string;
+    display_name?:        string | null;
     descricao:            string | null;
+    detalhes?:            string | null;
     sigla_comercial:      string | null;
     preco_venda:          number | string | null;
     volume_quantidade:    number | string | null;
@@ -27,7 +30,7 @@ function sanitizeSearchQuery(raw: string): string {
 }
 
 const SELECT_FULL =
-    "id, produto_id, product_name, descricao, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id, estoque_unidades, vender_com_estoque_zero";
+    "id, produto_id, product_name, display_name, descricao, detalhes, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id, estoque_unidades, vender_com_estoque_zero, thumbnail_url, image_url";
 const SELECT_LEGACY =
     "id, produto_id, product_name, descricao, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id";
 
@@ -107,6 +110,19 @@ function enrichAndFilter(rows: ChatProdutoRow[]): ChatProdutoRow[] {
         r.estoque_unidades = estoque;
         r.vender_com_estoque_zero = venderZero;
         r.disponivel_venda = disponivelVenda(estoque, fator);
+        const display =
+            (typeof r.display_name === "string" && r.display_name.trim()) ||
+            buildPackDisplayName({
+                productName: r.product_name,
+                itemName: r.descricao,
+                sigla: r.sigla_comercial,
+                volumeQuantidade: r.volume_quantidade,
+                unitSigla: r.unit_type_sigla,
+                fatorConversao: r.fator_conversao,
+            });
+        r.display_name = display;
+        // IA / draft usam product_name como rótulo ao cliente
+        r.product_name = display;
         out.push(r);
     }
     return out;
