@@ -21,7 +21,7 @@ function rowToPick(r: {
     id: string;
     display_name?: string | null;
     product_name?: string | null;
-    preco_venda?: number | null;
+    preco_venda?: number | string | null;
 }): SegmentPickRow {
     return {
         embalagemId: String(r.id),
@@ -41,7 +41,7 @@ function scoreItem(
         display_name?: string | null;
         product_name?: string | null;
         sigla_comercial?: string | null;
-        preco_venda?: number | null;
+        preco_venda?: number | string | null;
     }
 ): number {
     const seg = norm(segment);
@@ -83,7 +83,7 @@ export function resolveSegmentPick(
         id: string;
         display_name?: string | null;
         product_name?: string | null;
-        preco_venda?: number | null;
+        preco_venda?: number | string | null;
         sigla_comercial?: string | null;
     }>
 ): { kind: "unique"; pick: SegmentPickRow } | { kind: "ambiguous"; picks: SegmentPickRow[] } | { kind: "empty" } {
