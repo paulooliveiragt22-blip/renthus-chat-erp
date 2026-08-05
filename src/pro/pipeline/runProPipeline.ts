@@ -40,6 +40,10 @@ import {
     withResolvedSlotStepUnlessAwaitingConfirmation,
 } from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
+import {
+    resolvePickedEmbalagemId,
+    serverPrepareAfterProductPick,
+} from "./serverPrepareAfterPick";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -250,8 +254,73 @@ export async function runProPipeline(
     }
 
     const pickApplied = applyProductPickFromButton(input.inboundText, guarded.state);
-    const stateAfterPick = pickApplied.state;
+    let stateAfterPick = pickApplied.state;
+    const productPickApplied = Boolean(pickApplied.syntheticUserText);
     const inboundTextForPipeline = pickApplied.syntheticUserText ?? input.inboundText;
+
+    /** Pick determinístico: prepare no servidor antes da IA (corta 1–2 RTTs de modelo). */
+    let serverPreparedOnPick = false;
+    if (productPickApplied && deps.admin && !isInfoOnlyMode(aiPolicy)) {
+        const pickedId = resolvePickedEmbalagemId(stateAfterPick);
+        if (pickedId) {
+            try {
+                const serverPrep = await serverPrepareAfterProductPick({
+                    admin: deps.admin,
+                    companyId: input.tenant.companyId,
+                    customerId: stateAfterPick.customerId,
+                    state: stateAfterPick,
+                    pickedEmbalagemId: pickedId,
+                });
+                stateAfterPick = serverPrep.state;
+                serverPreparedOnPick = Boolean(serverPrep.state.draft?.items?.length);
+                if (serverPrep.skipAi) {
+                    const finalState = withResolvedSlotStep({
+                        ...stateAfterPick,
+                        checkoutEditHold: false,
+                    });
+                    const finalOutbound = checkoutPostProcessForQuickAction({
+                        state: finalState,
+                        outbound: [],
+                    });
+                    await persistAndEmit({
+                        tenant: input.tenant,
+                        state: finalState,
+                        outbound: finalOutbound,
+                        sessionRepo: deps.sessionRepo,
+                        messageGateway: deps.messageGateway,
+                        metrics: deps.metrics,
+                        logger: deps.logger,
+                    });
+                    const metrics: PipelineMetric[] = [
+                        {
+                            name: "pro_pipeline.server_prepare_pick",
+                            value: 1,
+                            tags: { skipped_ai: "1" },
+                        },
+                        { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+                    ];
+                    flushPipelineRunMetrics(
+                        deps.metrics,
+                        input.tenant,
+                        metrics,
+                        new Set(["pro_pipeline.outbound_count"])
+                    );
+                    return {
+                        nextState: finalState,
+                        outbound: finalOutbound,
+                        sideEffects: [],
+                        metrics,
+                    };
+                }
+            } catch (err) {
+                deps.logger?.warn("pro_pipeline.server_prepare_pick_failed", {
+                    companyId: input.tenant.companyId,
+                    threadId: input.tenant.threadId,
+                    message: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
+    }
 
     const quick = applyQuickAction(inboundTextForPipeline, stateAfterPick, {
         flowAddressRegister: input.flowAddressRegisterId
@@ -303,7 +372,8 @@ export async function runProPipeline(
     // Prioridade: se está aguardando confirmação, resolve fechamento/erro de draft
     // antes de qualquer passagem por IA para evitar desvio de fluxo.
     let highValuePolicy: { enabled: boolean; amountBrl: number } | undefined;
-    if (deps.admin) {
+    /** Só precisa da policy no passo de confirmação (evita SELECT em todo turno de coleta). */
+    if (deps.admin && pipelineState.step === "pro_awaiting_confirmation") {
         try {
             const { data: botRow } = await deps.admin
                 .from("chatbots")
@@ -457,6 +527,7 @@ export async function runProPipeline(
                 };
             }
             let aiContext: PipelineContext = { ...context, session: nextState };
+            let prefetchedOrderHints: Record<string, unknown> | null = null;
             if (
                 !infoOnly &&
                 decision.intent === "order_intent" &&
@@ -464,7 +535,7 @@ export async function runProPipeline(
                 nextState.customerId
             ) {
                 try {
-                    const prefetchedOrderHints = await buildOrderHintsPayload({
+                    prefetchedOrderHints = await buildOrderHintsPayload({
                         admin: deps.admin,
                         companyId: input.tenant.companyId,
                         phoneE164: input.tenant.phoneE164,
@@ -485,6 +556,9 @@ export async function runProPipeline(
                 decision,
                 userText: inboundTextForPipeline,
                 logger: deps.logger,
+                /** Só força prepare na 1ª chamada se o pick ainda não foi aplicado no servidor. */
+                preferPrepareToolChoiceFirst: productPickApplied && !serverPreparedOnPick,
+                skipForcePrepareAfterPick: serverPreparedOnPick,
             });
             invalidAiSanitized = ai.invalidAiSanitized;
             aiServiceErrorCode = ai.aiResult.errorCode;
@@ -505,19 +579,23 @@ export async function runProPipeline(
                 d.items.length > 0 &&
                 !isAddressStructurallyComplete(d.address ?? null)
             ) {
-                try {
-                    checkoutOrderHints = await buildOrderHintsPayload({
-                        admin:     deps.admin,
-                        companyId: input.tenant.companyId,
-                        phoneE164: input.tenant.phoneE164,
-                        name:      input.actor.profileName ?? null,
-                    });
-                } catch (err) {
-                    deps.logger?.warn("pro_pipeline.prefetch_checkout_order_hints_failed", {
-                        companyId: input.tenant.companyId,
-                        threadId:  input.tenant.threadId,
-                        message:   err instanceof Error ? err.message : String(err),
-                    });
+                if (prefetchedOrderHints) {
+                    checkoutOrderHints = prefetchedOrderHints;
+                } else {
+                    try {
+                        checkoutOrderHints = await buildOrderHintsPayload({
+                            admin:     deps.admin,
+                            companyId: input.tenant.companyId,
+                            phoneE164: input.tenant.phoneE164,
+                            name:      input.actor.profileName ?? null,
+                        });
+                    } catch (err) {
+                        deps.logger?.warn("pro_pipeline.prefetch_checkout_order_hints_failed", {
+                            companyId: input.tenant.companyId,
+                            threadId:  input.tenant.threadId,
+                            message:   err instanceof Error ? err.message : String(err),
+                        });
+                    }
                 }
             }
         }

@@ -285,6 +285,9 @@ export async function prepareOrderDraftFromTool(
         allowSet.size === 1 &&
         (body.items?.length ?? 0) === 1;
 
+    type PlannedLine = { pid: string; qty: number };
+    const planned: PlannedLine[] = [];
+
     for (const line of body.items ?? []) {
         const qty = parsePtQuantity(line.quantity);
         let pid = String(line.produtoEmbalagemId ?? "").trim();
@@ -315,7 +318,15 @@ export async function prepareOrderDraftFromTool(
                 continue;
             }
         }
-        const loaded = await loadPackRowForValidation(admin, companyId, pid);
+        planned.push({ pid, qty });
+    }
+
+    const loadedRows = await Promise.all(
+        planned.map((p) => loadPackRowForValidation(admin, companyId, p.pid))
+    );
+    for (let i = 0; i < planned.length; i++) {
+        const { pid, qty } = planned[i]!;
+        const loaded = loadedRows[i];
         if (!loaded) {
             errors.push(`Embalagem inválida ou de outra empresa: ${pid}`);
             continue;

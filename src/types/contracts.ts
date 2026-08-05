@@ -296,6 +296,13 @@ export interface AiServiceInput {
     };
     /** Quando definido (ex.: pipeline PRO), chamado após cada `prepare_order_draft` no servidor. */
     onPrepareDraftToolResult?: (payload: PrepareDraftToolTelemetryPayload) => void;
+    /**
+     * Pick de embalagem: primeira chamada ao modelo já força `prepare_order_draft`
+     * (evita texto livre + rodada extra de force-prepare).
+     */
+    preferPrepareToolChoiceFirst?: boolean;
+    /** Prepare já rodou no servidor neste turno (pick) — não reabrir force-prepare. */
+    skipForcePrepareAfterPick?: boolean;
 }
 
 export type AiServiceAction =

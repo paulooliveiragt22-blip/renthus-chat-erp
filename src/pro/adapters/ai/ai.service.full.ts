@@ -365,6 +365,19 @@ export class FullAiServiceAdapter implements AiService {
     }
 
     private async runHintsTool(input: AiServiceInput, block: { id: string }): Promise<ToolResultBlock> {
+        const cached = input.context.prefetchedOrderHints;
+        if (cached && typeof cached === "object") {
+            return {
+                type: "tool_result",
+                tool_use_id: block.id,
+                content: JSON.stringify({
+                    ...cached,
+                    guidance_for_model_pt: [
+                        "Hints já carregados no servidor neste turno — use saved_addresses/favoritos sem nova busca.",
+                    ],
+                }),
+            };
+        }
         const hints = await buildOrderHintsPayload({
             admin: this.admin,
             companyId: input.context.tenant.companyId,
@@ -667,10 +680,18 @@ export class FullAiServiceAdapter implements AiService {
             const tools = toolsForMode(infoOnly);
             const systemPrompt = buildEffectiveSystemPrompt(input);
             const companyId = input.context.tenant.companyId;
+            const firstToolChoice: ToolChoice | undefined =
+                !infoOnly && input.preferPrepareToolChoiceFirst
+                    ? {
+                          type: "tool",
+                          name: "prepare_order_draft",
+                          disable_parallel_tool_use: true,
+                      }
+                    : undefined;
             let response = await this.callModel(
                 messages,
                 input.limits.timeoutMs,
-                undefined,
+                firstToolChoice,
                 systemPrompt,
                 companyId,
                 tools
@@ -722,6 +743,7 @@ export class FullAiServiceAdapter implements AiService {
 
             if (
                 !infoOnly &&
+                !input.skipForcePrepareAfterPick &&
                 shouldForcePrepareAfterEmbalagemChoice({
                     intent: input.intentDecision.intent,
                     step: input.context.session.step,

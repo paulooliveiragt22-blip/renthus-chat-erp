@@ -30,8 +30,18 @@ export async function aiStage(params: {
     decision: IntentDecision;
     userText: string;
     logger?: LoggerPort;
+    preferPrepareToolChoiceFirst?: boolean;
+    skipForcePrepareAfterPick?: boolean;
 }): Promise<AiStageResult> {
-    const { aiService, context, decision, userText, logger } = params;
+    const {
+        aiService,
+        context,
+        decision,
+        userText,
+        logger,
+        preferPrepareToolChoiceFirst,
+        skipForcePrepareAfterPick,
+    } = params;
 
     const raw = await aiService.run({
         context,
@@ -44,6 +54,8 @@ export async function aiStage(params: {
             maxHistoryTurns: context.policies.maxHistoryTurns,
             timeoutMs: context.policies.aiTimeoutMs,
         },
+        preferPrepareToolChoiceFirst,
+        skipForcePrepareAfterPick,
         onPrepareDraftToolResult: logger
             ? (payload) => {
                   logger.info("pro_ai.prepare_order_draft", { ...payload });
