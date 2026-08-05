@@ -425,19 +425,32 @@ export async function createPixInvoiceOrder(params: {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Extrai URL de pagamento PIX (QR code URL) do order do Pagar.me */
-export function extractPixUrl(order: PagarmeOrder): string | null {
-    const charge = order.charges?.[0];
-    return (
-        charge?.last_transaction?.qr_code_url ??
-        charge?.last_transaction?.pdf ??
-        null
-    );
+/** EMV PIX (copia-e-cola) vs URL de QR/página Mundipagg. */
+export function isPixEmvPayload(raw: string): boolean {
+    const s = raw.trim();
+    if (!s || s.startsWith("http://") || s.startsWith("https://")) return false;
+    // Payload BR Code começa com 000201…
+    if (s.startsWith("000201")) return true;
+    // Fallback: string longa sem URL
+    return s.length >= 40 && !s.includes("://");
 }
 
-/** Extrai código PIX copia-e-cola */
+/** Extrai URL de pagamento PIX (imagem QR ou página) do order do Pagar.me */
+export function extractPixUrl(order: PagarmeOrder): string | null {
+    const tx = order.charges?.[0]?.last_transaction;
+    const url = tx?.qr_code_url ?? tx?.pdf ?? null;
+    if (typeof url === "string" && url.startsWith("http")) return url;
+    // Em alguns ambientes o Pagar.me/Mundipagg coloca a URL em `qr_code`
+    const maybeUrl = typeof tx?.qr_code === "string" ? tx.qr_code.trim() : "";
+    if (maybeUrl.startsWith("http")) return maybeUrl;
+    return null;
+}
+
+/** Extrai código PIX copia-e-cola (EMV). Ignora URLs. */
 export function extractPixCode(order: PagarmeOrder): string | null {
-    return order.charges?.[0]?.last_transaction?.qr_code ?? null;
+    const raw = order.charges?.[0]?.last_transaction?.qr_code;
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    return isPixEmvPayload(raw) ? raw.trim() : null;
 }
 
 /** Verifica assinatura HMAC-SHA256 do webhook do Pagar.me */

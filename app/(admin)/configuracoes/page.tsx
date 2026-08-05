@@ -431,7 +431,12 @@ function ConfiguracoesPageContent() {
         autoRechargePackCents: number | null;
     } | null>(null);
     const [aiPackLoading, setAiPackLoading] = useState<number | null>(null);
-    const [aiPackPix, setAiPackPix] = useState<string | null>(null);
+    const [aiPackPix, setAiPackPix] = useState<{
+        code: string | null;
+        url: string | null;
+        amountBrl: number | null;
+    } | null>(null);
+    const [aiPackCopied, setAiPackCopied] = useState(false);
     const [botSaving,       setBotSaving]        = useState(false);
     const [botMsg,          setBotMsg]           = useState<string | null>(null);
     const botMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2177,6 +2182,7 @@ function ConfiguracoesPageContent() {
                                                 onClick={async () => {
                                                     setAiPackLoading(cents);
                                                     setAiPackPix(null);
+                                                    setAiPackCopied(false);
                                                     setBotMsg(null);
                                                     try {
                                                         const res = await fetch(
@@ -2200,13 +2206,32 @@ function ConfiguracoesPageContent() {
                                                             );
                                                             return;
                                                         }
-                                                        setAiPackPix(
-                                                            typeof json.pixQrCode === "string"
-                                                                ? json.pixQrCode
-                                                                : null
-                                                        );
+                                                        const code =
+                                                            typeof json.pixQrCode === "string" &&
+                                                            json.pixQrCode.trim()
+                                                                ? String(json.pixQrCode).trim()
+                                                                : null;
+                                                        const url =
+                                                            typeof json.pixUrl === "string" &&
+                                                            String(json.pixUrl).startsWith("http")
+                                                                ? String(json.pixUrl)
+                                                                : null;
+                                                        if (!code && !url) {
+                                                            setBotMsg(
+                                                                "PIX criado, mas o Pagar.me não devolveu código/QR. Tente de novo."
+                                                            );
+                                                            return;
+                                                        }
+                                                        setAiPackPix({
+                                                            code,
+                                                            url,
+                                                            amountBrl:
+                                                                typeof json.amountBrl === "number"
+                                                                    ? json.amountBrl
+                                                                    : cents / 100,
+                                                        });
                                                         setBotMsg(
-                                                            "✓ PIX gerado — pague para adicionar o crédito"
+                                                            "✓ PIX gerado — escaneie o QR ou copie o código"
                                                         );
                                                     } finally {
                                                         setAiPackLoading(null);
@@ -2226,13 +2251,83 @@ function ConfiguracoesPageContent() {
                                         ))}
                                     </div>
                                     {aiPackPix ? (
-                                        <div className="mt-3 space-y-1">
-                                            <p className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
-                                                Código PIX (copie e cole no app do banco)
-                                            </p>
-                                            <p className="break-all rounded-lg bg-white px-2 py-1.5 font-mono text-[10px] text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700">
-                                                {aiPackPix}
-                                            </p>
+                                        <div className="mt-4 space-y-3">
+                                            {aiPackPix.amountBrl != null ? (
+                                                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                                    Valor:{" "}
+                                                    {aiPackPix.amountBrl.toLocaleString("pt-BR", {
+                                                        style: "currency",
+                                                        currency: "BRL",
+                                                    })}
+                                                </p>
+                                            ) : null}
+                                            <div className="flex flex-wrap items-start gap-3">
+                                                {aiPackPix.url ? (
+                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                    <img
+                                                        src={aiPackPix.url}
+                                                        alt="QR Code PIX"
+                                                        className="h-40 w-40 rounded-xl border border-zinc-200 bg-white object-contain p-1 dark:border-zinc-700"
+                                                    />
+                                                ) : null}
+                                                <div className="min-w-[200px] flex-1 space-y-2">
+                                                    {aiPackPix.code ? (
+                                                        <>
+                                                            <p className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+                                                                PIX copia e cola
+                                                            </p>
+                                                            <textarea
+                                                                readOnly
+                                                                rows={4}
+                                                                value={aiPackPix.code}
+                                                                onFocus={(e) => e.target.select()}
+                                                                className="w-full rounded-lg border border-zinc-200 bg-white p-2 font-mono text-[10px] text-zinc-800 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        await navigator.clipboard.writeText(
+                                                                            aiPackPix.code!
+                                                                        );
+                                                                        setAiPackCopied(true);
+                                                                        setTimeout(
+                                                                            () => setAiPackCopied(false),
+                                                                            2000
+                                                                        );
+                                                                    } catch {
+                                                                        setBotMsg(
+                                                                            "Não foi possível copiar. Selecione o código manualmente."
+                                                                        );
+                                                                    }
+                                                                }}
+                                                                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900"
+                                                            >
+                                                                {aiPackCopied
+                                                                    ? "Copiado!"
+                                                                    : "Copiar código PIX"}
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <div className="space-y-2">
+                                                            <p className="text-[11px] text-zinc-500">
+                                                                O banco devolveu só o QR (sem copia e cola).
+                                                                Escaneie a imagem ou abra o link.
+                                                            </p>
+                                                            {aiPackPix.url ? (
+                                                                <a
+                                                                    href={aiPackPix.url}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="inline-flex rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700"
+                                                                >
+                                                                    Abrir página PIX
+                                                                </a>
+                                                            ) : null}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     ) : null}
                                 </div>
