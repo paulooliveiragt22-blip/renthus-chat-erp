@@ -26,14 +26,26 @@ describe("shouldForcePrepareAfterEmbalagemChoice", () => {
         );
     });
 
-    it("returns false when only one id at start", () => {
+    it("single-pick allowlist: força prepare mesmo com 1 id", () => {
         assert.equal(
             shouldForcePrepareAfterEmbalagemChoice({
                 ...base,
                 allowlistAtStart: ["only"],
                 allowlistNow: ["only"],
             }),
-            false
+            true
+        );
+    });
+
+    it("single-pick com draft parcial: ainda força prepare aditivo", () => {
+        assert.equal(
+            shouldForcePrepareAfterEmbalagemChoice({
+                ...base,
+                allowlistAtStart: ["picked"],
+                allowlistNow: ["picked"],
+                draftItemCount: 2,
+            }),
+            true
         );
     });
 
@@ -47,7 +59,7 @@ describe("shouldForcePrepareAfterEmbalagemChoice", () => {
         );
     });
 
-    it("returns false when draft já tem itens", () => {
+    it("returns false when draft já tem itens (multi allowlist, sem pick)", () => {
         assert.equal(
             shouldForcePrepareAfterEmbalagemChoice({
                 ...base,

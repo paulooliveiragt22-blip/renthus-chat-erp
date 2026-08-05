@@ -239,7 +239,11 @@ function keepOnlyFinalConfirmationCard(messages: OutboundMessage[], draft: Order
             return false;
         }
         if (flat.includes("r$") && flat.includes("pagamento")) return false;
-        return flat.length > 0 && flat.length < 80 && !flat.includes("pedido");
+        // Mantém prompts de Corrigir / Adicionar (“editar no pedido”, “produtos que quer adicionar”).
+        if (flat.includes("editar") || flat.includes("adicionar") || flat.includes("acrescente")) {
+            return flat.length > 0 && flat.length < 160;
+        }
+        return flat.length > 0 && flat.length < 80;
     });
     return [...nonCheckoutText, card];
 }
@@ -284,6 +288,7 @@ export function applyQuickAction(
             escalationTier: 0,
             searchProdutoEmbalagemIds: [],
             deliveryAddressUiConfirmed: false,
+            checkoutEditHold: false,
         };
         return {
             handled: true,
@@ -302,6 +307,7 @@ export function applyQuickAction(
             escalationTier: 0,
             searchProdutoEmbalagemIds: [],
             deliveryAddressUiConfirmed: false,
+            checkoutEditHold: false,
         };
         return {
             handled: true,
@@ -315,7 +321,7 @@ export function applyQuickAction(
         return {
             handled: true,
             actionTag: action,
-            state: { ...state, step: "pro_collecting_order" },
+            state: { ...state, step: "pro_collecting_order", checkoutEditHold: true },
             outbound: [{ kind: "text", text: "Perfeito. Me diga o que voce quer editar no pedido." }],
         };
     }
@@ -324,7 +330,7 @@ export function applyQuickAction(
         return {
             handled: true,
             actionTag: action,
-            state: { ...state, step: "pro_collecting_order" },
+            state: { ...state, step: "pro_collecting_order", checkoutEditHold: true },
             outbound: [{ kind: "text", text: "Certo. Me diga os produtos que quer adicionar." }],
         };
     }
@@ -463,12 +469,12 @@ export function checkoutPostProcess(params: {
             }
         );
     }
-    // Clarificação de produto: uma UI só (servidor), sem lista duplicada da IA
+    // Clarificação de produto: uma UI só (servidor), mesmo com draft parcial multi-item
     if (
         params.mode === "ai" &&
         !showAddressRegistrationPrompt &&
         (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
-        !(nextState.draft?.items?.length)
+        nextState.step !== "pro_awaiting_confirmation"
     ) {
         const clarify = buildClarificationButtons(nextState.lastSearchPicks ?? []);
         if (clarify) {
@@ -517,6 +523,10 @@ export function checkoutPostProcessForQuickAction(params: {
     outbound: OutboundMessage[];
 }): OutboundMessage[] {
     const state = withResolvedSlotStep(params.state);
+    if (state.checkoutEditHold) {
+        // Corrigir / Adicionar: não reenviar resumo de confirmação nesta volta.
+        return prioritizeInteractiveFirst([...params.outbound]);
+    }
     const cards = checkoutButtonsForState(state);
     if (state.step === "pro_awaiting_confirmation" && state.draft) {
         return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft);

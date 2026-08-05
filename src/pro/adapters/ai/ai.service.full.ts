@@ -27,6 +27,10 @@ import {
     type PrepareOrderDraftCatalogPolicy,
 } from "@/lib/chatbot/pro/prepareOrderDraft";
 import { normalizePrepareDraftAnthropicInput } from "@/lib/chatbot/pro/normalizePrepareDraftAnthropicInput";
+import {
+    mergePreparedDraftIntoCurrent,
+    unionAllowlistWithDraftIds,
+} from "@/src/pro/pipeline/mergeOrderDraft";
 import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
 import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep";
@@ -56,10 +60,13 @@ export function shouldForcePrepareAfterEmbalagemChoice(params: {
 }): boolean {
     if (params.intent !== "order_intent") return false;
     if (params.step !== "pro_collecting_order") return false;
-    if (params.allowlistAtStart.length < 2) return false;
-    if (!embalagemIdSetsEqual(params.allowlistAtStart, params.allowlistNow)) return false;
     if (params.prepareInvokedThisTurn) return false;
-    if (params.draftItemCount > 0) return false;
+    if (!embalagemIdSetsEqual(params.allowlistAtStart, params.allowlistNow)) return false;
+    /** Pick de 1 SKU (allowlist estreita): força prepare aditivo mesmo com draft já parcial. */
+    const singlePickForce =
+        params.allowlistAtStart.length === 1 && params.allowlistNow.length === 1;
+    if (params.allowlistAtStart.length < 2 && !singlePickForce) return false;
+    if (params.draftItemCount > 0 && !singlePickForce) return false;
     return true;
 }
 type AnthropicMessage = { role: "user" | "assistant"; content: unknown };
@@ -393,9 +400,10 @@ export class FullAiServiceAdapter implements AiService {
             );
             effectiveCustomerId = c?.id ?? null;
         }
+        const allowedEmbalagemIds = unionAllowlistWithDraftIds(allowlistRuntime.ids, currentDraft);
         const catalogPolicy: PrepareOrderDraftCatalogPolicy = {
             kind: "search_allowlist",
-            allowedEmbalagemIds: allowlistRuntime.ids,
+            allowedEmbalagemIds,
         };
         const prepared = await prepareOrderDraftFromTool(
             this.admin,
@@ -416,6 +424,7 @@ export class FullAiServiceAdapter implements AiService {
             Boolean(toolInput.useSavedAddress) ||
             Boolean(toolInput.addressRaw?.trim()) ||
             hasStructuredAddress;
+        const nextDraft = mergePreparedDraftIntoCurrent(currentDraft, prepared.draft);
         input.onPrepareDraftToolResult?.({
             companyId: input.context.tenant.companyId,
             threadId: input.context.tenant.threadId,
@@ -424,17 +433,13 @@ export class FullAiServiceAdapter implements AiService {
             hasItems: (toolInput.items?.length ?? 0) > 0,
             hasAddress: hasAddressPayload,
             payment_method: toolInput.paymentMethod ?? null,
-            draftItemCount: prepared.draft?.items?.length ?? 0,
+            draftItemCount: nextDraft?.items?.length ?? 0,
         });
-        const nextDraft = prepared.draft ?? currentDraft;
-        const allowedIds =
-            catalogPolicy.kind === "search_allowlist" && catalogPolicy.allowedEmbalagemIds.length
-                ? [...catalogPolicy.allowedEmbalagemIds]
-                : [];
+        const allowedIds = allowedEmbalagemIds.length ? [...allowedEmbalagemIds] : [];
         const baseGuidance = buildPrepareDraftGuidanceForModel(prepared.ok, prepared.errors, {
             deliveryAddressUiConfirmed: input.context.session.deliveryAddressUiConfirmed,
             nextRequiredSlot: prepared.next_required_slot ?? null,
-            hasPartialDraft: Boolean(prepared.draft?.items?.length) && !prepared.ok,
+            hasPartialDraft: Boolean(nextDraft?.items?.length) && !prepared.ok,
         });
         const idHint =
             !prepared.ok && allowedIds.length
@@ -451,7 +456,8 @@ export class FullAiServiceAdapter implements AiService {
                 content: JSON.stringify({
                     ok: prepared.ok,
                     errors: prepared.errors,
-                    has_draft: Boolean(prepared.draft),
+                    has_draft: Boolean(nextDraft),
+                    draft_item_count: nextDraft?.items?.length ?? 0,
                     next_required_slot: prepared.next_required_slot ?? null,
                     ...(!prepared.ok && allowedIds.length ? { allowed_produto_embalagem_ids: allowedIds } : {}),
                     guidance_for_model_pt: [...baseGuidance, ...idHint],

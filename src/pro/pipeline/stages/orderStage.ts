@@ -8,7 +8,10 @@ import type { LoggerPort } from "../../ports/logger.port";
 import type { OrderService } from "../../services/order/order.types";
 import { hasPersistedDraft, isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
 import { shouldHoldAwaitingAddressUi, withResolvedSlotStep } from "../orderSlotStep";
-import { isExplicitOrderConfirmation } from "../orderConfirmationText";
+import {
+    isExplicitOrderConfirmation,
+    looksLikeCheckoutRevisionText,
+} from "../orderConfirmationText";
 import { executeOrderRpcTransition, resolveStepAfterOrderStage } from "../proStepTransitions";
 
 /** Resultado do estágio de pedido para telemetria e testes (gates antes de `createFromDraft`). */
@@ -80,6 +83,21 @@ export async function orderStage(params: {
         };
     }
     if (!isConfirm) {
+        if (looksLikeCheckoutRevisionText(trimmedText)) {
+            logger?.info("pro_pipeline.order_stage.release_for_revision", {
+                companyId: tenant.companyId,
+                threadId: tenant.threadId,
+                inboundSample: trimmedText.slice(0, 64),
+            });
+            return {
+                state: {
+                    ...state,
+                    step: "pro_collecting_order",
+                    checkoutEditHold: true,
+                },
+                outcome: "skipped_weak_confirmation",
+            };
+        }
         logger?.info("pro_pipeline.order_stage.skip_weak_confirmation", {
             companyId: tenant.companyId,
             threadId: tenant.threadId,

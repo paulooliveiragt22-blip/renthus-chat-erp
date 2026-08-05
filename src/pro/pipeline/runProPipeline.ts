@@ -333,9 +333,14 @@ export async function runProPipeline(
         blockFinalizeMessage: buildInfoOnlyOrderBlockedText(input.webMenuUrl),
     });
 
+    /** orderStage pode liberar confirmação (checkoutEditHold) — propaga para IA/rota. */
+    pipelineState = preOrder.state;
+
     const preOrderSideMetrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [];
     if (preOrder.outcome === "skipped_weak_confirmation") {
-        const reason: ProPipelineTelemetryReason = "confirmation_ambiguous";
+        const reason: ProPipelineTelemetryReason = preOrder.state.checkoutEditHold
+            ? "confirmation_revision"
+            : "confirmation_ambiguous";
         preOrderSideMetrics.push({
             name: "pro_pipeline.confirmation_ambiguous",
             value: 1,

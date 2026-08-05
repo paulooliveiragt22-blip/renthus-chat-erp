@@ -108,6 +108,13 @@ export function resolveProStepFromDraft(params: {
 export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
     const deliveryAddressUiConfirmed =
         isDeliveryAddressAutoConfirmed(state.draft) || state.deliveryAddressUiConfirmed === true;
+    if (state.checkoutEditHold) {
+        return {
+            ...state,
+            deliveryAddressUiConfirmed,
+            step: "pro_collecting_order",
+        };
+    }
     return {
         ...state,
         deliveryAddressUiConfirmed,

@@ -85,6 +85,8 @@ export async function aiStage(params: {
         ...context.session,
         draft: nextDraft,
         deliveryAddressUiConfirmed,
+        /** Draft mudou (itens/endereço) ⇒ libera hold de Corrigir/Adicionar. */
+        checkoutEditHold: prevFp === nextFp ? Boolean(context.session.checkoutEditHold) : false,
         highValueAcknowledged:
             prevFp === nextFp ? context.session.highValueAcknowledged : false,
         aiHistory: aiResult.updatedHistory ?? [],

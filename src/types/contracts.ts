@@ -122,6 +122,12 @@ export interface ProSessionState {
      */
     deliveryAddressUiConfirmed?: boolean;
     /**
+     * Após Corrigir / Adicionar produtos (ou texto de revisão na confirmação):
+     * mantém `pro_collecting_order` mesmo com draft completo, sem reemitir o card de resumo.
+     * Limpa quando o draft muda (novo prepare) ou o pedido é cancelado.
+     */
+    checkoutEditHold?: boolean;
+    /**
      * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */
@@ -222,6 +228,7 @@ export interface ProPipelineOutput {
  * Rejeições internas de `canTransition` usam código à parte (`invalid_state_transition` em `proStepTransitions.ts`), não este tipo.
  */
 export type ProPipelineTelemetryReason =
+    | "confirmation_revision"
     | "draft_validation_failed"
     | "finalize_blocked"
     | "confirmation_ambiguous"

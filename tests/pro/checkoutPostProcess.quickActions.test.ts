@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
 import {
     applyQuickAction,
+    checkoutPostProcessForQuickAction,
     strictCheckoutStructuredGate,
 } from "../../src/pro/pipeline/stages/checkoutPostProcess";
+import { withResolvedSlotStep } from "../../src/pro/pipeline/orderSlotStep";
 
 function minimalDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
     return {
@@ -163,5 +165,42 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
             })
         );
         assert.equal(g, null);
+    });
+
+    it("Corrigir: hold sticky — não reenvia resumo de confirmação", () => {
+        const r = applyQuickAction(
+            "pro_edit_order",
+            state({
+                step: "pro_awaiting_confirmation",
+                draft: minimalDraft({ paymentMethod: "pix" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.state.checkoutEditHold, true);
+        assert.equal(r.state.step, "pro_collecting_order");
+        const synced = withResolvedSlotStep(r.state);
+        assert.equal(synced.step, "pro_collecting_order");
+        const out = checkoutPostProcessForQuickAction({ state: synced, outbound: r.outbound });
+        assert.ok(out.some((m) => m.kind === "text" && String(m.text).includes("editar")));
+        assert.ok(!out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")));
+    });
+
+    it("Adicionar produtos: hold sticky sem card de resumo", () => {
+        const r = applyQuickAction(
+            "pro_add_items",
+            state({
+                step: "pro_awaiting_confirmation",
+                draft: minimalDraft({ paymentMethod: "pix" }),
+                deliveryAddressUiConfirmed: true,
+            })
+        );
+        assert.equal(r.state.checkoutEditHold, true);
+        const out = checkoutPostProcessForQuickAction({
+            state: withResolvedSlotStep(r.state),
+            outbound: r.outbound,
+        });
+        assert.ok(out.some((m) => m.kind === "text" && String(m.text).includes("adicionar")));
+        assert.ok(!out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")));
     });
 });

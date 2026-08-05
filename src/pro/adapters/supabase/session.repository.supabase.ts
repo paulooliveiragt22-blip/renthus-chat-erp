@@ -47,6 +47,7 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         searchProdutoEmbalagemIds: raw.searchProdutoEmbalagemIds ?? [],
         lastSearchPicks: raw.lastSearchPicks ?? [],
         emptySearchStreak: raw.emptySearchStreak ?? 0,
+        checkoutEditHold: raw.checkoutEditHold === true,
         aiTurnCount: raw.aiTurnCount,
         aiWindowStartedAt: raw.aiWindowStartedAt ?? null,
     };

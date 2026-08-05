@@ -65,6 +65,43 @@ export function parseProductPickIndex(text: string): number | null {
     return null;
 }
 
+function buildAppendSyntheticText(label: string, embId: string, state: ProSessionState): string {
+    const existing = (state.draft?.items ?? [])
+        .map((i) => i.produtoEmbalagemId)
+        .filter((id) => id && id !== embId);
+    const keepHint = existing.length
+        ? ` Mantenha tambem no prepare_order_draft os itens ja no rascunho (produto_embalagem_id): ${existing.join(", ")}.`
+        : "";
+    return (
+        `Acrescente ao pedido: ${label} com produto_embalagem_id=${embId} e quantity 1 ` +
+        `(ou a quantidade que eu ja pedi). Nao remova itens anteriores do rascunho.` +
+        keepHint
+    );
+}
+
+function applyPick(
+    embId: string,
+    label: string,
+    state: ProSessionState
+): { state: ProSessionState; syntheticUserText: string } {
+    const draftIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean);
+    const allow = [embId, ...draftIds.filter((id) => id !== embId)];
+    const step =
+        state.step === "pro_idle" || state.step === "pro_awaiting_confirmation"
+            ? "pro_collecting_order"
+            : state.step;
+    return {
+        state: {
+            ...state,
+            step,
+            checkoutEditHold: state.step === "pro_awaiting_confirmation" ? true : state.checkoutEditHold,
+            searchProdutoEmbalagemIds: allow,
+            lastSearchPicks: [],
+        },
+        syntheticUserText: buildAppendSyntheticText(label, embId, state),
+    };
+}
+
 export function applyProductPickFromInbound(
     text: string,
     state: ProSessionState
@@ -75,15 +112,7 @@ export function applyProductPickFromInbound(
         if (!embId) return { state, syntheticUserText: null };
         const pick = (state.lastSearchPicks ?? []).find((p) => p.embalagemId === embId);
         const label = pick?.label ?? "item";
-        return {
-            state: {
-                ...state,
-                step: state.step === "pro_idle" ? "pro_collecting_order" : state.step,
-                searchProdutoEmbalagemIds: [embId],
-                lastSearchPicks: [],
-            },
-            syntheticUserText: `Quero ${label}. Use produto_embalagem_id=${embId} em prepare_order_draft com quantity 1 (ou a quantidade que eu ja pedi).`,
-        };
+        return applyPick(embId, label, state);
     }
 
     const picks = state.lastSearchPicks ?? [];
@@ -97,13 +126,5 @@ export function applyProductPickFromInbound(
     const pick = picks[idx - 1]!;
     const embId = pick.embalagemId;
     const label = pick.label ?? `opcao ${idx}`;
-    return {
-        state: {
-            ...state,
-            step: state.step === "pro_idle" ? "pro_collecting_order" : state.step,
-            searchProdutoEmbalagemIds: [embId],
-            lastSearchPicks: [],
-        },
-        syntheticUserText: `Quero ${label}. Use produto_embalagem_id=${embId} em prepare_order_draft com quantity 1 (ou a quantidade que eu ja pedi).`,
-    };
+    return applyPick(embId, label, state);
 }
