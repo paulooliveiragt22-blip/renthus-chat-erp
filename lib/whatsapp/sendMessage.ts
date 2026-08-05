@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+import { metaGraphPostJson } from "@/lib/whatsapp/metaGraphFetch";
 
 export interface SendMessageParams {
     admin: SupabaseClient;
@@ -105,29 +106,29 @@ export async function sendWhatsAppMessage(
         const baseUrl = pm.base_url ?? process.env.WHATSAPP_BASE_URL ?? "https://graph.facebook.com/v20.0";
         const effectivePhoneNumberId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID!;
 
-        const res = await fetch(`${baseUrl}/${effectivePhoneNumberId}/messages`, {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                messaging_product: "whatsapp",
-                to: toPhone.replaceAll(/^\+/g, "").replace(
-                    /^55(\d{2})(\d{8})$/,
-                    (_m: string, ddd: string, rest: string) => `55${ddd}9${rest}`
-                ),
-                type: "text",
-                text: { body: text },
-            }),
-        });
+        const res = await metaGraphPostJson(
+            effectivePhoneNumberId,
+            `${baseUrl}/${effectivePhoneNumberId}/messages`,
+            {
+                accessToken: token,
+                body: {
+                    messaging_product: "whatsapp",
+                    to: toPhone.replaceAll(/^\+/g, "").replace(
+                        /^55(\d{2})(\d{8})$/,
+                        (_m: string, ddd: string, rest: string) => `55${ddd}9${rest}`
+                    ),
+                    type: "text",
+                    text: { body: text },
+                },
+            }
+        );
 
-        const json = (await res.json().catch(() => ({}))) as any;
         if (!res.ok) {
-            throw new Error("meta_send_failed: " + JSON.stringify(json));
+            throw new Error("meta_send_failed: " + JSON.stringify(res.json));
         }
 
-        providerMessageId = json?.messages?.[0]?.id ?? null;
+        const messages = res.json?.messages as Array<{ id?: string }> | undefined;
+        providerMessageId = messages?.[0]?.id ?? null;
         fromAddr = fromPlaceholder || (String(channel.from_identifier ?? `whatsapp:${effectivePhoneNumberId}`));
         toAddr = toPhone;
 

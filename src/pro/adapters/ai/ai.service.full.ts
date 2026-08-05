@@ -1,5 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { runWithAnthropicInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
+import {
+    isAnthropicRateLimitError,
+    runAnthropicWithResilience,
+} from "@/lib/chatbot/anthropicResilience";
 import type { MessageCreateParams, ToolChoice } from "@anthropic-ai/sdk/resources/messages";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -245,11 +248,7 @@ function isTimeoutError(error: unknown): boolean {
 }
 
 function isRateLimitError(error: unknown): boolean {
-    if (!error || typeof error !== "object") return false;
-    const e = error as { status?: number; message?: unknown };
-    if (e.status === 429) return true;
-    const m = String(e.message ?? "").toLowerCase();
-    return m.includes("429") || m.includes("rate limit") || m.includes("too many requests");
+    return isAnthropicRateLimitError(error);
 }
 
 export class FullAiServiceAdapter implements AiService {
@@ -275,10 +274,12 @@ export class FullAiServiceAdapter implements AiService {
                 tools,
             };
             if (toolChoice) body.tool_choice = toolChoice;
-            const response = await runWithAnthropicInFlightSlot(() =>
-                client.messages.create(body, {
-                    signal: controller.signal,
-                } as never)
+            const response = await runAnthropicWithResilience(
+                () =>
+                    client.messages.create(body, {
+                        signal: controller.signal,
+                    } as never),
+                { maxRetries: 3 }
             );
             if (companyId) {
                 const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");

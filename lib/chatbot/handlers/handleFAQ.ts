@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
+import { runAnthropicWithResilience } from "@/lib/chatbot/anthropicResilience";
 import type { Session, CompanyConfig } from "../types";
 import type { ProcessMessageParams } from "../types";
 import { botReply } from "../botSend";
@@ -68,10 +69,11 @@ export async function handleFAQ(
     const client = new Anthropic();
 
     try {
-        const resp = await client.messages.create({
-            model,
-            max_tokens: 250,
-            system: `Você é um assistente do ${companyName}. REGRAS ABSOLUTAS:
+        const resp = await runAnthropicWithResilience(() =>
+            client.messages.create({
+                model,
+                max_tokens: 250,
+                system: `Você é um assistente do ${companyName}. REGRAS ABSOLUTAS:
 1. Responda dúvidas sobre produtos, preços, horários, entrega e formas de pagamento.
 2. NUNCA faça pedidos, confirme compras, adicione itens ou realize transações.
 3. Informe SOMENTE preços listados abaixo. Se não estiver listado, diga "não tenho esse valor disponível".
@@ -81,8 +83,9 @@ export async function handleFAQ(
 
 PRODUTOS DISPONÍVEIS:
 ${productList || "Catálogo em atualização. Use o botão abaixo para ver os produtos."}`,
-            messages: [{ role: "user", content: params.text }],
-        });
+                messages: [{ role: "user", content: params.text }],
+            })
+        );
 
         const rawReply  = ((resp.content[0] as { text: string }).text ?? "").trim();
         const catalogPrices = products.map((p) => p.price);

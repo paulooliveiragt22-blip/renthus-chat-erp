@@ -155,11 +155,14 @@ export async function classifyIntent(
 
     // Claude Haiku para mensagens ambíguas
     try {
+        const { runAnthropicWithResilience } = await import("@/lib/chatbot/anthropicResilience");
         const client = new Anthropic();
-        const resp   = await client.messages.create({
-            model,
-            max_tokens: 10,
-            system: `Classify the user's WhatsApp message to a Brazilian delivery store into exactly one intent:
+        const resp = await runAnthropicWithResilience(
+            () =>
+                client.messages.create({
+                    model,
+                    max_tokens: 10,
+                    system: `Classify the user's WhatsApp message to a Brazilian delivery store into exactly one intent:
 - order_intent: wants to order, buy, browse products or catalog
 - status_intent: asking about order status or delivery time
 - human_intent: wants to talk to a human attendant
@@ -168,8 +171,10 @@ export async function classifyIntent(
 - unknown: none of the above
 
 Reply with ONLY the intent name in lowercase, nothing else.`,
-            messages: [{ role: "user", content: trimmed }],
-        });
+                    messages: [{ role: "user", content: trimmed }],
+                }),
+            { maxRetries: 2 }
+        );
 
         if (options?.admin && options.companyId) {
             try {

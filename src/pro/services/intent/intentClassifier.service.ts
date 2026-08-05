@@ -97,16 +97,21 @@ async function llmClassify(
             `Mensagem actual do cliente a classificar:\n---\n${userText.trim()}\n---\n\n` +
             `Responda só com um label: order_intent, status_intent, human_intent, faq, greeting, unknown.`;
 
-        const resp = await client.messages.create({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 12,
-            system:
-                "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
-                "If the session shows an active order (draft with items, or recent user messages about products) " +
-                "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
-                "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
-            messages: [{ role: "user", content: userPayload }],
-        });
+        const { runAnthropicWithResilience } = await import("@/lib/chatbot/anthropicResilience");
+        const resp = await runAnthropicWithResilience(
+            () =>
+                client.messages.create({
+                    model: "claude-haiku-4-5-20251001",
+                    max_tokens: 12,
+                    system:
+                        "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
+                        "If the session shows an active order (draft with items, or recent user messages about products) " +
+                        "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
+                        "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
+                    messages: [{ role: "user", content: userPayload }],
+                }),
+            { maxRetries: 2 }
+        );
         if (admin && context.tenant.companyId) {
             try {
                 const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");

@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import Anthropic from "@anthropic-ai/sdk";
+import { runAnthropicWithResilience } from "@/lib/chatbot/anthropicResilience";
 import type { ProcessMessageParams, Session } from "../types";
 import { saveSession } from "../session";
 import { botReply } from "../botSend";
@@ -598,13 +599,15 @@ export async function handleProOrderIntent(params: {
 
     let messages = [...loadStoredMessages(session.context), { role: "user" as const, content: input }] as MessageParam[];
 
-    let response = await client.messages.create({
-        model,
-        max_tokens: 1200,
-        system:     systemPrompt,
-        tools,
-        messages,
-    });
+    let response = await runAnthropicWithResilience(() =>
+        client.messages.create({
+            model,
+            max_tokens: 1200,
+            system: systemPrompt,
+            tools,
+            messages,
+        })
+    );
 
     let toolRoundsUsed = 0;
     while (response.stop_reason === "tool_use" && toolRoundsUsed < MAX_TOOL_ROUNDS) {
@@ -654,13 +657,15 @@ export async function handleProOrderIntent(params: {
             { role: "user" as const, content: toolResults },
         ];
 
-        response = await client.messages.create({
-            model,
-            max_tokens: 1200,
-            system:     systemPrompt,
-            tools,
-            messages,
-        });
+        response = await runAnthropicWithResilience(() =>
+            client.messages.create({
+                model,
+                max_tokens: 1200,
+                system: systemPrompt,
+                tools,
+                messages,
+            })
+        );
     }
 
     const textParts = response.content.filter((b) => b.type === "text") as { type: "text"; text: string }[];
