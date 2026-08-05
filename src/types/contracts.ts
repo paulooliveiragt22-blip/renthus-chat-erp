@@ -78,6 +78,30 @@ export interface OrderDraft {
     version: number;
 }
 
+/**
+ * Input normalizado da tool `prepare_order_draft` (wire do modelo pode ser snake_case;
+ * `normalizePrepareDraftAnthropicInput` converte uma vez na borda).
+ */
+export interface PrepareDraftToolInput {
+    items: Array<{ produtoEmbalagemId: string; quantity: number | string }>;
+    address: {
+        logradouro: string;
+        numero: string;
+        bairro: string;
+        complemento?: string | null;
+        apelido?: string | null;
+        cidade?: string | null;
+        estado?: string | null;
+        cep?: string | null;
+    } | null;
+    addressRaw?: string | null;
+    savedAddressId?: string | null;
+    useSavedAddress?: boolean;
+    paymentMethod?: string | null;
+    changeFor?: number | null;
+    readyForConfirmation?: boolean;
+}
+
 export interface AiTurn {
     role: "user" | "assistant";
     content: unknown;

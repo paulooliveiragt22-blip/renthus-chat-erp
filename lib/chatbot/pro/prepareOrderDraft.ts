@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AiOrderCanonicalDraft, AiOrderAddress, AiOrderItem } from "./typesAiOrder";
-import type { PrepareDraftToolInputLegacy as PrepareDraftToolInput } from "@/src/types/contracts.legacy";
+import type {
+    DraftAddress,
+    DraftItem,
+    OrderDraft,
+    PrepareDraftToolInput,
+} from "@/src/types/contracts";
 import {
     buildAiAddressFromSavedClienteRow,
     resolveDefaultAddressForCustomer,
@@ -23,11 +27,11 @@ export function looksLikeCatalogEmbalagemUuid(value: string): boolean {
 
 /**
  * Política de catálogo para `prepare_order_draft`.
- * - `legacy`: apenas validação no banco (fluxos antigos).
+ * - `unrestricted`: apenas validação no banco (sem allowlist de busca).
  * - `search_allowlist`: cada `produto_embalagem_id` tem de constar na última lista de `search_produtos` (PRO V2).
  */
 export type PrepareOrderDraftCatalogPolicy =
-    | { kind: "legacy" }
+    | { kind: "unrestricted" }
     | { kind: "search_allowlist"; allowedEmbalagemIds: readonly string[] };
 
 function normPm(raw: string | null | undefined): "pix" | "cash" | "card" | null {
@@ -150,7 +154,7 @@ export async function loadPackRowForValidation(
     };
 }
 
-function buildAddressText(addr: AiOrderAddress, bairroLabel: string): string {
+function buildAddressText(addr: DraftAddress, bairroLabel: string): string {
     return [
         addr.logradouro,
         addr.numero,
@@ -169,10 +173,10 @@ export async function prepareOrderDraftFromTool(
     companyId: string,
     customerId: string | null,
     body: PrepareDraftToolInput,
-    catalogPolicy: PrepareOrderDraftCatalogPolicy = { kind: "legacy" }
+    catalogPolicy: PrepareOrderDraftCatalogPolicy = { kind: "unrestricted" }
 ): Promise<{
     ok:    boolean;
-    draft: AiOrderCanonicalDraft | null;
+    draft: OrderDraft | null;
     errors: string[];
     /** Próximo slot faltante quando ok=false mas há draft parcial. */
     next_required_slot?: "items" | "address" | "payment" | "fix_errors" | null;
@@ -181,7 +185,7 @@ export async function prepareOrderDraftFromTool(
 
     if (!body.items?.length) errors.push("Inclua pelo menos um item com produto_embalagem_id e quantity.");
 
-    let address: AiOrderAddress | null = body.address
+    let address: DraftAddress | null = body.address
         ? {
             logradouro:  String(body.address.logradouro ?? "").trim(),
             numero:      String(body.address.numero ?? "").trim(),
@@ -194,7 +198,7 @@ export async function prepareOrderDraftFromTool(
         }
         : null;
 
-    const savedAddrId = body.saved_address_id?.trim();
+    const savedAddrId = body.savedAddressId?.trim();
     if (savedAddrId) {
         if (!customerId) {
             errors.push("Cliente não identificado; não dá para usar saved_address_id.");
@@ -219,27 +223,27 @@ export async function prepareOrderDraftFromTool(
         }
     }
 
-    const rawLine = body.address_raw?.trim();
+    const rawLine = body.addressRaw?.trim();
     if (rawLine && !savedAddrId) {
         const parsed = tryParseAddressOneLine(rawLine);
         if (parsed) {
             address = {
-                logradouro:           address?.logradouro?.trim() || parsed.logradouro,
-                numero:               address?.numero?.trim() || parsed.numero,
-                bairro:               address?.bairro?.trim() || parsed.bairro,
-                complemento:          address?.complemento ?? null,
-                apelido:              address?.apelido ?? null,
-                cidade:               address?.cidade ?? null,
-                estado:               address?.estado ?? null,
-                cep:                  address?.cep ?? null,
-                endereco_cliente_id:  address?.endereco_cliente_id ?? null,
+                logradouro:         address?.logradouro?.trim() || parsed.logradouro,
+                numero:             address?.numero?.trim() || parsed.numero,
+                bairro:             address?.bairro?.trim() || parsed.bairro,
+                complemento:        address?.complemento ?? null,
+                apelido:            address?.apelido ?? null,
+                cidade:             address?.cidade ?? null,
+                estado:             address?.estado ?? null,
+                cep:                address?.cep ?? null,
+                enderecoClienteId:  address?.enderecoClienteId ?? null,
             };
         }
     }
 
     let addressNote: string | null = null;
 
-    if (body.use_saved_address && !savedAddrId) {
+    if (body.useSavedAddress && !savedAddrId) {
         if (!customerId) {
             errors.push("Não há cliente identificado pelo telefone para usar endereço salvo.");
         } else {
@@ -258,7 +262,7 @@ export async function prepareOrderDraftFromTool(
         errors.push("Endereço incompleto: obrigatório rua, número, bairro, cidade e UF (2 letras).");
     }
 
-    const pm = normPm(body.payment_method ?? null);
+    const pm = normPm(body.paymentMethod ?? null);
     if (!pm) errors.push("Informe payment_method: pix, cash ou card.");
 
     const allowSet =
@@ -274,7 +278,7 @@ export async function prepareOrderDraftFromTool(
         );
     }
 
-    const itemsOut: AiOrderItem[] = [];
+    const itemsOut: DraftItem[] = [];
     const singleCatalogLine =
         catalogPolicy.kind === "search_allowlist" &&
         allowSet &&
@@ -283,7 +287,7 @@ export async function prepareOrderDraftFromTool(
 
     for (const line of body.items ?? []) {
         const qty = parsePtQuantity(line.quantity);
-        let pid = String(line.produto_embalagem_id ?? "").trim();
+        let pid = String(line.produtoEmbalagemId ?? "").trim();
         if (singleCatalogLine && qty != null && allowSet) {
             const sole = [...allowSet][0];
             if (!pid || (looksLikeCatalogEmbalagemUuid(pid) && !allowSet.has(pid))) {
@@ -331,48 +335,48 @@ export async function prepareOrderDraftFromTool(
             continue;
         }
         itemsOut.push({
-            produto_embalagem_id: row.id,
-            product_name:         row.product_name,
-            quantity:             qty,
-            unit_price:           row.preco_venda,
-            fator_conversao:      row.fator_conversao,
-            product_volume_id:    row.product_volume_id,
-            estoque_unidades:     estoque,
+            produtoEmbalagemId: row.id,
+            productName:        row.product_name,
+            quantity:           qty,
+            unitPrice:          row.preco_venda,
+            fatorConversao:     row.fator_conversao,
+            productVolumeId:    row.product_volume_id,
+            estoqueUnidades:    estoque,
         });
     }
 
-    let delivery_fee          = 0;
-    let delivery_zone_id: string | null = null;
-    let bairroLabel           = "";
-    let delivery_address_text: string | null = null;
-    let delivery_min_order: number | null = null;
-    let delivery_eta_min: number | null = null;
+    let deliveryFee = 0;
+    let deliveryZoneId: string | null = null;
+    let bairroLabel = "";
+    let deliveryAddressText: string | null = null;
+    let deliveryMinOrder: number | null = null;
+    let deliveryEtaMin: number | null = null;
 
     if (address && !errors.some((e) => e.includes("Endereço incompleto"))) {
         const resolved = await resolveDeliveryForNeighborhood(admin, companyId, address.bairro);
         if (!resolved.served) {
             errors.push(resolved.reason ?? `Bairro "${address.bairro}" fora da área de atendimento.`);
         } else {
-            delivery_fee         = resolved.fee;
-            delivery_zone_id     = resolved.matched_rule_id;
-            bairroLabel          = resolved.label;
-            address.bairro_label = resolved.label;
-            delivery_address_text = buildAddressText(address, bairroLabel);
-            delivery_min_order   = resolved.min_order;
-            delivery_eta_min     = resolved.eta_min;
+            deliveryFee = resolved.fee;
+            deliveryZoneId = resolved.matched_rule_id;
+            bairroLabel = resolved.label;
+            address.bairroLabel = resolved.label;
+            deliveryAddressText = buildAddressText(address, bairroLabel);
+            deliveryMinOrder = resolved.min_order;
+            deliveryEtaMin = resolved.eta_min;
         }
     }
 
-    const total_items = roundBrl(itemsOut.reduce((s, i) => s + i.unit_price * i.quantity, 0));
-    const grand_total = roundBrl(total_items + delivery_fee);
+    const totalItems = roundBrl(itemsOut.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
+    const grandTotal = roundBrl(totalItems + deliveryFee);
     // Só avisa pedido mínimo quando já há pelo menos uma linha de item válida no catálogo;
     // evita misturar com erros de UUID/pagamento e confundir o cliente e o modelo.
     if (
         itemsOut.length > 0 &&
-        delivery_min_order != null &&
-        grand_total < delivery_min_order
+        deliveryMinOrder != null &&
+        grandTotal < deliveryMinOrder
     ) {
-        errors.push(`Pedido mínimo para entrega: R$ ${delivery_min_order.toFixed(2).replace(".", ",")}.`);
+        errors.push(`Pedido mínimo para entrega: R$ ${deliveryMinOrder.toFixed(2).replace(".", ",")}.`);
     }
 
     const baseErrors = [...errors];
@@ -382,22 +386,23 @@ export async function prepareOrderDraftFromTool(
     const fullOk = baseErrors.length === 0 && itemsOut.length > 0 && Boolean(addressUsable) && Boolean(pm);
 
     // Draft completo OU parcial (itens válidos mesmo sem endereço/pagamento) — IA continua o fluxo.
-    const draft: AiOrderCanonicalDraft | null =
+    const draft: OrderDraft | null =
         itemsOut.length > 0
             ? {
                   items: itemsOut,
                   address: addressUsable ? address : null,
-                  payment_method: pm,
-                  change_for: body.change_for ?? null,
-                  delivery_fee: addressUsable ? delivery_fee : 0,
-                  delivery_zone_id: addressUsable ? delivery_zone_id : null,
-                  delivery_address_text: addressUsable ? delivery_address_text : null,
-                  delivery_min_order: addressUsable ? delivery_min_order : null,
-                  delivery_eta_min: addressUsable ? delivery_eta_min : null,
-                  total_items,
-                  grand_total: addressUsable ? grand_total : total_items,
-                  pending_confirmation: fullOk,
-                  address_resolution_note: addressUsable ? addressNote : null,
+                  paymentMethod: pm,
+                  changeFor: body.changeFor ?? null,
+                  deliveryFee: addressUsable ? deliveryFee : 0,
+                  deliveryZoneId: addressUsable ? deliveryZoneId : null,
+                  deliveryAddressText: addressUsable ? deliveryAddressText : null,
+                  deliveryMinOrder: addressUsable ? deliveryMinOrder : null,
+                  deliveryEtaMin: addressUsable ? deliveryEtaMin : null,
+                  totalItems,
+                  grandTotal: addressUsable ? grandTotal : totalItems,
+                  pendingConfirmation: fullOk,
+                  addressResolutionNote: addressUsable ? addressNote : null,
+                  version: 1,
               }
             : null;
 

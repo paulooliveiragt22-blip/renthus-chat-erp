@@ -9,9 +9,9 @@ describe("normalizePrepareDraftAnthropicInput", () => {
             paymentMethod: "cartao",
             addressRaw: "rua tangara 850 sao mateus",
         });
-        assert.equal(out.items[0]?.produto_embalagem_id, "a3806337-4700-4e77-a788-6bcfa181c100");
-        assert.equal(out.payment_method, "cartao");
-        assert.equal(out.address_raw, "rua tangara 850 sao mateus");
+        assert.equal(out.items[0]?.produtoEmbalagemId, "a3806337-4700-4e77-a788-6bcfa181c100");
+        assert.equal(out.paymentMethod, "cartao");
+        assert.equal(out.addressRaw, "rua tangara 850 sao mateus");
     });
 
     it("aceita address com street/number/neighborhood", () => {
@@ -22,13 +22,22 @@ describe("normalizePrepareDraftAnthropicInput", () => {
         assert.equal(out.address?.logradouro, "Rua A");
         assert.equal(out.address?.numero, "1");
         assert.equal(out.address?.bairro, "Centro");
+        assert.equal(out.items[0]?.produtoEmbalagemId, "x");
     });
 
-    it("mapeia id (como no JSON de search_produtos) para produto_embalagem_id", () => {
+    it("mapeia id (como no JSON de search_produtos) para produtoEmbalagemId", () => {
         const out = normalizePrepareDraftAnthropicInput({
             items: [{ id: "a3806337-4700-4e77-a788-6bcfa181c100", quantity: 1 }],
             paymentMethod: "cartao",
         });
-        assert.equal(out.items[0]?.produto_embalagem_id, "a3806337-4700-4e77-a788-6bcfa181c100");
+        assert.equal(out.items[0]?.produtoEmbalagemId, "a3806337-4700-4e77-a788-6bcfa181c100");
+    });
+
+    it("preserva changeFor a partir de change_for", () => {
+        const out = normalizePrepareDraftAnthropicInput({
+            items: [{ id: "x", quantity: 1 }],
+            change_for: 50,
+        });
+        assert.equal(out.changeFor, 50);
     });
 });

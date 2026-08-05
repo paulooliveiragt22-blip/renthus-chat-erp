@@ -6,6 +6,7 @@ import type {
     AiServiceResult,
     AiTurn,
     OrderDraft,
+    PrepareDraftToolInput,
 } from "@/src/types/contracts";
 import type { AiService } from "../../services/ai/ai.types";
 import type { LlmPort } from "@/src/pro/ports/llm.port";
@@ -25,9 +26,7 @@ import {
     shouldPreferPrepareErrorsOverModelText,
     type PrepareOrderDraftCatalogPolicy,
 } from "@/lib/chatbot/pro/prepareOrderDraft";
-import { toCanonicalDraft } from "@/src/types/contracts.adapters";
 import { normalizePrepareDraftAnthropicInput } from "@/lib/chatbot/pro/normalizePrepareDraftAnthropicInput";
-import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
 import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
 import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep";
@@ -290,7 +289,7 @@ export class FullAiServiceAdapter implements AiService {
         };
     }
 
-    private toLegacyToolInput(raw: Record<string, unknown>): PrepareDraftToolInputLegacy {
+    private toPrepareToolInput(raw: Record<string, unknown>): PrepareDraftToolInput {
         return normalizePrepareDraftAnthropicInput(raw);
     }
 
@@ -383,7 +382,7 @@ export class FullAiServiceAdapter implements AiService {
         prepareOutcome: { ok: boolean; errors: string[] };
     }> {
         const raw = (block.input ?? {}) as Record<string, unknown>;
-        const legacyInput = this.toLegacyToolInput(raw);
+        const toolInput = this.toPrepareToolInput(raw);
         let effectiveCustomerId = input.context.session.customerId;
         if (!effectiveCustomerId) {
             const c = await getOrCreateCustomer(
@@ -402,10 +401,10 @@ export class FullAiServiceAdapter implements AiService {
             this.admin,
             input.context.tenant.companyId,
             effectiveCustomerId,
-            legacyInput,
+            toolInput,
             catalogPolicy
         );
-        const addrIn = legacyInput.address;
+        const addrIn = toolInput.address;
         const hasStructuredAddress = Boolean(
             addrIn &&
                 String(addrIn.logradouro ?? "").trim() &&
@@ -413,21 +412,21 @@ export class FullAiServiceAdapter implements AiService {
                 String(addrIn.bairro ?? "").trim()
         );
         const hasAddressPayload =
-            Boolean(legacyInput.saved_address_id?.trim()) ||
-            Boolean(legacyInput.use_saved_address) ||
-            Boolean(legacyInput.address_raw?.trim()) ||
+            Boolean(toolInput.savedAddressId?.trim()) ||
+            Boolean(toolInput.useSavedAddress) ||
+            Boolean(toolInput.addressRaw?.trim()) ||
             hasStructuredAddress;
         input.onPrepareDraftToolResult?.({
             companyId: input.context.tenant.companyId,
             threadId: input.context.tenant.threadId,
             ok: prepared.ok,
             errors: prepared.errors,
-            hasItems: (legacyInput.items?.length ?? 0) > 0,
+            hasItems: (toolInput.items?.length ?? 0) > 0,
             hasAddress: hasAddressPayload,
-            payment_method: legacyInput.payment_method ?? null,
+            payment_method: toolInput.paymentMethod ?? null,
             draftItemCount: prepared.draft?.items?.length ?? 0,
         });
-        const nextDraft = prepared.draft ? toCanonicalDraft(prepared.draft) : currentDraft;
+        const nextDraft = prepared.draft ?? currentDraft;
         const allowedIds =
             catalogPolicy.kind === "search_allowlist" && catalogPolicy.allowedEmbalagemIds.length
                 ? [...catalogPolicy.allowedEmbalagemIds]

@@ -20,7 +20,7 @@ describe("buildAiAddressFromSavedClienteRow", () => {
         assert.equal(a?.numero, "34");
         assert.equal(a?.bairro, "São Mateus");
         assert.ok((a?.logradouro ?? "").toLowerCase().includes("turmalina"));
-        assert.equal(a?.endereco_cliente_id, "addr-1");
+        assert.equal(a?.enderecoClienteId, "addr-1");
     });
 
     it("mantém campos quando ja estruturados", () => {

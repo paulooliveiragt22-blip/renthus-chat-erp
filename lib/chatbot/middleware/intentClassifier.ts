@@ -9,7 +9,7 @@
  */
 
 import { clampChatbotInputForRegex, normalize } from "../utils";
-import type { MessageIntent } from "@/src/types/contracts.legacy";
+import type { Intent } from "@/src/types/contracts";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 import { extractLlmPlainText, hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 
@@ -96,7 +96,7 @@ const BTN_CATALOG = new Set(["btn_catalog", "1"]);
 const BTN_STATUS  = new Set(["btn_status",  "2"]);
 const BTN_SUPPORT = new Set(["btn_support", "3"]);
 
-const VALID_INTENTS: MessageIntent[] = [
+const VALID_INTENTS: Intent[] = [
     "order_intent", "status_intent", "human_intent", "faq", "greeting", "unknown",
 ];
 
@@ -112,7 +112,7 @@ export async function classifyIntent(
     _step: string,
     model = "claude-haiku-4-5-20251001",
     options?: ClassifyIntentOptions
-): Promise<MessageIntent> {
+): Promise<Intent> {
     const trimmed = clampChatbotInputForRegex(text.trim());
     const norm    = normalize(trimmed);
 
@@ -156,7 +156,7 @@ Reply with ONLY the intent name in lowercase, nothing else.`,
 
         const raw = extractLlmPlainText(resp.content).toLowerCase();
         const label = raw.split(/\s+/)[0] ?? "";
-        return VALID_INTENTS.includes(label as MessageIntent) ? (label as MessageIntent) : "unknown";
+        return VALID_INTENTS.includes(label as Intent) ? (label as Intent) : "unknown";
     } catch (err) {
         console.error("[intentClassifier] LLM error:", err);
         return "unknown";

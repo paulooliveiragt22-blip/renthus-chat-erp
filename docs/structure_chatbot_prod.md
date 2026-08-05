@@ -139,7 +139,7 @@ lib/chatbot/
     catalogSearchCache.ts       ← TTL in-memory busca catálogo
     searchNormalize.ts
     checkoutPhasePolicy.ts      ← fase checkout + scrub de CTAs mistos
-    typesAiOrder.ts
+    normalizePrepareDraftAnthropicInput.ts  ← wire tool → PrepareDraftToolInput (V2)
     orderHints.ts
     parseAddressLoosePt.ts
     parseQtyPt.ts

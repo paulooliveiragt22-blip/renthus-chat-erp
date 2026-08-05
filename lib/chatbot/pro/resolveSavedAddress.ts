@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { tryParseAddressOneLine } from "./parseAddressLoosePt";
-import type { AiOrderAddress } from "./typesAiOrder";
+import type { DraftAddress } from "@/src/types/contracts";
 
 export type SavedClienteEnderecoRow = {
     id:          string;
@@ -16,17 +16,17 @@ export type SavedClienteEnderecoRow = {
 };
 
 export type ResolvedSavedAddress = {
-    address: AiOrderAddress;
+    address: DraftAddress;
     /** ex.: "principal no cadastro" | "último pedido entregue" */
     note: string;
 };
 
 /**
- * Monta `AiOrderAddress` a partir de `enderecos_cliente`.
+ * Monta `DraftAddress` a partir de `enderecos_cliente`.
  * Se `numero`/`bairro` vierem vazios mas `logradouro` for uma linha única (ex.: "Rua X 34 Bairro"),
  * usa `tryParseAddressOneLine` para o draft e slots passarem em `isAddressStructurallyComplete`.
  */
-export function buildAiAddressFromSavedClienteRow(row: SavedClienteEnderecoRow): AiOrderAddress | null {
+export function buildAiAddressFromSavedClienteRow(row: SavedClienteEnderecoRow): DraftAddress | null {
     const rawLog = row.logradouro?.replace(/\s+/gu, " ").trim() ?? "";
     if (!rawLog) return null;
     let logradouro = rawLog;
@@ -53,7 +53,7 @@ export function buildAiAddressFromSavedClienteRow(row: SavedClienteEnderecoRow):
         cidade,
         estado,
         cep: row.cep ? String(row.cep).trim() : null,
-        endereco_cliente_id: row.id as string,
+        enderecoClienteId: row.id as string,
     };
 }
 

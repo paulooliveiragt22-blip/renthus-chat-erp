@@ -1,15 +1,15 @@
-import type { PrepareDraftToolInputLegacy } from "@/src/types/contracts.legacy";
+import type { PrepareDraftToolInput } from "@/src/types/contracts";
 
 /**
- * Converte o JSON da tool `prepare_order_draft` vindo do modelo (muitas vezes camelCase)
- * para o formato `PrepareDraftToolInputLegacy` esperado por `prepareOrderDraftFromTool`.
+ * Converte o JSON da tool `prepare_order_draft` vindo do modelo (snake_case ou camelCase)
+ * para `PrepareDraftToolInput` (camelCase) consumido por `prepareOrderDraftFromTool`.
  */
-export function normalizePrepareDraftAnthropicInput(raw: Record<string, unknown>): PrepareDraftToolInputLegacy {
+export function normalizePrepareDraftAnthropicInput(raw: Record<string, unknown>): PrepareDraftToolInput {
     const rawItems = raw.items ?? raw.Items;
     let arr: unknown[] = [];
     if (Array.isArray(rawItems)) arr = rawItems;
 
-    const items: PrepareDraftToolInputLegacy["items"] = [];
+    const items: PrepareDraftToolInput["items"] = [];
     for (const row of arr) {
         if (!row || typeof row !== "object") continue;
         const r = row as Record<string, unknown>;
@@ -21,30 +21,30 @@ export function normalizePrepareDraftAnthropicInput(raw: Record<string, unknown>
             r.embalagem_id;
         const qtyRaw = r.quantity ?? r.qty ?? r.quantidade;
         items.push({
-            produto_embalagem_id: idRaw == null ? "" : String(idRaw).trim(),
+            produtoEmbalagemId: idRaw == null ? "" : String(idRaw).trim(),
             quantity: (qtyRaw ?? 1) as number | string,
         });
     }
 
     const rawAddr = raw.address ?? raw.Address;
     const structured = coercePrepareAddress(rawAddr);
-    const legacyCast = rawAddr as PrepareDraftToolInputLegacy["address"] | null;
+    const cast = rawAddr as PrepareDraftToolInput["address"] | null;
     const address =
         structured ??
-        (legacyCast &&
-        String(legacyCast.logradouro ?? "").trim() &&
-        String(legacyCast.numero ?? "").trim() &&
-        String(legacyCast.bairro ?? "").trim()
-            ? legacyCast
+        (cast &&
+        String(cast.logradouro ?? "").trim() &&
+        String(cast.numero ?? "").trim() &&
+        String(cast.bairro ?? "").trim()
+            ? cast
             : null);
 
     let addressRaw: string | null = null;
     if (raw.address_raw != null) addressRaw = String(raw.address_raw);
     else if (raw.addressRaw != null) addressRaw = String(raw.addressRaw);
 
-    let savedId: string | null = null;
-    if (raw.saved_address_id != null) savedId = String(raw.saved_address_id);
-    else if (raw.savedAddressId != null) savedId = String(raw.savedAddressId);
+    let savedAddressId: string | null = null;
+    if (raw.saved_address_id != null) savedAddressId = String(raw.saved_address_id);
+    else if (raw.savedAddressId != null) savedAddressId = String(raw.savedAddressId);
 
     const changeRaw = raw.change_for ?? raw.changeFor;
     let changeFor: number | null = null;
@@ -60,15 +60,16 @@ export function normalizePrepareDraftAnthropicInput(raw: Record<string, unknown>
     return {
         items,
         address,
-        address_raw: addressRaw,
-        saved_address_id: savedId,
-        use_saved_address: Boolean(raw.use_saved_address ?? raw.useSavedAddress),
-        payment_method: paymentMethod,
-        ready_for_confirmation: Boolean(raw.ready_for_confirmation ?? raw.readyForConfirmation),
+        addressRaw,
+        savedAddressId,
+        useSavedAddress: Boolean(raw.use_saved_address ?? raw.useSavedAddress),
+        paymentMethod,
+        changeFor,
+        readyForConfirmation: Boolean(raw.ready_for_confirmation ?? raw.readyForConfirmation),
     };
 }
 
-function coercePrepareAddress(addr: unknown): PrepareDraftToolInputLegacy["address"] | null {
+function coercePrepareAddress(addr: unknown): PrepareDraftToolInput["address"] | null {
     if (!addr || typeof addr !== "object") return null;
     const o = addr as Record<string, unknown>;
     const logradouro = String(o.logradouro ?? o.street ?? o.rua ?? "").trim();
