@@ -133,6 +133,11 @@ export interface ProSessionState {
      */
     pendingSwapRemoveName?: string | null;
     /**
+     * Pagamento inferido do texto do cliente (ex.: "pagamento no pix") antes do prepare.
+     * Usado no prepare do pick quando o draft ainda não tem paymentMethod.
+     */
+    inferredPaymentMethod?: PaymentMethod | null;
+    /**
      * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
      * O motor PRO V2 só aceita `produto_embalagem_id` do `prepare_order_draft` se estiver nesta lista.
      */

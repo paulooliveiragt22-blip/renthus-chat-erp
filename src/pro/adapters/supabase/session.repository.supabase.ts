@@ -49,6 +49,7 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         emptySearchStreak: raw.emptySearchStreak ?? 0,
         checkoutEditHold: raw.checkoutEditHold === true,
         pendingSwapRemoveName: raw.pendingSwapRemoveName ?? null,
+        inferredPaymentMethod: raw.inferredPaymentMethod ?? null,
         aiTurnCount: raw.aiTurnCount,
         aiWindowStartedAt: raw.aiWindowStartedAt ?? null,
     };

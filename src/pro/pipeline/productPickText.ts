@@ -66,15 +66,14 @@ export function parseProductPickIndex(text: string): number | null {
 }
 
 function buildAppendSyntheticText(label: string, embId: string, state: ProSessionState): string {
-    const existing = (state.draft?.items ?? [])
-        .map((i) => i.produtoEmbalagemId)
-        .filter((id) => id && id !== embId);
-    const keepHint = existing.length
-        ? ` Mantenha tambem no prepare_order_draft os itens ja no rascunho (produto_embalagem_id): ${existing.join(", ")}.`
+    const existingCount = state.draft?.items?.length ?? 0;
+    const keepHint = existingCount
+        ? " Mantenha todos os itens ja no rascunho do servidor; prepare e aditivo."
         : "";
+    // UUID só em instrução interna — a resposta ao cliente é sanitizada, mas evitamos eco.
     return (
-        `Acrescente ao pedido: ${label} com produto_embalagem_id=${embId} e quantity 1 ` +
-        `(ou a quantidade que eu ja pedi). Nao remova itens anteriores do rascunho.` +
+        `[interno] Cliente escolheu a embalagem "${label}" (id allowlist ${embId}), quantity 1. ` +
+        `Chame prepare_order_draft com esse id e NÃO cite UUID nem produto_embalagem_id ao cliente.` +
         keepHint
     );
 }

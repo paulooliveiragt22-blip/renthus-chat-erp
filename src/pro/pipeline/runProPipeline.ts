@@ -45,6 +45,11 @@ import {
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
 import { tryServerSwapEdit } from "./serverSwapEdit";
+import { tryServerBootstrapOrderFromText } from "./serverBootstrapOrder";
+import { inferPaymentMethodFromText } from "./inferPaymentFromText";
+import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
+import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
+import { parseMultiItemOrderSegments } from "./parseMultiItemOrderSegments";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -254,7 +259,127 @@ export async function runProPipeline(
         };
     }
 
-    const pickApplied = applyProductPickFromButton(input.inboundText, guarded.state);
+    /** Inferir PIX/etc. cedo — prepare do pick e bootstrap usam isso. */
+    let stateBeforePick = guarded.state;
+    const inferredPay = inferPaymentMethodFromText(input.inboundText);
+    if (inferredPay) {
+        stateBeforePick = {
+            ...stateBeforePick,
+            inferredPaymentMethod: inferredPay,
+        };
+    }
+
+    /**
+     * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.
+     * Evita draft só com salgadinho e Heineken/burger só na prosa.
+     */
+    let bootstrapOutbound: OutboundMessage[] = [];
+    if (
+        deps.admin &&
+        !isInfoOnlyMode(aiPolicy) &&
+        !input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) &&
+        parseProductPickIndex(input.inboundText) == null &&
+        parseMultiItemOrderSegments(input.inboundText).length >= 1 &&
+        !(stateBeforePick.draft?.items?.length)
+    ) {
+        try {
+            const boot = await tryServerBootstrapOrderFromText({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                customerId: stateBeforePick.customerId,
+                state: stateBeforePick,
+                userText: input.inboundText,
+            });
+            stateBeforePick = boot.state;
+            bootstrapOutbound = boot.outbound;
+            if (
+                boot.hasClarification &&
+                boot.state.draft?.items?.length &&
+                !isDraftStructurallyCompleteForFinalize(boot.state.draft)
+            ) {
+                const syncedBoot = withResolvedSlotStep(boot.state);
+                await persistAndEmit({
+                    tenant: input.tenant,
+                    state: syncedBoot,
+                    outbound: bootstrapOutbound,
+                    sessionRepo: deps.sessionRepo,
+                    messageGateway: deps.messageGateway,
+                    metrics: deps.metrics,
+                    logger: deps.logger,
+                });
+                const metrics: PipelineMetric[] = [
+                    {
+                        name: "pro_pipeline.server_bootstrap_order",
+                        value: 1,
+                        tags: { clarify: "1" },
+                    },
+                    { name: "pro_pipeline.outbound_count", value: bootstrapOutbound.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"])
+                );
+                return {
+                    nextState: syncedBoot,
+                    outbound: bootstrapOutbound,
+                    sideEffects: [],
+                    metrics,
+                };
+            }
+            if (
+                boot.bootstrapped &&
+                isDraftStructurallyCompleteForFinalize(boot.state.draft)
+            ) {
+                const finalState = withResolvedSlotStep({
+                    ...boot.state,
+                    checkoutEditHold: false,
+                });
+                const finalOutbound = checkoutPostProcessForQuickAction({
+                    state: finalState,
+                    outbound: [],
+                });
+                await persistAndEmit({
+                    tenant: input.tenant,
+                    state: finalState,
+                    outbound: finalOutbound,
+                    sessionRepo: deps.sessionRepo,
+                    messageGateway: deps.messageGateway,
+                    metrics: deps.metrics,
+                    logger: deps.logger,
+                });
+                const metrics: PipelineMetric[] = [
+                    {
+                        name: "pro_pipeline.server_bootstrap_order",
+                        value: 1,
+                        tags: { clarify: "0", complete: "1" },
+                    },
+                    { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"])
+                );
+                return {
+                    nextState: finalState,
+                    outbound: finalOutbound,
+                    sideEffects: [],
+                    metrics,
+                };
+            }
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.server_bootstrap_order_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+
+    const pickApplied = applyProductPickFromButton(input.inboundText, stateBeforePick);
     let stateAfterPick = pickApplied.state;
     const productPickApplied = Boolean(pickApplied.syntheticUserText);
     const inboundTextForPipeline = pickApplied.syntheticUserText ?? input.inboundText;
@@ -265,12 +390,21 @@ export async function runProPipeline(
         const pickedId = resolvePickedEmbalagemId(stateAfterPick);
         if (pickedId) {
             try {
+                const recentUserText = [
+                    input.inboundText,
+                    ...[...(stateAfterPick.aiHistory ?? [])]
+                        .reverse()
+                        .filter((h) => h.role === "user")
+                        .slice(0, 3)
+                        .map((h) => (typeof h.content === "string" ? h.content : "")),
+                ].join("\n");
                 const serverPrep = await serverPrepareAfterProductPick({
                     admin: deps.admin,
                     companyId: input.tenant.companyId,
                     customerId: stateAfterPick.customerId,
                     state: stateAfterPick,
                     pickedEmbalagemId: pickedId,
+                    recentUserText,
                 });
                 stateAfterPick = serverPrep.state;
                 serverPreparedOnPick = Boolean(serverPrep.state.draft?.items?.length);

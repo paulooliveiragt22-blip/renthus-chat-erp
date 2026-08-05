@@ -10,6 +10,7 @@ import {
     unionAllowlistWithDraftIds,
 } from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
+import { inferPaymentMethodFromText } from "./inferPaymentFromText";
 
 /**
  * Prepare determinístico após pick de embalagem (botão / "opção N").
@@ -22,13 +23,15 @@ export async function serverPrepareAfterProductPick(params: {
     state: ProSessionState;
     /** Embalagem escolhida (primeiro id da allowlist pós-pick). */
     pickedEmbalagemId: string;
+    /** Texto recente do cliente (para herdar PIX se draft ainda sem pagamento). */
+    recentUserText?: string | null;
 }): Promise<{
     state: ProSessionState;
     /** Draft ficou completo o bastante para ir ao resumo sem IA. */
     skipAi: boolean;
     preparedOk: boolean;
 }> {
-    const { admin, companyId, customerId, pickedEmbalagemId } = params;
+    const { admin, companyId, customerId, pickedEmbalagemId, recentUserText } = params;
     const embId = pickedEmbalagemId.trim();
     if (!embId) {
         return { state: params.state, skipAi: false, preparedOk: false };
@@ -57,6 +60,11 @@ export async function serverPrepareAfterProductPick(params: {
     byId.set(embId, { produtoEmbalagemId: embId, quantity: prev?.quantity ?? 1 });
 
     const addr = state.draft?.address;
+    const paymentMethod =
+        state.draft?.paymentMethod ??
+        state.inferredPaymentMethod ??
+        inferPaymentMethodFromText(recentUserText ?? "") ??
+        null;
     const toolInput: PrepareDraftToolInput = {
         items: [...byId.values()],
         address: addr
@@ -72,7 +80,7 @@ export async function serverPrepareAfterProductPick(params: {
               }
             : null,
         useSavedAddress: !addr,
-        paymentMethod: state.draft?.paymentMethod ?? null,
+        paymentMethod,
         changeFor: state.draft?.changeFor ?? null,
     };
 

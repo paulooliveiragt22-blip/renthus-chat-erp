@@ -40,7 +40,7 @@ describe("applyProductPickFromInbound", () => {
         const r = applyProductPickFromInbound(`${PICK_EMB_PREFIX}b`, state());
         assert.equal(r.state.searchProdutoEmbalagemIds[0], "b");
         assert.ok(r.syntheticUserText?.includes("b"));
-        assert.ok(r.syntheticUserText?.toLowerCase().includes("acrescente"));
+        assert.ok(r.syntheticUserText?.toLowerCase().includes("interno"));
         assert.equal(r.state.lastSearchPicks?.length ?? 0, 0);
     });
 
@@ -80,6 +80,6 @@ describe("applyProductPickFromInbound", () => {
         const r = applyProductPickFromInbound("Opção 1", s);
         assert.ok(r.state.searchProdutoEmbalagemIds.includes("a"));
         assert.ok(r.state.searchProdutoEmbalagemIds.includes("heineken"));
-        assert.ok(r.syntheticUserText?.includes("heineken"));
+        assert.ok(r.syntheticUserText?.toLowerCase().includes("aditivo"));
     });
 });

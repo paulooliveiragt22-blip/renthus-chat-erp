@@ -31,7 +31,10 @@ import {
     mergePreparedDraftIntoCurrent,
     unionAllowlistWithDraftIds,
 } from "@/src/pro/pipeline/mergeOrderDraft";
-import { stripHallucinatedOrderPersistenceClaims } from "./sanitizeAiVisibleOrderClaims";
+import {
+    stripHallucinatedOrderPersistenceClaims,
+    stripInternalCatalogIdsFromCustomerText,
+} from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
 import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep";
 import { stripModelIntentSuffix } from "./stripModelIntentSuffix";
@@ -846,8 +849,10 @@ export class FullAiServiceAdapter implements AiService {
                 .trim();
 
             const { visible, marker } = stripModelIntentSuffix(text);
-            let visibleSafe = stripHallucinatedOrderPersistenceClaims(
-                sanitizeVisibleAgainstDraft(visible, updatedDraft)
+            let visibleSafe = stripInternalCatalogIdsFromCustomerText(
+                stripHallucinatedOrderPersistenceClaims(
+                    sanitizeVisibleAgainstDraft(visible, updatedDraft)
+                )
             );
             const hasDraftItems = Boolean(updatedDraft?.items?.length);
             const prepOk = lastPrepareOutcome?.ok ?? null;

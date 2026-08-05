@@ -1,4 +1,28 @@
 /**
+ * Remove UUID / campos internos de catálogo que a IA às vezes ecoa do texto sintético do pick.
+ */
+export function stripInternalCatalogIdsFromCustomerText(visible: string): string {
+    let t = visible;
+    if (!t) return t;
+    // produto_embalagem_id=uuid ou "com produto_embalagem_id=..."
+    t = t.replace(
+        /\bproduto[_ ]?embalagem[_ ]?id\s*=\s*[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\b/giu,
+        ""
+    );
+    t = t.replace(
+        /\b(?:id|uuid)\s*[:=]\s*[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\b/giu,
+        ""
+    );
+    // UUID solto (só se parecer id técnico no meio da frase)
+    t = t.replace(
+        /\b[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\b/giu,
+        ""
+    );
+    t = t.replace(/\s{2,}/g, " ").replace(/\s+([,.!?])/g, "$1").trim();
+    return t;
+}
+
+/**
  * Remove afirmações de que o pedido já foi gravado/confirmado na loja ou enviado.
  * Só `orderStage` + RPC podem produzir mensagem canónica de sucesso.
  */

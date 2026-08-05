@@ -7,7 +7,10 @@ import type {
     ProSessionState,
     SideEffect,
 } from "@/src/types/contracts";
-import { stripHallucinatedOrderPersistenceClaims } from "@/src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
+import {
+    stripHallucinatedOrderPersistenceClaims,
+    stripInternalCatalogIdsFromCustomerText,
+} from "@/src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
 import {
     isAddressStructurallyComplete,
     orderDraftFingerprintForAddressConfirm,
@@ -68,7 +71,9 @@ export async function aiStage(params: {
     const baseReplyText = hadValidReplyText
         ? raw.replyText.trim()
         : "Tive uma falha ao processar sua mensagem. Pode tentar novamente?";
-    const replyText = stripHallucinatedOrderPersistenceClaims(baseReplyText);
+    const replyText = stripInternalCatalogIdsFromCustomerText(
+        stripHallucinatedOrderPersistenceClaims(baseReplyText)
+    );
     const invalidAiSanitized =
         !hadValidReplyText || (hadValidReplyText && replyText !== baseReplyText);
 
