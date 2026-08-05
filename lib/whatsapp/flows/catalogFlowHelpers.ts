@@ -33,8 +33,8 @@ function buildProductItemsForFlow(rows: any[]): Array<Record<string, unknown>> {
         const title = String(p.display_name || p.product_name || "").trim();
         const detalhes = String(p.detalhes ?? "").trim();
         const price = `R$ ${(Number.parseFloat(p.preco_venda) || 0).toFixed(2).replaceAll(".", ",")}`;
-        const packHint =
-            sigla && sigla !== "UN" && fator > 1 ? `${sigla} c/${fator}` : sigla && sigla !== "UN" ? sigla : "";
+        const fatorSafe = Math.max(1, fator || 1);
+        const packHint = sigla ? `${sigla} c/${fatorSafe}` : "";
         const desc = [detalhes, packHint, price].filter(Boolean).join(" — ");
 
         return {
