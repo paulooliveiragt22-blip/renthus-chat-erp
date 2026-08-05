@@ -33,6 +33,10 @@ import type {
     Usage,
 } from "@/lib/whatsapp/types";
 import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
+import {
+    isCustomerServiceWindowClosing,
+    isWithinCustomerServiceWindow,
+} from "@/lib/whatsapp/customerServiceWindow";
 import { extractMediaFromWaPayload } from "@/lib/whatsapp/extractMediaFromWaPayload";
 import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsapp/mediaIdPath";
@@ -66,10 +70,6 @@ function timeAgo(ts?: string | null) {
     return `${Math.floor(h / 24)}d`;
 }
 
-function hoursAgo(ts?: string | null): number {
-    if (!ts) return 0;
-    return (Date.now() - new Date(ts).getTime()) / 3600000;
-}
 
 function statusLabel(s: string) {
     const m: Record<string, string> = {
@@ -762,9 +762,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                             const active    = t.id === selectedThreadId;
                             const label     = t.profile_name || t.phone_e164;
                             const initials  = getInitials(label);
-                            const hours     = hoursAgo(t.last_message_at);
-                            const nearClose = hours >= 20 && hours < 24;
-                            const expired   = hours >= 24;
+                            const nearClose = isCustomerServiceWindowClosing(t.last_inbound_at);
+                            const expired   = !isWithinCustomerServiceWindow(t.last_inbound_at);
 
                             return (
                                 <button

@@ -17,6 +17,8 @@ export interface Thread {
     phone_e164:           string;
     profile_name?:        string | null;
     last_message_at?:     string | null;
+    /** Último inbound do cliente — base da janela de 24h (não usar `last_message_at`). */
+    last_inbound_at?:     string | null;
     last_message_preview?: string | null;
     unread_count?:        number | null;
     bot_active?:          boolean | null;

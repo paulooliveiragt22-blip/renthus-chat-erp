@@ -12,6 +12,7 @@ describe("resolvePickedEmbalagemId", () => {
     });
 
     it("null quando vazio", () => {
-        assert.equal(resolvePickedEmbalagemId({ searchProdutoEmbalagemIds: [] } as ProSessionState), null);
+        const state = { searchProdutoEmbalagemIds: [] as string[] } as ProSessionState;
+        assert.equal(resolvePickedEmbalagemId(state), null);
     });
 });

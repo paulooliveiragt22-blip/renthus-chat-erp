@@ -76,8 +76,6 @@ export async function POST(req: Request) {
             itemCode: `ai_pack_${packCents}`,
             expiresInSeconds: 3600,
             customerId,
-            // Docs PIX: customer com name/email/document/phones; se só customer_id,
-            // ainda assim resolvePixFromOrder refetch GET /orders e /charges.
             customer: customerId ? undefined : customerPayload,
             metadata: {
                 type: "ai_pack",

@@ -3,12 +3,13 @@ import { describe, it } from "node:test";
 import type { ProPipelineTelemetryReason } from "../../src/types/contracts";
 
 /**
- * Garante §6: catálogo de motivos em métricas `pro_pipeline.*` fica explícito e **&lt; 10** valores.
+ * Garante §6: catálogo de motivos em métricas `pro_pipeline.*` fica explícito e curto.
  * Se alguém acrescentar a `ProPipelineTelemetryReason` sem actualizar este mapa, o TypeScript falha a compilação.
  */
 describe("ProPipelineTelemetryReason (§6)", () => {
-    it("mantém exactamente 9 motivos estáveis para tags.reason", () => {
+    it("mantém exactamente 10 motivos estáveis para tags.reason", () => {
         const _: Record<ProPipelineTelemetryReason, true> = {
+            confirmation_revision: true,
             draft_validation_failed: true,
             finalize_blocked: true,
             confirmation_ambiguous: true,
@@ -19,6 +20,6 @@ describe("ProPipelineTelemetryReason (§6)", () => {
             ai_invalid_response: true,
             order_rejected: true,
         };
-        assert.equal(Object.keys(_).length, 9);
+        assert.equal(Object.keys(_).length, 10);
     });
 });

@@ -338,7 +338,7 @@ Checklist de arquitectura (escala / regressão): [`CHECKLIST_ARCH_PRO_SCALE.md`]
 
 ### Telemetria PRO V2 — `tags.reason` (catálogo fechado)
 
-Critério de produto: **nove** valores estáveis em `ProPipelineTelemetryReason` (`src/types/contracts.ts`), em métricas `pro_pipeline.*`. O `runProPipeline` envia cada contador para o **`MetricsPort`** (com `companyId` e `threadId` nas tags), e o adapter **`ConsoleMetricsAdapter`** (`src/pro/adapters/metrics/metrics.console.ts`) faz:
+Critério de produto: **dez** valores estáveis em `ProPipelineTelemetryReason` (`src/types/contracts.ts`), em métricas `pro_pipeline.*`. O `runProPipeline` envia cada contador para o **`MetricsPort`** (com `companyId` e `threadId` nas tags), e o adapter **`ConsoleMetricsAdapter`** (`src/pro/adapters/metrics/metrics.console.ts`) faz:
 - log `[metrics.increment]` no worker;
 - opcionalmente **POST** JSON para **`METRICS_INGEST_URL`** (e `METRICS_INGEST_TOKEN` se definido) — ponto de integração com Datadog / Grafana / ingest próprio.
 
@@ -353,6 +353,7 @@ Critério de produto: **nove** valores estáveis em `ProPipelineTelemetryReason`
 
 | `tags.reason` | Métrica típica | Nota |
 |---------------|----------------|------|
+| `confirmation_revision` | `pro_pipeline.confirmation_ambiguous` | Cliente pediu revisão em vez de confirmar (`checkoutEditHold`). |
 | `draft_validation_failed` | `pro_pipeline.order_precondition_failed` | Rascunho incompleto na confirmação. |
 | `finalize_blocked` | `pro_pipeline.order_precondition_failed` | Sem rascunho persistido na confirmação. |
 | `confirmation_ambiguous` | `pro_pipeline.confirmation_ambiguous` | Texto não é confirmação forte. |
@@ -364,6 +365,65 @@ Critério de produto: **nove** valores estáveis em `ProPipelineTelemetryReason`
 | `order_rejected` | `pro_pipeline.order_failed` | `tags.errorCode` do pedido (ex.: `PRODUCT_NOT_FOUND`). |
 
 Rejeições de máquina de estados **internas** (`canTransition` → `invalid_state_transition`) **não** usam este tipo; não entram em `tags.reason` do catálogo acima.
+
+---
+
+## Venda ativa — Fase 1: recuperação de carrinho (dentro da janela de 24h)
+
+Mensagem proativa só quando o cliente falou com a loja há menos de 24h. Fora dessa janela a Meta exige template (HSM) aprovado, e HSM **não está implementado** no repositório — por isso a Fase 1 é deliberadamente limitada à janela aberta, onde não depende de aprovação da Meta nem de opt-in de marketing.
+
+### Fluxo
+
+```
+detect-abandoned-carts (cron ~5 min)
+  → RPC detect_abandoned_carts  → snapshot em abandoned_carts
+  → enfileira em outbound_jobs (dedup_key = cart_recovery:<cart_id>)
+
+outbound-worker (cron ~5 min)
+  → reclaim_stuck_outbound_jobs → claim_outbound_jobs (fair por empresa)
+  → gates no envio → sendOutboundPayload → abandoned_carts.status = 'notified'
+
+cliente toca «Finalizar pedido» (pro_recover_cart)
+  → applyQuickAction retoma o draft da sessão; o card do passo certo vem do post-process
+  → pedido criado → mark_abandoned_cart_recovered → status 'recovered' + recovered_order_id
+```
+
+### Base da janela de 24h
+
+`whatsapp_threads.last_inbound_at`, preenchido pelo trigger `increment_thread_unread` em `whatsapp_messages`. **Não usar `last_message_at`**: ele é atualizado também por outbound e renovaria a janela indevidamente (era o bug do indicador da inbox). Função canónica: `isWithinCustomerServiceWindow` em `lib/whatsapp/customerServiceWindow.ts`, usada tanto pela UI quanto pelo worker.
+
+### Gates (reavaliados no envio, não no enfileiramento)
+
+Entre enfileirar e enviar o cliente pode ter fechado o pedido, um humano pode ter assumido a thread e a janela pode ter fechado. `evaluateOutboundGates` (`lib/chatbot/outbound/gates.ts`) é puro e testado: payload vazio, janela de 24h, `bot_active`/handover, estado do carrinho, horário da loja (`companies.settings.open_time`/`close_time`, fuso em `settings.timezone`, default `America/Sao_Paulo`; sem configuração aplica 08:00–22:00) e teto de frequência por cliente. `purpose = 'transactional'` ignora horário e teto, mas **não** a janela.
+
+### Por que a mensagem é determinística
+
+O texto sai do snapshot do rascunho (`buildCartRecoveryMessage`), sem passar por IA: valor em R$ não pode ser improvisado pelo modelo, e a mensagem precisa ser barata e previsível. A IA volta a atuar quando o cliente responde, pelo pipeline normal.
+
+### Env
+
+| Env | Default | Efeito |
+|-----|---------|--------|
+| `CART_RECOVERY_IDLE_MINUTES` | `25` | Rascunho parado há N min vira candidato a snapshot. |
+| `CART_RECOVERY_DETECT_LIMIT` | `50` | Máx. snapshots por execução. |
+| `CART_RECOVERY_MAX_AGE_HOURS` | `48` | Idade após a qual o carrinho vira `expired`. |
+| `OUTBOUND_WORKER_BATCH` | `10` | Jobs por claim. |
+| `OUTBOUND_MAX_PER_COMPANY` | `3` | Fairness por empresa no claim. |
+| `OUTBOUND_MAX_ATTEMPTS` | `3` | Tentativas antes de `failed`. |
+| `OUTBOUND_STALE_MINUTES` | `5` | Reclaim de jobs presos em `processing`. |
+| `OUTBOUND_FREQUENCY_WINDOW_HOURS` | `72` | Janela do teto de frequência. |
+| `OUTBOUND_MAX_PER_CUSTOMER` | `1` | Máx. proativas não-transacionais por cliente na janela. |
+| `OUTBOUND_JOB_RETENTION_DAYS` | `30` | Limpeza de jobs terminais. |
+
+Auth das duas rotas: `Bearer CRON_SECRET`, igual ao `process-queue`. O `vercel.json` traz as duas em cron **diário** (backup do Hobby); a frequência útil (~5 min) vem do **scheduler externo**, como já acontece com `process-queue` e `reactivate`.
+
+### Risco a monitorar
+
+O risco real não é técnico: marketing mal calibrado gera *block/report* e derruba o tier de mensagens da empresa na Meta, o que mata o canal inteiro — inclusive o transacional. Por isso o teto padrão é **uma** proativa por cliente a cada 72h. Antes de habilitar qualquer coisa fora da janela (HSM de categoria MARKETING), é obrigatório implementar consentimento e opt-out (Fase 2), que **hoje não existem** em schema nem no ingresso.
+
+### Métricas
+
+`[metric] cart_recovery_detect` (`detected`, `enqueued`, `discarded`, `expired`) e `[metric] outbound_worker` (`sent`, `skipped`, `failed`, `reclaimed`). Funil de negócio direto em `abandoned_carts`: `open` → `notified` → `recovered` com `grand_total` e `recovered_order_id`.
 
 ---
 
@@ -387,6 +447,7 @@ Manter fronteiras claras sem microserviço:
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)
 - Fila: `process-queue/route.ts`, `queueWorkerWake.ts`, `backlogNotice.ts`; RPC `claim_chatbot_queue_jobs` (fair + skip busy thread); reclaim `reclaim_stuck_chatbot_queue_jobs`
 - Ingresso: `app/api/whatsapp/incoming/route.ts` — enqueue + wake + aviso de backlog (`after()`)
+- Venda ativa: `app/api/chatbot/{detect-abandoned-carts,outbound-worker}/route.ts`, `lib/chatbot/outbound/`, `lib/whatsapp/customerServiceWindow.ts`; migration `20260805160000_active_sales_cart_recovery.sql` (tabelas `abandoned_carts`/`outbound_jobs`, RPCs `detect_abandoned_carts`, `claim_outbound_jobs`, `mark_abandoned_cart_recovered`)
 - Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
 - Checklist escala: [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md)
 

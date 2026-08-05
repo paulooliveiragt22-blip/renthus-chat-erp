@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     let query = admin
         .from("whatsapp_threads")
         .select(
-            "id, phone_e164, profile_name, last_message_at, last_message_preview, created_at, bot_active, handover_at, unread_count, channel_id"
+            "id, phone_e164, profile_name, last_message_at, last_inbound_at, last_message_preview, created_at, bot_active, handover_at, unread_count, channel_id"
         )
         .eq("company_id", companyId)
         .order("last_message_at", { ascending: false })

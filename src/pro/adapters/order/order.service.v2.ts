@@ -314,6 +314,20 @@ export class OrderServiceV2Adapter implements OrderService {
             };
         }
 
+        /** Atribuição de receita recuperada; best-effort, nunca bloqueia o pedido. */
+        const { error: recoveryErr } = await this.admin.rpc("mark_abandoned_cart_recovered", {
+            p_company_id: tenant.companyId,
+            p_thread_id: tenant.threadId,
+            p_order_id: orderId,
+        });
+        if (recoveryErr) {
+            console.warn("[chatbot/order-v2] mark_abandoned_cart_recovered failed", {
+                companyId: tenant.companyId,
+                threadId: tenant.threadId,
+                message: recoveryErr.message,
+            });
+        }
+
         const code = `#${String(orderId).replaceAll("-", "").slice(-6).toUpperCase()}`;
         const customerMessage = buildOrderCustomerMessage({
             orderCode: code,
