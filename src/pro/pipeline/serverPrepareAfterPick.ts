@@ -58,11 +58,23 @@ export async function serverPrepareAfterProductPick(params: {
     let state = params.state;
     const swapHint = state.pendingSwapRemoveName?.trim();
     if (swapHint) {
+        const beforeIds = new Set(
+            (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
+        );
         const stripped = removeDraftItemsMatchingName(state.draft, swapHint);
+        const afterIds = new Set(
+            (stripped?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
+        );
+        const removedIds = [...beforeIds].filter((id) => !afterIds.has(id));
+        const reject = new Set(removedIds);
         state = {
             ...state,
             draft: stripped,
             pendingSwapRemoveName: null,
+            /** Evita prepare reancorar o UN removido via bootstrapResolved. */
+            bootstrapResolvedEmbalagemIds: (state.bootstrapResolvedEmbalagemIds ?? []).filter(
+                (id) => id && !reject.has(id)
+            ),
         };
     }
 
@@ -73,7 +85,7 @@ export async function serverPrepareAfterProductPick(params: {
             quantity: it.quantity,
         });
     }
-    /** Bootstrap: reancora SKUs resolvidos antes da clarificação. */
+    /** Bootstrap: reancora SKUs resolvidos antes da clarificação (boot já limpo no swap/reject). */
     for (const id of state.bootstrapResolvedEmbalagemIds ?? []) {
         const sid = String(id ?? "").trim();
         if (!sid || byId.has(sid)) continue;

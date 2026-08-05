@@ -87,7 +87,14 @@ export async function tryServerSwapEdit(params: {
 
     if (picks.length === 1) {
         const sole = picks[0]!;
+        const beforeIds = new Set(
+            (params.state.draft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
+        );
         const strippedDraft = removeDraftItemsMatchingName(params.state.draft, swap.removeName);
+        const afterIds = new Set(
+            (strippedDraft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
+        );
+        const removedIds = new Set([...beforeIds].filter((id) => !afterIds.has(id)));
         const baseState: ProSessionState = {
             ...params.state,
             draft: strippedDraft,
@@ -95,6 +102,9 @@ export async function tryServerSwapEdit(params: {
             step: "pro_collecting_order",
             checkoutEditHold: true,
             lastSearchPicks: [],
+            bootstrapResolvedEmbalagemIds: (
+                params.state.bootstrapResolvedEmbalagemIds ?? []
+            ).filter((id) => id && !removedIds.has(id)),
             searchProdutoEmbalagemIds: [
                 sole.embalagemId,
                 ...(strippedDraft?.items ?? []).map((i) => i.produtoEmbalagemId),
@@ -138,12 +148,25 @@ export async function tryServerSwapEdit(params: {
     }
 
     const clarify = buildSwapClarifyButtons(picks);
+    /** Já remove o item antigo do draft+boot; o pick só acrescenta o substituto. */
+    const beforeIds = new Set(
+        (params.state.draft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
+    );
+    const strippedDraft = removeDraftItemsMatchingName(params.state.draft, swap.removeName);
+    const afterIds = new Set(
+        (strippedDraft?.items ?? []).map((i) => i.produtoEmbalagemId).filter(Boolean)
+    );
+    const removedIds = new Set([...beforeIds].filter((id) => !afterIds.has(id)));
     const nextState: ProSessionState = {
         ...params.state,
+        draft: strippedDraft,
         step: "pro_collecting_order",
         checkoutEditHold: true,
         pendingSwapRemoveName: swap.removeName,
         lastSearchPicks: picks,
+        bootstrapResolvedEmbalagemIds: (params.state.bootstrapResolvedEmbalagemIds ?? []).filter(
+            (id) => id && !removedIds.has(id)
+        ),
         searchProdutoEmbalagemIds: picks.map((p) => p.embalagemId),
     };
 
