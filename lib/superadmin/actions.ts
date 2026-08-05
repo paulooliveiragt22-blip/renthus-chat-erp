@@ -113,28 +113,51 @@ export async function getQueueHealthStats(periodMinutes = 15) {
     const admin = createAdminClient();
     const windowStart = new Date(Date.now() - periodMinutes * 60_000).toISOString();
 
-    const [pendingRes, recentRes] = await Promise.all([
+    const [pendingRes, recentRes, oldestPendingRes] = await Promise.all([
         admin
             .from("chatbot_queue")
-            .select("company_id")
+            .select("company_id, scheduled_at")
             .eq("status", "pending"),
         admin
             .from("chatbot_queue")
             .select("company_id, status, last_error")
             .gte("created_at", windowStart)
             .in("status", ["done", "failed"]),
+        admin
+            .from("chatbot_queue")
+            .select("scheduled_at")
+            .eq("status", "pending")
+            .order("scheduled_at", { ascending: true })
+            .limit(1)
+            .maybeSingle(),
     ]);
 
     if (pendingRes.error) throw new Error(pendingRes.error.message);
     if (recentRes.error) throw new Error(recentRes.error.message);
 
     const byCompany = new Map<string, QueueHealthBaseRow>();
+    const nowMs = Date.now();
+    let globalOldestAgeSec = 0;
 
     const ensure = (companyId: string) => ensureCompanyRow(byCompany, companyId);
 
     for (const row of pendingRes.data ?? []) {
         if (!row.company_id) continue;
-        ensure(row.company_id).pendingNow += 1;
+        const item = ensure(row.company_id);
+        item.pendingNow += 1;
+        if (typeof row.scheduled_at === "string") {
+            const age = Math.max(0, Math.floor((nowMs - new Date(row.scheduled_at).getTime()) / 1000));
+            if (age > item.oldestPendingAgeSec) item.oldestPendingAgeSec = age;
+            if (age > globalOldestAgeSec) globalOldestAgeSec = age;
+        }
+    }
+
+    if (typeof oldestPendingRes.data?.scheduled_at === "string") {
+        const age = Math.max(
+            0,
+            Math.floor((nowMs - new Date(oldestPendingRes.data.scheduled_at).getTime()) / 1000)
+        );
+        if (age > globalOldestAgeSec) globalOldestAgeSec = age;
     }
 
     for (const row of recentRes.data ?? []) {
@@ -168,9 +191,18 @@ export async function getQueueHealthStats(periodMinutes = 15) {
             acc.processed15m += item.processed15m;
             acc.failed15m += item.failed15m;
             acc.coalesced15m += item.coalesced15m;
+            if (item.oldestPendingAgeSec > acc.oldestPendingAgeSec) {
+                acc.oldestPendingAgeSec = item.oldestPendingAgeSec;
+            }
             return acc;
         },
-        { pendingNow: 0, processed15m: 0, failed15m: 0, coalesced15m: 0 }
+        {
+            pendingNow: 0,
+            processed15m: 0,
+            failed15m: 0,
+            coalesced15m: 0,
+            oldestPendingAgeSec: globalOldestAgeSec,
+        }
     );
 
     const failureRate = ratio(summary.failed15m, summary.processed15m);
@@ -256,6 +288,8 @@ type QueueHealthBaseRow = {
     companyId: string;
     companyName: string;
     pendingNow: number;
+    /** Idade do pending mais antigo desta empresa (segundos). */
+    oldestPendingAgeSec: number;
     done15m: number;
     failed15m: number;
     coalesced15m: number;
@@ -274,6 +308,7 @@ function ensureCompanyRow(map: Map<string, QueueHealthBaseRow>, companyId: strin
             companyId,
             companyName: companyId,
             pendingNow: 0,
+            oldestPendingAgeSec: 0,
             done15m: 0,
             failed15m: 0,
             coalesced15m: 0,

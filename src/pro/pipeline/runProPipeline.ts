@@ -557,6 +557,11 @@ export async function runProPipeline(
         ...preOrderSideMetrics,
         { name: "pro_pipeline.run", value: 1, tags: { intent: decision.intent } },
         { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+        {
+            name: "pro_pipeline.slot",
+            value: 1,
+            tags: { intent: decision.intent, step: nextState.step },
+        },
     ];
     if (aiLimitExceeded) {
         runMetrics.push({

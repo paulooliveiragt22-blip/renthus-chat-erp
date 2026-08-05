@@ -181,11 +181,12 @@ src/pro/                       ← Motor PRO Pipeline V2 (tier PRO + flags; ver 
     context.ts, orderDraftGate.ts, orderSlotStep.ts, proStepTransitions.ts, errors.ts
     stages/                      ← loadState, guardRails, intent, order, route, ai, persistAndEmit
   adapters/
-    ai/                          ← ex.: ai.service.full.ts
+    ai/                          ← FullAiServiceAdapter (orquestra tools; chama LlmPort)
+    llm/                         ← AnthropicLlmAdapter + createLlmPort (LLM_PROVIDER)
     order/                       ← ex.: order.service.v2.ts
     supabase/session.repository.supabase.ts  ← estado `context.__pro_v2_state`
     whatsapp/, metrics/, logger/
-  services/, ports/
+  services/, ports/              ← incl. llm.port.ts (neutro de provider)
 
 lib/security/
   rateLimit.ts                   ← webhook incoming (IP)

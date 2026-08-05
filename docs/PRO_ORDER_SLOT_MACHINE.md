@@ -62,11 +62,11 @@ Isto **não substitui** a máquina de slots: slots governam **passo + botões**;
 
 ---
 
-## 6. O que ainda pode evoluir (R4+)
+## 6. Evolução
 
-- Unificar totalmente `applyAiStateTransition` com `resolveProStepFromDraft` para que **uma única** função defina `step` após IA (hoje a IA ainda pode propor `request_confirmation` e o checkout reconcilia no fim do turno).
-- Métricas por `ProStep` (opcional) para ver quanto tempo em cada slot.
-- Testes E2E de conversa multi-turno com ordem trocada (endereço primeiro, depois produto, etc.).
+- **Feito (2026-08):** após IA, `aiStage` = `applyAiStateTransition` (só escalate/streak) + `withResolvedSlotStep` (draft manda). `request_confirmation` da IA **não** salta para `pro_awaiting_confirmation`.
+- Métrica `pro_pipeline.slot` com tag `step` em cada run do pipeline.
+- Ainda aberto: testes E2E multi-turno com ordem trocada; adapters OpenAI / STT atrás de `LlmPort`.
 
 ---
 

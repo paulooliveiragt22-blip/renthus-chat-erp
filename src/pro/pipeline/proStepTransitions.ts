@@ -1,6 +1,4 @@
 import type { AiServiceAction, OrderServiceResult, ProSessionState, ProStep } from "@/src/types/contracts";
-import { shouldHoldAwaitingAddressUi } from "./orderSlotStep";
-
 /** Código estável para `canTransition` falhar (não é valor de `ProPipelineTelemetryReason` / métricas). */
 export const INVALID_PRO_STEP_TRANSITION = "invalid_state_transition" as const;
 export type InvalidProStepTransitionReason = typeof INVALID_PRO_STEP_TRANSITION;
@@ -24,15 +22,17 @@ export type CanTransitionResult =
     | { ok: true; to: ProStep }
     | { ok: false; reason: InvalidProStepTransitionReason };
 
-function mapAiActionToStep(action: AiServiceAction, session?: AiActionSessionSnapshot): ProStep {
-    if (action === "request_confirmation") {
-        if (shouldHoldAwaitingAddressUi(session?.draft ?? null, session?.deliveryAddressUiConfirmed)) {
-            return "pro_awaiting_address_confirmation";
-        }
-        return "pro_awaiting_confirmation";
-    }
+/**
+ * A IA só pode forçar escalonamento. Passos de checkout
+ * (`pro_awaiting_*` / confirmação) vêm de `resolveProStepFromDraft` após o turno.
+ */
+function mapAiActionToStep(
+    action: AiServiceAction,
+    from: ProStep,
+    _session?: AiActionSessionSnapshot
+): ProStep {
     if (action === "escalate") return "pro_escalation_choice";
-    return "pro_collecting_order";
+    return from;
 }
 
 /**
@@ -48,7 +48,7 @@ export function canTransition(from: ProStep, event: ProStepEvent): CanTransition
         if (from === "handover") {
             return { ok: false, reason: INVALID_PRO_STEP_TRANSITION };
         }
-        return { ok: true, to: mapAiActionToStep(event.action, event.session) };
+        return { ok: true, to: mapAiActionToStep(event.action, from, event.session) };
     }
 
     if (event.type === "order_stage") {
@@ -85,9 +85,9 @@ function bumpEscalationTier(current: ProSessionState["escalationTier"]): ProSess
 
 /**
  * Centraliza efeitos de estado após retorno da IA:
- * - transição de `step`;
- * - atualização de streak de incompreensão;
- * - progressão de tier quando houver escalonamento.
+ * - escalonamento (único caso em que a IA muda `step` sozinha);
+ * - streak de incompreensão / tier;
+ * - **não** avança para confirmação — isso é `withResolvedSlotStep` / draft.
  */
 export function applyAiStateTransition(params: {
     state: ProSessionState;

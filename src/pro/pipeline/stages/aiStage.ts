@@ -8,7 +8,10 @@ import type {
     SideEffect,
 } from "@/src/types/contracts";
 import { stripHallucinatedOrderPersistenceClaims } from "@/src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
-import { orderDraftFingerprintForAddressConfirm } from "../orderSlotStep";
+import {
+    orderDraftFingerprintForAddressConfirm,
+    withResolvedSlotStep,
+} from "../orderSlotStep";
 import { applyAiStateTransition } from "../proStepTransitions";
 
 export interface AiStageResult {
@@ -92,11 +95,14 @@ export async function aiStage(params: {
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];
     const sideEffects: SideEffect[] = [];
 
-    const nextState = applyAiStateTransition({
-        state: nextStateBase,
-        action: aiResult.action,
-        intentMarker: aiResult.signals.intentMarker ?? null,
-    });
+    // Streak/escalate da IA, depois slots do draft (fonte de verdade do checkout).
+    const nextState = withResolvedSlotStep(
+        applyAiStateTransition({
+            state: nextStateBase,
+            action: aiResult.action,
+            intentMarker: aiResult.signals.intentMarker ?? null,
+        })
+    );
 
     return { state: nextState, outbound, sideEffects, aiResult, invalidAiSanitized };
 }

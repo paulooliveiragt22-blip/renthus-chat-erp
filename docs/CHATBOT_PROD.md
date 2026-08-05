@@ -283,7 +283,7 @@ Implementação actual no PRO V2 (`CHATBOT_PRO_PIPELINE_V2=1` + `CHATBOT_PRO_PIP
 #### Pendências honestas (evolução contínua)
 
 - **Primeira mensagem “tudo numa frase”** com resumo + três botões: o orquestrador emite `Confirmar` / `Corrigir` / `Adicionar produtos` em `pro_awaiting_confirmation` quando o draft canónico e o `ProStep` estão coerentes; a qualidade do resumo na primeira volta continua a depender das tools / IA.
-- **`proStepTransitions.ts` (eventos IA vs. slots):** hoje `resolveProStepFromDraft` reconcilia o passo no fim do turno (`checkoutPostProcess` + quick actions); unificar totalmente com `applyAiStateTransition` é trabalho R4+ (ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md) §6).
+- **`proStepTransitions` + slots:** a IA **não** avança sozinha para confirmação; `applyAiStateTransition` só escala/streak e `aiStage` aplica `withResolvedSlotStep` (draft manda). Ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md).
 
 ### Plano de execução
 
@@ -299,6 +299,8 @@ Entrada: `lib/chatbot/processMessage.ts` chama `runProPipeline` (`src/pro/pipeli
 | `CHATBOT_PRO_PIPELINE_V2_MODE` | `shadow` (omissão técnica) | Após o V2 com sucesso, **continua** no pipeline legado na mesma mensagem. **Uso pretendido:** homologação / comparação de métricas — **não** é alvo de produção (duplica trabalho, custo e latência). |
 | `CHATBOT_PRO_PIPELINE_V2_MODE` | `active` | Após o V2 com sucesso, **encerra** o processamento da mensagem (não chama o legado). Se o V2 **lançar exceção**, **não** há fallback para o pipeline legado de pedido: envia-se **mensagem fixa** ao cliente (`botReply`) e termina (evita `ai_order_canonical` desalinhado de `__pro_v2_state`). **Alvo de produção** para empresas PRO. |
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
+| `LLM_PROVIDER` | (omissão = **anthropic**) | Provider do `LlmPort` (`src/pro/ports/llm.port.ts`). `openai` reservado (adapter futuro). Pipeline PRO usa o port via `FullAiServiceAdapter`. |
+| `LLM_MODEL` | (omissão = modelo default do provider) | Override de modelo (ex. Haiku / futuro gpt-4o-mini). |
 | `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas `messages.create` em paralelo **por instância** (gate compartilhado: PRO V2, intent classifier, FAQ legado, `handleProOrderIntent`). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
 | `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos, abre circuit breaker local por N ms (`anthropic_circuit_open`). |
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |

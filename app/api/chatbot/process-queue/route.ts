@@ -117,7 +117,7 @@ export async function GET(req: Request) {
             });
         }
         await cleanupOldJobs(admin);
-        await emitQueueMetrics({ processed: 0, failed: 0, coalesced: 0, reclaimed });
+        await emitQueueMetrics(admin, { processed: 0, failed: 0, coalesced: 0, reclaimed });
         return NextResponse.json({
             ok: true,
             processed: 0,
@@ -222,7 +222,14 @@ export async function GET(req: Request) {
         }
     }
 
-    await emitQueueMetrics({ processed, failed, coalesced, reclaimed });
+    await emitQueueMetrics(admin, {
+        processed,
+        failed,
+        coalesced,
+        reclaimed,
+        claimed: jobIds.length,
+        continued,
+    });
 
     return NextResponse.json({
         ok: true,
@@ -250,7 +257,7 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
 
     if (!jobs?.length) {
         await cleanupOldJobs(admin);
-        await emitQueueMetrics({ processed: 0, failed: 0, coalesced: 0 });
+        await emitQueueMetrics(admin, { processed: 0, failed: 0, coalesced: 0 });
         return NextResponse.json({ ok: true, processed: 0, ms: Date.now() - t0 });
     }
 
@@ -328,7 +335,7 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
     }
 
     await cleanupOldJobs(admin);
-    await emitQueueMetrics({ processed, failed, coalesced });
+    await emitQueueMetrics(admin, { processed, failed, coalesced });
     return NextResponse.json({ ok: true, processed, coalesced, failed, ms: Date.now() - t0 });
 }
 
@@ -574,16 +581,48 @@ async function hasRecentEquivalentProcessed(
     return false;
 }
 
-async function emitQueueMetrics(counts: {
-    processed: number;
-    failed: number;
-    coalesced: number;
-    reclaimed?: number;
-}) {
+async function emitQueueMetrics(
+    admin: ReturnType<typeof createAdminClient>,
+    counts: {
+        processed: number;
+        failed: number;
+        coalesced: number;
+        reclaimed?: number;
+        claimed?: number;
+        continued?: boolean;
+    }
+) {
+    let oldestPendingAgeSec = 0;
+    let pendingNow = 0;
+    try {
+        const { count } = await admin
+            .from("chatbot_queue")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "pending");
+        pendingNow = count ?? 0;
+        const { data: oldest } = await admin
+            .from("chatbot_queue")
+            .select("scheduled_at")
+            .eq("status", "pending")
+            .order("scheduled_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+        if (typeof oldest?.scheduled_at === "string") {
+            oldestPendingAgeSec = Math.max(
+                0,
+                Math.floor((Date.now() - new Date(oldest.scheduled_at).getTime()) / 1000)
+            );
+        }
+    } catch {
+        /* best-effort */
+    }
+
     const payload = {
         source: "chatbot_process_queue",
         ts: Date.now(),
         reclaimed: 0,
+        pendingNow,
+        oldestPendingAgeSec,
         ...counts,
     };
 
@@ -616,7 +655,7 @@ async function handleClaimError(
     const message = claimErr?.message ?? "claim rpc unavailable";
     if (!ALLOW_CLAIM_FALLBACK) {
         console.error("[process-queue] RPC claim_chatbot_queue_jobs indisponível em modo fail-fast:", message);
-        await emitQueueMetrics({ processed: 0, failed: 1, coalesced: 0 });
+        await emitQueueMetrics(admin, { processed: 0, failed: 1, coalesced: 0 });
         return NextResponse.json(
             { ok: false, error: "claim_rpc_unavailable", failed: 1, ms: Date.now() - t0 },
             { status: 503 }

@@ -1,8 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-import {
-    isAnthropicRateLimitError,
-    runAnthropicWithResilience,
-} from "@/lib/chatbot/anthropicResilience";
+import { isAnthropicRateLimitError } from "@/lib/chatbot/anthropicResilience";
 import type { MessageCreateParams, ToolChoice } from "@anthropic-ai/sdk/resources/messages";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -12,6 +8,8 @@ import type {
     OrderDraft,
 } from "@/src/types/contracts";
 import type { AiService } from "../../services/ai/ai.types";
+import type { LlmPort } from "@/src/pro/ports/llm.port";
+import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
 import {
     buildDeliverySpecialistSystemPreamble,
@@ -240,7 +238,9 @@ function shouldEscalate(input: AiServiceInput, marker: IntentMarker): boolean {
 }
 
 function isTimeoutError(error: unknown): boolean {
-    if (error instanceof Error && error.name === "AbortError") return true;
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "LlmTimeoutError")) {
+        return true;
+    }
     if (!error || typeof error !== "object") return false;
     const message = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
     const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
@@ -252,10 +252,16 @@ function isRateLimitError(error: unknown): boolean {
 }
 
 export class FullAiServiceAdapter implements AiService {
-    constructor(private readonly admin: SupabaseClient) {}
+    private readonly llm: LlmPort;
+
+    constructor(
+        private readonly admin: SupabaseClient,
+        llm?: LlmPort
+    ) {
+        this.llm = llm ?? createLlmPort(admin);
+    }
 
     private async callModel(
-        client: Anthropic,
         messages: AnthropicMessage[],
         timeoutMs: number,
         toolChoice: ToolChoice | undefined,
@@ -263,41 +269,24 @@ export class FullAiServiceAdapter implements AiService {
         companyId: string | undefined,
         tools: MessageCreateParams["tools"]
     ) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(AI_TIMEOUT_CODE), Math.max(timeoutMs, 1000));
-        try {
-            const body: MessageCreateParams = {
-                model: "claude-haiku-4-5-20251001",
-                max_tokens: 900,
-                system: systemPrompt,
-                messages: messages as MessageCreateParams["messages"],
-                tools,
-            };
-            if (toolChoice) body.tool_choice = toolChoice;
-            const response = await runAnthropicWithResilience(
-                () =>
-                    client.messages.create(body, {
-                        signal: controller.signal,
-                    } as never),
-                { maxRetries: 3 }
-            );
-            if (companyId) {
-                const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
-                await debitFromAnthropicUsage(this.admin, companyId, response.usage, {
-                    source: "pro_ai_service_full",
-                });
-            }
-            return response;
-        } catch (error) {
-            if (controller.signal.aborted) {
-                const timeoutError = new Error(AI_TIMEOUT_CODE);
-                (timeoutError as { code?: string }).code = AI_TIMEOUT_CODE;
-                throw timeoutError;
-            }
-            throw error;
-        } finally {
-            clearTimeout(timeoutId);
-        }
+        const response = await this.llm.chat({
+            system: systemPrompt,
+            messages,
+            tools: tools as unknown as Record<string, unknown>[],
+            toolChoice: toolChoice as never,
+            maxTokens: 900,
+            timeoutMs,
+            companyId,
+            purpose: "pro_ai_service_full",
+        });
+        return {
+            content: response.content,
+            stop_reason: response.stopReason,
+            usage: {
+                input_tokens: response.usage?.inputTokens,
+                output_tokens: response.usage?.outputTokens,
+            },
+        };
     }
 
     private toLegacyToolInput(raw: Record<string, unknown>): PrepareDraftToolInputLegacy {
@@ -638,7 +627,8 @@ export class FullAiServiceAdapter implements AiService {
             emptySearchStreak: input.context.session.emptySearchStreak ?? 0,
         };
 
-        if (!process.env.ANTHROPIC_API_KEY) {
+        const provider = (process.env.LLM_PROVIDER ?? "anthropic").trim().toLowerCase();
+        if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
             return {
                 action: "error",
                 replyText: "Estou sem conexão com IA agora. Pode tentar novamente em instantes?",
@@ -652,7 +642,6 @@ export class FullAiServiceAdapter implements AiService {
             };
         }
 
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
         let messages: AnthropicMessage[] = [
             ...toAnthropicMessages(input.history),
             { role: "user" as const, content: input.userText },
@@ -668,7 +657,6 @@ export class FullAiServiceAdapter implements AiService {
             const systemPrompt = buildEffectiveSystemPrompt(input);
             const companyId = input.context.tenant.companyId;
             let response = await this.callModel(
-                client,
                 messages,
                 input.limits.timeoutMs,
                 undefined,
@@ -699,7 +687,6 @@ export class FullAiServiceAdapter implements AiService {
                 ];
 
                 response = await this.callModel(
-                    client,
                     messages,
                     input.limits.timeoutMs,
                     undefined,
@@ -747,7 +734,6 @@ export class FullAiServiceAdapter implements AiService {
                     { role: "user", content: nudge },
                 ];
                 let forceResponse = await this.callModel(
-                    client,
                     messages,
                     input.limits.timeoutMs,
                     forcePrepareChoice,
@@ -775,7 +761,6 @@ export class FullAiServiceAdapter implements AiService {
                         { role: "user", content: round.toolResults },
                     ];
                     forceResponse = await this.callModel(
-                        client,
                         messages,
                         input.limits.timeoutMs,
                         undefined,

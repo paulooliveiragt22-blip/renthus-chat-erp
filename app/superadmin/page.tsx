@@ -194,7 +194,7 @@ export default function SuperAdminDashboard() {
                     </div>
                 )}
 
-                <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                     <MiniStat
                         label="Failure rate (15m)"
                         value={formatPct(queueHealth?.summary.failureRate ?? 0)}
@@ -213,6 +213,15 @@ export default function SuperAdminDashboard() {
                     <MiniStat
                         label="Pendentes agora"
                         value={String(queueHealth?.summary.pendingNow ?? 0)}
+                        loading={isQueueLoading}
+                    />
+                    <MiniStat
+                        label="Idade pending (mais antigo)"
+                        value={
+                            queueHealth?.summary.oldestPendingAgeSec != null
+                                ? formatAgeSec(queueHealth.summary.oldestPendingAgeSec)
+                                : "—"
+                        }
                         loading={isQueueLoading}
                     />
                 </div>
@@ -427,32 +436,54 @@ function formatPeriodLabel(minutes: number): string {
     return `${minutes}m`;
 }
 
+function formatAgeSec(sec: number): string {
+    if (!Number.isFinite(sec) || sec <= 0) return "0s";
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+    const h = Math.floor(m / 60);
+    const rm = m % 60;
+    return rm ? `${h}h ${rm}m` : `${h}h`;
+}
+
 function formatLastUpdated(ts: number): string {
     if (!ts) return "—";
     return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function alertBoxMessage(
-    summary: { failureRate: number; pendingNow: number; failed15m: number },
+    summary: {
+        failureRate: number;
+        pendingNow: number;
+        failed15m: number;
+        oldestPendingAgeSec?: number;
+    },
     period: string
 ): string {
+    const age = summary.oldestPendingAgeSec ?? 0;
     if (summary.failureRate > 0.05) {
         return `Crítico: failure rate acima de 5% na janela ${period}. Investigue imediatamente.`;
     }
-    if (summary.pendingNow > 1000) {
-        return `Crítico: backlog de fila acima de 1000 jobs pendentes.`;
+    if (summary.pendingNow > 1000 || age > 180) {
+        return `Crítico: backlog alto (pending=${summary.pendingNow}, idade máx=${formatAgeSec(age)}).`;
     }
-    if (summary.failureRate > 0.02 || summary.pendingNow > 200) {
-        return `Atenção: failure rate > 2% ou backlog > 200 (failed=${summary.failed15m}, pending=${summary.pendingNow}).`;
+    if (summary.failureRate > 0.02 || summary.pendingNow > 200 || age > 60) {
+        return `Atenção: failure rate > 2%, backlog > 200 ou idade pending > 60s (failed=${summary.failed15m}, pending=${summary.pendingNow}, idade=${formatAgeSec(age)}).`;
     }
     return "Saúde estável: sem alertas ativos pelos thresholds padrão.";
 }
 
-function alertBoxStyle(summary: { failureRate: number; pendingNow: number }): string {
-    if (summary.failureRate > 0.05 || summary.pendingNow > 1000) {
+function alertBoxStyle(summary: {
+    failureRate: number;
+    pendingNow: number;
+    oldestPendingAgeSec?: number;
+}): string {
+    const age = summary.oldestPendingAgeSec ?? 0;
+    if (summary.failureRate > 0.05 || summary.pendingNow > 1000 || age > 180) {
         return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-900/10 dark:text-red-400";
     }
-    if (summary.failureRate > 0.02 || summary.pendingNow > 200) {
+    if (summary.failureRate > 0.02 || summary.pendingNow > 200 || age > 60) {
         return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-400";
     }
     return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/10 dark:text-emerald-400";

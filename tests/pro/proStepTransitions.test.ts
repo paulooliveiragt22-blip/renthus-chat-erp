@@ -9,6 +9,7 @@ import {
     resolveStepAfterOrderStage,
 } from "../../src/pro/pipeline/proStepTransitions";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
+import { withResolvedSlotStep } from "../../src/pro/pipeline/orderSlotStep";
 
 function minimalOrderDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
     return {
@@ -47,28 +48,27 @@ function minimalOrderDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
 }
 
 describe("proStepTransitions (R1)", () => {
-    it("transições de IA a partir de passos operacionais", () => {
+    it("IA não salta para confirmação — só escalate muda step; checkout vem do draft", () => {
         assert.equal(
             resolveStepAfterAiAction("pro_collecting_order", "request_confirmation"),
-            "pro_awaiting_confirmation"
+            "pro_collecting_order"
         );
         assert.equal(
             resolveStepAfterAiAction("pro_collecting_order", "request_confirmation", {
                 draft: minimalOrderDraft(),
                 deliveryAddressUiConfirmed: false,
             }),
-            "pro_awaiting_address_confirmation"
-        );
-        assert.equal(
-            resolveStepAfterAiAction("pro_collecting_order", "request_confirmation", {
-                draft: minimalOrderDraft(),
-                deliveryAddressUiConfirmed: true,
-            }),
-            "pro_awaiting_confirmation"
+            "pro_collecting_order"
         );
         assert.equal(resolveStepAfterAiAction("pro_idle", "escalate"), "pro_escalation_choice");
-        assert.equal(resolveStepAfterAiAction("pro_awaiting_confirmation", "reply"), "pro_collecting_order");
-        assert.equal(resolveStepAfterAiAction("pro_escalation_choice", "error"), "pro_collecting_order");
+        assert.equal(
+            resolveStepAfterAiAction("pro_awaiting_confirmation", "reply"),
+            "pro_awaiting_confirmation"
+        );
+        assert.equal(
+            resolveStepAfterAiAction("pro_escalation_choice", "error"),
+            "pro_escalation_choice"
+        );
     });
 
     it("rejeita IA em handover", () => {
@@ -165,5 +165,26 @@ describe("proStepTransitions (R1)", () => {
         assert.equal(escalated.step, "pro_escalation_choice");
         assert.equal(escalated.misunderstandingStreak, 0);
         assert.equal(escalated.escalationTier, 1);
+    });
+
+    it("request_confirmation + draft completo → confirmação só via withResolvedSlotStep", () => {
+        const base: ProSessionState = {
+            step: "pro_collecting_order",
+            customerId: "c1",
+            misunderstandingStreak: 0,
+            escalationTier: 0,
+            draft: minimalOrderDraft(),
+            deliveryAddressUiConfirmed: true,
+            aiHistory: [],
+            searchProdutoEmbalagemIds: [],
+        };
+        const afterAi = applyAiStateTransition({
+            state: base,
+            action: "request_confirmation",
+            intentMarker: "ok",
+        });
+        assert.equal(afterAi.step, "pro_collecting_order");
+        const slotted = withResolvedSlotStep(afterAi);
+        assert.equal(slotted.step, "pro_awaiting_confirmation");
     });
 });
