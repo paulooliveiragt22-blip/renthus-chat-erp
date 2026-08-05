@@ -294,7 +294,8 @@ export async function runProPipeline(
             bootstrapOutbound = boot.outbound;
             if (
                 boot.hasClarification &&
-                boot.state.draft?.items?.length &&
+                boot.state.draft &&
+                boot.state.draft.items.length > 0 &&
                 !isDraftStructurallyCompleteForFinalize(boot.state.draft)
             ) {
                 const syncedBoot = withResolvedSlotStep(boot.state);
@@ -330,6 +331,7 @@ export async function runProPipeline(
             }
             if (
                 boot.bootstrapped &&
+                boot.state.draft &&
                 isDraftStructurallyCompleteForFinalize(boot.state.draft)
             ) {
                 const finalState = withResolvedSlotStep({
