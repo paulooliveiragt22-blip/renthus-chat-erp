@@ -103,7 +103,6 @@ app/api/whatsapp/
 app/api/chatbot/
   process-queue/route.ts        ← Worker: reclaim → claim justo → processInboundMessage → self-wake
   resolve/route.ts              ← POST: reprocessar (interno ou sessão)
-  assistant-tools/route.ts
   reactivate/route.ts
   config/route.ts
 
