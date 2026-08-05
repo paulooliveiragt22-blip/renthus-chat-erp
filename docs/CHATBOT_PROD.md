@@ -143,7 +143,7 @@ Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos ú
 
 | Ação | Nota |
 |------|------|
-| `pro_anthropic_messages` | **Cap rígido** de turnos e/ou parar de persistir replay completo quando estado de negócio bastar (`ai_order_canonical`, step, `customer_id`) |
+| Histórico IA PRO | Em `__pro_v2_state.aiHistory` (não `pro_anthropic_messages`). Cap / “estado basta sem replay” ainda evolutivo. |
 | Tool chain | Manter saneamento até cap estar validado em staging |
 | Concorrência na IA | **Feito (por instância):** `runAnthropicWithResilience` = in-flight + retry 429 + circuit (`lib/chatbot/anthropicResilience.ts`). **Fairness de fila por `company_id`:** no **claim SQL** (`max_per_company`) — não é teto Anthropic por tenant. **Ainda adiado:** Redis/semáforo **global entre réplicas**; teto Anthropic **por `company_id`** só se métrica de *noisy neighbor* na IA (não na fila) justificar. |
 
