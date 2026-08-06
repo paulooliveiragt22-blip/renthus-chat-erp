@@ -51,7 +51,12 @@ export function isDeliveryAddressAutoConfirmed(draft: OrderDraft | null): boolea
 }
 
 /** Chamado só com endereço já estruturalmente completo e sem `paymentMethod`. */
-function resolveStepWhenPaymentMissing(step: ProStep): ProStep {
+function resolveStepWhenPaymentMissing(
+    step: ProStep,
+    opts?: { hasPendingProductClarify?: boolean }
+): ProStep {
+    /** Ainda há UN/CX para escolher — não avance para pagamento. */
+    if (opts?.hasPendingProductClarify) return "pro_collecting_order";
     if (step === "pro_awaiting_payment_method") return "pro_awaiting_payment_method";
     /** Endereço já batido no servidor — não pedir "Confirma este endereço?". */
     return "pro_awaiting_payment_method";
@@ -72,8 +77,10 @@ export function resolveProStepFromDraft(params: {
     step: ProStep;
     draft: OrderDraft | null;
     deliveryAddressUiConfirmed?: boolean;
+    /** Clarificação UN/CX ainda na tela (lastSearchPicks ou fila bootstrap). */
+    hasPendingProductClarify?: boolean;
 }): ProStep {
-    const { step, draft } = params;
+    const { step, draft, hasPendingProductClarify } = params;
 
     if (step === "handover") return "handover";
     if (step === "pro_awaiting_phone") return "pro_awaiting_phone";
@@ -91,7 +98,7 @@ export function resolveProStepFromDraft(params: {
     }
 
     if (!draft.paymentMethod) {
-        return resolveStepWhenPaymentMissing(step);
+        return resolveStepWhenPaymentMissing(step, { hasPendingProductClarify });
     }
 
     if (draft.paymentMethod === "cash" && draft.changeFor == null) {
@@ -116,6 +123,9 @@ export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
             step: "pro_collecting_order",
         };
     }
+    const hasPendingProductClarify =
+        (state.lastSearchPicks?.length ?? 0) >= 2 ||
+        (state.bootstrapPendingClarifications?.length ?? 0) > 0;
     return {
         ...state,
         deliveryAddressUiConfirmed,
@@ -123,6 +133,7 @@ export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
             step: state.step,
             draft: state.draft,
             deliveryAddressUiConfirmed,
+            hasPendingProductClarify,
         }),
     };
 }

@@ -16,6 +16,7 @@ import {
     unionAllowlistWithDraftIds,
 } from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
+import { isAddressStructurallyComplete } from "./orderSlotStep";
 import {
     dequeueBootstrapClarification,
     hasPendingBootstrapClarifications,
@@ -176,7 +177,13 @@ export async function serverPrepareAfterProductPick(params: {
         };
     }
 
-    const skipAi = isDraftStructurallyCompleteForFinalize(nextDraft);
+    const readyForPaymentUi =
+        Boolean(nextDraft?.items?.length) &&
+        isAddressStructurallyComplete(nextDraft?.address ?? null) &&
+        !nextDraft?.paymentMethod;
+
+    /** Completo para fechar OU só falta pagamento: não chama LLM (servidor manda botões). */
+    const skipAi = isDraftStructurallyCompleteForFinalize(nextDraft!) || readyForPaymentUi;
     return {
         state: nextState,
         skipAi,

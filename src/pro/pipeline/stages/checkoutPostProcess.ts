@@ -3,7 +3,7 @@ import {
     formatCanonicalDraftSummary,
     formatSearchPicksClarificationBody,
 } from "../orderDraftPresenter";
-import { PICK_EMB_PREFIX } from "../productPickText";
+import { PICK_EMB_PREFIX, parseProductPickIndex } from "../productPickText";
 import { buildUniquePickButtons } from "../pickButtonTitles";
 import { catalogProductHintFromPicks } from "../catalogProductHint";
 import {
@@ -52,7 +52,7 @@ function buildPaymentButtons(): OutboundMessage {
         text: "Escolha a forma de pagamento:",
         buttons: [
             { id: "pro_pay_pix", title: "PIX" },
-            { id: "pro_pay_card", title: "Cartao" },
+            { id: "pro_pay_card", title: "Cartão" },
             { id: "pro_pay_cash", title: "Dinheiro" },
         ],
     };
@@ -151,6 +151,26 @@ const PAYMENT_BUTTON_IDS = new Set(["pro_pay_pix", "pro_pay_card", "pro_pay_cash
 
 const PAYMENT_WORD_ONLY_RE = /^(pix|cartao|dinheiro|especie|card|cash|credito|debito)$/u;
 
+function outboundHasPaymentButtons(messages: OutboundMessage[]): boolean {
+    return messages.some(
+        (m) =>
+            m.kind === "buttons" &&
+            (m.buttons ?? []).some((b) => PAYMENT_BUTTON_IDS.has(String(b.id ?? "")))
+    );
+}
+
+/** Pick de embalagem (botão ou número) não pode ser barrado pelo gate de pagamento. */
+function looksLikePendingProductPick(text: string, state: ProSessionState): boolean {
+    const raw = text.trim();
+    if (!raw) return false;
+    if (raw.toLowerCase().startsWith(PICK_EMB_PREFIX)) return true;
+    if ((state.lastSearchPicks?.length ?? 0) < 2) return false;
+    if (parseProductPickIndex(raw) != null) return true;
+    // Título do botão WhatsApp: "1) SALGADINHO…"
+    if (/^\s*\d+\s*[).:-]/u.test(raw)) return true;
+    return false;
+}
+
 /**
  * Checkout estruturado: (1) em pagamento só botões; (2) antes disso, pagamento por texto/botão
  * só depois de confirmar endereço no servidor.
@@ -163,6 +183,7 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
         if (!action) return null;
         if (isCancelOrderPlainText(text)) return null;
         if (PAYMENT_BUTTON_IDS.has(action)) return null;
+        if (looksLikePendingProductPick(text, state)) return null;
         return {
             handled: true,
             actionTag: "strict_payment_inbound_gate",
@@ -567,7 +588,10 @@ export function checkoutPostProcess(params: {
         return { state: nextState, outbound: composed };
     }
 
-    outbound.push(...checkoutCards);
+    const cardsToAdd = outboundHasPaymentButtons(outbound)
+        ? checkoutCards.filter((c) => !outboundHasPaymentButtons([c]))
+        : checkoutCards;
+    outbound.push(...cardsToAdd);
 
     /** Rede de segurança: com picks pendentes, nunca terminar sem UI de escolha. */
     if (
@@ -594,5 +618,9 @@ export function checkoutPostProcessForQuickAction(params: {
     if (state.step === "pro_awaiting_confirmation" && state.draft) {
         return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft);
     }
-    return prioritizeInteractiveFirst([...params.outbound, ...cards]);
+    /** Evita duplicar PIX/Cartão/Dinheiro quando o caller já incluiu o card. */
+    const cardsToAdd = outboundHasPaymentButtons(params.outbound)
+        ? cards.filter((c) => !outboundHasPaymentButtons([c]))
+        : cards;
+    return prioritizeInteractiveFirst([...params.outbound, ...cardsToAdd]);
 }

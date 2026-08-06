@@ -107,6 +107,48 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.equal(g, null);
     });
 
+    it("strict gate: pick de embalagem não é barrado em awaiting_payment", () => {
+        const g = strictCheckoutStructuredGate(
+            "pro_pick_emb:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            state({
+                step: "pro_awaiting_payment_method",
+                draft: minimalDraft(),
+                lastSearchPicks: [
+                    { embalagemId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", label: "SALGADINHO" },
+                    { embalagemId: "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee", label: "SALGADINHO CX" },
+                ],
+            })
+        );
+        assert.equal(g, null);
+    });
+
+    it("quickAction não duplica card de pagamento se outbound já tem", () => {
+        const payment = {
+            kind: "buttons" as const,
+            text: "Escolha a forma de pagamento:",
+            buttons: [
+                { id: "pro_pay_pix", title: "PIX" },
+                { id: "pro_pay_card", title: "Cartão" },
+                { id: "pro_pay_cash", title: "Dinheiro" },
+            ],
+        };
+        const out = checkoutPostProcessForQuickAction({
+            state: state({
+                step: "pro_awaiting_payment_method",
+                draft: minimalDraft(),
+            }),
+            outbound: [
+                { kind: "text", text: "Use um dos botões abaixo para escolher o pagamento." },
+                payment,
+            ],
+        });
+        const payCards = out.filter(
+            (m) =>
+                m.kind === "buttons" && (m.buttons ?? []).some((b) => b.id === "pro_pay_pix")
+        );
+        assert.equal(payCards.length, 1);
+    });
+
     it("cartao sem draft: não inventa pagamento", () => {
         const r = applyQuickAction("cartao", state({ draft: null }));
         assert.equal(r.handled, false);

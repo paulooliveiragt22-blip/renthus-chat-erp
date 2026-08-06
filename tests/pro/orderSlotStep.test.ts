@@ -83,6 +83,31 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         );
     });
 
+    it("com clarificação de produto pendente não avança para pagamento", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: draft(),
+                hasPendingProductClarify: true,
+            }),
+            "pro_collecting_order"
+        );
+        const next = withResolvedSlotStep({
+            step: "pro_collecting_order",
+            customerId: "c1",
+            misunderstandingStreak: 0,
+            escalationTier: 0,
+            draft: draft(),
+            aiHistory: [],
+            searchProdutoEmbalagemIds: [],
+            lastSearchPicks: [
+                { embalagemId: "a", label: "UN" },
+                { embalagemId: "b", label: "CX" },
+            ],
+        });
+        assert.equal(next.step, "pro_collecting_order");
+    });
+
     it("dinheiro sem troco: awaiting_change_amount", () => {
         const d = draft({
             paymentMethod: "cash",
