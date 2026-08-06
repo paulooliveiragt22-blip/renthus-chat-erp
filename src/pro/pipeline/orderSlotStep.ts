@@ -125,7 +125,8 @@ export function withResolvedSlotStep(state: ProSessionState): ProSessionState {
     }
     const hasPendingProductClarify =
         (state.lastSearchPicks?.length ?? 0) >= 2 ||
-        (state.bootstrapPendingClarifications?.length ?? 0) > 0;
+        (state.bootstrapPendingClarifications?.length ?? 0) > 0 ||
+        (state.pendingAskRepeatTerms?.length ?? 0) > 0;
     return {
         ...state,
         deliveryAddressUiConfirmed,

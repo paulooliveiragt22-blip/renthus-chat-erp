@@ -79,6 +79,9 @@ export function prioritizeInteractiveFirst(messages: OutboundMessage[]): Outboun
 
 function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
     if (!state.draft) return [];
+    if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return [];
+    if ((state.lastSearchPicks?.length ?? 0) >= 2) return [];
+    if ((state.bootstrapPendingClarifications?.length ?? 0) > 0) return [];
     if (!state.draft.paymentMethod) {
         /** Itens sem endereço completo: não mostrar pagamento. */
         if (
@@ -179,6 +182,9 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
     const action = normalizeInboundAction(text);
     const d = state.draft;
 
+    /** Aguardando o cliente repetir o nome do produto — não barrar como pagamento. */
+    if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return null;
+
     if (state.step === "pro_awaiting_payment_method" && d) {
         if (!action) return null;
         if (isCancelOrderPlainText(text)) return null;
@@ -188,13 +194,8 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
             handled: true,
             actionTag: "strict_payment_inbound_gate",
             state,
-            outbound: prioritizeInteractiveFirst([
-                {
-                    kind: "text",
-                    text: "Use um dos botões abaixo para escolher o pagamento.",
-                },
-                buildPaymentButtons(),
-            ]),
+            /** Só reenvia os botões — sem texto extra. */
+            outbound: [buildPaymentButtons()],
         };
     }
 

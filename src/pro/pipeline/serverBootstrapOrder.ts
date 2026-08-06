@@ -320,6 +320,14 @@ export async function tryServerBootstrapOrderFromText(params: {
     }
 
     if (askRepeatTerms.length) {
+        state = {
+            ...state,
+            pendingAskRepeatTerms: [
+                ...(state.pendingAskRepeatTerms ?? []),
+                ...askRepeatTerms,
+            ],
+            step: "pro_collecting_order",
+        };
         if (outbound.length === 0) {
             for (const term of askRepeatTerms) {
                 outbound.push({
@@ -327,14 +335,6 @@ export async function tryServerBootstrapOrderFromText(params: {
                     text: formatAskRepeatProductBody(term, { keptItemsHint: keptHint }),
                 });
             }
-        } else {
-            state = {
-                ...state,
-                pendingAskRepeatTerms: [
-                    ...(state.pendingAskRepeatTerms ?? []),
-                    ...askRepeatTerms,
-                ],
-            };
         }
     }
 

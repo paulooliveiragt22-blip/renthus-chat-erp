@@ -355,14 +355,37 @@ export async function runProPipeline(
     }
 
     const swapIntent = swapIntentFromExtraction(orderExtraction);
-    const bootstrapSegmentPlan = buildBootstrapSegmentPlanFromExtraction(
+    let bootstrapSegmentPlan = buildBootstrapSegmentPlanFromExtraction(
         orderExtraction,
         input.inboundText
     );
 
+    /** Resposta ao “pode repetir o nome?”: trata o texto como produto a acrescentar. */
+    const awaitingProductRepeat =
+        (stateBeforePick.pendingAskRepeatTerms?.length ?? 0) > 0;
+    if (awaitingProductRepeat && !swapIntent && !skipExtract) {
+        const raw = input.inboundText.trim().slice(0, 120);
+        if (raw.length >= 2 && !bootstrapSegmentPlan) {
+            const key = raw
+                .toLowerCase()
+                .normalize("NFD")
+                .replaceAll(/\p{Diacritic}/gu, "")
+                .replaceAll(/\s+/g, " ")
+                .trim();
+            bootstrapSegmentPlan = {
+                segments: [raw],
+                qtyByTerm: { [key]: 1 },
+                payment: null,
+                useSavedAddress: false,
+                source: "llm",
+            };
+        }
+    }
+
     /**
      * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.
      * Nunca no texto de troca — senão acrescenta CX sem remover o UN.
+     * Com `pendingAskRepeatTerms`: permite acrescentar mesmo com itens já no draft.
      */
     let bootstrapOutbound: OutboundMessage[] = [];
     if (
@@ -373,18 +396,34 @@ export async function runProPipeline(
         !swapIntent &&
         bootstrapSegmentPlan &&
         bootstrapSegmentPlan.segments.length >= 1 &&
-        (!(stateBeforePick.draft?.items?.length) || stateBeforePick.checkoutEditHold === true)
+        (!(stateBeforePick.draft?.items?.length) ||
+            stateBeforePick.checkoutEditHold === true ||
+            awaitingProductRepeat)
     ) {
         try {
             const boot = await tryServerBootstrapOrderFromText({
                 admin: deps.admin,
                 companyId: input.tenant.companyId,
                 customerId: stateBeforePick.customerId,
-                state: stateBeforePick,
+                state: awaitingProductRepeat
+                    ? {
+                          ...stateBeforePick,
+                          checkoutEditHold: true,
+                          pendingAskRepeatTerms: [],
+                      }
+                    : stateBeforePick,
                 userText: input.inboundText,
                 segmentPlan: bootstrapSegmentPlan,
             });
-            stateBeforePick = boot.state;
+            stateBeforePick = {
+                ...boot.state,
+                pendingAskRepeatTerms: boot.hasClarification
+                    ? boot.state.pendingAskRepeatTerms ?? []
+                    : [],
+                checkoutEditHold: awaitingProductRepeat
+                    ? false
+                    : boot.state.checkoutEditHold,
+            };
             bootstrapOutbound = boot.outbound;
             /** Clarificação do bootstrap: sempre responde já (mesmo se prepare parcial falhou). */
             if (boot.hasClarification && bootstrapOutbound.length > 0) {
