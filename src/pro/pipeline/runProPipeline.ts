@@ -346,10 +346,11 @@ export async function runProPipeline(
         }
     }
 
-    if (orderExtraction?.paymentMethod) {
+    if (orderExtraction) {
         stateBeforePick = {
             ...stateBeforePick,
-            inferredPaymentMethod: orderExtraction.paymentMethod,
+            /** null limpa PIX/cartão grudado de turnos anteriores. */
+            inferredPaymentMethod: orderExtraction.paymentMethod ?? null,
         };
     }
 

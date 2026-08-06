@@ -71,12 +71,21 @@ export async function tryServerBootstrapOrderFromText(params: {
     const plan =
         params.segmentPlan ?? buildBootstrapSegmentPlanFromExtraction(null);
     const segments = plan?.segments ?? [];
-    const payment = plan?.payment ?? params.state.inferredPaymentMethod ?? null;
+    /**
+     * Pagamento só do texto desta mensagem (extração).
+     * Não herda `inferredPaymentMethod` nem `draft.paymentMethod` de turno anterior —
+     * senão PIX “gruda” no pedido seguinte sem o cliente pedir.
+     */
+    const paymentFromText = plan?.payment ?? null;
+    const continuingCart = Boolean(params.state.draft?.items?.length);
+    const payment =
+        paymentFromText ??
+        (continuingCart ? params.state.draft?.paymentMethod ?? null : null);
     const useSaved = plan?.useSavedAddress === true;
 
     let state: ProSessionState = {
         ...params.state,
-        inferredPaymentMethod: payment ?? params.state.inferredPaymentMethod ?? null,
+        inferredPaymentMethod: paymentFromText,
         step:
             params.state.step === "pro_idle" || params.state.step === "pro_awaiting_confirmation"
                 ? "pro_collecting_order"
@@ -211,8 +220,15 @@ export async function tryServerBootstrapOrderFromText(params: {
                   }
                 : null,
             useSavedAddress: useSaved || !addr,
-            paymentMethod: payment ?? state.draft?.paymentMethod ?? null,
-            changeFor: state.draft?.changeFor ?? null,
+            paymentMethod: payment,
+            changeFor:
+                payment === "cash"
+                    ? state.draft?.changeFor ?? null
+                    : payment
+                      ? null
+                      : continuingCart
+                        ? state.draft?.changeFor ?? null
+                        : null,
         };
         const catalogPolicy: PrepareOrderDraftCatalogPolicy = {
             kind: "search_allowlist",

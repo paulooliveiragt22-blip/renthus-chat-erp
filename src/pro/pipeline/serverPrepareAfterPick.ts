@@ -127,7 +127,8 @@ export async function serverPrepareAfterProductPick(params: {
             : null,
         useSavedAddress: !addr,
         paymentMethod,
-        changeFor: state.draft?.changeFor ?? null,
+        changeFor:
+            paymentMethod === "cash" ? state.draft?.changeFor ?? null : null,
     };
 
     const catalogPolicy: PrepareOrderDraftCatalogPolicy = {
