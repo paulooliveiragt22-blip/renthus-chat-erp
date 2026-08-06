@@ -11,7 +11,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 import { hasFeature } from "@/lib/billing/entitlements";
 import {
@@ -24,7 +23,6 @@ import type { MessagingChannel } from "@/src/domain/contracts/identity";
 
 export const runtime = "nodejs";
 
-const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
 const CHATBOT_QUEUE_WAKE_ENABLED = process.env.CHATBOT_QUEUE_WAKE_ENABLED !== "0";
 
 const BOT_DISCLOSURE_PT_BR =
@@ -228,47 +226,28 @@ async function handleMessagingEvent(params: {
         providerMetadata: metaChannel.provider_metadata,
     });
 
-    if (CHATBOT_QUEUE_ENABLED) {
-        const { error } = await admin.from("chatbot_queue").insert({
-            company_id: metaChannel.company_id,
-            thread_id: threadId,
-            phone_e164: null,
-            channel_user_id: senderId,
-            messaging_channel: channel,
-            message_id: providerMessageId,
-            body_text: bodyText,
-            profile_name: profileName,
-            metadata: {
-                source: "meta_messaging_incoming",
-                page_id: metaChannel.page_id,
-            },
-            status: "pending",
-            attempts: 0,
-            scheduled_at: new Date().toISOString(),
-        });
-        if (error && (error as { code?: string }).code !== "23505") {
-            console.error("[meta/incoming] queue insert:", error.message);
-            return;
-        }
-        if (!error) scheduleQueueWorkerWake();
+    const { error } = await admin.from("chatbot_queue").insert({
+        company_id: metaChannel.company_id,
+        thread_id: threadId,
+        phone_e164: null,
+        channel_user_id: senderId,
+        messaging_channel: channel,
+        message_id: providerMessageId,
+        body_text: bodyText,
+        profile_name: profileName,
+        metadata: {
+            source: "meta_messaging_incoming",
+            page_id: metaChannel.page_id,
+        },
+        status: "pending",
+        attempts: 0,
+        scheduled_at: new Date().toISOString(),
+    });
+    if (error && (error as { code?: string }).code !== "23505") {
+        console.error("[meta/incoming] queue insert:", error.message);
         return;
     }
-
-    try {
-        await processInboundMessage({
-            admin,
-            companyId: metaChannel.company_id,
-            threadId,
-            messageId: providerMessageId,
-            phoneE164: "",
-            channelUserId: senderId,
-            messagingChannel: channel,
-            text: bodyText,
-            profileName,
-        });
-    } catch (err) {
-        console.error("[meta/incoming] processInboundMessage:", err);
-    }
+    if (!error) scheduleQueueWorkerWake();
 }
 
 async function upsertMetaThread(params: {

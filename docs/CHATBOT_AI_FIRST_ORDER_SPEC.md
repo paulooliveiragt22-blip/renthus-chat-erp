@@ -142,8 +142,8 @@ Ver também `docs/CHATBOT_TIERS.md`.
 
 ## 10. Relação com documentação antiga
 
-- `docs/CHATBOT_IMPLEMENTACAO.md` referencia fluxos/`OrderParserService` que **não** batem com o motor atual **flow-first** em `lib/chatbot/processMessage.ts`.  
-- Esta especificação é a **fonte de verdade** para o comportamento **IA primeiro → Flow após 4 falhas interpretativas** até a doc antiga ser revisada ou arquivada.
+- Docs legados de implementação/diagnóstico foram removidos; canónico: `docs/CHATBOT_PROD.md`.
+- Esta especificação é **histórica** para o desenho “IA primeiro → Flow”; o motor vivo é `src/pro/pipeline/`.
 
 ---
 

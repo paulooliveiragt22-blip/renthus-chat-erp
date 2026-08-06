@@ -196,11 +196,11 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 - [x] Perfil `degradado` sem crédito: sem LLM / bootstrap / fechamento; menu/status/handover ok
 - [x] Apagar motor Starter (`inboundPipeline`, handlers, intent middleware, `offerCatalog`) + `processMessage` só PRO
 - [x] Políticas do pipeline derivadas do perfil (`policiesFromAiCapability`); STT já gated por `canUseAi`
-- [ ] Migration DROP: `bot_intents`, `bot_logs`, `parser_alerts`
-- [ ] Apagar órfãos de §4.1
-- [ ] Apagar lixo de raiz de §4.1
-- [ ] Apagar docs de §4.3
-- [ ] Forçar fila sempre (remover caminho inline do webhook)
+- [x] Migration DROP: `bot_intents`, `bot_logs`, `parser_alerts`
+- [x] Apagar órfãos de §4.1
+- [x] Apagar lixo de raiz de §4.1
+- [x] Apagar docs mortos de §4.3 (`CHATBOT_IMPLEMENTACAO`, `DIAGNOSTICO_CHATBOT`, `CONTEXTO.md`)
+- [x] Forçar fila sempre (remover caminho inline do webhook WA + Meta)
 - [ ] Consolidar num classificador de intent só (`src/pro/services/intent/`)
 
 ### Fase 1 — Harness de replay

@@ -5,21 +5,19 @@
  *
  * GET  → verificação do webhook (hub.challenge)
  * POST → valida assinatura, persiste inbound e responde **200** ao Meta.
- *        Com `CHATBOT_QUEUE_ENABLED=1`, enfileira em `chatbot_queue` e agenda
- *        **wake** (`after()` → `GET /api/chatbot/process-queue`) para não depender
- *        só do scheduler. Sem fila, ainda chama `processInboundMessage` inline.
+ *        Sempre enfileira em `chatbot_queue` e agenda wake
+ *        (`after()` → `GET /api/chatbot/process-queue`).
  *
  * Deduplicação: INSERT em whatsapp_messages com unique index em provider_message_id.
  * Se o Meta reenviar o mesmo waId (retry), o INSERT falha com 23505 e é ignorado.
  *
- * Pipeline assíncrono PRO: quando `CHATBOT_QUEUE_ENABLED=1`, o inbound é enfileirado
- * em `chatbot_queue` e processado pelo worker (wake imediato + cron/scheduler backup).
+ * Pipeline assíncrono PRO: inbound enfileirado e processado pelo worker
+ * (wake imediato + cron/scheduler backup).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { checkRateLimit } from "@/lib/security/rateLimit";
@@ -29,7 +27,6 @@ import { maybeSendBacklogNotice } from "@/lib/chatbot/backlogNotice";
 import { tryTranscribeInboundAudio } from "@/lib/chatbot/transcribeInboundAudio";
 
 export const runtime = "nodejs";
-const CHATBOT_QUEUE_ENABLED = process.env.CHATBOT_QUEUE_ENABLED === "1";
 /** `CHATBOT_QUEUE_WAKE_ENABLED=0` desliga o disparo assíncrono do worker (ex.: testes). */
 const CHATBOT_QUEUE_WAKE_ENABLED = process.env.CHATBOT_QUEUE_WAKE_ENABLED !== "0";
 const INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
@@ -227,15 +224,6 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
     if (!channel) return;
 
     const waConfig = buildWaConfig(channel, phoneNumberId);
-    const channelMeta = channel.provider_metadata as {
-        catalog_flow_id?: string;
-        status_flow_id?: string;
-        address_register_flow_id?: string;
-    } | null;
-    const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
-    const statusFlowId = channelMeta?.status_flow_id ?? process.env.WHATSAPP_STATUS_FLOW_ID;
-    const addressRegisterFlowId =
-        channelMeta?.address_register_flow_id ?? process.env.WHATSAPP_ADDRESS_REGISTER_FLOW_ID;
 
     for (const msg of messages) {
         await processSingleInboundMessage({
@@ -244,9 +232,6 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
             msg,
             channel,
             waConfig,
-            catalogFlowId,
-            statusFlowId,
-            addressRegisterFlowId,
             phoneNumberId,
         });
     }
@@ -311,13 +296,9 @@ async function processSingleInboundMessage(params: {
     msg: any;
     channel: ActiveChannel;
     waConfig: WaConfig;
-    catalogFlowId: string | undefined;
-    statusFlowId: string | undefined;
-    addressRegisterFlowId: string | undefined;
     phoneNumberId: string;
 }): Promise<void> {
-    const { admin, value, msg, channel, waConfig, catalogFlowId, statusFlowId, addressRegisterFlowId, phoneNumberId } =
-        params;
+    const { admin, value, msg, channel, waConfig, phoneNumberId } = params;
     const waId = msg?.id as string | null;
     const fromRaw = msg?.from as string;
     const msgType = msg?.type as string;
@@ -380,39 +361,18 @@ async function processSingleInboundMessage(params: {
     });
     if (!shouldContinue) return;
 
-    if (CHATBOT_QUEUE_ENABLED) {
-        await enqueueInboundIfNeeded({
-            admin,
-            channel,
-            threadId,
-            phoneE164,
-            waId,
-            bodyText,
-            profileName,
-            phoneNumberId,
-            msgType,
-            waConfig,
-        });
-        return;
-    }
-
-    try {
-        await processInboundMessage({
-            admin,
-            companyId: channel.company_id,
-            threadId,
-            messageId: waId,
-            phoneE164,
-            text: bodyText,
-            profileName,
-            waConfig,
-            catalogFlowId,
-            statusFlowId,
-            addressRegisterFlowId,
-        });
-    } catch (err: any) {
-        console.error("[chatbot] processInboundMessage error:", err?.message ?? err);
-    }
+    await enqueueInboundIfNeeded({
+        admin,
+        channel,
+        threadId,
+        phoneE164,
+        waId,
+        bodyText,
+        profileName,
+        phoneNumberId,
+        msgType,
+        waConfig,
+    });
 }
 
 async function insertInboundMessage(params: {

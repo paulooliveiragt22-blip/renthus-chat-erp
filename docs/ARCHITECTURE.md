@@ -47,10 +47,8 @@ Ambos:
 - retorna status
 
 ### Chatbot de pedidos
-- Motor em `lib/chatbot/processMessage.ts`; parser em `lib/chatbot/OrderParserService.ts`
-- Interceptor global de intenções (produto + endereço em texto livre)
-- **Documentação completa:** `docs/CHATBOT_IMPLEMENTACAO.md`
-- **Diagnóstico/troubleshooting:** `docs/DIAGNOSTICO_CHATBOT.md`
+- Motor único PRO: `lib/chatbot/processMessage.ts` → `src/pro/pipeline/runProPipeline.ts`
+- Docs canónicos: `docs/CHATBOT_PROD.md`, plano de corte em `docs/PLANO_LIMPEZA_AGENTE_IA.md`
 
 ## Billing/Planos: entitlements (direitos)
 Em vez de if/else por plano espalhado:
