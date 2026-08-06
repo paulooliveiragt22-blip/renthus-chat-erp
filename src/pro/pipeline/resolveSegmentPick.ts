@@ -124,7 +124,8 @@ function minCaseFator(items: HitRow[]): number | null {
 }
 
 /**
- * Intenção de embalagem: texto explícito > conflito com hábito > qty vs fator > hábito.
+ * Intenção de embalagem: texto explícito (unidade/caixa) manda;
+ * hábito e qty só entram quando a embalagem NÃO foi dita.
  */
 export function resolvePackagingIntent(
     segment: string,
@@ -133,7 +134,7 @@ export function resolvePackagingIntent(
 ): {
     wantCase: boolean;
     wantUnit: boolean;
-    /** Pediu embalagem contrária ao hábito → forçar UN+CX na clarificação. */
+    /** Reservado: hoje só ambíguo sem hábito claro; explícito nunca conflita. */
     habitConflict: boolean;
 } {
     const explicitCase = prefersCase(segment);
@@ -142,28 +143,25 @@ export function resolvePackagingIntent(
     const qty = Number(opts?.quantity);
     const qtyOk = Number.isFinite(qty) && qty > 0 ? qty : null;
 
-    let wantCase = explicitCase;
-    let wantUnit = explicitUnit;
-    let habitConflict = false;
-
-    if (explicitCase && habit === "UN") {
-        habitConflict = true;
-        wantCase = false;
-        wantUnit = false;
-    } else if (explicitUnit && habit === "CX") {
-        habitConflict = true;
-        wantCase = false;
-        wantUnit = false;
-    } else if (!explicitCase && !explicitUnit) {
-        if (habit === "UN") wantUnit = true;
-        else if (habit === "CX") wantCase = true;
-        else if (qtyOk != null) {
-            const minF = minCaseFator(items);
-            if (minF != null && qtyOk < minF) wantUnit = true;
-        }
+    // Pedido claro ("2 unidades" / "1 caixa") → segue o texto; hábito não interfere.
+    if (explicitCase || explicitUnit) {
+        return {
+            wantCase: explicitCase,
+            wantUnit: explicitUnit,
+            habitConflict: false,
+        };
     }
 
-    return { wantCase, wantUnit, habitConflict };
+    let wantCase = false;
+    let wantUnit = false;
+    if (habit === "UN") wantUnit = true;
+    else if (habit === "CX") wantCase = true;
+    else if (qtyOk != null) {
+        const minF = minCaseFator(items);
+        if (minF != null && qtyOk < minF) wantUnit = true;
+    }
+
+    return { wantCase, wantUnit, habitConflict: false };
 }
 
 function scoreItem(
