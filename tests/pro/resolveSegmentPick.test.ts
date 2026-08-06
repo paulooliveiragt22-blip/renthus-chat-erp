@@ -204,7 +204,7 @@ describe("resolveSegmentPick", () => {
                     preco_venda: 288,
                 },
             ],
-            { quantity: 1, habit: "UN" }
+            { quantity: 1, habitSigla: "UN" }
         );
         assert.equal(r.kind, "unique");
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "cx");
@@ -231,13 +231,13 @@ describe("resolveSegmentPick", () => {
                     preco_venda: 288,
                 },
             ],
-            { quantity: 2, habit: "CX" }
+            { quantity: 2, habitSigla: "CX" }
         );
         assert.equal(r.kind, "unique");
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "un");
     });
 
-    it("sem embalagem + hábito CX → CX", () => {
+    it("sem sigla no texto + hábito CX → CX", () => {
         const r = resolveSegmentPick(
             "brahma 600",
             [
@@ -258,9 +258,68 @@ describe("resolveSegmentPick", () => {
                     preco_venda: 288,
                 },
             ],
-            { quantity: 1, habit: "CX" }
+            { quantity: 1, habitSigla: "CX" }
         );
         assert.equal(r.kind, "unique");
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "cx");
+    });
+
+    it("combo explícito (sigla da empresa) → COMBO", () => {
+        const companySiglas = [
+            { id: "1", sigla: "UN", descricao: "Unidade" },
+            { id: "2", sigla: "COMBO", descricao: null },
+            { id: "3", sigla: "CX", descricao: "Caixa" },
+        ];
+        const r = resolveSegmentPick(
+            "quero o combo skol",
+            [
+                {
+                    id: "un",
+                    display_name: "SKOL LATA",
+                    product_name: "SKOL",
+                    sigla_comercial: "UN",
+                    fator_conversao: 1,
+                    preco_venda: 5,
+                },
+                {
+                    id: "combo",
+                    display_name: "SKOL COMBO",
+                    product_name: "SKOL",
+                    sigla_comercial: "COMBO",
+                    fator_conversao: 3,
+                    preco_venda: 14,
+                },
+            ],
+            { quantity: 1, companySiglas }
+        );
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "combo");
+    });
+
+    it("hábito COMBO sem texto de sigla → COMBO", () => {
+        const r = resolveSegmentPick(
+            "skol",
+            [
+                {
+                    id: "un",
+                    display_name: "SKOL LATA",
+                    product_name: "SKOL",
+                    sigla_comercial: "UN",
+                    fator_conversao: 1,
+                    preco_venda: 5,
+                },
+                {
+                    id: "combo",
+                    display_name: "SKOL COMBO",
+                    product_name: "SKOL",
+                    sigla_comercial: "COMBO",
+                    fator_conversao: 3,
+                    preco_venda: 14,
+                },
+            ],
+            { habitSigla: "COMBO" }
+        );
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "combo");
     });
 });

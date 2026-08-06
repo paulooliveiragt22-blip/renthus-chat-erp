@@ -15,7 +15,7 @@ function buildClarifyOutbound(
         price?: number | null;
         productName?: string | null;
     }>,
-    opts?: { habitConflict?: boolean; habit?: "UN" | "CX" | null }
+    opts?: { habitConflict?: boolean; habit?: string | null }
 ): OutboundMessage | null {
     const top = picks.slice(0, 3);
     if (top.length < 2) return null;

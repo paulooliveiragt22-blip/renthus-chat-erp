@@ -70,7 +70,8 @@ export function formatSearchPicksClarificationBody(
     opts?: {
         productHint?: string | null;
         habitConflict?: boolean;
-        habit?: "UN" | "CX" | null;
+        /** Sigla habitual (`siglas_comerciais.sigla`). */
+        habit?: string | null;
     }
 ): string {
     const top = picks.slice(0, 3);
@@ -80,11 +81,9 @@ export function formatSearchPicksClarificationBody(
         .slice(0, 40);
     let headline: string;
     if (opts?.habitConflict && opts.habit && hint) {
-        const usual = opts.habit === "CX" ? "caixa" : "unidade";
-        headline = `Você costuma pedir ${hint} em ${usual}. Confirma unidade ou caixa desta vez?`;
+        headline = `Você costuma pedir ${hint} em ${opts.habit}. Confirma a sigla desta vez?`;
     } else if (opts?.habitConflict && opts.habit) {
-        const usual = opts.habit === "CX" ? "caixa" : "unidade";
-        headline = `Você costuma pedir em ${usual}. Confirma unidade ou caixa desta vez?`;
+        headline = `Você costuma pedir em ${opts.habit}. Confirma a opção desta vez?`;
     } else if (hint) {
         headline = `Qual opção de ${hint} você quer?`;
     } else {

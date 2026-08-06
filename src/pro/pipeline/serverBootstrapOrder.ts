@@ -16,7 +16,8 @@ import {
     type BootstrapSegmentPlan,
 } from "./bootstrapSegmentPlan";
 import {
-    loadCustomerPackagingHabits,
+    loadCompanySiglas,
+    loadCustomerSiglaHabits,
     primaryProductIdFromHits,
 } from "./customerPackagingHabit";
 
@@ -88,13 +89,14 @@ export async function tryServerBootstrapOrderFromText(params: {
         segmentHits.push({ segment, items: detailed.items });
     }
 
-    let habits = new Map<string, "UN" | "CX">();
+    let habits = new Map<string, string>();
+    const companySiglas = await loadCompanySiglas(admin, companyId);
     if (customerId) {
         const productIds = segmentHits
             .map((h) => primaryProductIdFromHits(h.items))
             .filter((id): id is string => Boolean(id));
         if (productIds.length) {
-            habits = await loadCustomerPackagingHabits({
+            habits = await loadCustomerSiglaHabits({
                 admin,
                 companyId,
                 customerId,
@@ -107,7 +109,11 @@ export async function tryServerBootstrapOrderFromText(params: {
         const qty = plan.qtyByTerm[normTerm(segment)] ?? 1;
         const productId = primaryProductIdFromHits(items);
         const habit = productId ? habits.get(productId) ?? null : null;
-        const resolved = resolveSegmentPick(segment, items, { quantity: qty, habit });
+        const resolved = resolveSegmentPick(segment, items, {
+            quantity: qty,
+            habitSigla: habit,
+            companySiglas,
+        });
         if (resolved.kind === "unique") {
             uniqueIds.push(resolved.pick.embalagemId);
             idToTerm.set(resolved.pick.embalagemId, segment);

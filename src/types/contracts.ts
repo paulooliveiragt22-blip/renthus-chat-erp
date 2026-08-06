@@ -162,10 +162,10 @@ export interface ProSessionState {
         segment: string;
         /** Qty pedida no texto original (extração LLM) para este segmento. */
         quantity?: number;
-        /** Conflito com hábito do cliente (pediu CX mas costuma UN, etc.). */
+        /** Conflito com hábito do cliente (legado; texto explícito não conflita). */
         habitConflict?: boolean;
-        /** Hábito conhecido (para texto de confirmação). */
-        habit?: "UN" | "CX" | null;
+        /** Sigla habitual do cliente neste produto (`siglas_comerciais.sigla`). */
+        habit?: string | null;
         picks: Array<{
             embalagemId: string;
             label: string;

@@ -1,22 +1,24 @@
 /**
- * Resolve um segmento de pedido ("heineken long neck caixa") contra hits de busca.
+ * Resolve um segmento de pedido contra hits de busca.
+ * Preferência por *sigla comercial* (`siglas_comerciais.sigla`), não só UN/CX.
  */
 
-import type { PackagingHabit } from "./customerPackagingHabit";
+import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
+import { matchExplicitSiglaFromText } from "./siglaMatch";
 
 export type SegmentPickRow = {
     embalagemId: string;
     label: string;
     price?: number | null;
-    /** Nome canónico do produto no catálogo (hint ao cliente). */
     productName?: string | null;
 };
 
 export type ResolveSegmentPickOpts = {
-    /** Qty pedida (extração LLM) — qty < fator da CX → prefere UN. */
     quantity?: number | null;
-    /** Hábito do cliente neste produto (histórico finalized/delivered). */
-    habit?: PackagingHabit | null;
+    /** Hábito do cliente: sigla dominante neste produto (ex.: "UN", "COMBO"). */
+    habitSigla?: CustomerSiglaHabit | null;
+    /** Cadastro de siglas da empresa (para match por descrição/sinônimo). */
+    companySiglas?: CompanySigla[] | null;
 };
 
 function norm(text: string): string {
@@ -42,11 +44,21 @@ function rowToPick(r: {
     };
 }
 
+function rowSigla(r: { sigla_comercial?: string | null }): string {
+    return String(r.sigla_comercial ?? "").trim().toUpperCase();
+}
+
+function fatorOf(r: { fator_conversao?: number | string | null }): number {
+    const f = Number(r.fator_conversao ?? 1);
+    return Number.isFinite(f) && f > 0 ? f : 1;
+}
+
+/** @deprecated Prefer matchExplicitSiglaFromText — mantido p/ testes legados. */
 export function prefersCase(segment: string): boolean {
     return /\b(caixa|cx|fardo|pack)\b/u.test(norm(segment));
 }
 
-/** Pediu unidade / long neck sem "caixa" → não oferecer CX. */
+/** @deprecated Prefer matchExplicitSiglaFromText. */
 export function prefersUnit(segment: string): boolean {
     const s = norm(segment);
     if (prefersCase(s)) return false;
@@ -55,29 +67,18 @@ export function prefersUnit(segment: string): boolean {
     return false;
 }
 
-function isCasePack(r: {
-    display_name?: string | null;
-    product_name?: string | null;
-    sigla_comercial?: string | null;
-    fator_conversao?: number | string | null;
-}): boolean {
-    const name = norm(String(r.display_name || r.product_name || ""));
-    const sigla = String(r.sigla_comercial ?? "").toUpperCase();
-    if (sigla.includes("CX") || sigla.includes("FARD") || sigla.includes("PAC")) return true;
-    if (/\bcx\b|caixa|c\/\d+/u.test(name)) return true;
-    const fator = Number(r.fator_conversao ?? 1) || 1;
-    return fator >= 6;
-}
-
-/** Tokens de marca/produto (não descritor/embalagem). */
 function brandTokens(segment: string): string[] {
     const stop = new Set([
         "caixa",
         "caixas",
         "cx",
         "fardo",
+        "fardos",
         "pack",
         "pacote",
+        "pacotes",
+        "combo",
+        "combos",
         "unidade",
         "unidades",
         "un",
@@ -113,73 +114,75 @@ type HitRow = {
     produto_id?: string | null;
 };
 
-function minCaseFator(items: HitRow[]): number | null {
-    let min: number | null = null;
-    for (const r of items) {
-        if (!isCasePack(r)) continue;
-        const f = Number(r.fator_conversao ?? 0) || 0;
-        if (f >= 2 && (min == null || f < min)) min = f;
-    }
-    return min;
+function hitSiglaList(items: HitRow[]): string[] {
+    return [...new Set(items.map(rowSigla).filter(Boolean))];
 }
 
 /**
- * Intenção de embalagem: texto explícito (unidade/caixa) manda;
- * hábito e qty só entram quando a embalagem NÃO foi dita.
+ * Sigla preferida: texto explícito > hábito > qty vs fator mínimo > long neck→menor fator.
  */
-export function resolvePackagingIntent(
+export function resolvePreferredSigla(
     segment: string,
     items: HitRow[],
     opts?: ResolveSegmentPickOpts
-): {
-    wantCase: boolean;
-    wantUnit: boolean;
-    /** Reservado: hoje só ambíguo sem hábito claro; explícito nunca conflita. */
-    habitConflict: boolean;
-} {
-    const explicitCase = prefersCase(segment);
-    const explicitUnit = prefersUnit(segment);
-    const habit = opts?.habit ?? null;
+): string | null {
+    const companySiglas = opts?.companySiglas?.length
+        ? opts.companySiglas
+        : hitSiglaList(items).map((sigla) => ({ id: sigla, sigla, descricao: null }));
+
+    const explicit = matchExplicitSiglaFromText(segment, companySiglas, hitSiglaList(items));
+    if (explicit) return explicit;
+
+    const habit = String(opts?.habitSigla ?? "")
+        .trim()
+        .toUpperCase();
+    if (habit && hitSiglaList(items).includes(habit)) return habit;
+
     const qty = Number(opts?.quantity);
     const qtyOk = Number.isFinite(qty) && qty > 0 ? qty : null;
+    const fatores = items.map(fatorOf);
+    const minF = Math.min(...fatores);
+    const maxF = Math.max(...fatores);
 
-    // Pedido claro ("2 unidades" / "1 caixa") → segue o texto; hábito não interfere.
-    if (explicitCase || explicitUnit) {
-        return {
-            wantCase: explicitCase,
-            wantUnit: explicitUnit,
-            habitConflict: false,
-        };
+    const siglaOfMinFator = (): string | null => {
+        const candidates = items.filter((r) => fatorOf(r) === minF);
+        const un = candidates.find((r) => rowSigla(r) === "UN");
+        if (un) return "UN";
+        // Empate de fator: evita CX/FARD/PAC pelo nome
+        const notCase = candidates.find((r) => {
+            const s = rowSigla(r);
+            const name = norm(String(r.display_name || r.product_name || ""));
+            return !s.includes("CX") && !s.includes("FARD") && !s.includes("PAC") && !/\bcx\b|c\/\d+/u.test(name);
+        });
+        if (notCase) return rowSigla(notCase) || null;
+        return rowSigla(candidates[0]!) || null;
+    };
+
+    if (qtyOk != null && maxF > minF && qtyOk < maxF) {
+        return siglaOfMinFator();
     }
 
-    let wantCase = false;
-    let wantUnit = false;
-    if (habit === "UN") wantUnit = true;
-    else if (habit === "CX") wantCase = true;
-    else if (qtyOk != null) {
-        const minF = minCaseFator(items);
-        if (minF != null && qtyOk < minF) wantUnit = true;
+    // long neck sem sigla → UN se existir; senão menor fator “não caixa”
+    if (/\blong\s*neck|longneck\b/u.test(norm(segment))) {
+        if (hitSiglaList(items).includes("UN")) return "UN";
+        return siglaOfMinFator();
     }
 
-    return { wantCase, wantUnit, habitConflict: false };
+    return null;
 }
 
-function scoreItem(
-    segment: string,
-    r: HitRow,
-    wantCase: boolean,
-    wantUnit: boolean
-): number {
+function scoreItem(segment: string, r: HitRow, preferredSigla: string | null): number {
     const seg = norm(segment);
     const name = norm(String(r.display_name || r.product_name || ""));
+    const sigla = rowSigla(r);
     let score = 0;
 
-    const isCx = isCasePack(r);
-    if (wantCase && isCx) score += 8;
-    if (wantCase && !isCx) score -= 6;
-    if (wantUnit && !isCx) score += 8;
-    if (wantUnit && isCx) score -= 10;
-    if (!wantCase && !wantUnit && !isCx) score += 3;
+    if (preferredSigla) {
+        if (sigla === preferredSigla) score += 12;
+        else score -= 10;
+    } else if (fatorOf(r) <= 1) {
+        score += 3;
+    }
 
     if (/\blong\s*neck|longneck\b/u.test(seg)) {
         if (/\blong\s*neck|longneck\b/u.test(name)) score += 12;
@@ -201,20 +204,15 @@ function scoreItem(
     if (seg.includes("rosseiro") && name.includes("rosseiro")) score += 14;
     if (seg.includes("salgadinho") && name.includes("salgadinho")) score += 8;
 
-    if (wantCase && /\blong\s*neck|longneck\b/u.test(seg) && /c\/\s*6\b|cx\s*c\/\s*6/u.test(name)) {
+    if (
+        preferredSigla === "CX" &&
+        /\blong\s*neck|longneck\b/u.test(seg) &&
+        /c\/\s*6\b|cx\s*c\/\s*6/u.test(name)
+    ) {
         score += 4;
     }
 
     return score;
-}
-
-function picksUnAndCx(ranked: Array<{ r: HitRow; score: number }>): SegmentPickRow[] {
-    const un = ranked.find((x) => !isCasePack(x.r));
-    const cx = ranked.find((x) => isCasePack(x.r));
-    const out: SegmentPickRow[] = [];
-    if (un) out.push(rowToPick(un.r));
-    if (cx) out.push(rowToPick(cx.r));
-    return out;
 }
 
 export function resolveSegmentPick(
@@ -228,13 +226,10 @@ export function resolveSegmentPick(
     if (!items.length) return { kind: "empty" };
     if (items.length === 1) return { kind: "unique", pick: rowToPick(items[0]!) };
 
-    const intent = resolvePackagingIntent(segment, items, opts);
+    const preferredSigla = resolvePreferredSigla(segment, items, opts);
 
     let ranked = items
-        .map((r) => ({
-            r,
-            score: scoreItem(segment, r, intent.wantCase, intent.wantUnit),
-        }))
+        .map((r) => ({ r, score: scoreItem(segment, r, preferredSigla) }))
         .sort((a, b) => b.score - a.score);
 
     const brands = brandTokens(segment);
@@ -246,36 +241,20 @@ export function resolveSegmentPick(
         if (withBrand.length >= 1) ranked = withBrand;
     }
 
-    if (intent.habitConflict) {
-        const both = picksUnAndCx(ranked);
-        if (both.length >= 2) {
-            return { kind: "ambiguous", picks: both, habitConflict: true };
-        }
-    }
-
     const best = ranked[0]!;
     const second = ranked[1];
     if (!second || best.score >= second.score + 4) {
         return { kind: "unique", pick: rowToPick(best.r) };
     }
 
-    if (intent.wantCase) {
-        const cxOnly = ranked.filter((x) => isCasePack(x.r));
-        if (cxOnly.length === 1) return { kind: "unique", pick: rowToPick(cxOnly[0]!.r) };
-        if (cxOnly.length >= 2) {
-            const a = cxOnly[0]!;
-            const b = cxOnly[1]!;
+    if (preferredSigla) {
+        const only = ranked.filter((x) => rowSigla(x.r) === preferredSigla);
+        if (only.length === 1) return { kind: "unique", pick: rowToPick(only[0]!.r) };
+        if (only.length >= 2) {
+            const a = only[0]!;
+            const b = only[1]!;
             if (a.score >= b.score + 3) return { kind: "unique", pick: rowToPick(a.r) };
-            return { kind: "ambiguous", picks: cxOnly.slice(0, 3).map((x) => rowToPick(x.r)) };
-        }
-    } else if (intent.wantUnit) {
-        const unOnly = ranked.filter((x) => !isCasePack(x.r));
-        if (unOnly.length === 1) return { kind: "unique", pick: rowToPick(unOnly[0]!.r) };
-        if (unOnly.length >= 2) {
-            const a = unOnly[0]!;
-            const b = unOnly[1]!;
-            if (a.score >= b.score + 3) return { kind: "unique", pick: rowToPick(a.r) };
-            return { kind: "ambiguous", picks: unOnly.slice(0, 3).map((x) => rowToPick(x.r)) };
+            return { kind: "ambiguous", picks: only.slice(0, 3).map((x) => rowToPick(x.r)) };
         }
     }
 
