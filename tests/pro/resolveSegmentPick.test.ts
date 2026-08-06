@@ -80,4 +80,16 @@ describe("resolveSegmentPick", () => {
         ]);
         assert.equal(r.kind, "ambiguous");
     });
+
+    it("heineken long neck sem caixa → UN (não oferece CX)", () => {
+        const r = resolveSegmentPick("heineken long neck", heinekenHits);
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "un");
+    });
+
+    it("2 heineken long neck → ainda UN", () => {
+        const r = resolveSegmentPick("2 heineken long neck", heinekenHits);
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "un");
+    });
 });

@@ -93,7 +93,13 @@ export async function serverPrepareAfterProductPick(params: {
         byId.set(sid, { produtoEmbalagemId: sid, quantity: 1 });
     }
     const prev = byId.get(embId);
-    byId.set(embId, { produtoEmbalagemId: embId, quantity: prev?.quantity ?? 1 });
+    const clarifyQty = Number(state.pendingClarifyQuantity);
+    const qtyFromClarify =
+        Number.isFinite(clarifyQty) && clarifyQty > 0 ? clarifyQty : null;
+    byId.set(embId, {
+        produtoEmbalagemId: embId,
+        quantity: prev?.quantity ?? qtyFromClarify ?? 1,
+    });
 
     const resolvedIds = [
         ...new Set([...(state.bootstrapResolvedEmbalagemIds ?? []), embId]),
@@ -165,6 +171,8 @@ export async function serverPrepareAfterProductPick(params: {
         checkoutEditHold: false,
         pendingSwapRemoveName: null,
         lastSearchPicks: [],
+        pendingClarifyQuantity: null,
+        pendingClarifySegment: null,
     };
 
     if (hasPendingBootstrapClarifications(nextState)) {

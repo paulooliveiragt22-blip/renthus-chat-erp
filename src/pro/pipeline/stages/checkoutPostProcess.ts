@@ -109,7 +109,7 @@ function resolvePaymentQuickAction(action: string, state: ProSessionState): Quic
                 step: "pro_collecting_order",
                 draft: { ...state.draft, paymentMethod: "pix", changeFor: null },
             },
-            outbound: [{ kind: "text", text: "Pagamento em PIX selecionado." }],
+            outbound: [],
         };
     }
     if (action === "pro_pay_card") {
@@ -121,7 +121,7 @@ function resolvePaymentQuickAction(action: string, state: ProSessionState): Quic
                 step: "pro_collecting_order",
                 draft: { ...state.draft, paymentMethod: "card", changeFor: null },
             },
-            outbound: [{ kind: "text", text: "Pagamento em cartão selecionado." }],
+            outbound: [],
         };
     }
     if (action === "pro_pay_cash") {

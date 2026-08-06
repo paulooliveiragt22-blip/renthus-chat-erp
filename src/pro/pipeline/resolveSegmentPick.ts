@@ -37,6 +37,26 @@ export function prefersCase(segment: string): boolean {
     return /\b(caixa|cx|fardo|pack)\b/u.test(norm(segment));
 }
 
+/** Pediu unidade / long neck sem "caixa" → não oferecer CX. */
+export function prefersUnit(segment: string): boolean {
+    const s = norm(segment);
+    if (prefersCase(s)) return false;
+    if (/\b(unidade|unidades|\bun\b)\b/u.test(s)) return true;
+    // "long neck" sem caixa = unidade (CX seria "long neck caixa")
+    if (/\blong\s*neck|longneck\b/u.test(s)) return true;
+    return false;
+}
+
+function isCasePack(r: {
+    display_name?: string | null;
+    product_name?: string | null;
+    sigla_comercial?: string | null;
+}): boolean {
+    const name = norm(String(r.display_name || r.product_name || ""));
+    const sigla = String(r.sigla_comercial ?? "").toUpperCase();
+    return sigla.includes("CX") || /\bcx\b|caixa|c\/\d+/u.test(name);
+}
+
 function scoreItem(
     segment: string,
     r: {
@@ -49,14 +69,16 @@ function scoreItem(
 ): number {
     const seg = norm(segment);
     const name = norm(String(r.display_name || r.product_name || ""));
-    const sigla = String(r.sigla_comercial ?? "").toUpperCase();
     let score = 0;
 
     const wantCase = prefersCase(seg);
-    const isCx = sigla.includes("CX") || /\bcx\b|caixa|c\/\d+/u.test(name);
+    const wantUnit = prefersUnit(seg);
+    const isCx = isCasePack(r);
     if (wantCase && isCx) score += 8;
     if (wantCase && !isCx) score -= 6;
-    if (!wantCase && !isCx) score += 3;
+    if (wantUnit && !isCx) score += 8;
+    if (wantUnit && isCx) score -= 10;
+    if (!wantCase && !wantUnit && !isCx) score += 3;
 
     if (/\blong\s*neck|longneck\b/u.test(seg)) {
         if (/\blong\s*neck|longneck\b/u.test(name)) score += 12;
@@ -104,19 +126,24 @@ export function resolveSegmentPick(
         return { kind: "unique", pick: rowToPick(best.r) };
     }
 
-    // Empate no topo: se pediu caixa, restringe a CX e tenta de novo
+    // Empate no topo: se pediu caixa, restringe a CX; se pediu unidade/long neck, restringe a UN
     if (prefersCase(segment)) {
-        const cxOnly = ranked.filter((x) => {
-            const sigla = String(x.r.sigla_comercial ?? "").toUpperCase();
-            const name = norm(String(x.r.display_name || x.r.product_name || ""));
-            return sigla.includes("CX") || /\bcx\b|caixa|c\/\d+/u.test(name);
-        });
+        const cxOnly = ranked.filter((x) => isCasePack(x.r));
         if (cxOnly.length === 1) return { kind: "unique", pick: rowToPick(cxOnly[0]!.r) };
         if (cxOnly.length >= 2) {
             const a = cxOnly[0]!;
             const b = cxOnly[1]!;
             if (a.score >= b.score + 3) return { kind: "unique", pick: rowToPick(a.r) };
             return { kind: "ambiguous", picks: cxOnly.slice(0, 3).map((x) => rowToPick(x.r)) };
+        }
+    } else if (prefersUnit(segment)) {
+        const unOnly = ranked.filter((x) => !isCasePack(x.r));
+        if (unOnly.length === 1) return { kind: "unique", pick: rowToPick(unOnly[0]!.r) };
+        if (unOnly.length >= 2) {
+            const a = unOnly[0]!;
+            const b = unOnly[1]!;
+            if (a.score >= b.score + 3) return { kind: "unique", pick: rowToPick(a.r) };
+            return { kind: "ambiguous", picks: unOnly.slice(0, 3).map((x) => rowToPick(x.r)) };
         }
     }
 

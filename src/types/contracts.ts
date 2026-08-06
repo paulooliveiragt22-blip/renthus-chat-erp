@@ -160,6 +160,8 @@ export interface ProSessionState {
      */
     bootstrapPendingClarifications?: Array<{
         segment: string;
+        /** Qty pedida no texto original (extração LLM) para este segmento. */
+        quantity?: number;
         picks: Array<{
             embalagemId: string;
             label: string;
@@ -179,6 +181,10 @@ export interface ProSessionState {
         price?: number | null;
         productName?: string | null;
     }>;
+    /** Quantidade da clarificação atual (`lastSearchPicks`) vinda do extrator LLM. */
+    pendingClarifyQuantity?: number | null;
+    /** Segmento de busca da clarificação atual (para telemetria / qty). */
+    pendingClarifySegment?: string | null;
     /** Buscas vazias consecutivas — escala para cardápio web. */
     emptySearchStreak?: number;
     /**

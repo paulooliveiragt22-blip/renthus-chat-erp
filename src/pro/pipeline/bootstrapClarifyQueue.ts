@@ -51,6 +51,11 @@ export function dequeueBootstrapClarification(state: ProSessionState): {
             ...state,
             bootstrapPendingClarifications: queue,
             lastSearchPicks: picks,
+            pendingClarifyQuantity:
+                Number.isFinite(Number(next.quantity)) && Number(next.quantity) > 0
+                    ? Number(next.quantity)
+                    : 1,
+            pendingClarifySegment: String(next.segment ?? "").trim() || null,
             searchProdutoEmbalagemIds: [
                 ...picks.map((p) => p.embalagemId),
                 ...(state.searchProdutoEmbalagemIds ?? []),

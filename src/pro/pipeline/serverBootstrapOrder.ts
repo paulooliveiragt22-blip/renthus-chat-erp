@@ -81,7 +81,8 @@ export async function tryServerBootstrapOrderFromText(params: {
             uniqueIds.push(resolved.pick.embalagemId);
             idToTerm.set(resolved.pick.embalagemId, segment);
         } else if (resolved.kind === "ambiguous") {
-            ambiguousAll.push({ segment, picks: resolved.picks });
+            const qty = plan.qtyByTerm[normTerm(segment)] ?? 1;
+            ambiguousAll.push({ segment, picks: resolved.picks, quantity: qty });
         }
     }
 
@@ -157,7 +158,11 @@ export async function tryServerBootstrapOrderFromText(params: {
         const withFirst: ProSessionState = {
             ...state,
             bootstrapPendingClarifications: [
-                { segment: ambiguousAll[0]!.segment, picks: firstAmbiguous },
+                {
+                    segment: ambiguousAll[0]!.segment,
+                    picks: firstAmbiguous,
+                    quantity: ambiguousAll[0]!.quantity ?? 1,
+                },
                 ...(state.bootstrapPendingClarifications ?? []),
             ],
         };
@@ -165,7 +170,13 @@ export async function tryServerBootstrapOrderFromText(params: {
         state = dequeued.state;
         outbound.push(...dequeued.outbound);
     } else {
-        state = { ...state, lastSearchPicks: [], bootstrapPendingClarifications: [] };
+        state = {
+            ...state,
+            lastSearchPicks: [],
+            bootstrapPendingClarifications: [],
+            pendingClarifyQuantity: null,
+            pendingClarifySegment: null,
+        };
     }
 
     return {
