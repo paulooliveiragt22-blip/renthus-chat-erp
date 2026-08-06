@@ -13,6 +13,7 @@ import type { LlmPort } from "@/src/pro/ports/llm.port";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 import { hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 import { runSearchProdutosDetailed } from "@/src/pro/tools/searchProdutos";
+import { toChatCatalogPublicItem } from "@/src/pro/tools/catalogPublicDto";
 import {
     buildDeliverySpecialistSystemPreamble,
     buildPhasePlaybookForModel,
@@ -123,12 +124,14 @@ const PREPARE_DRAFT_TOOL = {
 const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
 
 const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
-- Fonte de verdade: só cite produto, preço, estoque e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
+- Fonte de verdade: só cite produto, preço de venda e totais vindos dos JSONs das tools (search_produtos, get_order_hints, prepare_order_draft). Nunca invente.
+- NUNCA cite, invente ou peça: preço de custo, quantidade em estoque, código interno, EAN, UUID (exceto ao chamar tools internamente).
+- Campos do catálogo na tool: display_name, preco_venda, descricao_ingredientes (o que acompanha), informacoes (como é feito). Se perguntarem "o que tem nesse X", use descricao_ingredientes.
 - Ordem recomendada: get_order_hints cedo; search_produtos antes de cada produto novo; prepare_order_draft pode ser repetido (cliente pode mandar produto, endereço e pagamento em qualquer ordem).
 - Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência.
 - Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).
 - Nunca use slug textual: só UUID (campo id / produto_embalagem_id).
-- Após prepare_order_draft: se ok:false, reflita errors + guidance_for_model_pt. Se ok:true, siga a fase (endereço UI antes de pedir sim do pedido).
+- Após prepare_order_draft ok: NÃO diga "pedido montado" nem "aguarde o resumo" — o servidor envia botões de pagamento/confirmação. Só confirme o que falta (endereço/pagamento) se a tool indicar.
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
 - Nunca diga que o pedido já foi criado/entregue: isso só ocorre após confirmação no servidor.
@@ -137,7 +140,7 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 
 const SYSTEM_PROMPT_INFO_ONLY = `Você é o assistente PRO da loja (modo só informações).
 - Fale PT-BR direto.
-- Tire dúvidas sobre produtos, preços e estoque usando search_produtos e get_order_hints.
+- Tire dúvidas sobre produtos e preços usando search_produtos e get_order_hints. Não fale de estoque numérico.
 - NÃO feche pedido, NÃO monte rascunho de pedido e NÃO peça confirmação de compra pelo WhatsApp.
 - Se o cliente quiser pedir, oriente a usar o cardápio web / menu da loja ou falar com um atendente.
 - Fonte de verdade: só cite produto, preço e estoque vindos dos JSONs das tools. Nunca invente.
@@ -354,34 +357,38 @@ export class FullAiServiceAdapter implements AiService {
             { categoryHint, limit: 8 }
         );
         const rows = detailed.items;
-        allowlistRuntime.ids = rows.map((r) => String(r.id));
-        searchMeta.lastSearchPicks = rows.slice(0, 3).map((r) => ({
-            embalagemId: String(r.id),
+        const publicItems = rows.map((r) =>
+            toChatCatalogPublicItem(r as unknown as Record<string, unknown>)
+        );
+        allowlistRuntime.ids = publicItems.map((r) => r.id).filter(Boolean);
+        searchMeta.lastSearchPicks = publicItems.slice(0, 3).map((r) => ({
+            embalagemId: r.id,
             label: String(r.display_name || r.product_name || "Item").slice(0, 40),
-            price: Number((r as { preco_venda?: unknown }).preco_venda ?? NaN),
-            productName: String(r.product_name ?? "").trim() || null,
-        })).map((p) => ({
-            ...p,
-            price: Number.isFinite(p.price) ? p.price : null,
+            price: r.preco_venda,
+            productName: r.product_name,
         }));
         searchMeta.emptySearchStreak = detailed.empty
             ? (input.context.session.emptySearchStreak ?? 0) + 1
             : 0;
         const guidanceForModelPt =
-            rows.length > 0
+            publicItems.length > 0
                 ? [
                       "Use apenas o UUID de cada linha em items (campos id ou produto_embalagem_id) em prepare_order_draft — não invente UUID.",
                       `IDs exatos desta busca (copie um literalmente): ${allowlistRuntime.ids.join(", ")}.`,
+                      "Não cite custo, estoque numérico, código interno, EAN nem UUID no texto ao cliente.",
+                      "descricao_ingredientes = o que acompanha; informacoes = como é feito / extras.",
                       ...(detailed.didYouMean.length
                           ? [
                                 `did_you_mean: ${detailed.didYouMean.map((d) => d.label).join(" | ")}. Ofereça essas opções se o cliente digitou errado.`,
                             ]
                           : []),
-                      ...(rows.length >= 2
+                      ...(publicItems.length >= 2
                           ? [
                                 "Há mais de uma opção: NÃO liste preços/opções no texto — o servidor envia botões/lista. Só confirme que há opções e peça para tocar no botão ou responder com o número.",
                             ]
-                          : []),
+                          : [
+                                "Uma opção clara: informe nome + preço de venda e pergunte a quantidade. Se o cliente responder só com número (ex.: 3), o servidor pode montar o rascunho — chame prepare_order_draft se ainda não houver itens.",
+                            ]),
                   ]
                 : [
                       "Nenhum item no catálogo para este termo (busca fuzzy também vazia).",
@@ -391,7 +398,7 @@ export class FullAiServiceAdapter implements AiService {
             type: "tool_result",
             tool_use_id: block.id,
             content: JSON.stringify({
-                items: rows,
+                items: publicItems,
                 did_you_mean: detailed.didYouMean,
                 query_normalized: detailed.queryNormalized,
                 produto_embalagem_ids_validos: allowlistRuntime.ids,

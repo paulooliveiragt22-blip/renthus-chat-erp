@@ -17,7 +17,10 @@ export type ChatProdutoRow = {
     product_name:         string;
     display_name?:        string | null;
     descricao:            string | null;
+    /** Ingredientes / o que acompanha. */
     detalhes?:            string | null;
+    /** Como é feito / info extra (não confundir com ingredientes). */
+    informacoes?:         string | null;
     tags?:                string | null;
     tags_auto?:           string | null;
     sigla_comercial:      string | null;
@@ -46,7 +49,7 @@ function sanitizeSearchQuery(raw: string): string {
 }
 
 const SELECT_FULL =
-    "id, produto_id, product_name, display_name, descricao, detalhes, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id, estoque_unidades, vender_com_estoque_zero, thumbnail_url, image_url, tags, tags_auto";
+    "id, produto_id, product_name, display_name, descricao, detalhes, informacoes, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id, estoque_unidades, vender_com_estoque_zero, thumbnail_url, image_url, tags, tags_auto";
 
 async function attachEstoqueFallback(
     admin: SupabaseClient,

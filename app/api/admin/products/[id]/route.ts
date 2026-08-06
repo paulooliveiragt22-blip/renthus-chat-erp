@@ -14,6 +14,7 @@ type VolumeItemBody = {
     id_sigla_comercial?: string;
     descricao?: string | null;
     detalhes?: string | null;
+    informacoes?: string | null;
     fator_conversao?: number;
     preco_venda?: number;
     preco_custo?: number | null;
@@ -178,6 +179,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             id_sigla_comercial: it.id_sigla_comercial,
             fator_conversao: it.fator_conversao ?? 1,
             detalhes: it.detalhes ?? null,
+            informacoes: it.informacoes ?? null,
         }))
     );
     if (detalheItems.length) {

@@ -35,6 +35,12 @@ export function stripHallucinatedOrderPersistenceClaims(visible: string): string
         .toLowerCase();
 
     const claims: RegExp[] = [
+        /pedido\s+foi\s+montad/,
+        /seu\s+pedido\s+foi\s+montad/,
+        /pedido\s+montado/,
+        /tudo\s+pronto[!.,]?\s*(seu\s+)?pedido/,
+        /aguarde\s+o\s+resumo/,
+        /resumo\s+final\s+com\s+o\s+total/,
         /pedido\s+foi\s+confirmad/,
         /seu\s+pedido\s+foi\s+confirmad/,
         /** "Seu pedido já foi confirmado" (advérbio entre sujeito e verbo) */

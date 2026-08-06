@@ -25,8 +25,10 @@ type FormItem = {
     siglaLabel: string;
     /** Nome do item/embalagem (DB: produto_embalagens.descricao) */
     descricao: string;
-    /** Descrição longa (DB: produto_embalagens.detalhes) */
+    /** Ingredientes / o que acompanha (DB: produto_embalagens.detalhes) — bot em "o que tem nesse…" */
     detalhes: string;
+    /** Como é feito / info extra (DB: produto_embalagens.informacoes) */
+    informacoes: string;
     fator_conversao: number;
     preco_venda: string;
     preco_custo: string;
@@ -610,6 +612,7 @@ export default function ProdutosListaPage() {
             siglaLabel: un?.sigla ?? siglas[0]?.sigla ?? "",
             descricao: siblingName,
             detalhes: "",
+            informacoes: "",
             fator_conversao: 1,
             preco_venda: "0,00",
             preco_custo: "0,00",
@@ -779,6 +782,7 @@ export default function ProdutosListaPage() {
                         siglaLabel: String(it.sigla ?? ""),
                         descricao: String(it.descricao ?? ""),
                         detalhes: String(it.detalhes ?? ""),
+                        informacoes: String(it.informacoes ?? ""),
                         fator_conversao: fator,
                         preco_venda: it.preco_venda != null ? formatBRLInput(String(Math.round(Number(it.preco_venda) * 100))) : "0,00",
                         preco_custo: it.preco_custo != null ? formatBRLInput(String(Math.round(Number(it.preco_custo) * 100))) : "0,00",
@@ -863,6 +867,7 @@ export default function ProdutosListaPage() {
                         id_sigla_comercial: it.id_sigla_comercial,
                         descricao: it.descricao.trim().toUpperCase() || null,
                         detalhes: it.detalhes.trim() || null,
+                        informacoes: it.informacoes.trim() || null,
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -966,6 +971,7 @@ export default function ProdutosListaPage() {
                                 siglaLabel: String(it.sigla ?? ""),
                                 descricao: String(it.descricao ?? ""),
                                 detalhes: String(it.detalhes ?? ""),
+                                informacoes: String(it.informacoes ?? ""),
                                 fator_conversao: fator,
                                 preco_venda:
                                     it.preco_venda != null
@@ -1079,6 +1085,7 @@ export default function ProdutosListaPage() {
                         id_sigla_comercial: it.id_sigla_comercial,
                         descricao: it.descricao.trim().toUpperCase() || null,
                         detalhes: it.detalhes.trim() || null,
+                        informacoes: it.informacoes.trim() || null,
                         fator_conversao: fator,
                         preco_venda: brlToNumber(it.preco_venda),
                         preco_custo: brlToNumber(it.preco_custo) || null,
@@ -1551,8 +1558,29 @@ export default function ProdutosListaPage() {
                                                                 <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value.toUpperCase() })} placeholder="Ex: CX 15UN" className={`${inputCls} py-1.5 text-xs uppercase`} />
                                                             </div>
                                                             <div className="sm:col-span-2">
-                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
-                                                                <input value={it.detalhes} onChange={(e) => updateFormItem(vol.id, it.id, { detalhes: e.target.value })} placeholder="Texto longo do cardápio/chat…" className={`${inputCls} py-1.5 text-xs`} />
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    Descrição <span className="font-normal text-zinc-400">(ingredientes)</span>
+                                                                </label>
+                                                                <input
+                                                                    value={it.detalhes}
+                                                                    onChange={(e) => updateFormItem(vol.id, it.id, { detalhes: e.target.value })}
+                                                                    placeholder="Ex.: carne, tomate, alface, queijo…"
+                                                                    className={`${inputCls} py-1.5 text-xs`}
+                                                                    title="O bot usa isto quando o cliente pergunta o que acompanha / o que tem no produto"
+                                                                />
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    Informações / detalhes <span className="font-normal text-zinc-400">(preparo)</span>
+                                                                </label>
+                                                                <textarea
+                                                                    value={it.informacoes}
+                                                                    onChange={(e) => updateFormItem(vol.id, it.id, { informacoes: e.target.value })}
+                                                                    placeholder="Como é feito, ponto da carne, acompanhamentos extras…"
+                                                                    rows={2}
+                                                                    className={`${inputCls} py-1.5 text-xs`}
+                                                                    title="Info extra do prato/produto — não confundir com ingredientes"
+                                                                />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>
@@ -1951,8 +1979,29 @@ export default function ProdutosListaPage() {
                                                                 <input value={it.descricao} onChange={(e) => updateFormItem(vol.id, it.id, { descricao: e.target.value.toUpperCase() })} placeholder="Ex: CX 15UN" className={`${inputCls} py-1.5 text-xs uppercase`} />
                                                             </div>
                                                             <div className="sm:col-span-2">
-                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Descrição</label>
-                                                                <input value={it.detalhes} onChange={(e) => updateFormItem(vol.id, it.id, { detalhes: e.target.value })} placeholder="Texto longo do cardápio/chat…" className={`${inputCls} py-1.5 text-xs`} />
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    Descrição <span className="font-normal text-zinc-400">(ingredientes)</span>
+                                                                </label>
+                                                                <input
+                                                                    value={it.detalhes}
+                                                                    onChange={(e) => updateFormItem(vol.id, it.id, { detalhes: e.target.value })}
+                                                                    placeholder="Ex.: carne, tomate, alface, queijo…"
+                                                                    className={`${inputCls} py-1.5 text-xs`}
+                                                                    title="O bot usa isto quando o cliente pergunta o que acompanha / o que tem no produto"
+                                                                />
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    Informações / detalhes <span className="font-normal text-zinc-400">(preparo)</span>
+                                                                </label>
+                                                                <textarea
+                                                                    value={it.informacoes}
+                                                                    onChange={(e) => updateFormItem(vol.id, it.id, { informacoes: e.target.value })}
+                                                                    placeholder="Como é feito, ponto da carne, acompanhamentos extras…"
+                                                                    rows={2}
+                                                                    className={`${inputCls} py-1.5 text-xs`}
+                                                                    title="Info extra do prato/produto — não confundir com ingredientes"
+                                                                />
                                                             </div>
                                                             <div>
                                                                 <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">Código</label>

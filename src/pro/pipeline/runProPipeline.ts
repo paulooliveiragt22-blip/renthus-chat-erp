@@ -47,6 +47,11 @@ import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
+import {
+    canServerPrepareFromCatalogQtyOffer,
+    parseBareQuantityReply,
+    resolveSingleOfferedEmbalagemId,
+} from "./serverPrepareFromCatalogQtyOffer";
 import { tryServerSwapEdit } from "./serverSwapEdit";
 import { tryServerBootstrapOrderFromText } from "./serverBootstrapOrder";
 import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
@@ -519,6 +524,120 @@ export async function runProPipeline(
                 threadId: input.tenant.threadId,
                 message: err instanceof Error ? err.message : String(err),
             });
+        }
+    }
+
+    /**
+     * FAQ → oferta de 1 SKU → cliente responde só a qty ("3"): prepare no servidor.
+     * Evita prosa “pedido montado” sem draft real (print01).
+     */
+    {
+        const bareQty = parseBareQuantityReply(input.inboundText);
+        if (
+            bareQty &&
+            deps.admin &&
+            !isInfoOnlyMode(aiPolicy) &&
+            canServerPrepareFromCatalogQtyOffer(stateBeforePick)
+        ) {
+            const offeredId = resolveSingleOfferedEmbalagemId(stateBeforePick);
+            if (offeredId) {
+                try {
+                    const recentUserText = [
+                        input.inboundText,
+                        ...[...(stateBeforePick.aiHistory ?? [])]
+                            .reverse()
+                            .filter((h) => h.role === "user")
+                            .slice(0, 3)
+                            .map((h) => (typeof h.content === "string" ? h.content : "")),
+                    ].join("\n");
+                    const serverPrep = await serverPrepareAfterProductPick({
+                        admin: deps.admin,
+                        companyId: input.tenant.companyId,
+                        customerId: stateBeforePick.customerId,
+                        state: {
+                            ...stateBeforePick,
+                            pendingClarifyQuantity: bareQty,
+                        },
+                        pickedEmbalagemId: offeredId,
+                        recentUserText,
+                    });
+                    stateBeforePick = serverPrep.state;
+                    if (serverPrep.clarificationOutbound.length > 0) {
+                        const synced = withResolvedSlotStep(stateBeforePick);
+                        await emitTurn({
+                            state: synced,
+                            outbound: serverPrep.clarificationOutbound,
+                        });
+                        const metrics: PipelineMetric[] = [
+                            {
+                                name: "pro_pipeline.server_prepare_catalog_qty",
+                                value: 1,
+                                tags: { pending_clarify: "1", qty: String(bareQty) },
+                            },
+                            {
+                                name: "pro_pipeline.outbound_count",
+                                value: serverPrep.clarificationOutbound.length,
+                            },
+                        ];
+                        flushPipelineRunMetrics(
+                            deps.metrics,
+                            input.tenant,
+                            metrics,
+                            new Set(["pro_pipeline.outbound_count"])
+                        );
+                        return {
+                            nextState: synced,
+                            outbound: serverPrep.clarificationOutbound,
+                            sideEffects: [],
+                            metrics,
+                        };
+                    }
+                    if (serverPrep.skipAi) {
+                        const finalState = withResolvedSlotStep({
+                            ...stateBeforePick,
+                            checkoutEditHold: false,
+                        });
+                        const finalOutbound = checkoutPostProcessForQuickAction({
+                            state: finalState,
+                            outbound: [],
+                        });
+                        await emitTurn({
+                            state: finalState,
+                            outbound: finalOutbound,
+                        });
+                        const metrics: PipelineMetric[] = [
+                            {
+                                name: "pro_pipeline.server_prepare_catalog_qty",
+                                value: 1,
+                                tags: {
+                                    skipped_ai: "1",
+                                    qty: String(bareQty),
+                                },
+                            },
+                            { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+                        ];
+                        flushPipelineRunMetrics(
+                            deps.metrics,
+                            input.tenant,
+                            metrics,
+                            new Set(["pro_pipeline.outbound_count"])
+                        );
+                        return {
+                            nextState: finalState,
+                            outbound: finalOutbound,
+                            sideEffects: [],
+                            metrics,
+                        };
+                    }
+                    /** Draft parcial (ex.: falta pagamento/endereço na UI) — segue pipeline com itens. */
+                } catch (err) {
+                    deps.logger?.warn("pro_pipeline.server_prepare_catalog_qty_failed", {
+                        companyId: input.tenant.companyId,
+                        threadId: input.tenant.threadId,
+                        message: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
         }
     }
 
