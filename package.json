@@ -10,6 +10,7 @@
     "check:prod-env": "node scripts/check-production-env.mjs",
     "test": "node -e \"require('fs').rmSync('.tests-dist',{recursive:true,force:true});\" && tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs --test .tests-dist/**/*.test.js",
     "test:bot": "node -e \"require('fs').rmSync('.tests-dist',{recursive:true,force:true});\" && tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs --test .tests-dist/tests/integration/webhook-integration.test.js",
+    "replay": "tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs .tests-dist/scripts/replay-thread.js",
     "sonar:export-bugs": "node scripts/fetch-sonar-reliability.mjs",
     "sonar:export-bugs:csv": "node scripts/fetch-sonar-reliability.mjs --csv",
     "sonar:export-hotspots": "node scripts/fetch-sonar-reliability.mjs --hotspots",

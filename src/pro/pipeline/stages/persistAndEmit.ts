@@ -3,6 +3,8 @@ import type { LoggerPort } from "../../ports/logger.port";
 import type { MessageGateway } from "../../ports/message.gateway";
 import type { MetricsPort } from "../../ports/metrics.port";
 import type { SessionRepository } from "../../ports/session.repository";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordPipelineTurnTrace } from "@/lib/pro/recordPipelineTurnTrace";
 
 export async function persistAndEmit(params: {
     tenant: TenantRef;
@@ -12,6 +14,13 @@ export async function persistAndEmit(params: {
     messageGateway: MessageGateway;
     metrics: MetricsPort;
     logger: LoggerPort;
+    /** Fase 1 harness — gravar trace atrás de PRO_PIPELINE_TURN_TRACE. */
+    turnTrace?: {
+        stateBefore: ProSessionState;
+        admin: SupabaseClient | null | undefined;
+        aiProfile?: string | null;
+        telemetryReason?: string | null;
+    };
 }): Promise<void> {
     const { tenant, state, outbound, sessionRepo, messageGateway, metrics, logger } = params;
 
@@ -34,6 +43,18 @@ export async function persistAndEmit(params: {
         await messageGateway.send(tenant, msg);
     }
 
+    if (params.turnTrace?.admin) {
+        await recordPipelineTurnTrace({
+            admin: params.turnTrace.admin,
+            tenant,
+            stateBefore: params.turnTrace.stateBefore,
+            stateAfter: state,
+            outbound,
+            aiProfile: params.turnTrace.aiProfile,
+            telemetryReason: params.turnTrace.telemetryReason,
+        });
+    }
+
     metrics.increment("pro_pipeline.outbound_count", outbound.length, {
         companyId: tenant.companyId,
     });
@@ -45,4 +66,3 @@ export async function persistAndEmit(params: {
         step: state.step,
     });
 }
-

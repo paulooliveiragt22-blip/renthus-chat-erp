@@ -205,14 +205,14 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 
 ### Fase 1 — Harness de replay
 
-- [ ] Migration: tabela de trace por turno (inbound, estado antes, outbound, draft, telemetria)
-- [ ] Gravar trace em `persistAndEmit`, atrás de flag
-- [ ] Loader: `whatsapp_messages` → conversa ordenada por thread
+- [x] Migration: tabela de trace por turno (inbound, estado antes, outbound, draft, telemetria) — `pipeline_turn_traces`
+- [x] Gravar trace em `persistAndEmit`, atrás de flag (`PRO_PIPELINE_TURN_TRACE=1`)
+- [x] Loader: `whatsapp_messages` → conversa ordenada por thread (`src/pro/replay/loadThreadForReplay.ts`)
 - [ ] Runner: reprocessa turno a turno via `makeProPipelineDependencies` com overrides
 - [ ] `LlmPort` de replay (grava e reproduz respostas — roda sem custo e determinístico)
 - [ ] Comparador: diff de outbound, draft final e telemetria
 - [ ] Baseline versionada com conversas reais
-- [ ] `npm run replay`
+- [x] `npm run replay` (stub: dump mensagens + traces)
 
 ### Fase 2 — Interpretação por LLM
 
@@ -703,7 +703,7 @@ export const PipelineTurnTrace = z.object({
 - [x] `support_tickets.customer_id` (+ phone opcional) + `thread_id` / dedupe
 - [x] `whatsapp_threads`: `channel` + `external_id` (phone_e164 nullable)
 - [x] Tabela/conexão Meta Page+IG (`meta_messaging_channels`) + webhook `/api/meta/messaging/incoming`
-- [ ] `pipeline_turn_traces` (Fase 1 harness)
+- [x] `pipeline_turn_traces` (Fase 1 harness) — migration + write atrás de flag
 - [x] Preço por modelo LLM + STT na carteira
 
 **Portas / adapters (clean arch)**

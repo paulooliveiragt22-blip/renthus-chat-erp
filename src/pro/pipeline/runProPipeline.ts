@@ -209,6 +209,28 @@ export async function runProPipeline(
         channelUserId: input.tenant.channelUserId,
     });
 
+    const emitTurn = async (args: {
+        state: ProSessionState;
+        outbound: OutboundMessage[];
+        telemetryReason?: string | null;
+    }) => {
+        await persistAndEmit({
+            tenant: input.tenant,
+            state: args.state,
+            outbound: args.outbound,
+            sessionRepo: deps.sessionRepo,
+            messageGateway: deps.messageGateway,
+            metrics: deps.metrics,
+            logger: deps.logger,
+            turnTrace: {
+                stateBefore: sessionWithCustomer,
+                admin: deps.admin,
+                aiProfile: input.aiCapability?.tier ?? null,
+                telemetryReason: args.telemetryReason ?? null,
+            },
+        });
+    };
+
     /** Só captura telefone no passo dedicado (após NEEDS_PHONE no checkout). */
     if (deps.admin && sessionWithCustomer.step === "pro_awaiting_phone") {
         const phoneTurn = await handleAwaitingPhoneTurn({
@@ -219,14 +241,9 @@ export async function runProPipeline(
             messagingChannel: input.tenant.messagingChannel ?? input.actor.channel,
         });
         if (phoneTurn.handled && phoneTurn.outboundText) {
-            await persistAndEmit({
-                tenant: input.tenant,
+            await emitTurn({
                 state: phoneTurn.state,
                 outbound: [{ kind: "text", text: phoneTurn.outboundText }],
-                sessionRepo: deps.sessionRepo,
-                messageGateway: deps.messageGateway,
-                metrics: deps.metrics,
-                logger: deps.logger,
             });
             flushPipelineRunMetrics(deps.metrics, input.tenant, [
                 { name: "pro_pipeline.phone_capture", value: 1 },
@@ -271,15 +288,10 @@ export async function runProPipeline(
             state: syncedQuick,
             outbound: strictGate.outbound,
         });
-        await persistAndEmit({
-            tenant: input.tenant,
-            state: syncedQuick,
-            outbound: quickOutbound,
-            sessionRepo: deps.sessionRepo,
-            messageGateway: deps.messageGateway,
-            metrics: deps.metrics,
-            logger: deps.logger,
-        });
+        await emitTurn({
+                state: syncedQuick,
+                outbound: quickOutbound,
+            });
         const metrics: PipelineMetric[] = [
             {
                 name: "pro_pipeline.strict_checkout_inbound_gate",
@@ -338,15 +350,10 @@ export async function runProPipeline(
             /** Clarificação do bootstrap: sempre responde já (mesmo se prepare parcial falhou). */
             if (boot.hasClarification && bootstrapOutbound.length > 0) {
                 const syncedBoot = withResolvedSlotStep(boot.state);
-                await persistAndEmit({
-                    tenant: input.tenant,
-                    state: syncedBoot,
-                    outbound: bootstrapOutbound,
-                    sessionRepo: deps.sessionRepo,
-                    messageGateway: deps.messageGateway,
-                    metrics: deps.metrics,
-                    logger: deps.logger,
-                });
+                await emitTurn({
+                state: syncedBoot,
+                outbound: bootstrapOutbound,
+            });
                 const metrics: PipelineMetric[] = [
                     {
                         name: "pro_pipeline.server_bootstrap_order",
@@ -384,15 +391,10 @@ export async function runProPipeline(
                     state: finalState,
                     outbound: [],
                 });
-                await persistAndEmit({
-                    tenant: input.tenant,
-                    state: finalState,
-                    outbound: finalOutbound,
-                    sessionRepo: deps.sessionRepo,
-                    messageGateway: deps.messageGateway,
-                    metrics: deps.metrics,
-                    logger: deps.logger,
-                });
+                await emitTurn({
+                state: finalState,
+                outbound: finalOutbound,
+            });
                 const metrics: PipelineMetric[] = [
                     {
                         name: "pro_pipeline.server_bootstrap_order",
@@ -455,15 +457,10 @@ export async function runProPipeline(
                 /** Ainda há itens ambíguos do bootstrap (ex.: salgadinho após Heineken). */
                 if (serverPrep.clarificationOutbound.length > 0) {
                     const synced = withResolvedSlotStep(stateAfterPick);
-                    await persistAndEmit({
-                        tenant: input.tenant,
-                        state: synced,
-                        outbound: serverPrep.clarificationOutbound,
-                        sessionRepo: deps.sessionRepo,
-                        messageGateway: deps.messageGateway,
-                        metrics: deps.metrics,
-                        logger: deps.logger,
-                    });
+                    await emitTurn({
+                state: synced,
+                outbound: serverPrep.clarificationOutbound,
+            });
                     const metrics: PipelineMetric[] = [
                         {
                             name: "pro_pipeline.server_prepare_pick",
@@ -497,15 +494,10 @@ export async function runProPipeline(
                         state: finalState,
                         outbound: [],
                     });
-                    await persistAndEmit({
-                        tenant: input.tenant,
-                        state: finalState,
-                        outbound: finalOutbound,
-                        sessionRepo: deps.sessionRepo,
-                        messageGateway: deps.messageGateway,
-                        metrics: deps.metrics,
-                        logger: deps.logger,
-                    });
+                    await emitTurn({
+                state: finalState,
+                outbound: finalOutbound,
+            });
                     const metrics: PipelineMetric[] = [
                         {
                             name: "pro_pipeline.server_prepare_pick",
@@ -552,15 +544,10 @@ export async function runProPipeline(
             state: syncedQuick,
             outbound: quick.outbound,
         });
-        await persistAndEmit({
-            tenant: input.tenant,
-            state: syncedQuick,
-            outbound: quickOutbound,
-            sessionRepo: deps.sessionRepo,
-            messageGateway: deps.messageGateway,
-            metrics: deps.metrics,
-            logger: deps.logger,
-        });
+        await emitTurn({
+                state: syncedQuick,
+                outbound: quickOutbound,
+            });
         const metrics: PipelineMetric[] = [
             { name: "pro_pipeline.quick_action", value: 1, tags: { action: quick.actionTag ?? "unknown" } },
             { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
@@ -593,15 +580,10 @@ export async function runProPipeline(
             if (swapEdit.handled) {
                 const syncedSwap = withResolvedSlotStep(swapEdit.state);
                 const outboundFinal = swapEdit.outbound;
-                await persistAndEmit({
-                    tenant: input.tenant,
-                    state: syncedSwap,
-                    outbound: outboundFinal,
-                    sessionRepo: deps.sessionRepo,
-                    messageGateway: deps.messageGateway,
-                    metrics: deps.metrics,
-                    logger: deps.logger,
-                });
+                await emitTurn({
+                state: syncedSwap,
+                outbound: outboundFinal,
+            });
                 const metrics: PipelineMetric[] = [
                     {
                         name: "pro_pipeline.server_swap_edit",
@@ -703,14 +685,9 @@ export async function runProPipeline(
             { kind: "text", text: preOrder.outboundText },
             ...checkoutPostProcessForQuickAction({ state: syncedPre, outbound: [] }),
         ];
-        await persistAndEmit({
-            tenant: input.tenant,
+        await emitTurn({
             state: syncedPre,
             outbound,
-            sessionRepo: deps.sessionRepo,
-            messageGateway: deps.messageGateway,
-            metrics: deps.metrics,
-            logger: deps.logger,
         });
         const metrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [
             ...preOrderSideMetrics,
@@ -917,15 +894,10 @@ export async function runProPipeline(
         routedMode: routed.mode,
     });
 
-    await persistAndEmit({
-        tenant: input.tenant,
-        state: nextState,
-        outbound: finalOutbound,
-        sessionRepo: deps.sessionRepo,
-        messageGateway: deps.messageGateway,
-        metrics: deps.metrics,
-        logger: deps.logger,
-    });
+    await emitTurn({
+                state: nextState,
+                outbound: finalOutbound,
+            });
 
     /** Handover: desliga bot + abre ticket (efeito que o Starter fazia em `doHandover`). */
     if (decision.intent === "human_intent" && nextState.step === "handover" && deps.admin) {
