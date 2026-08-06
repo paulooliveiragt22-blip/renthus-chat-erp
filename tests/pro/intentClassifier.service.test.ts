@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import { ProIntentClassifierService } from "../../src/pro/services/intent/intentClassifier.service";
 import type { PipelineContext } from "../../src/types/contracts";
 
-function baseContext(step: PipelineContext["session"]["step"] = "pro_collecting_order"): PipelineContext {
+function baseContext(
+    step: PipelineContext["session"]["step"] = "pro_collecting_order",
+    opts?: { llmEnabled?: boolean }
+): PipelineContext {
     return {
         tenant: {
             companyId: "c1",
@@ -30,6 +33,7 @@ function baseContext(step: PipelineContext["session"]["step"] = "pro_collecting_
             maxToolRounds: 12,
             maxHistoryTurns: 24,
             aiTimeoutMs: 15_000,
+            llmEnabled: opts?.llmEnabled ?? true,
             escalationRule: {
                 unknownConsecutive: 2,
                 lowConfidenceConsecutive: 2,
@@ -118,6 +122,32 @@ describe("ProIntentClassifierService", () => {
             userText: "hmm",
         });
         if (prev) process.env.ANTHROPIC_API_KEY = prev;
+        assert.equal(out.intent, "unknown");
+        assert.equal(out.reasonCode, "fallback_unknown");
+    });
+
+    it("degradado (llm off): saudação via regex", async () => {
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext("pro_idle", { llmEnabled: false }),
+            userText: "oi",
+        });
+        assert.equal(out.intent, "greeting");
+        assert.equal(out.reasonCode, "regex_match");
+    });
+
+    it("com LLM ligado e sem chave: oi não usa regex de greeting", async () => {
+        const prevA = process.env.ANTHROPIC_API_KEY;
+        const prevO = process.env.OPENAI_API_KEY;
+        delete process.env.ANTHROPIC_API_KEY;
+        delete process.env.OPENAI_API_KEY;
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext("pro_idle", { llmEnabled: true }),
+            userText: "oi",
+        });
+        if (prevA) process.env.ANTHROPIC_API_KEY = prevA;
+        if (prevO) process.env.OPENAI_API_KEY = prevO;
         assert.equal(out.intent, "unknown");
         assert.equal(out.reasonCode, "fallback_unknown");
     });

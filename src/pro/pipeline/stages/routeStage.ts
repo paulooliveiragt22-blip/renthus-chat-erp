@@ -44,6 +44,11 @@ export function routeStage(params: {
     flowStatusId?: string | null;
     webMenuUrl?: string | null;
     messageTemplates?: ChatbotMessageTemplates | null;
+    /**
+     * true = IA com crédito (saudação/faq vão ao LLM).
+     * false = degradado: menu de botões determinístico.
+     */
+    llmEnabled?: boolean;
 }): RouteStageResult {
     const {
         state,
@@ -54,6 +59,7 @@ export function routeStage(params: {
         flowStatusId,
         webMenuUrl,
         messageTemplates,
+        llmEnabled = true,
     } = params;
     const norm = normalizeInboundId(inboundText);
 
@@ -178,6 +184,10 @@ export function routeStage(params: {
     if (decision.intent === "faq" || decision.intent === "greeting" || decision.intent === "unknown") {
         /** Defesa em profundidade: classificador ou LLM não devem reabrir o menu com pedido a meio. */
         if (isOrderSessionContinuityNeeded(state)) {
+            return { mode: "ai", state, outbound: [] };
+        }
+        /** Com IA ativa: deixa o LLM cumprimentar e oferecer atendimento / cardápio / atendente. */
+        if (llmEnabled) {
             return { mode: "ai", state, outbound: [] };
         }
         const isReturningCustomer = Boolean(state.customerId);

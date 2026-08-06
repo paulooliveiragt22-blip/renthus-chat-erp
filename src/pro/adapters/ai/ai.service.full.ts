@@ -132,6 +132,7 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
 - Nunca diga que o pedido já foi criado/entregue: isso só ocorre após confirmação no servidor.
+- Primeiro contato / saudação (sem itens no rascunho): diga que você atende o pedido por aqui; ofereça também cardápio web (se houver URL no contexto) e a opção de falar com atendente. Frases curtas.
 - Termine a resposta com INTENT_OK ou INTENT_UNKNOWN (sem texto extra após o marcador).`;
 
 const SYSTEM_PROMPT_INFO_ONLY = `Você é o assistente PRO da loja (modo só informações).
@@ -186,7 +187,18 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
             : "";
     const draftBlock = isInfoOnlyAi(input) ? "" : buildDraftSnapshotForModel(draft);
 
-    const prefix = base + phaseBlock + editHoldBlock + draftBlock;
+    const menuUrl = String(input.context.webMenuUrl ?? "").trim();
+    const welcomeBlock =
+        !draft?.items?.length && (session.step === "pro_idle" || session.step === "pro_collecting_order")
+            ? "\n\n--- Primeiro contato ---\n" +
+              "Se a mensagem for saudação ou ambígua: ofereça (1) continuar o pedido com você no chat, " +
+              (menuUrl
+                  ? `(2) abrir o cardápio web: ${menuUrl}, `
+                  : "(2) pedir o cardápio/menu da loja, ") +
+              "(3) falar com um atendente humano. Não invente URL.\n--- Fim primeiro contato ---\n"
+            : "";
+
+    const prefix = base + phaseBlock + editHoldBlock + draftBlock + welcomeBlock;
     const hints = input.context.prefetchedOrderHints;
     if (!hints || typeof hints !== "object") return prefix;
     try {

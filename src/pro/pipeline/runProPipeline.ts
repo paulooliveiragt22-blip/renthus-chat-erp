@@ -19,7 +19,7 @@ import {
 import { AI_DEGRADED_ORDER_MESSAGE_PT_BR } from "@/lib/chatbot/aiCapabilityProfile";
 import { buildWebMenuOfferText } from "@/lib/public-menu/menuOfferText";
 import type { LoggerPort } from "../ports/logger.port";
-import { buildPipelineContext, type PipelineDependencies } from "./context";
+import { buildPipelineContext, policiesFromAiCapability, DEFAULT_PRO_POLICIES, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
 import { aiStage } from "./stages/aiStage";
 import { guardRails } from "./stages/guardRails";
@@ -262,9 +262,18 @@ export async function runProPipeline(
     }
 
     /** Alinha `step` ao draft antes de intent/orderStage (evita "Sim" com passo desatualizado na sessão). */
+    const sessionAligned = withResolvedSlotStepUnlessAwaitingConfirmation(sessionWithCustomer);
+    const basePolicies =
+        policiesFromAiCapability(input.aiCapability) ?? DEFAULT_PRO_POLICIES;
+    /** Limite de turnos esgotado → mesmo comportamento do degradado (regex / menu, sem LLM). */
+    const turnLimitHit = isAiTurnLimitExceeded(sessionAligned, aiPolicy, nowMs);
+    const effectivePolicies = turnLimitHit
+        ? { ...basePolicies, llmEnabled: false, maxToolRounds: 0 }
+        : basePolicies;
     const context = buildPipelineContext({
         input,
-        session: withResolvedSlotStepUnlessAwaitingConfirmation(sessionWithCustomer),
+        session: sessionAligned,
+        policies: effectivePolicies,
     });
 
     const guarded = guardRails({ state: context.session, inboundText: input.inboundText });
@@ -770,6 +779,7 @@ export async function runProPipeline(
         flowStatusId: input.flowStatusId ?? null,
         webMenuUrl: input.webMenuUrl ?? null,
         messageTemplates: input.messageTemplates ?? null,
+        llmEnabled,
     });
 
     let nextState = routed.state;

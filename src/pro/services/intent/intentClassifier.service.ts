@@ -34,6 +34,10 @@ function normalize(text: string): string {
     return text.trim().toLowerCase();
 }
 
+function llmLanguageEnabled(context: PipelineContext): boolean {
+    return context.policies.llmEnabled !== false;
+}
+
 function fromLlmLabel(label: string): Intent | null {
     const v = label.trim().toLowerCase();
     if (v === "order_intent") return "order_intent";
@@ -112,6 +116,7 @@ async function llmClassify(
                 "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
                 "If the session shows an active order (draft with items, or recent user messages about products) " +
                 "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
+                "Greetings (oi, bom dia) → greeting. Ask for human → human_intent. " +
                 "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
             messages: [{ role: "user", content: userPayload }],
         });
@@ -129,6 +134,16 @@ async function llmClassify(
     }
 }
 
+/** Regex de linguagem — só no degradado (IA off / sem crédito / limite). */
+function classifyWithLanguageRegex(raw: string): IntentDecision | null {
+    if (HUMAN_RE.test(raw)) return { intent: "human_intent", confidence: "high", reasonCode: "regex_match" };
+    if (STATUS_RE.test(raw)) return { intent: "status_intent", confidence: "high", reasonCode: "regex_match" };
+    if (GREETING_RE.test(raw)) return { intent: "greeting", confidence: "high", reasonCode: "regex_match" };
+    if (ORDER_RE.test(raw)) return { intent: "order_intent", confidence: "medium", reasonCode: "regex_match" };
+    if (FAQ_RE.test(raw)) return { intent: "faq", confidence: "medium", reasonCode: "regex_match" };
+    return null;
+}
+
 export class ProIntentClassifierService implements IntentService {
     constructor(private readonly admin?: SupabaseClient) {}
 
@@ -136,8 +151,9 @@ export class ProIntentClassifierService implements IntentService {
         const { context, userText } = input;
         const raw = userText.trim();
         const text = normalize(userText);
+        const useLlm = llmLanguageEnabled(context);
 
-        // Camada 1: contexto e sinais determinísticos
+        // Camada 1: IDs de botão e atalhos de confirmação (não são interpretação de linguagem livre)
         if (context.session.step === "pro_awaiting_confirmation" && (CONFIRM_RE.test(raw) || REJECT_RE.test(raw))) {
             return { intent: "order_intent", confidence: "high", reasonCode: "confirmation_shortcut" };
         }
@@ -169,28 +185,29 @@ export class ProIntentClassifierService implements IntentService {
                 return { intent: "order_intent", confidence: "high", reasonCode: "regex_match" };
             }
         }
-        if (HUMAN_RE.test(raw)) return { intent: "human_intent", confidence: "high", reasonCode: "regex_match" };
 
-        // Pedido em curso: respostas curtas ("uma caixa", "2 unidades") não têm ORDER_RE nem contexto no Haiku de 1 chamada.
-        // Sem isto, caem em greeting/unknown → routeStage mostra o menu inicial e "apaga" o fluxo.
+        // Pedido em curso: respostas curtas não reabrem menu (mesmo com LLM ligado).
         if (isOrderSessionContinuityNeeded(context.session)) {
             if (STATUS_RE.test(raw)) {
-                return { intent: "status_intent", confidence: "high", reasonCode: "regex_match" };
+                return { intent: "status_intent", confidence: "high", reasonCode: "active_order_session" };
             }
-            return { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" };
+            if (!useLlm) {
+                return { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" };
+            }
+            // Curtas ("2", "uma caixa") → pedido; frases longas → LLM.
+            if (raw.length <= 48 && !HUMAN_RE.test(raw)) {
+                return { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" };
+            }
+            return llmClassify(context, userText, this.admin);
         }
 
-        // Camada 2: regex curta de alta precisão
-        if (STATUS_RE.test(raw)) return { intent: "status_intent", confidence: "high", reasonCode: "regex_match" };
-        if (GREETING_RE.test(raw)) return { intent: "greeting", confidence: "high", reasonCode: "regex_match" };
-        if (ORDER_RE.test(raw)) return { intent: "order_intent", confidence: "medium", reasonCode: "regex_match" };
-        if (FAQ_RE.test(raw)) return { intent: "faq", confidence: "medium", reasonCode: "regex_match" };
-
-        // Camada 3: IA no ambíguo (desligada no perfil degradado)
-        if (context.policies.llmEnabled === false) {
+        // Degradado: regex de linguagem. Com crédito/IA: sempre LLM desde a 1ª mensagem.
+        if (!useLlm) {
+            const byRegex = classifyWithLanguageRegex(raw);
+            if (byRegex) return byRegex;
             return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
         }
+
         return llmClassify(context, userText, this.admin);
     }
 }
-
