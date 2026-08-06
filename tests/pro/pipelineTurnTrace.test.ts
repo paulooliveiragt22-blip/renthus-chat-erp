@@ -7,8 +7,8 @@ describe("pipeline turn trace", () => {
     it("Zod aceita shape v1 com outbound live", () => {
         const parsed = PipelineTurnTraceSchema.parse({
             v: 1,
-            companyId: "11111111-1111-1111-1111-111111111111",
-            threadId: "22222222-2222-2222-2222-222222222222",
+            companyId: "11111111-1111-4111-8111-111111111111",
+            threadId: "22222222-2222-4222-8222-222222222222",
             channel: "instagram",
             inboundMessageId: "wamid.abc",
             stateBefore: { step: "pro_idle" },
