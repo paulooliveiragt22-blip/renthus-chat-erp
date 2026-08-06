@@ -6,19 +6,27 @@ import {
     type PrepareOrderDraftCatalogPolicy,
 } from "@/lib/chatbot/pro/prepareOrderDraft";
 import { mergePreparedDraftIntoCurrent, unionAllowlistWithDraftIds } from "./mergeOrderDraft";
-import { parseMultiItemOrderSegments } from "./parseMultiItemOrderSegments";
-import {
-    inferPaymentMethodFromText,
-    inferUseSavedAddressFromText,
-} from "./inferPaymentFromText";
 import { resolveSegmentPick, type SegmentPickRow } from "./resolveSegmentPick";
 import {
     dequeueBootstrapClarification,
     type BootstrapPendingClarification,
 } from "./bootstrapClarifyQueue";
+import {
+    buildBootstrapSegmentPlan,
+    type BootstrapSegmentPlan,
+} from "./bootstrapSegmentPlan";
+
+function normTerm(s: string): string {
+    return s
+        .toLowerCase()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "")
+        .replaceAll(/\s+/g, " ")
+        .trim();
+}
 
 /**
- * Bootstrap no servidor: pagamento/endereço do texto + prepare dos segmentos unívocos;
+ * Bootstrap no servidor: pagamento/endereço + prepare dos segmentos unívocos;
  * se algum for ambíguo, devolve picks de clarificação e enfileira os demais.
  */
 export async function tryServerBootstrapOrderFromText(params: {
@@ -27,19 +35,23 @@ export async function tryServerBootstrapOrderFromText(params: {
     customerId: string | null;
     state: ProSessionState;
     userText: string;
+    /** Plano de segmentos (LLM primary / regex). Se omitido, usa regex. */
+    segmentPlan?: BootstrapSegmentPlan | null;
 }): Promise<{
     state: ProSessionState;
     outbound: OutboundMessage[];
     hasClarification: boolean;
     bootstrapped: boolean;
+    segmentSource: "llm" | "regex";
 }> {
     const { admin, companyId, customerId, userText } = params;
-    const segments = parseMultiItemOrderSegments(userText);
+    const plan = params.segmentPlan ?? buildBootstrapSegmentPlan(userText, null);
+    const segments = plan.segments;
     const payment =
         params.state.draft?.paymentMethod ??
         params.state.inferredPaymentMethod ??
-        inferPaymentMethodFromText(userText);
-    const useSaved = inferUseSavedAddressFromText(userText);
+        plan.payment;
+    const useSaved = plan.useSavedAddress;
 
     let state: ProSessionState = {
         ...params.state,
@@ -51,10 +63,17 @@ export async function tryServerBootstrapOrderFromText(params: {
     };
 
     if (segments.length < 1) {
-        return { state, outbound: [], hasClarification: false, bootstrapped: false };
+        return {
+            state,
+            outbound: [],
+            hasClarification: false,
+            bootstrapped: false,
+            segmentSource: plan.source,
+        };
     }
 
     const uniqueIds: string[] = [];
+    const idToTerm = new Map<string, string>();
     const ambiguousAll: BootstrapPendingClarification[] = [];
 
     for (const segment of segments) {
@@ -62,6 +81,7 @@ export async function tryServerBootstrapOrderFromText(params: {
         const resolved = resolveSegmentPick(segment, detailed.items);
         if (resolved.kind === "unique") {
             uniqueIds.push(resolved.pick.embalagemId);
+            idToTerm.set(resolved.pick.embalagemId, segment);
         } else if (resolved.kind === "ambiguous") {
             ambiguousAll.push({ segment, picks: resolved.picks });
         }
@@ -69,10 +89,6 @@ export async function tryServerBootstrapOrderFromText(params: {
 
     const existingIds = (state.draft?.items ?? []).map((i) => i.produtoEmbalagemId);
     const draftIdSet = new Set(existingIds);
-    /**
-     * Pedido novo: descarta boot antigo (evita CX de clarificação/troca anterior).
-     * Adicionar produtos: só mantém IDs que ainda estão no draft.
-     */
     const keptBoot = draftIdSet.size
         ? (state.bootstrapResolvedEmbalagemIds ?? []).filter((id) => draftIdSet.has(id))
         : [];
@@ -90,7 +106,12 @@ export async function tryServerBootstrapOrderFromText(params: {
         const toolInput: PrepareDraftToolInput = {
             items: allIds.map((id) => {
                 const prev = state.draft?.items?.find((i) => i.produtoEmbalagemId === id);
-                return { produtoEmbalagemId: id, quantity: prev?.quantity ?? 1 };
+                const term = idToTerm.get(id);
+                const fromPlan = term ? plan.qtyByTerm[normTerm(term)] : undefined;
+                return {
+                    produtoEmbalagemId: id,
+                    quantity: prev?.quantity ?? fromPlan ?? 1,
+                };
             }),
             address: addr
                 ? {
@@ -135,7 +156,6 @@ export async function tryServerBootstrapOrderFromText(params: {
     const outbound: OutboundMessage[] = [];
     const firstAmbiguous: SegmentPickRow[] | null = ambiguousAll[0]?.picks ?? null;
     if (firstAmbiguous && firstAmbiguous.length >= 2) {
-        // Coloca a 1ª na "fila ativa" via dequeue: lastSearchPicks + outbound
         const withFirst: ProSessionState = {
             ...state,
             bootstrapPendingClarifications: [
@@ -160,5 +180,6 @@ export async function tryServerBootstrapOrderFromText(params: {
                 resolvedIds.length ||
                 ambiguousAll.length
         ),
+        segmentSource: plan.source,
     };
 }

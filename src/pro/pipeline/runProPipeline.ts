@@ -52,9 +52,14 @@ import { tryServerBootstrapOrderFromText } from "./serverBootstrapOrder";
 import { inferPaymentMethodFromText } from "./inferPaymentFromText";
 import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
-import { parseMultiItemOrderSegments } from "./parseMultiItemOrderSegments";
 import { parseCheckoutSwapIntent } from "./editIntentParse";
 import { scheduleStructuredExtractShadow } from "./shadowStructuredExtract";
+import {
+    buildBootstrapSegmentPlan,
+    isStructuredExtractPrimaryEnabled,
+} from "./bootstrapSegmentPlan";
+import { extractOrderLinesStructured } from "@/src/pro/services/extraction/structuredOrderExtract";
+import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -327,8 +332,26 @@ export async function runProPipeline(
      */
     const llmEnabled = context.policies.llmEnabled !== false;
 
-    const bootstrapSegments = parseMultiItemOrderSegments(input.inboundText);
-    if (deps.admin && bootstrapSegments.length >= 1) {
+    let bootstrapSegmentPlan = buildBootstrapSegmentPlan(input.inboundText, null);
+    if (
+        deps.admin &&
+        llmEnabled &&
+        isStructuredExtractPrimaryEnabled() &&
+        bootstrapSegmentPlan.segments.length >= 1
+    ) {
+        try {
+            const extraction = await extractOrderLinesStructured({
+                llm: createLlmPort(deps.admin),
+                userText: input.inboundText,
+                companyId: input.tenant.companyId,
+            });
+            bootstrapSegmentPlan = buildBootstrapSegmentPlan(input.inboundText, extraction);
+        } catch (e) {
+            deps.logger.warn("pro_pipeline.structured_extract_primary_failed", {
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+    } else if (deps.admin && bootstrapSegmentPlan.segments.length >= 1) {
         scheduleStructuredExtractShadow({
             admin: deps.admin,
             companyId: input.tenant.companyId,
@@ -346,7 +369,7 @@ export async function runProPipeline(
         !input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) &&
         parseProductPickIndex(input.inboundText) == null &&
         !parseCheckoutSwapIntent(input.inboundText) &&
-        bootstrapSegments.length >= 1 &&
+        bootstrapSegmentPlan.segments.length >= 1 &&
         (!(stateBeforePick.draft?.items?.length) || stateBeforePick.checkoutEditHold === true)
     ) {
         try {
@@ -356,6 +379,7 @@ export async function runProPipeline(
                 customerId: stateBeforePick.customerId,
                 state: stateBeforePick,
                 userText: input.inboundText,
+                segmentPlan: bootstrapSegmentPlan,
             });
             stateBeforePick = boot.state;
             bootstrapOutbound = boot.outbound;
@@ -373,6 +397,7 @@ export async function runProPipeline(
                         tags: {
                             clarify: "1",
                             draft_items: String(boot.state.draft?.items?.length ?? 0),
+                            segment_source: boot.segmentSource,
                         },
                     },
                     { name: "pro_pipeline.outbound_count", value: bootstrapOutbound.length },
@@ -411,7 +436,11 @@ export async function runProPipeline(
                     {
                         name: "pro_pipeline.server_bootstrap_order",
                         value: 1,
-                        tags: { clarify: "0", complete: "1" },
+                        tags: {
+                            clarify: "0",
+                            complete: "1",
+                            segment_source: boot.segmentSource,
+                        },
                     },
                     { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
                 ];

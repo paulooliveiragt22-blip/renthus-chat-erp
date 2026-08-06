@@ -8,6 +8,11 @@ import {
     diffExtractionVsRegexBootstrap,
     isStructuredExtractShadowEnabled,
 } from "@/src/pro/pipeline/shadowStructuredExtract";
+import {
+    buildBootstrapSegmentPlan,
+    isStructuredExtractPrimaryEnabled,
+} from "@/src/pro/pipeline/bootstrapSegmentPlan";
+import { summarizeExtractionDivergence } from "@/src/pro/replay/measureExtractionDivergence";
 
 describe("order line extraction (Fase 2)", () => {
     it("parseOrderLineExtractionJson aceita snake_case e fence", () => {
@@ -41,6 +46,55 @@ describe("order line extraction (Fase 2)", () => {
         assert.equal(
             isStructuredExtractShadowEnabled({
                 PRO_STRUCTURED_EXTRACT_SHADOW: "1",
+            } as NodeJS.ProcessEnv),
+            true
+        );
+    });
+
+    it("buildBootstrapSegmentPlan prefere LLM e qty", () => {
+        const plan = buildBootstrapSegmentPlan("quero 2 heineken", {
+            v: 1,
+            items: [{ searchTerm: "heineken", quantity: 2 }],
+            paymentMethod: "pix",
+        });
+        assert.equal(plan.source, "llm");
+        assert.equal(plan.segments[0], "heineken");
+        assert.equal(plan.qtyByTerm.heineken, 2);
+        assert.equal(plan.payment, "pix");
+    });
+
+    it("summarizeExtractionDivergence agrega golden offline", () => {
+        const summary = summarizeExtractionDivergence([
+            {
+                text: "quero heineken e salgadinho pix",
+                extraction: {
+                    v: 1,
+                    items: [
+                        { searchTerm: "heineken", quantity: 1 },
+                        { searchTerm: "salgadinho", quantity: 1 },
+                    ],
+                    paymentMethod: "pix",
+                },
+            },
+            {
+                text: "manda uma coca",
+                extraction: {
+                    v: 1,
+                    items: [{ searchTerm: "coca cola lata", quantity: 1 }],
+                },
+            },
+        ]);
+        assert.equal(summary.cases, 2);
+        assert.equal(summary.withExtraction, 2);
+        assert.equal(summary.llmWouldBecomePrimary, 2);
+        assert.ok(summary.equalTerms + summary.divergeTerms === 2);
+    });
+
+    it("flag primary", () => {
+        assert.equal(isStructuredExtractPrimaryEnabled({} as NodeJS.ProcessEnv), false);
+        assert.equal(
+            isStructuredExtractPrimaryEnabled({
+                PRO_STRUCTURED_EXTRACT_PRIMARY: "1",
             } as NodeJS.ProcessEnv),
             true
         );

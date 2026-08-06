@@ -219,9 +219,9 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 - [x] Contrato JSON alinhado a busca+qty (`OrderLineExtraction` / Zod) — não usa ID de catálogo
 - [x] Extrator estruturado (`extractOrderLinesStructured`) — uma passada, sem histórico
 - [x] Rodar em sombra: `PRO_STRUCTURED_EXTRACT_SHADOW=1` + log divergência vs `parseMultiItemOrderSegments`
-- [ ] Medir divergência no replay antes de inverter
-- [ ] Inverter prioridade; bootstrap regex vira atalho de alta confiança
-- [ ] Apagar `parseMultiItemOrderSegments`, `inferPaymentFromText`, `editIntentParse`
+- [x] Medir divergência no replay antes de inverter (`summarizeExtractionDivergence` offline/golden)
+- [x] Inverter prioridade atrás de flag: `PRO_STRUCTURED_EXTRACT_PRIMARY=1` (LLM → fallback regex); default ainda regex+sombra
+- [ ] Apagar `parseMultiItemOrderSegments`, `inferPaymentFromText`, `editIntentParse` (após PRIMARY estável em prod)
 
 ### Fase 3 — Consolidação
 
