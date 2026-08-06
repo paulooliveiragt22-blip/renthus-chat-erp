@@ -10,7 +10,7 @@ function brl(n: number): string {
 
 function paymentLabel(pm: OrderDraft["paymentMethod"]): string {
     if (pm === "pix") return "PIX";
-    if (pm === "card") return "Cartao";
+    if (pm === "card") return "Cartão";
     if (pm === "cash") {
         return "Dinheiro";
     }
@@ -34,7 +34,7 @@ function addressLine(draft: OrderDraft): string {
 
 /** Corpo do card de confirmação final (itens + taxa + total). */
 export function formatCanonicalDraftSummary(draft: OrderDraft): string {
-    const lines: string[] = ["*Resumo do pedido* (ainda nao confirmado):", ""];
+    const lines: string[] = ["*Resumo do pedido* (ainda não confirmado):", ""];
 
     for (const it of draft.items) {
         const name = String(it.productName ?? "Item").trim() || "Item";
@@ -57,9 +57,9 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
     if (draft.paymentMethod === "cash" && draft.changeFor != null) {
         lines.push(`Troco para: R$ ${brl(Number(draft.changeFor))}`);
     }
-    lines.push(`Endereco: ${addressLine(draft)}`);
+    lines.push(`Endereço: ${addressLine(draft)}`);
     lines.push("");
-    lines.push("Revise e escolha uma opcao:");
+    lines.push("Revise e escolha uma opção:");
 
     return lines.join("\n");
 }
@@ -75,11 +75,11 @@ export function formatSearchPicksClarificationBody(
         .trim()
         .slice(0, 40);
     const headline = hint
-        ? `Qual opcao de ${hint} voce quer?`
-        : "Qual opcao voce quer?";
+        ? `Qual opção de ${hint} você quer?`
+        : "Qual opção você quer?";
     const lines = [headline, ""];
     top.forEach((p, i) => {
-        const label = String(p.label ?? `Opcao ${i + 1}`).replaceAll(/\s+/g, " ").trim();
+        const label = String(p.label ?? `Opção ${i + 1}`).replaceAll(/\s+/g, " ").trim();
         const price =
             p.price != null && Number.isFinite(Number(p.price))
                 ? ` — R$ ${brl(Number(p.price))}`
@@ -87,6 +87,6 @@ export function formatSearchPicksClarificationBody(
         lines.push(`${i + 1}) ${label}${price}`);
     });
     lines.push("");
-    lines.push("Toque no botao ou responda com o numero (ex.: 2).");
+    lines.push("Toque no botão ou responda com o número (ex.: 2).");
     return lines.join("\n");
 }

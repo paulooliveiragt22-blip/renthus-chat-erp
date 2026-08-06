@@ -55,7 +55,7 @@ describe("swap boot cleanup", () => {
             totalItems: 40,
             grandTotal: 55,
             pendingConfirmation: false,
-            currency: "BRL",
+            version: 1,
         };
         const { draft: next, boot } = stripBootAfterSwapRemove(draft, "salgadinho", [
             "burger",

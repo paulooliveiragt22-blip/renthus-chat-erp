@@ -40,6 +40,24 @@ describe("parseMultiItemOrderSegments", () => {
         assert.deepEqual(segs, ["trezentinha"]);
     });
 
+    it("remove enchimento em cadeia: 'so um salgadinho' → 'salgadinho'", () => {
+        assert.deepEqual(
+            parseMultiItemOrderSegments("Olá, quero só um salgadinho no mesmo endereço, pix"),
+            ["salgadinho"]
+        );
+    });
+
+    it("remove apenas/somente no inicio do segmento", () => {
+        assert.deepEqual(
+            parseMultiItemOrderSegments("quero apenas uma coca gelada"),
+            ["coca gelada"]
+        );
+        assert.deepEqual(
+            parseMultiItemOrderSegments("me traz somente o hamburguer"),
+            ["hamburguer"]
+        );
+    });
+
     it("troca X pela Y nao vira segmento de pedido", () => {
         assert.deepEqual(
             parseMultiItemOrderSegments("troca o salgadinho pela caixa de 15"),

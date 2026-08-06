@@ -34,7 +34,7 @@ function draft(): OrderDraft {
         totalItems: 10,
         grandTotal: 25,
         pendingConfirmation: true,
-        currency: "BRL",
+        version: 1,
     };
 }
 

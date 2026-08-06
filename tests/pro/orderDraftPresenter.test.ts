@@ -52,7 +52,7 @@ describe("orderDraftPresenter", () => {
             { embalagemId: "b", label: "CX", price: 60 },
         ]);
         assert.match(body, /1\) UN — R\$ 10,00/);
-        assert.match(body, /numero/i);
+        assert.match(body, /número/i);
     });
 
     it("clarificação com hint do produto", () => {
@@ -63,6 +63,6 @@ describe("orderDraftPresenter", () => {
             ],
             { productHint: "trezentinha" }
         );
-        assert.match(body, /Qual opcao de trezentinha/i);
+        assert.match(body, /Qual opção de trezentinha/i);
     });
 });

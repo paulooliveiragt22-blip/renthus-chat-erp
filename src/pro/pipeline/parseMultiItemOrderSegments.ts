@@ -19,6 +19,15 @@ const NOISE_PHRASES =
     /\b(?:no\s+mesmo\s+endereco(?:\s+de\s+sempre)?|endereco\s+de\s+sempre|pagamento\s+no\s+\w+|pagando\s+(?:no|em)\s+\w+|via\s+(?:pix|cartao|dinheiro))\b/giu;
 
 /**
+ * Enchimento no início do segmento, removido em cadeia: "so um salgadinho" precisa
+ * perder "so" **e** "um". O segmento vira o termo de busca e o `productHint` da
+ * pergunta de clarificação, então sobra vira "Qual opção de so um salgadinho...".
+ * Sem acento porque `normalizePt` já removeu os diacríticos.
+ */
+const SEGMENT_LEAD_FILLER =
+    /^(?:(?:tambem|so|somente|apenas|ainda|talvez|um|uma|uns|umas|o|a|os|as)\s+)+/u;
+
+/**
  * Segmentos de produto a partir de vírgulas / " e " / " um|uma ".
  */
 export function parseMultiItemOrderSegments(text: string): string[] {
@@ -34,12 +43,7 @@ export function parseMultiItemOrderSegments(text: string): string[] {
     // Separadores: vírgula, " e ", " mais "
     const rough = t
         .split(/\s*,\s*|\s+e\s+|\s+mais\s+/u)
-        .map((s) =>
-            s
-                .replace(/^(?:tambem|também)\s+/u, "")
-                .replace(/^(?:um|uma|uns|umas|o|a|os|as)\s+/u, "")
-                .trim()
-        )
+        .map((s) => s.replace(SEGMENT_LEAD_FILLER, "").trim())
         .filter((s) => s.length >= 3);
 
     // Filtra ruído residual

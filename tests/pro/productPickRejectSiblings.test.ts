@@ -45,7 +45,7 @@ function stateWithBothSalgadinhos(): ProSessionState {
         totalItems: 260,
         grandTotal: 260,
         pendingConfirmation: false,
-        currency: "BRL",
+        version: 1,
     };
     return {
         step: "pro_collecting_order",
