@@ -754,6 +754,8 @@ export async function runProPipeline(
               }
             : undefined,
     });
+    /** Sempre aplica estado do quick (ex.: sair de awaiting_change sem engolir a mensagem). */
+    stateAfterPick = quick.state;
     if (quick.handled) {
         const syncedQuick = withResolvedSlotStep(quick.state);
         const quickOutbound = checkoutPostProcessForQuickAction({

@@ -22,11 +22,21 @@ export function stripInternalCatalogIdsFromCustomerText(visible: string): string
     return t;
 }
 
+export type StripHallucinationContext = {
+    /** Draft pronto para Confirmar. */
+    draftComplete?: boolean;
+    /** Já há itens no rascunho. */
+    hasDraftItems?: boolean;
+};
+
 /**
  * Remove afirmações de que o pedido já foi gravado/confirmado na loja ou enviado.
  * Só `orderStage` + RPC podem produzir mensagem canónica de sucesso.
  */
-export function stripHallucinatedOrderPersistenceClaims(visible: string): string {
+export function stripHallucinatedOrderPersistenceClaims(
+    visible: string,
+    ctx?: StripHallucinationContext
+): string {
     const raw = visible.trim();
     if (!raw) return raw;
     const flat = raw
@@ -69,9 +79,17 @@ export function stripHallucinatedOrderPersistenceClaims(visible: string): string
     ];
     if (!claims.some((re) => re.test(flat))) return visible;
 
+    if (ctx?.draftComplete) {
+        return "Quase lá! Toque em *Confirmar* abaixo para registrar o pedido na loja.";
+    }
+    if (ctx?.hasDraftItems) {
+        return (
+            "Ainda não fechei o pedido na loja.\n\n" +
+            "Use os botões abaixo (pagamento ou *Confirmar*) ou me diga o que falta ajustar."
+        );
+    }
     return (
-        "Ainda nao registrei seu pedido no sistema da loja.\n\n" +
-        "Para fechar aqui, preciso do rascunho validado pelo servidor (itens do catalogo, endereco e pagamento) e depois Confirmar.\n\n" +
-        "Se precisar de uma pessoa agora, digite *atendente* ou *humano*."
+        "Ainda não registrei seu pedido na loja.\n\n" +
+        "Me diga os itens, o endereço e a forma de pagamento. Se preferir falar com alguém, digite *atendente*."
     );
 }

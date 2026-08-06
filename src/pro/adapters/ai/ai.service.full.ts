@@ -32,6 +32,7 @@ import {
     mergePreparedDraftIntoCurrent,
     unionAllowlistWithDraftIds,
 } from "@/src/pro/pipeline/mergeOrderDraft";
+import { sanitizePreparePaymentAgainstUserText } from "@/src/pro/pipeline/sanitizePreparePayment";
 import {
     stripHallucinatedOrderPersistenceClaims,
     stripInternalCatalogIdsFromCustomerText,
@@ -132,6 +133,7 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).
 - Nunca use slug textual: só UUID (campo id / produto_embalagem_id).
 - Após prepare_order_draft ok: NÃO diga "pedido montado" nem "aguarde o resumo" — o servidor envia botões de pagamento/confirmação. Só confirme o que falta (endereço/pagamento) se a tool indicar.
+- NUNCA invente payment_method nem change_for: só envie se o cliente disse pix/dinheiro/cartão ou valor de troco nesta mensagem. "exatamente"/"sim" NÃO é pagamento.
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
 - Nunca diga que o pedido já foi criado/entregue: isso só ocorre após confirmação no servidor.
@@ -445,7 +447,11 @@ export class FullAiServiceAdapter implements AiService {
         prepareOutcome: { ok: boolean; errors: string[] };
     }> {
         const raw = (block.input ?? {}) as Record<string, unknown>;
-        const toolInput = this.toPrepareToolInput(raw);
+        const toolInput = sanitizePreparePaymentAgainstUserText(
+            this.toPrepareToolInput(raw),
+            input.userText,
+            currentDraft
+        );
         let effectiveCustomerId = input.context.session.customerId;
         if (!effectiveCustomerId) {
             const c = await getOrCreateCustomer(
@@ -871,7 +877,13 @@ export class FullAiServiceAdapter implements AiService {
             const { visible, marker } = stripModelIntentSuffix(text);
             let visibleSafe = stripInternalCatalogIdsFromCustomerText(
                 stripHallucinatedOrderPersistenceClaims(
-                    sanitizeVisibleAgainstDraft(visible, updatedDraft)
+                    sanitizeVisibleAgainstDraft(visible, updatedDraft),
+                    {
+                        draftComplete: Boolean(
+                            updatedDraft && isDraftStructurallyCompleteForFinalize(updatedDraft)
+                        ),
+                        hasDraftItems: Boolean(updatedDraft?.items?.length),
+                    }
                 )
             );
             const hasDraftItems = Boolean(updatedDraft?.items?.length);

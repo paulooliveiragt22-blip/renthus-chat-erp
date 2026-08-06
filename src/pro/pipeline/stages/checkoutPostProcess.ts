@@ -11,6 +11,11 @@ import {
     resolveProStepFromDraft,
     withResolvedSlotStep,
 } from "../orderSlotStep";
+import {
+    looksLikeCheckoutAffirmation,
+    looksLikeNonMoneyWhileAwaitingChange,
+    parsePtMoneyInput,
+} from "../paymentFromUserText";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -32,18 +37,6 @@ function normalizeInboundAction(text: string): string {
         .toLowerCase()
         .normalize("NFD")
         .replaceAll(/\p{Diacritic}/gu, "");
-}
-
-function parsePtMoneyInput(text: string): number | null {
-    const only = text.replaceAll(/[^\d,.\s]/g, "").trim();
-    if (!only) return null;
-    const normalized = only
-        .replaceAll(/\s+/g, "")
-        .replaceAll(".", "")
-        .replace(",", ".");
-    const value = Number(normalized);
-    if (!Number.isFinite(value) || value <= 0) return null;
-    return Math.round(value * 100) / 100;
 }
 
 function buildPaymentButtons(): OutboundMessage {
@@ -184,6 +177,30 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
 
     /** Aguardando o cliente repetir o nome do produto — não barrar como pagamento. */
     if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return null;
+
+    /**
+     * “exatamente” / “sim” com itens+endereço e sem pagamento → só botões PIX/Cartão/Dinheiro.
+     * Evita a IA inventar dinheiro+troco (print: Troco R$ 2 após “exatament”).
+     */
+    if (
+        d &&
+        d.items.length > 0 &&
+        isAddressStructurallyComplete(d.address) &&
+        !d.paymentMethod &&
+        looksLikeCheckoutAffirmation(text)
+    ) {
+        const next = withResolvedSlotStep({
+            ...state,
+            deliveryAddressUiConfirmed: true,
+            step: "pro_awaiting_payment_method",
+        });
+        return {
+            handled: true,
+            actionTag: "affirm_address_show_payment",
+            state: next,
+            outbound: [buildPaymentButtons()],
+        };
+    }
 
     if (state.step === "pro_awaiting_payment_method" && d) {
         if (!action) return null;
@@ -413,6 +430,18 @@ export function applyQuickAction(
     if (paymentAction) return paymentAction;
 
     if (state.step === "pro_awaiting_change_amount" && state.draft?.paymentMethod === "cash") {
+        /** “tem coca 2l?” / “exatamente” não são valor de troco — libera o slot. */
+        if (looksLikeNonMoneyWhileAwaitingChange(text)) {
+            return {
+                handled: false,
+                actionTag: null,
+                state: {
+                    ...state,
+                    step: "pro_collecting_order",
+                },
+                outbound: [],
+            };
+        }
         const amount = parsePtMoneyInput(text);
         if (amount != null) {
             return {

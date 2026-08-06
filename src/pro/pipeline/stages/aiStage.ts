@@ -11,6 +11,7 @@ import {
     stripHallucinatedOrderPersistenceClaims,
     stripInternalCatalogIdsFromCustomerText,
 } from "@/src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
+import { isDraftStructurallyCompleteForFinalize } from "../orderDraftGate";
 import {
     isAddressStructurallyComplete,
     orderDraftFingerprintForAddressConfirm,
@@ -66,13 +67,19 @@ export async function aiStage(params: {
             : undefined,
     });
 
+    const nextDraftPreview = raw?.updatedDraft ?? context.session.draft;
     const hadValidReplyText =
         typeof raw?.replyText === "string" && raw.replyText.trim().length > 0;
     const baseReplyText = hadValidReplyText
         ? raw.replyText.trim()
         : "Tive uma falha ao processar sua mensagem. Pode tentar novamente?";
     const replyText = stripInternalCatalogIdsFromCustomerText(
-        stripHallucinatedOrderPersistenceClaims(baseReplyText)
+        stripHallucinatedOrderPersistenceClaims(baseReplyText, {
+            draftComplete: Boolean(
+                nextDraftPreview && isDraftStructurallyCompleteForFinalize(nextDraftPreview)
+            ),
+            hasDraftItems: Boolean(nextDraftPreview?.items?.length),
+        })
     );
     const invalidAiSanitized =
         !hadValidReplyText || (hadValidReplyText && replyText !== baseReplyText);
