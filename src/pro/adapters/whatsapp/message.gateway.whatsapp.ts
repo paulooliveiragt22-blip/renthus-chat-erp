@@ -3,6 +3,7 @@ import type { OutboundMessage, TenantRef } from "@/src/types/contracts";
 import type { MessageGateway } from "../../ports/message.gateway";
 import { botReply, botSendButtons } from "@/lib/chatbot/botSend";
 import { sendFlowMessage, type WaConfig } from "@/lib/whatsapp/send";
+import { formatButtonsFallbackText } from "../../pipeline/pickButtonTitles";
 
 export class WhatsAppMessageGateway implements MessageGateway {
     constructor(
@@ -53,7 +54,25 @@ export class WhatsAppMessageGateway implements MessageGateway {
                 this.waConfig
             );
             if (result && result.ok === false) {
-                throw new Error(`whatsapp_buttons_failed: ${result.error ?? "unknown"}`);
+                /**
+                 * Meta rejeita títulos duplicados (após truncate 20). Em vez de
+                 * estourar → "problema técnico", envia lista numerada em texto.
+                 */
+                console.error(
+                    "[pro/whatsapp] buttons send failed; fallback text list:",
+                    result.error ?? "unknown"
+                );
+                const fallback = formatButtonsFallbackText(text, buttons);
+                if (fallback.trim()) {
+                    await botReply(
+                        this.admin,
+                        tenant.companyId,
+                        tenant.threadId,
+                        tenant.phoneE164,
+                        fallback
+                    );
+                }
+                return;
             }
             return;
         }
