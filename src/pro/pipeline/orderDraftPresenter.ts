@@ -102,3 +102,38 @@ export function formatSearchPicksClarificationBody(
     lines.push("Toque no botão ou responda com o número (ex.: 2).");
     return lines.join("\n");
 }
+
+/** Busca vazia com sugestões próximas (typo / near-miss). */
+export function formatNearMissClarificationBody(
+    term: string,
+    picks: Array<{ label: string; price?: number | null }>,
+    opts?: { keptItemsHint?: string | null }
+): string {
+    const safeTerm = String(term ?? "").replaceAll(/\s+/g, " ").trim().slice(0, 40) || "isso";
+    const lines: string[] = [];
+    const kept = String(opts?.keptItemsHint ?? "").trim();
+    if (kept) lines.push(kept, "");
+    lines.push(`Não achei «${safeTerm}». Quis dizer um destes?`, "");
+    picks.slice(0, 3).forEach((p, i) => {
+        const label = String(p.label ?? `Opção ${i + 1}`).replaceAll(/\s+/g, " ").trim();
+        const price =
+            p.price != null && Number.isFinite(Number(p.price))
+                ? ` — R$ ${brl(Number(p.price))}`
+                : "";
+        lines.push(`${i + 1}) ${label}${price}`);
+    });
+    lines.push("");
+    lines.push("Toque no botão ou responda com o número (ex.: 2).");
+    return lines.join("\n");
+}
+
+/** Sem sugestão: pedir para repetir. */
+export function formatAskRepeatProductBody(
+    term: string,
+    opts?: { keptItemsHint?: string | null }
+): string {
+    const safeTerm = String(term ?? "").replaceAll(/\s+/g, " ").trim().slice(0, 40) || "esse item";
+    const kept = String(opts?.keptItemsHint ?? "").trim();
+    const ask = `Não entendi «${safeTerm}». Pode repetir o nome do produto?`;
+    return kept ? `${kept}\n\n${ask}` : ask;
+}

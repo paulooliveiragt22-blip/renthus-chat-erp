@@ -305,3 +305,59 @@ export async function runSearchProdutos(
     const r = await runSearchProdutosDetailed(admin, companyId, query, opts);
     return r.items;
 }
+
+/**
+ * Quando a busca principal veio vazia: varre um pool do catálogo e devolve
+ * candidatos próximos (typo / token parcial) para botões de clarificação.
+ */
+export async function suggestNearCatalogMatches(
+    admin: SupabaseClient,
+    companyId: string,
+    query: string,
+    opts?: { limit?: number; minScore?: number }
+): Promise<Array<{ id: string; label: string; price: number | null; productName: string | null; score: number }>> {
+    const q = sanitizeSearchQuery(query);
+    if (!q || q.length < 3) return [];
+    const limit = Math.min(Math.max(opts?.limit ?? 3, 1), 5);
+    const minScore = opts?.minScore ?? 0.45;
+
+    const pool = await admin
+        .from("view_chat_produtos")
+        .select(SELECT_FULL)
+        .eq("company_id", companyId)
+        .order("product_name")
+        .limit(120);
+    if (pool.error) {
+        console.warn("[suggestNearCatalogMatches]", pool.error.message);
+        return [];
+    }
+
+    const finalized = await finalizeRows(admin, (pool.data ?? []) as ChatProdutoRow[]);
+    const scored = finalized
+        .map((r) => {
+            const label = String(r.display_name || r.product_name || "").trim();
+            const hay = `${r.product_name ?? ""} ${r.display_name ?? ""} ${r.descricao ?? ""} ${r.tags ?? ""} ${r.detalhes ?? ""}`;
+            const score = Math.max(scoreDidYouMean(q, hay), scoreDidYouMean(q, label));
+            return {
+                id: String(r.id),
+                label: label.slice(0, 40) || "Item",
+                price: Number.isFinite(Number(r.preco_venda)) ? Number(r.preco_venda) : null,
+                productName: String(r.product_name ?? "").trim() || null,
+                score,
+            };
+        })
+        .filter((x) => x.score >= minScore)
+        .sort((a, b) => b.score - a.score);
+
+    // Dedup por productName aproximado (mantém melhor score / prefer UN se empate)
+    const seen = new Set<string>();
+    const out: typeof scored = [];
+    for (const row of scored) {
+        const key = (row.productName || row.label).toLowerCase().slice(0, 24);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(row);
+        if (out.length >= limit) break;
+    }
+    return out;
+}

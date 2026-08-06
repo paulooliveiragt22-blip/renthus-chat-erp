@@ -17,6 +17,7 @@ import {
 } from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { isAddressStructurallyComplete } from "./orderSlotStep";
+import { formatAskRepeatProductBody } from "./orderDraftPresenter";
 import {
     dequeueBootstrapClarification,
     hasPendingBootstrapClarifications,
@@ -182,6 +183,24 @@ export async function serverPrepareAfterProductPick(params: {
             skipAi: false,
             preparedOk: prepared.ok,
             clarificationOutbound: nextClarify.outbound,
+        };
+    }
+
+    const pendingRepeat = [...(nextState.pendingAskRepeatTerms ?? [])];
+    if (pendingRepeat.length) {
+        const hintParts = (nextDraft?.items ?? []).slice(0, 4).map((it) => {
+            const name = String(it.productName ?? "Item").trim() || "Item";
+            return `${it.quantity}x ${name}`;
+        });
+        const keptHint = hintParts.length ? `Já anotei: ${hintParts.join("; ")}.` : null;
+        return {
+            state: { ...nextState, pendingAskRepeatTerms: [] },
+            skipAi: true,
+            preparedOk: prepared.ok,
+            clarificationOutbound: pendingRepeat.map((term) => ({
+                kind: "text" as const,
+                text: formatAskRepeatProductBody(term, { keptItemsHint: keptHint }),
+            })),
         };
     }
 

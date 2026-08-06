@@ -52,6 +52,9 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         inferredPaymentMethod: raw.inferredPaymentMethod ?? null,
         bootstrapResolvedEmbalagemIds: raw.bootstrapResolvedEmbalagemIds ?? [],
         bootstrapPendingClarifications: raw.bootstrapPendingClarifications ?? [],
+        pendingAskRepeatTerms: raw.pendingAskRepeatTerms ?? [],
+        pendingClarifyQuantity: raw.pendingClarifyQuantity ?? null,
+        pendingClarifySegment: raw.pendingClarifySegment ?? null,
         aiTurnCount: raw.aiTurnCount,
         aiWindowStartedAt: raw.aiWindowStartedAt ?? null,
     };

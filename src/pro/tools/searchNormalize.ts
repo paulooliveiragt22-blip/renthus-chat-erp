@@ -55,5 +55,42 @@ export function scoreDidYouMean(query: string, candidate: string): number {
             }
         }
     }
-    return hit / Math.max(ct.length, 1);
+    const tokenScore = hit / Math.max(ct.length, 1);
+
+    // Typo próximo (haineken↔heineken, longnek↔longneck)
+    let editScore = 0;
+    const editTargets = [...ct];
+    for (let i = 0; i < ct.length - 1; i++) {
+        editTargets.push(`${ct[i]}${ct[i + 1]}`);
+    }
+    for (const qq of qt) {
+        if (qq.length < 4) continue;
+        for (const t of editTargets) {
+            if (t.length < 4) continue;
+            const d = levenshtein(qq, t);
+            const maxLen = Math.max(qq.length, t.length);
+            const sim = 1 - d / maxLen;
+            if (sim >= 0.55) editScore = Math.max(editScore, sim * 0.85);
+        }
+    }
+
+    return Math.max(tokenScore, editScore);
+}
+
+function levenshtein(a: string, b: string): number {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+        let prev = row[0]!;
+        row[0] = i;
+        for (let j = 1; j <= b.length; j++) {
+            const tmp = row[j]!;
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, prev + cost);
+            prev = tmp;
+        }
+    }
+    return row[b.length]!;
 }

@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderDraft, PrepareDraftToolInput, ProSessionState, OutboundMessage } from "@/src/types/contracts";
-import { runSearchProdutosDetailed } from "@/src/pro/tools/searchProdutos";
+import {
+    runSearchProdutosDetailed,
+    suggestNearCatalogMatches,
+} from "@/src/pro/tools/searchProdutos";
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
@@ -20,6 +23,12 @@ import {
     loadCustomerSiglaHabits,
     primaryProductIdFromHits,
 } from "./customerPackagingHabit";
+import {
+    formatAskRepeatProductBody,
+    formatNearMissClarificationBody,
+} from "./orderDraftPresenter";
+import { PICK_EMB_PREFIX } from "./productPickText";
+import { buildUniquePickButtons } from "./pickButtonTitles";
 
 function normTerm(s: string): string {
     return s
@@ -30,9 +39,19 @@ function normTerm(s: string): string {
         .trim();
 }
 
+function draftItemsHint(draft: OrderDraft | null | undefined): string | null {
+    const items = draft?.items ?? [];
+    if (!items.length) return null;
+    const parts = items.slice(0, 4).map((it) => {
+        const name = String(it.productName ?? "Item").trim() || "Item";
+        return `${it.quantity}x ${name}`;
+    });
+    return `Já anotei: ${parts.join("; ")}.`;
+}
+
 /**
  * Bootstrap no servidor: pagamento/endereço + prepare dos segmentos unívocos;
- * se algum for ambíguo, devolve picks de clarificação e enfileira os demais.
+ * ambíguo → clarificação; busca vazia → near-miss ou pedir para repetir (não fecha o pedido).
  */
 export async function tryServerBootstrapOrderFromText(params: {
     admin: SupabaseClient;
@@ -40,7 +59,6 @@ export async function tryServerBootstrapOrderFromText(params: {
     customerId: string | null;
     state: ProSessionState;
     userText: string;
-    /** Plano de segmentos (somente LLM). Obrigatório para bootstrap. */
     segmentPlan?: BootstrapSegmentPlan | null;
 }): Promise<{
     state: ProSessionState;
@@ -78,8 +96,10 @@ export async function tryServerBootstrapOrderFromText(params: {
     const uniqueIds: string[] = [];
     const idToTerm = new Map<string, string>();
     const ambiguousAll: BootstrapPendingClarification[] = [];
+    const askRepeatTerms: string[] = [];
+    /** Segmentos que eram empty e viraram near-miss (mensagem especial). */
+    const nearMissSegments = new Set<string>();
 
-    /** Pré-busca para coletar product_ids e hábitos do cliente. */
     const segmentHits: Array<{
         segment: string;
         items: Awaited<ReturnType<typeof runSearchProdutosDetailed>>["items"];
@@ -114,10 +134,13 @@ export async function tryServerBootstrapOrderFromText(params: {
             habitSigla: habit,
             companySiglas,
         });
+
         if (resolved.kind === "unique") {
             uniqueIds.push(resolved.pick.embalagemId);
             idToTerm.set(resolved.pick.embalagemId, segment);
-        } else if (resolved.kind === "ambiguous") {
+            continue;
+        }
+        if (resolved.kind === "ambiguous") {
             ambiguousAll.push({
                 segment,
                 picks: resolved.picks,
@@ -125,6 +148,27 @@ export async function tryServerBootstrapOrderFromText(params: {
                 habitConflict: resolved.habitConflict === true,
                 habit,
             });
+            continue;
+        }
+
+        const near = await suggestNearCatalogMatches(admin, companyId, segment, {
+            limit: 3,
+            minScore: 0.48,
+        });
+        if (near.length >= 1) {
+            nearMissSegments.add(normTerm(segment));
+            ambiguousAll.push({
+                segment,
+                picks: near.map((n) => ({
+                    embalagemId: n.id,
+                    label: n.label,
+                    price: n.price,
+                    productName: n.productName,
+                })),
+                quantity: qty,
+            });
+        } else {
+            askRepeatTerms.push(segment);
         }
     }
 
@@ -194,25 +238,61 @@ export async function tryServerBootstrapOrderFromText(params: {
         }
     }
 
+    const keptHint = draftItemsHint(state.draft);
     const outbound: OutboundMessage[] = [];
-    const firstAmbiguous: SegmentPickRow[] | null = ambiguousAll[0]?.picks ?? null;
-    if (firstAmbiguous && firstAmbiguous.length >= 2) {
-        const withFirst: ProSessionState = {
-            ...state,
-            bootstrapPendingClarifications: [
-                {
-                    segment: ambiguousAll[0]!.segment,
-                    picks: firstAmbiguous,
-                    quantity: ambiguousAll[0]!.quantity ?? 1,
-                    habitConflict: ambiguousAll[0]!.habitConflict,
-                    habit: ambiguousAll[0]!.habit,
-                },
-                ...(state.bootstrapPendingClarifications ?? []),
-            ],
-        };
-        const dequeued = dequeueBootstrapClarification(withFirst);
-        state = dequeued.state;
-        outbound.push(...dequeued.outbound);
+    const firstAmbiguous = ambiguousAll[0] ?? null;
+
+    if (firstAmbiguous && firstAmbiguous.picks.length >= 1) {
+        const picks = firstAmbiguous.picks.slice(0, 3);
+        const isNearMiss = nearMissSegments.has(normTerm(firstAmbiguous.segment));
+
+        if (isNearMiss) {
+            state = {
+                ...state,
+                bootstrapPendingClarifications: ambiguousAll.slice(1),
+                lastSearchPicks: picks,
+                pendingClarifyQuantity: firstAmbiguous.quantity ?? 1,
+                pendingClarifySegment: firstAmbiguous.segment,
+                searchProdutoEmbalagemIds: [
+                    ...picks.map((p) => p.embalagemId),
+                    ...(state.searchProdutoEmbalagemIds ?? []),
+                    ...(state.bootstrapResolvedEmbalagemIds ?? []),
+                ],
+            };
+            outbound.push({
+                kind: "buttons",
+                text: formatNearMissClarificationBody(firstAmbiguous.segment, picks, {
+                    keptItemsHint: keptHint,
+                }),
+                buttons: buildUniquePickButtons(picks, PICK_EMB_PREFIX),
+            });
+        } else if (picks.length >= 2) {
+            const withFirst: ProSessionState = {
+                ...state,
+                bootstrapPendingClarifications: [
+                    {
+                        segment: firstAmbiguous.segment,
+                        picks,
+                        quantity: firstAmbiguous.quantity ?? 1,
+                        habitConflict: firstAmbiguous.habitConflict,
+                        habit: firstAmbiguous.habit,
+                    },
+                    ...(state.bootstrapPendingClarifications ?? []),
+                ],
+            };
+            const dequeued = dequeueBootstrapClarification(withFirst);
+            state = dequeued.state;
+            outbound.push(...dequeued.outbound);
+        } else {
+            // near-miss com 1 opção já tratado; ambíguo normal exige ≥2
+            state = {
+                ...state,
+                lastSearchPicks: [],
+                bootstrapPendingClarifications: ambiguousAll.slice(1),
+                pendingClarifyQuantity: null,
+                pendingClarifySegment: null,
+            };
+        }
     } else {
         state = {
             ...state,
@@ -223,15 +303,40 @@ export async function tryServerBootstrapOrderFromText(params: {
         };
     }
 
+    if (askRepeatTerms.length) {
+        if (outbound.length === 0) {
+            for (const term of askRepeatTerms) {
+                outbound.push({
+                    kind: "text",
+                    text: formatAskRepeatProductBody(term, { keptItemsHint: keptHint }),
+                });
+            }
+        } else {
+            state = {
+                ...state,
+                pendingAskRepeatTerms: [
+                    ...(state.pendingAskRepeatTerms ?? []),
+                    ...askRepeatTerms,
+                ],
+            };
+        }
+    }
+
+    const hasUnresolved =
+        outbound.length > 0 ||
+        (state.bootstrapPendingClarifications?.length ?? 0) > 0 ||
+        (state.pendingAskRepeatTerms?.length ?? 0) > 0;
+
     return {
         state,
         outbound,
-        hasClarification: outbound.length > 0,
+        hasClarification: hasUnresolved,
         bootstrapped: Boolean(
             state.draft?.items?.length ||
                 payment ||
                 resolvedIds.length ||
-                ambiguousAll.length
+                ambiguousAll.length ||
+                askRepeatTerms.length
         ),
         segmentSource: "llm",
     };

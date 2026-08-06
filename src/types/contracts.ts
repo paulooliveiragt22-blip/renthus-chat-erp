@@ -189,6 +189,10 @@ export interface ProSessionState {
     pendingClarifyQuantity?: number | null;
     /** Segmento de busca da clarificação atual (para telemetria / qty). */
     pendingClarifySegment?: string | null;
+    /**
+     * Termos que a busca não achou (sem near-miss) — pedir repetir depois da clarificação atual.
+     */
+    pendingAskRepeatTerms?: string[];
     /** Buscas vazias consecutivas — escala para cardápio web. */
     emptySearchStreak?: number;
     /**
