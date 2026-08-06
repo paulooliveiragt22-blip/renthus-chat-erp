@@ -40,7 +40,7 @@ Volume de interpretação determinística hoje:
 | `src/pro/services/intent/intentClassifier.service.ts` | ~160 LOC |
 | `lib/chatbot/middleware/intentClassifier.ts` (Starter) | duplicata do anterior |
 
-**Três lugares adivinhando a mesma coisa.**
+**Três lugares adivinhando a mesma coisa.** → **Resolvido:** motor Starter apagado; classificador único `ProIntentClassifierService` em `src/pro/services/intent/`. Bootstrap multi-item ainda é regex (Fase 2: extração LLM em sombra).
 
 ---
 
@@ -201,7 +201,7 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 - [x] Apagar lixo de raiz de §4.1
 - [x] Apagar docs mortos de §4.3 (`CHATBOT_IMPLEMENTACAO`, `DIAGNOSTICO_CHATBOT`, `CONTEXTO.md`)
 - [x] Forçar fila sempre (remover caminho inline do webhook WA + Meta)
-- [ ] Consolidar num classificador de intent só (`src/pro/services/intent/`)
+- [x] Consolidar num classificador de intent só (`src/pro/services/intent/`) — Starter middleware já removido
 
 ### Fase 1 — Harness de replay
 
@@ -216,9 +216,9 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 
 ### Fase 2 — Interpretação por LLM
 
-- [ ] Contrato JSON alinhado a `PrepareDraftToolInput`
-- [ ] Extrator estruturado (modelo barato, uma passada, sem histórico)
-- [ ] Rodar em sombra: só logar divergência vs bootstrap atual
+- [x] Contrato JSON alinhado a busca+qty (`OrderLineExtraction` / Zod) — não usa ID de catálogo
+- [x] Extrator estruturado (`extractOrderLinesStructured`) — uma passada, sem histórico
+- [x] Rodar em sombra: `PRO_STRUCTURED_EXTRACT_SHADOW=1` + log divergência vs `parseMultiItemOrderSegments`
 - [ ] Medir divergência no replay antes de inverter
 - [ ] Inverter prioridade; bootstrap regex vira atalho de alta confiança
 - [ ] Apagar `parseMultiItemOrderSegments`, `inferPaymentFromText`, `editIntentParse`
@@ -712,7 +712,8 @@ export const PipelineTurnTrace = z.object({
 - [x] `CustomerServiceWindowPort` / política domínio por canal (B4 no MetaMessageGateway)
 - [x] Helper `lib/chatbot/db/channelIdentity.ts` + Zod `src/domain/contracts/identity.ts`
 - [x] `OutboundDispatcher` por `thread.channel` (inbox WA + Meta `/api/meta/messaging/send`)
-- [ ] Schemas Zod restantes: menu session v2, prepare_order_draft wire
+- [x] Schemas Zod restantes: menu session v2 (feito antes), `OrderLineExtraction` (Fase 2 sombra)
+- [ ] prepare_order_draft wire Zod (normalizer já existe; schema formal depois)
 
 **Produto / ops**
 

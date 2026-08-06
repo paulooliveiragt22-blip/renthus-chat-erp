@@ -54,6 +54,7 @@ import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 import { parseMultiItemOrderSegments } from "./parseMultiItemOrderSegments";
 import { parseCheckoutSwapIntent } from "./editIntentParse";
+import { scheduleStructuredExtractShadow } from "./shadowStructuredExtract";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -326,6 +327,17 @@ export async function runProPipeline(
      */
     const llmEnabled = context.policies.llmEnabled !== false;
 
+    const bootstrapSegments = parseMultiItemOrderSegments(input.inboundText);
+    if (deps.admin && bootstrapSegments.length >= 1) {
+        scheduleStructuredExtractShadow({
+            admin: deps.admin,
+            companyId: input.tenant.companyId,
+            threadId: input.tenant.threadId,
+            inboundMessageId: input.tenant.messageId,
+            userText: input.inboundText,
+        });
+    }
+
     let bootstrapOutbound: OutboundMessage[] = [];
     if (
         llmEnabled &&
@@ -334,7 +346,7 @@ export async function runProPipeline(
         !input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) &&
         parseProductPickIndex(input.inboundText) == null &&
         !parseCheckoutSwapIntent(input.inboundText) &&
-        parseMultiItemOrderSegments(input.inboundText).length >= 1 &&
+        bootstrapSegments.length >= 1 &&
         (!(stateBeforePick.draft?.items?.length) || stateBeforePick.checkoutEditHold === true)
     ) {
         try {
