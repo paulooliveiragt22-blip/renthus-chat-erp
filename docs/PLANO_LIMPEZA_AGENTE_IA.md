@@ -208,11 +208,11 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 - [x] Migration: tabela de trace por turno (inbound, estado antes, outbound, draft, telemetria) — `pipeline_turn_traces`
 - [x] Gravar trace em `persistAndEmit`, atrás de flag (`PRO_PIPELINE_TURN_TRACE=1`)
 - [x] Loader: `whatsapp_messages` → conversa ordenada por thread (`src/pro/replay/loadThreadForReplay.ts`)
-- [ ] Runner: reprocessa turno a turno via `makeProPipelineDependencies` com overrides
-- [ ] `LlmPort` de replay (grava e reproduz respostas — roda sem custo e determinístico)
-- [ ] Comparador: diff de outbound, draft final e telemetria
+- [x] Runner: reprocessa turno a turno (`src/pro/replay/runThreadReplay.ts`) — dry-run sem Meta/pedido
+- [x] `LlmPort` de replay (`RecordingLlmPort` / `ReplayLlmPort`)
+- [x] Comparador: diff de outbound (`compareOutbound`) vs traces
 - [ ] Baseline versionada com conversas reais
-- [x] `npm run replay` (stub: dump mensagens + traces)
+- [x] `npm run replay` (dump); CLI `--run` plugar depois
 
 ### Fase 2 — Interpretação por LLM
 

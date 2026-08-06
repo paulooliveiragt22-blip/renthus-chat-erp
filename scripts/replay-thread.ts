@@ -1,12 +1,13 @@
 /**
- * Stub do harness de replay (Fase 1).
+ * Harness de replay (Fase 1).
  *
  * Uso:
  *   npm run replay -- <companyId> <threadId>
  *
- * Requer SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (ou env do app).
- * Dump das mensagens + traces gravados (PRO_PIPELINE_TURN_TRACE=1 em prod).
- * Reprocessamento turno-a-turno (LlmPort cassette) vem na próxima fatia.
+ * Dump de mensagens + traces. Runner dry-run: `src/pro/replay/runThreadReplay.ts`
+ * (wire CLI `--run` na próxima fatia / com tsx).
+ *
+ * Env: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -48,11 +49,13 @@ async function main() {
     console.log(
         JSON.stringify(
             {
+                mode: "dump",
                 companyId,
                 threadId,
                 messageCount: messages.length,
                 traceCount: traces.length,
                 inboundTurns: messages.filter((m) => m.direction === "inbound").length,
+                hint: "Runner dry-run: import runThreadReplay from src/pro/replay/runThreadReplay.ts",
                 messages: messages.map((m) => ({
                     at: m.created_at,
                     dir: m.direction,
