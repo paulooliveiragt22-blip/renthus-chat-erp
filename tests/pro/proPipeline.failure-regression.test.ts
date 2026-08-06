@@ -271,12 +271,12 @@ describe("pro pipeline - failure regression", () => {
             intent: "greeting",
             orderResult: {
                 ok: false,
-                customerMessage: "Nao encontramos esse produto ou embalagem no catalogo.",
+                customerMessage: "Não encontramos esse produto ou embalagem no catálogo.",
                 errorCode: "PRODUCT_NOT_FOUND",
                 retryable: false,
             },
         }));
-        assert.ok(out.outbound.some((m) => (m.text ?? "").includes("Nao encontramos")));
+        assert.ok(out.outbound.some((m) => (m.text ?? "").includes("Não encontramos")));
         assert.ok(
             out.metrics.some(
                 (m) => m.name === "pro_pipeline.order_failed" && m.tags?.errorCode === "PRODUCT_NOT_FOUND"

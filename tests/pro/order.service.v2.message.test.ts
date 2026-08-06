@@ -70,7 +70,7 @@ describe("OrderServiceV2Adapter message snapshot", () => {
             draft: sampleDraft(),
         });
         assert.ok(text.includes("Pedido #ABC123 recebido."));
-        assert.ok(text.includes("Estamos confirmando e ja voltamos."));
+        assert.ok(text.includes("Estamos confirmando e já voltamos."));
     });
 
     it("quando grandTotal vier inconsistente, mensagem usa total recomputado", () => {
@@ -117,7 +117,7 @@ describe("OrderServiceV2Adapter canonical error messages", () => {
     it("padroniza PRODUCT_NOT_FOUND e INCONSISTENT_DRAFT", () => {
         assert.equal(
             buildOrderErrorMessage("PRODUCT_NOT_FOUND"),
-            "Nao encontramos esse produto ou embalagem no catalogo. Confirme o item ou escolha outro."
+            "Não encontramos esse produto ou embalagem no catálogo. Confirme o item ou escolha outro."
         );
         assert.equal(
             buildOrderErrorMessage("INCONSISTENT_DRAFT"),

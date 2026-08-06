@@ -142,7 +142,7 @@ export async function orderStage(params: {
         return {
             state: withResolvedSlotStep(state),
             outboundText:
-                "Preciso que voce confirme o endereco de entrega com os botoes (Confirmar ou Alterar) antes de fechar o pedido.",
+                "Preciso que você confirme o endereço de entrega com os botões (Confirmar ou Alterar) antes de fechar o pedido.",
             outcome: "gate_draft_incomplete",
         };
     }

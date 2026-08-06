@@ -2,17 +2,23 @@ import type { OutboundMessage, ProSessionState } from "@/src/types/contracts";
 import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
 import { buildUniquePickButtons } from "./pickButtonTitles";
+import { catalogProductHintFromPicks } from "./catalogProductHint";
 
 export type BootstrapPendingClarification = NonNullable<
     ProSessionState["bootstrapPendingClarifications"]
 >[number];
 
 function buildClarifyOutbound(
-    picks: Array<{ embalagemId: string; label: string; price?: number | null }>,
-    productHint?: string | null
+    picks: Array<{
+        embalagemId: string;
+        label: string;
+        price?: number | null;
+        productName?: string | null;
+    }>
 ): OutboundMessage | null {
     const top = picks.slice(0, 3);
     if (top.length < 2) return null;
+    const productHint = catalogProductHintFromPicks(top);
     return {
         kind: "buttons",
         text: formatSearchPicksClarificationBody(top, { productHint }),
@@ -33,7 +39,7 @@ export function dequeueBootstrapClarification(state: ProSessionState): {
     }
     const next = queue.shift()!;
     const picks = (next.picks ?? []).slice(0, 3);
-    const clarify = buildClarifyOutbound(picks, next.segment);
+    const clarify = buildClarifyOutbound(picks);
     if (!clarify) {
         return dequeueBootstrapClarification({
             ...state,

@@ -5,6 +5,7 @@ import {
 } from "../orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "../productPickText";
 import { buildUniquePickButtons } from "../pickButtonTitles";
+import { catalogProductHintFromPicks } from "../catalogProductHint";
 import {
     isAddressStructurallyComplete,
     resolveProStepFromDraft,
@@ -120,7 +121,7 @@ function resolvePaymentQuickAction(action: string, state: ProSessionState): Quic
                 step: "pro_collecting_order",
                 draft: { ...state.draft, paymentMethod: "card", changeFor: null },
             },
-            outbound: [{ kind: "text", text: "Pagamento em cartao selecionado." }],
+            outbound: [{ kind: "text", text: "Pagamento em cartão selecionado." }],
         };
     }
     if (action === "pro_pay_cash") {
@@ -169,7 +170,7 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
             outbound: prioritizeInteractiveFirst([
                 {
                     kind: "text",
-                    text: "Use um dos botoes abaixo para escolher o pagamento.",
+                    text: "Use um dos botões abaixo para escolher o pagamento.",
                 },
                 buildPaymentButtons(),
             ]),
@@ -185,13 +186,19 @@ export { PICK_EMB_PREFIX } from "../productPickText";
 export { applyProductPickFromInbound as applyProductPickFromButton } from "../productPickText";
 
 export function buildClarificationButtons(
-    picks: Array<{ embalagemId: string; label: string; price?: number | null }>
+    picks: Array<{
+        embalagemId: string;
+        label: string;
+        price?: number | null;
+        productName?: string | null;
+    }>
 ): OutboundMessage | null {
     const top = picks.slice(0, 3);
     if (top.length < 2) return null;
+    const productHint = catalogProductHintFromPicks(top);
     return {
         kind: "buttons",
-        text: formatSearchPicksClarificationBody(top),
+        text: formatSearchPicksClarificationBody(top, { productHint }),
         buttons: buildUniquePickButtons(top, PICK_EMB_PREFIX),
     };
 }
@@ -268,7 +275,7 @@ export function applyQuickAction(
             outbound: [
                 {
                     kind: "text",
-                    text: "Esse passo ja foi concluido ou nao ha pedido aberto para confirmar. Para novo pedido, envie os itens.",
+                    text: "Esse passo já foi concluído ou não há pedido aberto para confirmar. Para novo pedido, envie os itens.",
                 },
             ],
         };
@@ -330,7 +337,7 @@ export function applyQuickAction(
                 lastSearchPicks: [],
                 pendingSwapRemoveName: null,
             },
-            outbound: [{ kind: "text", text: "Perfeito. Me diga o que voce quer editar no pedido." }],
+            outbound: [{ kind: "text", text: "Perfeito. Me diga o que você quer editar no pedido." }],
         };
     }
 
@@ -359,7 +366,7 @@ export function applyQuickAction(
                 outbound: [
                     {
                         kind: "text",
-                        text: "Esse carrinho nao esta mais disponivel. Me diga o que voce precisa que eu monto de novo.",
+                        text: "Esse carrinho não está mais disponível. Me diga o que você precisa que eu monto de novo.",
                     },
                 ],
             };
@@ -374,7 +381,7 @@ export function applyQuickAction(
                 : [
                       {
                           kind: "text",
-                          text: "Otimo! Falta so o endereco de entrega: rua, numero, bairro, cidade e UF.",
+                          text: "Ótimo! Falta só o endereço de entrega: rua, número, bairro, cidade e UF.",
                       },
                   ],
         };
@@ -401,7 +408,7 @@ export function applyQuickAction(
             handled: true,
             actionTag: "pro_cash_change_invalid",
             state,
-            outbound: [{ kind: "text", text: "Nao entendi o valor do troco. Exemplo: 100,00." }],
+            outbound: [{ kind: "text", text: "Não entendi o valor do troco. Exemplo: 100,00." }],
         };
     }
 
@@ -445,8 +452,8 @@ export function applyQuickAction(
                             flowId:    fr.flowId,
                             flowToken: `${fr.threadId}|${fr.companyId}|address_register`,
                             bodyText:
-                                "Toque no botao abaixo para abrir o cadastro de endereco (CEP opcional). " +
-                                "Se preferir, pode enviar o endereco em texto: rua, numero, bairro, cidade e UF. " +
+                                "Toque no botão abaixo para abrir o cadastro de endereço (CEP opcional). " +
+                                "Se preferir, pode enviar o endereço em texto: rua, número, bairro, cidade e UF. " +
                                 "Ex.: Rua Tangara, 850, Sao Mateus, Sorriso-MT.",
                             ctaLabel: "Cadastrar endereço",
                         },
@@ -461,7 +468,7 @@ export function applyQuickAction(
             outbound: [
                 {
                     kind: "text",
-                    text: "Informe o novo endereco: rua, numero, bairro e cidade (todos obrigatorios). Exemplo: Rua Tangara, 850, Sao Mateus, Sorriso-MT.",
+                    text: "Informe o novo endereço: rua, número, bairro e cidade (todos obrigatórios). Exemplo: Rua Tangará, 850, São Mateus, Sorriso-MT.",
                 },
             ],
         };
@@ -499,8 +506,8 @@ export function checkoutPostProcess(params: {
             {
                 kind: "text",
                 text:
-                    "Seu pedido ja tem produtos. Para entregar, cadastre o endereco completo (rua, numero, bairro, cidade e UF). " +
-                    "O CEP e opcional e ajuda a preencher automaticamente. Use o formulario abaixo ou descreva tudo em uma mensagem.",
+                    "Seu pedido já tem produtos. Para entregar, cadastre o endereço completo (rua, número, bairro, cidade e UF). " +
+                    "O CEP é opcional e ajuda a preencher automaticamente. Use o formulário abaixo ou descreva tudo em uma mensagem.",
             },
             {
                 kind: "flow",
@@ -508,7 +515,7 @@ export function checkoutPostProcess(params: {
                     flowId:    ref.flowId,
                     flowToken: `${ref.threadId}|${ref.companyId}|address_register`,
                     bodyText:
-                        "Abra o formulario para cadastrar o endereco de entrega. Voce tambem pode enviar o endereco em texto no chat.",
+                        "Abra o formulário para cadastrar o endereço de entrega. Você também pode enviar o endereço em texto no chat.",
                     ctaLabel: "Cadastrar endereço",
                 },
             }
@@ -538,7 +545,7 @@ export function checkoutPostProcess(params: {
     ) {
         outbound.push({
             kind: "text",
-            text: "Nao encontrei esse produto no catalogo. Tente outro nome, ou abra o cardapio pelo botao Cardapio / menu da loja.",
+            text: "Não encontrei esse produto no catálogo. Tente outro nome, ou abra o cardápio pelo botão Cardápio / menu da loja.",
         });
     }
 

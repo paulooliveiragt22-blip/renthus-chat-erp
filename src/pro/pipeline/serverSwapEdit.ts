@@ -4,6 +4,7 @@ import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
 import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
 import { buildUniquePickButtons } from "./pickButtonTitles";
+import { catalogProductHintFromPicks } from "./catalogProductHint";
 import { parseCheckoutSwapIntent } from "./editIntentParse";
 import {
     removeDraftItemsMatchingName,
@@ -14,13 +15,19 @@ import { withResolvedSlotStep } from "./orderSlotStep";
 import { checkoutPostProcessForQuickAction } from "./stages/checkoutPostProcess";
 
 function buildSwapClarifyButtons(
-    picks: Array<{ embalagemId: string; label: string; price?: number | null }>
+    picks: Array<{
+        embalagemId: string;
+        label: string;
+        price?: number | null;
+        productName?: string | null;
+    }>
 ): OutboundMessage | null {
     const top = picks.slice(0, 3);
     if (top.length < 2) return null;
+    const productHint = catalogProductHintFromPicks(top);
     return {
         kind: "buttons",
-        text: formatSearchPicksClarificationBody(top),
+        text: formatSearchPicksClarificationBody(top, { productHint }),
         buttons: buildUniquePickButtons(top, PICK_EMB_PREFIX),
     };
 }
@@ -59,6 +66,7 @@ export async function tryServerSwapEdit(params: {
         embalagemId: String(r.id),
         label: String(r.display_name || r.product_name || "Item").slice(0, 40),
         price: Number.isFinite(Number(r.preco_venda)) ? Number(r.preco_venda) : null,
+        productName: String(r.product_name ?? "").trim() || null,
     }));
 
     if (!picks.length) {
@@ -76,7 +84,7 @@ export async function tryServerSwapEdit(params: {
                 {
                     kind: "text",
                     text:
-                        `Nao encontrei substituto para "${swap.removeName}" com "${swap.replaceHint}". ` +
+                        `Não encontrei substituto para "${swap.removeName}". ` +
                         "Tente outro nome (ex.: salgadinho caixa) ou diga o produto completo.",
                 },
             ],
@@ -186,17 +194,29 @@ export async function tryServerSwapEdit(params: {
         handled: true,
         finalized: false,
         state: nextState,
-        outbound: prioritizeSwapOutbound(clarify, swap),
+        outbound: prioritizeSwapOutbound(clarify, swap, picks),
     };
 }
 
 function prioritizeSwapOutbound(
     clarify: OutboundMessage | null,
-    swap: { removeName: string; replaceHint: string }
+    swap: { removeName: string; replaceHint: string },
+    picks: Array<{
+        label?: string | null;
+        productName?: string | null;
+    }>
 ): OutboundMessage[] {
+    const catalogHint =
+        catalogProductHintFromPicks(picks) ??
+        String(swap.replaceHint ?? "")
+            .replaceAll(/\s+/g, " ")
+            .trim()
+            .slice(0, 40);
     const intro: OutboundMessage = {
         kind: "text",
-        text: `Certo — vou trocar "${swap.removeName}" por uma opcao de "${swap.replaceHint}". Qual embalagem?`,
+        text: catalogHint
+            ? `Certo — vou trocar "${swap.removeName}" por uma opção de "${catalogHint}". Qual embalagem?`
+            : `Certo — vou trocar "${swap.removeName}". Qual embalagem?`,
     };
     if (!clarify) return [intro];
     return [intro, clarify];

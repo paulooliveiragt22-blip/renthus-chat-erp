@@ -225,11 +225,11 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 
 ### Fase 3 — Consolidação
 
-- [ ] `productHint` derivado do catálogo, não do texto do cliente (vale também para `serverSwapEdit.replaceHint`)
+- [x] `productHint` derivado do catálogo, não do texto do cliente (`catalogProductHintFromPicks`; swap usa rótulo do catálogo no intro)
 - [ ] Mover `lib/chatbot/pro/*` para `src/pro/` (ownership único)
-- [ ] Remover `SELECT_LEGACY` de `searchProdutos.ts` após validar a view
-- [ ] Acentuação nas mensagens restantes (`checkoutPostProcess`, `order.service.v2`, `ai.service.full`, `orderStage`)
-- [ ] Atualizar `CHATBOT_PROD.md`, `CHATBOT_TIERS.md`, seções de chatbot do `DB_CURRENT_STATE.md`
+- [x] Remover `SELECT_LEGACY` de `searchProdutos.ts` após validar a view
+- [x] Acentuação nas mensagens restantes (`checkoutPostProcess`, `order.service.v2`, `ai.service.full`, `orderStage`)
+- [x] Atualizar `CHATBOT_PROD.md` (hint de clarificação); `CHATBOT_TIERS.md` / `DB_CURRENT_STATE.md` chatbot — sem delta estrutural nesta entrega
 
 ---
 

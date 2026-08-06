@@ -160,7 +160,12 @@ export interface ProSessionState {
      */
     bootstrapPendingClarifications?: Array<{
         segment: string;
-        picks: Array<{ embalagemId: string; label: string; price?: number | null }>;
+        picks: Array<{
+            embalagemId: string;
+            label: string;
+            price?: number | null;
+            productName?: string | null;
+        }>;
     }>;
     /**
      * IDs de embalagem (`view_chat_produtos.id`) devolvidos pelo último `search_produtos` nesta conversa.
@@ -168,7 +173,12 @@ export interface ProSessionState {
      */
     searchProdutoEmbalagemIds: string[];
     /** Últimas opções de search para botões de clarificação (até 3). */
-    lastSearchPicks?: Array<{ embalagemId: string; label: string; price?: number | null }>;
+    lastSearchPicks?: Array<{
+        embalagemId: string;
+        label: string;
+        price?: number | null;
+        productName?: string | null;
+    }>;
     /** Buscas vazias consecutivas — escala para cardápio web. */
     emptySearchStreak?: number;
     /**
@@ -376,7 +386,12 @@ export interface AiServiceResult {
     /** Atualização da allowlist de catálogo após rodadas de tool (PRO V2). */
     updatedSearchProdutoEmbalagemIds?: string[];
     /** Opções para botões WhatsApp após busca ambígua. */
-    lastSearchPicks?: Array<{ embalagemId: string; label: string; price?: number | null }>;
+    lastSearchPicks?: Array<{
+        embalagemId: string;
+        label: string;
+        price?: number | null;
+        productName?: string | null;
+    }>;
     emptySearchStreak?: number;
     signals: {
         toolRoundsUsed: number;

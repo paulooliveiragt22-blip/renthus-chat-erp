@@ -45,8 +45,6 @@ function sanitizeSearchQuery(raw: string): string {
 
 const SELECT_FULL =
     "id, produto_id, product_name, display_name, descricao, detalhes, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id, estoque_unidades, vender_com_estoque_zero, thumbnail_url, image_url, tags, tags_auto";
-const SELECT_LEGACY =
-    "id, produto_id, product_name, descricao, sigla_comercial, preco_venda, volume_quantidade, unit_type_sigla, fator_conversao, product_volume_id, category_id";
 
 async function attachEstoqueFallback(
     admin: SupabaseClient,
@@ -191,22 +189,12 @@ async function searchViaIlikeFallback(
         .or(orFilter)
         .limit(limit * 3);
 
-    let rows = (full.data ?? []) as ChatProdutoRow[];
     if (full.error) {
-        const simpleOr = variants
-            .flatMap((v) => {
-                const safe = v.replaceAll(",", " ").replaceAll("%", "");
-                return [`product_name.ilike.%${safe}%`, `descricao.ilike.%${safe}%`];
-            })
-            .join(",");
-        const legacy = await admin
-            .from("view_chat_produtos")
-            .select(SELECT_LEGACY)
-            .eq("company_id", companyId)
-            .or(simpleOr)
-            .limit(limit * 3);
-        rows = (legacy.data ?? []) as ChatProdutoRow[];
+        console.warn("[searchProdutos] view_chat_produtos ilike error", full.error.message);
+        return [];
     }
+
+    const rows = (full.data ?? []) as ChatProdutoRow[];
 
     // Score em memória
     for (const r of rows) {
@@ -262,18 +250,14 @@ export async function runSearchProdutosDetailed(
                     .in("category_id", catIds)
                     .order("product_name")
                     .limit(limit * 2);
-                let catRows = (full.data ?? null) as ChatProdutoRow[] | null;
                 if (full.error) {
-                    const legacy = await admin
-                        .from("view_chat_produtos")
-                        .select(SELECT_LEGACY)
-                        .eq("company_id", companyId)
-                        .in("category_id", catIds)
-                        .order("product_name")
-                        .limit(limit * 2);
-                    catRows = (legacy.data ?? []) as ChatProdutoRow[];
+                    console.warn(
+                        "[searchProdutos] view_chat_produtos category error",
+                        full.error.message
+                    );
                 }
-                const rows = await finalizeRows(admin, catRows ?? []);
+                const catRows = (full.data ?? []) as ChatProdutoRow[];
+                const rows = await finalizeRows(admin, catRows);
                 const items = rows.slice(0, limit);
                 const result: SearchProdutosResult = {
                     items,

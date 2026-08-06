@@ -243,13 +243,13 @@ function sanitizeVisibleAgainstDraft(visible: string, draft: OrderDraft | null):
     const totalFromDraft =
         draft.grandTotal ?? items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
     let msg =
-        `Certo! Segue o rascunho que temos no chat (ainda nao e pedido confirmado na loja):\n${lines.join("\n")}\n` +
+        `Certo! Segue o rascunho que temos no chat (ainda não é pedido confirmado na loja):\n${lines.join("\n")}\n` +
         `Total estimado: R$ ${totalFromDraft.toFixed(2).replace(".", ",")}.\n\n`;
     if (draft.paymentMethod) {
-        msg += "Confirme o endereco nos botoes abaixo; a confirmacao final do pedido vem depois.";
+        msg += "Confirme o endereço nos botões abaixo; a confirmação final do pedido vem depois.";
     } else {
         msg +=
-            "Confirme o endereco (use o botao abaixo ou digite o endereco completo). Depois use os botoes de pagamento.";
+            "Confirme o endereço (use o botão abaixo ou digite o endereço completo). Depois use os botões de pagamento.";
     }
     return msg.trim();
 }
@@ -347,6 +347,7 @@ export class FullAiServiceAdapter implements AiService {
             embalagemId: String(r.id),
             label: String(r.display_name || r.product_name || "Item").slice(0, 40),
             price: Number((r as { preco_venda?: unknown }).preco_venda ?? NaN),
+            productName: String(r.product_name ?? "").trim() || null,
         })).map((p) => ({
             ...p,
             price: Number.isFinite(p.price) ? p.price : null,

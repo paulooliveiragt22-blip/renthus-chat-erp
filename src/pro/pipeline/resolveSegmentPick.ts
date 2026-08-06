@@ -6,6 +6,8 @@ export type SegmentPickRow = {
     embalagemId: string;
     label: string;
     price?: number | null;
+    /** Nome canónico do produto no catálogo (hint ao cliente). */
+    productName?: string | null;
 };
 
 function norm(text: string): string {
@@ -27,6 +29,7 @@ function rowToPick(r: {
         embalagemId: String(r.id),
         label: String(r.display_name || r.product_name || "Item").slice(0, 40),
         price: Number.isFinite(Number(r.preco_venda)) ? Number(r.preco_venda) : null,
+        productName: String(r.product_name ?? "").trim() || null,
     };
 }
 

@@ -20,31 +20,31 @@ export function buildOrderErrorMessage(
 ): string {
     switch (errorCode) {
         case "PRODUCT_NOT_FOUND":
-            return "Nao encontramos esse produto ou embalagem no catalogo. Confirme o item ou escolha outro.";
+            return "Não encontramos esse produto ou embalagem no catálogo. Confirme o item ou escolha outro.";
         case "OUT_OF_STOCK":
             if (details?.itemName) return `Estoque insuficiente para "${details.itemName}".`;
-            return details?.hint ?? "Um item ficou sem estoque ou com preco diferente. Peça um novo resumo no chat.";
+            return details?.hint ?? "Um item ficou sem estoque ou com preço diferente. Peça um novo resumo no chat.";
         case "INVALID_ADDRESS":
-            return "Nao consegui validar o endereco. Confira rua, numero e bairro.";
+            return "Não consegui validar o endereço. Confira rua, número e bairro.";
         case "INVALID_PAYMENT":
-            return "Forma de pagamento invalida.";
+            return "Forma de pagamento inválida.";
         case "INCONSISTENT_DRAFT":
             return "Dados inconsistentes do pedido. Revise os itens e tente novamente.";
         case "DB_ERROR":
-            return "Nao consegui cadastrar o cliente. Tente novamente.";
+            return "Não consegui cadastrar o cliente. Tente novamente.";
         case "RPC_ERROR":
-            return "Nao consegui salvar o pedido. Tente de novo em instantes.";
+            return "Não consegui salvar o pedido. Tente de novo em instantes.";
         case "MIN_ORDER_NOT_MET":
-            return "Pedido abaixo do minimo para entrega.";
+            return "Pedido abaixo do mínimo para entrega.";
         case "DELIVERY_AREA_NOT_SUPPORTED":
-            return "No momento nao atendemos esse endereco.";
+            return "No momento não atendemos esse endereço.";
         case "NEEDS_PHONE":
             return (
                 "Para finalizar, preciso do seu WhatsApp com DDD (ex.: 11999998888). " +
                 "É só uma vez — nas próximas compras já te reconheço."
             );
         default:
-            return "Nao consegui concluir seu pedido agora. Tente novamente.";
+            return "Não consegui concluir seu pedido agora. Tente novamente.";
     }
 }
 
@@ -62,7 +62,7 @@ function buildAddressText(address: DraftAddress): string {
 
 function paymentLabel(method: "pix" | "cash" | "card"): string {
     if (method === "pix") return "PIX";
-    if (method === "card") return "Cartao";
+    if (method === "card") return "Cartão";
     return "Dinheiro";
 }
 
@@ -99,7 +99,7 @@ export function buildOrderCustomerMessage(params: {
         draft.deliveryFee > 0 ? ` Taxa R$ ${moneyBr(draft.deliveryFee)}.` : " Taxa R$ 0,00.";
 
     if (requireApproval) {
-        return `Pedido ${orderCode} recebido. Itens: ${items}. Total R$ ${moneyBr(safeGrandTotal)} via ${payment}.${deliveryFeeText} Estamos confirmando e ja voltamos.`;
+        return `Pedido ${orderCode} recebido. Itens: ${items}. Total R$ ${moneyBr(safeGrandTotal)} via ${payment}.${deliveryFeeText} Estamos confirmando e já voltamos.`;
     }
     return `Pedido ${orderCode} confirmado. Itens: ${items}. Total R$ ${moneyBr(safeGrandTotal)} via ${payment}.${deliveryFeeText}`;
 }
