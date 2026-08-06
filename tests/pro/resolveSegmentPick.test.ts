@@ -92,4 +92,67 @@ describe("resolveSegmentPick", () => {
         assert.equal(r.kind, "unique");
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "un");
     });
+
+    it("skol lata caixa → CX Skol (não Heineken/Original UN)", () => {
+        const r = resolveSegmentPick("skol lata caixa", [
+            {
+                id: "skol-un",
+                display_name: "SKOL LATA",
+                product_name: "SKOL",
+                sigla_comercial: "UN",
+                preco_venda: 5,
+            },
+            {
+                id: "skol-cx",
+                display_name: "SKOL LATA (CX c/12)",
+                product_name: "SKOL",
+                sigla_comercial: "CX",
+                preco_venda: 48,
+            },
+            {
+                id: "hein-lata",
+                display_name: "HEINEKEN LATA",
+                product_name: "HEINEKEN",
+                sigla_comercial: "UN",
+                preco_venda: 6,
+            },
+            {
+                id: "orig-lata",
+                display_name: "ORIGINAL LATA",
+                product_name: "ORIGINAL",
+                sigla_comercial: "UN",
+                preco_venda: 6,
+            },
+        ]);
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "skol-cx");
+    });
+
+    it("skol lata sem caixa mas hits mistos → só marca Skol", () => {
+        const r = resolveSegmentPick("skol lata", [
+            {
+                id: "skol-un",
+                display_name: "SKOL LATA",
+                product_name: "SKOL",
+                sigla_comercial: "UN",
+                preco_venda: 5,
+            },
+            {
+                id: "hein-lata",
+                display_name: "HEINEKEN LATA",
+                product_name: "HEINEKEN",
+                sigla_comercial: "UN",
+                preco_venda: 6,
+            },
+            {
+                id: "orig-lata",
+                display_name: "ORIGINAL LATA",
+                product_name: "ORIGINAL",
+                sigla_comercial: "UN",
+                preco_venda: 6,
+            },
+        ]);
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "skol-un");
+    });
 });

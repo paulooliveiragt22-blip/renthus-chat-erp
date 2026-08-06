@@ -68,4 +68,30 @@ describe("applySearchRelevanceRerank", () => {
         assert.ok(!out.some((r) => r.id === "600"));
         assert.ok(out.some((r) => r.id === "ln-un" || r.id === "ln-cx"));
     });
+
+    it("skol lata → não mistura Heineken/Original só por lata", () => {
+        const rows = [
+            row({
+                id: "skol",
+                product_name: "SKOL",
+                display_name: "SKOL LATA",
+                score: 0.4,
+            }),
+            row({
+                id: "hein",
+                product_name: "HEINEKEN",
+                display_name: "HEINEKEN LATA",
+                score: 0.55,
+            }),
+            row({
+                id: "orig",
+                product_name: "ORIGINAL",
+                display_name: "ORIGINAL LATA",
+                score: 0.5,
+            }),
+        ];
+        const out = applySearchRelevanceRerank("skol lata", rows);
+        assert.ok(out.every((r) => /skol/i.test(String(r.product_name))));
+        assert.equal(out[0]?.id, "skol");
+    });
 });

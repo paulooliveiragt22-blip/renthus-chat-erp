@@ -354,7 +354,10 @@ export async function runProPipeline(
     }
 
     const swapIntent = swapIntentFromExtraction(orderExtraction);
-    const bootstrapSegmentPlan = buildBootstrapSegmentPlanFromExtraction(orderExtraction);
+    const bootstrapSegmentPlan = buildBootstrapSegmentPlanFromExtraction(
+        orderExtraction,
+        input.inboundText
+    );
 
     /**
      * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.

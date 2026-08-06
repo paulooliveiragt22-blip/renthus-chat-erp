@@ -4,7 +4,10 @@
 
 import type { OrderLineExtraction, CheckoutSwapIntent } from "@/src/domain/contracts/orderExtraction";
 import type { PaymentMethod } from "@/src/types/contracts";
-import { looksLikePackagingOnlyHint } from "./packagingHint";
+import {
+    enrichSearchTermPackagingFromUserText,
+    looksLikePackagingOnlyHint,
+} from "./packagingHint";
 
 export type BootstrapSegmentPlan = {
     segments: string[];
@@ -26,15 +29,18 @@ function norm(s: string): string {
 
 /** Monta segmentos/qty a partir da extração. Null se não houver itens. */
 export function buildBootstrapSegmentPlanFromExtraction(
-    extraction: OrderLineExtraction | null | undefined
+    extraction: OrderLineExtraction | null | undefined,
+    userText?: string | null
 ): BootstrapSegmentPlan | null {
     if (!extraction?.items?.length) return null;
 
+    const rawUser = String(userText ?? "").trim();
     const qtyByTerm: Record<string, number> = {};
     const segments: string[] = [];
     for (const it of extraction.items) {
-        const term = it.searchTerm.trim();
+        let term = it.searchTerm.trim();
         if (!term) continue;
+        if (rawUser) term = enrichSearchTermPackagingFromUserText(term, rawUser);
         const key = norm(term);
         qtyByTerm[key] = (qtyByTerm[key] ?? 0) + Number(it.quantity || 1);
         if (!segments.some((s) => norm(s) === key)) segments.push(term);
@@ -72,8 +78,8 @@ export function swapIntentFromExtraction(
 
 /** @deprecated Use buildBootstrapSegmentPlanFromExtraction */
 export function buildBootstrapSegmentPlan(
-    _userText: string,
+    userText: string,
     extraction: OrderLineExtraction | null | undefined
 ): BootstrapSegmentPlan | null {
-    return buildBootstrapSegmentPlanFromExtraction(extraction);
+    return buildBootstrapSegmentPlanFromExtraction(extraction, userText);
 }

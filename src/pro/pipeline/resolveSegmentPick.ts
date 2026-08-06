@@ -57,6 +57,36 @@ function isCasePack(r: {
     return sigla.includes("CX") || /\bcx\b|caixa|c\/\d+/u.test(name);
 }
 
+/** Tokens de marca/produto (não descritor/embalagem). */
+function brandTokens(segment: string): string[] {
+    const stop = new Set([
+        "caixa",
+        "caixas",
+        "cx",
+        "fardo",
+        "pack",
+        "pacote",
+        "unidade",
+        "unidades",
+        "un",
+        "lata",
+        "long",
+        "neck",
+        "longneck",
+        "garrafa",
+        "pet",
+        "litros",
+        "litro",
+        "quero",
+        "uma",
+        "duas",
+        "dois",
+    ]);
+    return norm(segment)
+        .split(" ")
+        .filter((t) => t.length >= 3 && !stop.has(t) && !/^\d/.test(t));
+}
+
 function scoreItem(
     segment: string,
     r: {
@@ -84,6 +114,14 @@ function scoreItem(
         if (/\blong\s*neck|longneck\b/u.test(name)) score += 12;
         if (/\b600\b/u.test(name)) score -= 8;
         if (/\blata\b/u.test(name)) score -= 8;
+    }
+
+    // Marca/produto > descritor genérico ("lata")
+    const brands = brandTokens(seg);
+    if (brands.length) {
+        const hit = brands.filter((t) => name.includes(t));
+        if (hit.length) score += 14 + hit.length * 4;
+        else score -= 16;
     }
 
     // Tokens do segmento presentes no nome
@@ -115,9 +153,19 @@ export function resolveSegmentPick(
     if (!items.length) return { kind: "empty" };
     if (items.length === 1) return { kind: "unique", pick: rowToPick(items[0]!) };
 
-    const ranked = items
+    let ranked = items
         .map((r) => ({ r, score: scoreItem(segment, r) }))
         .sort((a, b) => b.score - a.score);
+
+    // Se o segmento tem marca e algum hit casa, descarta outras marcas
+    const brands = brandTokens(segment);
+    if (brands.length) {
+        const withBrand = ranked.filter((x) => {
+            const name = norm(String(x.r.display_name || x.r.product_name || ""));
+            return brands.some((t) => name.includes(t));
+        });
+        if (withBrand.length >= 1) ranked = withBrand;
+    }
 
     const best = ranked[0]!;
     const second = ranked[1];

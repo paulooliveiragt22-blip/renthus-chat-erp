@@ -10,7 +10,9 @@ Responda APENAS com JSON válido:
 
 Regras:
 - searchTerm = termo curto para BUSCA no catálogo (nunca UUID, nunca preço, nunca invente marca).
-- quantity = número > 0.
+- Inclua no searchTerm a embalagem se o cliente pediu: caixa/cx/fardo/pacote/unidade (ex.: "uma caixa de skol lata" → searchTerm "skol lata caixa", quantity 1).
+- Inclua descritor (lata, long neck, 2 litros) e a marca no searchTerm.
+- quantity = número de embalagens pedidas (> 0). "uma caixa" = quantity 1 (da caixa, não das unidades soltas).
 - paymentMethod só se o cliente disse pix/dinheiro/cartão; senão null.
 - useSavedAddress true se pediu endereço salvo / de sempre.
 - Se for TROCA/SUBSTITUIÇÃO (ex.: "troca o salgadinho pela caixa de 15"):

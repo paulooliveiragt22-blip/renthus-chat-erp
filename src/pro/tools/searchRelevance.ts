@@ -184,7 +184,8 @@ export function applySearchRelevanceRerank(
         }
 
         for (const t of hints.brandishTokens) {
-            if (hay.includes(t)) score += 0.06;
+            if (hay.includes(t)) score += 0.35;
+            else score -= 0.25;
         }
 
         return { row: { ...r, score }, score };
@@ -194,6 +195,13 @@ export function applySearchRelevanceRerank(
 
     // Se há hits de descritor, descarta contraditórios muito fracos
     let out = scored.map((s) => s.row);
+    if (hints.brandishTokens.length) {
+        const withBrand = out.filter((r) => {
+            const hay = rowHaystack(r);
+            return hints.brandishTokens.some((t) => hay.includes(t));
+        });
+        if (withBrand.length >= 1) out = withBrand;
+    }
     if (anyDescriptorHit) {
         const strong = out.filter((r) =>
             hints.descriptors.some((d) => hasDescriptor(rowHaystack(r), d))
