@@ -6,9 +6,11 @@ import { SupabaseMetricsAdapter } from "../adapters/metrics/metrics.supabase";
 import { OrderServiceV2Adapter } from "../adapters/order/order.service.v2";
 import { SupabaseSessionRepository } from "../adapters/supabase/session.repository.supabase";
 import { WhatsAppMessageGateway } from "../adapters/whatsapp/message.gateway.whatsapp";
+import { MetaMessageGateway } from "../adapters/meta/message.gateway.meta";
 import { ProIntentClassifierService } from "../services/intent/intent.service";
 import type { MetricsPort } from "../ports/metrics.port";
 import type { PipelineDependencies } from "./context";
+import type { MessageGateway } from "../ports/message.gateway";
 
 /** Permite testes e integrações substituir portas sem alterar `ProcessMessageParams`. */
 export type ProPipelineDependencyOverrides = Partial<PipelineDependencies>;
@@ -27,6 +29,14 @@ function makeMetricsPort(admin: ProcessMessageParams["admin"]): MetricsPort {
     return new ConsoleMetricsAdapter();
 }
 
+function makeMessageGateway(params: ProcessMessageParams): MessageGateway {
+    const channel = params.messagingChannel ?? "whatsapp";
+    if (channel === "instagram" || channel === "messenger") {
+        return new MetaMessageGateway(params.admin, channel);
+    }
+    return new WhatsAppMessageGateway(params.admin, params.waConfig);
+}
+
 export function makeProPipelineDependencies(
     params: ProcessMessageParams,
     options?: MakeProPipelineDependenciesOptions
@@ -35,7 +45,7 @@ export function makeProPipelineDependencies(
         sessionRepo: new SupabaseSessionRepository(params.admin, {
             idleMinutes: options?.sessionIdleMinutes,
         }),
-        messageGateway: new WhatsAppMessageGateway(params.admin, params.waConfig),
+        messageGateway: makeMessageGateway(params),
         metrics: makeMetricsPort(params.admin),
         logger: new ConsoleLoggerAdapter(),
         intentService: new ProIntentClassifierService(params.admin),

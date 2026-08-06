@@ -4,8 +4,12 @@
  */
 
 export type Locale = "pt-BR";
-export type ChatbotTier = "starter" | "pro";
+/** @deprecated Starter removido — motor único PRO. Mantido para tipagem legada de testes. */
+export type ChatbotTier = "pro";
 export type PaymentMethod = "pix" | "cash" | "card";
+
+/** Canal de mensagem Meta / WhatsApp (ActorRef + TenantRef). */
+export type MessagingChannelRef = "whatsapp" | "instagram" | "messenger";
 
 export type Intent =
     | "order_intent"
@@ -22,6 +26,7 @@ export type ProStep =
     | "pro_awaiting_payment_method"
     | "pro_awaiting_change_amount"
     | "pro_awaiting_confirmation"
+    | "pro_awaiting_phone"
     | "pro_escalation_choice"
     | "handover";
 
@@ -29,11 +34,18 @@ export interface TenantRef {
     companyId: string;
     threadId: string;
     messageId: string;
+    /**
+     * WhatsApp: E.164. IG/Messenger: vazio até vincular telefone;
+     * use `channelUserId` para envio.
+     */
     phoneE164: string;
+    messagingChannel?: MessagingChannelRef;
+    /** IGSID / PSID / E.164 — identidade de envio no canal. */
+    channelUserId?: string;
 }
 
 export interface ActorRef {
-    channel: "whatsapp";
+    channel: MessagingChannelRef;
     source: "meta_webhook" | "internal";
     profileName?: string | null;
 }
@@ -168,6 +180,12 @@ export interface ProSessionState {
     aiTurnCount?: number;
     /** ISO do início da janela de cota de turnos IA. */
     aiWindowStartedAt?: string | null;
+    /**
+     * 1º checkout IG/Messenger: precisa coletar telefone antes de fechar pedido.
+     * `resumeStepAfterPhone` guarda o passo anterior (em geral confirmação).
+     */
+    needsPhone?: boolean;
+    resumeStepAfterPhone?: ProStep | null;
 }
 
 export interface IntentDecision {
@@ -233,6 +251,19 @@ export interface ProPipelineInput {
         aiSessionWindowMinutes: number;
         aiMaxTurnsPerSession: number;
     } | null;
+    /**
+     * Perfil de capacidade (essencial/basico, pro|market/avancado, ou degradado).
+     * Define orçamento de tools/histórico e se o LLM está ligado.
+     */
+    aiCapability?: {
+        tier: "degradado" | "basico" | "avancado";
+        maxToolRounds: number;
+        maxHistoryTurns: number;
+        aiTimeoutMs: number;
+        llmEnabled: boolean;
+        model: string;
+        planKey?: string | null;
+    } | null;
 }
 
 export interface ProPipelineOutput {
@@ -268,6 +299,8 @@ export interface PipelinePolicies {
     maxHistoryTurns: number;
     /** Timeout (ms) da chamada ao modelo no adapter de IA; alinhado a `aiStage`. */
     aiTimeoutMs: number;
+    /** false = perfil degradado: sem LLM no intent nem no aiStage. */
+    llmEnabled?: boolean;
     escalationRule: {
         unknownConsecutive: number;
         lowConfidenceConsecutive: number;
@@ -379,7 +412,8 @@ export type OrderServiceResult =
             | "INVALID_ADDRESS"
             | "INCONSISTENT_DRAFT"
             | "RPC_ERROR"
-            | "DB_ERROR";
+            | "DB_ERROR"
+            | "NEEDS_PHONE";
         retryable: boolean;
     };
 

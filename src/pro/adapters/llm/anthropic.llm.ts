@@ -62,6 +62,8 @@ export class AnthropicLlmAdapter implements LlmPort {
                     const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
                     await debitFromAnthropicUsage(this.admin, req.companyId, response.usage, {
                         source: req.purpose ?? "llm_port_anthropic",
+                        provider: "anthropic",
+                        model,
                     });
                 } catch {
                     /* billing best-effort */

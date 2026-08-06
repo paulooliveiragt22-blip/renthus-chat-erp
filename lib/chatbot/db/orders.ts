@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CartItem, Customer } from "../types";
 import { cartTotal } from "../utils";
 import { botReply } from "../botSend";
+import { resolveOrCreateCustomerByIdentity } from "./channelIdentity";
 
 // ─── Envio (local helper) ─────────────────────────────────────────────────────
 
@@ -17,6 +18,10 @@ async function reply(admin: SupabaseClient, companyId: string, threadId: string,
 
 // ─── Cliente ──────────────────────────────────────────────────────────────────
 
+/**
+ * Resolve/cria cliente WhatsApp via identidade de canal (RPC).
+ * Fallback: lookup/insert legado se a RPC falhar.
+ */
 export async function getOrCreateCustomer(
     admin: SupabaseClient,
     companyId: string,
@@ -24,12 +29,29 @@ export async function getOrCreateCustomer(
     name?: string | null
 ): Promise<Customer | null> {
     const phoneClean = phoneE164.replaceAll(/\D/g, "");
+    const externalId = phoneE164.startsWith("+") ? phoneE164 : `+${phoneClean}`;
+
+    const viaIdentity = await resolveOrCreateCustomerByIdentity(admin, {
+        companyId,
+        identity: { channel: "whatsapp", externalId },
+        name: name ?? "Cliente WhatsApp",
+        origem: "chatbot",
+    });
+
+    if (viaIdentity?.customerId) {
+        const { data } = await admin
+            .from("customers")
+            .select("id, name, phone, address, is_adult")
+            .eq("id", viaIdentity.customerId)
+            .maybeSingle();
+        if (data) return data as Customer;
+    }
 
     const { data: existing } = await admin
         .from("customers")
         .select("id, name, phone, address, is_adult")
         .eq("company_id", companyId)
-        .or(`phone.eq.${phoneE164},phone.eq.${phoneClean}`)
+        .or(`phone.eq.${phoneE164},phone.eq.${phoneClean},phone.eq.${externalId}`)
         .limit(1)
         .maybeSingle();
 
@@ -37,7 +59,13 @@ export async function getOrCreateCustomer(
 
     const { data: created, error } = await admin
         .from("customers")
-        .insert({ company_id: companyId, name: name ?? "Cliente WhatsApp", phone: phoneE164 })
+        .insert({
+            company_id: companyId,
+            name: name ?? "Cliente WhatsApp",
+            phone: phoneE164,
+            phone_e164: externalId,
+            origem: "chatbot",
+        })
         .select("id, name, phone, address, is_adult")
         .single();
 
@@ -103,15 +131,15 @@ export async function createOrder(
     }
 
     const items = cart.map((item) => ({
-        order_id:           order.id,
-        company_id:         companyId,
-        product_id:         item.productId,
+        order_id:             order.id,
+        company_id:           companyId,
+        product_id:           item.productId,
         produto_embalagem_id: item.variantId,
-        product_name:       item.name,
-        quantity:           item.qty,
-        qty:                item.qty,
-        unit_price:         item.price,
-        unit_type:          item.isCase ? "case" : "unit",
+        product_name:         item.name,
+        quantity:             item.qty,
+        qty:                  item.qty,
+        unit_price:           item.price,
+        unit_type:            item.isCase ? "case" : "unit",
         // line_total é coluna gerada no banco; não deve ser enviada
     }));
 

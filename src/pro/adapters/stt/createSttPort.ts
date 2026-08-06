@@ -3,7 +3,8 @@ import { SttProviderError } from "@/src/pro/ports/speechToText.port";
 import { OpenAiWhisperSttAdapter } from "./openai.whisper";
 
 /**
- * - `LLM_STT_PROVIDER=openai` (ou omissão com OPENAI_API_KEY) → Whisper
+ * - `LLM_STT_PROVIDER=openai` (ou omissão com OPENAI_API_KEY) → OpenAI STT
+ * - `LLM_STT_MODEL` default: `gpt-4o-mini-transcribe` (override: whisper-1, gpt-4o-transcribe…)
  * - `LLM_STT_PROVIDER=none` → desliga STT
  */
 export function createSttPort(): SpeechToTextPort | null {

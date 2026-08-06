@@ -40,7 +40,12 @@ export async function POST(
     };
 
     const session = verifyWebMenuCheckoutSession(String(body.sessionToken ?? ""));
-    if (!session || session.slug !== slugParsed.slug) {
+    if (
+        !session ||
+        session.slug !== slugParsed.slug ||
+        session.needsPhone ||
+        !session.phoneE164?.trim()
+    ) {
         return NextResponse.json({ ok: false, error: "session_invalid" }, { status: 401 });
     }
 

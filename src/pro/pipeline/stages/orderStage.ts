@@ -13,6 +13,7 @@ import {
     looksLikeCheckoutRevisionText,
 } from "../orderConfirmationText";
 import { executeOrderRpcTransition, resolveStepAfterOrderStage } from "../proStepTransitions";
+import { beginAwaitingPhone } from "../handleAwaitingPhone";
 
 /** Resultado do estágio de pedido para telemetria e testes (gates antes de `createFromDraft`). */
 export type OrderStageOutcome =
@@ -237,6 +238,16 @@ export async function orderStage(params: {
         errorCode: orderResult.ok ? undefined : orderResult.errorCode,
         retryable: orderResult.ok ? undefined : orderResult.retryable,
     });
+
+    if (!orderResult.ok && orderResult.errorCode === "NEEDS_PHONE") {
+        return {
+            state: beginAwaitingPhone(state),
+            outboundText: orderResult.customerMessage,
+            orderResult,
+            outcome: "order_create_failed",
+        };
+    }
+
     return {
         state: {
             ...state,

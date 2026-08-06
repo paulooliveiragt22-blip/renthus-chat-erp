@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderService } from "../../services/order/order.types";
 import type { DraftAddress, OrderDraft, OrderServiceResult } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
+import { resolveOrCreateCustomerByIdentity } from "@/lib/chatbot/db/channelIdentity";
 import { loadPackRowForValidation } from "@/lib/chatbot/pro/prepareOrderDraft";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 
@@ -37,6 +38,11 @@ export function buildOrderErrorMessage(
             return "Pedido abaixo do minimo para entrega.";
         case "DELIVERY_AREA_NOT_SUPPORTED":
             return "No momento nao atendemos esse endereco.";
+        case "NEEDS_PHONE":
+            return (
+                "Para finalizar, preciso do seu WhatsApp com DDD (ex.: 11999998888). " +
+                "É só uma vez — nas próximas compras já te reconheço."
+            );
         default:
             return "Nao consegui concluir seu pedido agora. Tente novamente.";
     }
@@ -205,8 +211,56 @@ export class OrderServiceV2Adapter implements OrderService {
             };
         }
 
-        const customer = await getOrCreateCustomer(this.admin, tenant.companyId, tenant.phoneE164, null);
-        if (!customer?.id) {
+        const messagingChannel = tenant.messagingChannel ?? "whatsapp";
+        const channelUserId = (tenant.channelUserId || tenant.phoneE164 || "").trim();
+
+        let customerId: string | null = null;
+        if (messagingChannel === "whatsapp") {
+            const customer = await getOrCreateCustomer(
+                this.admin,
+                tenant.companyId,
+                tenant.phoneE164,
+                null
+            );
+            customerId = customer?.id ?? null;
+        } else {
+            if (!channelUserId) {
+                return {
+                    ok: false,
+                    customerMessage: buildOrderErrorMessage("NEEDS_PHONE"),
+                    errorCode: "NEEDS_PHONE",
+                    retryable: false,
+                };
+            }
+            const resolved = await resolveOrCreateCustomerByIdentity(this.admin, {
+                companyId: tenant.companyId,
+                identity: {
+                    channel: messagingChannel,
+                    externalId: channelUserId,
+                },
+                name: null,
+                origem: messagingChannel,
+            });
+            if (!resolved?.customerId) {
+                return {
+                    ok: false,
+                    customerMessage: buildOrderErrorMessage("DB_ERROR"),
+                    errorCode: "DB_ERROR",
+                    retryable: true,
+                };
+            }
+            if (resolved.needsPhone) {
+                return {
+                    ok: false,
+                    customerMessage: buildOrderErrorMessage("NEEDS_PHONE"),
+                    errorCode: "NEEDS_PHONE",
+                    retryable: false,
+                };
+            }
+            customerId = resolved.customerId;
+        }
+
+        if (!customerId) {
             return {
                 ok: false,
                 customerMessage: buildOrderErrorMessage("DB_ERROR"),
@@ -214,6 +268,7 @@ export class OrderServiceV2Adapter implements OrderService {
                 retryable: true,
             };
         }
+        const customer = { id: customerId };
 
         const address = draft.address;
         if (!address) {
@@ -285,7 +340,7 @@ export class OrderServiceV2Adapter implements OrderService {
             p_status: "new",
             p_confirmation_status: confirmationStatus,
             p_source: "ai_chat_pro_v2",
-            p_channel: "whatsapp",
+            p_channel: messagingChannel,
             p_total_amount: draft.grandTotal,
             p_total: draft.totalItems,
             p_delivery_fee: draft.deliveryFee,

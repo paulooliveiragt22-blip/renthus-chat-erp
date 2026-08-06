@@ -56,6 +56,8 @@ export default function CheckoutDrawer({
     const [error, setError] = useState<string | null>(null);
 
     const [sessionToken, setSessionToken] = useState<string | null>(null);
+    const [needsPhone, setNeedsPhone] = useState(false);
+    const [wmTokenFromUrl, setWmTokenFromUrl] = useState<string | null>(null);
     const [customerName, setCustomerName] = useState("");
     const [customerPhone, setCustomerPhone] = useState("");
     const [isNewCustomer, setIsNewCustomer] = useState(false);
@@ -83,6 +85,7 @@ export default function CheckoutDrawer({
         const params = new URLSearchParams(globalThis.location.search);
         const wm = params.get("wm");
         if (!wm) return;
+        setWmTokenFromUrl(wm);
         let cancelled = false;
         setBusy(true);
         void fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
@@ -94,7 +97,7 @@ export default function CheckoutDrawer({
                 const json = (await res.json()) as PublicMenuSessionOk | { ok: false; error: string };
                 if (cancelled) return;
                 if (!json.ok) {
-                    setError("Não foi possível identificar seu WhatsApp. Informe telefone e nome.");
+                    setError("Não foi possível identificar seu cadastro. Informe telefone e nome.");
                     return;
                 }
                 applySession(json);
@@ -113,17 +116,21 @@ export default function CheckoutDrawer({
     }, [slug]);
 
     function applySession(json: PublicMenuSessionOk) {
-        setSessionToken(json.sessionToken);
+        const phonePending = Boolean(json.needsPhone || json.customer.needsPhone);
+        setNeedsPhone(phonePending);
+        setSessionToken(phonePending ? null : json.sessionToken);
         setCustomerName(json.customer.name ?? "");
-        setCustomerPhone(json.customer.phoneE164);
-        setIsNewCustomer(json.customer.isNew);
-        setAddresses(json.addresses);
-        saveStoredMenuSession(slug, {
-            sessionToken: json.sessionToken,
-            customerName: json.customer.name,
-            phoneE164: json.customer.phoneE164,
-        });
-        if (json.addresses.length > 0) {
+        setCustomerPhone(json.customer.phoneE164 || "");
+        setIsNewCustomer(json.customer.isNew || phonePending);
+        setAddresses(phonePending ? [] : json.addresses);
+        if (!phonePending) {
+            saveStoredMenuSession(slug, {
+                sessionToken: json.sessionToken,
+                customerName: json.customer.name,
+                phoneE164: json.customer.phoneE164,
+            });
+        }
+        if (!phonePending && json.addresses.length > 0) {
             setAddressMode("saved");
             const principal =
                 json.addresses.find((a) => a.isPrincipal) ?? json.addresses[0]!;
@@ -141,7 +148,7 @@ export default function CheckoutDrawer({
             setError("Adicione pelo menos um item ao pedido.");
             return;
         }
-        if (sessionToken) {
+        if (sessionToken && !needsPhone) {
             setStep("address");
             return;
         }
@@ -156,6 +163,7 @@ export default function CheckoutDrawer({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    ...(wmTokenFromUrl ? { wmToken: wmTokenFromUrl } : {}),
                     phone: customerPhone,
                     name: customerName || undefined,
                 }),
@@ -173,6 +181,10 @@ export default function CheckoutDrawer({
                 return;
             }
             applySession(json);
+            if (json.needsPhone || json.customer.needsPhone) {
+                setError("Informe um telefone válido para continuar.");
+                return;
+            }
             setStep("address");
         } catch {
             setError("Falha de conexão. Tente novamente.");

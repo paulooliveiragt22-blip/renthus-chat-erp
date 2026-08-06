@@ -57,8 +57,8 @@ export const PLAN_CATALOG: Record<
     },
     market: {
         name: "Market",
-        monthlyPriceCents: 34900,
-        description: "Tudo do Pro + iFood/Aiqfome + IG/Messenger + mesa + app",
+        monthlyPriceCents: 39700,
+        description: "Tudo do Pro + iFood/Aiqfome + IG/Messenger + mesa",
         features: [
             "whatsapp_messages",
             "ai_parser",
@@ -73,9 +73,8 @@ export const PLAN_CATALOG: Record<
             "marketplace_aiqfome",
             "omnichannel_ig_messenger",
             "table_service",
-            "mobile_app",
         ],
-        aiIncludedCents: 3490,
+        aiIncludedCents: 3970,
     },
 };
 

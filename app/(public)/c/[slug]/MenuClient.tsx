@@ -97,6 +97,9 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
             .then(async (res) => {
                 const json = (await res.json()) as PublicMenuSessionOk | { ok: false };
                 if (!json.ok) return;
+                if (json.needsPhone || json.customer.needsPhone || !json.customer.phoneE164) {
+                    return;
+                }
                 saveStoredMenuSession(store.slug, {
                     sessionToken: json.sessionToken,
                     customerName: json.customer.name,

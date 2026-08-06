@@ -63,7 +63,14 @@ export function routeStage(params: {
         return {
             mode: "direct_reply",
             state: { ...state, step },
-            outbound: [{ kind: "text", text: "Vou te encaminhar para um atendente humano." }],
+            outbound: [
+                {
+                    kind: "text",
+                    text:
+                        "Vou te conectar com um atendente.\n\n" +
+                        "_Aguarde, alguém responderá em breve._",
+                },
+            ],
         };
     }
 

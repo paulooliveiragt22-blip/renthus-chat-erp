@@ -10,6 +10,7 @@ const STEPS_IMPLYING_ORDER_SESSION: ReadonlySet<ProStep> = new Set([
     "pro_awaiting_payment_method",
     "pro_awaiting_change_amount",
     "pro_awaiting_confirmation",
+    "pro_awaiting_phone",
 ]);
 
 /**

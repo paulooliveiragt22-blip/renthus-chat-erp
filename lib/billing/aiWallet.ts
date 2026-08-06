@@ -1,6 +1,8 @@
 /**
- * Carteira de crédito IA (Haiku): incluso 10% do plano/mês + packs prepaid.
- * Sem saldo: trava só a IA (motor cai no Flow/Starter).
+ * Carteira de crédito IA: incluso 10% do plano/mês + packs prepaid.
+ * Debita texto (LLM) e STT (áudio). Sem saldo: trava a IA (perfil degradado).
+ *
+ * Preços STT: ver `lib/billing/sttPricing.ts` (OpenAI estimated $/min).
  */
 
 import "server-only";
@@ -8,10 +10,22 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getActiveSubscription } from "@/lib/billing/entitlements";
 import { PLAN_CATALOG, normalizePlanKey } from "@/lib/billing/planCatalog";
+import {
+    estimateSttCostBrlCents,
+    normalizeSttDurationSec,
+    sttUsdPerMinute,
+} from "@/lib/billing/sttPricing";
+import { estimateLlmCostBrlCents } from "@/lib/billing/llmPricing";
 
-/** Anthropic Haiku 4.5 — USD por 1M tokens */
-const HAIKU_INPUT_USD_PER_M = 1;
-const HAIKU_OUTPUT_USD_PER_M = 5;
+export {
+    estimateSttCostBrlCents,
+    estimateSttDurationFromBytes,
+    normalizeSttDurationSec,
+    sttUsdPerMinute,
+    STT_OPUS_BYTES_PER_SEC,
+} from "@/lib/billing/sttPricing";
+
+export { estimateLlmCostBrlCents, resolveLlmRates } from "@/lib/billing/llmPricing";
 
 function yearMonthUtc(d = new Date()): string {
     const y = d.getUTCFullYear();
@@ -19,17 +33,9 @@ function yearMonthUtc(d = new Date()): string {
     return `${y}-${String(m).padStart(2, "0")}`;
 }
 
-function usdBrlRate(): number {
-    const n = Number(process.env.AI_USD_BRL_RATE ?? "5.5");
-    return Number.isFinite(n) && n > 0 ? n : 5.5;
-}
-
-/** Custo em centavos BRL a partir do uso Anthropic. */
+/** @deprecated Use `estimateLlmCostBrlCents(model, …)`. Mantido: Haiku 4.5. */
 export function estimateHaikuCostBrlCents(inputTokens: number, outputTokens: number): number {
-    const usd =
-        (Math.max(0, inputTokens) / 1_000_000) * HAIKU_INPUT_USD_PER_M +
-        (Math.max(0, outputTokens) / 1_000_000) * HAIKU_OUTPUT_USD_PER_M;
-    return Math.max(1, Math.ceil(usd * usdBrlRate() * 100));
+    return estimateLlmCostBrlCents("claude-haiku-4-5", inputTokens, outputTokens);
 }
 
 export type AiWalletSnapshot = {
@@ -339,7 +345,10 @@ type AnthropicUsageLike = {
     output_tokens?: number | null;
 };
 
-/** Debita carteira a partir do `usage` da resposta Anthropic (best-effort). */
+/**
+ * Debita carteira a partir do `usage` LLM (Anthropic ou OpenAI via adapter).
+ * Prefira passar `model` em `meta` (ou 4º arg) — sem modelo usa fallback caro.
+ */
 export async function debitFromAnthropicUsage(
     admin: SupabaseClient,
     companyId: string,
@@ -350,14 +359,54 @@ export async function debitFromAnthropicUsage(
     const inputTokens = Number(usage.input_tokens ?? 0);
     const outputTokens = Number(usage.output_tokens ?? 0);
     if (inputTokens <= 0 && outputTokens <= 0) return;
-    const cost = estimateHaikuCostBrlCents(inputTokens, outputTokens);
+    const model =
+        typeof meta?.model === "string" && meta.model.trim()
+            ? meta.model.trim()
+            : null;
+    const cost = estimateLlmCostBrlCents(model, inputTokens, outputTokens);
     try {
         await debitAiUsage(admin, companyId, cost, {
+            kind: "llm",
+            model: model ?? "unknown",
             input_tokens: inputTokens,
             output_tokens: outputTokens,
             ...(meta ?? {}),
         });
     } catch (e) {
-        console.warn("[aiWallet] falha ao debitar uso Anthropic:", e);
+        console.warn("[aiWallet] falha ao debitar uso LLM:", e);
+    }
+}
+
+export type SttUsageLike = {
+    model: string;
+    durationSec: number;
+    byteLength?: number;
+};
+
+/**
+ * Debita carteira pelo STT (áudio → texto). Best-effort.
+ * Retorna false se não houver saldo (chamador deve ter checado `canUseAi` antes).
+ */
+export async function debitFromSttUsage(
+    admin: SupabaseClient,
+    companyId: string,
+    usage: SttUsageLike | null | undefined,
+    meta?: Record<string, unknown>
+): Promise<boolean> {
+    if (!companyId || !usage) return true;
+    const durationSec = normalizeSttDurationSec(usage.durationSec);
+    const cost = estimateSttCostBrlCents(usage.model, durationSec);
+    try {
+        return await debitAiUsage(admin, companyId, cost, {
+            kind: "stt",
+            model: usage.model,
+            duration_sec: durationSec,
+            usd_per_minute: sttUsdPerMinute(usage.model),
+            byte_length: usage.byteLength ?? null,
+            ...(meta ?? {}),
+        });
+    } catch (e) {
+        console.warn("[aiWallet] falha ao debitar uso STT:", e);
+        return false;
     }
 }

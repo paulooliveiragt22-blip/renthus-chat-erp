@@ -47,13 +47,13 @@ const PLANS = [
         key:          "market" as const,
         name:         "Market",
         popular:      false,
-        description:  "Omnichannel: iFood, redes, mesa e app",
-        monthlyPrice: 349,
+        description:  "Omnichannel: iFood, redes e atendimento de mesa",
+        monthlyPrice: 397,
         features: [
             "Tudo do Pro",
-            "iFood + Aiqfome (próxima versão)",
-            "Instagram + Messenger (próxima versão)",
-            "Mesa/salão + app Flutter (próxima versão)",
+            "iFood + Aiqfome",
+            "Instagram + Messenger",
+            "Atendimento de mesa / salão",
         ],
     },
 ] as const;

@@ -9,7 +9,7 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 |-----|------|--------|---------|
 | `essencial` | Essencial | **R$ 197** | Entrada — canal próprio |
 | `pro` | Pro | **R$ 279** | Âncora (mais popular) — ERP + IA |
-| `market` | Market | **R$ 349** | Omni + marketplaces + mesa + app |
+| `market` | Market | **R$ 397** | Omni + marketplaces + mesa |
 
 ### Essencial (R$ 197)
 - WhatsApp (Meta) + Flow + cardápio web (free)
@@ -23,9 +23,9 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 - PDV + estoque + financeiro + impressão automática
 - **Sem** marketplace (iFood/Aiqfome)
 
-### Market (R$ 349)
-- Tudo do Pro (crédito IA R$ 34,90)
-- **Próxima versão:** iFood + Aiqfome · Instagram + Messenger · atendimento de mesa · app Flutter
+### Market (R$ 397)
+- Tudo do Pro (crédito IA R$ 39,70)
+- iFood + Aiqfome · Instagram + Messenger · atendimento de mesa / salão
 
 ## Crédito IA (Haiku 4.5)
 - Preço API: **USD $1/M input** · **$5/M output** (cache hit $0,10/M)

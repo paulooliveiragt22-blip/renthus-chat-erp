@@ -14,6 +14,9 @@ export type SttTranscribeResult = {
     text: string;
     provider: string;
     model: string;
+    /** Duração cobrável em segundos (API ou estimativa). */
+    durationSec: number;
+    byteLength: number;
 };
 
 export interface SpeechToTextPort {

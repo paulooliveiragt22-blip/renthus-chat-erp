@@ -13,6 +13,10 @@
   "include": [
     "proxy.ts",
     "lib/billing/computeNextBillingAt.ts",
+    "lib/billing/sttPricing.ts",
+    "lib/billing/llmPricing.ts",
+    "lib/billing/aiWallet.ts",
+    "src/pro/pipeline/applyHandover.ts",
     "lib/public-menu/**/*.ts",
     "src/types/contracts.public-menu.ts",
     "src/types/contracts.marketplace.ts",

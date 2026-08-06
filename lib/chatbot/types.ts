@@ -19,6 +19,10 @@ export interface ProcessMessageParams {
     phoneE164:      string;
     text:           string;
     profileName?:   string | null;
+    /** Canal de entrada (default whatsapp). */
+    messagingChannel?: "whatsapp" | "instagram" | "messenger";
+    /** IGSID/PSID/E.164 — identidade no canal (default = phoneE164). */
+    channelUserId?: string;
     /** Credenciais do canal WhatsApp da empresa (token + phoneNumberId) */
     waConfig?:      WaConfig;
     /** Flow ID do catálogo configurado para esta empresa / canal (`provider_metadata.catalog_flow_id`). */

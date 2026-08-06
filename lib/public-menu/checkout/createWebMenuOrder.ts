@@ -30,6 +30,9 @@ export async function createWebMenuOrder(
     if (!session || session.companyId !== params.companyId || session.slug !== params.slug) {
         return { ok: false, error: "session_invalid" };
     }
+    if (session.needsPhone || !session.phoneE164?.trim()) {
+        return { ok: false, error: "session_invalid" };
+    }
 
     const itemsIn = params.input.items ?? [];
     if (!Array.isArray(itemsIn) || itemsIn.length === 0) {

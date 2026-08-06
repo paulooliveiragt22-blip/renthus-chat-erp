@@ -25,6 +25,7 @@ export const DEFAULT_PRO_POLICIES: PipelinePolicies = {
     maxToolRounds: 12,
     maxHistoryTurns: 24,
     aiTimeoutMs: 15_000,
+    llmEnabled: true,
     escalationRule: {
         /** Dois `INTENT_UNKNOWN` seguidos escalavam cedo demais (ex.: produto válido após busca). */
         unknownConsecutive: 3,
@@ -32,6 +33,26 @@ export const DEFAULT_PRO_POLICIES: PipelinePolicies = {
         noProgressTurns: 3,
     },
 };
+
+export function policiesFromAiCapability(
+    capability: ProPipelineInput["aiCapability"]
+): PipelinePolicies {
+    if (!capability || !capability.llmEnabled || capability.tier === "degradado") {
+        return {
+            ...DEFAULT_PRO_POLICIES,
+            maxToolRounds: 0,
+            maxHistoryTurns: 0,
+            llmEnabled: false,
+        };
+    }
+    return {
+        ...DEFAULT_PRO_POLICIES,
+        maxToolRounds: capability.maxToolRounds,
+        maxHistoryTurns: capability.maxHistoryTurns,
+        aiTimeoutMs: capability.aiTimeoutMs,
+        llmEnabled: true,
+    };
+}
 
 export function buildPipelineContext(params: {
     input: ProPipelineInput;
@@ -43,13 +64,18 @@ export function buildPipelineContext(params: {
         tenant: input.tenant,
         actor: input.actor,
         session,
-        policies: policies ?? DEFAULT_PRO_POLICIES,
+        policies: policies ?? policiesFromAiCapability(input.aiCapability) ?? DEFAULT_PRO_POLICIES,
         nowIso: input.nowIso,
         flowCatalogId: input.flowCatalogId ?? null,
         flowStatusId: input.flowStatusId ?? null,
         flowAddressRegisterId: input.flowAddressRegisterId ?? null,
         webMenuUrl: input.webMenuUrl ?? null,
-        aiOrderMode: input.aiOrderModePolicy?.mode === "info_only" ? "info_only" : "close_orders",
+        aiOrderMode:
+            input.aiCapability?.tier === "degradado" ||
+            input.aiCapability?.llmEnabled === false ||
+            input.aiOrderModePolicy?.mode === "info_only"
+                ? "info_only"
+                : "close_orders",
     };
 }
 

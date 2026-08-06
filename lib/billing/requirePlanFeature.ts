@@ -10,7 +10,6 @@ const FEATURE_HINTS: Record<string, string> = {
     marketplace_aiqfome: "Disponível no plano Market. Faça upgrade em Configurações → Plano.",
     omnichannel_ig_messenger: "Disponível no plano Market. Faça upgrade em Configurações → Plano.",
     table_service: "Disponível no plano Market. Faça upgrade em Configurações → Plano.",
-    mobile_app: "Disponível no plano Market. Faça upgrade em Configurações → Plano.",
     printing_auto: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
     estoque_full: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
     financeiro_full: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",

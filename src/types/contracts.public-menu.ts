@@ -175,11 +175,14 @@ export interface PublicMenuNewAddressInput {
 export interface PublicMenuSessionOk {
     ok: true;
     sessionToken: string;
+    /** True no 1º checkout IG/Messenger até vincular telefone. */
+    needsPhone?: boolean;
     customer: {
         id: string;
         name: string | null;
         phoneE164: string;
         isNew: boolean;
+        needsPhone?: boolean;
     };
     addresses: PublicMenuSavedAddress[];
 }

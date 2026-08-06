@@ -1,8 +1,10 @@
 import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { MessagingChannel } from "@/src/domain/contracts/identity";
 
-export type WebMenuLinkPayload = {
+/** Link legado WhatsApp (só telefone). */
+export type WebMenuLinkPayloadV1 = {
     v: 1;
     companyId: string;
     phoneE164: string;
@@ -10,13 +12,29 @@ export type WebMenuLinkPayload = {
     exp: number;
 };
 
+/** Link omnichannel: WA=phone, IG=IGSID, Messenger=PSID. */
+export type WebMenuLinkPayloadV2 = {
+    v: 2;
+    companyId: string;
+    slug: string;
+    channel: MessagingChannel;
+    externalId: string;
+    exp: number;
+};
+
+export type WebMenuLinkPayload = WebMenuLinkPayloadV1 | WebMenuLinkPayloadV2;
+
 export type WebMenuCheckoutSession = {
-    v: 1;
+    v: 1 | 2;
     companyId: string;
     customerId: string;
+    /** Vazio quando `needsPhone` (1º checkout IG/Messenger). */
     phoneE164: string;
     slug: string;
     name: string | null;
+    channel?: MessagingChannel;
+    externalId?: string;
+    needsPhone?: boolean;
     exp: number;
 };
 
@@ -71,13 +89,14 @@ function decodeToken<T extends { exp: number }>(token: string): T | null {
 const LINK_TTL_SEC = 7 * 24 * 60 * 60;
 const SESSION_TTL_SEC = 24 * 60 * 60;
 
+/** @deprecated Prefer `signWebMenuChannelLinkToken` (v2). Mantido para links WA legados. */
 export function signWebMenuLinkToken(input: {
     companyId: string;
     phoneE164: string;
     slug: string;
     ttlSec?: number;
 }): string {
-    const payload: WebMenuLinkPayload = {
+    const payload: WebMenuLinkPayloadV1 = {
         v: 1,
         companyId: input.companyId,
         phoneE164: input.phoneE164,
@@ -87,10 +106,44 @@ export function signWebMenuLinkToken(input: {
     return encodeToken(payload);
 }
 
+export function signWebMenuChannelLinkToken(input: {
+    companyId: string;
+    slug: string;
+    channel: MessagingChannel;
+    externalId: string;
+    ttlSec?: number;
+}): string {
+    const payload: WebMenuLinkPayloadV2 = {
+        v: 2,
+        companyId: input.companyId,
+        slug: input.slug,
+        channel: input.channel,
+        externalId: input.externalId.trim(),
+        exp: Math.floor(Date.now() / 1000) + (input.ttlSec ?? LINK_TTL_SEC),
+    };
+    return encodeToken(payload);
+}
+
 export function verifyWebMenuLinkToken(token: string): WebMenuLinkPayload | null {
-    const p = decodeToken<WebMenuLinkPayload>(token);
-    if (!p || p.v !== 1 || !p.companyId || !p.phoneE164 || !p.slug) return null;
-    return p;
+    const p = decodeToken<WebMenuLinkPayload & { v?: number }>(token);
+    if (!p || !p.companyId || !p.slug) return null;
+
+    if (p.v === 1) {
+        const v1 = p as WebMenuLinkPayloadV1;
+        if (!v1.phoneE164) return null;
+        return v1;
+    }
+
+    if (p.v === 2) {
+        const v2 = p as WebMenuLinkPayloadV2;
+        if (!v2.channel || !v2.externalId?.trim()) return null;
+        if (!["whatsapp", "instagram", "messenger", "web"].includes(v2.channel)) {
+            return null;
+        }
+        return v2;
+    }
+
+    return null;
 }
 
 export function signWebMenuCheckoutSession(input: {
@@ -99,15 +152,21 @@ export function signWebMenuCheckoutSession(input: {
     phoneE164: string;
     slug: string;
     name?: string | null;
+    channel?: MessagingChannel;
+    externalId?: string;
+    needsPhone?: boolean;
     ttlSec?: number;
 }): string {
     const payload: WebMenuCheckoutSession = {
-        v: 1,
+        v: input.channel ? 2 : 1,
         companyId: input.companyId,
         customerId: input.customerId,
-        phoneE164: input.phoneE164,
+        phoneE164: input.phoneE164 ?? "",
         slug: input.slug,
         name: input.name ?? null,
+        channel: input.channel,
+        externalId: input.externalId,
+        needsPhone: Boolean(input.needsPhone),
         exp: Math.floor(Date.now() / 1000) + (input.ttlSec ?? SESSION_TTL_SEC),
     };
     return encodeToken(payload);
@@ -115,8 +174,12 @@ export function signWebMenuCheckoutSession(input: {
 
 export function verifyWebMenuCheckoutSession(token: string): WebMenuCheckoutSession | null {
     const p = decodeToken<WebMenuCheckoutSession>(token);
-    if (!p || p.v !== 1 || !p.companyId || !p.customerId || !p.phoneE164 || !p.slug) {
+    if (!p || (p.v !== 1 && p.v !== 2) || !p.companyId || !p.customerId || !p.slug) {
         return null;
     }
+    if (p.needsPhone) {
+        return p;
+    }
+    if (!p.phoneE164) return null;
     return p;
 }

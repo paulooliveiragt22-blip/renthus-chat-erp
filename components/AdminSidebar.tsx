@@ -22,6 +22,7 @@ import {
   ShoppingCart,
   Sun,
   Users,
+  UtensilsCrossed,
   Wallet,
   X,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const adminMenu = [
   { label: "Pedidos",       href: "/pedidos",         icon: Receipt },
   { label: "Fila",          href: "/fila",            icon: Clock },
   { label: "PDV / Balcão",  href: "/pdv",             icon: ShoppingCart, anyOf: ["pdv_basic", "pdv"] as const },
+  { label: "Mesas",         href: "/mesa",            icon: UtensilsCrossed, feature: "table_service" },
   { label: "WhatsApp",      href: "/whatsapp",        icon: MessageCircle },
   { label: "Produtos",      href: "/produtos/lista",  icon: ShoppingBag },
   { label: "Clientes",      href: "/clientes",        icon: Users },

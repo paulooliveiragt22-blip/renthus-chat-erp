@@ -37,6 +37,11 @@ import {
     isCustomerServiceWindowClosing,
     isWithinCustomerServiceWindow,
 } from "@/lib/whatsapp/customerServiceWindow";
+import {
+    channelBadgeLabel,
+    threadDisplayName,
+    threadDisplaySubtitle,
+} from "@/src/domain/messaging/threadDisplay";
 import { extractMediaFromWaPayload } from "@/lib/whatsapp/extractMediaFromWaPayload";
 import { parseOptionalUuid } from "@/lib/whatsapp/urlSafety";
 import { META_MEDIA_ID_PATH_RE, sanitizeWhatsAppMediaPathId } from "@/lib/whatsapp/mediaIdPath";
@@ -398,7 +403,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         if (!initialPhone || initialPhoneAppliedRef.current || threads.length === 0) return;
         const normalize = (p: string) => p.replaceAll(/\D/g, "").replaceAll(/^55/g, "");
         const target = normalize(initialPhone);
-        const match = threads.find((t) => normalize(t.phone_e164) === target);
+        const match = threads.find((t) => t.phone_e164 && normalize(t.phone_e164) === target);
         if (match) {
             setSelectedThreadId(match.id);
             initialPhoneAppliedRef.current = true;
@@ -526,6 +531,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         attachment?: { kind: "image" | "video" | "audio" | "document"; file: File }
     ) {
         if (!selectedThread) return;
+        if (!selectedThread.phone_e164) {
+            setErr(
+                "Envio pela inbox ainda é WhatsApp. Para Instagram/Messenger sem telefone, use o bot no canal ou vincule o WhatsApp do cliente."
+            );
+            return;
+        }
 
         // Optimistic update
         const optimisticId = `opt_${Date.now()}`;
@@ -760,10 +771,18 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     ) : (
                         threads.map((t) => {
                             const active    = t.id === selectedThreadId;
-                            const label     = t.profile_name || t.phone_e164;
+                            const displayIn = {
+                                channel: t.channel,
+                                profileName: t.profile_name,
+                                phoneE164: t.phone_e164,
+                                externalId: t.external_id,
+                            };
+                            const label     = threadDisplayName(displayIn);
+                            const subtitle  = t.last_message_preview || threadDisplaySubtitle(displayIn);
                             const initials  = getInitials(label);
                             const nearClose = isCustomerServiceWindowClosing(t.last_inbound_at);
                             const expired   = !isWithinCustomerServiceWindow(t.last_inbound_at);
+                            const badge     = channelBadgeLabel(t.channel);
 
                             return (
                                 <button
@@ -799,6 +818,9 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center justify-between gap-1">
                                                 <span className={`truncate text-xs font-semibold ${active ? "text-primary dark:text-purple-300" : "text-zinc-800 dark:text-zinc-100"}`}>
+                                                    <span className="mr-1 rounded bg-zinc-200 px-1 py-0.5 text-[9px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                                                        {badge}
+                                                    </span>
                                                     {label}
                                                 </span>
                                                 <div className="flex shrink-0 items-center gap-1">
@@ -808,7 +830,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                                 </div>
                                             </div>
                                             <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-                                                {t.last_message_preview || t.phone_e164}
+                                                {subtitle}
                                             </p>
                                             {t.bot_active === false && (
                                                 <span className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
@@ -851,13 +873,35 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         <>
                             <div className="flex min-w-0 items-center gap-3">
                                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-white">
-                                    {getInitials(selectedThread.profile_name || selectedThread.phone_e164)}
+                                    {getInitials(
+                                        threadDisplayName({
+                                            channel: selectedThread.channel,
+                                            profileName: selectedThread.profile_name,
+                                            phoneE164: selectedThread.phone_e164,
+                                            externalId: selectedThread.external_id,
+                                        })
+                                    )}
                                 </div>
                                 <div className="min-w-0">
                                     <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">
-                                        {selectedThread.profile_name || selectedThread.phone_e164}
+                                        <span className="mr-1.5 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                                            {channelBadgeLabel(selectedThread.channel)}
+                                        </span>
+                                        {threadDisplayName({
+                                            channel: selectedThread.channel,
+                                            profileName: selectedThread.profile_name,
+                                            phoneE164: selectedThread.phone_e164,
+                                            externalId: selectedThread.external_id,
+                                        })}
                                     </p>
-                                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{selectedThread.phone_e164}</p>
+                                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                        {threadDisplaySubtitle({
+                                            channel: selectedThread.channel,
+                                            profileName: selectedThread.profile_name,
+                                            phoneE164: selectedThread.phone_e164,
+                                            externalId: selectedThread.external_id,
+                                        })}
+                                    </p>
                                 </div>
                             </div>
 
@@ -1143,7 +1187,13 @@ function CustomerProfileSidebar({
     onClose: () => void;
     onRepeatOrder: () => void;
 }) {
-    const name     = profile?.name || thread.profile_name || thread.phone_e164;
+    const displayIn = {
+        channel: thread.channel,
+        profileName: profile?.name || thread.profile_name,
+        phoneE164: thread.phone_e164,
+        externalId: thread.external_id,
+    };
+    const name     = threadDisplayName(displayIn);
     const initials = getInitials(name);
 
     return (
@@ -1167,7 +1217,9 @@ function CustomerProfileSidebar({
                 </div>
                 <div>
                     <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">{name}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{thread.phone_e164}</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {channelBadgeLabel(thread.channel)} · {threadDisplaySubtitle(displayIn)}
+                    </p>
                 </div>
                 {profile && profile.tags.length > 0 && (
                     <div className="flex flex-wrap justify-center gap-1 pt-1" aria-label="Tags do cliente">

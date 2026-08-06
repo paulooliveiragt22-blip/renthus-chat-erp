@@ -53,5 +53,13 @@ export async function POST(
 
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
+    /**
+     * Reativar o bot sem limpar a sessão deixa `step = "handover"` e o
+     * `guardRails` do PRO continua engolindo mensagens (handover_hold).
+     */
+    if (botActive) {
+        await admin.from("chatbot_sessions").delete().eq("thread_id", threadId);
+    }
+
     return NextResponse.json({ ok: true, bot_active: botActive });
 }

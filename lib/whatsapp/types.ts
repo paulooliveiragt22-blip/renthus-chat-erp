@@ -14,7 +14,7 @@ export interface Message {
 
 export interface Thread {
     id:                   string;
-    phone_e164:           string;
+    phone_e164:           string | null;
     profile_name?:        string | null;
     last_message_at?:     string | null;
     /** Último inbound do cliente — base da janela de 24h (não usar `last_message_at`). */
@@ -25,6 +25,10 @@ export interface Thread {
     handover_at?:         string | null;
     /** Canal WhatsApp que recebeu/enviou a thread — usado para baixar mídia com o token certo. */
     channel_id?:          string | null;
+    /** whatsapp | instagram | messenger */
+    channel?:             string | null;
+    /** E.164 / IGSID / PSID */
+    external_id?:         string | null;
 }
 
 export interface Usage {

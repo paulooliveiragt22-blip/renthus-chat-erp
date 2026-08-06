@@ -16,6 +16,8 @@ import {
     parseAiOrderModePolicy,
     type AiOrderModePolicy,
 } from "@/lib/chatbot/aiOrderModePolicy";
+import { AI_DEGRADED_ORDER_MESSAGE_PT_BR } from "@/lib/chatbot/aiCapabilityProfile";
+import { buildWebMenuOfferText } from "@/lib/public-menu/menuOfferText";
 import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -40,6 +42,7 @@ import {
     withResolvedSlotStepUnlessAwaitingConfirmation,
 } from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
+import { handleAwaitingPhoneTurn } from "./handleAwaitingPhone";
 import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
@@ -202,7 +205,41 @@ export async function runProPipeline(
         phoneE164: input.tenant.phoneE164,
         profileName: input.actor.profileName ?? null,
         state: loadedState,
+        messagingChannel: input.tenant.messagingChannel ?? input.actor.channel,
+        channelUserId: input.tenant.channelUserId,
     });
+
+    /** Só captura telefone no passo dedicado (após NEEDS_PHONE no checkout). */
+    if (deps.admin && sessionWithCustomer.step === "pro_awaiting_phone") {
+        const phoneTurn = await handleAwaitingPhoneTurn({
+            admin: deps.admin,
+            tenant: input.tenant,
+            state: sessionWithCustomer,
+            userText: input.inboundText,
+            messagingChannel: input.tenant.messagingChannel ?? input.actor.channel,
+        });
+        if (phoneTurn.handled && phoneTurn.outboundText) {
+            await persistAndEmit({
+                tenant: input.tenant,
+                state: phoneTurn.state,
+                outbound: [{ kind: "text", text: phoneTurn.outboundText }],
+                sessionRepo: deps.sessionRepo,
+                messageGateway: deps.messageGateway,
+                metrics: deps.metrics,
+                logger: deps.logger,
+            });
+            flushPipelineRunMetrics(deps.metrics, input.tenant, [
+                { name: "pro_pipeline.phone_capture", value: 1 },
+            ]);
+            return {
+                nextState: phoneTurn.state,
+                outbound: [{ kind: "text", text: phoneTurn.outboundText }],
+                sideEffects: [],
+                metrics: [{ name: "pro_pipeline.phone_capture", value: 1 }],
+            };
+        }
+    }
+
     /** Alinha `step` ao draft antes de intent/orderStage (evita "Sim" com passo desatualizado na sessão). */
     const context = buildPipelineContext({
         input,
@@ -275,8 +312,11 @@ export async function runProPipeline(
      * Evita draft só com salgadinho e Heineken/burger só na prosa.
      * Nunca no texto de troca ("troca X pela Y") — senão acrescenta CX sem remover o UN.
      */
+    const llmEnabled = context.policies.llmEnabled !== false;
+
     let bootstrapOutbound: OutboundMessage[] = [];
     if (
+        llmEnabled &&
         deps.admin &&
         !isInfoOnlyMode(aiPolicy) &&
         !input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) &&
@@ -536,6 +576,7 @@ export async function runProPipeline(
 
     /** Troca/substitui no servidor (Corrigir → "troca X pela Y") — evita busca errada da IA. */
     if (
+        llmEnabled &&
         deps.admin &&
         !isInfoOnlyMode(aiPolicy) &&
         !productPickApplied &&
@@ -729,7 +770,25 @@ export async function runProPipeline(
     let aiServiceErrorCode: string | undefined;
     let checkoutOrderHints: Record<string, unknown> | null = null;
     let aiLimitExceeded = false;
-    if (routed.mode === "ai") {
+    /** Sem crédito / IA off: menu/status/handover ok; pedido por IA bloqueado. */
+    if (routed.mode === "ai" && !llmEnabled) {
+        outbound.length = 0;
+        if (input.webMenuUrl) {
+            outbound.push({
+                kind: "text",
+                text:
+                    AI_DEGRADED_ORDER_MESSAGE_PT_BR +
+                    "\n\n" +
+                    buildWebMenuOfferText({ url: input.webMenuUrl }),
+            });
+        } else {
+            outbound.push({ kind: "text", text: AI_DEGRADED_ORDER_MESSAGE_PT_BR });
+        }
+        deps.metrics.increment("pro_pipeline.ai_degraded", 1, {
+            companyId: input.tenant.companyId,
+            tier: input.aiCapability?.tier ?? "degradado",
+        });
+    } else if (routed.mode === "ai") {
         if (isAiTurnLimitExceeded(nextState, aiPolicy, nowMs)) {
             aiLimitExceeded = true;
             outbound.length = 0;
@@ -867,6 +926,39 @@ export async function runProPipeline(
         metrics: deps.metrics,
         logger: deps.logger,
     });
+
+    /** Handover: desliga bot + abre ticket (efeito que o Starter fazia em `doHandover`). */
+    if (decision.intent === "human_intent" && nextState.step === "handover" && deps.admin) {
+        try {
+            const { applyProHandover } = await import("./applyHandover");
+            const hr = await applyProHandover({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                phoneE164: input.tenant.phoneE164,
+                customerName: input.actor.profileName ?? null,
+            });
+            deps.logger?.info("pro_pipeline.handover_applied", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                ticketCreated: hr.ticketCreated,
+                ticketId: hr.ticketId,
+            });
+            deps.metrics.increment("pro_pipeline.handover", 1, {
+                companyId: input.tenant.companyId,
+                ticket: hr.ticketCreated ? "created" : "existing",
+            });
+        } catch (err) {
+            deps.logger?.error("pro_pipeline.handover_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+            deps.metrics.increment("pro_pipeline.handover_failed", 1, {
+                companyId: input.tenant.companyId,
+            });
+        }
+    }
 
     const runMetrics: PipelineMetric[] = [
         ...preOrderSideMetrics,

@@ -4,8 +4,10 @@ import type {
     SttTranscribeResult,
 } from "@/src/pro/ports/speechToText.port";
 import { SttProviderError } from "@/src/pro/ports/speechToText.port";
+import { estimateSttDurationFromBytes, normalizeSttDurationSec } from "@/lib/billing/sttPricing";
 
-const DEFAULT_MODEL = "whisper-1";
+/** Default: gpt-4o-mini-transcribe — metade do custo do whisper ($0.003/min). */
+const DEFAULT_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_STT_URL = "https://api.openai.com/v1/audio/transcriptions";
 
 function extForMime(mime: string): string {
@@ -16,6 +18,18 @@ function extForMime(mime: string): string {
     if (m.includes("wav")) return "wav";
     if (m.includes("webm")) return "webm";
     return "ogg";
+}
+
+function resolveDurationSec(params: {
+    model: string;
+    byteLength: number;
+    apiDuration?: number | null;
+}): number {
+    const fromApi = Number(params.apiDuration);
+    if (Number.isFinite(fromApi) && fromApi > 0) {
+        return normalizeSttDurationSec(fromApi);
+    }
+    return estimateSttDurationFromBytes(params.byteLength);
 }
 
 export class OpenAiWhisperSttAdapter implements SpeechToTextPort {
@@ -33,6 +47,7 @@ export class OpenAiWhisperSttAdapter implements SpeechToTextPort {
         const model = process.env.LLM_STT_MODEL?.trim() || DEFAULT_MODEL;
         const ext = extForMime(input.mimeType || "audio/ogg");
         const filename = input.filename?.trim() || `audio.${ext}`;
+        const byteLength = input.bytes.length;
 
         const form = new FormData();
         const blob = new Blob([new Uint8Array(input.bytes)], {
@@ -41,7 +56,9 @@ export class OpenAiWhisperSttAdapter implements SpeechToTextPort {
         form.append("file", blob, filename);
         form.append("model", model);
         form.append("language", input.language?.trim() || "pt");
-        form.append("response_format", "json");
+        // whisper-1: verbose_json traz `duration` (segundos) para cobrança precisa
+        const wantsVerbose = model === "whisper-1" || model.startsWith("whisper");
+        form.append("response_format", wantsVerbose ? "verbose_json" : "json");
 
         const res = await fetch(OPENAI_STT_URL, {
             method: "POST",
@@ -51,6 +68,7 @@ export class OpenAiWhisperSttAdapter implements SpeechToTextPort {
 
         const json = (await res.json().catch(() => ({}))) as {
             text?: string;
+            duration?: number;
             error?: { message?: string };
         };
 
@@ -63,6 +81,18 @@ export class OpenAiWhisperSttAdapter implements SpeechToTextPort {
             throw new SttProviderError("empty_transcription");
         }
 
-        return { text, provider: this.provider, model };
+        const durationSec = resolveDurationSec({
+            model,
+            byteLength,
+            apiDuration: json.duration,
+        });
+
+        return {
+            text,
+            provider: this.provider,
+            model,
+            durationSec,
+            byteLength,
+        };
     }
 }

@@ -303,7 +303,7 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 | `LLM_MODEL` | default do provider | Ex.: `claude-haiku-4-5-20251001` ou `gpt-4o-mini`. |
 | `OPENAI_API_KEY` | — | Obrigatório se `LLM_PROVIDER=openai` e/ou STT Whisper. |
 | `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. |
-| `LLM_STT_MODEL` | `whisper-1` | Modelo STT OpenAI. |
+| `LLM_STT_MODEL` | `gpt-4o-mini-transcribe` | Modelo STT OpenAI (`whisper-1`, `gpt-4o-transcribe`, …). Debita carteira IA por minuto. |
 | `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas `messages.create` em paralelo **por instância** (gate compartilhado: PRO V2, intent, FAQ). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
 | `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos, abre circuit breaker local por N ms (`anthropic_circuit_open`). |
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |

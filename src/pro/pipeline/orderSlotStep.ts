@@ -76,6 +76,7 @@ export function resolveProStepFromDraft(params: {
     const { step, draft } = params;
 
     if (step === "handover") return "handover";
+    if (step === "pro_awaiting_phone") return "pro_awaiting_phone";
     if (step === "pro_escalation_choice") {
         if (!draft || draft.items.length === 0) return "pro_escalation_choice";
     }

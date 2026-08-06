@@ -345,9 +345,24 @@ async function processJob(
     admin: ReturnType<typeof createAdminClient>,
     job: any
 ): Promise<void> {
-    const { company_id, thread_id, phone_e164, message_id, body_text, profile_name } = job;
+    const {
+        company_id,
+        thread_id,
+        phone_e164,
+        message_id,
+        body_text,
+        profile_name,
+        messaging_channel,
+        channel_user_id,
+    } = job;
 
-    // Carrega credenciais do canal da empresa
+    const messagingChannel =
+        messaging_channel === "instagram" || messaging_channel === "messenger"
+            ? messaging_channel
+            : "whatsapp";
+    const channelUserId = String(channel_user_id || phone_e164 || "").trim();
+
+    // Carrega credenciais WhatsApp (só necessário para canal WA / reativação)
     const { data: channelRow } = await admin
         .from("whatsapp_channels")
         .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
@@ -360,7 +375,7 @@ async function processJob(
         status_flow_id?: string;
         address_register_flow_id?: string;
     } | null;
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && messagingChannel === "whatsapp") {
         if (!channelRow) {
             throw new Error("missing_active_meta_whatsapp_channel");
         }
@@ -408,7 +423,25 @@ async function processJob(
             .from("chatbot_sessions")
             .delete()
             .eq("thread_id", thread_id);
-        await sendWhatsAppMessage(phone_e164, REACTIVATE_MSG, waConfig);
+        if (messagingChannel === "whatsapp" && phone_e164) {
+            await sendWhatsAppMessage(phone_e164, REACTIVATE_MSG, waConfig);
+        } else if (messagingChannel === "instagram" || messagingChannel === "messenger") {
+            const { MetaMessageGateway } = await import(
+                "@/src/pro/adapters/meta/message.gateway.meta"
+            );
+            const gw = new MetaMessageGateway(admin, messagingChannel);
+            await gw.send(
+                {
+                    companyId: company_id,
+                    threadId: thread_id,
+                    messageId: message_id ?? "",
+                    phoneE164: phone_e164 || "",
+                    messagingChannel,
+                    channelUserId,
+                },
+                { kind: "text", text: REACTIVATE_MSG }
+            );
+        }
     }
 
     // 2. Processa a mensagem
@@ -417,10 +450,12 @@ async function processJob(
         companyId:   company_id,
         threadId:    thread_id,
         messageId:   message_id ?? "",
-        phoneE164:   phone_e164,
+        phoneE164:   phone_e164 || "",
+        channelUserId,
+        messagingChannel,
         text:        body_text,
         profileName: profile_name ?? null,
-        waConfig,
+        waConfig: messagingChannel === "whatsapp" ? waConfig : undefined,
         catalogFlowId,
         statusFlowId,
         addressRegisterFlowId,

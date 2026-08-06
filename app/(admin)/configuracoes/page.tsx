@@ -34,6 +34,7 @@ import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
 import MenuAnalyticsPanel from "@/components/menu/MenuAnalyticsPanel";
 import MarketplaceIfoodSettings from "@/components/menu/MarketplaceIfoodSettings";
 import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSettings";
+import MetaMessagingSettings from "@/components/menu/MetaMessagingSettings";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
 import { DEFAULT_CHATBOT_MESSAGE_TEMPLATES } from "@/lib/chatbot/messageTemplates";
@@ -1368,7 +1369,7 @@ function ConfiguracoesPageContent() {
                                         const pendRecord  = isFirstPayment ? pendSetup : pendInv;
 
                                         const priceFallback =
-                                            pk === "market" ? 349 : pk === "pro" ? 279 : 197;
+                                            pk === "market" ? 397 : pk === "pro" ? 279 : 197;
 
                                         let refAmount: number;
                                         if (pendRecord) {
@@ -1752,7 +1753,7 @@ function ConfiguracoesPageContent() {
                                                             ? 197
                                                             : p.key === "pro"
                                                               ? 279
-                                                              : 349);
+                                                              : 397);
                                                     return (
                                                         <div
                                                             key={p.key}
@@ -1856,17 +1857,15 @@ function ConfiguracoesPageContent() {
                                                             Upgrade para Market
                                                         </p>
                                                         <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                                                            iFood + Aiqfome + Instagram/Messenger + mesa +
-                                                            app (
+                                                            iFood + Aiqfome + Instagram/Messenger + mesa (
                                                             {(
                                                                 (mp as Record<string, number>)
-                                                                    .market ?? 349
+                                                                    .market ?? 397
                                                             ).toLocaleString("pt-BR", {
                                                                 style: "currency",
                                                                 currency: "BRL",
                                                             })}
-                                                            /mês). Recursos de integração na próxima
-                                                            versão.
+                                                            /mês).
                                                         </p>
                                                         <button
                                                             type="button"
@@ -2662,26 +2661,28 @@ function ConfiguracoesPageContent() {
                                 title="Instagram e Messenger"
                                 description="Atendimento do chatbot também nas redes Meta."
                             >
-                                <div className="rounded-xl border border-zinc-100 p-5 text-sm text-zinc-500 dark:border-zinc-800">
-                                    Em breve na próxima versão — configuração será liberada aqui.
-                                </div>
+                                <MetaMessagingSettings />
                             </MarketPlanGate>
                             <MarketPlanGate
                                 featureKey="table_service"
                                 title="Atendimento de mesa"
                                 description="Comandas e salão no mesmo sistema do delivery."
                             >
-                                <div className="rounded-xl border border-zinc-100 p-5 text-sm text-zinc-500 dark:border-zinc-800">
-                                    Em breve na próxima versão.
-                                </div>
-                            </MarketPlanGate>
-                            <MarketPlanGate
-                                featureKey="mobile_app"
-                                title="App Flutter"
-                                description="Mesmas funções do ERP no celular (pedidos, fila, PDV)."
-                            >
-                                <div className="rounded-xl border border-zinc-100 p-5 text-sm text-zinc-500 dark:border-zinc-800">
-                                    Em breve na próxima versão — app Dart/Flutter.
+                                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+                                    <p className="text-zinc-700 dark:text-zinc-200">
+                                        Gerencie mesas, comandas e fechamento no módulo{" "}
+                                        <a
+                                            href="/mesa"
+                                            className="font-semibold text-violet-600 underline-offset-2 hover:underline dark:text-violet-400"
+                                        >
+                                            Mesas
+                                        </a>
+                                        .
+                                    </p>
+                                    <p className="mt-2 text-xs text-zinc-500">
+                                        Cadastre mesas na própria tela e feche a conta com o caixa
+                                        aberto (mesmo fluxo do PDV).
+                                    </p>
                                 </div>
                             </MarketPlanGate>
                         </div>

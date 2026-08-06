@@ -1,36 +1,25 @@
+/**
+ * @deprecated Use `resolveAiCapabilityProfile` (`aiCapabilityProfile.ts`).
+ * Mantido só como alias de compatibilidade — o motor Starter foi removido.
+ */
+
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getActiveSubscription } from "@/lib/billing/entitlements";
-import { canUseAi, isAiEnabledInBotConfig } from "@/lib/billing/aiWallet";
-import { normalizePlanKey } from "@/lib/billing/planCatalog";
+import { resolveAiCapabilityProfile } from "@/lib/chatbot/aiCapabilityProfile";
 
-/** Motor de chatbot (não confundir com plans.key comercial). */
-export type ChatbotProductTier = "starter" | "pro";
+/** @deprecated Sempre "pro" se houver crédito; caso contrário o pipeline usa perfil degradado. */
+export type ChatbotProductTier = "pro";
 
 /**
- * Essencial / Pro / Market usam motor PRO quando IA ligada e há crédito.
- * Sem crédito ou toggle off → Flow/Starter (WhatsApp continua).
+ * @deprecated Prefer `resolveAiCapabilityProfile`.
+ * Retorna "pro" quando há plano+crédito; ainda "pro" no degradado (motor único).
  */
 export async function getChatbotProductTier(
     admin: SupabaseClient,
     companyId: string,
     botConfig?: Record<string, unknown> | null
 ): Promise<ChatbotProductTier> {
-    try {
-        const sub = await getActiveSubscription(admin, companyId);
-        const planKey = normalizePlanKey(sub?.plan_key ?? null);
-        if (!planKey) return "starter";
-
-        if (!isAiEnabledInBotConfig(botConfig ?? null)) return "starter";
-
-        const ok = await canUseAi(admin, companyId);
-        if (!ok) return "starter";
-
-        // Todos os planos comerciais atuais têm direito à IA (com crédito).
-        return "pro";
-    } catch (e) {
-        console.warn("[chatbot/tier] falha ao resolver plano, fallback starter:", e);
-        return "starter";
-    }
+    await resolveAiCapabilityProfile(admin, companyId, botConfig);
+    return "pro";
 }

@@ -186,7 +186,10 @@ export class ProIntentClassifierService implements IntentService {
         if (ORDER_RE.test(raw)) return { intent: "order_intent", confidence: "medium", reasonCode: "regex_match" };
         if (FAQ_RE.test(raw)) return { intent: "faq", confidence: "medium", reasonCode: "regex_match" };
 
-        // Camada 3: IA no ambíguo
+        // Camada 3: IA no ambíguo (desligada no perfil degradado)
+        if (context.policies.llmEnabled === false) {
+            return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
+        }
         return llmClassify(context, userText, this.admin);
     }
 }

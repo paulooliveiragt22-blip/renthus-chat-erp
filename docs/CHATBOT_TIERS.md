@@ -1,22 +1,19 @@
-# Chatbot Starter vs Chatbot PRO
+# Chatbot — motor único PRO + perfil de capacidade
 
-O motor de mensagens inbound (`lib/chatbot/processMessage.ts`) escolhe o pipeline com base no **plano ativo** da empresa (`subscriptions` → `plans.key`).
+`processInboundMessage` **sempre** usa o motor PRO (`runProInbound` → `runProPipeline` em `src/pro/`).
 
-| Plano (`plans.key`) | Motor | Arquivos principais |
-|---------------------|--------|------------------------|
-| **`starter`** (ou sem subscrição ativa) | **Chatbot Starter** — comportamento **flow-first** existente: `order_intent` abre o WhatsApp Flow de catálogo. | `lib/chatbot/inboundPipeline.ts` (`starterOrderFlow`) |
-| **`pro`** | **Chatbot PRO** — IA (Haiku) com tools `search_produtos`, `get_order_hints`, `prepare_order_draft`; endereço “de sempre”; estoque/preço no servidor; confirmação PT-BR; RPC `create_order_with_items` (`ai_chat_pro`); após **4** `INTENT_UNKNOWN`, Flow de catálogo. | `lib/chatbot/pro/*.ts` (ver `CHATBOT_AI_FIRST_ORDER_SPEC.md` §9) |
+O plano comercial e o crédito IA definem um **`AiCapabilityProfile`** (`lib/chatbot/aiCapabilityProfile.ts`):
 
-Resolução do plano: `lib/chatbot/tier.ts` → `getChatbotProductTier()`.
+| Estado | Perfil | Comportamento |
+|--------|--------|----------------|
+| Sem plano / IA off / sem crédito / erro | `degradado` | Sem LLM; menu, status, handover e cardápio web; não fecha pedido por IA |
+| `essencial` (+ crédito) | `basico` | Mesmo modelo; `maxToolRounds` 4, `maxHistoryTurns` 8 |
+| `pro` / `market` (+ crédito) | `avancado` | Mesmo modelo; rounds 12, history 24 |
 
-Mapeamento comercial Pagar.me / checkout (`bot` / `complete`) para linhas lógicas `starter` / `pro` já existe em `lib/billing/pagarmeSetupPaid.ts`.
+STT (`gpt-4o-mini-transcribe` por default) debita a carteira e só roda com crédito (`canUseAi`).
 
----
-
-## Próximas fases (Chatbot PRO)
-
-Ver `docs/CHATBOT_AI_FIRST_ORDER_SPEC.md`: confirmação de pedido, endereço obrigatório, estoque, RPC `create_order_with_items`, “endereço de sempre”, gírias de confirmação sem regex, etc.
+Alias legado: `getChatbotProductTier` em `tier.ts` sempre retorna `"pro"` (motor único).
 
 ---
 
-*Última atualização: introdução dos dois motores ligados ao plano.*
+*Última atualização: P0c — Starter removido; perfis de capacidade.*

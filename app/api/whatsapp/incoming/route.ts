@@ -335,6 +335,7 @@ async function processSingleInboundMessage(params: {
             msgType,
             waConfig,
             companyId: channel.company_id,
+            admin,
         });
         if (transcribed) bodyText = transcribed;
     }
@@ -587,17 +588,39 @@ async function upsertThread(params: {
     profileName: string | null;
 }): Promise<string | null> {
     const { admin, companyId, channelId, phoneE164, profileName } = params;
+    const channel = "whatsapp";
+    const externalId = phoneE164;
 
-    const { data: existing } = await admin
+    // Preferência: identidade de canal; fallback: phone_e164 legado.
+    let existing: { id: string; profile_name: string | null } | null = null;
+
+    const byIdentity = await admin
         .from("whatsapp_threads")
         .select("id, profile_name")
         .eq("company_id", companyId)
-        .eq("phone_e164", phoneE164)
+        .eq("channel", channel)
+        .eq("external_id", externalId)
         .maybeSingle();
+    if (byIdentity.data?.id) {
+        existing = byIdentity.data as { id: string; profile_name: string | null };
+    } else {
+        const byPhone = await admin
+            .from("whatsapp_threads")
+            .select("id, profile_name")
+            .eq("company_id", companyId)
+            .eq("phone_e164", phoneE164)
+            .maybeSingle();
+        if (byPhone.data?.id) {
+            existing = byPhone.data as { id: string; profile_name: string | null };
+        }
+    }
 
     if (existing?.id) {
         const update: Record<string, unknown> = {
             channel_id:      channelId,
+            channel,
+            external_id:     externalId,
+            phone_e164:      phoneE164,
             last_message_at: new Date().toISOString(),
         };
         if (profileName && profileName !== existing.profile_name) {
@@ -612,6 +635,8 @@ async function upsertThread(params: {
         .insert({
             company_id:           companyId,
             channel_id:           channelId,
+            channel,
+            external_id:          externalId,
             phone_e164:           phoneE164,
             profile_name:         profileName ?? null,
             last_message_at:      new Date().toISOString(),
