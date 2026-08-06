@@ -18,6 +18,8 @@ export type ChatProdutoRow = {
     display_name?:        string | null;
     descricao:            string | null;
     detalhes?:            string | null;
+    tags?:                string | null;
+    tags_auto?:           string | null;
     sigla_comercial:      string | null;
     preco_venda:          number | string | null;
     volume_quantidade:    number | string | null;
