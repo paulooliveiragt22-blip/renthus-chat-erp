@@ -11,15 +11,21 @@ export type MetaSendResult = {
     status?: number;
 };
 
+export type MetaMessagingType = "RESPONSE" | "MESSAGE_TAG";
+
 /**
  * Envia texto via Send API da Page (Messenger PSID ou Instagram IGSID).
  * Docs Meta: POST /{page-id}/messages
+ * Inbox humano fora da 24h: messaging_type=MESSAGE_TAG + tag=HUMAN_AGENT (B4).
  */
 export async function sendMetaPageText(params: {
     pageId: string;
     accessToken: string;
     recipientId: string;
     text: string;
+    messagingType?: MetaMessagingType;
+    /** Só com messagingType MESSAGE_TAG (ex.: HUMAN_AGENT). */
+    tag?: "HUMAN_AGENT";
 }): Promise<MetaSendResult> {
     const text = params.text.trim();
     if (!text) return { ok: false, error: "empty_text" };
@@ -27,14 +33,20 @@ export async function sendMetaPageText(params: {
         return { ok: false, error: "missing_credentials" };
     }
 
+    const messagingType = params.messagingType ?? "RESPONSE";
+    const body: Record<string, unknown> = {
+        recipient: { id: params.recipientId },
+        messaging_type: messagingType,
+        message: { text: text.slice(0, 2000) },
+    };
+    if (messagingType === "MESSAGE_TAG") {
+        body.tag = params.tag ?? "HUMAN_AGENT";
+    }
+
     const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(params.pageId)}/messages`;
     const result = await metaGraphPostJson(params.pageId, url, {
         accessToken: params.accessToken,
-        body: {
-            recipient: { id: params.recipientId },
-            messaging_type: "RESPONSE",
-            message: { text: text.slice(0, 2000) },
-        },
+        body,
     });
 
     if (!result.ok) {

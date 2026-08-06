@@ -26,6 +26,37 @@ export async function POST(
     return NextResponse.json(data ?? { ok: true });
 }
 
+export async function PATCH(
+    req: Request,
+    ctxParams: { params: Promise<{ sessionId: string }> }
+) {
+    const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
+    if (!ctx.ok) return ctx.response;
+    const { admin, companyId } = ctx;
+    const { sessionId } = await ctxParams;
+
+    const body = (await req.json().catch(() => ({}))) as { itemId?: string; qty?: number };
+    const itemId = typeof body.itemId === "string" ? body.itemId.trim() : "";
+    const qty = Number(body.qty);
+    if (!itemId) return NextResponse.json({ error: "item_id_required" }, { status: 400 });
+    if (!Number.isFinite(qty)) {
+        return NextResponse.json({ error: "qty_invalid" }, { status: 400 });
+    }
+
+    const { data, error } = await admin.rpc("rpc_mesa_set_item_qty", {
+        p_company_id: companyId,
+        p_session_id: sessionId,
+        p_item_id: itemId,
+        p_qty: qty,
+    });
+    if (error) {
+        const msg = error.message || "set_qty_failed";
+        const status = msg.includes("not_found") || msg.includes("not_open") ? 400 : 500;
+        return NextResponse.json({ error: msg }, { status });
+    }
+    return NextResponse.json(data ?? { ok: true });
+}
+
 export async function DELETE(
     req: Request,
     ctxParams: { params: Promise<{ sessionId: string }> }

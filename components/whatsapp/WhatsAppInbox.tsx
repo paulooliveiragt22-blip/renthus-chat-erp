@@ -531,10 +531,68 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         attachment?: { kind: "image" | "video" | "audio" | "document"; file: File }
     ) {
         if (!selectedThread) return;
-        if (!selectedThread.phone_e164) {
-            setErr(
-                "Envio pela inbox ainda é WhatsApp. Para Instagram/Messenger sem telefone, use o bot no canal ou vincule o WhatsApp do cliente."
+
+        const threadChannel = String(selectedThread.channel ?? "whatsapp").toLowerCase();
+        const isMetaThread = threadChannel === "instagram" || threadChannel === "messenger";
+
+        if (isMetaThread) {
+            if (attachment) {
+                setErr("Anexos pela inbox ainda não estão disponíveis no Instagram/Messenger.");
+                return;
+            }
+            if (!selectedThread.external_id && !selectedThread.phone_e164) {
+                setErr("Thread sem destinatário Meta (external_id).");
+                return;
+            }
+
+            const optimisticId = `opt_${Date.now()}`;
+            const optimisticMsg: Message = {
+                id:         optimisticId,
+                direction:  "outbound",
+                provider:   null,
+                from_addr:  null,
+                to_addr:    selectedThread.external_id ?? selectedThread.phone_e164,
+                body:       text,
+                status:     "sending",
+                created_at: new Date().toISOString(),
+                sender_type: "human",
+            };
+            setMessages((prev) => [...prev, optimisticMsg]);
+            requestAnimationFrame(() => {
+                const a = messagesAreaRef.current;
+                if (a) a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
+            });
+
+            const res = await fetch("/api/meta/messaging/send", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ thread_id: selectedThread.id, text }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+                const errMap: Record<string, string> = {
+                    outside_service_window: "Fora da janela de atendimento da Meta.",
+                    meta_channel_not_configured: "Conecte a Page em Configurações → Instagram/Messenger.",
+                    missing_page_token: "Token da Page ausente. Reconecte o Instagram/Messenger.",
+                };
+                setErr(errMap[String(json?.error)] ?? json?.error ?? "Falha ao enviar no Meta");
+                return;
+            }
+            setMessages((prev) =>
+                prev.map((m) =>
+                    m.id === optimisticId
+                        ? { ...m, status: "sent", provider: "meta", sender_type: "human" }
+                        : m
+                )
             );
+            setErr(null);
+            return;
+        }
+
+        if (!selectedThread.phone_e164) {
+            setErr("Thread WhatsApp sem telefone.");
             return;
         }
 

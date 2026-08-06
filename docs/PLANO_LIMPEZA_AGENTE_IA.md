@@ -676,8 +676,8 @@ export const PipelineTurnTrace = z.object({
 | Item | Por que está subestimado | Ajuste |
 |------|--------------------------|--------|
 | **`customers.phone` nullable** | Não é “só uma tabela nova” — quebra UNIQUE, PDV, favoritos, tickets, sync triggers | Migration dedicada + RPC de merge + testes de PDV/a prazo (a prazo continua PDV-only) |
-| **Conexão IG/Messenger (OAuth Page)** | Plano fala em adapter de mensagem; falta produto de **onboarding** (conectar Page, permissões `instagram_manage_messages`, webhooks) | Fase própria: settings UI + tokens criptografados (padrão `whatsapp_channels`) |
-| **Inbox omnichannel** | `WhatsAppInbox` assume phone | Threads por canal, badge de canal, janela 24h per-channel, busca sem phone |
+| **Conexão IG/Messenger (OAuth Page)** | Settings + OAuth Facebook Login (`oauth/start|callback|complete`) + token manual | Feito (env `META_APP_ID`/`META_APP_SECRET`) |
+| **Inbox omnichannel** | Envio humano Meta por `thread_id` + HUMAN_AGENT (B4); badges/labels | Feito (texto; mídia Meta inbox depois) |
 | **SLA 30s (Messenger automated bots)** | Fila atual + cron 60s pode violar policy Meta | Wake imediato (já existe padrão) **obrigatório** para IG/Messenger; medir p95 |
 | **Merge de clientes** | “linkar phone” parece 1 UPDATE | Endereços, saldo_devedor, pedidos, favoritos, threads — precisa RPC transacional `merge_customers(from, to)` |
 | **Cardápio + bot identidade** | Dois caminhos de session | Um `IdentityService` / RPC `resolve_channel_identity` usado por bot e por `/api/public/menu/.../session` |
@@ -711,12 +711,12 @@ export const PipelineTurnTrace = z.object({
 - [x] `MessageGateway` por canal (`WhatsAppMessageGateway` | `MetaMessageGateway`)
 - [x] `CustomerServiceWindowPort` / política domínio por canal (B4 no MetaMessageGateway)
 - [x] Helper `lib/chatbot/db/channelIdentity.ts` + Zod `src/domain/contracts/identity.ts`
-- [ ] `OutboundDispatcher` por `thread.channel`
+- [x] `OutboundDispatcher` por `thread.channel` (inbox WA + Meta `/api/meta/messaging/send`)
 - [ ] Schemas Zod restantes: menu session v2, prepare_order_draft wire
 
 **Produto / ops**
 
-- [x] UI Configurações: conectar Instagram/Messenger (`MetaMessagingSettings`)
+- [x] UI Configurações: conectar Instagram/Messenger (`MetaMessagingSettings` + OAuth Page)
 - [x] Remover só `mobile_app` do catálogo comercial no lançamento (B7)
 - [x] Implementar `table_service` (mesa) MVP — `/mesa` + RPCs (B7); evoluções (split/QR) depois
 - [x] Atualizar `PLAN_CATALOG` Market → `39700` (B6)
@@ -730,10 +730,10 @@ P0a  Handover PRO completo
 P0b  Carteira: preço por modelo (§7.2)
 P0c  Um motor só (apagar Starter) + AiCapabilityProfile (mesmo modelo)
 P0d  Contratos Zod + Identity schema (phone nullable, channel_identities) — schema/RPC + plug bot/menu; threads.channel/external_id aplicados
-P0e  IG/Messenger: conexão + webhook + MessageGateway + pedir phone no checkout — fatia vertical feita (OAuth Page ainda manual via token)
+P0e  IG/Messenger: conexão + webhook + MessageGateway + pedir phone no checkout — OAuth Page + token manual
 P0f  Cardápio token v2 + needsPhone — token v2 + session API + UI identify (checkout bloqueia sem phone)
 P0g  Limpeza comercial (tirar mobile_app; preço Market 397) — feito
-P0g2 Mesa (`table_service`) MVP (`/mesa`, open/items/close via PDV finalize) — feito; polish depois
+P0g2 Mesa (`table_service`) MVP + polish qty/caixa (`/mesa`) — feito
 P0h  Smoke + política Meta (janela 24h IG silêncio; inbox label B10) — feito
 
 // paralelo após P0c

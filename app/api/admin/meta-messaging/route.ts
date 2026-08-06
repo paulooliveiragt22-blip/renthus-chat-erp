@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import {
@@ -6,6 +7,9 @@ import {
     toPublicMetaConnection,
     type MetaMessagingChannelRow,
 } from "@/lib/meta/messagingChannels";
+import { decryptCredential } from "@/lib/security/credentialCrypto";
+import { META_OAUTH_PENDING_COOKIE } from "@/lib/meta/oauthPersist";
+import { resolveMetaAppId } from "@/lib/meta/metaAppCredentials";
 
 export const runtime = "nodejs";
 
@@ -26,11 +30,48 @@ export async function GET() {
         .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    let pendingPages: Array<{ pageId: string; pageName: string; igUserId: string | null }> = [];
+    try {
+        const jar = await cookies();
+        const raw = jar.get(META_OAUTH_PENDING_COOKIE)?.value;
+        if (raw) {
+            const dec = decryptCredential(raw);
+            if (dec) {
+                const pending = JSON.parse(dec) as {
+                    companyId?: string;
+                    exp?: number;
+                    pages?: Array<{
+                        pageId: string;
+                        pageName: string;
+                        igUserId: string | null;
+                    }>;
+                };
+                if (
+                    pending.companyId === companyId &&
+                    typeof pending.exp === "number" &&
+                    Date.now() <= pending.exp &&
+                    Array.isArray(pending.pages)
+                ) {
+                    pendingPages = pending.pages.map((p) => ({
+                        pageId: p.pageId,
+                        pageName: p.pageName,
+                        igUserId: p.igUserId ?? null,
+                    }));
+                }
+            }
+        }
+    } catch {
+        pendingPages = [];
+    }
+
     return NextResponse.json({
         connection: data
             ? toPublicMetaConnection(data as MetaMessagingChannelRow)
             : null,
         webhookPath: "/api/meta/messaging/incoming",
+        oauthConfigured: Boolean(resolveMetaAppId()),
+        pendingPages,
     });
 }
 

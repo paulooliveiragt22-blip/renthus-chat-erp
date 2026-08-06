@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Trash2, UtensilsCrossed } from "lucide-react";
+import { Loader2, Minus, Plus, Trash2, UtensilsCrossed } from "lucide-react";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
 
 type FloorTable = {
@@ -57,6 +57,7 @@ function MesaFloor() {
     const [search, setSearch] = useState("");
     const [hits, setHits] = useState<ProductHit[]>([]);
     const [cashRegisterId, setCashRegisterId] = useState("");
+    const [cashLabel, setCashLabel] = useState<string | null>(null);
     const [paymentMethod, setPaymentMethod] = useState("pix");
     const [newCode, setNewCode] = useState("");
 
@@ -97,8 +98,15 @@ function MesaFloor() {
                 cache: "no-store",
             });
             const json = await res.json().catch(() => ({}));
-            const open = json?.caixa?.id;
-            if (open) setCashRegisterId(String(open));
+            const caixa = json?.caixa;
+            if (caixa?.id) {
+                setCashRegisterId(String(caixa.id));
+                const op = caixa.operator_name ? String(caixa.operator_name) : null;
+                setCashLabel(op ? `Aberto · ${op}` : "Caixa aberto");
+            } else {
+                setCashRegisterId("");
+                setCashLabel(null);
+            }
         })();
     }, [loadFloor]);
 
@@ -199,6 +207,28 @@ function MesaFloor() {
                 `/api/admin/mesa/sessions/${activeSessionId}/items?itemId=${encodeURIComponent(itemId)}`,
                 { method: "DELETE", credentials: "include" }
             );
+            await loadSession(activeSessionId);
+            await loadFloor();
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function setItemQty(itemId: string, qty: number) {
+        if (!activeSessionId) return;
+        setBusy(true);
+        try {
+            const res = await fetch(`/api/admin/mesa/sessions/${activeSessionId}/items`, {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ itemId, qty }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setMsg(json.error || "Falha ao atualizar quantidade.");
+                return;
+            }
             await loadSession(activeSessionId);
             await loadFloor();
         } finally {
@@ -369,22 +399,48 @@ function MesaFloor() {
                                         key={it.id}
                                         className="flex items-start justify-between gap-2 border-b border-zinc-100 pb-2 dark:border-zinc-800"
                                     >
-                                        <div>
-                                            <div className="font-medium">
-                                                {it.qty}× {it.product_name}
-                                            </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="font-medium truncate">{it.product_name}</div>
                                             <div className="text-xs text-zinc-500">
                                                 {money(Number(it.unit_price))}
                                                 {it.sigla_comercial ? ` · ${it.sigla_comercial}` : ""}
+                                                {" · "}
+                                                {money(Number(it.unit_price) * Number(it.qty))}
                                             </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            className="text-zinc-400 hover:text-red-500"
-                                            onClick={() => void removeItem(it.id)}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                className="rounded border border-zinc-200 p-1 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700"
+                                                onClick={() =>
+                                                    void setItemQty(it.id, Number(it.qty) - 1)
+                                                }
+                                                aria-label="Diminuir"
+                                            >
+                                                <Minus className="h-3.5 w-3.5" />
+                                            </button>
+                                            <span className="w-6 text-center tabular-nums">{it.qty}</span>
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                className="rounded border border-zinc-200 p-1 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700"
+                                                onClick={() =>
+                                                    void setItemQty(it.id, Number(it.qty) + 1)
+                                                }
+                                                aria-label="Aumentar"
+                                            >
+                                                <Plus className="h-3.5 w-3.5" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="ml-1 text-zinc-400 hover:text-red-500"
+                                                onClick={() => void removeItem(it.id)}
+                                                aria-label="Remover"
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </button>
+                                        </div>
                                     </li>
                                 ))}
                                 {session.items.length === 0 && (
@@ -421,15 +477,22 @@ function MesaFloor() {
                             </div>
 
                             <div className="space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-                                <label className="block text-xs text-zinc-500">
-                                    Caixa (ID)
-                                    <input
-                                        className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                                        value={cashRegisterId}
-                                        onChange={(e) => setCashRegisterId(e.target.value)}
-                                        placeholder="Abra o caixa no PDV"
-                                    />
-                                </label>
+                                <div className="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700">
+                                    {cashRegisterId ? (
+                                        <>
+                                            <div className="font-medium text-emerald-700 dark:text-emerald-300">
+                                                {cashLabel ?? "Caixa aberto"}
+                                            </div>
+                                            <div className="mt-0.5 font-mono text-[11px] text-zinc-400">
+                                                {cashRegisterId.slice(0, 8)}…
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <p className="text-amber-700 dark:text-amber-300">
+                                            Abra o caixa no PDV antes de fechar.
+                                        </p>
+                                    )}
+                                </div>
                                 <label className="block text-xs text-zinc-500">
                                     Pagamento
                                     <select
