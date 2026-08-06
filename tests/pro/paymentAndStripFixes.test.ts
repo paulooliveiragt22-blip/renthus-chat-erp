@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-    looksLikeCheckoutAffirmation,
     looksLikeNonMoneyWhileAwaitingChange,
     parsePtMoneyInput,
-    userTextMentionsPayment,
 } from "../../src/pro/pipeline/paymentFromUserText";
 import { sanitizePreparePaymentAgainstUserText } from "../../src/pro/pipeline/sanitizePreparePayment";
 import { stripHallucinatedOrderPersistenceClaims } from "../../src/pro/adapters/ai/sanitizeAiVisibleOrderClaims";
+import { parseOrderLineExtractionJson } from "../../src/domain/contracts/orderExtraction";
 import type { PrepareDraftToolInput } from "../../src/types/contracts";
 
 describe("parsePtMoneyInput", () => {
@@ -23,18 +22,10 @@ describe("parsePtMoneyInput", () => {
     });
 });
 
-describe("looksLikeCheckoutAffirmation", () => {
-    it("reconhece exatamente / sim", () => {
-        assert.equal(looksLikeCheckoutAffirmation("exatament"), true);
-        assert.equal(looksLikeCheckoutAffirmation("sim"), true);
-        assert.equal(looksLikeCheckoutAffirmation("pix"), false);
-    });
-});
-
 describe("looksLikeNonMoneyWhileAwaitingChange", () => {
-    it("libera FAQ e afirmação", () => {
+    it("libera FAQ e texto longo", () => {
         assert.equal(looksLikeNonMoneyWhileAwaitingChange("tem coca 2l?"), true);
-        assert.equal(looksLikeNonMoneyWhileAwaitingChange("exatamente"), true);
+        assert.equal(looksLikeNonMoneyWhileAwaitingChange("quero fechar o pedido agora"), true);
         assert.equal(looksLikeNonMoneyWhileAwaitingChange("100"), false);
     });
 });
@@ -51,20 +42,20 @@ describe("sanitizePreparePaymentAgainstUserText", () => {
         readyForConfirmation: false,
     };
 
-    it("remove pagamento inventado em 'exatamente'", () => {
+    it("remove pagamento inventado sem extract/draft", () => {
         const out = sanitizePreparePaymentAgainstUserText(base, "exatament", null);
         assert.equal(out.paymentMethod, null);
         assert.equal(out.changeFor, null);
     });
 
-    it("mantém pix se o cliente disse pix", () => {
+    it("mantém pix da extração", () => {
         const out = sanitizePreparePaymentAgainstUserText(
             { ...base, paymentMethod: "pix", changeFor: null },
-            "pode ser no pix",
-            null
+            "pode fechar",
+            null,
+            { paymentFromExtract: "pix" }
         );
         assert.equal(out.paymentMethod, "pix");
-        assert.equal(userTextMentionsPayment("pode ser no pix"), true);
     });
 
     it("preserva pagamento já no draft", () => {
@@ -74,6 +65,27 @@ describe("sanitizePreparePaymentAgainstUserText", () => {
             changeFor: null,
         } as never);
         assert.equal(out.paymentMethod, "pix");
+    });
+});
+
+describe("parseOrderLineExtractionJson dialogue", () => {
+    it("aceita dialogue sem items", () => {
+        const parsed = parseOrderLineExtractionJson({
+            v: 1,
+            items: [],
+            dialogue: { act: "add_more", quantity: 2 },
+        });
+        assert.ok(parsed);
+        assert.equal(parsed?.dialogue?.act, "add_more");
+        assert.equal(parsed?.dialogue?.quantity, 2);
+    });
+    it("aceita quantity_only", () => {
+        const parsed = parseOrderLineExtractionJson({
+            v: 1,
+            items: [],
+            dialogue: { act: "quantity_only", quantity: 3 },
+        });
+        assert.equal(parsed?.dialogue?.act, "quantity_only");
     });
 });
 

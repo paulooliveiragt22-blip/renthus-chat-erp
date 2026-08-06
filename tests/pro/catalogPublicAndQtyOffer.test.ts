@@ -4,7 +4,6 @@ import { toChatCatalogPublicItem } from "../../src/pro/tools/catalogPublicDto";
 import {
     canServerPrepareFromCatalogQtyOffer,
     isAdditiveCatalogQtyOffer,
-    parseBareQuantityReply,
     resolveSingleOfferedEmbalagemId,
 } from "../../src/pro/pipeline/serverPrepareFromCatalogQtyOffer";
 import type { ProSessionState } from "../../src/types/contracts";
@@ -46,21 +45,6 @@ describe("toChatCatalogPublicItem", () => {
             ),
             false
         );
-    });
-});
-
-describe("parseBareQuantityReply", () => {
-    it("aceita qty pura", () => {
-        assert.equal(parseBareQuantityReply("3"), 3);
-        assert.equal(parseBareQuantityReply("tres"), 3);
-        assert.equal(parseBareQuantityReply("2 unidades"), 2);
-        assert.equal(parseBareQuantityReply("quero 4"), 4);
-        assert.equal(parseBareQuantityReply("sim, 3"), 3);
-    });
-    it("rejeita confirmações e pedidos com produto", () => {
-        assert.equal(parseBareQuantityReply("exatament"), null);
-        assert.equal(parseBareQuantityReply("3 coca"), null);
-        assert.equal(parseBareQuantityReply("pix"), null);
     });
 });
 

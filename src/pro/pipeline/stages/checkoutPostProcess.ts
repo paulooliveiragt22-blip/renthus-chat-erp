@@ -12,11 +12,9 @@ import {
     withResolvedSlotStep,
 } from "../orderSlotStep";
 import {
-    looksLikeCheckoutAffirmation,
     looksLikeNonMoneyWhileAwaitingChange,
     parsePtMoneyInput,
 } from "../paymentFromUserText";
-import { resolveSingleOfferedEmbalagemId } from "../serverPrepareFromCatalogQtyOffer";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -178,56 +176,6 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
 
     /** Aguardando o cliente repetir o nome do produto — não barrar como pagamento. */
     if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return null;
-
-    /**
-     * “Quer adicionar mais?” → “sim”: pede qty (não fecha pedido nem inventa Pix).
-     * Só quando ainda há oferta de catálogo e não estamos no resumo final.
-     */
-    if (
-        d &&
-        d.items.length > 0 &&
-        looksLikeCheckoutAffirmation(text) &&
-        state.step !== "pro_awaiting_confirmation" &&
-        resolveSingleOfferedEmbalagemId(state)
-    ) {
-        return {
-            handled: true,
-            actionTag: "affirm_add_more_ask_qty",
-            state: { ...state, checkoutEditHold: false },
-            outbound: [
-                {
-                    kind: "text",
-                    text: "Quantas unidades mais você quer adicionar?",
-                },
-            ],
-        };
-    }
-
-    /**
-     * “exatamente” / “sim” com itens+endereço e sem pagamento → só botões PIX/Cartão/Dinheiro.
-     * Evita a IA inventar dinheiro+troco (print: Troco R$ 2 após “exatament”).
-     */
-    if (
-        d &&
-        d.items.length > 0 &&
-        isAddressStructurallyComplete(d.address) &&
-        !d.paymentMethod &&
-        looksLikeCheckoutAffirmation(text)
-    ) {
-        const next = withResolvedSlotStep({
-            ...state,
-            deliveryAddressUiConfirmed: true,
-            step: "pro_awaiting_payment_method",
-            checkoutEditHold: false,
-            inferredPaymentMethod: null,
-        });
-        return {
-            handled: true,
-            actionTag: "affirm_address_show_payment",
-            state: next,
-            outbound: [buildPaymentButtons()],
-        };
-    }
 
     if (state.step === "pro_awaiting_payment_method" && d) {
         if (!action) return null;

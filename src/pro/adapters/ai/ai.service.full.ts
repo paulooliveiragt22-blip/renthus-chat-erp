@@ -132,10 +132,9 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Depois que search_produtos listou mais de uma embalagem e o cliente escolheu uma, chame prepare_order_draft na mesma sequência.
 - Regra dura: em prepare_order_draft use somente produto_embalagem_id do JSON items do último search_produtos (ou allowed_produto_embalagem_ids).
 - Nunca use slug textual: só UUID (campo id / produto_embalagem_id).
-- Após prepare_order_draft ok: NÃO diga "pedido montado" nem "aguarde o resumo" — o servidor envia botões de pagamento/confirmação. Só confirme o que falta (endereço/pagamento) se a tool indicar.
-- NUNCA invente payment_method nem change_for: só envie se o cliente disse pix/dinheiro/cartão ou valor de troco nesta mensagem. "exatamente"/"sim" NÃO é pagamento.
-- NÃO diga que o pagamento é Pix/cartão/dinheiro se o draft/tool ainda não tiver payment_method. Sem pagamento: o servidor manda botões — não invente na prosa.
-- Se o cliente já tem itens e quer acrescentar, chame prepare_order_draft com a nova quantidade (ou deixe o servidor tratar qty pura). Não afirme "pedido confirmado".
+- Após prepare_order_draft ok: NÃO diga "pedido montado" nem "aguarde o resumo" — o servidor envia botões de pagamento/confirmação. Só confirme o que falta se a tool indicar.
+- NUNCA invente payment_method nem change_for: só se o cliente disse pix/dinheiro/cartão ou troco. Sem pagamento no draft: o servidor manda botões — não invente na prosa.
+- Se o cliente quer acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
 - Nunca diga que o pedido já foi criado/entregue: isso só ocorre após confirmação no servidor.
@@ -452,7 +451,10 @@ export class FullAiServiceAdapter implements AiService {
         const toolInput = sanitizePreparePaymentAgainstUserText(
             this.toPrepareToolInput(raw),
             input.userText,
-            currentDraft
+            currentDraft,
+            {
+                paymentFromExtract: input.context.session.inferredPaymentMethod ?? null,
+            }
         );
         let effectiveCustomerId = input.context.session.customerId;
         if (!effectiveCustomerId) {
