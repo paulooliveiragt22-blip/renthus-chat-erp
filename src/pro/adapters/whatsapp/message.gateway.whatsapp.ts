@@ -53,7 +53,15 @@ export class WhatsAppMessageGateway implements MessageGateway {
                 this.waConfig
             );
             if (result && result.ok === false) {
-                throw new Error(`whatsapp_buttons_failed: ${result.error ?? "unknown"}`);
+                /** Fallback: lista numerada em texto (cliente responde 1/2/3). Evita "problema técnico". */
+                console.error("[pro/whatsapp] buttons failed, fallback text:", result.error);
+                await botReply(
+                    this.admin,
+                    tenant.companyId,
+                    tenant.threadId,
+                    tenant.phoneE164,
+                    text
+                );
             }
             return;
         }

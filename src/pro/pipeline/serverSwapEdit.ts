@@ -3,6 +3,7 @@ import type { OutboundMessage, ProSessionState } from "@/src/types/contracts";
 import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
 import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
+import { buildUniquePickButtons } from "./pickButtonTitles";
 import { parseCheckoutSwapIntent } from "./editIntentParse";
 import {
     removeDraftItemsMatchingName,
@@ -20,13 +21,7 @@ function buildSwapClarifyButtons(
     return {
         kind: "buttons",
         text: formatSearchPicksClarificationBody(top),
-        buttons: top.map((p, i) => ({
-            id: `${PICK_EMB_PREFIX}${p.embalagemId}`,
-            title: String(p.label ?? `Opcao ${i + 1}`)
-                .replaceAll(/\s+/g, " ")
-                .trim()
-                .slice(0, 20),
-        })),
+        buttons: buildUniquePickButtons(top, PICK_EMB_PREFIX),
     };
 }
 

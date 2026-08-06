@@ -1,6 +1,7 @@
 import type { OutboundMessage, ProSessionState } from "@/src/types/contracts";
 import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
+import { buildUniquePickButtons } from "./pickButtonTitles";
 
 export type BootstrapPendingClarification = NonNullable<
     ProSessionState["bootstrapPendingClarifications"]
@@ -15,13 +16,7 @@ function buildClarifyOutbound(
     return {
         kind: "buttons",
         text: formatSearchPicksClarificationBody(top, { productHint }),
-        buttons: top.map((p, i) => ({
-            id: `${PICK_EMB_PREFIX}${p.embalagemId}`,
-            title: String(p.label ?? `Opcao ${i + 1}`)
-                .replaceAll(/\s+/g, " ")
-                .trim()
-                .slice(0, 20),
-        })),
+        buttons: buildUniquePickButtons(top, PICK_EMB_PREFIX),
     };
 }
 
