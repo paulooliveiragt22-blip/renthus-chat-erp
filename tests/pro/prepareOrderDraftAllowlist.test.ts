@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { prepareOrderDraftFromTool } from "../../lib/chatbot/pro/prepareOrderDraft";
+import { prepareOrderDraftFromTool } from "../../src/pro/tools/prepareOrderDraft";
 
 describe("prepareOrderDraftFromTool / search_allowlist", () => {
     it("rejeita produto_embalagem_id fora da allowlist antes de tocar no catálogo", async () => {

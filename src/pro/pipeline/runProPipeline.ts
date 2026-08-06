@@ -6,7 +6,7 @@ import type {
     ProPipelineTelemetryReason,
     ProSessionState,
 } from "@/src/types/contracts";
-import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
+import { buildOrderHintsPayload } from "@/src/pro/tools/orderHints";
 import {
     buildAiLimitExceededOutbound,
     buildInfoOnlyOrderBlockedText,

@@ -12,12 +12,12 @@ import type { AiService } from "../../services/ai/ai.types";
 import type { LlmPort } from "@/src/pro/ports/llm.port";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 import { hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
-import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
+import { runSearchProdutosDetailed } from "@/src/pro/tools/searchProdutos";
 import {
     buildDeliverySpecialistSystemPreamble,
     buildPhasePlaybookForModel,
-} from "@/lib/chatbot/pro/checkoutPhasePolicy";
-import { buildOrderHintsPayload } from "@/lib/chatbot/pro/orderHints";
+} from "@/src/pro/tools/checkoutPhasePolicy";
+import { buildOrderHintsPayload } from "@/src/pro/tools/orderHints";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
     buildPrepareDraftGuidanceForModel,
@@ -25,8 +25,8 @@ import {
     prepareOrderDraftFromTool,
     shouldPreferPrepareErrorsOverModelText,
     type PrepareOrderDraftCatalogPolicy,
-} from "@/lib/chatbot/pro/prepareOrderDraft";
-import { normalizePrepareDraftAnthropicInput } from "@/lib/chatbot/pro/normalizePrepareDraftAnthropicInput";
+} from "@/src/pro/tools/prepareOrderDraft";
+import { normalizePrepareDraftAnthropicInput } from "@/src/pro/tools/normalizePrepareDraftAnthropicInput";
 import {
     mergePreparedDraftIntoCurrent,
     unionAllowlistWithDraftIds,

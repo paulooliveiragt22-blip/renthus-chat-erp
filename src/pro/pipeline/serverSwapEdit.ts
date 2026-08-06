@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OutboundMessage, ProSessionState } from "@/src/types/contracts";
-import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
+import { runSearchProdutosDetailed } from "@/src/pro/tools/searchProdutos";
 import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
 import { buildUniquePickButtons } from "./pickButtonTitles";

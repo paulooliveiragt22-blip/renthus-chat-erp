@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import {
     applySearchRelevanceRerank,
     extractSearchQueryHints,
-} from "../../lib/chatbot/pro/searchRelevance";
-import type { ChatProdutoRow } from "../../lib/chatbot/pro/searchProdutos";
+} from "../../src/pro/tools/searchRelevance";
+import type { ChatProdutoRow } from "../../src/pro/tools/searchProdutos";
 
 function row(partial: Partial<ChatProdutoRow> & Pick<ChatProdutoRow, "id" | "product_name">): ChatProdutoRow {
     return {

@@ -3,7 +3,7 @@ import type { OrderService } from "../../services/order/order.types";
 import type { DraftAddress, OrderDraft, OrderServiceResult } from "@/src/types/contracts";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { resolveOrCreateCustomerByIdentity } from "@/lib/chatbot/db/channelIdentity";
-import { loadPackRowForValidation } from "@/lib/chatbot/pro/prepareOrderDraft";
+import { loadPackRowForValidation } from "@/src/pro/tools/prepareOrderDraft";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 
 type OrderFailCode = Extract<OrderServiceResult, { ok: false }>["errorCode"];

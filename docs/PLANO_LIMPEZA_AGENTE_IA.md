@@ -97,7 +97,7 @@ Portar o efeito completo do `doHandover` para o PRO, como side effect do `routeS
 
 | Peça | Onde | Por quê |
 |------|------|---------|
-| **`search_allowlist`** | `lib/chatbot/pro/prepareOrderDraft.ts:33-35`, L270-318 | Impede o LLM de usar `produto_embalagem_id` que não veio de busca real, rejeita slug inventado, recusa prepare sem busca. É a peça anti-alucinação mais valiosa do repo. |
+| **`search_allowlist`** | `src/pro/tools/prepareOrderDraft.ts:33-35`, L270-318 | Impede o LLM de usar `produto_embalagem_id` que não veio de busca real, rejeita slug inventado, recusa prepare sem busca. É a peça anti-alucinação mais valiosa do repo. |
 | **Totais no servidor** | `prepareOrderDraft` + `resolveDeliveryForNeighborhood` | Preço, taxa, `grandTotal` nunca vêm da IA. |
 | **Sanitização de saída** | `sanitizeAiVisibleOrderClaims.ts`, `ai.service.full.ts:851-868` | Remove UUID vazado, substitui alegação falsa de "pedido confirmado", troca erro genérico pelos erros reais do prepare. |
 | **`makeProPipelineDependencies` + overrides** | `src/pro/pipeline/deps.factory.ts:13-47` | Permite rodar o pipeline inteiro sem banco e sem LLM. **É o que viabiliza o harness.** |
@@ -154,7 +154,7 @@ Código morto dentro de arquivo vivo:
 |---------|----------|
 | `docs/CHATBOT_IMPLEMENTACAO.md` | `OrderParserService`, Fuse.js, steps `catalog_categories`, webhook `/api/whatsapp/webhook` (rota não existe — a real é `/api/whatsapp/incoming`), Twilio |
 | `docs/DIAGNOSTICO_CHATBOT.md` | Mesmos erros; aponta para o anterior |
-| `docs/CHATBOT_TIERS.md` | Diz que PRO mora em `lib/chatbot/pro/*`; o motor é `src/pro/` |
+| `docs/CHATBOT_TIERS.md` | Diz que PRO mora em `lib/chatbot/pro/*`; o motor é `src/pro/` (tools em `src/pro/tools/`) |
 | `CONTEXTO.md` (raiz) | `parserChain`, `handleCatalog` |
 | `docs/DB_CURRENT_STATE.md` | Seções de chatbot descrevem `bot_intents`/`bot_logs` como motor ativo |
 | `docs/ARCHITECTURE.md`, `docs/PROJECT_SPEC.md`, `ADR/0002` | Twilio como decisão vigente; `incoming/route.ts` é Meta-only |
@@ -226,7 +226,7 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 ### Fase 3 — Consolidação
 
 - [x] `productHint` derivado do catálogo, não do texto do cliente (`catalogProductHintFromPicks`; swap usa rótulo do catálogo no intro)
-- [ ] Mover `lib/chatbot/pro/*` para `src/pro/` (ownership único)
+- [x] Mover `lib/chatbot/pro/*` para `src/pro/tools/` (ownership único)
 - [x] Remover `SELECT_LEGACY` de `searchProdutos.ts` após validar a view
 - [x] Acentuação nas mensagens restantes (`checkoutPostProcess`, `order.service.v2`, `ai.service.full`, `orderStage`)
 - [x] Atualizar `CHATBOT_PROD.md` (hint de clarificação); `CHATBOT_TIERS.md` / `DB_CURRENT_STATE.md` chatbot — sem delta estrutural nesta entrega

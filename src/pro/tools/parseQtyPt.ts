@@ -1,4 +1,4 @@
-import { normalize, QUANTITY_WORDS_NORM } from "../utils";
+import { normalize, QUANTITY_WORDS_NORM } from "@/lib/chatbot/utils";
 
 /** Extensão de erros comuns de escrita + números compostos simples. */
 const EXTRA_QTY: Record<string, number> = {

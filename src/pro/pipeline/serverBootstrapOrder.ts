@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderDraft, PrepareDraftToolInput, ProSessionState, OutboundMessage } from "@/src/types/contracts";
-import { runSearchProdutosDetailed } from "@/lib/chatbot/pro/searchProdutos";
+import { runSearchProdutosDetailed } from "@/src/pro/tools/searchProdutos";
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
-} from "@/lib/chatbot/pro/prepareOrderDraft";
+} from "@/src/pro/tools/prepareOrderDraft";
 import { mergePreparedDraftIntoCurrent, unionAllowlistWithDraftIds } from "./mergeOrderDraft";
 import { resolveSegmentPick, type SegmentPickRow } from "./resolveSegmentPick";
 import {

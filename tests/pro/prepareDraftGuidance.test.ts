@@ -4,7 +4,7 @@ import {
     buildPrepareDraftGuidanceForModel,
     formatPrepareErrorsForClientReply,
     shouldPreferPrepareErrorsOverModelText,
-} from "../../lib/chatbot/pro/prepareOrderDraft";
+} from "../../src/pro/tools/prepareOrderDraft";
 
 describe("buildPrepareDraftGuidanceForModel", () => {
     it("quando ok, nao pede confirmar endereco nem inventar totais", () => {

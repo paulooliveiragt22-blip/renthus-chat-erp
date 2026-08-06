@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getOrCreateCustomer } from "../db/orders";
+import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
     buildAiAddressFromSavedClienteRow,
     listCustomerAddressesForCustomer,

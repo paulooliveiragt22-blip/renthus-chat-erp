@@ -12,7 +12,7 @@ import {
 } from "./resolveSavedAddress";
 import { parsePtQuantity } from "./parseQtyPt";
 import { tryParseAddressOneLine } from "./parseAddressLoosePt";
-import { roundBrl } from "../utils";
+import { roundBrl } from "@/lib/chatbot/utils";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { buildPackDisplayName } from "@/lib/products/packDisplayName";

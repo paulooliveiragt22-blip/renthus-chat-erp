@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import {
     looksLikeFinalOrderConfirmAsk,
     scrubOutboundForAddressHold,
-} from "../../lib/chatbot/pro/checkoutPhasePolicy";
+} from "../../src/pro/tools/checkoutPhasePolicy";
 import { checkoutPostProcess } from "../../src/pro/pipeline/stages/checkoutPostProcess";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
 

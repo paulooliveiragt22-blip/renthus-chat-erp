@@ -8,7 +8,7 @@ import type {
 import {
     prepareOrderDraftFromTool,
     type PrepareOrderDraftCatalogPolicy,
-} from "@/lib/chatbot/pro/prepareOrderDraft";
+} from "@/src/pro/tools/prepareOrderDraft";
 import {
     mergePreparedDraftIntoCurrent,
     removeDraftItemsMatchingName,

@@ -39,7 +39,7 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 - Reclaim: RPC `reclaim_stuck_chatbot_queue_jobs` devolve `processing` stuck (> `CHATBOT_QUEUE_STALE_MINUTES`, default 3) para `pending`.
 - **Claim justo (P2):** `claim_chatbot_queue_jobs(batch, max_attempts, max_per_company)` — teto por `company_id` + não claima `thread_id` já em `processing` (single-flight por conversa).
 - **Backlog UX:** se a fila da empresa estiver profunda/atrasada, `incoming` envia aviso PT-BR (cooldown por thread) via `lib/chatbot/backlogNotice.ts`.
-- **Cache busca catálogo:** TTL in-memory em `lib/chatbot/pro/catalogSearchCache.ts` (por instância).
+- **Cache busca catálogo:** TTL in-memory em `src/pro/tools/catalogSearchCache.ts` (por instância).
 - Desligar wake: `CHATBOT_QUEUE_WAKE_ENABLED=0`.
 
 ### Scheduler externo (cron-job.org) — rede de segurança obrigatória no Hobby
@@ -274,8 +274,8 @@ Implementação actual no PRO (`runProPipeline` — único motor para plano PRO)
 | Quick actions (checkout) | `runProPipeline.ts` + `stages/checkoutPostProcess.ts` (`applyQuickAction`) | IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`, `pro_confirm_typed_address`; troco em `pro_awaiting_change_amount`; texto `cancelar` / `desistir` cancela o rascunho. Após cada quick action, `withResolvedSlotStep` alinha `ProStep` ao draft. |
 | Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço estruturalmente completo sem pagamento → `pro_awaiting_address_confirmation` (salvo ou digitado); após confirmar endereço → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; draft completo → `pro_awaiting_confirmation`. |
 | Pós-processamento UI | `stages/checkoutPostProcess.ts` | `buildAddressConfirmationMessage` com morada completa e sem pagamento (com ou sem `enderecoClienteId`); botões de pagamento só após confirmação de endereço; confirmação final em `pro_awaiting_confirmation`. Mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |
-| Consistência texto IA ↔ tools | `src/pro/adapters/ai/ai.service.full.ts` + `lib/chatbot/pro/prepareOrderDraft.ts` + `lib/chatbot/pro/orderHints.ts` | `guidance_for_model_pt` em `search_produtos` / `prepare_order_draft`; `flow_reminder_pt` em `get_order_hints`; system prompt reforçado; `sanitizeVisibleAgainstDraft` quando o modelo contradiz o draft. |
-| Relevância catálogo | `lib/chatbot/pro/searchRelevance.ts` + RPC `rpc_search_chat_produtos` | Rerank por long neck / CX / volume; remove 600ml quando o pedido pede long neck e há hit de descritor. |
+| Consistência texto IA ↔ tools | `src/pro/adapters/ai/ai.service.full.ts` + `src/pro/tools/prepareOrderDraft.ts` + `src/pro/tools/orderHints.ts` | `guidance_for_model_pt` em `search_produtos` / `prepare_order_draft`; `flow_reminder_pt` em `get_order_hints`; system prompt reforçado; `sanitizeVisibleAgainstDraft` quando o modelo contradiz o draft. |
+| Relevância catálogo | `src/pro/tools/searchRelevance.ts` + RPC `rpc_search_chat_produtos` | Rerank por long neck / CX / volume; remove 600ml quando o pedido pede long neck e há hit de descritor. |
 | Classificação de botões | `src/pro/services/intent/intentClassifier.service.ts` | Mapeia IDs de botão para `order_intent` / `status_intent` / `human_intent` com alta confiança. |
 | Passos no tipo | `src/types/contracts.ts` (`ProStep`) | `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount`, etc. |
 
@@ -447,9 +447,10 @@ Manter fronteiras claras sem microserviço:
 ## Referências no repositório
 
 - Motor: `lib/chatbot/processMessage.ts`, `lib/chatbot/inboundPipeline.ts`; PRO V2: `src/pro/pipeline/` (orquestrador: `runProPipeline.ts`, `stages/routeStage.ts`, `stages/checkoutPostProcess.ts`, intents: `services/intent/intentClassifier.service.ts`)
-- Checkout / CTAs: `lib/chatbot/pro/checkoutPhasePolicy.ts` (scrub de botões vs fase; evita CTA misto endereço+confirmação)
-- Busca catálogo: `lib/chatbot/pro/searchProdutos.ts` + RPC `rpc_search_chat_produtos` (fuzzy/`pg_trgm`, migração `20260805080000_…`) + cache TTL `catalogSearchCache.ts`
+- Checkout / CTAs: `src/pro/tools/checkoutPhasePolicy.ts` (scrub de botões vs fase; evita CTA misto endereço+confirmação)
+- Busca catálogo: `src/pro/tools/searchProdutos.ts` + RPC `rpc_search_chat_produtos` (fuzzy/`pg_trgm`, migração `20260805080000_…`) + cache TTL `catalogSearchCache.ts`
 - Clarificação de produto: `catalogProductHintFromPicks` (`src/pro/pipeline/catalogProductHint.ts`) — hint ao cliente vem do catálogo (`productName`/stem do label), não do texto digitado; swap/edição segue a mesma regra
+- Tools PRO (ex-`lib/chatbot/pro`): `src/pro/tools/` — prepare draft, hints, allowlist, parsers de qty/endereço
 - LLM multi-provider: `src/pro/ports/llm.port.ts`, `adapters/llm/{anthropic,openai,createLlmPort}.ts`
 - STT áudio: `src/pro/ports/speechToText.port.ts`, `adapters/stt/openai.whisper.ts`, `lib/chatbot/transcribeInboundAudio.ts`
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)

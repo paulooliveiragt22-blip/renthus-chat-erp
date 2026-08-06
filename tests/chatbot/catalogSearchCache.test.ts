@@ -6,7 +6,7 @@ import {
     setCachedCatalogSearch,
     invalidateCatalogSearchCache,
     resetCatalogSearchCacheForTests,
-} from "../../lib/chatbot/pro/catalogSearchCache";
+} from "../../src/pro/tools/catalogSearchCache";
 
 describe("catalogSearchCache", () => {
     beforeEach(() => {

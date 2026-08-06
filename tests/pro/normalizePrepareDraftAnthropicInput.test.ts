@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { normalizePrepareDraftAnthropicInput } from "../../lib/chatbot/pro/normalizePrepareDraftAnthropicInput";
+import { normalizePrepareDraftAnthropicInput } from "../../src/pro/tools/normalizePrepareDraftAnthropicInput";
 
 describe("normalizePrepareDraftAnthropicInput", () => {
     it("mapeia produtoEmbalagemId e paymentMethod em camelCase", () => {

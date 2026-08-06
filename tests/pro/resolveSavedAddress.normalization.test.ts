@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildAiAddressFromSavedClienteRow } from "../../lib/chatbot/pro/resolveSavedAddress";
+import { buildAiAddressFromSavedClienteRow } from "../../src/pro/tools/resolveSavedAddress";
 
 describe("buildAiAddressFromSavedClienteRow", () => {
     it("preenche numero e bairro a partir de logradouro numa linha", () => {

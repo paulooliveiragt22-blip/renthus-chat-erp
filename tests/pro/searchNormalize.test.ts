@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { expandSearchVariants, normalizeSearchKey, scoreDidYouMean } from "../../lib/chatbot/pro/searchNormalize";
+import { expandSearchVariants, normalizeSearchKey, scoreDidYouMean } from "../../src/pro/tools/searchNormalize";
 
 describe("searchNormalize", () => {
     it("remove acentos", () => {
