@@ -3,7 +3,7 @@ import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
 
 /**
  * Resposta só com quantidade após o bot oferecer um SKU (FAQ “tem X?” → preço → “3”).
- * Ex.: "3", "3 unidades", "tres", "quero 2".
+ * Ex.: "3", "3 unidades", "tres", "quero 2", "sim, 3".
  */
 export function parseBareQuantityReply(text: string): number | null {
     const raw = String(text ?? "").trim();
@@ -15,6 +15,14 @@ export function parseBareQuantityReply(text: string): number | null {
         .toLowerCase()
         .replaceAll(/\s+/g, " ")
         .trim();
+
+    /** "sim, 3" / "ok 2 unidades" após “quer adicionar mais?” */
+    const simQty = n.match(
+        /^(?:sim|ok|okay|pode|pode ser)[,!]?\s+(\d{1,3})\s*(?:unidades?|unds?|uns?|x)?$/u
+    );
+    if (simQty?.[1]) {
+        return parsePtQuantity(simQty[1]);
+    }
 
     const cleaned = n
         .replace(/^(?:quero\s+|me\s+ve\s+|manda\s+)?(?:so\s+)?/u, "")
@@ -57,9 +65,17 @@ export function resolveSingleOfferedEmbalagemId(state: ProSessionState): string 
     return null;
 }
 
+/**
+ * Prepare por qty após oferta de catálogo.
+ * Com draft vazio: define qty absoluta.
+ * Com draft existente + mesmo SKU oferecido: acrescenta qty (additive).
+ */
 export function canServerPrepareFromCatalogQtyOffer(state: ProSessionState): boolean {
-    if ((state.draft?.items?.length ?? 0) > 0) return false;
     if ((state.lastSearchPicks?.length ?? 0) >= 2) return false;
     if (resolveSingleOfferedEmbalagemId(state) == null) return false;
     return true;
+}
+
+export function isAdditiveCatalogQtyOffer(state: ProSessionState): boolean {
+    return (state.draft?.items?.length ?? 0) > 0;
 }

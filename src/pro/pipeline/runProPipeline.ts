@@ -49,9 +49,11 @@ import {
 } from "./serverPrepareAfterPick";
 import {
     canServerPrepareFromCatalogQtyOffer,
+    isAdditiveCatalogQtyOffer,
     parseBareQuantityReply,
     resolveSingleOfferedEmbalagemId,
 } from "./serverPrepareFromCatalogQtyOffer";
+import { looksLikeCheckoutAffirmation } from "./paymentFromUserText";
 import { tryServerSwapEdit } from "./serverSwapEdit";
 import { tryServerBootstrapOrderFromText } from "./serverBootstrapOrder";
 import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
@@ -300,7 +302,26 @@ export async function runProPipeline(
         };
     }
 
-    const strictGate = strictCheckoutStructuredGate(input.inboundText, guarded.state);
+    /**
+     * “sim” com draft completo: libera Corrigir/Adicionar hold e limpa Pix sticky,
+     * para o orderStage fechar (não mandar à IA → sanitize).
+     */
+    let gateState = guarded.state;
+    if (
+        looksLikeCheckoutAffirmation(input.inboundText) &&
+        gateState.draft &&
+        isDraftStructurallyCompleteForFinalize(gateState.draft) &&
+        (gateState.step === "pro_awaiting_confirmation" ||
+            !resolveSingleOfferedEmbalagemId(gateState))
+    ) {
+        gateState = withResolvedSlotStep({
+            ...gateState,
+            checkoutEditHold: false,
+            inferredPaymentMethod: null,
+        });
+    }
+
+    const strictGate = strictCheckoutStructuredGate(input.inboundText, gateState);
     if (strictGate) {
         const syncedQuick = withResolvedSlotStep(strictGate.state);
         const quickOutbound = checkoutPostProcessForQuickAction({
@@ -329,7 +350,7 @@ export async function runProPipeline(
     }
 
     /** Extração LLM: única fonte de itens/qty/pagamento/swap (sem regex de pedido). */
-    let stateBeforePick = guarded.state;
+    let stateBeforePick = gateState;
     const llmEnabled = context.policies.llmEnabled !== false;
     let orderExtraction: OrderLineExtraction | null = null;
 
@@ -540,6 +561,7 @@ export async function runProPipeline(
             canServerPrepareFromCatalogQtyOffer(stateBeforePick)
         ) {
             const offeredId = resolveSingleOfferedEmbalagemId(stateBeforePick);
+            const additive = isAdditiveCatalogQtyOffer(stateBeforePick);
             if (offeredId) {
                 try {
                     const recentUserText = [
@@ -550,16 +572,33 @@ export async function runProPipeline(
                             .slice(0, 3)
                             .map((h) => (typeof h.content === "string" ? h.content : "")),
                     ].join("\n");
+                    /** Ao acrescentar itens, exige escolher pagamento de novo (não herdar Pix fantasma). */
+                    const stateForPrep = additive
+                        ? {
+                              ...stateBeforePick,
+                              pendingClarifyQuantity: bareQty,
+                              inferredPaymentMethod: null,
+                              checkoutEditHold: false,
+                              draft: stateBeforePick.draft
+                                  ? {
+                                        ...stateBeforePick.draft,
+                                        paymentMethod: null,
+                                        changeFor: null,
+                                    }
+                                  : null,
+                          }
+                        : {
+                              ...stateBeforePick,
+                              pendingClarifyQuantity: bareQty,
+                          };
                     const serverPrep = await serverPrepareAfterProductPick({
                         admin: deps.admin,
                         companyId: input.tenant.companyId,
                         customerId: stateBeforePick.customerId,
-                        state: {
-                            ...stateBeforePick,
-                            pendingClarifyQuantity: bareQty,
-                        },
+                        state: stateForPrep,
                         pickedEmbalagemId: offeredId,
                         recentUserText,
+                        additiveQuantity: additive,
                     });
                     stateBeforePick = serverPrep.state;
                     if (serverPrep.clarificationOutbound.length > 0) {
@@ -572,7 +611,11 @@ export async function runProPipeline(
                             {
                                 name: "pro_pipeline.server_prepare_catalog_qty",
                                 value: 1,
-                                tags: { pending_clarify: "1", qty: String(bareQty) },
+                                tags: {
+                                    pending_clarify: "1",
+                                    qty: String(bareQty),
+                                    additive: additive ? "1" : "0",
+                                },
                             },
                             {
                                 name: "pro_pipeline.outbound_count",
@@ -612,6 +655,7 @@ export async function runProPipeline(
                                 tags: {
                                     skipped_ai: "1",
                                     qty: String(bareQty),
+                                    additive: additive ? "1" : "0",
                                 },
                             },
                             { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
@@ -628,6 +672,51 @@ export async function runProPipeline(
                             sideEffects: [],
                             metrics,
                         };
+                    }
+                    /** Draft parcial (ex.: falta pagamento) — UI de pagamento no post-process. */
+                    if (serverPrep.preparedOk && stateBeforePick.draft?.items?.length) {
+                        const finalState = withResolvedSlotStep({
+                            ...stateBeforePick,
+                            checkoutEditHold: false,
+                        });
+                        const finalOutbound = checkoutPostProcessForQuickAction({
+                            state: finalState,
+                            outbound: [],
+                        });
+                        if (finalOutbound.length > 0) {
+                            await emitTurn({
+                                state: finalState,
+                                outbound: finalOutbound,
+                            });
+                            const metrics: PipelineMetric[] = [
+                                {
+                                    name: "pro_pipeline.server_prepare_catalog_qty",
+                                    value: 1,
+                                    tags: {
+                                        skipped_ai: "0",
+                                        qty: String(bareQty),
+                                        additive: additive ? "1" : "0",
+                                        payment_ui: "1",
+                                    },
+                                },
+                                {
+                                    name: "pro_pipeline.outbound_count",
+                                    value: finalOutbound.length,
+                                },
+                            ];
+                            flushPipelineRunMetrics(
+                                deps.metrics,
+                                input.tenant,
+                                metrics,
+                                new Set(["pro_pipeline.outbound_count"])
+                            );
+                            return {
+                                nextState: finalState,
+                                outbound: finalOutbound,
+                                sideEffects: [],
+                                metrics,
+                            };
+                        }
                     }
                     /** Draft parcial (ex.: falta pagamento/endereço na UI) — segue pipeline com itens. */
                 } catch (err) {

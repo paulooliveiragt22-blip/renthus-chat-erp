@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { toChatCatalogPublicItem } from "../../src/pro/tools/catalogPublicDto";
 import {
     canServerPrepareFromCatalogQtyOffer,
+    isAdditiveCatalogQtyOffer,
     parseBareQuantityReply,
     resolveSingleOfferedEmbalagemId,
 } from "../../src/pro/pipeline/serverPrepareFromCatalogQtyOffer";
@@ -54,6 +55,7 @@ describe("parseBareQuantityReply", () => {
         assert.equal(parseBareQuantityReply("tres"), 3);
         assert.equal(parseBareQuantityReply("2 unidades"), 2);
         assert.equal(parseBareQuantityReply("quero 4"), 4);
+        assert.equal(parseBareQuantityReply("sim, 3"), 3);
     });
     it("rejeita confirmações e pedidos com produto", () => {
         assert.equal(parseBareQuantityReply("exatament"), null);
@@ -90,14 +92,21 @@ describe("resolveSingleOfferedEmbalagemId", () => {
             null
         );
     });
-    it("bloqueia se já há itens no draft", () => {
+    it("permite prepare com draft existente (additive)", () => {
         assert.equal(
             canServerPrepareFromCatalogQtyOffer({
                 ...base,
                 lastSearchPicks: [{ embalagemId: "aaa", label: "Coca" }],
-                draft: { items: [{ produtoEmbalagemId: "x", quantity: 1 }] } as ProSessionState["draft"],
+                draft: { items: [{ produtoEmbalagemId: "aaa", quantity: 3 }] } as ProSessionState["draft"],
             }),
-            false
+            true
+        );
+        assert.equal(
+            isAdditiveCatalogQtyOffer({
+                ...base,
+                draft: { items: [{ produtoEmbalagemId: "aaa", quantity: 3 }] } as ProSessionState["draft"],
+            }),
+            true
         );
     });
 });

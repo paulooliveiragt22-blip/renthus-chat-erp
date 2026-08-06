@@ -37,6 +37,11 @@ export async function serverPrepareAfterProductPick(params: {
     pickedEmbalagemId: string;
     /** Texto recente do cliente (para herdar PIX se draft ainda sem pagamento). */
     recentUserText?: string | null;
+    /**
+     * Se true, `pendingClarifyQuantity` (ou 1) é somada à qty já no draft.
+     * Usado em “quer adicionar mais?” → “2”.
+     */
+    additiveQuantity?: boolean;
 }): Promise<{
     state: ProSessionState;
     /** Draft ficou completo o bastante para ir ao resumo sem IA. */
@@ -97,9 +102,13 @@ export async function serverPrepareAfterProductPick(params: {
     const clarifyQty = Number(state.pendingClarifyQuantity);
     const qtyFromClarify =
         Number.isFinite(clarifyQty) && clarifyQty > 0 ? clarifyQty : null;
+    const addQty = qtyFromClarify ?? 1;
+    const nextQty = params.additiveQuantity
+        ? (prev?.quantity ?? 0) + addQty
+        : (prev?.quantity ?? qtyFromClarify ?? 1);
     byId.set(embId, {
         produtoEmbalagemId: embId,
-        quantity: prev?.quantity ?? qtyFromClarify ?? 1,
+        quantity: Math.max(1, nextQty),
     });
 
     const resolvedIds = [
@@ -107,10 +116,8 @@ export async function serverPrepareAfterProductPick(params: {
     ];
 
     const addr = state.draft?.address;
-    const paymentMethod =
-        state.draft?.paymentMethod ??
-        state.inferredPaymentMethod ??
-        null;
+    /** Só pagamento já no draft (botões). Não herdar inferred sticky da sessão. */
+    const paymentMethod = state.draft?.paymentMethod ?? null;
     const toolInput: PrepareDraftToolInput = {
         items: [...byId.values()],
         address: addr
