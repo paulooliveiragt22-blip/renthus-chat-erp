@@ -2,12 +2,21 @@
  * Resolve um segmento de pedido ("heineken long neck caixa") contra hits de busca.
  */
 
+import type { PackagingHabit } from "./customerPackagingHabit";
+
 export type SegmentPickRow = {
     embalagemId: string;
     label: string;
     price?: number | null;
     /** Nome canónico do produto no catálogo (hint ao cliente). */
     productName?: string | null;
+};
+
+export type ResolveSegmentPickOpts = {
+    /** Qty pedida (extração LLM) — qty < fator da CX → prefere UN. */
+    quantity?: number | null;
+    /** Hábito do cliente neste produto (histórico finalized/delivered). */
+    habit?: PackagingHabit | null;
 };
 
 function norm(text: string): string {
@@ -42,7 +51,6 @@ export function prefersUnit(segment: string): boolean {
     const s = norm(segment);
     if (prefersCase(s)) return false;
     if (/\b(unidade|unidades|\bun\b)\b/u.test(s)) return true;
-    // "long neck" sem caixa = unidade (CX seria "long neck caixa")
     if (/\blong\s*neck|longneck\b/u.test(s)) return true;
     return false;
 }
@@ -51,10 +59,14 @@ function isCasePack(r: {
     display_name?: string | null;
     product_name?: string | null;
     sigla_comercial?: string | null;
+    fator_conversao?: number | string | null;
 }): boolean {
     const name = norm(String(r.display_name || r.product_name || ""));
     const sigla = String(r.sigla_comercial ?? "").toUpperCase();
-    return sigla.includes("CX") || /\bcx\b|caixa|c\/\d+/u.test(name);
+    if (sigla.includes("CX") || sigla.includes("FARD") || sigla.includes("PAC")) return true;
+    if (/\bcx\b|caixa|c\/\d+/u.test(name)) return true;
+    const fator = Number(r.fator_conversao ?? 1) || 1;
+    return fator >= 6;
 }
 
 /** Tokens de marca/produto (não descritor/embalagem). */
@@ -81,28 +93,89 @@ function brandTokens(segment: string): string[] {
         "uma",
         "duas",
         "dois",
+        "tres",
+        "três",
+        "umas",
+        "uns",
     ]);
     return norm(segment)
         .split(" ")
         .filter((t) => t.length >= 3 && !stop.has(t) && !/^\d/.test(t));
 }
 
+type HitRow = {
+    id: string;
+    display_name?: string | null;
+    product_name?: string | null;
+    sigla_comercial?: string | null;
+    preco_venda?: number | string | null;
+    fator_conversao?: number | string | null;
+    produto_id?: string | null;
+};
+
+function minCaseFator(items: HitRow[]): number | null {
+    let min: number | null = null;
+    for (const r of items) {
+        if (!isCasePack(r)) continue;
+        const f = Number(r.fator_conversao ?? 0) || 0;
+        if (f >= 2 && (min == null || f < min)) min = f;
+    }
+    return min;
+}
+
+/**
+ * Intenção de embalagem: texto explícito > conflito com hábito > qty vs fator > hábito.
+ */
+export function resolvePackagingIntent(
+    segment: string,
+    items: HitRow[],
+    opts?: ResolveSegmentPickOpts
+): {
+    wantCase: boolean;
+    wantUnit: boolean;
+    /** Pediu embalagem contrária ao hábito → forçar UN+CX na clarificação. */
+    habitConflict: boolean;
+} {
+    const explicitCase = prefersCase(segment);
+    const explicitUnit = prefersUnit(segment);
+    const habit = opts?.habit ?? null;
+    const qty = Number(opts?.quantity);
+    const qtyOk = Number.isFinite(qty) && qty > 0 ? qty : null;
+
+    let wantCase = explicitCase;
+    let wantUnit = explicitUnit;
+    let habitConflict = false;
+
+    if (explicitCase && habit === "UN") {
+        habitConflict = true;
+        wantCase = false;
+        wantUnit = false;
+    } else if (explicitUnit && habit === "CX") {
+        habitConflict = true;
+        wantCase = false;
+        wantUnit = false;
+    } else if (!explicitCase && !explicitUnit) {
+        if (habit === "UN") wantUnit = true;
+        else if (habit === "CX") wantCase = true;
+        else if (qtyOk != null) {
+            const minF = minCaseFator(items);
+            if (minF != null && qtyOk < minF) wantUnit = true;
+        }
+    }
+
+    return { wantCase, wantUnit, habitConflict };
+}
+
 function scoreItem(
     segment: string,
-    r: {
-        id: string;
-        display_name?: string | null;
-        product_name?: string | null;
-        sigla_comercial?: string | null;
-        preco_venda?: number | string | null;
-    }
+    r: HitRow,
+    wantCase: boolean,
+    wantUnit: boolean
 ): number {
     const seg = norm(segment);
     const name = norm(String(r.display_name || r.product_name || ""));
     let score = 0;
 
-    const wantCase = prefersCase(seg);
-    const wantUnit = prefersUnit(seg);
     const isCx = isCasePack(r);
     if (wantCase && isCx) score += 8;
     if (wantCase && !isCx) score -= 6;
@@ -116,7 +189,6 @@ function scoreItem(
         if (/\blata\b/u.test(name)) score -= 8;
     }
 
-    // Marca/produto > descritor genérico ("lata")
     const brands = brandTokens(seg);
     if (brands.length) {
         const hit = brands.filter((t) => name.includes(t));
@@ -124,7 +196,6 @@ function scoreItem(
         else score -= 16;
     }
 
-    // Tokens do segmento presentes no nome
     for (const tok of seg.split(" ").filter((t) => t.length >= 4)) {
         if (name.includes(tok)) score += 2;
     }
@@ -132,7 +203,6 @@ function scoreItem(
     if (seg.includes("rosseiro") && name.includes("rosseiro")) score += 14;
     if (seg.includes("salgadinho") && name.includes("salgadinho")) score += 8;
 
-    // Prefer CX c/6 para long neck caixa quando empate
     if (wantCase && /\blong\s*neck|longneck\b/u.test(seg) && /c\/\s*6\b|cx\s*c\/\s*6/u.test(name)) {
         score += 4;
     }
@@ -140,24 +210,35 @@ function scoreItem(
     return score;
 }
 
+function picksUnAndCx(ranked: Array<{ r: HitRow; score: number }>): SegmentPickRow[] {
+    const un = ranked.find((x) => !isCasePack(x.r));
+    const cx = ranked.find((x) => isCasePack(x.r));
+    const out: SegmentPickRow[] = [];
+    if (un) out.push(rowToPick(un.r));
+    if (cx) out.push(rowToPick(cx.r));
+    return out;
+}
+
 export function resolveSegmentPick(
     segment: string,
-    items: Array<{
-        id: string;
-        display_name?: string | null;
-        product_name?: string | null;
-        preco_venda?: number | string | null;
-        sigla_comercial?: string | null;
-    }>
-): { kind: "unique"; pick: SegmentPickRow } | { kind: "ambiguous"; picks: SegmentPickRow[] } | { kind: "empty" } {
+    items: HitRow[],
+    opts?: ResolveSegmentPickOpts
+):
+    | { kind: "unique"; pick: SegmentPickRow }
+    | { kind: "ambiguous"; picks: SegmentPickRow[]; habitConflict?: boolean }
+    | { kind: "empty" } {
     if (!items.length) return { kind: "empty" };
     if (items.length === 1) return { kind: "unique", pick: rowToPick(items[0]!) };
 
+    const intent = resolvePackagingIntent(segment, items, opts);
+
     let ranked = items
-        .map((r) => ({ r, score: scoreItem(segment, r) }))
+        .map((r) => ({
+            r,
+            score: scoreItem(segment, r, intent.wantCase, intent.wantUnit),
+        }))
         .sort((a, b) => b.score - a.score);
 
-    // Se o segmento tem marca e algum hit casa, descarta outras marcas
     const brands = brandTokens(segment);
     if (brands.length) {
         const withBrand = ranked.filter((x) => {
@@ -167,15 +248,20 @@ export function resolveSegmentPick(
         if (withBrand.length >= 1) ranked = withBrand;
     }
 
+    if (intent.habitConflict) {
+        const both = picksUnAndCx(ranked);
+        if (both.length >= 2) {
+            return { kind: "ambiguous", picks: both, habitConflict: true };
+        }
+    }
+
     const best = ranked[0]!;
     const second = ranked[1];
-    // Vitória clara do top-1
     if (!second || best.score >= second.score + 4) {
         return { kind: "unique", pick: rowToPick(best.r) };
     }
 
-    // Empate no topo: se pediu caixa, restringe a CX; se pediu unidade/long neck, restringe a UN
-    if (prefersCase(segment)) {
+    if (intent.wantCase) {
         const cxOnly = ranked.filter((x) => isCasePack(x.r));
         if (cxOnly.length === 1) return { kind: "unique", pick: rowToPick(cxOnly[0]!.r) };
         if (cxOnly.length >= 2) {
@@ -184,7 +270,7 @@ export function resolveSegmentPick(
             if (a.score >= b.score + 3) return { kind: "unique", pick: rowToPick(a.r) };
             return { kind: "ambiguous", picks: cxOnly.slice(0, 3).map((x) => rowToPick(x.r)) };
         }
-    } else if (prefersUnit(segment)) {
+    } else if (intent.wantUnit) {
         const unOnly = ranked.filter((x) => !isCasePack(x.r));
         if (unOnly.length === 1) return { kind: "unique", pick: rowToPick(unOnly[0]!.r) };
         if (unOnly.length >= 2) {

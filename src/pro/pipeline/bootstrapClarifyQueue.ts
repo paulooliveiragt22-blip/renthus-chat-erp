@@ -14,14 +14,19 @@ function buildClarifyOutbound(
         label: string;
         price?: number | null;
         productName?: string | null;
-    }>
+    }>,
+    opts?: { habitConflict?: boolean; habit?: "UN" | "CX" | null }
 ): OutboundMessage | null {
     const top = picks.slice(0, 3);
     if (top.length < 2) return null;
     const productHint = catalogProductHintFromPicks(top);
     return {
         kind: "buttons",
-        text: formatSearchPicksClarificationBody(top, { productHint }),
+        text: formatSearchPicksClarificationBody(top, {
+            productHint,
+            habitConflict: opts?.habitConflict,
+            habit: opts?.habit,
+        }),
         buttons: buildUniquePickButtons(top, PICK_EMB_PREFIX),
     };
 }
@@ -39,7 +44,10 @@ export function dequeueBootstrapClarification(state: ProSessionState): {
     }
     const next = queue.shift()!;
     const picks = (next.picks ?? []).slice(0, 3);
-    const clarify = buildClarifyOutbound(picks);
+    const clarify = buildClarifyOutbound(picks, {
+        habitConflict: next.habitConflict === true,
+        habit: next.habit ?? null,
+    });
     if (!clarify) {
         return dequeueBootstrapClarification({
             ...state,

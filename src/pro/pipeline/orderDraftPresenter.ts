@@ -67,16 +67,29 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
 /** Lista numerada para clarificação de produto (body dos botões). */
 export function formatSearchPicksClarificationBody(
     picks: Array<{ embalagemId: string; label: string; price?: number | null }>,
-    opts?: { productHint?: string | null }
+    opts?: {
+        productHint?: string | null;
+        habitConflict?: boolean;
+        habit?: "UN" | "CX" | null;
+    }
 ): string {
     const top = picks.slice(0, 3);
     const hint = String(opts?.productHint ?? "")
         .replaceAll(/\s+/g, " ")
         .trim()
         .slice(0, 40);
-    const headline = hint
-        ? `Qual opção de ${hint} você quer?`
-        : "Qual opção você quer?";
+    let headline: string;
+    if (opts?.habitConflict && opts.habit && hint) {
+        const usual = opts.habit === "CX" ? "caixa" : "unidade";
+        headline = `Você costuma pedir ${hint} em ${usual}. Confirma unidade ou caixa desta vez?`;
+    } else if (opts?.habitConflict && opts.habit) {
+        const usual = opts.habit === "CX" ? "caixa" : "unidade";
+        headline = `Você costuma pedir em ${usual}. Confirma unidade ou caixa desta vez?`;
+    } else if (hint) {
+        headline = `Qual opção de ${hint} você quer?`;
+    } else {
+        headline = "Qual opção você quer?";
+    }
     const lines = [headline, ""];
     top.forEach((p, i) => {
         const label = String(p.label ?? `Opção ${i + 1}`).replaceAll(/\s+/g, " ").trim();

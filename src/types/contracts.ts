@@ -162,6 +162,10 @@ export interface ProSessionState {
         segment: string;
         /** Qty pedida no texto original (extração LLM) para este segmento. */
         quantity?: number;
+        /** Conflito com hábito do cliente (pediu CX mas costuma UN, etc.). */
+        habitConflict?: boolean;
+        /** Hábito conhecido (para texto de confirmação). */
+        habit?: "UN" | "CX" | null;
         picks: Array<{
             embalagemId: string;
             label: string;

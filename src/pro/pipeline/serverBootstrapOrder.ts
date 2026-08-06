@@ -15,6 +15,10 @@ import {
     buildBootstrapSegmentPlanFromExtraction,
     type BootstrapSegmentPlan,
 } from "./bootstrapSegmentPlan";
+import {
+    loadCustomerPackagingHabits,
+    primaryProductIdFromHits,
+} from "./customerPackagingHabit";
 
 function normTerm(s: string): string {
     return s
@@ -74,15 +78,47 @@ export async function tryServerBootstrapOrderFromText(params: {
     const idToTerm = new Map<string, string>();
     const ambiguousAll: BootstrapPendingClarification[] = [];
 
+    /** Pré-busca para coletar product_ids e hábitos do cliente. */
+    const segmentHits: Array<{
+        segment: string;
+        items: Awaited<ReturnType<typeof runSearchProdutosDetailed>>["items"];
+    }> = [];
     for (const segment of segments) {
         const detailed = await runSearchProdutosDetailed(admin, companyId, segment, { limit: 8 });
-        const resolved = resolveSegmentPick(segment, detailed.items);
+        segmentHits.push({ segment, items: detailed.items });
+    }
+
+    let habits = new Map<string, "UN" | "CX">();
+    if (customerId) {
+        const productIds = segmentHits
+            .map((h) => primaryProductIdFromHits(h.items))
+            .filter((id): id is string => Boolean(id));
+        if (productIds.length) {
+            habits = await loadCustomerPackagingHabits({
+                admin,
+                companyId,
+                customerId,
+                productIds,
+            });
+        }
+    }
+
+    for (const { segment, items } of segmentHits) {
+        const qty = plan.qtyByTerm[normTerm(segment)] ?? 1;
+        const productId = primaryProductIdFromHits(items);
+        const habit = productId ? habits.get(productId) ?? null : null;
+        const resolved = resolveSegmentPick(segment, items, { quantity: qty, habit });
         if (resolved.kind === "unique") {
             uniqueIds.push(resolved.pick.embalagemId);
             idToTerm.set(resolved.pick.embalagemId, segment);
         } else if (resolved.kind === "ambiguous") {
-            const qty = plan.qtyByTerm[normTerm(segment)] ?? 1;
-            ambiguousAll.push({ segment, picks: resolved.picks, quantity: qty });
+            ambiguousAll.push({
+                segment,
+                picks: resolved.picks,
+                quantity: qty,
+                habitConflict: resolved.habitConflict === true,
+                habit,
+            });
         }
     }
 
@@ -162,6 +198,8 @@ export async function tryServerBootstrapOrderFromText(params: {
                     segment: ambiguousAll[0]!.segment,
                     picks: firstAmbiguous,
                     quantity: ambiguousAll[0]!.quantity ?? 1,
+                    habitConflict: ambiguousAll[0]!.habitConflict,
+                    habit: ambiguousAll[0]!.habit,
                 },
                 ...(state.bootstrapPendingClarifications ?? []),
             ],

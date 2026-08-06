@@ -155,4 +155,89 @@ describe("resolveSegmentPick", () => {
         assert.equal(r.kind, "unique");
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "skol-un");
     });
+
+    it("3 brahma 600 sem caixa → UN (qty < fator CX)", () => {
+        const r = resolveSegmentPick(
+            "brahma 600",
+            [
+                {
+                    id: "un",
+                    display_name: "BRAHMA 600ml",
+                    product_name: "BRAHMA 600ml",
+                    sigla_comercial: "UN",
+                    fator_conversao: 1,
+                    preco_venda: 12,
+                },
+                {
+                    id: "cx",
+                    display_name: "BRAHMA 600ml (CX c/24)",
+                    product_name: "BRAHMA 600ml",
+                    sigla_comercial: "CX",
+                    fator_conversao: 24,
+                    preco_venda: 288,
+                },
+            ],
+            { quantity: 3 }
+        );
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "un");
+    });
+
+    it("caixa com hábito UN → confirma UN+CX", () => {
+        const r = resolveSegmentPick(
+            "brahma 600 caixa",
+            [
+                {
+                    id: "un",
+                    display_name: "BRAHMA 600ml",
+                    product_name: "BRAHMA 600ml",
+                    sigla_comercial: "UN",
+                    fator_conversao: 1,
+                    preco_venda: 12,
+                },
+                {
+                    id: "cx",
+                    display_name: "BRAHMA 600ml (CX c/24)",
+                    product_name: "BRAHMA 600ml",
+                    sigla_comercial: "CX",
+                    fator_conversao: 24,
+                    preco_venda: 288,
+                },
+            ],
+            { quantity: 1, habit: "UN" }
+        );
+        assert.equal(r.kind, "ambiguous");
+        if (r.kind === "ambiguous") {
+            assert.equal(r.habitConflict, true);
+            assert.ok(r.picks.some((p) => p.embalagemId === "un"));
+            assert.ok(r.picks.some((p) => p.embalagemId === "cx"));
+        }
+    });
+
+    it("sem embalagem + hábito CX → CX", () => {
+        const r = resolveSegmentPick(
+            "brahma 600",
+            [
+                {
+                    id: "un",
+                    display_name: "BRAHMA 600ml",
+                    product_name: "BRAHMA 600ml",
+                    sigla_comercial: "UN",
+                    fator_conversao: 1,
+                    preco_venda: 12,
+                },
+                {
+                    id: "cx",
+                    display_name: "BRAHMA 600ml (CX c/24)",
+                    product_name: "BRAHMA 600ml",
+                    sigla_comercial: "CX",
+                    fator_conversao: 24,
+                    preco_venda: 288,
+                },
+            ],
+            { quantity: 1, habit: "CX" }
+        );
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "cx");
+    });
 });
