@@ -5,12 +5,42 @@ import { applyProHandover } from "@/src/pro/pipeline/applyHandover";
 type FakeRow = Record<string, unknown>;
 
 function makeAdmin(opts: {
-    existingTicketId?: string | null;
+    existingByThreadId?: string | null;
+    existingByPhoneId?: string | null;
     failThread?: boolean;
     failTicket?: boolean;
 }) {
     const updates: FakeRow[] = [];
     const inserts: FakeRow[] = [];
+    const ticketUpdates: FakeRow[] = [];
+
+    function ticketSelectChain(kind: "thread" | "phone") {
+        const resultId =
+            kind === "thread" ? opts.existingByThreadId : opts.existingByPhoneId;
+        const terminal = {
+            in() {
+                return {
+                    maybeSingle: async () => ({
+                        data: resultId ? { id: resultId } : null,
+                        error: null,
+                    }),
+                };
+            },
+        };
+        return {
+            eq(_col: string, _val: unknown) {
+                // company_id then thread_id/phone
+                return {
+                    eq(_col2: string, _val2: unknown) {
+                        return terminal;
+                    },
+                    ...terminal,
+                };
+            },
+        };
+    }
+
+    let selectCall = 0;
 
     const admin = {
         from(table: string) {
@@ -34,26 +64,9 @@ function makeAdmin(opts: {
             if (table === "support_tickets") {
                 return {
                     select() {
-                        return {
-                            eq() {
-                                return {
-                                    eq() {
-                                        return {
-                                            in() {
-                                                return {
-                                                    maybeSingle: async () => ({
-                                                        data: opts.existingTicketId
-                                                            ? { id: opts.existingTicketId }
-                                                            : null,
-                                                        error: null,
-                                                    }),
-                                                };
-                                            },
-                                        };
-                                    },
-                                };
-                            },
-                        };
+                        selectCall += 1;
+                        const kind = selectCall === 1 ? "thread" : "phone";
+                        return ticketSelectChain(kind);
                     },
                     insert(payload: FakeRow) {
                         inserts.push(payload);
@@ -68,13 +81,19 @@ function makeAdmin(opts: {
                             },
                         };
                     },
+                    update(payload: FakeRow) {
+                        ticketUpdates.push(payload);
+                        return {
+                            eq: async () => ({ error: null }),
+                        };
+                    },
                 };
             }
             throw new Error(`unexpected table ${table}`);
         },
     };
 
-    return { admin: admin as never, updates, inserts };
+    return { admin: admin as never, updates, inserts, ticketUpdates };
 }
 
 describe("applyProHandover", () => {
@@ -86,6 +105,7 @@ describe("applyProHandover", () => {
             threadId: "t1",
             phoneE164: "+5511999999999",
             customerName: "Ana",
+            channel: "whatsapp",
         });
         assert.equal(r.threadUpdated, true);
         assert.equal(r.ticketCreated, true);
@@ -93,12 +113,32 @@ describe("applyProHandover", () => {
         assert.equal(updates[0]?.bot_active, false);
         assert.ok(typeof updates[0]?.handover_at === "string");
         assert.equal(inserts[0]?.customer_phone, "+5511999999999");
+        assert.equal(inserts[0]?.thread_id, "t1");
+        assert.equal(inserts[0]?.channel, "whatsapp");
         assert.equal(inserts[0]?.customer_name, "Ana");
         assert.equal(inserts[0]?.status, "open");
     });
 
-    it("não duplica ticket se já existe open/in_progress", async () => {
-        const { admin, inserts } = makeAdmin({ existingTicketId: "ticket-old" });
+    it("cria ticket IG sem telefone", async () => {
+        const { admin, inserts } = makeAdmin({});
+        const r = await applyProHandover({
+            admin,
+            companyId: "c1",
+            threadId: "tig",
+            phoneE164: "",
+            customerId: "cust-1",
+            customerName: "Cliente Instagram",
+            channel: "instagram",
+        });
+        assert.equal(r.ticketCreated, true);
+        assert.equal(inserts[0]?.customer_phone, null);
+        assert.equal(inserts[0]?.customer_id, "cust-1");
+        assert.equal(inserts[0]?.channel, "instagram");
+        assert.equal(inserts[0]?.thread_id, "tig");
+    });
+
+    it("não duplica ticket se já existe open/in_progress na thread", async () => {
+        const { admin, inserts } = makeAdmin({ existingByThreadId: "ticket-old" });
         const r = await applyProHandover({
             admin,
             companyId: "c1",

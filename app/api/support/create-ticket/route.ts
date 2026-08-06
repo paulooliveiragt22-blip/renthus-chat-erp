@@ -20,18 +20,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const { company_id, customer_phone, customer_name, message, priority } = body;
+  const {
+    company_id,
+    customer_phone,
+    customer_name,
+    message,
+    priority,
+    thread_id,
+    customer_id,
+    channel,
+  } = body;
 
-  if (!company_id || !customer_phone) {
+  if (!company_id || (!customer_phone && !thread_id)) {
     return NextResponse.json(
-      { error: "company_id and customer_phone required" },
+      { error: "company_id and (customer_phone or thread_id) required" },
       { status: 400 }
     );
   }
 
   const admin = createAdminClient();
+  const phone = typeof customer_phone === "string" ? customer_phone.trim() || null : null;
 
-  // Carrega credenciais do canal da empresa
+  // Carrega credenciais do canal da empresa (só se for notificar via WA)
   const { data: channelRow } = await admin
     .from("whatsapp_channels")
     .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
@@ -45,23 +55,44 @@ export async function POST(request: NextRequest) {
     accessToken:   channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
   };
 
-  // Verifica se já existe ticket aberto para este cliente (evita duplicata)
-  const { data: existing } = await admin
-    .from("support_tickets")
-    .select("id")
-    .eq("company_id", company_id)
-    .eq("customer_phone", customer_phone)
-    .in("status", ["open", "in_progress"])
-    .maybeSingle();
+  if (thread_id) {
+    const { data: existingThread } = await admin
+      .from("support_tickets")
+      .select("id")
+      .eq("company_id", company_id)
+      .eq("thread_id", thread_id)
+      .in("status", ["open", "in_progress"])
+      .maybeSingle();
+    if (existingThread?.id) {
+      if (phone) {
+        await sendWhatsAppMessage(
+          phone,
+          `📞 Você já possui um atendimento em aberto.\n\nAguarde, em breve entraremos em contato! ⏳`,
+          waConfig
+        );
+      }
+      return NextResponse.json({ success: true, ticket_id: existingThread.id, existing: true });
+    }
+  }
 
-  if (existing?.id) {
-    // Ticket já existe — apenas confirma pro cliente
-    await sendWhatsAppMessage(
-      customer_phone,
-      `📞 Você já possui um atendimento em aberto.\n\nAguarde, em breve entraremos em contato! ⏳`,
-      waConfig
-    );
-    return NextResponse.json({ success: true, ticket_id: existing.id, existing: true });
+  // Verifica se já existe ticket aberto para este cliente (evita duplicata)
+  if (phone) {
+    const { data: existing } = await admin
+      .from("support_tickets")
+      .select("id")
+      .eq("company_id", company_id)
+      .eq("customer_phone", phone)
+      .in("status", ["open", "in_progress"])
+      .maybeSingle();
+
+    if (existing?.id) {
+      await sendWhatsAppMessage(
+        phone,
+        `📞 Você já possui um atendimento em aberto.\n\nAguarde, em breve entraremos em contato! ⏳`,
+        waConfig
+      );
+      return NextResponse.json({ success: true, ticket_id: existing.id, existing: true });
+    }
   }
 
   // Cria novo ticket
@@ -69,7 +100,10 @@ export async function POST(request: NextRequest) {
     .from("support_tickets")
     .insert({
       company_id,
-      customer_phone,
+      customer_phone: phone,
+      customer_id: customer_id ?? null,
+      thread_id: thread_id ?? null,
+      channel: channel ?? (phone ? "whatsapp" : null),
       customer_name: customer_name ?? null,
       message:       message ?? "Cliente solicitou atendimento humano via WhatsApp",
       priority:      priority ?? "normal",
@@ -82,14 +116,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Notifica o cliente
-  await sendWhatsAppMessage(
-    customer_phone,
-    `📞 *Transferindo para atendente...*\n\n` +
-    `Ticket #${ticket.id.slice(0, 8).toUpperCase()}\n\n` +
-    `Aguarde alguns instantes. Em breve alguém irá te atender! ⏳`,
-    waConfig
-  );
+  // Notifica o cliente (só WhatsApp com phone)
+  if (phone) {
+    await sendWhatsAppMessage(
+      phone,
+      `📞 *Transferindo para atendente...*\n\n` +
+      `Ticket #${ticket.id.slice(0, 8).toUpperCase()}\n\n` +
+      `Aguarde alguns instantes. Em breve alguém irá te atender! ⏳`,
+      waConfig
+    );
+  }
 
   return NextResponse.json({ success: true, ticket_id: ticket.id });
 }

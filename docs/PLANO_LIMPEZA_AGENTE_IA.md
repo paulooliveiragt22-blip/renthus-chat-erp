@@ -700,7 +700,7 @@ export const PipelineTurnTrace = z.object({
 - [x] `customers.phone` NULLABLE + unique parcial
 - [x] `link_customer_channel_phone` (merge automático B2)
 - [x] Ampliar `customers.origem` (`web_menu` \| `instagram` \| `messenger` \| …)
-- [ ] `support_tickets.customer_id` (+ phone opcional); dedupe por customer_id/thread
+- [x] `support_tickets.customer_id` (+ phone opcional) + `thread_id` / dedupe
 - [x] `whatsapp_threads`: `channel` + `external_id` (phone_e164 nullable)
 - [x] Tabela/conexão Meta Page+IG (`meta_messaging_channels`) + webhook `/api/meta/messaging/incoming`
 - [ ] `pipeline_turn_traces` (Fase 1 harness)

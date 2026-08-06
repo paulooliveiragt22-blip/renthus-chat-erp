@@ -935,8 +935,16 @@ export async function runProPipeline(
                 admin: deps.admin,
                 companyId: input.tenant.companyId,
                 threadId: input.tenant.threadId,
-                phoneE164: input.tenant.phoneE164,
+                phoneE164: input.tenant.phoneE164 || null,
+                customerId: nextState.customerId,
                 customerName: input.actor.profileName ?? null,
+                channel: input.actor.channel,
+                reason:
+                    input.actor.channel === "instagram"
+                        ? "Cliente solicitou atendimento humano via Instagram"
+                        : input.actor.channel === "messenger"
+                          ? "Cliente solicitou atendimento humano via Messenger"
+                          : "Cliente solicitou atendimento humano via WhatsApp",
             });
             deps.logger?.info("pro_pipeline.handover_applied", {
                 companyId: input.tenant.companyId,
