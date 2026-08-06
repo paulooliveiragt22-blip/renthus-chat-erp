@@ -13,7 +13,7 @@ export async function POST(
     const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
-    const { sessionId } = await ctxParams;
+    const { sessionId } = await ctxParams.params;
 
     const body = (await req.json().catch(() => ({}))) as {
         cash_register_id?: string;

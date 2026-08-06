@@ -10,7 +10,7 @@ export async function GET(
     const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
-    const { sessionId } = await ctxParams;
+    const { sessionId } = await ctxParams.params;
 
     const { data, error } = await admin.rpc("rpc_mesa_get_session", {
         p_company_id: companyId,

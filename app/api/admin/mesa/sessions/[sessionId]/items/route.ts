@@ -10,7 +10,7 @@ export async function POST(
     const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
-    const { sessionId } = await ctxParams;
+    const { sessionId } = await ctxParams.params;
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const { data, error } = await admin.rpc("rpc_mesa_add_item", {
@@ -33,7 +33,7 @@ export async function PATCH(
     const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
-    const { sessionId } = await ctxParams;
+    const { sessionId } = await ctxParams.params;
 
     const body = (await req.json().catch(() => ({}))) as { itemId?: string; qty?: number };
     const itemId = typeof body.itemId === "string" ? body.itemId.trim() : "";
@@ -64,7 +64,7 @@ export async function DELETE(
     const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
-    const { sessionId } = await ctxParams;
+    const { sessionId } = await ctxParams.params;
 
     const url = new URL(req.url);
     const itemId = url.searchParams.get("itemId")?.trim() || "";
