@@ -20,6 +20,7 @@
     "src/pro/pipeline/applyHandover.ts",
     "src/pro/replay/loadThreadForReplay.ts",
     "src/pro/replay/compareOutbound.ts",
+    "src/pro/replay/runThreadReplay.ts",
     "src/pro/adapters/llm/recording.llm.ts",
     "src/domain/contracts/pipelineTurnTrace.ts",
     "src/domain/contracts/orderExtraction.ts",

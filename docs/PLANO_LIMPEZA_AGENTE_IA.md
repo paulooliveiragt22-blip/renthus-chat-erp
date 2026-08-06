@@ -83,13 +83,13 @@ O toggle manual da inbox **não resolve**: `bot-toggle/route.ts` mexe em `bot_ac
 
 Portar o efeito completo do `doHandover` para o PRO, como side effect do `routeStage` (ou em `persistAndEmit`, via `sideEffects`):
 
-- [ ] `whatsapp_threads`: `bot_active = false`, `handover_at = now()`
-- [ ] `support_tickets`: insert com dedupe por `(company_id, customer_phone, status in open/in_progress)`
-- [ ] Manter `step = "handover"` na sessão
-- [ ] Garantir que `reactivate` volte a ser elegível (consequência automática do item 1)
-- [ ] Teste: handover no PRO desliga bot, cria ticket, e reactivate reativa após 5 min
+- [x] `whatsapp_threads`: `bot_active = false`, `handover_at = now()`
+- [x] `support_tickets`: insert com dedupe por `(company_id, customer_phone, status in open/in_progress)`
+- [x] Manter `step = "handover"` na sessão
+- [x] Garantir que `reactivate` volte a ser elegível (consequência automática do item 1)
+- [x] Teste: handover no PRO desliga bot, cria ticket (`tests/pro/applyHandover.test.ts`); reactivate elegível após `bot_active=false`
 
-> Isto é **pré-requisito** de apagar o Starter: hoje o `doHandover` correto só existe lá.
+> **Feito (Fase 0):** `applyProHandover` no motor único PRO.
 
 ---
 
@@ -211,8 +211,8 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 - [x] Runner: reprocessa turno a turno (`src/pro/replay/runThreadReplay.ts`) — dry-run sem Meta/pedido
 - [x] `LlmPort` de replay (`RecordingLlmPort` / `ReplayLlmPort`)
 - [x] Comparador: diff de outbound (`compareOutbound`) vs traces
-- [ ] Baseline versionada com conversas reais
-- [x] `npm run replay` (dump); CLI `--run` plugar depois
+- [x] Baseline versionada com conversas reais (`tests/fixtures/replay/` — extraction v1 + README para dumps de thread)
+- [x] `npm run replay` (dump); CLI `--run` + `--extract-diff`
 
 ### Fase 2 — Interpretação por LLM
 
