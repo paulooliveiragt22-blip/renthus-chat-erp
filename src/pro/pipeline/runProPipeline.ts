@@ -419,45 +419,53 @@ export async function runProPipeline(
             }
             if (
                 boot.bootstrapped &&
-                boot.state.draft &&
-                isDraftStructurallyCompleteForFinalize(boot.state.draft)
+                boot.state.draft?.items?.length &&
+                !boot.hasClarification
             ) {
-                const finalState = withResolvedSlotStep({
-                    ...boot.state,
-                    checkoutEditHold: false,
-                });
-                const finalOutbound = checkoutPostProcessForQuickAction({
-                    state: finalState,
-                    outbound: [],
-                });
-                await emitTurn({
-                state: finalState,
-                outbound: finalOutbound,
-            });
-                const metrics: PipelineMetric[] = [
-                    {
-                        name: "pro_pipeline.server_bootstrap_order",
-                        value: 1,
-                        tags: {
-                            clarify: "0",
-                            complete: "1",
-                            segment_source: boot.segmentSource,
+                const d = boot.state.draft;
+                const readyForPaymentUi =
+                    isAddressStructurallyComplete(d.address ?? null) && !d.paymentMethod;
+                const complete = isDraftStructurallyCompleteForFinalize(d);
+                /** Completo ou só falta pagamento: UI estruturada, sem prosa da LLM. */
+                if (complete || readyForPaymentUi) {
+                    const finalState = withResolvedSlotStep({
+                        ...boot.state,
+                        checkoutEditHold: false,
+                    });
+                    const finalOutbound = checkoutPostProcessForQuickAction({
+                        state: finalState,
+                        outbound: [],
+                    });
+                    await emitTurn({
+                        state: finalState,
+                        outbound: finalOutbound,
+                    });
+                    const metrics: PipelineMetric[] = [
+                        {
+                            name: "pro_pipeline.server_bootstrap_order",
+                            value: 1,
+                            tags: {
+                                clarify: "0",
+                                complete: complete ? "1" : "0",
+                                payment_ui: readyForPaymentUi ? "1" : "0",
+                                segment_source: boot.segmentSource,
+                            },
                         },
-                    },
-                    { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
-                ];
-                flushPipelineRunMetrics(
-                    deps.metrics,
-                    input.tenant,
-                    metrics,
-                    new Set(["pro_pipeline.outbound_count"])
-                );
-                return {
-                    nextState: finalState,
-                    outbound: finalOutbound,
-                    sideEffects: [],
-                    metrics,
-                };
+                        { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+                    ];
+                    flushPipelineRunMetrics(
+                        deps.metrics,
+                        input.tenant,
+                        metrics,
+                        new Set(["pro_pipeline.outbound_count"])
+                    );
+                    return {
+                        nextState: finalState,
+                        outbound: finalOutbound,
+                        sideEffects: [],
+                        metrics,
+                    };
+                }
             }
         } catch (err) {
             deps.logger?.warn("pro_pipeline.server_bootstrap_order_failed", {
