@@ -23,7 +23,7 @@ const BTN_CONFIRM_ADDRESS = new Set([
 const HUMAN_RE = /\b(?:atendente|humano|suporte|falar\s+com)\b/iu;
 const STATUS_RE = /\b(?:status|cad[eê]|onde\s+est[aá]|acompanhar|previs[aã]o)\b/iu;
 const ORDER_RE = /\b(?:quero|pedir|comprar|card[aá]pio|cat[aá]logo|bebida|adicionar)\b/iu;
-const FAQ_RE = /\b(?:qual|quanto|como|onde|quando|aceita|entrega|funciona)\b/iu;
+const FAQ_RE = /\b(?:qual|quanto|como|onde|quando|aceita|entrega|funciona|tem)\b/iu;
 const GREETING_RE = /^(?:oi|ol[aá]|bom dia|boa tarde|boa noite|e ai|e aí)\W*$/iu;
 
 const CONFIRM_RE =
@@ -116,6 +116,7 @@ async function llmClassify(
                 "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
                 "If the session shows an active order (draft with items, or recent user messages about products) " +
                 "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
+                "Availability questions (tem coca?, vocês vendem X?, quanto custa?) → faq (NOT order_intent). " +
                 "Greetings (oi, bom dia) → greeting. Ask for human → human_intent. " +
                 "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
             messages: [{ role: "user", content: userPayload }],

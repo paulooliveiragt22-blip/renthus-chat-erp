@@ -58,6 +58,7 @@ import {
 import { extractOrderLinesStructured } from "@/src/pro/services/extraction/structuredOrderExtract";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 import type { OrderLineExtraction } from "@/src/domain/contracts/orderExtraction";
+import { looksLikeAvailabilityOrInfoQuestion } from "./availabilityQuestion";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -386,14 +387,19 @@ export async function runProPipeline(
      * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.
      * Nunca no texto de troca — senão acrescenta CX sem remover o UN.
      * Com `pendingAskRepeatTerms`: permite acrescentar mesmo com itens já no draft.
+     * Pergunta de disponibilidade (“tem coca 2l?”) → não monta pedido; a IA responde.
      */
     let bootstrapOutbound: OutboundMessage[] = [];
+    const skipBootstrapForInquiry =
+        !awaitingProductRepeat &&
+        looksLikeAvailabilityOrInfoQuestion(input.inboundText);
     if (
         llmEnabled &&
         deps.admin &&
         !isInfoOnlyMode(aiPolicy) &&
         !skipExtract &&
         !swapIntent &&
+        !skipBootstrapForInquiry &&
         bootstrapSegmentPlan &&
         bootstrapSegmentPlan.segments.length >= 1 &&
         (!(stateBeforePick.draft?.items?.length) ||

@@ -15,6 +15,7 @@ Regras:
 - quantity = número de embalagens pedidas (> 0). "uma caixa" = quantity 1 (da caixa, não das unidades soltas).
 - paymentMethod só se o cliente disse pix/dinheiro/cartão; senão null.
 - useSavedAddress true se pediu endereço salvo / de sempre.
+- Se for só PERGUNTA (ex.: "tem coca 2l?", "vocês vendem skol?", "quanto custa a heineken?") SEM pedir para comprar/mandar: items=[] e swap=null (JSON inválido de propósito — não invente pedido).
 - Se for TROCA/SUBSTITUIÇÃO (ex.: "troca o salgadinho pela caixa de 15"):
   items=[] e swap={"removeName":"salgadinho","replaceSearchTerm":"salgadinho caixa de 15","replaceHint":"caixa de 15"}
   removeName = o que tirar do carrinho; replaceSearchTerm = query de busca do substituto.
