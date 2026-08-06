@@ -4,6 +4,8 @@ Documento de decisão e checklist para o time executar. Alinhado ao código atua
 
 **Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (plano de refatoração).
 
+> **Plano de corte e construção em aberto:** [`PLANO_LIMPEZA_AGENTE_IA.md`](./PLANO_LIMPEZA_AGENTE_IA.md) — remoção do motor Starter, harness de replay e migração da interpretação de intenção para LLM. Contém um **P0**: o handover no PRO não desliga o bot nem abre ticket.
+
 ---
 
 ## Objetivo
