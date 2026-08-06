@@ -4,16 +4,19 @@ import {
     type OrderLineExtraction,
 } from "@/src/domain/contracts/orderExtraction";
 
-const SYSTEM = `Você extrai itens de pedido em português do Brasil.
-Responda APENAS com JSON válido neste formato:
-{"v":1,"items":[{"searchTerm":"heineken long neck","quantity":1}],"paymentMethod":"pix"|null,"useSavedAddress":false,"addressRaw":null}
+const SYSTEM = `Você extrai intenção de pedido em português do Brasil.
+Responda APENAS com JSON válido:
+{"v":1,"items":[{"searchTerm":"heineken long neck","quantity":2}],"paymentMethod":"pix"|null,"useSavedAddress":false,"addressRaw":null,"swap":null}
 
 Regras:
-- searchTerm = termo curto para BUSCA no catálogo (nunca UUID, nunca preço, nunca invente marca inexistente).
+- searchTerm = termo curto para BUSCA no catálogo (nunca UUID, nunca preço, nunca invente marca).
 - quantity = número > 0.
 - paymentMethod só se o cliente disse pix/dinheiro/cartão; senão null.
 - useSavedAddress true se pediu endereço salvo / de sempre.
-- Máximo 8 items. Sem markdown.`;
+- Se for TROCA/SUBSTITUIÇÃO (ex.: "troca o salgadinho pela caixa de 15"):
+  items=[] e swap={"removeName":"salgadinho","replaceSearchTerm":"salgadinho caixa de 15","replaceHint":"caixa de 15"}
+  removeName = o que tirar do carrinho; replaceSearchTerm = query de busca do substituto.
+- Máximo 8 items. Sem markdown. Sem items e sem swap → JSON inválido (não invente).`;
 
 function textFromLlmContent(content: unknown[]): string {
     const parts: string[] = [];
@@ -30,8 +33,8 @@ function textFromLlmContent(content: unknown[]): string {
 }
 
 /**
- * Uma passada LLM barata — sem histórico, sem tools.
- * Usado em sombra (Fase 2); cutover depois.
+ * Uma passada LLM — sem histórico, sem tools.
+ * Única fonte de interpretação de itens/qty/pagamento/swap do bootstrap.
  */
 export async function extractOrderLinesStructured(params: {
     llm: LlmPort;
@@ -51,7 +54,7 @@ export async function extractOrderLinesStructured(params: {
             model: params.model,
             timeoutMs: params.timeoutMs ?? 8_000,
             companyId: params.companyId,
-            purpose: "pro_structured_extract_shadow",
+            purpose: "pro_structured_extract",
         });
         const raw = textFromLlmContent(res.content as unknown[]);
         return parseOrderLineExtractionJson(raw);

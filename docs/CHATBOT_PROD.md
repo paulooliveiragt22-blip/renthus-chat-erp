@@ -452,6 +452,7 @@ Manter fronteiras claras sem microserviço:
 - Clarificação de produto: `catalogProductHintFromPicks` (`src/pro/pipeline/catalogProductHint.ts`) — hint ao cliente vem do catálogo (`productName`/stem do label), não do texto digitado; swap/edição segue a mesma regra
 - Tools PRO (ex-`lib/chatbot/pro`): `src/pro/tools/` — prepare draft, hints, allowlist, parsers de qty/endereço
 - Replay: `npm run replay -- <companyId> <threadId>` (dump); `--run` dry-run; `--extract-diff` + fixture `tests/fixtures/replay/extraction-baseline.v1.json`
+- Extração de pedido: só LLM (`extractOrderLinesStructured`); intent de menu/humano/status permanece regex+LLM ambíguo no classifier
 - LLM multi-provider: `src/pro/ports/llm.port.ts`, `adapters/llm/{anthropic,openai,createLlmPort}.ts`
 - STT áudio: `src/pro/ports/speechToText.port.ts`, `adapters/stt/openai.whisper.ts`, `lib/chatbot/transcribeInboundAudio.ts`
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)

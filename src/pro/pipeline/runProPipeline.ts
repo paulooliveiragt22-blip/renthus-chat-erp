@@ -49,17 +49,15 @@ import {
 } from "./serverPrepareAfterPick";
 import { tryServerSwapEdit } from "./serverSwapEdit";
 import { tryServerBootstrapOrderFromText } from "./serverBootstrapOrder";
-import { inferPaymentMethodFromText } from "./inferPaymentFromText";
 import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
-import { parseCheckoutSwapIntent } from "./editIntentParse";
-import { scheduleStructuredExtractShadow } from "./shadowStructuredExtract";
 import {
-    buildBootstrapSegmentPlan,
-    isStructuredExtractPrimaryEnabled,
+    buildBootstrapSegmentPlanFromExtraction,
+    swapIntentFromExtraction,
 } from "./bootstrapSegmentPlan";
 import { extractOrderLinesStructured } from "@/src/pro/services/extraction/structuredOrderExtract";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
+import type { OrderLineExtraction } from "@/src/domain/contracts/orderExtraction";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -315,60 +313,52 @@ export async function runProPipeline(
         };
     }
 
-    /** Inferir PIX/etc. cedo — prepare do pick e bootstrap usam isso. */
+    /** Extração LLM: única fonte de itens/qty/pagamento/swap (sem regex de pedido). */
     let stateBeforePick = guarded.state;
-    const inferredPay = inferPaymentMethodFromText(input.inboundText);
-    if (inferredPay) {
-        stateBeforePick = {
-            ...stateBeforePick,
-            inferredPaymentMethod: inferredPay,
-        };
-    }
-
-    /**
-     * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.
-     * Evita draft só com salgadinho e Heineken/burger só na prosa.
-     * Nunca no texto de troca ("troca X pela Y") — senão acrescenta CX sem remover o UN.
-     */
     const llmEnabled = context.policies.llmEnabled !== false;
+    let orderExtraction: OrderLineExtraction | null = null;
 
-    let bootstrapSegmentPlan = buildBootstrapSegmentPlan(input.inboundText, null);
-    if (
-        deps.admin &&
-        llmEnabled &&
-        isStructuredExtractPrimaryEnabled() &&
-        bootstrapSegmentPlan.segments.length >= 1
-    ) {
+    const skipExtract =
+        input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) ||
+        parseProductPickIndex(input.inboundText) != null ||
+        input.inboundText.trim().length < 4;
+
+    if (deps.admin && llmEnabled && !skipExtract) {
         try {
-            const extraction = await extractOrderLinesStructured({
+            orderExtraction = await extractOrderLinesStructured({
                 llm: createLlmPort(deps.admin),
                 userText: input.inboundText,
                 companyId: input.tenant.companyId,
             });
-            bootstrapSegmentPlan = buildBootstrapSegmentPlan(input.inboundText, extraction);
         } catch (e) {
-            deps.logger.warn("pro_pipeline.structured_extract_primary_failed", {
+            deps.logger.warn("pro_pipeline.structured_extract_failed", {
                 message: e instanceof Error ? e.message : String(e),
             });
         }
-    } else if (deps.admin && bootstrapSegmentPlan.segments.length >= 1) {
-        scheduleStructuredExtractShadow({
-            admin: deps.admin,
-            companyId: input.tenant.companyId,
-            threadId: input.tenant.threadId,
-            inboundMessageId: input.tenant.messageId,
-            userText: input.inboundText,
-        });
     }
 
+    if (orderExtraction?.paymentMethod) {
+        stateBeforePick = {
+            ...stateBeforePick,
+            inferredPaymentMethod: orderExtraction.paymentMethod,
+        };
+    }
+
+    const swapIntent = swapIntentFromExtraction(orderExtraction);
+    const bootstrapSegmentPlan = buildBootstrapSegmentPlanFromExtraction(orderExtraction);
+
+    /**
+     * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.
+     * Nunca no texto de troca — senão acrescenta CX sem remover o UN.
+     */
     let bootstrapOutbound: OutboundMessage[] = [];
     if (
         llmEnabled &&
         deps.admin &&
         !isInfoOnlyMode(aiPolicy) &&
-        !input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) &&
-        parseProductPickIndex(input.inboundText) == null &&
-        !parseCheckoutSwapIntent(input.inboundText) &&
+        !skipExtract &&
+        !swapIntent &&
+        bootstrapSegmentPlan &&
         bootstrapSegmentPlan.segments.length >= 1 &&
         (!(stateBeforePick.draft?.items?.length) || stateBeforePick.checkoutEditHold === true)
     ) {
@@ -617,6 +607,7 @@ export async function runProPipeline(
                 customerId: stateAfterPick.customerId,
                 state: stateAfterPick,
                 userText: inboundTextForPipeline,
+                swapIntent,
             });
             if (swapEdit.handled) {
                 const syncedSwap = withResolvedSlotStep(swapEdit.state);

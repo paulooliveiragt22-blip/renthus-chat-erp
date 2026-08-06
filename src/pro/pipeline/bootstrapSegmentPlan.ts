@@ -1,10 +1,10 @@
-import { parseMultiItemOrderSegments } from "@/src/pro/pipeline/parseMultiItemOrderSegments";
-import {
-    inferPaymentMethodFromText,
-    inferUseSavedAddressFromText,
-} from "@/src/pro/pipeline/inferPaymentFromText";
-import type { OrderLineExtraction } from "@/src/domain/contracts/orderExtraction";
+/**
+ * Plano de segmentos do bootstrap — somente a partir da extração LLM.
+ */
+
+import type { OrderLineExtraction, CheckoutSwapIntent } from "@/src/domain/contracts/orderExtraction";
 import type { PaymentMethod } from "@/src/types/contracts";
+import { looksLikePackagingOnlyHint } from "./packagingHint";
 
 export type BootstrapSegmentPlan = {
     segments: string[];
@@ -12,7 +12,7 @@ export type BootstrapSegmentPlan = {
     qtyByTerm: Record<string, number>;
     payment: PaymentMethod | null;
     useSavedAddress: boolean;
-    source: "llm" | "regex";
+    source: "llm";
 };
 
 function norm(s: string): string {
@@ -24,53 +24,56 @@ function norm(s: string): string {
         .trim();
 }
 
-export function isStructuredExtractPrimaryEnabled(
-    env: NodeJS.ProcessEnv = process.env
-): boolean {
-    const v = env.PRO_STRUCTURED_EXTRACT_PRIMARY?.trim().toLowerCase() ?? "";
-    return v === "1" || v === "true" || v === "yes" || v === "on";
-}
-
-/**
- * Monta segmentos de bootstrap: LLM (se válido) senão regex.
- * Quantidades do LLM entram em qtyByTerm; regex assume 1.
- */
-export function buildBootstrapSegmentPlan(
-    userText: string,
+/** Monta segmentos/qty a partir da extração. Null se não houver itens. */
+export function buildBootstrapSegmentPlanFromExtraction(
     extraction: OrderLineExtraction | null | undefined
-): BootstrapSegmentPlan {
-    const regexSegments = parseMultiItemOrderSegments(userText);
-    const paymentRegex = inferPaymentMethodFromText(userText);
-    const useSavedRegex = inferUseSavedAddressFromText(userText);
-
-    if (extraction && extraction.items.length > 0) {
-        const qtyByTerm: Record<string, number> = {};
-        const segments: string[] = [];
-        for (const it of extraction.items) {
-            const term = it.searchTerm.trim();
-            if (!term) continue;
-            const key = norm(term);
-            qtyByTerm[key] = (qtyByTerm[key] ?? 0) + Number(it.quantity || 1);
-            if (!segments.some((s) => norm(s) === key)) segments.push(term);
-        }
-        if (segments.length > 0) {
-            return {
-                segments,
-                qtyByTerm,
-                payment: extraction.paymentMethod ?? paymentRegex,
-                useSavedAddress: extraction.useSavedAddress === true || useSavedRegex,
-                source: "llm",
-            };
-        }
-    }
+): BootstrapSegmentPlan | null {
+    if (!extraction?.items?.length) return null;
 
     const qtyByTerm: Record<string, number> = {};
-    for (const s of regexSegments) qtyByTerm[norm(s)] = 1;
+    const segments: string[] = [];
+    for (const it of extraction.items) {
+        const term = it.searchTerm.trim();
+        if (!term) continue;
+        const key = norm(term);
+        qtyByTerm[key] = (qtyByTerm[key] ?? 0) + Number(it.quantity || 1);
+        if (!segments.some((s) => norm(s) === key)) segments.push(term);
+    }
+    if (!segments.length) return null;
+
     return {
-        segments: regexSegments,
+        segments,
         qtyByTerm,
-        payment: paymentRegex,
-        useSavedAddress: useSavedRegex,
-        source: "regex",
+        payment: extraction.paymentMethod ?? null,
+        useSavedAddress: extraction.useSavedAddress === true,
+        source: "llm",
     };
+}
+
+/** Troca/substitui a partir da extração (sem regex de linguagem). */
+export function swapIntentFromExtraction(
+    extraction: OrderLineExtraction | null | undefined
+): CheckoutSwapIntent | null {
+    const s = extraction?.swap;
+    if (!s?.removeName?.trim() || !s?.replaceSearchTerm?.trim()) return null;
+
+    const removeName = s.removeName.trim();
+    const replaceHint = (s.replaceHint ?? s.replaceSearchTerm).trim();
+    const replaceSearchTerm = s.replaceSearchTerm.trim();
+
+    const searchQuery = looksLikePackagingOnlyHint(replaceHint)
+        ? `${removeName} ${replaceHint}`.replaceAll(/\s+/g, " ").trim()
+        : replaceSearchTerm.includes(removeName.split(/\s+/)[0] ?? "")
+          ? replaceSearchTerm
+          : `${removeName} ${replaceSearchTerm}`.replaceAll(/\s+/g, " ").trim();
+
+    return { removeName, searchQuery, replaceHint };
+}
+
+/** @deprecated Use buildBootstrapSegmentPlanFromExtraction */
+export function buildBootstrapSegmentPlan(
+    _userText: string,
+    extraction: OrderLineExtraction | null | undefined
+): BootstrapSegmentPlan | null {
+    return buildBootstrapSegmentPlanFromExtraction(extraction);
 }

@@ -220,8 +220,8 @@ Substituir `parseMultiItemOrderSegments`, `inferPaymentFromText` e `editIntentPa
 - [x] Extrator estruturado (`extractOrderLinesStructured`) — uma passada, sem histórico
 - [x] Rodar em sombra: `PRO_STRUCTURED_EXTRACT_SHADOW=1` + log divergência vs `parseMultiItemOrderSegments`
 - [x] Medir divergência no replay antes de inverter (`summarizeExtractionDivergence` offline/golden)
-- [x] Inverter prioridade atrás de flag: `PRO_STRUCTURED_EXTRACT_PRIMARY=1` (LLM → fallback regex); default ainda regex+sombra
-- [ ] Apagar `parseMultiItemOrderSegments`, `inferPaymentFromText`, `editIntentParse` (após PRIMARY estável em prod)
+- [x] Inverter prioridade: extração LLM é o único caminho do bootstrap (sem flag / sem fallback regex)
+- [x] Apagar `parseMultiItemOrderSegments`, `inferPaymentFromText`, `editIntentParse` (swap via campo `swap` na extração)
 
 ### Fase 3 — Consolidação
 

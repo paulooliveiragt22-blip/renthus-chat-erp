@@ -12,7 +12,7 @@ import {
     type BootstrapPendingClarification,
 } from "./bootstrapClarifyQueue";
 import {
-    buildBootstrapSegmentPlan,
+    buildBootstrapSegmentPlanFromExtraction,
     type BootstrapSegmentPlan,
 } from "./bootstrapSegmentPlan";
 
@@ -35,23 +35,21 @@ export async function tryServerBootstrapOrderFromText(params: {
     customerId: string | null;
     state: ProSessionState;
     userText: string;
-    /** Plano de segmentos (LLM primary / regex). Se omitido, usa regex. */
+    /** Plano de segmentos (somente LLM). Obrigatório para bootstrap. */
     segmentPlan?: BootstrapSegmentPlan | null;
 }): Promise<{
     state: ProSessionState;
     outbound: OutboundMessage[];
     hasClarification: boolean;
     bootstrapped: boolean;
-    segmentSource: "llm" | "regex";
+    segmentSource: "llm";
 }> {
-    const { admin, companyId, customerId, userText } = params;
-    const plan = params.segmentPlan ?? buildBootstrapSegmentPlan(userText, null);
-    const segments = plan.segments;
-    const payment =
-        params.state.draft?.paymentMethod ??
-        params.state.inferredPaymentMethod ??
-        plan.payment;
-    const useSaved = plan.useSavedAddress;
+    const { admin, companyId, customerId } = params;
+    const plan =
+        params.segmentPlan ?? buildBootstrapSegmentPlanFromExtraction(null);
+    const segments = plan?.segments ?? [];
+    const payment = plan?.payment ?? params.state.inferredPaymentMethod ?? null;
+    const useSaved = plan?.useSavedAddress === true;
 
     let state: ProSessionState = {
         ...params.state,
@@ -62,13 +60,13 @@ export async function tryServerBootstrapOrderFromText(params: {
                 : params.state.step,
     };
 
-    if (segments.length < 1) {
+    if (segments.length < 1 || !plan) {
         return {
             state,
             outbound: [],
             hasClarification: false,
             bootstrapped: false,
-            segmentSource: plan.source,
+            segmentSource: "llm",
         };
     }
 
@@ -180,6 +178,6 @@ export async function tryServerBootstrapOrderFromText(params: {
                 resolvedIds.length ||
                 ambiguousAll.length
         ),
-        segmentSource: plan.source,
+        segmentSource: "llm",
     };
 }

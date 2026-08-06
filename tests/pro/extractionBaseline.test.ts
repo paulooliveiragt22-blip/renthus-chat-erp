@@ -21,8 +21,6 @@ describe("extraction baseline v1", () => {
         const summary = summarizeExtractionDivergence(raw.cases);
         assert.equal(summary.cases, raw.cases.length);
         assert.ok(summary.withExtraction >= 3);
-        // Com PRIMARY off, llmWouldBecomePrimary ainda conta plan.source==="llm" no helper
-        // quando extraction válida — não exige igualdade total com regex.
-        assert.ok(summary.equalTerms + summary.divergeTerms === summary.withExtraction);
+        assert.ok(summary.planReady >= 3);
     });
 });

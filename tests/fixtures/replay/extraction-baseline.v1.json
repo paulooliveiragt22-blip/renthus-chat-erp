@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Baseline offline de extração (Fase 1/2). Casos sintéticos PT-BR alinhados a pedidos reais típicos. Expandir com dumps de conversas (npm run replay -- company thread) + extractions gravadas.",
+  "description": "Baseline offline de extração LLM (itens/qty/pagamento/swap). Sem regex.",
   "cases": [
     {
       "text": "quero 2 heineken long neck e 1 salgadinho, pix",
@@ -31,7 +31,15 @@
     },
     {
       "text": "troca o salgadinho pela caixa de fandangos",
-      "extraction": null
+      "extraction": {
+        "v": 1,
+        "items": [],
+        "swap": {
+          "removeName": "salgadinho",
+          "replaceSearchTerm": "fandangos caixa",
+          "replaceHint": "caixa de fandangos"
+        }
+      }
     },
     {
       "text": "umas tres brahma 600 e pagamento no cartao",

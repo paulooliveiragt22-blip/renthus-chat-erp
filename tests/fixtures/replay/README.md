@@ -3,8 +3,7 @@
 ## Extração (`extraction-baseline.v1.json`)
 
 Casos offline para `summarizeExtractionDivergence` / `npm run replay -- --extract-diff`.
-
-Atualizar quando mudar o extrator ou o regex bootstrap: rode o diff e revise casos que divergirem de propósito.
+Extração de pedido é **somente LLM** (sem parsers regex de itens/pagamento/troca).
 
 ## Threads reais
 

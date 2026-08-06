@@ -16,7 +16,6 @@ import {
     unionAllowlistWithDraftIds,
 } from "./mergeOrderDraft";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
-import { inferPaymentMethodFromText } from "./inferPaymentFromText";
 import {
     dequeueBootstrapClarification,
     hasPendingBootstrapClarifications,
@@ -44,7 +43,7 @@ export async function serverPrepareAfterProductPick(params: {
     /** Próxima clarificação multi-item (se houver). */
     clarificationOutbound: OutboundMessage[];
 }> {
-    const { admin, companyId, customerId, pickedEmbalagemId, recentUserText } = params;
+    const { admin, companyId, customerId, pickedEmbalagemId } = params;
     const embId = pickedEmbalagemId.trim();
     if (!embId) {
         return {
@@ -103,7 +102,6 @@ export async function serverPrepareAfterProductPick(params: {
     const paymentMethod =
         state.draft?.paymentMethod ??
         state.inferredPaymentMethod ??
-        inferPaymentMethodFromText(recentUserText ?? "") ??
         null;
     const toolInput: PrepareDraftToolInput = {
         items: [...byId.values()],

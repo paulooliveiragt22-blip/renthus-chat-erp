@@ -5,7 +5,6 @@ import { formatSearchPicksClarificationBody } from "./orderDraftPresenter";
 import { PICK_EMB_PREFIX } from "./productPickText";
 import { buildUniquePickButtons } from "./pickButtonTitles";
 import { catalogProductHintFromPicks } from "./catalogProductHint";
-import { parseCheckoutSwapIntent } from "./editIntentParse";
 import {
     removeDraftItemsMatchingName,
     removeDraftItemsMatchingNameExcept,
@@ -13,6 +12,7 @@ import {
 import { serverPrepareAfterProductPick } from "./serverPrepareAfterPick";
 import { withResolvedSlotStep } from "./orderSlotStep";
 import { checkoutPostProcessForQuickAction } from "./stages/checkoutPostProcess";
+import type { CheckoutSwapIntent } from "@/src/domain/contracts/orderExtraction";
 
 function buildSwapClarifyButtons(
     picks: Array<{
@@ -42,9 +42,14 @@ export type ServerSwapEditResult =
           finalized: boolean;
       };
 
+function resolveSwapIntent(swapIntent?: CheckoutSwapIntent | null): CheckoutSwapIntent | null {
+    if (swapIntent?.removeName && swapIntent.searchQuery) return swapIntent;
+    return null;
+}
+
 /**
- * Troca/substitui determinística (ex.: "troca o salgadinho pela caixa de 15"):
- * busca o produto certo, remove o antigo e prepare — sem depender da IA inventar a query.
+ * Troca/substitui determinística no servidor após intent LLM:
+ * busca o produto certo, remove o antigo e prepare — sem regex de linguagem.
  */
 export async function tryServerSwapEdit(params: {
     admin: SupabaseClient;
@@ -52,11 +57,13 @@ export async function tryServerSwapEdit(params: {
     customerId: string | null;
     state: ProSessionState;
     userText: string;
+    /** Intent de troca já extraído pelo LLM. */
+    swapIntent?: CheckoutSwapIntent | null;
 }): Promise<ServerSwapEditResult> {
-    const { admin, companyId, customerId, userText } = params;
+    const { admin, companyId, customerId } = params;
     if (!params.state.draft?.items?.length) return { handled: false };
 
-    const swap = parseCheckoutSwapIntent(userText);
+    const swap = resolveSwapIntent(params.swapIntent);
     if (!swap) return { handled: false };
 
     const detailed = await runSearchProdutosDetailed(admin, companyId, swap.searchQuery, {

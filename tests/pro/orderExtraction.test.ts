@@ -5,16 +5,13 @@ import {
     parseOrderLineExtractionJson,
 } from "@/src/domain/contracts/orderExtraction";
 import {
-    diffExtractionVsRegexBootstrap,
-    isStructuredExtractShadowEnabled,
-} from "@/src/pro/pipeline/shadowStructuredExtract";
-import {
-    buildBootstrapSegmentPlan,
-    isStructuredExtractPrimaryEnabled,
+    buildBootstrapSegmentPlanFromExtraction,
+    swapIntentFromExtraction,
 } from "@/src/pro/pipeline/bootstrapSegmentPlan";
 import { summarizeExtractionDivergence } from "@/src/pro/replay/measureExtractionDivergence";
+import { looksLikePackagingOnlyHint } from "@/src/pro/pipeline/packagingHint";
 
-describe("order line extraction (Fase 2)", () => {
+describe("order line extraction (LLM only)", () => {
     it("parseOrderLineExtractionJson aceita snake_case e fence", () => {
         const parsed = parseOrderLineExtractionJson(`\`\`\`json
 {"v":1,"items":[{"search_term":"heineken","quantidade":2}],"payment_method":"pix"}
@@ -26,41 +23,39 @@ describe("order line extraction (Fase 2)", () => {
         assert.equal(OrderLineExtractionSchema.parse(parsed).v, 1);
     });
 
-    it("diffExtractionVsRegexBootstrap marca overlap de termos", () => {
-        const text = "quero uma heineken long neck e um salgadinho, pagamento no pix";
-        const diff = diffExtractionVsRegexBootstrap(text, {
+    it("parse aceita swap sem items", () => {
+        const parsed = parseOrderLineExtractionJson({
             v: 1,
-            items: [
-                { searchTerm: "heineken long neck", quantity: 1 },
-                { searchTerm: "salgadinho", quantity: 1 },
-            ],
-            paymentMethod: "pix",
+            items: [],
+            swap: {
+                remove_name: "salgadinho",
+                replace_search_term: "salgadinho caixa de 15",
+                replace_hint: "caixa de 15",
+            },
         });
-        assert.ok(diff.regexSegments.length >= 1);
-        assert.equal(diff.paymentRegex, "pix");
-        assert.equal(diff.paymentLlm, "pix");
+        assert.ok(parsed);
+        assert.equal(parsed!.items.length, 0);
+        const swap = swapIntentFromExtraction(parsed);
+        assert.ok(swap);
+        assert.equal(swap!.removeName, "salgadinho");
+        assert.ok(swap!.searchQuery.includes("salgadinho"));
     });
 
-    it("flag sombra só liga com 1/true", () => {
-        assert.equal(isStructuredExtractShadowEnabled({} as NodeJS.ProcessEnv), false);
-        assert.equal(
-            isStructuredExtractShadowEnabled({
-                PRO_STRUCTURED_EXTRACT_SHADOW: "1",
-            } as NodeJS.ProcessEnv),
-            true
-        );
-    });
-
-    it("buildBootstrapSegmentPlan prefere LLM e qty", () => {
-        const plan = buildBootstrapSegmentPlan("quero 2 heineken", {
+    it("buildBootstrapSegmentPlanFromExtraction usa qty do LLM", () => {
+        const plan = buildBootstrapSegmentPlanFromExtraction({
             v: 1,
             items: [{ searchTerm: "heineken", quantity: 2 }],
             paymentMethod: "pix",
         });
-        assert.equal(plan.source, "llm");
-        assert.equal(plan.segments[0], "heineken");
-        assert.equal(plan.qtyByTerm.heineken, 2);
-        assert.equal(plan.payment, "pix");
+        assert.ok(plan);
+        assert.equal(plan!.source, "llm");
+        assert.equal(plan!.segments[0], "heineken");
+        assert.equal(plan!.qtyByTerm.heineken, 2);
+        assert.equal(plan!.payment, "pix");
+    });
+
+    it("null extraction → sem plano", () => {
+        assert.equal(buildBootstrapSegmentPlanFromExtraction(null), null);
     });
 
     it("summarizeExtractionDivergence agrega golden offline", () => {
@@ -83,20 +78,31 @@ describe("order line extraction (Fase 2)", () => {
                     items: [{ searchTerm: "coca cola lata", quantity: 1 }],
                 },
             },
+            {
+                text: "troca o salgadinho pela caixa",
+                extraction: {
+                    v: 1,
+                    items: [],
+                    swap: {
+                        removeName: "salgadinho",
+                        replaceSearchTerm: "salgadinho caixa",
+                        replaceHint: "caixa",
+                    },
+                },
+            },
         ]);
-        assert.equal(summary.cases, 2);
-        assert.equal(summary.withExtraction, 2);
-        assert.equal(summary.llmWouldBecomePrimary, 2);
-        assert.ok(summary.equalTerms + summary.divergeTerms === 2);
+        assert.equal(summary.cases, 3);
+        assert.equal(summary.withExtraction, 3);
+        assert.equal(summary.withItems, 2);
+        assert.equal(summary.withSwap, 1);
+        assert.equal(summary.planReady, 2);
+        assert.equal(summary.withPayment, 1);
     });
+});
 
-    it("flag primary", () => {
-        assert.equal(isStructuredExtractPrimaryEnabled({} as NodeJS.ProcessEnv), false);
-        assert.equal(
-            isStructuredExtractPrimaryEnabled({
-                PRO_STRUCTURED_EXTRACT_PRIMARY: "1",
-            } as NodeJS.ProcessEnv),
-            true
-        );
+describe("looksLikePackagingOnlyHint", () => {
+    it("detecta embalagem sem produto", () => {
+        assert.equal(looksLikePackagingOnlyHint("caixa de 15"), true);
+        assert.equal(looksLikePackagingOnlyHint("heineken long neck"), false);
     });
 });
