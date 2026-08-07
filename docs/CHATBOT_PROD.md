@@ -268,6 +268,8 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 
 **Cérebro de linguagem (produção):** agent loop ReAct em `FullAiServiceAdapter` (`aiStage`) — modelo → tools (`search_produtos` / `get_order_hints` / `prepare_order_draft`) → resultado → continua até texto final. `tool_choice` força `prepare_order_draft` quando o contrato tem SKU único. Pós-modelo: `resolveCheckoutTurnOutcome` + `checkoutPostProcess` roteiam UI por estado do draft (**sem** novo LLM). Finalize = botão `pro_confirm_order` (HITL) → RPC.
 
+**Smoke WhatsApp (agent loop):** checklist de prompts e GO/NO-GO em [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md). Fila/wake/dedup: [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md).
+
 **Não** há extract/dialogue/bootstrap paralelo no hot path.
 
 Implementação actual no PRO (`runProPipeline` — único motor para plano PRO):

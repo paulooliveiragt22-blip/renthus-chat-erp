@@ -6,6 +6,8 @@ Decisões de arquitetura (Hobby vs escala, wake + scheduler, limites honestos): 
 
 **Refatoração do fecho de pedido PRO (estado + IA):** [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
 
+**Smoke do agent loop (prompts WhatsApp pós-ReAct):** [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md) — use esse doc para cenários de pedido/HITL; este runbook cobre fila/wake/dedup.
+
 ## Objetivo
 Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 - `incoming` enfileira rápido
@@ -90,36 +92,27 @@ Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
 ---
 
 ### Passo 4 - Cenários críticos mínimos
-Executar 3 mensagens em sequência:
-1. `quero pedir` (força IA)
-2. `sim` em contexto de confirmação
-3. `pedido vazio` (forçar validação com falta de dados)
-
-Conferir:
-- fallback seguro em retorno inválido de IA
-- confirmação explícita finaliza quando aplicável
-- pedido vazio não chama finalização indevida
+Preferir a matriz completa em [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md).
+Mínimo rápido:
+1. `quero pedir` / produto do catálogo (força agent loop + tools)
+2. Com draft completo: texto `sim` **não** deve finalizar (só botão `pro_confirm_order`)
+3. Draft incompleto na confirmação: não chama RPC
 
 **Aprovado se:**
-- comportamento corresponde aos testes automatizados
+- comportamento corresponde aos testes + smoke agent-loop
 - sem erro 5xx
 
 ---
 
-### Passo 4.1 - Confirmação forte (R3)
+### Passo 4.1 - Confirmação HITL (botão)
 Com sessão em `pro_awaiting_confirmation`, executar:
-1. confirmação textual curta: `confirmar` (ou `sim`)
-2. confirmação por id de botão: `confirmar` / `confirmar_pedido` / `confirm_order` (quando a origem enviar id no body)
-3. negação/ambíguo: `não confirma ainda` ou `talvez depois`
-
-Conferir:
-- só os sinais fortes executam finalização (RPC)
-- negação/ambíguo **não** finalizam pedido
-- métrica `pro_pipeline.confirmation_ambiguous` quando o texto não confirma de forma forte
+1. texto: `sim` / `ok` / `confirmar` → **não** finaliza
+2. botão: id `pro_confirm_order` (ou `btn_confirm_order` / `btn_confirmar`) → finaliza via RPC
+3. negação/ambíguo: `não confirma ainda` → **não** finaliza
 
 **Aprovado se:**
-- zero finalize fora de confirmação forte em `pro_awaiting_confirmation`
-- comportamento alinhado com `tests/pro/proPipeline.test.ts` e `tests/pro/proPipeline.failure-regression.test.ts`
+- zero finalize por texto livre
+- comportamento alinhado com `orderConfirmationText.ts` / testes PRO
 
 ---
 
