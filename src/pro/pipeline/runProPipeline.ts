@@ -778,6 +778,19 @@ export async function runProPipeline(
         routedMode: routed.mode,
     });
 
+    /**
+     * Rate limit Anthropic: não envia bolha ao cliente; job volta pra fila com backoff.
+     * (In-process retries já esgotados em `runAnthropicWithResilience`.)
+     */
+    if (aiServiceErrorCode === "AI_RATE_LIMIT") {
+        await deps.sessionRepo.save(input.tenant.companyId, input.tenant.threadId, nextState);
+        const { QueueRetryableError } = await import("@/lib/chatbot/queueRetry");
+        throw new QueueRetryableError(
+            "AI_RATE_LIMIT",
+            "Anthropic rate limited — requeue with backoff"
+        );
+    }
+
     await emitTurn({
                 state: nextState,
                 outbound: finalOutbound,

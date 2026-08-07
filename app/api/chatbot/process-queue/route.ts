@@ -23,6 +23,10 @@ import { scheduleQueueWorkerWake } from "@/lib/chatbot/queueWorkerWake";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+import {
+    isQueueRetryableError,
+    queueRetryDelayMs,
+} from "@/lib/chatbot/queueRetry";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -186,11 +190,20 @@ export async function GET(req: Request) {
         } catch (err: any) {
             console.error("[process-queue] job falhou:", job.id, err?.message);
             const attempts = (job.attempts ?? 0) + 1;
+            const retryable = isQueueRetryableError(err);
+            const delayMs = retryable ? queueRetryDelayMs(attempts) : 0;
+            const terminal = attempts >= MAX_ATTEMPTS;
             await admin
                 .from("chatbot_queue")
                 .update({
-                    status:     attempts >= MAX_ATTEMPTS ? "failed" : "pending",
+                    status: terminal ? "failed" : "pending",
                     last_error: String(err?.message ?? err).slice(0, 500),
+                    ...(terminal
+                        ? {}
+                        : {
+                              scheduled_at: new Date(Date.now() + delayMs).toISOString(),
+                              processing_started_at: null,
+                          }),
                 })
                 .eq("id", job.id);
             failed++;
@@ -206,7 +219,8 @@ export async function GET(req: Request) {
             .from("chatbot_queue")
             .select("id", { count: "exact", head: true })
             .eq("status", "pending")
-            .lt("attempts", MAX_ATTEMPTS);
+            .lt("attempts", MAX_ATTEMPTS)
+            .lte("scheduled_at", new Date().toISOString());
         const shouldContinue =
             (pendingLeft ?? 0) > 0 &&
             (jobIds.length >= BATCH_SIZE || jobIds.length > 0);
@@ -323,11 +337,20 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
         } catch (err: any) {
             console.error("[process-queue] fallback job falhou:", job.id, err?.message);
             const attempts = (job.attempts ?? 0) + 1;
+            const retryable = isQueueRetryableError(err);
+            const delayMs = retryable ? queueRetryDelayMs(attempts) : 0;
+            const terminal = attempts >= MAX_ATTEMPTS;
             await admin
                 .from("chatbot_queue")
                 .update({
-                    status:     attempts >= MAX_ATTEMPTS ? "failed" : "pending",
+                    status: terminal ? "failed" : "pending",
                     last_error: String(err?.message ?? err).slice(0, 500),
+                    ...(terminal
+                        ? {}
+                        : {
+                              scheduled_at: new Date(Date.now() + delayMs).toISOString(),
+                              processing_started_at: null,
+                          }),
                 })
                 .eq("id", job.id);
             failed++;

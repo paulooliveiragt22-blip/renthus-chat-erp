@@ -10,6 +10,7 @@ import { isProPipelineSessionLoadError } from "@/src/pro/pipeline/errors";
 import { makeProPipelineDependencies } from "@/src/pro/pipeline/deps.factory";
 import { resolveActivePublicMenuLink } from "@/lib/public-menu/resolveActiveMenuLink";
 import { MetaMessageGateway } from "@/src/pro/adapters/meta/message.gateway.meta";
+import { isQueueRetryableError } from "@/lib/chatbot/queueRetry";
 
 const PRO_PIPELINE_FAILURE_MESSAGE_PT_BR =
     "Não consegui processar seu pedido agora por um problema técnico.\n\n" +
@@ -102,6 +103,10 @@ export async function runProInbound(params: ProcessMessageParams): Promise<void>
             deps
         );
     } catch (err) {
+        /** Rate limit / retryable: propaga para a fila (backoff). Não manda bolha genérica. */
+        if (isQueueRetryableError(err)) {
+            throw err;
+        }
         logProPipelineFailure(err);
         console.warn("[chatbot/pro] falha do V2 — mensagem fixa ao cliente (sem fallback Starter).");
         if (messagingChannel === "instagram" || messagingChannel === "messenger") {
