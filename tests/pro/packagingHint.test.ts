@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { enrichSearchTermPackagingFromUserText } from "../../src/pro/pipeline/packagingHint";
-import { buildBootstrapSegmentPlanFromExtraction } from "../../src/pro/pipeline/bootstrapSegmentPlan";
+import { buildBootstrapSegmentPlanFromExtraction } from "../../src/pro/replay/bootstrapSegmentPlan";
 
 describe("enrichSearchTermPackagingFromUserText", () => {
     it("reinsere caixa quando LLM omitiu", () => {

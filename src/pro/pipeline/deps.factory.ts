@@ -7,6 +7,8 @@ import { OrderServiceV2Adapter } from "../adapters/order/order.service.v2";
 import { SupabaseSessionRepository } from "../adapters/supabase/session.repository.supabase";
 import { WhatsAppMessageGateway } from "../adapters/whatsapp/message.gateway.whatsapp";
 import { MetaMessageGateway } from "../adapters/meta/message.gateway.meta";
+import { SupabaseCompanyPolicyAdapter } from "../ports/companyPolicy.port";
+import { SupabaseOrderHintsAdapter } from "../ports/orderHints.port";
 import { ProIntentClassifierService } from "../services/intent/intent.service";
 import type { MetricsPort } from "../ports/metrics.port";
 import type { PipelineDependencies } from "./context";
@@ -51,8 +53,9 @@ export function makeProPipelineDependencies(
         intentService: new ProIntentClassifierService(params.admin),
         aiService: new FullAiServiceAdapter(params.admin),
         orderService: new OrderServiceV2Adapter(params.admin),
+        companyPolicy: new SupabaseCompanyPolicyAdapter(params.admin),
+        orderHints: new SupabaseOrderHintsAdapter(params.admin),
         admin: params.admin,
     };
     return { ...base, ...options?.overrides };
 }
-

@@ -490,21 +490,10 @@ export async function runProPipeline(
     // antes de qualquer passagem por IA para evitar desvio de fluxo.
     let highValuePolicy: { enabled: boolean; amountBrl: number } | undefined;
     /** Só precisa da policy no passo de confirmação (evita SELECT em todo turno de coleta). */
-    if (deps.admin && pipelineState.step === "pro_awaiting_confirmation") {
-        try {
-            const { data: botRow } = await deps.admin
-                .from("chatbots")
-                .select("config")
-                .eq("company_id", input.tenant.companyId)
-                .limit(1)
-                .maybeSingle();
-            const { parseHighValueConfirmPolicy } = await import("@/lib/billing/aiWallet");
-            highValuePolicy = parseHighValueConfirmPolicy(
-                (botRow?.config as Record<string, unknown> | null) ?? null
-            );
-        } catch {
-            highValuePolicy = undefined;
-        }
+    if (pipelineState.step === "pro_awaiting_confirmation" && deps.companyPolicy) {
+        highValuePolicy = await deps.companyPolicy.getHighValueConfirmPolicy(
+            input.tenant.companyId
+        );
     }
 
     const infoOnly = isInfoOnlyMode(aiPolicy);
@@ -662,17 +651,26 @@ export async function runProPipeline(
             if (
                 !infoOnly &&
                 decision.intent === "order_intent" &&
-                deps.admin &&
                 nextState.customerId
             ) {
                 try {
-                    prefetchedOrderHints = await buildOrderHintsPayload({
-                        admin: deps.admin,
-                        companyId: input.tenant.companyId,
-                        phoneE164: input.tenant.phoneE164,
-                        name: input.actor.profileName ?? null,
-                    });
-                    aiContext = { ...aiContext, prefetchedOrderHints };
+                    if (deps.orderHints) {
+                        prefetchedOrderHints = await deps.orderHints.buildHints({
+                            companyId: input.tenant.companyId,
+                            phoneE164: input.tenant.phoneE164,
+                            name: input.actor.profileName ?? null,
+                        });
+                    } else if (deps.admin) {
+                        prefetchedOrderHints = await buildOrderHintsPayload({
+                            admin: deps.admin,
+                            companyId: input.tenant.companyId,
+                            phoneE164: input.tenant.phoneE164,
+                            name: input.actor.profileName ?? null,
+                        });
+                    }
+                    if (prefetchedOrderHints) {
+                        aiContext = { ...aiContext, prefetchedOrderHints };
+                    }
                 } catch (err) {
                     deps.logger?.warn("pro_pipeline.prefetch_order_hints_failed", {
                         companyId: input.tenant.companyId,
@@ -720,7 +718,7 @@ export async function runProPipeline(
             });
             const d = nextState.draft;
             if (
-                deps.admin &&
+                (deps.orderHints || deps.admin) &&
                 d &&
                 d.items.length > 0 &&
                 !isAddressStructurallyComplete(d.address ?? null)
@@ -729,12 +727,20 @@ export async function runProPipeline(
                     checkoutOrderHints = prefetchedOrderHints;
                 } else {
                     try {
-                        checkoutOrderHints = await buildOrderHintsPayload({
-                            admin:     deps.admin,
-                            companyId: input.tenant.companyId,
-                            phoneE164: input.tenant.phoneE164,
-                            name:      input.actor.profileName ?? null,
-                        });
+                        if (deps.orderHints) {
+                            checkoutOrderHints = await deps.orderHints.buildHints({
+                                companyId: input.tenant.companyId,
+                                phoneE164: input.tenant.phoneE164,
+                                name: input.actor.profileName ?? null,
+                            });
+                        } else if (deps.admin) {
+                            checkoutOrderHints = await buildOrderHintsPayload({
+                                admin:     deps.admin,
+                                companyId: input.tenant.companyId,
+                                phoneE164: input.tenant.phoneE164,
+                                name:      input.actor.profileName ?? null,
+                            });
+                        }
                     } catch (err) {
                         deps.logger?.warn("pro_pipeline.prefetch_checkout_order_hints_failed", {
                             companyId: input.tenant.companyId,

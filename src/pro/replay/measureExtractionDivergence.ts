@@ -1,6 +1,6 @@
 import type { OrderLineExtraction } from "@/src/domain/contracts/orderExtraction";
-import { buildBootstrapSegmentPlanFromExtraction } from "@/src/pro/pipeline/bootstrapSegmentPlan";
-import { swapIntentFromExtraction } from "@/src/pro/pipeline/bootstrapSegmentPlan";
+import { buildBootstrapSegmentPlanFromExtraction } from "@/src/pro/replay/bootstrapSegmentPlan";
+import { swapIntentFromExtraction } from "@/src/pro/replay/bootstrapSegmentPlan";
 
 export type ExtractionDivergenceCase = {
     text: string;

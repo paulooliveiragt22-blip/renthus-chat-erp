@@ -7,7 +7,7 @@ import type { PaymentMethod } from "@/src/types/contracts";
 import {
     enrichSearchTermPackagingFromUserText,
     looksLikePackagingOnlyHint,
-} from "./packagingHint";
+} from "../pipeline/packagingHint";
 
 export type BootstrapSegmentPlan = {
     segments: string[];

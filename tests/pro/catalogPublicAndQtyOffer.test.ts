@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { toChatCatalogPublicItem } from "../../src/pro/tools/catalogPublicDto";
-import {
-    canServerPrepareFromCatalogQtyOffer,
-    isAdditiveCatalogQtyOffer,
-    resolveSingleOfferedEmbalagemId,
-} from "../../src/pro/pipeline/serverPrepareFromCatalogQtyOffer";
-import type { ProSessionState } from "../../src/types/contracts";
 
 describe("toChatCatalogPublicItem", () => {
     it("não vaza custo, estoque, códigos nem ids internos", () => {
@@ -44,53 +38,6 @@ describe("toChatCatalogPublicItem", () => {
                 JSON.stringify(pub)
             ),
             false
-        );
-    });
-});
-
-describe("resolveSingleOfferedEmbalagemId", () => {
-    const base = {
-        searchProdutoEmbalagemIds: [] as string[],
-        lastSearchPicks: [] as ProSessionState["lastSearchPicks"],
-        draft: null,
-    } as unknown as ProSessionState;
-
-    it("usa pick único", () => {
-        assert.equal(
-            resolveSingleOfferedEmbalagemId({
-                ...base,
-                lastSearchPicks: [{ embalagemId: "aaa", label: "Coca" }],
-            }),
-            "aaa"
-        );
-    });
-    it("não resolve com clarificação ≥2", () => {
-        assert.equal(
-            resolveSingleOfferedEmbalagemId({
-                ...base,
-                lastSearchPicks: [
-                    { embalagemId: "a", label: "UN" },
-                    { embalagemId: "b", label: "CX" },
-                ],
-            }),
-            null
-        );
-    });
-    it("permite prepare com draft existente (additive)", () => {
-        assert.equal(
-            canServerPrepareFromCatalogQtyOffer({
-                ...base,
-                lastSearchPicks: [{ embalagemId: "aaa", label: "Coca" }],
-                draft: { items: [{ produtoEmbalagemId: "aaa", quantity: 3 }] } as ProSessionState["draft"],
-            }),
-            true
-        );
-        assert.equal(
-            isAdditiveCatalogQtyOffer({
-                ...base,
-                draft: { items: [{ produtoEmbalagemId: "aaa", quantity: 3 }] } as ProSessionState["draft"],
-            }),
-            true
         );
     });
 });

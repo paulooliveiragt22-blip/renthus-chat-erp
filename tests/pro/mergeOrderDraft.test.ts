@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { OrderDraft } from "../../src/types/contracts";
 import {
     mergePreparedDraftIntoCurrent,
+    removeDraftItemsMatchingNameExcept,
     unionAllowlistWithDraftIds,
 } from "../../src/pro/pipeline/mergeOrderDraft";
 
@@ -76,5 +77,25 @@ describe("unionAllowlistWithDraftIds", () => {
         const d = draft([item("draft-1", "D1"), item("draft-2", "D2")]);
         const ids = unionAllowlistWithDraftIds(["search-1"], d);
         assert.deepEqual(ids, ["search-1", "draft-1", "draft-2"]);
+    });
+});
+
+describe("removeDraftItemsMatchingNameExcept (swap)", () => {
+    it("remove item antigo e mantém substituto", () => {
+        const current = draft([
+            item("heineken-un", "Heineken UN", 8),
+            item("burger", "Burger", 30),
+        ]);
+        const next = removeDraftItemsMatchingNameExcept(current, "heineken", ["heineken-cx"]);
+        assert.ok(next);
+        assert.equal(next!.items.length, 1);
+        assert.equal(next!.items[0]?.produtoEmbalagemId, "burger");
+        const withSub = mergePreparedDraftIntoCurrent(
+            next,
+            draft([item("heineken-cx", "Heineken CX", 60)])
+        );
+        assert.equal(withSub!.items.length, 2);
+        assert.ok(withSub!.items.some((i) => i.produtoEmbalagemId === "heineken-cx"));
+        assert.ok(!withSub!.items.some((i) => i.produtoEmbalagemId === "heineken-un"));
     });
 });

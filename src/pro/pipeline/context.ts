@@ -4,6 +4,8 @@ import type { LoggerPort } from "../ports/logger.port";
 import type { MessageGateway } from "../ports/message.gateway";
 import type { MetricsPort } from "../ports/metrics.port";
 import type { SessionRepository } from "../ports/session.repository";
+import type { CompanyPolicyPort } from "../ports/companyPolicy.port";
+import type { OrderHintsPort } from "../ports/orderHints.port";
 import type { AiService } from "../services/ai/ai.types";
 import type { IntentService } from "../services/intent/intent.types";
 import type { OrderService } from "../services/order/order.types";
@@ -16,7 +18,12 @@ export interface PipelineDependencies {
     intentService: IntentService;
     aiService: AiService;
     orderService: OrderService;
-    /** Service role Supabase: sincroniza `customerId` da sessão com o telefone WhatsApp. */
+    companyPolicy?: CompanyPolicyPort;
+    orderHints?: OrderHintsPort;
+    /**
+     * Service role Supabase — legado para identity/handover/prepare-pick/trace.
+     * Novas leituras de domínio devem usar ports (`companyPolicy`, `orderHints`, …).
+     */
     admin?: SupabaseClient;
 }
 

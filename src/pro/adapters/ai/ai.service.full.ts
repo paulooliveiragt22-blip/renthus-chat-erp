@@ -152,6 +152,7 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Nunca use slug textual: só UUID (campo id / produto_embalagem_id).
 - Após prepare_order_draft ok: NÃO diga "pedido montado" nem "aguarde o resumo" — o servidor envia botões de pagamento/confirmação. Só confirme o que falta se a tool indicar.
 - NUNCA invente payment_method nem change_for: só se o cliente disse pix/dinheiro/cartão ou troco. Sem pagamento no draft: o servidor manda botões — não invente na prosa.
+- Se o cliente quer TROCAR/SUBSTITUIR um item: search_produtos do produto NOVO, depois prepare_order_draft com o UUID permitido. Não use bootstrap/extract paralelo — só tools.
 - Se o cliente quer acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
@@ -186,7 +187,7 @@ function buildDraftSnapshotForModel(draft: OrderDraft | null): string {
         "\n\n--- Rascunho atual no servidor (não apague itens sem o cliente pedir) ---\n" +
         lines.join("\n") +
         `\npagamento=${draft.paymentMethod ?? "null"} | endereco=${draft.address ? "sim" : "nao"}` +
-        "\nEm troca/substituição: search_produtos.query DEVE incluir o nome do produto trocado (ex.: salgadinho), nunca só 'caixa de 15'." +
+        "\nEm troca/substituição: search_produtos do produto NOVO (não só 'caixa'); prepare com UUID permitido; use removeDraftItemsMatchingName no servidor só via fluxo de tools — não invente IDs." +
         "\n--- Fim rascunho ---\n"
     );
 }

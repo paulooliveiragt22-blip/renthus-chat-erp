@@ -266,6 +266,10 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 
 #### Estado no código (**já executado**)
 
+**Cérebro de linguagem (produção):** agent loop ReAct em `FullAiServiceAdapter` (`aiStage`) — modelo → tools (`search_produtos` / `get_order_hints` / `prepare_order_draft`) → resultado → continua até texto final. `tool_choice` força `prepare_order_draft` quando o contrato tem SKU único. Pós-modelo: `resolveCheckoutTurnOutcome` + `checkoutPostProcess` roteiam UI por estado do draft (**sem** novo LLM). Finalize = botão `pro_confirm_order` (HITL) → RPC.
+
+**Não** há extract/dialogue/bootstrap paralelo no hot path.
+
 Implementação actual no PRO (`runProPipeline` — único motor para plano PRO):
 
 | Peça | Onde | O que faz |
@@ -451,8 +455,9 @@ Manter fronteiras claras sem microserviço:
 - Busca catálogo: `src/pro/tools/searchProdutos.ts` + RPC `rpc_search_chat_produtos` (fuzzy/`pg_trgm`, migração `20260805080000_…`) + cache TTL `catalogSearchCache.ts`
 - Clarificação de produto: `catalogProductHintFromPicks` (`src/pro/pipeline/catalogProductHint.ts`) — hint ao cliente vem do catálogo (`productName`/stem do label), não do texto digitado; swap/edição segue a mesma regra
 - Tools PRO (ex-`lib/chatbot/pro`): `src/pro/tools/` — prepare draft, hints, allowlist, parsers de qty/endereço
-- Replay: `npm run replay -- <companyId> <threadId>` (dump); `--run` dry-run; `--extract-diff` + fixture `tests/fixtures/replay/extraction-baseline.v1.json`
-- Extração de pedido: só LLM (`extractOrderLinesStructured`); intent de linguagem livre também só LLM quando há crédito — regex de oi/status/pedido só no degradado (IA off / sem crédito / limite de turnos)
+- Replay: `npm run replay -- <companyId> <threadId>` (dump); `--run` dry-run; `--extract-diff` é **harness offline** (`src/pro/replay/`, baseline `tests/fixtures/replay/extraction-baseline.v1.json`) — **não** faz parte do hot path
+- Pedido PRO (hot path): agent loop + tools (`FullAiServiceAdapter`); intent de linguagem livre via classificador quando há crédito — regex de oi/status/pedido só no degradado (IA off / sem crédito / limite de turnos)
+- Ports CA: `CompanyPolicyPort`, `OrderHintsPort` (+ session/llm/metrics); `admin` residual só identity/handover/prepare-pick/trace
 - LLM multi-provider: `src/pro/ports/llm.port.ts`, `adapters/llm/{anthropic,openai,createLlmPort}.ts`
 - STT áudio: `src/pro/ports/speechToText.port.ts`, `adapters/stt/openai.whisper.ts`, `lib/chatbot/transcribeInboundAudio.ts`
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)

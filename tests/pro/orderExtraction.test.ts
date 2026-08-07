@@ -7,7 +7,7 @@ import {
 import {
     buildBootstrapSegmentPlanFromExtraction,
     swapIntentFromExtraction,
-} from "@/src/pro/pipeline/bootstrapSegmentPlan";
+} from "@/src/pro/replay/bootstrapSegmentPlan";
 import { summarizeExtractionDivergence } from "@/src/pro/replay/measureExtractionDivergence";
 import { looksLikePackagingOnlyHint } from "@/src/pro/pipeline/packagingHint";
 

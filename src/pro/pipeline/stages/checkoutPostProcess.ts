@@ -15,6 +15,7 @@ import {
     looksLikeNonMoneyWhileAwaitingChange,
     parsePtMoneyInput,
 } from "../paymentFromUserText";
+import { resolveCheckoutTurnOutcome } from "../resolveCheckoutTurnOutcome";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -549,12 +550,12 @@ export function checkoutPostProcess(params: {
     }
     // Clarificação de produto: uma UI só (servidor), mesmo com draft parcial multi-item
     // (também em Corrigir/Adicionar com hold — step fica collecting).
-    if (
-        !showAddressRegistrationPrompt &&
-        (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
-        (params.mode === "ai" || nextState.checkoutEditHold === true) &&
-        nextState.step !== "pro_awaiting_confirmation"
-    ) {
+    const turnOutcome = resolveCheckoutTurnOutcome({
+        state: nextState,
+        mode: params.mode,
+        showAddressRegistrationPrompt: Boolean(showAddressRegistrationPrompt),
+    });
+    if (turnOutcome.kind === "clarify_product_picks") {
         const clarify = buildClarificationButtons(nextState.lastSearchPicks ?? []);
         if (clarify) {
             const stripped = stripAiOptionListText(outbound);
@@ -564,11 +565,7 @@ export function checkoutPostProcess(params: {
     }
 
     // Escalação suave: muitas buscas vazias → cardápio
-    if (
-        params.mode === "ai" &&
-        (nextState.emptySearchStreak ?? 0) >= 2 &&
-        !(nextState.draft?.items?.length)
-    ) {
+    if (turnOutcome.kind === "empty_search_hint") {
         outbound.push({
             kind: "text",
             text: "Não encontrei esse produto no catálogo. Tente outro nome, ou abra o cardápio pelo botão Cardápio / menu da loja.",

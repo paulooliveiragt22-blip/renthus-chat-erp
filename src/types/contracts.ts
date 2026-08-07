@@ -145,8 +145,8 @@ export interface ProSessionState {
      */
     pendingSwapRemoveName?: string | null;
     /**
-     * Pagamento inferido do texto do cliente (ex.: "pagamento no pix") antes do prepare.
-     * Usado no prepare do pick quando o draft ainda não tem paymentMethod.
+     * @deprecated Legado de extract/bootstrap — não gravar no hot path agent-loop.
+     * Mantido na sessão só para drain de sessões antigas; prepare usa draft.paymentMethod.
      */
     inferredPaymentMethod?: PaymentMethod | null;
     /**

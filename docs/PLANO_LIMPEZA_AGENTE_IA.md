@@ -2,6 +2,8 @@
 
 Documento de execução. Premissa do dono: **app ainda sem clientes reais em produção** — toda mudança apaga o legado em vez de manter compatibilidade.
 
+> **Status 2026-08-06:** hot path PRO = **agent loop único** (ReAct + tools). Extract/dialogue/bootstrap/swap-server **removidos** do `runProPipeline`. Extrator estruturado vive só em `src/pro/replay/` (offline). Confirmação final = botão Confirmar. Ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) § cérebro.
+
 Decisões canónicas de arquitetura ficam em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md). Este arquivo é o **plano de corte e construção**, com o estado verificado no código em 2026-08-06.
 
 **Ordem de leitura:** estado real → bug P0 → reaproveitar → apagar → adicionar → fases.

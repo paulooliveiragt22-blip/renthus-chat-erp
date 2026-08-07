@@ -336,7 +336,7 @@ export function buildHighValueConfirmMessage(itemsTotal: number, amountBrl: numb
     const limLabel = amountBrl.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     return (
         `Este pedido totaliza *${totalLabel}* (acima de ${limLabel}).\n\n` +
-        `Para confirmar o valor alto, toque *Confirmar* de novo ou digite *CONFIRMAR*.`
+        `Para confirmar o valor alto, toque *Confirmar* de novo.`
     );
 }
 
