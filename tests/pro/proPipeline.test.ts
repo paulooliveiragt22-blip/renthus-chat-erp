@@ -268,7 +268,7 @@ describe("novo pipeline PRO - falhas reais", () => {
         );
     });
 
-    it("greeting com LLM ligado usa botões Continuar/Meus pedidos/Atendente e CTA cardápio", async () => {
+    it("greeting com LLM ligado usa botões Abrir cardápio / Meus pedidos / Atendente", async () => {
         const deps = buildDeps({
             session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
             intent: "greeting",
@@ -281,8 +281,13 @@ describe("novo pipeline PRO - falhas reais", () => {
         const menu = out.outbound.find((m) => m.kind === "buttons");
         assert.ok(menu);
         const ids = (menu?.buttons ?? []).map((b) => b.id);
-        assert.deepEqual(ids, ["btn_order", "btn_status", "btn_support"]);
-        assert.ok(out.outbound.some((m) => m.kind === "cta_url" && m.ctaUrl?.url === menuUrl));
+        assert.deepEqual(ids, ["btn_catalog", "btn_status", "btn_support"]);
+        assert.match(
+            menu?.text ?? "",
+            /Me fala qual seu pedido pra hoje ou use uma das opções abaixo/i
+        );
+        /** URL longa só após tocar Abrir cardápio (CTA), não no oi. */
+        assert.ok(out.outbound.every((m) => m.kind !== "cta_url"));
         assert.ok(out.outbound.every((m) => !(m.kind === "text" && (m.text ?? "").includes(menuUrl))));
     });
 

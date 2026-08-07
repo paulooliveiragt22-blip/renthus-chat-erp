@@ -11,17 +11,16 @@ export type ChatbotMessageTemplateKey =
 
 export type ChatbotMessageTemplates = Record<ChatbotMessageTemplateKey, string>;
 
-/** Instruções anexadas após a saudação (não editáveis na UI). */
-export const WELCOME_INSTRUCTIONS_RETURNING =
-    "\n\nUse os botões abaixo: continuar o pedido no chat, ver seus pedidos ou falar com um atendente. O cardápio web fica no botão Abrir cardápio.";
+/** Instruções anexadas após a saudação (não editáveis na UI). Vazio: o texto completo fica no template. */
+export const WELCOME_INSTRUCTIONS_RETURNING = "";
 
-export const WELCOME_INSTRUCTIONS_FIRST =
-    "\n\nUse os botões abaixo: continuar o pedido no chat, ver seus pedidos ou falar com um atendente. O cardápio web fica no botão Abrir cardápio.";
+export const WELCOME_INSTRUCTIONS_FIRST = "";
 
 export const DEFAULT_CHATBOT_MESSAGE_TEMPLATES: ChatbotMessageTemplates = {
     msg_welcome_returning:
-        "Bem-vindo de volta! Posso agilizar seu pedido com seus dados salvos.",
-    msg_welcome_first: "Oi! Sou o assistente da loja e te ajudo a fechar o pedido por aqui.",
+        "Oi! 👋 Tudo bem? Aqui você faz seu pedido comigo no chat. Me fala qual seu pedido pra hoje ou use uma das opções abaixo",
+    msg_welcome_first:
+        "Oi! 👋 Tudo bem? Aqui você faz seu pedido comigo no chat. Me fala qual seu pedido pra hoje ou use uma das opções abaixo",
     msg_out_for_delivery:
         "Ótima notícia{nome_parte}: seu pedido já está com nosso entregador e a caminho de você! 🛵💨",
     msg_thank_you:

@@ -26,8 +26,8 @@ Executar na ordem. Em cada passo: anotar resposta do bot + se gerou pedido em `o
 | | |
 |--|--|
 | **Enviar** | `oi` |
-| **Esperado** | Saudação curta + **botões** Continuar pedido / Meus pedidos / Falar com atendente; cardápio via botão **Abrir cardápio** (CTA, sem URL longa no texto). |
-| **Falha se** | Fecha pedido; inventa produtos/preços; ignora saudação; reemite pick residual; **cola URL enorme do cardápio no texto**. |
+| **Esperado** | Texto: *Oi! 👋 … opções abaixo* + botões **Abrir cardápio** / **Meus pedidos** / **Falar com atendente**. Sem URL longa no `oi` (CTA só ao tocar Abrir cardápio). |
+| **Falha se** | Fecha pedido; inventa produtos; pick residual; cola URL no texto da saudação; botão Continuar pedido. |
 | ☐ | |
 
 | | |

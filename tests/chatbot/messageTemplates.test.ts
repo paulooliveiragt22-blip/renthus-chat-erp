@@ -5,7 +5,6 @@ import {
     buildWelcomeMenuBody,
     DEFAULT_CHATBOT_MESSAGE_TEMPLATES,
     resolveChatbotMessageTemplates,
-    WELCOME_INSTRUCTIONS_RETURNING,
 } from "../../lib/chatbot/messageTemplates";
 
 describe("chatbot messageTemplates", () => {
@@ -24,13 +23,12 @@ describe("chatbot messageTemplates", () => {
         assert.equal(t.msg_out_for_delivery, "Saiu!{nome_parte}");
     });
 
-    it("welcome body anexa instruções fixas", () => {
+    it("welcome body usa saudação padrão sem anexos extras", () => {
         const body = buildWelcomeMenuBody(true, {
             ...DEFAULT_CHATBOT_MESSAGE_TEMPLATES,
             msg_welcome_returning: "Bem-vindo custom",
         });
-        assert.ok(body.startsWith("Bem-vindo custom"));
-        assert.ok(body.includes(WELCOME_INSTRUCTIONS_RETURNING.trim()));
+        assert.equal(body, "Bem-vindo custom");
         assert.ok(!body.includes("btn_"));
     });
 

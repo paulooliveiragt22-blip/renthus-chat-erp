@@ -33,11 +33,11 @@ function wantsContinueOrder(norm: string): boolean {
 
 /**
  * WhatsApp: máx 3 reply buttons (20 chars).
- * Cardápio web vai em mensagem `cta_url` separada (URL atrás do botão).
+ * Ao tocar em Abrir cardápio (`btn_catalog`), o servidor envia CTA URL (link atrás do botão).
  */
 export function mainMenuButtons(): Array<{ id: string; title: string }> {
     return [
-        { id: "btn_order", title: "Continuar pedido" },
+        { id: "btn_catalog", title: "Abrir cardápio" },
         { id: "btn_status", title: "Meus pedidos" },
         { id: "btn_support", title: "Falar com atendente" },
     ];
@@ -47,7 +47,7 @@ export function buildWebMenuCtaOutbound(webMenuUrl: string): OutboundMessage {
     return {
         kind: "cta_url",
         ctaUrl: {
-            bodyText: "Prefere ver o cardápio completo no celular?",
+            bodyText: "Toque para abrir o cardápio no celular:",
             displayText: "Abrir cardápio",
             url: webMenuUrl.trim(),
         },
@@ -60,16 +60,13 @@ function welcomeOutbound(params: {
     webMenuUrl?: string | null;
 }): OutboundMessage[] {
     const isReturningCustomer = Boolean(params.state.customerId);
-    const outbound: OutboundMessage[] = [
+    return [
         {
             kind: "buttons",
             text: buildWelcomeMenuBody(isReturningCustomer, params.messageTemplates),
             buttons: mainMenuButtons(),
         },
     ];
-    const url = String(params.webMenuUrl ?? "").trim();
-    if (url) outbound.push(buildWebMenuCtaOutbound(url));
-    return outbound;
 }
 
 export function routeStage(params: {
