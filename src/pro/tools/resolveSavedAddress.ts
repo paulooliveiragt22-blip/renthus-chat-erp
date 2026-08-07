@@ -122,3 +122,55 @@ export async function resolveDefaultAddressForCustomer(
 
     return null;
 }
+
+export type AddressDeliveryStat = {
+    address: SavedClienteEnderecoRow;
+    deliveryCount: number;
+    /** ISO timestamp do pedido mais recente entregue/finalizado neste endereço, se houver. */
+    lastDeliveredAt: string | null;
+};
+
+/**
+ * Para cada endereço cadastrado do cliente, conta quantos pedidos entregues/finalizados
+ * usaram esse endereço (`orders.delivery_endereco_cliente_id`) e a data do mais recente.
+ * Não há coluna de contagem em `enderecos_cliente` — é agregado aqui a partir de `orders`.
+ */
+export async function rankCustomerAddressesByDelivery(
+    admin: SupabaseClient,
+    companyId: string,
+    customerId: string
+): Promise<AddressDeliveryStat[]> {
+    const addresses = await listCustomerAddressesForCustomer(admin, companyId, customerId);
+    if (!addresses.length) return [];
+
+    const { data: orders, error } = await admin
+        .from("orders")
+        .select("delivery_endereco_cliente_id, created_at")
+        .eq("company_id", companyId)
+        .eq("customer_id", customerId)
+        .in("status", ["delivered", "finalized"])
+        .not("delivery_endereco_cliente_id", "is", null);
+    if (error) {
+        console.warn("[rankCustomerAddressesByDelivery]", error.message);
+    }
+
+    const countByAddr = new Map<string, number>();
+    const lastByAddr = new Map<string, string>();
+    for (const row of orders ?? []) {
+        const id = String(
+            (row as { delivery_endereco_cliente_id?: string | null }).delivery_endereco_cliente_id ?? ""
+        );
+        if (!id) continue;
+        countByAddr.set(id, (countByAddr.get(id) ?? 0) + 1);
+        const createdAt = String((row as { created_at?: string | null }).created_at ?? "");
+        if (createdAt && createdAt > (lastByAddr.get(id) ?? "")) {
+            lastByAddr.set(id, createdAt);
+        }
+    }
+
+    return addresses.map((address) => ({
+        address,
+        deliveryCount: countByAddr.get(address.id) ?? 0,
+        lastDeliveredAt: lastByAddr.get(address.id) ?? null,
+    }));
+}

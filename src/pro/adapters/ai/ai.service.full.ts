@@ -43,7 +43,12 @@ import {
 } from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
 import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep";
-import { stripModelIntentSuffix } from "./stripModelIntentSuffix";
+import {
+    disambiguatePackagingForSearchRows,
+    isSamePackagingFamily,
+} from "@/src/pro/pipeline/packagingDisambiguation";
+import { loadCompanySiglas, loadCustomerSiglaHabits } from "@/src/pro/pipeline/customerPackagingHabit";
+import { stripAddressFreeTextMarker, stripModelIntentSuffix } from "./stripModelIntentSuffix";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
 
@@ -262,7 +267,16 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
               "Opções: continuar pedido no chat, meus pedidos, atendente.\n--- Fim primeiro contato ---\n"
             : "";
 
-    const prefix = base + phaseBlock + editHoldBlock + draftBlock + summaryBlock + welcomeBlock;
+    const addressConfirmBlock = isInfoOnlyAi(input)
+        ? ""
+        : "\n\n--- Confirmação de endereço de entrega ---\n" +
+          "Em get_order_hints, saved_addresses pode trazer most_used_address_id (mais entregas) e last_used_address_id (pedido mais recente), quando diferentes.\n" +
+          "- Se o cliente perguntar ou mencionar entrega em endereço diferente do cadastrado (ex.: \"pode ser em outro endereço\", \"é no mesmo de sempre?\"): responda em texto livre, SEM listar opções nem pedir botão, usando exatamente este modelo (troque {endereco} pelo endereço real de most_used_address_id — logradouro, número e bairro): \"Tenho {endereco} cadastrado aqui. A entrega será nele? Se for em outro endereço, me envia por favor.\" Termine a resposta com ADDR_FREE_TEXT (antes ou depois de INTENT_OK/INTENT_UNKNOWN).\n" +
+          "- Se NÃO houve pergunta do cliente sobre endereço e most_used_address_id e last_used_address_id vierem diferentes: NÃO pergunte por escrito qual endereço usar — o servidor já mostra botões com as duas opções. Não repita a pergunta em texto nem cite os dois endereços na prosa.\n" +
+          "- Se houver só um endereço salvo (ou most_used_address_id e last_used_address_id iguais/ausentes): siga o fluxo normal (pode confirmar ou usar saved_address_id diretamente).\n" +
+          "--- Fim confirmação de endereço ---\n";
+
+    const prefix = base + phaseBlock + editHoldBlock + draftBlock + summaryBlock + welcomeBlock + addressConfirmBlock;
     const hints = input.context.prefetchedOrderHints;
     if (!hints || typeof hints !== "object") return prefix;
     try {
@@ -410,6 +424,23 @@ export class FullAiServiceAdapter implements AiService {
         return normalizePrepareDraftAnthropicInput(raw);
     }
 
+    /** Hábito de sigla do cliente para o produto retornado (aprendizagem por cliente). */
+    private async resolvePackagingHabitForRows(
+        input: AiServiceInput,
+        rows: Array<{ produto_id?: string | null }>
+    ): Promise<string | null> {
+        const customerId = input.context.session.customerId;
+        const produtoId = rows.find((r) => r.produto_id)?.produto_id?.trim();
+        if (!customerId || !produtoId) return null;
+        const habits = await loadCustomerSiglaHabits({
+            admin: this.admin,
+            companyId: input.context.tenant.companyId,
+            customerId,
+            productIds: [produtoId],
+        });
+        return habits.get(produtoId) ?? null;
+    }
+
     private async runSearchTool(
         input: AiServiceInput,
         block: { id: string; input: unknown },
@@ -427,7 +458,17 @@ export class FullAiServiceAdapter implements AiService {
             query,
             { categoryHint, limit: 8 }
         );
-        const rows = detailed.items;
+        let rows = detailed.items;
+        if (isSamePackagingFamily(rows)) {
+            const [companySiglas, habitSigla] = await Promise.all([
+                loadCompanySiglas(this.admin, input.context.tenant.companyId),
+                this.resolvePackagingHabitForRows(input, rows),
+            ]);
+            rows = disambiguatePackagingForSearchRows(rows, query, input.userText, {
+                companySiglas,
+                habitSigla,
+            });
+        }
         const publicItems = rows.map((r) =>
             toChatCatalogPublicItem(r as unknown as Record<string, unknown>)
         );
@@ -718,11 +759,15 @@ export class FullAiServiceAdapter implements AiService {
         updatedDraft: OrderDraft | null,
         assistantContent: unknown,
         searchProdutoEmbalagemIds: string[],
-        searchMeta: {
-            lastSearchPicks: Array<{ embalagemId: string; label: string }>;
-            emptySearchStreak: number;
+        opts: {
+            searchMeta: {
+                lastSearchPicks: Array<{ embalagemId: string; label: string }>;
+                emptySearchStreak: number;
+            };
+            addressFreeText?: boolean;
         }
     ): Promise<AiServiceResult> {
+        const { searchMeta, addressFreeText = false } = opts;
         const nextHistoryRaw = this.buildHistory(input, assistantContent);
         const compacted = await this.sessionMemory.compactIfNeeded({
             history: nextHistoryRaw,
@@ -742,7 +787,7 @@ export class FullAiServiceAdapter implements AiService {
                 updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
                 lastSearchPicks: searchMeta.lastSearchPicks,
                 emptySearchStreak: searchMeta.emptySearchStreak,
-                signals: { toolRoundsUsed, intentMarker: marker },
+                signals: { toolRoundsUsed, intentMarker: marker, addressFreeText },
             };
         }
 
@@ -761,7 +806,7 @@ export class FullAiServiceAdapter implements AiService {
             updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
             lastSearchPicks: searchMeta.lastSearchPicks,
             emptySearchStreak: searchMeta.emptySearchStreak,
-            signals: { toolRoundsUsed, intentMarker: marker },
+            signals: { toolRoundsUsed, intentMarker: marker, addressFreeText },
         };
     }
 
@@ -973,7 +1018,12 @@ export class FullAiServiceAdapter implements AiService {
                 .join("\n")
                 .trim();
 
-            const { visible, marker } = stripModelIntentSuffix(text);
+            // Marcadores podem vir em qualquer ordem no fim da resposta (ex.: "... ADDR_FREE_TEXT INTENT_OK").
+            const addrPass1 = stripAddressFreeTextMarker(text);
+            const { visible: afterIntent, marker } = stripModelIntentSuffix(addrPass1.visible);
+            const addrPass2 = stripAddressFreeTextMarker(afterIntent);
+            const visible = addrPass2.visible;
+            const addressFreeText = addrPass1.addressFreeText || addrPass2.addressFreeText;
             let visibleSafe = stripInternalCatalogIdsFromCustomerText(
                 stripHallucinatedOrderPersistenceClaims(
                     sanitizeVisibleAgainstDraft(visible, updatedDraft),
@@ -1006,7 +1056,7 @@ export class FullAiServiceAdapter implements AiService {
                 updatedDraft,
                 response.content,
                 allowlistRuntime.ids,
-                searchMeta
+                { searchMeta, addressFreeText }
             );
         } catch (error) {
             if (isTimeoutError(error)) {

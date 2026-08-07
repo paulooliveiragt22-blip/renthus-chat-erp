@@ -423,6 +423,12 @@ export interface AiServiceResult {
         toolRoundsUsed: number;
         /** Heurística a partir do sufixo da resposta do modelo (não é payload de WhatsApp). */
         intentMarker?: "ok" | "unknown" | null;
+        /**
+         * Modelo sinalizou (marcador `ADDR_FREE_TEXT`) que respondeu em texto livre sobre
+         * endereço porque o cliente questionou/mencionou entrega em endereço diferente.
+         * O servidor não sobrepõe com os botões de escolha de endereço neste turno.
+         */
+        addressFreeText?: boolean;
     };
     errorCode?: "AI_TIMEOUT" | "AI_RATE_LIMIT" | "AI_PROVIDER_ERROR" | "TOOL_FAILED";
 }

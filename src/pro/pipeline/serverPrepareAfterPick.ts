@@ -132,7 +132,12 @@ export async function serverPrepareAfterProductPick(params: {
                   cep: addr.cep,
               }
             : null,
-        useSavedAddress: !addr,
+        /**
+         * Nunca resolve endereço salvo/histórico silenciosamente após um pick de produto.
+         * Isso é decisão explícita do cliente (via LLM + get_order_hints), não um default
+         * automático — evita confirmar endereço de pedido anterior sem o cliente pedir.
+         */
+        useSavedAddress: false,
         paymentMethod,
         changeFor:
             paymentMethod === "cash" ? state.draft?.changeFor ?? null : null,

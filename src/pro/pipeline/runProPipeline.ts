@@ -52,6 +52,10 @@ import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
+import {
+    parseAddressPickButtonId,
+    serverPrepareAfterAddressPick,
+} from "./serverPrepareAfterAddressPick";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
@@ -334,6 +338,54 @@ export async function runProPipeline(
             sideEffects: [],
             metrics,
         };
+    }
+
+    /**
+     * Botão de escolha de endereço (mais usado vs. último pedido): decisão explícita do
+     * cliente — aplica no servidor via `prepare_order_draft` (recalcula taxa/zona), sem IA.
+     */
+    const addressPickId = parseAddressPickButtonId(input.inboundText);
+    if (
+        addressPickId &&
+        deps.admin &&
+        (gateState.draft?.items?.length ?? 0) > 0 &&
+        !isInfoOnlyMode(aiPolicy)
+    ) {
+        try {
+            const addrPrep = await serverPrepareAfterAddressPick({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                customerId: gateState.customerId,
+                state: gateState,
+                enderecoClienteId: addressPickId,
+            });
+            const synced = withResolvedSlotStep(addrPrep.state);
+            const finalOutbound = addrPrep.preparedOk
+                ? checkoutPostProcessForQuickAction({ state: synced, outbound: [] })
+                : addrPrep.outbound;
+            await emitTurn({ state: synced, outbound: finalOutbound });
+            const metrics: PipelineMetric[] = [
+                {
+                    name: "pro_pipeline.address_pick",
+                    value: 1,
+                    tags: { ok: addrPrep.preparedOk ? "1" : "0" },
+                },
+                { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
+            ];
+            flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, new Set(["pro_pipeline.outbound_count"]));
+            return {
+                nextState: synced,
+                outbound: finalOutbound,
+                sideEffects: [],
+                metrics,
+            };
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.address_pick_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
 
     /**
@@ -662,6 +714,7 @@ export async function runProPipeline(
     let aiServiceErrorCode: string | undefined;
     let checkoutOrderHints: Record<string, unknown> | null = null;
     let aiLimitExceeded = false;
+    let addressFreeTextSignaled = false;
     /** Sem crédito / IA off: menu/status/handover ok; pedido por IA bloqueado. */
     if (routed.mode === "ai" && !llmEnabled) {
         outbound.length = 0;
@@ -769,6 +822,7 @@ export async function runProPipeline(
             });
             invalidAiSanitized = ai.invalidAiSanitized;
             aiServiceErrorCode = ai.aiResult.errorCode;
+            addressFreeTextSignaled = ai.aiResult.signals.addressFreeText === true;
             nextState = bumpAiTurnCount(ai.state, aiPolicy, nowMs);
             outbound.push(...ai.outbound);
             logSessionDraftSnapshot(deps.logger, "pro_pipeline.post_ai_session", input.tenant, nextState, {
@@ -831,6 +885,7 @@ export async function runProPipeline(
               mode: routed.mode,
               flowAddressRegister: flowRef,
               orderHints: checkoutOrderHints,
+              addressFreeTextSignaled,
           });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;

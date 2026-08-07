@@ -2,9 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
     buildAiAddressFromSavedClienteRow,
-    listCustomerAddressesForCustomer,
+    rankCustomerAddressesByDelivery,
     resolveDefaultAddressForCustomer,
 } from "./resolveSavedAddress";
+import { resolveAddressConfirmationCandidates } from "@/src/pro/pipeline/addressConfirmationCandidates";
 
 const FLOW_REMINDER_PT =
     "Fluxo sugerido: (1) get_order_hints cedo no pedido; (2) search_produtos antes de citar preço; " +
@@ -32,7 +33,10 @@ export async function buildOrderHintsPayload(params: {
     }
 
     const saved = await resolveDefaultAddressForCustomer(admin, companyId, customer.id);
-    const savedList = await listCustomerAddressesForCustomer(admin, companyId, customer.id);
+    const addressStats = await rankCustomerAddressesByDelivery(admin, companyId, customer.id);
+    const savedList = addressStats.map((s) => s.address);
+    const addressCandidates = resolveAddressConfirmationCandidates(addressStats);
+    const statsById = new Map(addressStats.map((s) => [s.address.id, s]));
 
     const saved_addresses_incomplete: Array<{ id: string; reason_pt: string }> = [];
     for (const r of savedList) {
@@ -86,7 +90,17 @@ export async function buildOrderHintsPayload(params: {
             estado:       r.estado,
             cep:          r.cep,
             is_principal: r.is_principal,
+            /** Nº de pedidos entregues/finalizados neste endereço. */
+            delivery_count: statsById.get(r.id)?.deliveryCount ?? 0,
+            last_delivered_at: statsById.get(r.id)?.lastDeliveredAt ?? null,
         })),
+        /**
+         * Endereço com mais entregas vs. do pedido mais recente — só ambos presentes e
+         * diferentes quando há 2 candidatos reais (ver `resolveAddressConfirmationCandidates`).
+         * Quando diferentes, o servidor mostra botões de escolha; a IA não deve perguntar isso em texto.
+         */
+        most_used_address_id: addressCandidates.primary?.id ?? null,
+        last_used_address_id: addressCandidates.secondary?.id ?? null,
         favorite_lines,
         ...(saved_addresses_incomplete.length
             ? { saved_addresses_incomplete }

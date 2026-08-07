@@ -3,6 +3,7 @@ import {
     formatCanonicalDraftSummary,
     formatSearchPicksClarificationBody,
 } from "../orderDraftPresenter";
+import { PICK_ADDRESS_PREFIX } from "../serverPrepareAfterAddressPick";
 import { PICK_EMB_PREFIX, parseProductPickIndex } from "../productPickText";
 import { buildUniquePickButtons } from "../pickButtonTitles";
 import { catalogProductHintFromPicks } from "../catalogProductHint";
@@ -49,6 +50,71 @@ function buildPaymentButtons(): OutboundMessage {
             { id: "pro_pay_cash", title: "Dinheiro" },
         ],
     };
+}
+
+type SavedAddressHint = {
+    id: string;
+    apelido?: string | null;
+    logradouro?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    cep?: string | null;
+    is_principal?: boolean | null;
+};
+
+/** Rótulo curto de botão (≤20 chars, WhatsApp): apelido customizado, senão papel genérico. */
+function addressChoiceButtonLabel(row: SavedAddressHint, fallback: string): string {
+    const apelido = String(row.apelido ?? "").trim();
+    const isCustom = apelido.length > 0 && apelido.toLowerCase() !== "principal";
+    return (isCustom ? apelido : fallback).slice(0, 20);
+}
+
+function addressChoiceShortLine(row: SavedAddressHint): string {
+    const street = [row.logradouro, row.numero].filter(Boolean).join(", ");
+    return row.bairro ? `${street} - ${row.bairro}` : street;
+}
+
+/** Botões: endereço mais usado (mais entregas) vs. do pedido mais recente, quando diferem. */
+export function buildAddressChoiceButtons(
+    primary: SavedAddressHint,
+    secondary: SavedAddressHint
+): OutboundMessage {
+    const labelA = addressChoiceButtonLabel(primary, "Endereço usual");
+    let labelB = addressChoiceButtonLabel(secondary, "Último pedido");
+    if (labelB.toLowerCase() === labelA.toLowerCase()) labelB = "Último pedido";
+    return {
+        kind: "buttons",
+        text:
+            "Encontrei mais de um endereço seu. Pra qual entregamos este pedido?\n\n" +
+            `${labelA}: ${addressChoiceShortLine(primary)}\n` +
+            `${labelB}: ${addressChoiceShortLine(secondary)}\n\n` +
+            "Ou me envie um novo endereço.",
+        buttons: [
+            { id: `${PICK_ADDRESS_PREFIX}${primary.id}`, title: labelA },
+            { id: `${PICK_ADDRESS_PREFIX}${secondary.id}`, title: labelB },
+            { id: "pro_new_address_flow", title: "Outro endereço" },
+        ],
+    };
+}
+
+/** Extrai os 2 candidatos (most_used vs last_used) do payload de `get_order_hints`, quando diferentes. */
+function extractAddressChoiceCandidates(
+    orderHints: Record<string, unknown> | null | undefined
+): { primary: SavedAddressHint; secondary: SavedAddressHint } | null {
+    const list = Array.isArray(orderHints?.saved_addresses)
+        ? (orderHints!.saved_addresses as SavedAddressHint[])
+        : [];
+    if (list.length < 2) return null;
+    const primaryId = String(orderHints?.most_used_address_id ?? "").trim();
+    const secondaryId = String(orderHints?.last_used_address_id ?? "").trim();
+    if (!primaryId || !secondaryId || primaryId === secondaryId) return null;
+    const primary = list.find((a) => a.id === primaryId);
+    const secondary = list.find((a) => a.id === secondaryId);
+    if (!primary || !secondary) return null;
+    return { primary, secondary };
 }
 
 function buildConfirmationActionButtons(draft: OrderDraft): OutboundMessage {
@@ -441,6 +507,25 @@ export function applyQuickAction(
         };
     }
 
+    /**
+     * `pro_pick_address:<enderecoClienteId>` é resolvido ANTES deste gate (server-side, com
+     * `admin`) em `runProPipeline` via `serverPrepareAfterAddressPick` — recalcula taxa/zona de
+     * entrega com `prepare_order_draft`. Se chegou aqui sem draft, o carrinho já não existe mais.
+     */
+    if (action.startsWith(PICK_ADDRESS_PREFIX)) {
+        return {
+            handled: true,
+            actionTag: "pro_pick_address_no_draft",
+            state,
+            outbound: [
+                {
+                    kind: "text",
+                    text: "Esse carrinho não está mais disponível. Me diga o que você precisa que eu monto de novo.",
+                },
+            ],
+        };
+    }
+
     if (
         (action === "pro_confirm_saved_address" || action === "pro_confirm_typed_address") &&
         state.draft?.address
@@ -514,6 +599,12 @@ export function checkoutPostProcess(params: {
     flowAddressRegister?: FlowAddressRegisterQuickOpts | null;
     /** Resultado de `buildOrderHintsPayload` quando o checkout precisa decidir cadastro. */
     orderHints?: Record<string, unknown> | null;
+    /**
+     * `true` quando o modelo sinalizou `ADDR_FREE_TEXT` neste turno (respondeu em texto livre
+     * sobre endereço porque o cliente questionou/mencionou entrega em outro lugar).
+     * Suprime os botões de escolha de endereço para não duplicar a pergunta.
+     */
+    addressFreeTextSignaled?: boolean;
 }): { state: ProSessionState; outbound: OutboundMessage[] } {
     let nextState = params.state;
     const outbound = [...params.outbound];
@@ -572,6 +663,20 @@ export function checkoutPostProcess(params: {
             kind: "text",
             text: "Não encontrei esse produto no catálogo. Tente outro nome, ou abra o cardápio pelo botão Cardápio / menu da loja.",
         });
+    }
+
+    // Endereço com 2 candidatos reais (mais usado ≠ pedido mais recente): botão em vez de
+    // pergunta em texto — a IA não deve repetir isso na prosa (ver instruções do system prompt).
+    if (
+        turnOutcome.kind === "collecting" &&
+        params.mode === "ai" &&
+        !params.addressFreeTextSignaled &&
+        !outbound.some((m) => m.kind === "buttons" || m.kind === "flow")
+    ) {
+        const candidates = extractAddressChoiceCandidates(params.orderHints);
+        if (candidates) {
+            outbound.push(buildAddressChoiceButtons(candidates.primary, candidates.secondary));
+        }
     }
 
     nextState = withResolvedSlotStep({

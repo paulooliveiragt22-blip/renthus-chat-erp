@@ -93,6 +93,7 @@ export async function aiStage(params: {
         signals: {
             toolRoundsUsed: Number(raw?.signals?.toolRoundsUsed ?? 0),
             intentMarker: raw?.signals?.intentMarker ?? null,
+            addressFreeText: raw?.signals?.addressFreeText === true,
         },
         errorCode: raw?.errorCode,
     };

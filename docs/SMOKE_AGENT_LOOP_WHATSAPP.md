@@ -77,6 +77,33 @@ Sequência sugerida (continue o draft do S2/S3 ou monte de novo):
 
 ---
 
+### S4b — Confirmação de endereço (botões vs texto livre)
+
+Pré-requisito: cliente de teste com **2 endereços cadastrados** em `enderecos_cliente` e histórico de pedidos entregues/finalizados em endereços diferentes (mais entregas em um, pedido mais recente no outro).
+
+| | |
+|--|--|
+| **Setup** | Draft com itens, sem endereço ainda. Cliente tem endereço mais entregue ≠ endereço do pedido mais recente. |
+| **Enviar** | Qualquer texto que avance o pedido sem citar endereço novo (ex.: “pode ser”). |
+| **Esperado** | Botões: rótulo do mais entregue (apelido custom ou "Endereço usual"), rótulo do mais recente (apelido custom ou "Último pedido") e "Outro endereço". Corpo lista as 2 ruas/bairros. **Sem** pergunta em texto duplicada. |
+| **Falha se** | IA pergunta por escrito qual endereço usar (redundante com os botões); botões não aparecem com 2 candidatos reais. |
+| ☐ | |
+
+| | |
+|--|--|
+| **Enviar** | Toque num dos botões `pro_pick_address:...`. |
+| **Esperado** | Servidor aplica o endereço direto (`prepare_order_draft` com `saved_address_id`, recalcula taxa/zona/mínimo); segue para pagamento sem rodada de IA. |
+| ☐ | |
+
+| | |
+|--|--|
+| **Enviar** | (Sessão nova) `é no mesmo endereço de sempre ou posso pedir pra outro lugar?` |
+| **Esperado** | Resposta em **texto livre**, sem botões, no formato: "Tenho {endereço} cadastrado aqui. A entrega será nele? Se for em outro endereço, me envia por favor." |
+| **Falha se** | Aparecem botões junto com a pergunta; texto não confirma o endereço real do cadastro. |
+| ☐ | |
+
+---
+
 ### S5 — “sim” NÃO finaliza
 
 | | |
