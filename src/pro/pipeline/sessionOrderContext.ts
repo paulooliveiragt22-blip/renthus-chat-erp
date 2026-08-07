@@ -23,3 +23,34 @@ export function isOrderSessionContinuityNeeded(session: ProSessionState): boolea
     if ((session.lastSearchPicks?.length ?? 0) >= 2) return true;
     return STEPS_IMPLYING_ORDER_SESSION.has(session.step);
 }
+
+/**
+ * Saudação / FAQ sem itens no carrinho: descarta UI de clarificação residual
+ * (ex.: `oi` após abandono de pick UN/CX) para não misturar boas-vindas com botões velhos.
+ */
+export function clearStaleClarifyUiIfNoDraft(session: ProSessionState): ProSessionState {
+    if (session.draft?.items?.length) return session;
+    const hasClarifyUi =
+        (session.lastSearchPicks?.length ?? 0) > 0 ||
+        (session.bootstrapPendingClarifications?.length ?? 0) > 0 ||
+        (session.searchProdutoEmbalagemIds?.length ?? 0) > 0 ||
+        session.pendingClarifyQuantity != null ||
+        session.pendingClarifySegment != null ||
+        (session.pendingAskRepeatTerms?.length ?? 0) > 0;
+    if (!hasClarifyUi) return session;
+    return {
+        ...session,
+        lastSearchPicks: [],
+        searchProdutoEmbalagemIds: [],
+        bootstrapPendingClarifications: [],
+        bootstrapResolvedEmbalagemIds: [],
+        pendingClarifyQuantity: null,
+        pendingClarifySegment: null,
+        pendingAskRepeatTerms: [],
+        emptySearchStreak: 0,
+        step:
+            session.step === "pro_collecting_order" || session.step === "pro_idle"
+                ? "pro_idle"
+                : session.step,
+    };
+}

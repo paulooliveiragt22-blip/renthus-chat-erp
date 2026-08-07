@@ -151,5 +151,17 @@ describe("ProIntentClassifierService", () => {
         assert.equal(out.intent, "unknown");
         assert.equal(out.reasonCode, "fallback_unknown");
     });
+
+    it("oi com lastSearchPicks residual (sem draft) → greeting, não order_intent", async () => {
+        const svc = new ProIntentClassifierService();
+        const ctx = baseContext("pro_collecting_order", { llmEnabled: true });
+        ctx.session.lastSearchPicks = [
+            { embalagemId: "a", label: "SALGADINHO" },
+            { embalagemId: "b", label: "CX" },
+        ];
+        const out = await svc.classify({ context: ctx, userText: "oi" });
+        assert.equal(out.intent, "greeting");
+        assert.equal(out.reasonCode, "regex_match");
+    });
 });
 

@@ -43,6 +43,7 @@ import {
 } from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 import { handleAwaitingPhoneTurn } from "./handleAwaitingPhone";
+import { clearStaleClarifyUiIfNoDraft } from "./sessionOrderContext";
 import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
@@ -485,6 +486,19 @@ export async function runProPipeline(
         context: contextForStages,
         userText: inboundTextForPipeline,
     });
+
+    /**
+     * S1 / abandono: greeting|faq|unknown sem itens no draft não deve reemitir
+     * botões de pick residual (lastSearchPicks) junto com boas-vindas.
+     */
+    if (
+        (decision.intent === "greeting" ||
+            decision.intent === "faq" ||
+            decision.intent === "unknown") &&
+        !(pipelineState.draft?.items?.length)
+    ) {
+        pipelineState = clearStaleClarifyUiIfNoDraft(pipelineState);
+    }
 
     // Prioridade: se está aguardando confirmação, resolve fechamento/erro de draft
     // antes de qualquer passagem por IA para evitar desvio de fluxo.

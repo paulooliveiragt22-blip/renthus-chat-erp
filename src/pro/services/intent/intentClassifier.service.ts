@@ -192,6 +192,13 @@ export class ProIntentClassifierService implements IntentService {
             if (STATUS_RE.test(raw)) {
                 return { intent: "status_intent", confidence: "high", reasonCode: "active_order_session" };
             }
+            /**
+             * "oi" com lastSearchPicks residual (sem itens no draft) não é pick —
+             * trata como greeting para soft-reset da UI de clarificação.
+             */
+            if (GREETING_RE.test(raw) && !(context.session.draft?.items?.length)) {
+                return { intent: "greeting", confidence: "high", reasonCode: "regex_match" };
+            }
             if (!useLlm) {
                 return { intent: "order_intent", confidence: "high", reasonCode: "active_order_session" };
             }
