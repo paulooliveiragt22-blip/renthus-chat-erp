@@ -1,23 +1,25 @@
 import type { OrderDraft, PrepareDraftToolInput } from "@/src/types/contracts";
+import { parsePaymentMethodFromUserText, parsePtMoneyInput } from "./paymentFromUserText";
 
 /**
  * Impede a LLM de inventar `payment_method` / `change_for`.
- * Aceita pagamento só se já estava no draft ou veio da extração deste turno.
+ * Aceita pagamento só se já estava no draft ou o cliente citou no texto deste turno.
  */
 export function sanitizePreparePaymentAgainstUserText(
     toolInput: PrepareDraftToolInput,
-    _userText: string,
+    userText: string,
     currentDraft: OrderDraft | null,
-    opts?: { paymentFromExtract?: string | null }
+    opts?: { paymentFromUserText?: string | null }
 ): PrepareDraftToolInput {
     const draftPay = currentDraft?.paymentMethod ?? null;
     const draftChange = currentDraft?.changeFor ?? null;
-    const extractPay = opts?.paymentFromExtract?.trim() || null;
+    const fromText =
+        opts?.paymentFromUserText?.trim() || parsePaymentMethodFromUserText(userText) || null;
 
     let paymentMethod = toolInput.paymentMethod;
     let changeFor = toolInput.changeFor;
 
-    const allowedPay = extractPay || draftPay;
+    const allowedPay = fromText || draftPay;
     if (!allowedPay) {
         paymentMethod = null;
         changeFor = null;
@@ -36,9 +38,10 @@ export function sanitizePreparePaymentAgainstUserText(
         payNorm === "cash" || payNorm.includes("dinheiro") || payNorm === "especie";
     if (!isCash) {
         changeFor = null;
-    } else if (draftChange == null && changeFor != null && !extractPay) {
-        /** Troco inventado sem o cliente falar de dinheiro nesta extração. */
-        changeFor = null;
+    } else if (draftChange == null && changeFor != null) {
+        /** Troco só se o cliente digitou valor monetário neste turno (não inventado pela LLM). */
+        const spoken = parsePtMoneyInput(userText);
+        changeFor = spoken != null ? spoken : null;
     }
 
     return {

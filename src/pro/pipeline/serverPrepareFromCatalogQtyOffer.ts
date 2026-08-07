@@ -2,7 +2,7 @@ import type { ProSessionState } from "@/src/types/contracts";
 
 /**
  * SKU único já oferecido na sessão (último search com 1 opção).
- * Usado pelo executor de diálogo LLM — não interpreta linguagem.
+ * Dado de sessão para allowlist / UI — não é interpretação de linguagem.
  */
 export function resolveSingleOfferedEmbalagemId(state: ProSessionState): string | null {
     const picks = state.lastSearchPicks ?? [];

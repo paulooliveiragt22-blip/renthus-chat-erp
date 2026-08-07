@@ -4,6 +4,12 @@ import {
     type OrderLineExtraction,
 } from "@/src/domain/contracts/orderExtraction";
 
+/**
+ * Extração estruturada **offline** (replay / métrica de divergência).
+ * Não faz parte do hot path do pipeline PRO — o cérebro de linguagem é o agent loop
+ * (`FullAiServiceAdapter` + tools). Não reintroduzir no `runProPipeline`.
+ */
+
 const SYSTEM = `Você extrai intenção de pedido e diálogo de checkout em português do Brasil.
 Responda APENAS com JSON válido:
 {"v":1,"items":[{"searchTerm":"heineken long neck","quantity":2}],"paymentMethod":"pix"|null,"useSavedAddress":false,"addressRaw":null,"swap":null,"dialogue":null}

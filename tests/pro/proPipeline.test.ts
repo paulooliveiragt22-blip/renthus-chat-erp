@@ -24,7 +24,7 @@ function baseInput(): ProPipelineInput {
             profileName: "Cliente",
         },
         tier: "pro",
-        inboundText: "sim",
+        inboundText: "pro_confirm_order",
         nowIso: new Date().toISOString(),
     };
 }
@@ -155,17 +155,17 @@ describe("novo pipeline PRO - falhas reais", () => {
         assert.ok((out.outbound[0]?.text ?? "").length > 0);
     });
 
-    it("intent errado: confirmação explícita deve finalizar pedido mesmo com intent incorreto", async () => {
+    it("intent errado: botão Confirmar finaliza mesmo com intent incorreto", async () => {
         let called = 0;
         const deps = buildDeps({
             session: stateAwaitingConfirmation(),
-            intent: "greeting", // errado
+            intent: "greeting", // errado — orderStage não depende de intent
             onOrderCalled: () => {
                 called += 1;
             },
         });
 
-        await runProPipeline(baseInput(), deps);
+        await runProPipeline({ ...baseInput(), inboundText: "pro_confirm_order" }, deps);
         assert.equal(called, 1);
     });
 

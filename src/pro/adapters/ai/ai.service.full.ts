@@ -74,6 +74,24 @@ export function shouldForcePrepareAfterEmbalagemChoice(params: {
     if (params.draftItemCount > 0 && !singlePickForce) return false;
     return true;
 }
+
+/**
+ * Pós-modelo (equivalente a tools_condition / post_model_hook):
+ * search neste turno com exatamente 1 SKU e sem prepare → força prepare_order_draft.
+ */
+export function shouldForcePrepareAfterUnambiguousSearch(params: {
+    intent: string;
+    step: string;
+    prepareInvokedThisTurn: boolean;
+    searchInvokedThisTurn: boolean;
+    allowlistNowCount: number;
+}): boolean {
+    if (params.intent !== "order_intent") return false;
+    if (params.step !== "pro_collecting_order" && params.step !== "pro_idle") return false;
+    if (params.prepareInvokedThisTurn) return false;
+    if (!params.searchInvokedThisTurn) return false;
+    return params.allowlistNowCount === 1;
+}
 type AnthropicMessage = { role: "user" | "assistant"; content: unknown };
 type ToolResultBlock = { type: "tool_result"; tool_use_id: string; content: string };
 const AI_TIMEOUT_CODE = "AI_TIMEOUT";
@@ -451,10 +469,7 @@ export class FullAiServiceAdapter implements AiService {
         const toolInput = sanitizePreparePaymentAgainstUserText(
             this.toPrepareToolInput(raw),
             input.userText,
-            currentDraft,
-            {
-                paymentFromExtract: input.context.session.inferredPaymentMethod ?? null,
-            }
+            currentDraft
         );
         let effectiveCustomerId = input.context.session.customerId;
         if (!effectiveCustomerId) {
@@ -602,15 +617,18 @@ export class FullAiServiceAdapter implements AiService {
         nextDraft: OrderDraft | null;
         prepareOutcomeThisRound: { ok: boolean; errors: string[] } | null;
         invokedPrepare: boolean;
+        invokedSearch: boolean;
     }> {
         const toolResults: ToolResultBlock[] = [];
         let nextDraft = currentDraft;
         let prepareOutcomeThisRound: { ok: boolean; errors: string[] } | null = null;
         let invokedPrepare = false;
+        let invokedSearch = false;
 
         for (const block of content) {
             if (block.type !== "tool_use" || !block.id || !block.name) continue;
             if (block.name === "prepare_order_draft") invokedPrepare = true;
+            if (block.name === "search_produtos") invokedSearch = true;
             const executed = await this.executeToolBlock(
                 input,
                 { id: block.id, name: block.name, input: block.input ?? {} },
@@ -623,7 +641,13 @@ export class FullAiServiceAdapter implements AiService {
             toolResults.push(executed.result);
         }
 
-        return { toolResults, nextDraft, prepareOutcomeThisRound, invokedPrepare };
+        return {
+            toolResults,
+            nextDraft,
+            prepareOutcomeThisRound,
+            invokedPrepare,
+            invokedSearch,
+        };
     }
 
     private buildHistory(input: AiServiceInput, assistantContent: unknown): AiTurn[] {
@@ -727,6 +751,7 @@ export class FullAiServiceAdapter implements AiService {
         let updatedDraft: OrderDraft | null = input.draft;
         let lastPrepareOutcome: { ok: boolean; errors: string[] } | null = null;
         let prepareInvokedThisTurn = false;
+        let searchInvokedThisTurn = false;
 
         try {
             const infoOnly = isInfoOnlyAi(input);
@@ -760,6 +785,7 @@ export class FullAiServiceAdapter implements AiService {
                     searchMeta
                 );
                 if (round.invokedPrepare) prepareInvokedThisTurn = true;
+                if (round.invokedSearch) searchInvokedThisTurn = true;
                 updatedDraft = round.nextDraft;
                 if (round.prepareOutcomeThisRound) {
                     lastPrepareOutcome = round.prepareOutcomeThisRound;
@@ -794,21 +820,29 @@ export class FullAiServiceAdapter implements AiService {
                 };
             }
 
-            if (
+            const forcePrepare =
                 !infoOnly &&
                 !input.skipForcePrepareAfterPick &&
-                shouldForcePrepareAfterEmbalagemChoice({
+                toolRoundsUsed < input.limits.maxToolRounds &&
+                (shouldForcePrepareAfterEmbalagemChoice({
                     intent: input.intentDecision.intent,
                     step: input.context.session.step,
                     allowlistAtStart,
                     allowlistNow: allowlistRuntime.ids,
                     prepareInvokedThisTurn,
                     draftItemCount: updatedDraft?.items?.length ?? 0,
-                }) &&
-                toolRoundsUsed < input.limits.maxToolRounds
-            ) {
+                }) ||
+                    shouldForcePrepareAfterUnambiguousSearch({
+                        intent: input.intentDecision.intent,
+                        step: input.context.session.step,
+                        prepareInvokedThisTurn,
+                        searchInvokedThisTurn,
+                        allowlistNowCount: allowlistRuntime.ids.length,
+                    }));
+
+            if (forcePrepare) {
                 const nudge =
-                    "[Instrução interna] O cliente acabou de escolher a embalagem entre opções já listadas (último search_produtos neste chat). Chame prepare_order_draft nesta rodada com items (produto_embalagem_id permitido + quantidade). Se faltar endereço ou pagamento ainda, chame prepare mesmo assim com o que souber — leia guidance_for_model_pt na resposta.";
+                    "[Instrução interna] Contrato exige prepare_order_draft agora: há SKU permitido (allowlist) e intenção de pedido. Chame prepare_order_draft com items (produto_embalagem_id permitido + quantidade). Se faltar endereço ou pagamento, prepare mesmo assim com o que souber — leia guidance_for_model_pt.";
                 const forcePrepareChoice: ToolChoice = {
                     type: "tool",
                     name: "prepare_order_draft",
@@ -837,6 +871,7 @@ export class FullAiServiceAdapter implements AiService {
                         searchMeta
                     );
                     if (round.invokedPrepare) prepareInvokedThisTurn = true;
+                    if (round.invokedSearch) searchInvokedThisTurn = true;
                     updatedDraft = round.nextDraft;
                     if (round.prepareOutcomeThisRound) {
                         lastPrepareOutcome = round.prepareOutcomeThisRound;

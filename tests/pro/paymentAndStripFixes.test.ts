@@ -42,18 +42,17 @@ describe("sanitizePreparePaymentAgainstUserText", () => {
         readyForConfirmation: false,
     };
 
-    it("remove pagamento inventado sem extract/draft", () => {
+    it("remove pagamento inventado sem menção do cliente/draft", () => {
         const out = sanitizePreparePaymentAgainstUserText(base, "exatament", null);
         assert.equal(out.paymentMethod, null);
         assert.equal(out.changeFor, null);
     });
 
-    it("mantém pix da extração", () => {
+    it("aceita pix citado no texto do cliente", () => {
         const out = sanitizePreparePaymentAgainstUserText(
             { ...base, paymentMethod: "pix", changeFor: null },
-            "pode fechar",
-            null,
-            { paymentFromExtract: "pix" }
+            "quero fechar no pix",
+            null
         );
         assert.equal(out.paymentMethod, "pix");
     });

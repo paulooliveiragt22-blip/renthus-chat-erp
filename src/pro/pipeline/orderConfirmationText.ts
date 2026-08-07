@@ -1,35 +1,17 @@
 /**
- * Detecta confirmação explícita de pedido no PRO V2 (`orderStage`), com bloqueio de negação/cancelamento.
+ * Confirmação forte de pedido no PRO: só IDs estruturados de botão (HITL).
+ * Texto livre (“sim”, “ok”) não finaliza — vai para o agent loop / revisão.
  * Contexto: só é chamado quando `step === pro_awaiting_confirmation`.
  */
 
-/** Prefixos permitidos (mais longos primeiro para casar antes de substrings). */
-const AFFIRMATIVE_PREFIXES: readonly string[] = [
-    "fechar pedido",
-    "pode confirmar",
-    "pode fechar",
-    "quero confirmar",
-    "pode mandar",
-    "isso mesmo",
-    "pode ser",
+const CONFIRMATION_BUTTON_IDS = new Set([
     "confirmar",
-    "confirmo",
-    "fechar",
-    "fecha",
-    "okay",
-    "manda",
-    "sim",
-    "ok",
-];
-
-function startsWithAffirmativePrefix(normalized: string): boolean {
-    for (const p of AFFIRMATIVE_PREFIXES) {
-        if (normalized === p) return true;
-        if (normalized.startsWith(`${p} `)) return true;
-        if (normalized.startsWith(`${p},`)) return true;
-    }
-    return false;
-}
+    "confirmar_pedido",
+    "confirm_order",
+    "pro_confirm_order",
+    "btn_confirm_order",
+    "btn_confirmar",
+]);
 
 export function isExplicitOrderConfirmation(text: string): boolean {
     const raw = text.trim();
@@ -42,34 +24,11 @@ export function isExplicitOrderConfirmation(text: string): boolean {
         .replaceAll(/\s+/g, " ")
         .trim();
 
-    if (/\b(nao|nunca|jamais|cancelar|cancela|desistir|desiste)\b/u.test(normalized)) {
-        return false;
-    }
-
-    const confirmationIds = new Set([
-        "confirmar",
-        "confirmar_pedido",
-        "confirm_order",
-        "pro_confirm_order",
-        "btn_confirm_order",
-        "btn_confirmar",
-    ]);
-    if (confirmationIds.has(normalized)) return true;
-
-    // Frase curta só com afirmação + pontuação final (legado).
-    if (
-        /^(sim|ok|okay|confirmo|confirmar|pode\s+confirmar|pode\s+fechar|fechar(?:\s+pedido)?)\W*$/iu.test(
-            normalized
-        )
-    ) {
-        return true;
-    }
-
-    return startsWithAffirmativePrefix(normalized);
+    return CONFIRMATION_BUTTON_IDS.has(normalized);
 }
 
 /**
- * Texto livre na confirmação que parece revisão/novo pedido (não “sim/confirmar”).
+ * Texto livre na confirmação que parece revisão/novo pedido (não botão Confirmar).
  * Usado para sair do hold de `pro_awaiting_confirmation` e deixar a IA/coleta agir.
  */
 export function looksLikeCheckoutRevisionText(text: string): boolean {

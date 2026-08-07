@@ -15,9 +15,11 @@ describe("looksLikeCheckoutRevisionText", () => {
         );
     });
 
-    it("nao confunde com confirmacao explicita", () => {
-        assert.equal(isExplicitOrderConfirmation("sim"), true);
+    it("nao confunde botao confirmar com revisao; prosa sim nao finaliza", () => {
+        assert.equal(isExplicitOrderConfirmation("sim"), false);
+        assert.equal(isExplicitOrderConfirmation("pro_confirm_order"), true);
         assert.equal(looksLikeCheckoutRevisionText("sim"), false);
+        assert.equal(looksLikeCheckoutRevisionText("pro_confirm_order"), false);
         assert.equal(looksLikeCheckoutRevisionText("confirmar"), false);
     });
 

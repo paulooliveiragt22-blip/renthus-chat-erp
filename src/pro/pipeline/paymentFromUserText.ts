@@ -1,7 +1,9 @@
 /**
- * Parse de valor monetário (troco) — anti-falso-positivo em frases com dígito de produto.
- * Não é interpretação de diálogo de vendas (isso é LLM + dialogue act).
+ * Sinais determinísticos de pagamento/troco a partir do texto do cliente.
+ * Não é “segundo cérebro”: só libera o que o prepare pode gravar (anti-alucinação da LLM).
  */
+
+import type { PaymentMethod } from "@/src/types/contracts";
 
 function norm(text: string): string {
     return String(text ?? "")
@@ -42,4 +44,17 @@ export function looksLikeNonMoneyWhileAwaitingChange(text: string): boolean {
     if (/\b(tem|quero|vende|coca|pedido|pix|cartao|endereco|sim|nao|ok)\b/u.test(t)) return true;
     if (t.length > 24) return true;
     return false;
+}
+
+/**
+ * Pagamento explícito no texto do cliente (palavra-chave).
+ * Usado no sanitize do prepare — substitui o antigo `paymentFromExtract`.
+ */
+export function parsePaymentMethodFromUserText(text: string): PaymentMethod | null {
+    const t = norm(text);
+    if (!t) return null;
+    if (/\bpix\b/u.test(t)) return "pix";
+    if (/\b(cartao|card|credito|debito)\b/u.test(t)) return "card";
+    if (/\b(dinheiro|cash|especie)\b/u.test(t)) return "cash";
+    return null;
 }

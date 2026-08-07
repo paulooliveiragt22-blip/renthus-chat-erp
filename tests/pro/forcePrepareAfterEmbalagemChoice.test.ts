@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { shouldForcePrepareAfterEmbalagemChoice } from "../../src/pro/adapters/ai/ai.service.full";
+import {
+    shouldForcePrepareAfterEmbalagemChoice,
+    shouldForcePrepareAfterUnambiguousSearch,
+} from "../../src/pro/adapters/ai/ai.service.full";
 
 describe("shouldForcePrepareAfterEmbalagemChoice", () => {
     const base = {
@@ -85,6 +88,41 @@ describe("shouldForcePrepareAfterEmbalagemChoice", () => {
                 ...base,
                 step: "pro_awaiting_confirmation",
             }),
+            false
+        );
+    });
+});
+
+describe("shouldForcePrepareAfterUnambiguousSearch", () => {
+    const base = {
+        intent: "order_intent",
+        step: "pro_collecting_order",
+        prepareInvokedThisTurn: false,
+        searchInvokedThisTurn: true,
+        allowlistNowCount: 1,
+    };
+
+    it("força prepare após search unívoco sem prepare", () => {
+        assert.equal(shouldForcePrepareAfterUnambiguousSearch(base), true);
+    });
+
+    it("não força com múltiplos hits (cliente precisa escolher)", () => {
+        assert.equal(
+            shouldForcePrepareAfterUnambiguousSearch({ ...base, allowlistNowCount: 3 }),
+            false
+        );
+    });
+
+    it("não força se prepare já rodou", () => {
+        assert.equal(
+            shouldForcePrepareAfterUnambiguousSearch({ ...base, prepareInvokedThisTurn: true }),
+            false
+        );
+    });
+
+    it("não força sem search neste turno", () => {
+        assert.equal(
+            shouldForcePrepareAfterUnambiguousSearch({ ...base, searchInvokedThisTurn: false }),
             false
         );
     });

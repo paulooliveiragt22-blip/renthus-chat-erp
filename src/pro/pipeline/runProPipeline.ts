@@ -47,20 +47,7 @@ import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
-import { tryServerExecuteFromDialogue } from "./serverExecuteFromDialogue";
-import { resolveSingleOfferedEmbalagemId } from "./serverPrepareFromCatalogQtyOffer";
-import { tryServerSwapEdit } from "./serverSwapEdit";
-import { tryServerBootstrapOrderFromText } from "./serverBootstrapOrder";
-import { PICK_EMB_PREFIX, parseProductPickIndex } from "./productPickText";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
-import {
-    buildBootstrapSegmentPlanFromExtraction,
-    swapIntentFromExtraction,
-} from "./bootstrapSegmentPlan";
-import { extractOrderLinesStructured } from "@/src/pro/services/extraction/structuredOrderExtract";
-import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
-import type { OrderLineExtraction } from "@/src/domain/contracts/orderExtraction";
-import { looksLikeAvailabilityOrInfoQuestion } from "./availabilityQuestion";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -298,8 +285,8 @@ export async function runProPipeline(
     }
 
     /**
-     * Libera hold antes do checkout estruturado / orderStage quando o draft já está completo.
-     * (Confirmação vem da extração LLM ou do botão Confirmar — não de regex de “sim”.)
+     * Libera hold antes do checkout estruturado / orderStage quando o draft já está completo
+     * e o inbound é o botão Confirmar (HITL — único sinal que finaliza).
      */
     let gateState = guarded.state;
     if (
@@ -307,7 +294,6 @@ export async function runProPipeline(
         isDraftStructurallyCompleteForFinalize(gateState.draft) &&
         gateState.checkoutEditHold
     ) {
-        /** Mantém hold só se não for caminho de botão de confirmação. */
         const t = input.inboundText.trim().toLowerCase();
         if (t === "pro_confirm_order" || t === "btn_confirm_order" || t === "btn_confirmar") {
             gateState = withResolvedSlotStep({
@@ -325,9 +311,9 @@ export async function runProPipeline(
             outbound: strictGate.outbound,
         });
         await emitTurn({
-                state: syncedQuick,
-                outbound: quickOutbound,
-            });
+            state: syncedQuick,
+            outbound: quickOutbound,
+        });
         const metrics: PipelineMetric[] = [
             {
                 name: "pro_pipeline.strict_checkout_inbound_gate",
@@ -345,275 +331,12 @@ export async function runProPipeline(
         };
     }
 
-    /** Extração LLM: itens/qty/pagamento/swap/diálogo (fonte de interpretação de linguagem). */
-    let stateBeforePick = gateState;
-    const llmEnabled = context.policies.llmEnabled !== false;
-    let orderExtraction: OrderLineExtraction | null = null;
-
-    const offeredIdForHint = resolveSingleOfferedEmbalagemId(stateBeforePick);
-    const hasDialogueContext =
-        Boolean(stateBeforePick.draft?.items?.length) ||
-        Boolean(offeredIdForHint) ||
-        stateBeforePick.step === "pro_awaiting_confirmation" ||
-        stateBeforePick.step === "pro_awaiting_payment_method";
-
-    const skipExtract =
-        input.inboundText.trim().toLowerCase().startsWith(PICK_EMB_PREFIX) ||
-        parseProductPickIndex(input.inboundText) != null ||
-        (input.inboundText.trim().length < 1) ||
-        (input.inboundText.trim().length < 4 && !hasDialogueContext);
-
-    if (deps.admin && llmEnabled && !skipExtract) {
-        try {
-            const offerLabel =
-                stateBeforePick.lastSearchPicks?.[0]?.label ??
-                stateBeforePick.lastSearchPicks?.[0]?.productName ??
-                null;
-            orderExtraction = await extractOrderLinesStructured({
-                llm: createLlmPort(deps.admin),
-                userText: input.inboundText,
-                companyId: input.tenant.companyId,
-                sessionHint: {
-                    hasDraftItems: Boolean(stateBeforePick.draft?.items?.length),
-                    draftItemCount: stateBeforePick.draft?.items?.length ?? 0,
-                    step: stateBeforePick.step,
-                    hasCatalogOffer: Boolean(offeredIdForHint),
-                    offeredLabel: offerLabel,
-                    awaitingConfirmation: stateBeforePick.step === "pro_awaiting_confirmation",
-                    awaitingPayment: stateBeforePick.step === "pro_awaiting_payment_method",
-                },
-            });
-        } catch (e) {
-            deps.logger.warn("pro_pipeline.structured_extract_failed", {
-                message: e instanceof Error ? e.message : String(e),
-            });
-        }
-    }
-
-    if (orderExtraction) {
-        stateBeforePick = {
-            ...stateBeforePick,
-            /** null limpa PIX/cartão grudado de turnos anteriores. */
-            inferredPaymentMethod: orderExtraction.paymentMethod ?? null,
-        };
-    }
-
-    /** Diálogo LLM → servidor executa (prepare / pagamento / confirmação). */
-    let confirmFromExtraction = false;
-    if (deps.admin && orderExtraction?.dialogue && !isInfoOnlyMode(aiPolicy)) {
-        try {
-            const dialogueExec = await tryServerExecuteFromDialogue({
-                admin: deps.admin,
-                companyId: input.tenant.companyId,
-                extraction: orderExtraction,
-                state: stateBeforePick,
-            });
-            stateBeforePick = dialogueExec.state;
-            if (dialogueExec.deferToOrderStage) {
-                confirmFromExtraction = true;
-            }
-            if (dialogueExec.handled && dialogueExec.outbound.length > 0) {
-                const synced = withResolvedSlotStep(dialogueExec.state);
-                await emitTurn({
-                    state: synced,
-                    outbound: dialogueExec.outbound,
-                });
-                const metrics: PipelineMetric[] = [
-                    {
-                        name: "pro_pipeline.dialogue_exec",
-                        value: 1,
-                        tags: { tag: dialogueExec.tag ?? "handled" },
-                    },
-                    { name: "pro_pipeline.outbound_count", value: dialogueExec.outbound.length },
-                ];
-                flushPipelineRunMetrics(
-                    deps.metrics,
-                    input.tenant,
-                    metrics,
-                    new Set(["pro_pipeline.outbound_count"])
-                );
-                return {
-                    nextState: synced,
-                    outbound: dialogueExec.outbound,
-                    sideEffects: [],
-                    metrics,
-                };
-            }
-        } catch (err) {
-            deps.logger?.warn("pro_pipeline.dialogue_exec_failed", {
-                companyId: input.tenant.companyId,
-                threadId: input.tenant.threadId,
-                message: err instanceof Error ? err.message : String(err),
-            });
-        }
-    }
-
-    const swapIntent = swapIntentFromExtraction(orderExtraction);
-    let bootstrapSegmentPlan = buildBootstrapSegmentPlanFromExtraction(
-        orderExtraction,
-        input.inboundText
-    );
-
-    /** Resposta ao “pode repetir o nome?”: trata o texto como produto a acrescentar. */
-    const awaitingProductRepeat =
-        (stateBeforePick.pendingAskRepeatTerms?.length ?? 0) > 0;
-    if (awaitingProductRepeat && !swapIntent && !skipExtract) {
-        const raw = input.inboundText.trim().slice(0, 120);
-        if (raw.length >= 2 && !bootstrapSegmentPlan) {
-            const key = raw
-                .toLowerCase()
-                .normalize("NFD")
-                .replaceAll(/\p{Diacritic}/gu, "")
-                .replaceAll(/\s+/g, " ")
-                .trim();
-            bootstrapSegmentPlan = {
-                segments: [raw],
-                qtyByTerm: { [key]: 1 },
-                payment: null,
-                useSavedAddress: false,
-                source: "llm",
-            };
-        }
-    }
-
     /**
-     * Bootstrap multi-item no servidor (antes da IA): resolve SKUs unívocos + clarifica o 1º ambíguo.
-     * Nunca no texto de troca — senão acrescenta CX sem remover o UN.
-     * Com `pendingAskRepeatTerms`: permite acrescentar mesmo com itens já no draft.
-     * Pergunta de disponibilidade (“tem coca 2l?”) → não monta pedido; a IA responde.
+     * Cérebro de linguagem = só o agent loop (aiStage / tools).
+     * Antes disso: só IDs estruturados (pick, quick actions, payment) e prepare determinístico pós-pick.
      */
-    let bootstrapOutbound: OutboundMessage[] = [];
-    const skipBootstrapForInquiry =
-        !awaitingProductRepeat &&
-        looksLikeAvailabilityOrInfoQuestion(input.inboundText);
-    if (
-        llmEnabled &&
-        deps.admin &&
-        !isInfoOnlyMode(aiPolicy) &&
-        !skipExtract &&
-        !swapIntent &&
-        !skipBootstrapForInquiry &&
-        bootstrapSegmentPlan &&
-        bootstrapSegmentPlan.segments.length >= 1 &&
-        (!(stateBeforePick.draft?.items?.length) ||
-            stateBeforePick.checkoutEditHold === true ||
-            awaitingProductRepeat)
-    ) {
-        try {
-            const boot = await tryServerBootstrapOrderFromText({
-                admin: deps.admin,
-                companyId: input.tenant.companyId,
-                customerId: stateBeforePick.customerId,
-                state: awaitingProductRepeat
-                    ? {
-                          ...stateBeforePick,
-                          checkoutEditHold: true,
-                          pendingAskRepeatTerms: [],
-                      }
-                    : stateBeforePick,
-                userText: input.inboundText,
-                segmentPlan: bootstrapSegmentPlan,
-            });
-            stateBeforePick = {
-                ...boot.state,
-                pendingAskRepeatTerms: boot.hasClarification
-                    ? boot.state.pendingAskRepeatTerms ?? []
-                    : [],
-                checkoutEditHold: awaitingProductRepeat
-                    ? false
-                    : boot.state.checkoutEditHold,
-            };
-            bootstrapOutbound = boot.outbound;
-            /** Clarificação do bootstrap: sempre responde já (mesmo se prepare parcial falhou). */
-            if (boot.hasClarification && bootstrapOutbound.length > 0) {
-                const syncedBoot = withResolvedSlotStep(boot.state);
-                await emitTurn({
-                state: syncedBoot,
-                outbound: bootstrapOutbound,
-            });
-                const metrics: PipelineMetric[] = [
-                    {
-                        name: "pro_pipeline.server_bootstrap_order",
-                        value: 1,
-                        tags: {
-                            clarify: "1",
-                            draft_items: String(boot.state.draft?.items?.length ?? 0),
-                            segment_source: boot.segmentSource,
-                        },
-                    },
-                    { name: "pro_pipeline.outbound_count", value: bootstrapOutbound.length },
-                ];
-                flushPipelineRunMetrics(
-                    deps.metrics,
-                    input.tenant,
-                    metrics,
-                    new Set(["pro_pipeline.outbound_count"])
-                );
-                return {
-                    nextState: syncedBoot,
-                    outbound: bootstrapOutbound,
-                    sideEffects: [],
-                    metrics,
-                };
-            }
-            if (
-                boot.bootstrapped &&
-                boot.state.draft?.items?.length &&
-                !boot.hasClarification
-            ) {
-                const d = boot.state.draft;
-                const readyForPaymentUi =
-                    isAddressStructurallyComplete(d.address ?? null) && !d.paymentMethod;
-                const complete = isDraftStructurallyCompleteForFinalize(d);
-                /** Completo ou só falta pagamento: UI estruturada, sem prosa da LLM. */
-                if (complete || readyForPaymentUi) {
-                    const finalState = withResolvedSlotStep({
-                        ...boot.state,
-                        checkoutEditHold: false,
-                    });
-                    const finalOutbound = checkoutPostProcessForQuickAction({
-                        state: finalState,
-                        outbound: [],
-                    });
-                    await emitTurn({
-                        state: finalState,
-                        outbound: finalOutbound,
-                    });
-                    const metrics: PipelineMetric[] = [
-                        {
-                            name: "pro_pipeline.server_bootstrap_order",
-                            value: 1,
-                            tags: {
-                                clarify: "0",
-                                complete: complete ? "1" : "0",
-                                payment_ui: readyForPaymentUi ? "1" : "0",
-                                segment_source: boot.segmentSource,
-                            },
-                        },
-                        { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
-                    ];
-                    flushPipelineRunMetrics(
-                        deps.metrics,
-                        input.tenant,
-                        metrics,
-                        new Set(["pro_pipeline.outbound_count"])
-                    );
-                    return {
-                        nextState: finalState,
-                        outbound: finalOutbound,
-                        sideEffects: [],
-                        metrics,
-                    };
-                }
-            }
-        } catch (err) {
-            deps.logger?.warn("pro_pipeline.server_bootstrap_order_failed", {
-                companyId: input.tenant.companyId,
-                threadId: input.tenant.threadId,
-                message: err instanceof Error ? err.message : String(err),
-            });
-        }
-    }
+    const llmEnabled = context.policies.llmEnabled !== false;
+    const stateBeforePick = gateState;
 
     const pickApplied = applyProductPickFromButton(input.inboundText, stateBeforePick);
     let stateAfterPick = pickApplied.state;
@@ -753,60 +476,6 @@ export async function runProPipeline(
         };
     }
 
-    /** Troca/substitui no servidor (Corrigir → "troca X pela Y") — evita busca errada da IA. */
-    if (
-        llmEnabled &&
-        deps.admin &&
-        !isInfoOnlyMode(aiPolicy) &&
-        !productPickApplied &&
-        stateAfterPick.draft?.items?.length
-    ) {
-        try {
-            const swapEdit = await tryServerSwapEdit({
-                admin: deps.admin,
-                companyId: input.tenant.companyId,
-                customerId: stateAfterPick.customerId,
-                state: stateAfterPick,
-                userText: inboundTextForPipeline,
-                swapIntent,
-            });
-            if (swapEdit.handled) {
-                const syncedSwap = withResolvedSlotStep(swapEdit.state);
-                const outboundFinal = swapEdit.outbound;
-                await emitTurn({
-                state: syncedSwap,
-                outbound: outboundFinal,
-            });
-                const metrics: PipelineMetric[] = [
-                    {
-                        name: "pro_pipeline.server_swap_edit",
-                        value: 1,
-                        tags: { finalized: swapEdit.finalized ? "1" : "0" },
-                    },
-                    { name: "pro_pipeline.outbound_count", value: outboundFinal.length },
-                ];
-                flushPipelineRunMetrics(
-                    deps.metrics,
-                    input.tenant,
-                    metrics,
-                    new Set(["pro_pipeline.outbound_count"])
-                );
-                return {
-                    nextState: syncedSwap,
-                    outbound: outboundFinal,
-                    sideEffects: [],
-                    metrics,
-                };
-            }
-        } catch (err) {
-            deps.logger?.warn("pro_pipeline.server_swap_edit_failed", {
-                companyId: input.tenant.companyId,
-                threadId: input.tenant.threadId,
-                message: err instanceof Error ? err.message : String(err),
-            });
-        }
-    }
-
     // Estado após pick de produto (allowlist estreita) ou estado do guard
     let pipelineState = stateAfterPick;
     const contextForStages: PipelineContext = { ...context, session: pipelineState };
@@ -849,7 +518,6 @@ export async function runProPipeline(
         highValuePolicy,
         blockFinalize: infoOnly,
         blockFinalizeMessage: buildInfoOnlyOrderBlockedText(input.webMenuUrl),
-        confirmFromExtraction,
     });
 
     /** orderStage pode liberar confirmação (checkoutEditHold) — propaga para IA/rota. */
@@ -1013,14 +681,29 @@ export async function runProPipeline(
                     });
                 }
             }
+            const singleOfferAllowlist =
+                (nextState.searchProdutoEmbalagemIds?.length ?? 0) === 1 ||
+                (nextState.lastSearchPicks?.length ?? 0) === 1;
+            const forcePrepareOnClearSku =
+                decision.intent === "order_intent" &&
+                !infoOnly &&
+                singleOfferAllowlist &&
+                (nextState.step === "pro_collecting_order" ||
+                    nextState.step === "pro_idle" ||
+                    nextState.checkoutEditHold === true);
             const ai = await aiStage({
                 aiService: deps.aiService,
                 context: aiContext,
                 decision,
                 userText: inboundTextForPipeline,
                 logger: deps.logger,
-                /** Só força prepare na 1ª chamada se o pick ainda não foi aplicado no servidor. */
-                preferPrepareToolChoiceFirst: productPickApplied && !serverPreparedOnPick,
+                /**
+                 * tool_choice=prepare quando o contrato já tem SKU único (pick ou oferta)
+                 * e ainda não houve prepare neste turno no servidor.
+                 */
+                preferPrepareToolChoiceFirst:
+                    (productPickApplied && !serverPreparedOnPick) ||
+                    (forcePrepareOnClearSku && !serverPreparedOnPick),
                 skipForcePrepareAfterPick: serverPreparedOnPick,
             });
             invalidAiSanitized = ai.invalidAiSanitized;

@@ -43,8 +43,6 @@ export async function orderStage(params: {
     /** Quando true (modo info_only), não fecha pedido pelo WhatsApp. */
     blockFinalize?: boolean;
     blockFinalizeMessage?: string;
-    /** Confirmação interpretada pela extração LLM (diálogo confirm_order). */
-    confirmFromExtraction?: boolean;
 }): Promise<OrderStageResult> {
     const {
         orderService,
@@ -55,11 +53,10 @@ export async function orderStage(params: {
         highValuePolicy,
         blockFinalize,
         blockFinalizeMessage,
-        confirmFromExtraction,
     } = params;
     const trimmedText = userText.trim();
-    const isConfirm =
-        Boolean(confirmFromExtraction) || isExplicitOrderConfirmation(trimmedText);
+    /** HITL: só ID de botão Confirmar — prosa nunca fecha pedido. */
+    const isConfirm = isExplicitOrderConfirmation(trimmedText);
 
     logger?.info("pro_pipeline.order_stage.enter", {
         companyId: tenant.companyId,
