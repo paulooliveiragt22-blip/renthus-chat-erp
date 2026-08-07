@@ -33,7 +33,7 @@ Executar na ordem. Em cada passo: anotar resposta do bot + se gerou pedido em `o
 | | |
 |--|--|
 | **Enviar** | `vocês entregam no Centro?` (ajuste ao bairro real da loja) |
-| **Esperado** | Resposta de política/endereço em PT-BR; sem RPC de pedido. |
+| **Esperado** | Resposta amigável sim/não pela política de entrega (`service_by_zone` / regras de bairro). **Sem** puxar endereço salvo. Zona desmarcada → “atende toda a cidade”. |
 | ☐ | |
 
 ---

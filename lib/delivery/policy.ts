@@ -20,6 +20,8 @@ export type DeliveryPolicyResolved = {
     eta_min: number | null;
     mode: DeliveryMode;
     service_city: string | null;
+    /** Espelha `company_delivery_policy.service_by_zone` (Atende por zona?). */
+    service_by_zone: boolean;
     reason: string | null;
     matched_rule_id: string | null;
 };
@@ -87,6 +89,7 @@ export async function resolveDeliveryForNeighborhood(
             eta_min: baseEta,
             mode,
             service_city: serviceCity,
+            service_by_zone: serviceByZone,
             reason: "Bairro não informado.",
             matched_rule_id: null,
         };
@@ -101,6 +104,7 @@ export async function resolveDeliveryForNeighborhood(
             eta_min: baseEta,
             mode,
             service_city: serviceCity,
+            service_by_zone: false,
             reason: null,
             matched_rule_id: null,
         };
@@ -136,6 +140,7 @@ export async function resolveDeliveryForNeighborhood(
         eta_min: eta,
         mode,
         service_city: serviceCity,
+        service_by_zone: true,
         reason: served
             ? null
             : `Bairro "${label}" fora da área de atendimento${serviceCity ? ` em ${serviceCity}` : ""}${serviceState ? `/${serviceState}` : ""}.`,

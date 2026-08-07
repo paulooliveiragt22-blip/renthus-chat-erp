@@ -45,6 +45,10 @@ import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 import { handleAwaitingPhoneTurn } from "./handleAwaitingPhone";
 import { clearStaleClarifyUiIfNoDraft } from "./sessionOrderContext";
 import {
+    looksLikeDeliveryCoverageQuestion,
+    tryAnswerDeliveryCoverageFaq,
+} from "./deliveryCoverageFaq";
+import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
@@ -498,6 +502,51 @@ export async function runProPipeline(
         !(pipelineState.draft?.items?.length)
     ) {
         pipelineState = clearStaleClarifyUiIfNoDraft(pipelineState);
+    }
+
+    /**
+     * FAQ cobertura ("entregam no Centro?"): resposta pelo policy de entrega,
+     * sem LLM (evita puxar endereço salvo no get_order_hints).
+     */
+    if (deps.admin && looksLikeDeliveryCoverageQuestion(inboundTextForPipeline)) {
+        try {
+            const coverageReply = await tryAnswerDeliveryCoverageFaq({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                userText: inboundTextForPipeline,
+            });
+            if (coverageReply) {
+                const synced = withResolvedSlotStep(pipelineState);
+                const outbound: OutboundMessage[] = [{ kind: "text", text: coverageReply }];
+                await emitTurn({ state: synced, outbound });
+                const metrics: PipelineMetric[] = [
+                    {
+                        name: "pro_pipeline.delivery_coverage_faq",
+                        value: 1,
+                        tags: { intent: decision.intent },
+                    },
+                    { name: "pro_pipeline.outbound_count", value: outbound.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"])
+                );
+                return {
+                    nextState: synced,
+                    outbound,
+                    sideEffects: [],
+                    metrics,
+                };
+            }
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.delivery_coverage_faq_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
 
     // Prioridade: se está aguardando confirmação, resolve fechamento/erro de draft
