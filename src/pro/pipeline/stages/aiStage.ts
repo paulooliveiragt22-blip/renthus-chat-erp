@@ -114,6 +114,10 @@ export async function aiStage(params: {
         highValueAcknowledged:
             prevFp === nextFp ? context.session.highValueAcknowledged : false,
         aiHistory: aiResult.updatedHistory ?? [],
+        aiHistorySummary:
+            raw?.updatedAiHistorySummary !== undefined
+                ? raw.updatedAiHistorySummary
+                : context.session.aiHistorySummary ?? null,
         searchProdutoEmbalagemIds:
             raw?.updatedSearchProdutoEmbalagemIds ?? context.session.searchProdutoEmbalagemIds ?? [],
         lastSearchPicks: raw?.lastSearchPicks ?? context.session.lastSearchPicks,

@@ -10,9 +10,14 @@ import type {
 } from "@/src/types/contracts";
 import type { AiService } from "../../services/ai/ai.types";
 import type { LlmPort } from "@/src/pro/ports/llm.port";
+import type { CatalogPort } from "@/src/pro/ports/catalog.port";
+import type { OrderDraftPort } from "@/src/pro/ports/orderDraft.port";
+import type { SessionMemoryPort } from "@/src/pro/ports/sessionMemory.port";
 import { createLlmPort } from "@/src/pro/adapters/llm/createLlmPort";
 import { hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
-import { runSearchProdutosDetailed } from "@/src/pro/tools/searchProdutos";
+import { SupabaseCatalogAdapter } from "@/src/pro/adapters/supabase/catalog.supabase";
+import { SupabaseOrderDraftAdapter } from "@/src/pro/adapters/supabase/orderDraft.supabase";
+import { NoopSessionMemoryAdapter } from "@/src/pro/adapters/ai/sessionMemory.llm";
 import { toChatCatalogPublicItem } from "@/src/pro/tools/catalogPublicDto";
 import {
     buildDeliverySpecialistSystemPreamble,
@@ -23,7 +28,6 @@ import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
     buildPrepareDraftGuidanceForModel,
     formatPrepareErrorsForClientReply,
-    prepareOrderDraftFromTool,
     shouldPreferPrepareErrorsOverModelText,
     type PrepareOrderDraftCatalogPolicy,
 } from "@/src/pro/tools/prepareOrderDraft";
@@ -42,6 +46,29 @@ import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep"
 import { stripModelIntentSuffix } from "./stripModelIntentSuffix";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
+
+export type FullAiServiceOptions = {
+    llm?: LlmPort;
+    catalog?: CatalogPort;
+    orderDraft?: OrderDraftPort;
+    sessionMemory?: SessionMemoryPort;
+};
+
+function resolveFullAiOptions(
+    second?: LlmPort | FullAiServiceOptions
+): FullAiServiceOptions {
+    if (!second) return {};
+    if (
+        typeof (second as LlmPort).chat === "function" &&
+        !("llm" in second) &&
+        !("catalog" in second) &&
+        !("orderDraft" in second) &&
+        !("sessionMemory" in second)
+    ) {
+        return { llm: second as LlmPort };
+    }
+    return second as FullAiServiceOptions;
+}
 
 type ToolName = "search_produtos" | "get_order_hints" | "prepare_order_draft";
 type IntentMarker = "ok" | "unknown" | null;
@@ -215,6 +242,14 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
             : "";
     const draftBlock = isInfoOnlyAi(input) ? "" : buildDraftSnapshotForModel(draft);
 
+    const summary = String(session.aiHistorySummary ?? "").trim();
+    const summaryBlock =
+        summary.length > 0
+            ? "\n\n--- Resumo de turnos anteriores (interno) ---\n" +
+              summary.slice(0, 1_500) +
+              "\n--- Fim resumo ---\n"
+            : "";
+
     const menuUrl = String(input.context.webMenuUrl ?? "").trim();
     const welcomeBlock =
         !draft?.items?.length && (session.step === "pro_idle" || session.step === "pro_collecting_order")
@@ -226,7 +261,7 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
               "(3) falar com um atendente humano. Não invente URL.\n--- Fim primeiro contato ---\n"
             : "";
 
-    const prefix = base + phaseBlock + editHoldBlock + draftBlock + welcomeBlock;
+    const prefix = base + phaseBlock + editHoldBlock + draftBlock + summaryBlock + welcomeBlock;
     const hints = input.context.prefetchedOrderHints;
     if (!hints || typeof hints !== "object") return prefix;
     try {
@@ -327,13 +362,20 @@ function isRateLimitError(error: unknown): boolean {
 
 export class FullAiServiceAdapter implements AiService {
     private readonly llm: LlmPort;
+    private readonly catalog: CatalogPort;
+    private readonly orderDraft: OrderDraftPort;
+    private readonly sessionMemory: SessionMemoryPort;
 
-    constructor(
-        private readonly admin: SupabaseClient,
-        llm?: LlmPort
-    ) {
-        this.llm = llm ?? createLlmPort(admin);
+    constructor(admin: SupabaseClient, llmOrOpts?: LlmPort | FullAiServiceOptions) {
+        const opts = resolveFullAiOptions(llmOrOpts);
+        this.admin = admin;
+        this.llm = opts.llm ?? createLlmPort(admin);
+        this.catalog = opts.catalog ?? new SupabaseCatalogAdapter(admin);
+        this.orderDraft = opts.orderDraft ?? new SupabaseOrderDraftAdapter(admin);
+        this.sessionMemory = opts.sessionMemory ?? new NoopSessionMemoryAdapter();
     }
+
+    private readonly admin: SupabaseClient;
 
     private async callModel(
         messages: AnthropicMessage[],
@@ -379,8 +421,7 @@ export class FullAiServiceAdapter implements AiService {
         const payload = (block.input ?? {}) as Record<string, unknown>;
         const query = String(payload.query ?? "");
         const categoryHint = payload.category_hint == null ? null : String(payload.category_hint);
-        const detailed = await runSearchProdutosDetailed(
-            this.admin,
+        const detailed = await this.catalog.searchDetailed(
             input.context.tenant.companyId,
             query,
             { categoryHint, limit: 8 }
@@ -494,13 +535,12 @@ export class FullAiServiceAdapter implements AiService {
             kind: "search_allowlist",
             allowedEmbalagemIds,
         };
-        const prepared = await prepareOrderDraftFromTool(
-            this.admin,
-            input.context.tenant.companyId,
-            effectiveCustomerId,
-            toolInput,
-            catalogPolicy
-        );
+        const prepared = await this.orderDraft.prepareFromToolInput({
+            companyId: input.context.tenant.companyId,
+            customerId: effectiveCustomerId,
+            body: toolInput,
+            catalogPolicy,
+        });
         const addrIn = toolInput.address;
         const hasStructuredAddress = Boolean(
             addrIn &&
@@ -669,7 +709,7 @@ export class FullAiServiceAdapter implements AiService {
         ].slice(-input.limits.maxHistoryTurns);
     }
 
-    private buildSuccess(
+    private async buildSuccess(
         input: AiServiceInput,
         replyText: string,
         marker: IntentMarker,
@@ -681,8 +721,14 @@ export class FullAiServiceAdapter implements AiService {
             lastSearchPicks: Array<{ embalagemId: string; label: string }>;
             emptySearchStreak: number;
         }
-    ): AiServiceResult {
-        const nextHistory = this.buildHistory(input, assistantContent);
+    ): Promise<AiServiceResult> {
+        const nextHistoryRaw = this.buildHistory(input, assistantContent);
+        const compacted = await this.sessionMemory.compactIfNeeded({
+            history: nextHistoryRaw,
+            existingSummary: input.context.session.aiHistorySummary ?? null,
+        });
+        const nextHistory = compacted.history;
+        const nextSummary = compacted.summary;
         const addrUiOk = input.context.session.deliveryAddressUiConfirmed === true;
         if (shouldEscalate(input, marker)) {
             return {
@@ -691,6 +737,7 @@ export class FullAiServiceAdapter implements AiService {
                     replyText || "Não estou conseguindo entender bem. Você prefere catálogo, atendente ou tentar de novo?",
                 updatedDraft,
                 updatedHistory: nextHistory,
+                updatedAiHistorySummary: nextSummary,
                 updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
                 lastSearchPicks: searchMeta.lastSearchPicks,
                 emptySearchStreak: searchMeta.emptySearchStreak,
@@ -709,6 +756,7 @@ export class FullAiServiceAdapter implements AiService {
             replyText: replyText || "Pode me passar mais detalhes do pedido?",
             updatedDraft,
             updatedHistory: nextHistory,
+            updatedAiHistorySummary: nextSummary,
             updatedSearchProdutoEmbalagemIds: searchProdutoEmbalagemIds,
             lastSearchPicks: searchMeta.lastSearchPicks,
             emptySearchStreak: searchMeta.emptySearchStreak,
@@ -949,7 +997,7 @@ export class FullAiServiceAdapter implements AiService {
             ) {
                 visibleSafe = formatPrepareErrorsForClientReply(prepErrs);
             }
-            return this.buildSuccess(
+            return await this.buildSuccess(
                 input,
                 visibleSafe,
                 marker,

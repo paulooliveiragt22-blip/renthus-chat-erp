@@ -1,6 +1,6 @@
 /**
  * Orçamento de histórico enviado ao LLM (anti-estouro de context window / custo).
- * Sem summarization LLM (custo extra): janela + truncagem de conteúdo.
+ * Janela + truncagem; resumo rolling via SessionMemoryPort (`aiHistorySummary`).
  */
 
 import type { AiTurn } from "@/src/types/contracts";

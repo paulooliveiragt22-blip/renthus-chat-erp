@@ -1,12 +1,16 @@
 import type { ProcessMessageParams } from "@/lib/chatbot/types";
 import { FullAiServiceAdapter } from "../adapters/ai/ai.service.full";
+import { LlmSessionMemoryAdapter } from "../adapters/ai/sessionMemory.llm";
 import { ConsoleLoggerAdapter } from "../adapters/logger/logger.console";
 import { ConsoleMetricsAdapter } from "../adapters/metrics/metrics.console";
 import { SupabaseMetricsAdapter } from "../adapters/metrics/metrics.supabase";
 import { OrderServiceV2Adapter } from "../adapters/order/order.service.v2";
+import { SupabaseCatalogAdapter } from "../adapters/supabase/catalog.supabase";
+import { SupabaseOrderDraftAdapter } from "../adapters/supabase/orderDraft.supabase";
 import { SupabaseSessionRepository } from "../adapters/supabase/session.repository.supabase";
 import { WhatsAppMessageGateway } from "../adapters/whatsapp/message.gateway.whatsapp";
 import { MetaMessageGateway } from "../adapters/meta/message.gateway.meta";
+import { createLlmPort } from "../adapters/llm/createLlmPort";
 import { SupabaseCompanyPolicyAdapter } from "../ports/companyPolicy.port";
 import { SupabaseOrderHintsAdapter } from "../ports/orderHints.port";
 import { ProIntentClassifierService } from "../services/intent/intent.service";
@@ -43,6 +47,10 @@ export function makeProPipelineDependencies(
     params: ProcessMessageParams,
     options?: MakeProPipelineDependenciesOptions
 ): PipelineDependencies {
+    const llm = createLlmPort(params.admin);
+    const catalog = new SupabaseCatalogAdapter(params.admin);
+    const orderDraft = new SupabaseOrderDraftAdapter(params.admin);
+    const sessionMemory = new LlmSessionMemoryAdapter(llm);
     const base: PipelineDependencies = {
         sessionRepo: new SupabaseSessionRepository(params.admin, {
             idleMinutes: options?.sessionIdleMinutes,
@@ -51,7 +59,12 @@ export function makeProPipelineDependencies(
         metrics: makeMetricsPort(params.admin),
         logger: new ConsoleLoggerAdapter(),
         intentService: new ProIntentClassifierService(params.admin),
-        aiService: new FullAiServiceAdapter(params.admin),
+        aiService: new FullAiServiceAdapter(params.admin, {
+            llm,
+            catalog,
+            orderDraft,
+            sessionMemory,
+        }),
         orderService: new OrderServiceV2Adapter(params.admin),
         companyPolicy: new SupabaseCompanyPolicyAdapter(params.admin),
         orderHints: new SupabaseOrderHintsAdapter(params.admin),

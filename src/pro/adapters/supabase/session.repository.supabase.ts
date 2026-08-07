@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ProSessionState } from "@/src/types/contracts";
 import type { SessionRepository } from "../../ports/session.repository";
 import { getOrCreateSession, saveSession } from "@/lib/chatbot/session";
+import { stripLegacyProSessionFields } from "@/src/pro/pipeline/sessionLegacyStrip";
 
 /** Chave em `chatbot_sessions.context` onde persiste `ProSessionState` do motor PRO V2. */
 export const CHATBOT_SESSION_PRO_V2_STATE_KEY = "__pro_v2_state" as const;
@@ -42,7 +43,7 @@ function emptyProState(
 }
 
 function normalizeProV2State(raw: ProSessionState): ProSessionState {
-    return {
+    const base: ProSessionState = {
         ...raw,
         searchProdutoEmbalagemIds: raw.searchProdutoEmbalagemIds ?? [],
         lastSearchPicks: raw.lastSearchPicks ?? [],
@@ -55,9 +56,11 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         pendingAskRepeatTerms: raw.pendingAskRepeatTerms ?? [],
         pendingClarifyQuantity: raw.pendingClarifyQuantity ?? null,
         pendingClarifySegment: raw.pendingClarifySegment ?? null,
+        aiHistorySummary: raw.aiHistorySummary ?? null,
         aiTurnCount: raw.aiTurnCount,
         aiWindowStartedAt: raw.aiWindowStartedAt ?? null,
     };
+    return stripLegacyProSessionFields(base);
 }
 
 export class SupabaseSessionRepository implements SessionRepository {
@@ -86,9 +89,10 @@ export class SupabaseSessionRepository implements SessionRepository {
         const current = await getOrCreateSession(this.admin, threadId, companyId, {
             idleMinutes: this.options?.idleMinutes,
         });
+        const drained = stripLegacyProSessionFields(state);
         const context = stripLegacyProContextKeys({
             ...(current.context ?? {}),
-            [PRO_V2_STATE_KEY]: state,
+            [PRO_V2_STATE_KEY]: drained,
         });
 
         await saveSession(

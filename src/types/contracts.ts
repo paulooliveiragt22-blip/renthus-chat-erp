@@ -128,6 +128,10 @@ export interface ProSessionState {
     draft: OrderDraft | null;
     aiHistory: AiTurn[];
     /**
+     * Resumo rolling do histórico antigo (SessionMemoryPort) — injetado no system do LLM.
+     */
+    aiHistorySummary?: string | null;
+    /**
      * Endereço de entrega aceito para checkout.
      * Com rua+número+bairro(+cidade/UF) resolvidos no servidor, fica `true` automaticamente
      * (sem segundo “Confirma este endereço?”). Botões legados ainda podem setar.
@@ -397,6 +401,8 @@ export interface AiServiceResult {
     replyText: string;
     updatedDraft?: OrderDraft | null;
     updatedHistory?: AiTurn[];
+    /** Resumo rolling após compactação (persistir em `ProSessionState.aiHistorySummary`). */
+    updatedAiHistorySummary?: string | null;
     /** Atualização da allowlist de catálogo após rodadas de tool (PRO V2). */
     updatedSearchProdutoEmbalagemIds?: string[];
     /** Opções para botões WhatsApp após busca ambígua. */
