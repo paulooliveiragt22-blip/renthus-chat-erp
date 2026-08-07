@@ -296,6 +296,56 @@ describe("resolveSegmentPick", () => {
         if (r.kind === "unique") assert.equal(r.pick.embalagemId, "combo");
     });
 
+    it("2 skol lata sem caixa citada → UN (regressão: 'lata' também é formato de unidade única, não só long neck)", () => {
+        const r = resolveSegmentPick(
+            "skol lata",
+            [
+                {
+                    id: "skol-un",
+                    display_name: "SKOL LATA",
+                    product_name: "SKOL",
+                    sigla_comercial: "UN",
+                    fator_conversao: 1,
+                    preco_venda: 5,
+                },
+                {
+                    id: "skol-cx",
+                    display_name: "SKOL LATA (CX c/15)",
+                    product_name: "SKOL",
+                    sigla_comercial: "CX",
+                    fator_conversao: 15,
+                    preco_venda: 60,
+                },
+            ],
+            { quantity: 2 }
+        );
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "skol-un");
+    });
+
+    it("skol lata sem quantidade nem caixa → UN pela palavra de formato 'lata'", () => {
+        const r = resolveSegmentPick("skol lata", [
+            {
+                id: "skol-un",
+                display_name: "SKOL LATA",
+                product_name: "SKOL",
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                preco_venda: 5,
+            },
+            {
+                id: "skol-cx",
+                display_name: "SKOL LATA (CX c/15)",
+                product_name: "SKOL",
+                sigla_comercial: "CX",
+                fator_conversao: 15,
+                preco_venda: 60,
+            },
+        ]);
+        assert.equal(r.kind, "unique");
+        if (r.kind === "unique") assert.equal(r.pick.embalagemId, "skol-un");
+    });
+
     it("hábito COMBO sem texto de sigla → COMBO", () => {
         const r = resolveSegmentPick(
             "skol",

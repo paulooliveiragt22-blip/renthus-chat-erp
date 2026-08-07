@@ -30,6 +30,30 @@ describe("buildPrepareDraftGuidanceForModel", () => {
         assert.ok(g.some((l) => l.toLowerCase().includes("próximo passo")));
     });
 
+    it("quando abaixo do pedido mínimo, prioriza mínimo sobre pagamento e não sugere confirmar", () => {
+        const g = buildPrepareDraftGuidanceForModel(false, ["Pedido mínimo para entrega: R$ 50,00."], {
+            hasPartialDraft: true,
+            blocked: { code: "BELOW_MIN_ORDER", missing: 50, minOrder: 50 },
+        });
+        const blob = g.join("\n").toLowerCase();
+        assert.ok(blob.includes("mínimo") || blob.includes("minimo"));
+        assert.ok(blob.includes("não pergunte forma de pagamento") || blob.includes("nao pergunte forma de pagamento"));
+    });
+
+    it("quando troco inválido, orienta pedir valor correto (não confirma pedido)", () => {
+        const g = buildPrepareDraftGuidanceForModel(
+            false,
+            ["Troco informado (R$ 20,00) é menor que o total do pedido (R$ 50,00)."],
+            {
+                hasPartialDraft: true,
+                blocked: { code: "INVALID_CHANGE_FOR", grandTotal: 50, changeFor: 20 },
+            }
+        );
+        const blob = g.join("\n").toLowerCase();
+        assert.ok(blob.includes("troco"));
+        assert.ok(blob.includes("50,00") || blob.includes("50"));
+    });
+
     it("quando estoque, sugere quantidade menor", () => {
         const g = buildPrepareDraftGuidanceForModel(false, ['Estoque insuficiente para "X" (pediu 2).']);
         assert.ok(g.some((l) => l.toLowerCase().includes("estoque")));

@@ -1,5 +1,5 @@
 import type { DraftAddress, OrderDraft, ProSessionState, ProStep } from "@/src/types/contracts";
-import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
+import { isDraftBelowMinimumOrder, isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 
 /** Endereço mínimo para entrega (rua, número, bairro, cidade, UF — colunas em `enderecos_cliente`). */
 export function isAddressStructurallyComplete(address: DraftAddress | null): boolean {
@@ -94,6 +94,15 @@ export function resolveProStepFromDraft(params: {
     }
 
     if (!isAddressStructurallyComplete(draft.address)) {
+        return "pro_collecting_order";
+    }
+
+    /**
+     * Pedido mínimo de entrega não atingido: não avança pra pagamento/troco/confirmação —
+     * o cliente ainda precisa poder adicionar itens livremente (texto solto não pode ser
+     * barrado pelo gate estrito de pagamento, que só age em `pro_awaiting_payment_method`).
+     */
+    if (isDraftBelowMinimumOrder(draft)) {
         return "pro_collecting_order";
     }
 

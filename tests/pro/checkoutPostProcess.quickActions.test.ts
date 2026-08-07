@@ -57,6 +57,63 @@ function state(overrides: Partial<ProSessionState> = {}): ProSessionState {
     };
 }
 
+describe("applyQuickAction — pedido mínimo não atingido", () => {
+    it("pro_pay_pix abaixo do mínimo: fica em collecting e avisa o valor faltante (sem pedir confirmação)", () => {
+        const r = applyQuickAction(
+            "pro_pay_pix",
+            state({
+                step: "pro_awaiting_payment_method",
+                draft: minimalDraft({ deliveryMinOrder: 50, grandTotal: 10, totalItems: 10 }),
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.state.step, "pro_collecting_order");
+        assert.equal(r.state.draft?.paymentMethod, "pix");
+        assert.ok(
+            r.outbound.some(
+                (m) => m.kind === "text" && /m.nimo/u.test(String(m.text)) && String(m.text).includes("50")
+            )
+        );
+    });
+
+    it("pro_pay_cash abaixo do mínimo: não pede troco ainda, avisa o valor faltante", () => {
+        const r = applyQuickAction(
+            "pro_pay_cash",
+            state({
+                step: "pro_awaiting_payment_method",
+                draft: minimalDraft({ deliveryMinOrder: 50, grandTotal: 25, totalItems: 25 }),
+            })
+        );
+        assert.equal(r.state.step, "pro_collecting_order");
+        assert.ok(!r.outbound.some((m) => m.kind === "text" && String(m.text).includes("Troco")));
+        assert.ok(r.outbound.some((m) => m.kind === "text" && String(m.text).includes("25")));
+    });
+
+    it("checkoutPostProcessForQuickAction não mostra botões de pagamento abaixo do mínimo", () => {
+        const s = withResolvedSlotStep(
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ deliveryMinOrder: 50, grandTotal: 10, totalItems: 10 }),
+            })
+        );
+        assert.equal(s.step, "pro_collecting_order");
+        const out = checkoutPostProcessForQuickAction({ state: s, outbound: [] });
+        assert.ok(!out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_pay_pix")));
+    });
+
+    it("strict gate: abaixo do mínimo não trava texto livre (passo não chega a awaiting_payment_method)", () => {
+        const s = withResolvedSlotStep(
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ deliveryMinOrder: 50, grandTotal: 10, totalItems: 10 }),
+            })
+        );
+        assert.equal(s.step, "pro_collecting_order");
+        const g = strictCheckoutStructuredGate("1 caixa de original lata", s);
+        assert.equal(g, null);
+    });
+});
+
 describe("applyQuickAction — confirmação órfã e pagamento em texto", () => {
     it("pro_confirm_order sem draft em idle: não passa pela IA", () => {
         const r = applyQuickAction("pro_confirm_order", state({ step: "pro_idle", draft: null }));

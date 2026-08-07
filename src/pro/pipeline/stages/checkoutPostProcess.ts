@@ -7,6 +7,7 @@ import { PICK_ADDRESS_PREFIX } from "../serverPrepareAfterAddressPick";
 import { PICK_EMB_PREFIX, parseProductPickIndex } from "../productPickText";
 import { buildUniquePickButtons } from "../pickButtonTitles";
 import { catalogProductHintFromPicks } from "../catalogProductHint";
+import { isDraftBelowMinimumOrder } from "../orderDraftGate";
 import {
     isAddressStructurallyComplete,
     resolveProStepFromDraft,
@@ -49,6 +50,25 @@ function buildPaymentButtons(): OutboundMessage {
             { id: "pro_pay_card", title: "Cartão" },
             { id: "pro_pay_cash", title: "Dinheiro" },
         ],
+    };
+}
+
+function brl(value: number): string {
+    return value.toFixed(2).replace(".", ",");
+}
+
+/**
+ * Resposta determinística (sem IA) quando o rascunho não bate o pedido mínimo — usada nos
+ * quick actions de pagamento, que mexem no draft direto sem passar pelo `prepare_order_draft`.
+ */
+function buildMinimumOrderShortfallMessage(draft: OrderDraft): OutboundMessage {
+    const min = draft.deliveryMinOrder ?? 0;
+    const missing = Math.max(0, min - draft.grandTotal);
+    return {
+        kind: "text",
+        text:
+            `Seu pedido está em R$ ${brl(draft.grandTotal)} e o mínimo para entrega é R$ ${brl(min)} ` +
+            `(faltam R$ ${brl(missing)}). Me diga o que mais você quer adicionar.`,
     };
 }
 
@@ -151,7 +171,15 @@ function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
         ) {
             return [];
         }
-        if (state.draft.items.length > 0 && isAddressStructurallyComplete(state.draft.address)) {
+        /**
+         * Abaixo do pedido mínimo: não oferecer forma de pagamento ainda — pagar não resolve
+         * o bloqueio e gera mensagem contraditória junto do aviso de mínimo não atingido.
+         */
+        if (
+            state.draft.items.length > 0 &&
+            isAddressStructurallyComplete(state.draft.address) &&
+            !isDraftBelowMinimumOrder(state.draft)
+        ) {
             return [buildPaymentButtons()];
         }
         return [];
@@ -164,39 +192,38 @@ function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
 
 function resolvePaymentQuickAction(action: string, state: ProSessionState): QuickActionResult | null {
     if (!state.draft) return null;
-    if (action === "pro_pay_pix") {
+    if (action === "pro_pay_pix" || action === "pro_pay_card") {
+        const paymentMethod = action === "pro_pay_pix" ? "pix" : "card";
+        const nextDraft: OrderDraft = { ...state.draft, paymentMethod, changeFor: null };
+        if (isDraftBelowMinimumOrder(nextDraft)) {
+            return {
+                handled: true,
+                actionTag: action,
+                state: { ...state, step: "pro_collecting_order", draft: nextDraft },
+                outbound: [buildMinimumOrderShortfallMessage(nextDraft)],
+            };
+        }
         return {
             handled: true,
             actionTag: action,
-            state: {
-                ...state,
-                step: "pro_collecting_order",
-                draft: { ...state.draft, paymentMethod: "pix", changeFor: null },
-            },
-            outbound: [],
-        };
-    }
-    if (action === "pro_pay_card") {
-        return {
-            handled: true,
-            actionTag: action,
-            state: {
-                ...state,
-                step: "pro_collecting_order",
-                draft: { ...state.draft, paymentMethod: "card", changeFor: null },
-            },
+            state: { ...state, step: "pro_collecting_order", draft: nextDraft },
             outbound: [],
         };
     }
     if (action === "pro_pay_cash") {
+        const nextDraft: OrderDraft = { ...state.draft, paymentMethod: "cash" };
+        if (isDraftBelowMinimumOrder(nextDraft)) {
+            return {
+                handled: true,
+                actionTag: action,
+                state: { ...state, step: "pro_collecting_order", draft: nextDraft },
+                outbound: [buildMinimumOrderShortfallMessage(nextDraft)],
+            };
+        }
         return {
             handled: true,
             actionTag: action,
-            state: {
-                ...state,
-                step: "pro_awaiting_change_amount",
-                draft: { ...state.draft, paymentMethod: "cash" },
-            },
+            state: { ...state, step: "pro_awaiting_change_amount", draft: nextDraft },
             outbound: [{ kind: "text", text: "Pagamento em dinheiro. Troco pra quanto?" }],
         };
     }

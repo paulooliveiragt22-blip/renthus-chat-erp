@@ -10,6 +10,7 @@
 import { enrichSearchTermPackagingFromUserText } from "./packagingHint";
 import { resolveSegmentPick } from "./resolveSegmentPick";
 import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
+import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
 
 type PackagingRow = {
     id: string;
@@ -39,6 +40,25 @@ export function isSamePackagingFamily(rows: PackagingRow[]): boolean {
     return names.size === 1;
 }
 
+/**
+ * Extrai uma quantidade mencionada no texto do cliente (dígito ou número por extenso),
+ * pra alimentar a heurística "quantidade menor que o fator da caixa → assume UN" em
+ * `resolveSegmentPick`. Sem isso, essa heurística só disparava no caso especial de
+ * "long neck" — não de forma genérica pra qualquer produto (ex.: "2 skol lata").
+ */
+function extractQuantityHintFromUserText(userText: string): number | null {
+    const digitMatch = String(userText ?? "").match(/\b(\d{1,3})\b/u);
+    if (digitMatch) {
+        const n = Number(digitMatch[1]);
+        if (Number.isFinite(n) && n >= 1) return n;
+    }
+    for (const tok of normalizePt(userText).split(" ").filter(Boolean)) {
+        const v = parsePtQuantity(tok);
+        if (v != null) return v;
+    }
+    return null;
+}
+
 export function disambiguatePackagingForSearchRows<T extends PackagingRow>(
     rows: T[],
     query: string,
@@ -52,6 +72,8 @@ export function disambiguatePackagingForSearchRows<T extends PackagingRow>(
 
     const segment = enrichSearchTermPackagingFromUserText(query, userText);
     const resolved = resolveSegmentPick(segment, rows, {
+        quantity: extractQuantityHintFromUserText(userText),
+        formatHintText: userText,
         habitSigla: opts?.habitSigla ?? null,
         companySiglas: opts?.companySiglas ?? null,
     });

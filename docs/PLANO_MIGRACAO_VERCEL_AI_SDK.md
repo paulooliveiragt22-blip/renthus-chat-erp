@@ -1,0 +1,188 @@
+# Plano: migração do agente PRO para Vercel AI SDK (corte total, sem dual-path)
+
+Documento de execução. Premissa do dono: **app sem usuários reais em produção**. Nenhuma fase deste plano mantém implementação antiga "por segurança" — cada fase que introduz o novo caminho **apaga** o caminho antigo equivalente no mesmo commit. Não existe flag `AI_SERVICE_IMPL`, não existe `ai.service.full.ts` convivendo com `ai.service.ts`.
+
+**Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
+
+> **Status:** 🔄 em andamento — Fases 0 e 1 concluídas (2026-08-07). Próxima: Fase 2 (`search_produtos`/`get_order_hints` como wrappers). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+
+---
+
+## 0. Regras de execução (leia antes de cada sessão)
+
+1. **Uma fase por vez, até `npm test` verde.** Não abra a fase N+1 com a fase N em `🔄`.
+2. **Delete no mesmo commit que substitui.** Se a fase cria o arquivo novo que substitui um antigo, o antigo é deletado no mesmo commit — não em fase separada "de limpeza".
+3. **Antes de deletar qualquer arquivo de `src/pro/adapters/llm/` ou `src/pro/ports/llm.port.ts`: rode a busca de referências** (comando na fase correspondente) e confirme zero resultado fora do próprio arquivo. Só então delete.
+4. **Toda fase termina com `npm test` e, se tocar o loop de IA, um smoke test manual** seguindo `docs/SMOKE_AGENT_LOOP_WHATSAPP.md`.
+5. **Verifique versão exata do pacote no npm antes de instalar** (`npm view ai versions`, `npm view @ai-sdk/anthropic versions` — em 2026-08-07 o provider Anthropic ainda usa tag `@beta` sobre `ai@6.0.0`). Não assuma a versão deste documento como definitiva.
+6. **Migrations de banco:** esta migração é só código de aplicação — nenhuma fase aqui deveria tocar `supabase/migrations/`. Se alguma fase parecer exigir schema novo, pare e reavalie antes de aplicar (regra `supabase-migrations.mdc` continua valendo).
+
+---
+
+## 1. Referência de API validada (Vercel AI SDK v6, via Context7 em 2026-08-07)
+
+Não reinvente a sintaxe — use exatamente este padrão:
+
+```typescript
+import { generateText, tool, stepCountIs, hasToolCall } from "ai";
+import { z } from "zod";
+
+const result = await generateText({
+    model, // LanguageModel do @ai-sdk/anthropic ou @ai-sdk/openai
+    system: buildEffectiveSystemPrompt(input),
+    messages,
+    tools: {
+        search_produtos: tool({
+            description: "...",
+            inputSchema: z.object({ query: z.string(), category_hint: z.string().optional() }),
+            execute: async (input) => { /* ... */ },
+        }),
+        get_order_hints: tool({ /* ... */ }),
+        prepare_order_draft: tool({ /* ... */ }),
+        respond_to_customer: tool({
+            description: "Tool final obrigatória: use para enviar a resposta ao cliente.",
+            inputSchema: z.object({
+                reply_text: z.string(),
+                address_free_text: z.boolean().default(false),
+            }),
+            execute: async (a) => a,
+        }),
+    },
+    // para quando o modelo chamar respond_to_customer OU atingir 12 rodadas
+    stopWhen: [hasToolCall("respond_to_customer"), stepCountIs(12)],
+});
+```
+
+Pontos que substituem mecanismos antigos:
+- `stopWhen: [hasToolCall(...), stepCountIs(...)]` substitui o contador manual `toolRoundsUsed` de `ai.service.full.ts`.
+- Tool final `respond_to_customer` com `address_free_text: boolean` substitui os marcadores de texto `INTENT_OK`/`ADDR_FREE_TEXT` e todo `stripModelIntentSuffix.ts` — não há mais string pra raspar com regex.
+- `generateObject` (mesmo pacote `ai`) substitui as chamadas de `LlmPort.chat()` sem tools em `intentClassifier.service.ts` e `structuredOrderExtract.ts`.
+
+---
+
+## 2. Inventário — o que é criado, o que é deletado, o que fica
+
+| Arquivo | Ação |
+|---|---|
+| `src/pro/adapters/ai/ai.service.full.ts` | **DELETAR** (fase 3) |
+| `src/pro/adapters/ai/stripModelIntentSuffix.ts` | **DELETAR** (fase 3) |
+| `src/pro/ports/llm.port.ts` | **DELETAR** (fase 8) |
+| `src/pro/adapters/llm/createLlmPort.ts` | **DELETAR** (fase 8) |
+| `src/pro/adapters/llm/anthropic.llm.ts` | **DELETAR** (fase 8) |
+| `src/pro/adapters/llm/openai.llm.ts` | **DELETAR** (fase 8) |
+| `src/pro/adapters/llm/recording.llm.ts` | **DELETAR** (fase 7, substituído) |
+| `src/pro/adapters/llm/llmText.ts` | **DELETAR se sem uso após fase 8** (checar antes) |
+| `src/pro/adapters/ai/modelProvider.ts` | **CRIAR** (fase 0) |
+| `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` | **CRIAR** (fase 3 — adiado da 1: só faz sentido com o loop novo) |
+| `src/pro/adapters/ai/tools/searchProdutos.tool.ts` | **CRIAR** (fase 2) |
+| `src/pro/adapters/ai/tools/getOrderHints.tool.ts` | **CRIAR** (fase 2) |
+| `src/pro/adapters/ai/blockedReasonPresenter.ts` | **CRIADO** (fase 1) |
+| `src/pro/adapters/ai/ai.service.ts` | **CRIAR** (fase 3, substitui `ai.service.full.ts`) |
+| `src/pro/adapters/ai/replayRecorder.ts` | **CRIAR** (fase 7, substitui `recording.llm.ts`) |
+| `src/pro/ports/orderDraft.port.ts` | **REDESENHAR** `PrepareOrderDraftResult` (fase 1) |
+| `src/pro/tools/prepareOrderDraft.ts` | **MANTÉM** lógica de cálculo (itens/entrega); só o shape de retorno muda (fase 1) |
+| `src/pro/pipeline/packagingDisambiguation.ts`, `resolveSegmentPick.ts`, `orderDraftGate.ts`, `orderSlotStep.ts`, `checkoutPostProcess.ts`, `sanitizeAiVisibleOrderClaims.ts`, `aiHistoryBudget.ts` | **NÃO TOCAR** — lógica pura, reaproveitada como está |
+| `src/pro/services/intent/intentClassifier.service.ts` | **MIGRAR** chamada LLM (fase 4) |
+| `src/pro/adapters/ai/sessionMemory.llm.ts` | **MIGRAR** chamada LLM (fase 5) |
+| `src/pro/replay/structuredOrderExtract.ts` | **MIGRAR** chamada LLM (fase 6) |
+| `src/pro/pipeline/deps.factory.ts` | **ATUALIZAR** wiring, sem branch de flag (fase 3) |
+
+---
+
+## 3. Fases
+
+### Fase 0 — Dependências + `modelProvider.ts` ✅
+
+**Decisão registrada (não reabrir sem motivo novo):** a tag `latest` do pacote `ai` é a **v7**, que exige Node 22+ e é **ESM-only** (`require()` não suportado) — incompatível com este repo (`package.json` tem `"type": "commonjs"`, e o harness de teste roda `tsc` + `node --test` puro, sem bundler). Por isso foram fixadas as versões da linha **v6** (dist-tag `ai-v6`, que ainda publica dual CJS/ESM via `exports.require`):
+
+```
+ai@6.0.246
+@ai-sdk/anthropic@3.0.107
+@ai-sdk/openai@3.0.91
+```
+
+**Vulnerabilidade encontrada e corrigida:** `@ai-sdk/provider-utils@4.0.42` empacota `undici@5.29.0`, com múltiplas advisories moderate/high (DoS por descompressão, request smuggling, injeção via Set-Cookie — GHSA-g9mf-h72j-4rw9, GHSA-2mjp-6q6p-2qxm, GHSA-vrm6-8vpv-qv8q, entre outras). Não há versão 3.x/4.x mais nova do `@ai-sdk/provider-utils` fora de beta que corrija isso sem subir para a v7. Corrigido via `overrides` no `package.json` (mesmo padrão já usado no repo para axios/lodash/etc.): `"undici": "^8.10.0"`. Após o override, `npm audit` não lista mais `ai`/`@ai-sdk/*`/`undici` entre as vulnerabilidades — as 13 restantes são pré-existentes e não relacionadas a esta migração (next, sharp, postcss, ws, form-data, js-yaml, dompurify, fast-uri, @babel/core, @anthropic-ai/sdk, axios, brace-expansion).
+
+- [x] Confirmadas versões via `npm view`/Context7.
+- [x] Instalado `ai@6.0.246`, `@ai-sdk/anthropic@3.0.107`, `@ai-sdk/openai@3.0.91` com `--save-exact`.
+- [x] Override `undici@^8.10.0` no `package.json`.
+- [x] Criado `src/pro/adapters/ai/modelProvider.ts`: `getConfiguredLlmProviderName()` + `resolveLanguageModel(modelOverride?)`, mesmas env vars de `createLlmPort.ts` (`LLM_PROVIDER`, `LLM_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) — não foram inventados nomes novos.
+- [x] `tests/pro/modelProvider.test.ts` — seleção de provider, erro tipado sem API key, override de modelo.
+- **Critério de pronto:** `npm test` → 626 pass / 25 fail (mesmo baseline pré-existente de antes desta fase — sem regressão nova). ✅
+
+### Fase 1 — `prepare_order_draft` como tool tipada (o fix de negócio real) ✅
+
+**Decisão registrada:** `errors: string[]` foi **mantido** (não é dual-path) — cobre o catálogo dinâmico de mensagens por item/estoque/UUID/catálogo, que não vale enumerar em código. O que foi removido foi `next_required_slot` (string solta), substituído por `blocked: PrepareOrderDraftBlockedReason | null` (união discriminada com payload tipado: `MISSING_ITEMS`, `ADDRESS_INCOMPLETE`, `OUT_OF_DELIVERY_ZONE{neighborhood}`, `BELOW_MIN_ORDER{missing,minOrder}`, `PAYMENT_MISSING`, `INVALID_CHANGE_FOR{grandTotal,changeFor}`, `FIX_ERRORS`). Prioridade igual à anterior (items → endereço → mínimo → pagamento → **troco novo** → fix_errors).
+
+- [x] `src/pro/ports/orderDraft.port.ts` — `PrepareOrderDraftBlockedReason` + `PrepareOrderDraftResult.blocked` (substitui `next_required_slot`).
+- [x] `src/pro/tools/prepareOrderDraft.ts` — validação nova: `payment_method === "cash" && change_for != null && change_for < grandTotal` → erro + `blocked.code = "INVALID_CHANGE_FOR"` (bug real relatado pelo dono, nunca validado antes). Também separa `ADDRESS_INCOMPLETE` de `OUT_OF_DELIVERY_ZONE` (antes os dois caíam no mesmo bucket "address").
+- [x] `src/pro/adapters/ai/blockedReasonPresenter.ts` — `presentBlockedReasonForModel(blocked)`, extraído das antigas branches de `nextRequiredSlot` em `buildPrepareDraftGuidanceForModel` + branch nova para troco. **Não criado ainda** `tools/prepareOrderDraft.tool.ts` (Vercel AI SDK `tool()`) — isso é Fase 3 (precisa do loop novo pra ter sentido chamar `.execute()`; chamar `prepareOrderDraftFromTool` direto já é testável sem isso, então adiado pra não criar arquivo sem consumidor).
+- [x] `buildPrepareDraftGuidanceForModel` atualizado para `opts.blocked` (era `opts.nextRequiredSlot`); `ai.service.full.ts` (2 pontos) e `tests/pro/prepareDraftGuidance.test.ts` atualizados no mesmo commit.
+- [x] Testes novos: `tests/pro/prepareOrderDraftBlockedReason.test.ts` (7 casos, incl. `INVALID_CHANGE_FOR`), `tests/pro/blockedReasonPresenter.test.ts` (7 casos), +1 caso em `prepareDraftGuidance.test.ts`.
+- **Critério de pronto:** `npm test` → 641 pass / 25 fail (mesmo baseline pré-existente; 15 testes novos, todos verdes). ✅
+
+**Nota para a Fase 3:** `prepareOrderDraft.tool.ts` (wrapper Vercel AI SDK) será criado ali, chamando `prepareOrderDraftFromTool` (já com o shape novo) — não precisa redesenhar nada de novo nessa hora.
+
+### Fase 2 — `search_produtos` e `get_order_hints` como wrappers finos ⬜
+
+- [ ] `src/pro/adapters/ai/tools/searchProdutos.tool.ts`: `tool()` chamando a lógica existente de `src/pro/tools/searchProdutos.ts` sem alterar comportamento (inclui `disambiguatePackagingForSearchRows`).
+- [ ] `src/pro/adapters/ai/tools/getOrderHints.tool.ts`: idem, chamando `buildOrderHintsPayload`.
+- **Critério de pronto:** `npm test` verde. Ainda sem loop novo plugado.
+
+### Fase 3 — `ai.service.ts` (loop novo) + deletar `ai.service.full.ts` ⬜
+
+- [ ] Criar `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` (adiado da Fase 1): `tool({ inputSchema, execute })` chamando `prepareOrderDraftFromTool` (shape já pronto: `{ok, draft, errors, blocked}`); no `execute`, montar `guidance_for_model_pt` com `presentBlockedReasonForModel(blocked)` quando `blocked.code !== "FIX_ERRORS"`, senão a lógica dinâmica de `buildPrepareDraftGuidanceForModel`.
+- [ ] Criar `src/pro/adapters/ai/ai.service.ts` implementando `AiService` (mesma interface de `src/pro/services/ai/ai.types.ts`) usando `generateText` com as 4 tools (3 de negócio + `respond_to_customer`), `stopWhen: [hasToolCall("respond_to_customer"), stepCountIs(12)]`.
+- [ ] Portar para dentro deste arquivo: `buildEffectiveSystemPrompt` e todos os blocos (`phaseBlock`, `editHoldBlock`, `draftBlock`, `summaryBlock`, `welcomeBlock`, `addressConfirmBlock`), `SYSTEM_PROMPT`/`SYSTEM_PROMPT_INFO_ONLY`, `shouldForcePrepareAfterEmbalagemChoice`/`shouldForcePrepareAfterUnambiguousSearch` (essas duas funções são lógica pura, portar sem reescrever).
+- [ ] `address_free_text` do `respond_to_customer` alimenta `AiServiceResult.signals.addressFreeText` diretamente (sem strip de marcador).
+- [ ] **Billing (não perder):** `AnthropicLlmAdapter`/`OpenAiLlmAdapter` hoje debitam uso via `debitFromAnthropicUsage(admin, companyId, usage, meta)` (`lib/billing/aiWallet.ts`), que espera `{ input_tokens, output_tokens }` (snake_case). O resultado de `generateText` do AI SDK v6 traz `usage.inputTokens`/`usage.outputTokens` (camelCase) — mapear explicitamente `{ input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }` ao chamar `debitFromAnthropicUsage` dentro de `ai.service.ts`, com `meta.provider`/`meta.model` vindos de `result.response?.modelId`/provider configurado. Sem isso o wallet de IA por empresa para de debitar silenciosamente.
+- [ ] Deletar `src/pro/adapters/ai/ai.service.full.ts` e `src/pro/adapters/ai/stripModelIntentSuffix.ts` **neste commit**.
+- [ ] Atualizar `src/pro/pipeline/deps.factory.ts`: remover `createLlmPort`, injetar `ai.service.ts` direto, sem branch de env.
+- [ ] Testes: migrar os testes que hoje importam `ai.service.full.ts` (rodar `grep -r "ai.service.full" tests/` antes de mexer).
+- **Critério de pronto:** `npm test` verde **e** smoke test manual completo por `docs/SMOKE_AGENT_LOOP_WHATSAPP.md` (S1 a S4b), incluindo os 4 casos reportados no chat de 2026-08-07 (skol lata, botão+alerta simultâneo, adicionar item pra bater mínimo, respeito ao mínimo).
+
+### Fase 4 — `intentClassifier.service.ts` para `generateObject` ⬜
+
+- [ ] Trocar a chamada `createLlmPort(...).chat(...)` por `generateObject({ model, schema: z.object({ intent: z.enum([...]) }) })`.
+- [ ] Remover import de `createLlmPort`/`getConfiguredLlmProvider` deste arquivo (a seleção de provider já é `modelProvider.ts`).
+- **Critério de pronto:** `npm test` verde, testes de `tests/pro/` relacionados a intent classification passando.
+
+### Fase 5 — `sessionMemory.llm.ts` para `generateText` ⬜
+
+- [ ] Trocar `LlmPort.chat()` por `generateText` simples (sem tools) usando `modelProvider.ts`.
+- **Critério de pronto:** `npm test` verde.
+
+### Fase 6 — `structuredOrderExtract.ts` (replay) para `generateObject` ⬜
+
+- [ ] Idem fase 4, mas para o extrator estruturado usado em `src/pro/replay/`.
+- **Critério de pronto:** `npm test` verde, `runThreadReplay.ts` ainda funcional (rodar smoke de replay se houver script/npm task pra isso — checar `package.json`).
+
+### Fase 7 — Substituir `recording.llm.ts` por `replayRecorder.ts` ⬜
+
+- [ ] Criar `src/pro/adapters/ai/replayRecorder.ts`: wrapper de `LanguageModel` (proxy/decorator) que grava request/response em cassette, com a mesma finalidade de `RecordingLlmPort`/`ReplayLlmPort`.
+- [ ] Atualizar `src/pro/replay/runThreadReplay.ts` para usar o novo recorder.
+- [ ] Deletar `src/pro/adapters/llm/recording.llm.ts` neste commit.
+- **Critério de pronto:** `npm test` verde, replay de pelo menos 1 thread gravado funcionando ponta a ponta.
+
+### Fase 8 — Varredura final: deletar `LlmPort` e adapters ⬜
+
+- [ ] `grep -rn "LlmPort\|createLlmPort\|llm\.port" src/` — deve retornar **zero** resultado fora dos próprios arquivos a deletar.
+- [ ] Deletar `src/pro/ports/llm.port.ts`, `src/pro/adapters/llm/createLlmPort.ts`, `anthropic.llm.ts`, `openai.llm.ts`.
+- [ ] Checar `src/pro/adapters/llm/llmText.ts` — se não sobrou nenhum consumidor, deletar também; se sobrou (ex.: helper de extração de texto reaproveitado em outro contexto), documentar por quê.
+- **Critério de pronto:** `npm test` verde, `npm run build`/`tsc` sem erro de import quebrado.
+
+### Fase 9 — Docs ⬜
+
+- [ ] Atualizar `docs/CHATBOT_PROD.md` (seção "cérebro"/agent loop) para descrever o novo `ai.service.ts` e a ausência de `LlmPort`.
+- [ ] Atualizar `.cursor/rules/agente-pro-hexagonal.mdc` (ports/adapters do módulo PRO) removendo referência a `LlmPort`.
+- [ ] Marcar este documento como `✅ concluído` no topo.
+
+---
+
+## 4. Contexto para retomada rápida (se a sessão cair)
+
+Se você (ou outra sessão do agente) perder o contexto, leia nesta ordem:
+1. Este arquivo, seção 3, para achar a última fase marcada `🔄` ou a primeira `⬜`.
+2. `git log --oneline -20` para ver o que já foi commitado (cada fase = 1+ commits, nunca fase parcial sem commit).
+3. Seção 2 (inventário) para confirmar se um arquivo específico já existe/já foi deletado.
+4. Não repita a discussão de "por que Vercel AI SDK, por que não LangGraph, por que deletar `LlmPort`" — isso já foi decidido; só execute.

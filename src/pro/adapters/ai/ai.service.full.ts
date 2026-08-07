@@ -609,7 +609,7 @@ export class FullAiServiceAdapter implements AiService {
         const allowedIds = allowedEmbalagemIds.length ? [...allowedEmbalagemIds] : [];
         const baseGuidance = buildPrepareDraftGuidanceForModel(prepared.ok, prepared.errors, {
             deliveryAddressUiConfirmed: input.context.session.deliveryAddressUiConfirmed,
-            nextRequiredSlot: prepared.next_required_slot ?? null,
+            blocked: prepared.blocked ?? null,
             hasPartialDraft: Boolean(nextDraft?.items?.length) && !prepared.ok,
         });
         const idHint =
@@ -629,7 +629,7 @@ export class FullAiServiceAdapter implements AiService {
                     errors: prepared.errors,
                     has_draft: Boolean(nextDraft),
                     draft_item_count: nextDraft?.items?.length ?? 0,
-                    next_required_slot: prepared.next_required_slot ?? null,
+                    blocked: prepared.blocked ?? null,
                     ...(!prepared.ok && allowedIds.length ? { allowed_produto_embalagem_ids: allowedIds } : {}),
                     guidance_for_model_pt: [...baseGuidance, ...idHint],
                 }),

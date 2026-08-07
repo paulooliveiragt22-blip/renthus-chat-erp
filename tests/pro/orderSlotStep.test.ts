@@ -108,6 +108,38 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         assert.equal(next.step, "pro_collecting_order");
     });
 
+    it("abaixo do pedido mínimo: fica em collecting mesmo com endereço completo (não pede pagamento)", () => {
+        const d = draft({ deliveryMinOrder: 50, grandTotal: 10, totalItems: 10 });
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
+            "pro_collecting_order"
+        );
+    });
+
+    it("abaixo do pedido mínimo mesmo já com pagamento escolhido: não avança pra confirmação/troco", () => {
+        const dPix = draft({
+            paymentMethod: "pix",
+            deliveryMinOrder: 50,
+            grandTotal: 10,
+            totalItems: 10,
+        });
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_collecting_order", draft: dPix }),
+            "pro_collecting_order"
+        );
+        const dCash = draft({
+            paymentMethod: "cash",
+            changeFor: null,
+            deliveryMinOrder: 50,
+            grandTotal: 10,
+            totalItems: 10,
+        });
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_collecting_order", draft: dCash }),
+            "pro_collecting_order"
+        );
+    });
+
     it("dinheiro sem troco: awaiting_change_amount", () => {
         const d = draft({
             paymentMethod: "cash",

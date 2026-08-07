@@ -19,6 +19,12 @@ export type ResolveSegmentPickOpts = {
     habitSigla?: CustomerSiglaHabit | null;
     /** Cadastro de siglas da empresa (para match por descrição/sinônimo). */
     companySiglas?: CompanySigla[] | null;
+    /**
+     * Texto mais completo (ex.: mensagem original do cliente) pra detectar palavras de
+     * formato "unidade única" (lata/garrafa/pet/long neck) quando `segment` (termo de busca)
+     * não carrega essas palavras. Default: usa o próprio `segment`.
+     */
+    formatHintText?: string | null;
 };
 
 function norm(text: string): string {
@@ -162,14 +168,19 @@ export function resolvePreferredSigla(
         return siglaOfMinFator();
     }
 
-    // long neck sem sigla → UN se existir; senão menor fator “não caixa”
-    if (/\blong\s*neck|longneck\b/u.test(norm(segment))) {
+    // Palavra de formato "unidade única" (lata/garrafa/pet/long neck) sem caixa citada nem
+    // quantidade decisiva: mesma regra pra qualquer produto (não é caso específico de 1 marca).
+    const formatText = opts?.formatHintText ?? segment;
+    if (SINGLE_UNIT_FORMAT_RE.test(norm(formatText))) {
         if (hitSiglaList(items).includes("UN")) return "UN";
         return siglaOfMinFator();
     }
 
     return null;
 }
+
+/** Palavras de embalagem que descrevem um recipiente de unidade única (não múltipla). */
+const SINGLE_UNIT_FORMAT_RE = /\blong\s*neck\b|\blongneck\b|\blata\b|\bgarrafa\b|\bpet\b/u;
 
 function scoreItem(segment: string, r: HitRow, preferredSigla: string | null): number {
     const seg = norm(segment);
@@ -201,8 +212,13 @@ function scoreItem(segment: string, r: HitRow, preferredSigla: string | null): n
         if (name.includes(tok)) score += 2;
     }
 
+    /**
+     * Compensação de erro de digitação no catálogo (ex.: "HABURGUER" sem o "m" vs. segmento
+     * "hamburguer"), que quebra o match genérico por token acima. Não é regra de negócio
+     * específica deste produto — é tolerância a typo. TODO: generalizar com fuzzy match
+     * (Levenshtein/trigram) no lugar deste bônus pontual.
+     */
     if (seg.includes("rosseiro") && name.includes("rosseiro")) score += 14;
-    if (seg.includes("salgadinho") && name.includes("salgadinho")) score += 8;
 
     if (
         preferredSigla === "CX" &&

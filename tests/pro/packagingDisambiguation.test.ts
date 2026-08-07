@@ -86,6 +86,30 @@ describe("disambiguatePackagingForSearchRows", () => {
         assert.equal(out.length, 2);
     });
 
+    it("'quero 2 skol lata' sem caixa citada → assume UN (regressão: 'lata' também conta, não só long neck)", () => {
+        const skolRows = [
+            {
+                id: "skol-un",
+                display_name: "SKOL LATA",
+                product_name: "SKOL LATA",
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                preco_venda: 5,
+            },
+            {
+                id: "skol-cx",
+                display_name: "SKOL LATA (CX c/15)",
+                product_name: "SKOL LATA",
+                sigla_comercial: "CX",
+                fator_conversao: 15,
+                preco_venda: 60,
+            },
+        ];
+        const out = disambiguatePackagingForSearchRows(skolRows, "skol lata", "quero 2 skol lata");
+        assert.equal(out.length, 1);
+        assert.equal(out[0]!.id, "skol-un");
+    });
+
     it("hábito do cliente decide quando não há sigla explícita", () => {
         const out = disambiguatePackagingForSearchRows(
             heinekenRows,

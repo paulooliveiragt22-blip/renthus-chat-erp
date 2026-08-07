@@ -16,6 +16,11 @@ import { roundBrl } from "@/lib/chatbot/utils";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { buildPackDisplayName } from "@/lib/products/packDisplayName";
+import type {
+    PrepareOrderDraftBlockedReason,
+    PrepareOrderDraftResult,
+} from "@/src/pro/ports/orderDraft.port";
+import { presentBlockedReasonForModel } from "@/src/pro/adapters/ai/blockedReasonPresenter";
 
 export type { PrepareDraftToolInput };
 
@@ -174,13 +179,7 @@ export async function prepareOrderDraftFromTool(
     customerId: string | null,
     body: PrepareDraftToolInput,
     catalogPolicy: PrepareOrderDraftCatalogPolicy = { kind: "unrestricted" }
-): Promise<{
-    ok:    boolean;
-    draft: OrderDraft | null;
-    errors: string[];
-    /** Próximo slot faltante quando ok=false mas há draft parcial. */
-    next_required_slot?: "items" | "address" | "payment" | "fix_errors" | null;
-}> {
+): Promise<PrepareOrderDraftResult> {
     const errors: string[] = [];
 
     if (!body.items?.length) errors.push("Inclua pelo menos um item com produto_embalagem_id e quantity.");
@@ -390,10 +389,23 @@ export async function prepareOrderDraftFromTool(
         errors.push(`Pedido mínimo para entrega: R$ ${deliveryMinOrder.toFixed(2).replace(".", ",")}.`);
     }
 
+    // Troco tem que cobrir o total — sem isso, `change_for` era só uma sugestão do modelo,
+    // nunca validada no servidor (ver docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md, Fase 1).
+    const changeForRaw = body.changeFor ?? null;
+    const invalidChangeFor =
+        pm === "cash" && changeForRaw != null && changeForRaw > 0 && changeForRaw < grandTotal;
+    if (invalidChangeFor) {
+        errors.push(
+            `Troco informado (R$ ${changeForRaw!.toFixed(2).replace(".", ",")}) é menor que o total do pedido (R$ ${grandTotal.toFixed(2).replace(".", ",")}).`
+        );
+    }
+
     const baseErrors = [...errors];
-    const addressUsable =
-        Boolean(address) &&
-        !baseErrors.some((e) => /endereço incompleto|endereco incompleto|fora da área|fora da area/i.test(e));
+    const addressIncomplete = baseErrors.some((e) => /endereço incompleto|endereco incompleto/i.test(e));
+    const outOfDeliveryZone = baseErrors.some((e) => /fora da área|fora da area/i.test(e));
+    const addressUsable = Boolean(address) && !addressIncomplete && !outOfDeliveryZone;
+    const belowMinimumOrder =
+        itemsOut.length > 0 && deliveryMinOrder != null && grandTotal < deliveryMinOrder;
     const fullOk = baseErrors.length === 0 && itemsOut.length > 0 && Boolean(addressUsable) && Boolean(pm);
 
     // Draft completo OU parcial (itens válidos mesmo sem endereço/pagamento) — IA continua o fluxo.
@@ -417,21 +429,31 @@ export async function prepareOrderDraftFromTool(
               }
             : null;
 
-    const nextRequiredSlot = fullOk
+    const blocked: PrepareOrderDraftBlockedReason | null = fullOk
         ? null
         : !itemsOut.length
-          ? "items"
+          ? { code: "MISSING_ITEMS" }
           : !addressUsable
-            ? "address"
-            : !pm
-              ? "payment"
-              : "fix_errors";
+            ? outOfDeliveryZone
+                ? { code: "OUT_OF_DELIVERY_ZONE", neighborhood: address?.bairro ?? "" }
+                : { code: "ADDRESS_INCOMPLETE" }
+            : belowMinimumOrder
+              ? {
+                    code: "BELOW_MIN_ORDER",
+                    missing: roundBrl(deliveryMinOrder! - grandTotal),
+                    minOrder: deliveryMinOrder!,
+                }
+              : !pm
+                ? { code: "PAYMENT_MISSING" }
+                : invalidChangeFor
+                  ? { code: "INVALID_CHANGE_FOR", grandTotal, changeFor: changeForRaw! }
+                  : { code: "FIX_ERRORS" };
 
     return {
         ok: fullOk,
         draft,
         errors: fullOk ? [] : baseErrors.length ? baseErrors : ["Rascunho incompleto."],
-        next_required_slot: nextRequiredSlot,
+        blocked,
     };
 }
 
@@ -444,7 +466,7 @@ export function buildPrepareDraftGuidanceForModel(
     errors: string[],
     opts?: {
         deliveryAddressUiConfirmed?: boolean;
-        nextRequiredSlot?: "items" | "address" | "payment" | "fix_errors" | null;
+        blocked?: PrepareOrderDraftBlockedReason | null;
         hasPartialDraft?: boolean;
     }
 ): string[] {
@@ -457,19 +479,8 @@ export function buildPrepareDraftGuidanceForModel(
         ];
     }
 
-    if (opts?.hasPartialDraft && opts.nextRequiredSlot === "address") {
-        return [
-            "Há rascunho parcial com itens no servidor.",
-            "Não diga erro técnico. Peça ou confirme o endereço (rua, número, bairro, cidade, UF) ou use saved_address_id.",
-            "Depois chame prepare_order_draft de novo.",
-        ];
-    }
-    if (opts?.hasPartialDraft && opts.nextRequiredSlot === "payment") {
-        return [
-            "Há rascunho parcial com itens (e talvez endereço) no servidor.",
-            "Pergunte PIX, cartão ou dinheiro e chame prepare_order_draft com payment_method.",
-            "NÃO peça confirmação final do pedido ainda.",
-        ];
+    if (opts?.hasPartialDraft && opts.blocked && opts.blocked.code !== "FIX_ERRORS") {
+        return presentBlockedReasonForModel(opts.blocked);
     }
 
     const errs = errors.filter(Boolean).slice(0, 8);
