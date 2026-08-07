@@ -245,7 +245,7 @@ describe("novo pipeline PRO - falhas reais", () => {
         );
     });
 
-    it("botão Cardápio com webMenuUrl ativo prefere link texto ao Flow", async () => {
+    it("botão Cardápio com webMenuUrl ativo prefere CTA URL ao Flow", async () => {
         const deps = buildDeps({
             session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
             intent: "order_intent",
@@ -261,7 +261,29 @@ describe("novo pipeline PRO - falhas reais", () => {
             deps
         );
         assert.ok(out.outbound.every((m) => m.kind !== "flow"));
-        assert.ok(out.outbound.some((m) => m.kind === "text" && (m.text ?? "").includes(menuUrl)));
+        assert.ok(
+            out.outbound.some(
+                (m) => m.kind === "cta_url" && m.ctaUrl?.url === menuUrl
+            )
+        );
+    });
+
+    it("greeting com LLM ligado usa botões Continuar/Meus pedidos/Atendente e CTA cardápio", async () => {
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
+            intent: "greeting",
+        });
+        const menuUrl = "https://app.renthus.com.br/c/loja?wm=longtoken";
+        const out = await runProPipeline(
+            { ...baseInput(), inboundText: "oi", webMenuUrl: menuUrl },
+            deps
+        );
+        const menu = out.outbound.find((m) => m.kind === "buttons");
+        assert.ok(menu);
+        const ids = (menu?.buttons ?? []).map((b) => b.id);
+        assert.deepEqual(ids, ["btn_order", "btn_status", "btn_support"]);
+        assert.ok(out.outbound.some((m) => m.kind === "cta_url" && m.ctaUrl?.url === menuUrl));
+        assert.ok(out.outbound.every((m) => !(m.kind === "text" && (m.text ?? "").includes(menuUrl))));
     });
 
     it("botão de pagamento em dinheiro deve pedir troco", async () => {

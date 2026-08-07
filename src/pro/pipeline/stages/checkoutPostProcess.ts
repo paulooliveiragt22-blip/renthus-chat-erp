@@ -65,7 +65,9 @@ function buildConfirmationActionButtons(draft: OrderDraft): OutboundMessage {
 
 /** WhatsApp: mensagens interactivas primeiro, depois texto (melhor UX e alinhado a “botão primeiro”). */
 export function prioritizeInteractiveFirst(messages: OutboundMessage[]): OutboundMessage[] {
-    const interactive = messages.filter((m) => m.kind === "buttons" || m.kind === "flow");
+    const interactive = messages.filter(
+        (m) => m.kind === "buttons" || m.kind === "flow" || m.kind === "cta_url"
+    );
     const plain = messages.filter((m) => m.kind === "text");
     return [...interactive, ...plain];
 }

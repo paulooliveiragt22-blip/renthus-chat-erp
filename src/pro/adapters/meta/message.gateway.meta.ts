@@ -107,11 +107,13 @@ export class MetaMessageGateway implements MessageGateway {
             return;
         }
 
-        if (message.kind === "text" || message.kind === "flow") {
+        if (message.kind === "text" || message.kind === "flow" || message.kind === "cta_url") {
             const text =
                 message.kind === "flow"
                     ? (message.flow?.bodyText ?? message.text ?? "")
-                    : (message.text ?? "");
+                    : message.kind === "cta_url"
+                      ? `${message.ctaUrl?.bodyText ?? ""}\n\n${message.ctaUrl?.url ?? ""}`.trim()
+                      : (message.text ?? "");
             if (!text.trim()) return;
             if (await this.isRecentDuplicateText(tenant, text)) return;
             const result = await sendMetaPageText({

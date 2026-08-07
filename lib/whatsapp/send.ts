@@ -165,6 +165,52 @@ export async function sendFlowMessage(
 }
 
 /**
+ * Envia mensagem interativa CTA URL (botão abre link; URL não precisa ir no texto).
+ * display_text: máx 20 chars.
+ */
+export async function sendCtaUrlButton(
+    to: string,
+    bodyText: string,
+    displayText: string,
+    url: string,
+    config?: WaConfig
+): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+    const token = config?.accessToken ?? process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (!token || !phoneNumberId) {
+        console.error("[send] WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados");
+        return { ok: false, error: "missing_env_vars" };
+    }
+
+    const toNormalized = normalizeBrazilianNumber(to);
+    const href = url.trim();
+    if (!href) return { ok: false, error: "missing_url" };
+
+    return postWaMessage(
+        phoneNumberId,
+        token,
+        {
+            messaging_product: "whatsapp",
+            to: toNormalized,
+            type: "interactive",
+            interactive: {
+                type: "cta_url",
+                body: { text: bodyText.slice(0, 1024) },
+                action: {
+                    name: "cta_url",
+                    parameters: {
+                        display_text: displayText.slice(0, 20),
+                        url: href,
+                    },
+                },
+            },
+        },
+        "cta_url"
+    );
+}
+
+/**
  * Envia mensagem interativa com até 3 botões de resposta rápida (reply_button).
  * Título de cada botão: máx 20 chars.
  */

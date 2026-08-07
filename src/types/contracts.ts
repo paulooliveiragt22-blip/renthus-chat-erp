@@ -229,7 +229,7 @@ export interface IntentDecision {
 }
 
 export interface OutboundMessage {
-    kind: "text" | "buttons" | "flow";
+    kind: "text" | "buttons" | "flow" | "cta_url";
     text?: string;
     buttons?: Array<{ id: string; title: string }>;
     flow?: {
@@ -237,6 +237,12 @@ export interface OutboundMessage {
         flowToken: string;
         ctaLabel: string;
         bodyText: string;
+    };
+    /** Botão Meta `cta_url` — URL fica atrás do botão (não no corpo). */
+    ctaUrl?: {
+        bodyText: string;
+        displayText: string;
+        url: string;
     };
 }
 

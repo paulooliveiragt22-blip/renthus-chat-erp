@@ -13,10 +13,10 @@ export type ChatbotMessageTemplates = Record<ChatbotMessageTemplateKey, string>;
 
 /** Instruções anexadas após a saudação (não editáveis na UI). */
 export const WELCOME_INSTRUCTIONS_RETURNING =
-    "\n\nDigite o que precisa (produto + endereco + pagamento) ou use os botões abaixo.";
+    "\n\nUse os botões abaixo: continuar o pedido no chat, ver seus pedidos ou falar com um atendente. O cardápio web fica no botão Abrir cardápio.";
 
 export const WELCOME_INSTRUCTIONS_FIRST =
-    "\n\nSe preferir, escreva tudo em uma frase (produto + endereco + pagamento) ou use os botões abaixo.";
+    "\n\nUse os botões abaixo: continuar o pedido no chat, ver seus pedidos ou falar com um atendente. O cardápio web fica no botão Abrir cardápio.";
 
 export const DEFAULT_CHATBOT_MESSAGE_TEMPLATES: ChatbotMessageTemplates = {
     msg_welcome_returning:

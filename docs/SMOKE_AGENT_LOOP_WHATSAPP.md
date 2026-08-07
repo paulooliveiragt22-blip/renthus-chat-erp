@@ -26,8 +26,8 @@ Executar na ordem. Em cada passo: anotar resposta do bot + se gerou pedido em `o
 | | |
 |--|--|
 | **Enviar** | `oi` |
-| **Esperado** | Texto de boas-vindas; opções pedido / cardápio / atendente (sem inventar URL). Sem `prepare_order_draft` obrigatório. **Sem** botões de produto residual de sessão anterior. |
-| **Falha se** | Fecha pedido; inventa produtos/preços; ignora saudação; **reemite pick UN/CX antigo junto com o menu**. |
+| **Esperado** | Saudação curta + **botões** Continuar pedido / Meus pedidos / Falar com atendente; cardápio via botão **Abrir cardápio** (CTA, sem URL longa no texto). |
+| **Falha se** | Fecha pedido; inventa produtos/preços; ignora saudação; reemite pick residual; **cola URL enorme do cardápio no texto**. |
 | ☐ | |
 
 | | |

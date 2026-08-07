@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OutboundMessage, TenantRef } from "@/src/types/contracts";
 import type { MessageGateway } from "../../ports/message.gateway";
-import { botReply, botSendButtons } from "@/lib/chatbot/botSend";
+import { botReply, botSendButtons, botSendCtaUrl } from "@/lib/chatbot/botSend";
 import { sendFlowMessage, type WaConfig } from "@/lib/whatsapp/send";
 
 export class WhatsAppMessageGateway implements MessageGateway {
@@ -61,6 +61,33 @@ export class WhatsAppMessageGateway implements MessageGateway {
                     tenant.threadId,
                     tenant.phoneE164,
                     text
+                );
+            }
+            return;
+        }
+
+        if (message.kind === "cta_url" && message.ctaUrl) {
+            const { bodyText, displayText, url } = message.ctaUrl;
+            if (!url.trim()) return;
+            if (await this.isRecentDuplicateText(tenant, bodyText)) return;
+            const result = await botSendCtaUrl(
+                this.admin,
+                tenant.companyId,
+                tenant.threadId,
+                tenant.phoneE164,
+                bodyText,
+                displayText,
+                url,
+                this.waConfig
+            );
+            if (result && result.ok === false) {
+                console.error("[pro/whatsapp] cta_url failed, fallback text:", result.error);
+                await botReply(
+                    this.admin,
+                    tenant.companyId,
+                    tenant.threadId,
+                    tenant.phoneE164,
+                    `${bodyText}\n\n${url}`
                 );
             }
             return;

@@ -6,6 +6,7 @@ import { createLlmPort, getConfiguredLlmProvider } from "@/src/pro/adapters/llm/
 import { extractLlmPlainText, hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 
 const BTN_CATALOG = new Set(["btn_catalog"]);
+const BTN_ORDER = new Set(["btn_order"]);
 const BTN_STATUS = new Set(["btn_status"]);
 const BTN_SUPPORT = new Set(["btn_support"]);
 const BTN_ORDER_EDIT = new Set(["pro_edit_order", "btn_edit_order"]);
@@ -168,7 +169,9 @@ export class ProIntentClassifierService implements IntentService {
         ) {
             return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
         }
-        if (BTN_CATALOG.has(text)) return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
+        if (BTN_CATALOG.has(text) || BTN_ORDER.has(text)) {
+            return { intent: "order_intent", confidence: "high", reasonCode: "button_id_match" };
+        }
         if (BTN_STATUS.has(text)) return { intent: "status_intent", confidence: "high", reasonCode: "button_id_match" };
         if (BTN_SUPPORT.has(text)) return { intent: "human_intent", confidence: "high", reasonCode: "button_id_match" };
         /**

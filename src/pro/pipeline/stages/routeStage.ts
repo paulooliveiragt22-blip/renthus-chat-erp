@@ -1,5 +1,4 @@
 import type { IntentDecision, OutboundMessage, ProSessionState, TenantRef } from "@/src/types/contracts";
-import { buildWebMenuOfferText } from "@/lib/public-menu/menuOfferText";
 import {
     buildWelcomeMenuBody,
     type ChatbotMessageTemplates,
@@ -27,12 +26,50 @@ function wantsCatalogBrowse(norm: string): boolean {
     return /^(quero\s+)?(ver\s+)?(o\s+)?(cardapio|catalogo|menu)(\s+por\s+favor)?$/u.test(norm);
 }
 
-function mainMenuButtons(): Array<{ id: string; title: string }> {
+/** Continuar pedido no chat (botão do menu de boas-vindas). */
+function wantsContinueOrder(norm: string): boolean {
+    return norm === "btn_order";
+}
+
+/**
+ * WhatsApp: máx 3 reply buttons (20 chars).
+ * Cardápio web vai em mensagem `cta_url` separada (URL atrás do botão).
+ */
+export function mainMenuButtons(): Array<{ id: string; title: string }> {
     return [
-        { id: "btn_catalog", title: "Cardapio" },
-        { id: "btn_status", title: "Meu pedido" },
+        { id: "btn_order", title: "Continuar pedido" },
+        { id: "btn_status", title: "Meus pedidos" },
         { id: "btn_support", title: "Falar com atendente" },
     ];
+}
+
+export function buildWebMenuCtaOutbound(webMenuUrl: string): OutboundMessage {
+    return {
+        kind: "cta_url",
+        ctaUrl: {
+            bodyText: "Prefere ver o cardápio completo no celular?",
+            displayText: "Abrir cardápio",
+            url: webMenuUrl.trim(),
+        },
+    };
+}
+
+function welcomeOutbound(params: {
+    state: ProSessionState;
+    messageTemplates?: ChatbotMessageTemplates | null;
+    webMenuUrl?: string | null;
+}): OutboundMessage[] {
+    const isReturningCustomer = Boolean(params.state.customerId);
+    const outbound: OutboundMessage[] = [
+        {
+            kind: "buttons",
+            text: buildWelcomeMenuBody(isReturningCustomer, params.messageTemplates),
+            buttons: mainMenuButtons(),
+        },
+    ];
+    const url = String(params.webMenuUrl ?? "").trim();
+    if (url) outbound.push(buildWebMenuCtaOutbound(url));
+    return outbound;
 }
 
 export function routeStage(params: {
@@ -45,8 +82,8 @@ export function routeStage(params: {
     webMenuUrl?: string | null;
     messageTemplates?: ChatbotMessageTemplates | null;
     /**
-     * true = IA com crédito (saudação/faq vão ao LLM).
-     * false = degradado: menu de botões determinístico.
+     * true = IA com crédito (faq/unknown vão ao LLM).
+     * Saudação sem pedido ativo: sempre menu de botões (não cola URL no texto).
      */
     llmEnabled?: boolean;
 }): RouteStageResult {
@@ -80,16 +117,27 @@ export function routeStage(params: {
         };
     }
 
+    if (wantsContinueOrder(norm)) {
+        return {
+            mode: "direct_reply",
+            state: {
+                ...state,
+                step: state.step === "pro_idle" ? "pro_collecting_order" : state.step,
+            },
+            outbound: [
+                {
+                    kind: "text",
+                    text: "Perfeito! Me diga o que deseja pedir (produto e quantidade).",
+                },
+            ],
+        };
+    }
+
     if (wantsCatalogBrowse(norm) && webMenuUrl) {
         return {
             mode: "direct_reply",
             state,
-            outbound: [
-                {
-                    kind: "text",
-                    text: buildWebMenuOfferText({ url: webMenuUrl }),
-                },
-            ],
+            outbound: [buildWebMenuCtaOutbound(webMenuUrl)],
         };
     }
 
@@ -101,10 +149,10 @@ export function routeStage(params: {
                 {
                     kind: "flow",
                     flow: {
-                        flowId:    flowCatalogId,
+                        flowId: flowCatalogId,
                         flowToken: `${tenant.threadId}|${tenant.companyId}|catalog`,
-                        bodyText:  "Abra o formulário do catálogo para escolher os produtos.",
-                        ctaLabel:  "Ver catálogo",
+                        bodyText: "Abra o formulário do catálogo para escolher os produtos.",
+                        ctaLabel: "Ver catálogo",
                     },
                 },
             ],
@@ -119,10 +167,10 @@ export function routeStage(params: {
                 {
                     kind: "flow",
                     flow: {
-                        flowId:    flowStatusId,
+                        flowId: flowStatusId,
                         flowToken: `${tenant.threadId}|${tenant.companyId}|status`,
-                        bodyText:  "Consulte o status do seu pedido no formulário.",
-                        ctaLabel:  "Ver status",
+                        bodyText: "Consulte o status do seu pedido no formulário.",
+                        ctaLabel: "Ver status",
                     },
                 },
             ],
@@ -137,10 +185,10 @@ export function routeStage(params: {
                 {
                     kind: "flow",
                     flow: {
-                        flowId:    flowStatusId,
+                        flowId: flowStatusId,
                         flowToken: `${tenant.threadId}|${tenant.companyId}|status`,
-                        bodyText:  "Consulte o status do seu pedido no formulário.",
-                        ctaLabel:  "Ver status",
+                        bodyText: "Consulte o status do seu pedido no formulário.",
+                        ctaLabel: "Ver status",
                     },
                 },
             ],
@@ -186,22 +234,25 @@ export function routeStage(params: {
         if (isOrderSessionContinuityNeeded(state)) {
             return { mode: "ai", state, outbound: [] };
         }
-        /** Com IA ativa: deixa o LLM cumprimentar e oferecer atendimento / cardápio / atendente. */
+        /**
+         * Saudação: menu de botões no servidor (mesmo com LLM ligado).
+         * Evita o modelo colar URL longa do cardápio no texto.
+         */
+        if (decision.intent === "greeting") {
+            return {
+                mode: "direct_reply",
+                state,
+                outbound: welcomeOutbound({ state, messageTemplates, webMenuUrl }),
+            };
+        }
+        /** FAQ / unknown com IA: LLM. Sem IA: mesmo menu. */
         if (llmEnabled) {
             return { mode: "ai", state, outbound: [] };
         }
-        const isReturningCustomer = Boolean(state.customerId);
-        /** Flow de cadastro de endereco: só após o pedido ter itens (ver `checkoutPostProcess`). */
         return {
             mode: "direct_reply",
             state,
-            outbound: [
-                {
-                    kind: "buttons",
-                    text: buildWelcomeMenuBody(isReturningCustomer, messageTemplates),
-                    buttons: mainMenuButtons(),
-                },
-            ],
+            outbound: welcomeOutbound({ state, messageTemplates, webMenuUrl }),
         };
     }
 

@@ -254,11 +254,12 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
     const welcomeBlock =
         !draft?.items?.length && (session.step === "pro_idle" || session.step === "pro_collecting_order")
             ? "\n\n--- Primeiro contato ---\n" +
-              "Se a mensagem for saudação ou ambígua: ofereça (1) continuar o pedido com você no chat, " +
+              "Se a mensagem for saudação: NÃO cole URL do cardápio no texto (o servidor envia botões). " +
+              "Cumprimente em 1 frase curta só se ainda não houver menu; prefira pedir o que o cliente quer. " +
               (menuUrl
-                  ? `(2) abrir o cardápio web: ${menuUrl}, `
-                  : "(2) pedir o cardápio/menu da loja, ") +
-              "(3) falar com um atendente humano. Não invente URL.\n--- Fim primeiro contato ---\n"
+                  ? "Cardápio web existe (não cole o link). "
+                  : "Se não houver cardápio configurado, oriente a pedir no chat ou atendente. ") +
+              "Opções: continuar pedido no chat, meus pedidos, atendente.\n--- Fim primeiro contato ---\n"
             : "";
 
     const prefix = base + phaseBlock + editHoldBlock + draftBlock + summaryBlock + welcomeBlock;

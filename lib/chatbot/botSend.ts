@@ -12,6 +12,7 @@ import { sendWhatsAppMessage as sendViaService } from "../whatsapp/sendMessage";
 import {
     sendInteractiveButtons as _sendInteractiveButtons,
     sendListMessage        as _sendListMessage,
+    sendCtaUrlButton       as _sendCtaUrlButton,
 } from "../whatsapp/send";
 import type { WaConfig } from "../whatsapp/send";
 
@@ -50,6 +51,21 @@ export async function botSendButtons(
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
     /** Uma só bolha: o interactive já leva o corpo; texto duplicado quebrava UX no WhatsApp. */
     return _sendInteractiveButtons(phoneE164, body, buttons, waConfig);
+}
+
+// ─── CTA URL (cardápio web etc.) ───────────────────────────────────────────────
+
+export async function botSendCtaUrl(
+    _admin: SupabaseClient,
+    _companyId: string,
+    _threadId: string,
+    phoneE164: string,
+    bodyText: string,
+    displayText: string,
+    url: string,
+    waConfig?: WaConfig
+): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+    return _sendCtaUrlButton(phoneE164, bodyText, displayText, url, waConfig);
 }
 
 // ─── Lista interativa ──────────────────────────────────────────────────────────
