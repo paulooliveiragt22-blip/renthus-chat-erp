@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0 e 1 concluídas (2026-08-07). Próxima: Fase 2 (`search_produtos`/`get_order_hints` como wrappers). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** 🔄 em andamento — Fases 0, 1 e 2 concluídas (2026-08-07). Próxima: Fase 3 (`ai.service.ts` — loop novo + deletar `ai.service.full.ts`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
 
 ---
 
@@ -123,15 +123,22 @@ ai@6.0.246
 
 **Nota para a Fase 3:** `prepareOrderDraft.tool.ts` (wrapper Vercel AI SDK) será criado ali, chamando `prepareOrderDraftFromTool` (já com o shape novo) — não precisa redesenhar nada de novo nessa hora.
 
-### Fase 2 — `search_produtos` e `get_order_hints` como wrappers finos ⬜
+### Fase 2 — `search_produtos` e `get_order_hints` extraídos para funções reusáveis ✅
 
-- [ ] `src/pro/adapters/ai/tools/searchProdutos.tool.ts`: `tool()` chamando a lógica existente de `src/pro/tools/searchProdutos.ts` sem alterar comportamento (inclui `disambiguatePackagingForSearchRows`).
-- [ ] `src/pro/adapters/ai/tools/getOrderHints.tool.ts`: idem, chamando `buildOrderHintsPayload`.
-- **Critério de pronto:** `npm test` verde. Ainda sem loop novo plugado.
+**Decisão registrada:** mesmo padrão de adiamento da Fase 1 (`prepareOrderDraft.tool.ts`) — criar `tool()` já agora seria wrapper sem consumidor real (o loop novo só existe na Fase 3) e sem poder testar a mecânica de `experimental_context` de verdade. Em vez disso: extraída a lógica de orquestração que hoje vive em métodos **privados** de `FullAiServiceAdapter` (`runSearchTool`/`runHintsTool` — acopladas a `this.catalog`/`this.admin` e a mutação por referência de `allowlistRuntime`/`searchMeta`) para funções **standalone** com deps explícitas e retorno de valor (sem mutação por referência). `ai.service.full.ts` passou a delegar a elas — comportamento idêntico, agora testável isoladamente (não havia nenhum teste direto de `runSearchTool`/`runHintsTool` antes, por serem privados).
+
+- [x] `src/pro/adapters/ai/tools/searchProdutosForAi.ts` — `runSearchProdutosForAi(input, deps)`: chama `CatalogPort.searchDetailed`, desambiguação de embalagem (`disambiguatePackagingForSearchRows`/`isSamePackagingFamily`), monta `guidance_for_model_pt`; devolve `{ body, allowlistIds, lastSearchPicks, wasEmpty }` em vez de mutar `allowlistRuntime`/`searchMeta` por referência.
+- [x] `src/pro/adapters/ai/tools/orderHintsForAi.ts` — `runOrderHintsForAi(deps)`: reaproveita `prefetchedOrderHints` do turno (com guidance) ou chama `buildOrderHintsPayload`.
+- [x] `ai.service.full.ts`: `runSearchTool`/`runHintsTool` (privados) agora só chamam essas funções e fazem o wrap em `ToolResultBlock` (`tool_use_id`/`JSON.stringify`); método `resolvePackagingHabitForRows` e imports agora não usados (`toChatCatalogPublicItem`, `buildOrderHintsPayload`, `disambiguatePackagingForSearchRows`, `isSamePackagingFamily`, `loadCompanySiglas`, `loadCustomerSiglaHabits`) removidos deste arquivo.
+- [x] Testes novos: `tests/pro/searchProdutosForAi.test.ts` (4 casos: item único, busca vazia, ambiguidade UN/CX, did_you_mean), `tests/pro/orderHintsForAi.test.ts` (2 casos: cache do turno, fallback via banco).
+- **Critério de pronto:** `npm test` → 673 pass/fail totais, mesmo baseline de 25 falhas pré-existentes (sem regressão nova); 6 testes novos, todos verdes. ✅
+
+**Nota para a Fase 3:** `searchProdutos.tool.ts`/`getOrderHints.tool.ts` (wrappers Vercel AI SDK) serão criados ali, chamando `runSearchProdutosForAi`/`runOrderHintsForAi` — a única peça nova na Fase 3 é decidir como o `execute()` recebe/devolve o estado de turno (`allowlistIds`/`lastSearchPicks`/`emptySearchStreak`) sem os métodos privados de classe: via `experimental_context` mutável passado a `generateText`, ou lendo os `tool-result` dos `steps` depois do loop terminar (preferir a 2ª opção — menos estado mutável compartilhado entre tools).
 
 ### Fase 3 — `ai.service.ts` (loop novo) + deletar `ai.service.full.ts` ⬜
 
 - [ ] Criar `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` (adiado da Fase 1): `tool({ inputSchema, execute })` chamando `prepareOrderDraftFromTool` (shape já pronto: `{ok, draft, errors, blocked}`); no `execute`, montar `guidance_for_model_pt` com `presentBlockedReasonForModel(blocked)` quando `blocked.code !== "FIX_ERRORS"`, senão a lógica dinâmica de `buildPrepareDraftGuidanceForModel`.
+- [ ] Criar `src/pro/adapters/ai/tools/searchProdutos.tool.ts` e `src/pro/adapters/ai/tools/getOrderHints.tool.ts` (adiados da Fase 2): `tool({ inputSchema, execute })` chamando `runSearchProdutosForAi`/`runOrderHintsForAi` — ver nota ao final da Fase 2 sobre como repassar `allowlistIds`/`lastSearchPicks`/`emptySearchStreak` pro resto do turno sem mutação por referência.
 - [ ] Criar `src/pro/adapters/ai/ai.service.ts` implementando `AiService` (mesma interface de `src/pro/services/ai/ai.types.ts`) usando `generateText` com as 4 tools (3 de negócio + `respond_to_customer`), `stopWhen: [hasToolCall("respond_to_customer"), stepCountIs(12)]`.
 - [ ] Portar para dentro deste arquivo: `buildEffectiveSystemPrompt` e todos os blocos (`phaseBlock`, `editHoldBlock`, `draftBlock`, `summaryBlock`, `welcomeBlock`, `addressConfirmBlock`), `SYSTEM_PROMPT`/`SYSTEM_PROMPT_INFO_ONLY`, `shouldForcePrepareAfterEmbalagemChoice`/`shouldForcePrepareAfterUnambiguousSearch` (essas duas funções são lógica pura, portar sem reescrever).
 - [ ] `address_free_text` do `respond_to_customer` alimenta `AiServiceResult.signals.addressFreeText` diretamente (sem strip de marcador).

@@ -18,12 +18,10 @@ import { hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
 import { SupabaseCatalogAdapter } from "@/src/pro/adapters/supabase/catalog.supabase";
 import { SupabaseOrderDraftAdapter } from "@/src/pro/adapters/supabase/orderDraft.supabase";
 import { NoopSessionMemoryAdapter } from "@/src/pro/adapters/ai/sessionMemory.llm";
-import { toChatCatalogPublicItem } from "@/src/pro/tools/catalogPublicDto";
 import {
     buildDeliverySpecialistSystemPreamble,
     buildPhasePlaybookForModel,
 } from "@/src/pro/tools/checkoutPhasePolicy";
-import { buildOrderHintsPayload } from "@/src/pro/tools/orderHints";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import {
     buildPrepareDraftGuidanceForModel,
@@ -43,11 +41,8 @@ import {
 } from "./sanitizeAiVisibleOrderClaims";
 import { isDraftStructurallyCompleteForFinalize } from "@/src/pro/pipeline/orderDraftGate";
 import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep";
-import {
-    disambiguatePackagingForSearchRows,
-    isSamePackagingFamily,
-} from "@/src/pro/pipeline/packagingDisambiguation";
-import { loadCompanySiglas, loadCustomerSiglaHabits } from "@/src/pro/pipeline/customerPackagingHabit";
+import { runSearchProdutosForAi } from "@/src/pro/adapters/ai/tools/searchProdutosForAi";
+import { runOrderHintsForAi } from "@/src/pro/adapters/ai/tools/orderHintsForAi";
 import { stripAddressFreeTextMarker, stripModelIntentSuffix } from "./stripModelIntentSuffix";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
@@ -424,23 +419,6 @@ export class FullAiServiceAdapter implements AiService {
         return normalizePrepareDraftAnthropicInput(raw);
     }
 
-    /** Hábito de sigla do cliente para o produto retornado (aprendizagem por cliente). */
-    private async resolvePackagingHabitForRows(
-        input: AiServiceInput,
-        rows: Array<{ produto_id?: string | null }>
-    ): Promise<string | null> {
-        const customerId = input.context.session.customerId;
-        const produtoId = rows.find((r) => r.produto_id)?.produto_id?.trim();
-        if (!customerId || !produtoId) return null;
-        const habits = await loadCustomerSiglaHabits({
-            admin: this.admin,
-            companyId: input.context.tenant.companyId,
-            customerId,
-            productIds: [produtoId],
-        });
-        return habits.get(produtoId) ?? null;
-    }
-
     private async runSearchTool(
         input: AiServiceInput,
         block: { id: string; input: unknown },
@@ -453,91 +431,35 @@ export class FullAiServiceAdapter implements AiService {
         const payload = (block.input ?? {}) as Record<string, unknown>;
         const query = String(payload.query ?? "");
         const categoryHint = payload.category_hint == null ? null : String(payload.category_hint);
-        const detailed = await this.catalog.searchDetailed(
-            input.context.tenant.companyId,
-            query,
-            { categoryHint, limit: 8 }
+        const result = await runSearchProdutosForAi(
+            { query, categoryHint },
+            {
+                admin: this.admin,
+                catalog: this.catalog,
+                companyId: input.context.tenant.companyId,
+                customerId: input.context.session.customerId,
+                userText: input.userText,
+            }
         );
-        let rows = detailed.items;
-        if (isSamePackagingFamily(rows)) {
-            const [companySiglas, habitSigla] = await Promise.all([
-                loadCompanySiglas(this.admin, input.context.tenant.companyId),
-                this.resolvePackagingHabitForRows(input, rows),
-            ]);
-            rows = disambiguatePackagingForSearchRows(rows, query, input.userText, {
-                companySiglas,
-                habitSigla,
-            });
-        }
-        const publicItems = rows.map((r) =>
-            toChatCatalogPublicItem(r as unknown as Record<string, unknown>)
-        );
-        allowlistRuntime.ids = publicItems.map((r) => r.id).filter(Boolean);
-        searchMeta.lastSearchPicks = publicItems.slice(0, 3).map((r) => ({
-            embalagemId: r.id,
-            label: String(r.display_name || r.product_name || "Item").slice(0, 40),
-            price: r.preco_venda,
-            productName: r.product_name,
-        }));
-        searchMeta.emptySearchStreak = detailed.empty
+        allowlistRuntime.ids = result.allowlistIds;
+        searchMeta.lastSearchPicks = result.lastSearchPicks;
+        searchMeta.emptySearchStreak = result.wasEmpty
             ? (input.context.session.emptySearchStreak ?? 0) + 1
             : 0;
-        const guidanceForModelPt =
-            publicItems.length > 0
-                ? [
-                      "Use apenas o UUID de cada linha em items (campos id ou produto_embalagem_id) em prepare_order_draft — não invente UUID.",
-                      `IDs exatos desta busca (copie um literalmente): ${allowlistRuntime.ids.join(", ")}.`,
-                      "Não cite custo, estoque numérico, código interno, EAN nem UUID no texto ao cliente.",
-                      "descricao_ingredientes = o que acompanha; informacoes = como é feito / extras.",
-                      ...(detailed.didYouMean.length
-                          ? [
-                                `did_you_mean: ${detailed.didYouMean.map((d) => d.label).join(" | ")}. Ofereça essas opções se o cliente digitou errado.`,
-                            ]
-                          : []),
-                      ...(publicItems.length >= 2
-                          ? [
-                                "Há mais de uma opção: NÃO liste preços/opções no texto — o servidor envia botões/lista. Só confirme que há opções e peça para tocar no botão ou responder com o número.",
-                            ]
-                          : [
-                                "Uma opção clara: informe nome + preço de venda e pergunte a quantidade. Se o cliente responder só com número (ex.: 3), o servidor pode montar o rascunho — chame prepare_order_draft se ainda não houver itens.",
-                            ]),
-                  ]
-                : [
-                      "Nenhum item no catálogo para este termo (busca fuzzy também vazia).",
-                      "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente oriente o cardápio web.",
-                  ];
         return {
             type: "tool_result",
             tool_use_id: block.id,
-            content: JSON.stringify({
-                items: publicItems,
-                did_you_mean: detailed.didYouMean,
-                query_normalized: detailed.queryNormalized,
-                produto_embalagem_ids_validos: allowlistRuntime.ids,
-                guidance_for_model_pt: guidanceForModelPt,
-            }),
+            content: JSON.stringify(result.body),
         };
     }
 
     private async runHintsTool(input: AiServiceInput, block: { id: string }): Promise<ToolResultBlock> {
-        const cached = input.context.prefetchedOrderHints;
-        if (cached && typeof cached === "object") {
-            return {
-                type: "tool_result",
-                tool_use_id: block.id,
-                content: JSON.stringify({
-                    ...cached,
-                    guidance_for_model_pt: [
-                        "Hints já carregados no servidor neste turno — use saved_addresses/favoritos sem nova busca.",
-                    ],
-                }),
-            };
-        }
-        const hints = await buildOrderHintsPayload({
+        const hints = await runOrderHintsForAi({
             admin: this.admin,
             companyId: input.context.tenant.companyId,
             phoneE164: input.context.tenant.phoneE164,
-            name: input.context.actor.profileName ?? null,
+            profileName: input.context.actor.profileName ?? null,
+            prefetchedOrderHints: input.context.prefetchedOrderHints,
         });
         return {
             type: "tool_result",
