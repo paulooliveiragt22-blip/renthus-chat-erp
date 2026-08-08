@@ -107,8 +107,33 @@ export function shouldForcePrepareAfterUnambiguousSearch(params: {
     return params.allowlistNowCount === 1;
 }
 
+/**
+ * Turno anterior deixou produto(s) do cliente sem buscar (`pending_items` do
+ * `respond_to_customer`). Força search_produtos até o modelo dar pelo menos uma chance a cada
+ * um — evita item citado pelo cliente sumir do pedido em silêncio (bug real de smoke: "quero
+ * skol e original" resolveu só "original").
+ */
+export function shouldForceSearchForPendingMentions(params: {
+    infoOnly: boolean;
+    pendingMentionsCount: number;
+    searchInvokedThisTurn: boolean;
+}): boolean {
+    if (params.infoOnly) return false;
+    return params.pendingMentionsCount > 0 && !params.searchInvokedThisTurn;
+}
+
 const FORCE_PREPARE_NUDGE =
     "[Instrução interna] Contrato exige prepare_order_draft agora: há SKU permitido (allowlist) e intenção de pedido. Chame prepare_order_draft com items (produto_embalagem_id permitido + quantidade). Se faltar endereço ou pagamento, prepare mesmo assim com o que souber — leia guidance_for_model_pt.";
+
+/**
+ * Turno anterior declarou (via `respond_to_customer.pending_items`) produto(s) do cliente ainda
+ * não buscados. Força search_produtos agora — sem isso o item pode sumir silenciosamente do
+ * pedido (bug real observado em smoke: "quero skol e original" resolveu só "original").
+ */
+function buildForceSearchPendingNudge(pendingMentions: readonly string[]): string {
+    const list = pendingMentions.map((m) => `"${m}"`).join(", ");
+    return `[Instrução interna] Contrato exige search_produtos agora para item(ns) que o cliente pediu e ainda não foi(ram) buscado(s) neste atendimento: ${list}. Chame search_produtos para o próximo destes antes de responder. Se depois de buscar ainda restar algo sem resolver, repita em pending_items ao chamar respond_to_customer.`;
+}
 
 /** Limite de caracteres do JSON de hints anexado ao system (evita estourar contexto). */
 const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
@@ -125,6 +150,8 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - NUNCA invente payment_method nem change_for: só se o cliente disse pix/dinheiro/cartão ou troco. Sem pagamento no draft: o servidor manda botões — não invente na prosa.
 - Se o cliente quer TROCAR/SUBSTITUIR um item: search_produtos do produto NOVO, depois prepare_order_draft com o UUID permitido. Não use bootstrap/extract paralelo — só tools.
 - Se o cliente quer acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
+- Se o cliente citar MAIS DE UM produto na mesma mensagem (ex.: "quero skol e original") e você só conseguir resolver/perguntar sobre um agora (ambiguidade, precisa de dados): NÃO esqueça o(s) outro(s) — informe-os em pending_items ao chamar respond_to_customer. Assim que possível (neste turno, após buscar, ou no próximo) resolva cada pending_item antes de avançar para endereço/pagamento.
+- Se o cliente citar um produto SEM dizer a quantidade (ex.: "quero original", sem número): não assuma quantity=1 — pergunte quantas unidades ele quer antes de chamar prepare_order_draft para esse item (exceção: contexto deixa claro que é 1, ex.: "me manda uma coca"). Se ficar sem resposta, inclua o produto em pending_items.
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
 - Nunca diga que o pedido já foi criado/entregue: isso só ocorre após confirmação no servidor.
@@ -159,6 +186,18 @@ function buildDraftSnapshotForModel(draft: OrderDraft | null): string {
     );
 }
 
+function buildPendingMentionsBlock(pendingMentions: readonly string[]): string {
+    if (!pendingMentions.length) return "";
+    const list = pendingMentions.map((m) => `- ${m}`).join("\n");
+    return (
+        "\n\n--- Itens ainda não resolvidos do(s) turno(s) anterior(es) ---\n" +
+        `O cliente também pediu, mas ainda não foi buscado/adicionado ao rascunho:\n${list}\n` +
+        "Chame search_produtos para cada um destes antes de avançar para endereço/pagamento (a menos que o cliente peça para não incluir). " +
+        "Se ainda não conseguir resolver algum agora, repita-o em pending_items na resposta final.\n" +
+        "--- Fim itens não resolvidos ---\n"
+    );
+}
+
 function buildEffectiveSystemPrompt(input: AiServiceInput): string {
     const base = isInfoOnlyAi(input) ? SYSTEM_PROMPT_INFO_ONLY : SYSTEM_PROMPT;
     const session = input.context.session;
@@ -178,6 +217,9 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
             ? "\n\nModo edição (Corrigir/Adicionar): NÃO reconstrua o carrinho do zero. Mantenha itens existentes; prepare_order_draft é aditivo.\n"
             : "";
     const draftBlock = isInfoOnlyAi(input) ? "" : buildDraftSnapshotForModel(draft);
+    const pendingMentionsBlock = isInfoOnlyAi(input)
+        ? ""
+        : buildPendingMentionsBlock(session.pendingOrderMentions ?? []);
 
     const summary = String(session.aiHistorySummary ?? "").trim();
     const summaryBlock =
@@ -208,7 +250,15 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
           "- Se houver só um endereço salvo (ou most_used_address_id e last_used_address_id iguais/ausentes): siga o fluxo normal (pode confirmar ou usar saved_address_id diretamente).\n" +
           "--- Fim confirmação de endereço ---\n";
 
-    const prefix = base + phaseBlock + editHoldBlock + draftBlock + summaryBlock + welcomeBlock + addressConfirmBlock;
+    const prefix =
+        base +
+        phaseBlock +
+        editHoldBlock +
+        draftBlock +
+        pendingMentionsBlock +
+        summaryBlock +
+        welcomeBlock +
+        addressConfirmBlock;
     const hints = input.context.prefetchedOrderHints;
     if (!hints || typeof hints !== "object") return prefix;
     try {
@@ -334,6 +384,12 @@ function createRespondToCustomerTool() {
                 .boolean()
                 .optional()
                 .describe("false só quando não entendeu a mensagem do cliente."),
+            pending_items: z
+                .array(z.string())
+                .optional()
+                .describe(
+                    "Produtos que o cliente mencionou (nesta mensagem ou antes) e que você AINDA não buscou/resolveu (não foram adicionados ao rascunho nem perguntados agora). Ex.: cliente disse 'quero skol e original', você só perguntou sobre original -> pending_items=['skol']. Deixe vazio/omitido quando não houver nada pendente."
+                ),
         }),
         execute: async (args) => args,
     });
@@ -381,6 +437,7 @@ export class AiServiceAdapter implements AiService {
             lastSearchPicks: SearchPickSummary[];
             emptySearchStreak: number;
             addressFreeText: boolean;
+            pendingOrderMentions: string[];
         }
     ): Promise<AiServiceResult> {
         const nextHistoryRaw = buildNextHistory(input, replyText);
@@ -404,6 +461,7 @@ export class AiServiceAdapter implements AiService {
                 updatedSearchProdutoEmbalagemIds: turn.allowlistIds,
                 lastSearchPicks: turn.lastSearchPicks,
                 emptySearchStreak: turn.emptySearchStreak,
+                updatedPendingOrderMentions: turn.pendingOrderMentions,
                 signals: { toolRoundsUsed, intentMarker: marker, addressFreeText: turn.addressFreeText },
             };
         }
@@ -423,6 +481,7 @@ export class AiServiceAdapter implements AiService {
             updatedSearchProdutoEmbalagemIds: turn.allowlistIds,
             lastSearchPicks: turn.lastSearchPicks,
             emptySearchStreak: turn.emptySearchStreak,
+            updatedPendingOrderMentions: turn.pendingOrderMentions,
             signals: { toolRoundsUsed, intentMarker: marker, addressFreeText: turn.addressFreeText },
         };
     }
@@ -435,6 +494,7 @@ export class AiServiceAdapter implements AiService {
             currentDraft: input.draft,
         });
         const allowlistAtStart = [...turnState.allowlistIds];
+        const pendingMentionsAtStart = [...(input.context.session.pendingOrderMentions ?? [])];
 
         if (!this.modelOverride && !hasLlmApiKey()) {
             return {
@@ -499,7 +559,7 @@ export class AiServiceAdapter implements AiService {
                 { role: "user" as const, content: wrapUserInboundForLlm(input.userText) },
             ];
 
-            const shouldForceNow = (): boolean => {
+            const shouldForcePrepare = (): boolean => {
                 if (infoOnly || input.skipForcePrepareAfterPick) return false;
                 return (
                     shouldForcePrepareAfterEmbalagemChoice({
@@ -520,11 +580,23 @@ export class AiServiceAdapter implements AiService {
                 );
             };
 
+            /**
+             * Turno anterior deixou produto(s) do cliente sem buscar (`pending_items` do
+             * `respond_to_customer`). Força search_produtos até o modelo dar pelo menos uma
+             * chance a cada um — evita item citado pelo cliente sumir do pedido em silêncio.
+             */
+            const shouldForcePendingSearch = (): boolean =>
+                shouldForceSearchForPendingMentions({
+                    infoOnly,
+                    pendingMentionsCount: pendingMentionsAtStart.length,
+                    searchInvokedThisTurn: turnState.searchInvokedThisTurn,
+                });
+
             const firstToolChoice =
                 !infoOnly && input.preferPrepareToolChoiceFirst
                     ? ({ type: "tool" as const, toolName: "prepare_order_draft" as const })
                     : undefined;
-            const maxSteps = Math.max(2, input.limits.maxToolRounds + 2);
+            const maxSteps = Math.max(2, input.limits.maxToolRounds + 3);
 
             const result = await generateText({
                 model,
@@ -544,8 +616,11 @@ export class AiServiceAdapter implements AiService {
                 stopWhen: [
                     ({ steps }) => {
                         if (!lastStepCalledRespond(steps)) return false;
-                        if (turnState.forceNudgeInjected) return true;
-                        return !shouldForceNow();
+                        const searchDone =
+                            !shouldForcePendingSearch() || turnState.forceSearchPendingNudgeInjected;
+                        const prepareDone =
+                            !shouldForcePrepare() || turnState.forcePrepareNudgeInjected;
+                        return searchDone && prepareDone;
                     },
                     stepCountIs(maxSteps),
                 ],
@@ -553,8 +628,20 @@ export class AiServiceAdapter implements AiService {
                     if (stepNumber === 0 && firstToolChoice) {
                         return { toolChoice: firstToolChoice };
                     }
-                    if (!turnState.forceNudgeInjected && lastStepCalledRespond(steps) && shouldForceNow()) {
-                        turnState.forceNudgeInjected = true;
+                    if (!lastStepCalledRespond(steps)) return undefined;
+                    /** Prioridade: resolver item pendente antes de forçar o prepare do pick atual. */
+                    if (!turnState.forceSearchPendingNudgeInjected && shouldForcePendingSearch()) {
+                        turnState.forceSearchPendingNudgeInjected = true;
+                        return {
+                            toolChoice: { type: "tool", toolName: "search_produtos" },
+                            messages: [
+                                ...stepMessages,
+                                { role: "user", content: buildForceSearchPendingNudge(pendingMentionsAtStart) },
+                            ],
+                        };
+                    }
+                    if (!turnState.forcePrepareNudgeInjected && shouldForcePrepare()) {
+                        turnState.forcePrepareNudgeInjected = true;
                         return {
                             toolChoice: { type: "tool", toolName: "prepare_order_draft" },
                             messages: [...stepMessages, { role: "user", content: FORCE_PREPARE_NUDGE }],
@@ -594,10 +681,22 @@ export class AiServiceAdapter implements AiService {
                 reply_text?: string;
                 address_free_text?: boolean;
                 understood?: boolean;
+                pending_items?: unknown;
             };
             const addressFreeText = Boolean(respondArgs.address_free_text);
             const marker: IntentMarker = respondArgs.understood === false ? "unknown" : "ok";
             const updatedDraft = turnState.currentDraft;
+            /**
+             * Fonte de verdade do próximo turno é a própria declaração do modelo — se ele não
+             * repetir pending_items, a pendência é descartada (evita ficar preso para sempre
+             * se o modelo simplesmente parar de reportar).
+             */
+            const updatedPendingOrderMentions = Array.isArray(respondArgs.pending_items)
+                ? respondArgs.pending_items
+                      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+                      .map((v) => v.trim())
+                      .slice(0, 5)
+                : [];
 
             let visibleSafe = stripInternalCatalogIdsFromCustomerText(
                 stripHallucinatedOrderPersistenceClaims(
@@ -628,6 +727,7 @@ export class AiServiceAdapter implements AiService {
                 lastSearchPicks: turnState.lastSearchPicks,
                 emptySearchStreak: turnState.emptySearchStreak,
                 addressFreeText,
+                pendingOrderMentions: updatedPendingOrderMentions,
             });
         } catch (error) {
             if (error instanceof LlmProviderConfigError) {

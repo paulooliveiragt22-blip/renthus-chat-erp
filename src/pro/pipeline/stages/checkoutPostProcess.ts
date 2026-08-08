@@ -402,6 +402,7 @@ export function applyQuickAction(
             bootstrapResolvedEmbalagemIds: [],
             bootstrapPendingClarifications: [],
             lastSearchPicks: [],
+            pendingOrderMentions: [],
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
         };
@@ -424,6 +425,7 @@ export function applyQuickAction(
             bootstrapResolvedEmbalagemIds: [],
             bootstrapPendingClarifications: [],
             lastSearchPicks: [],
+            pendingOrderMentions: [],
             deliveryAddressUiConfirmed: false,
             checkoutEditHold: false,
         };

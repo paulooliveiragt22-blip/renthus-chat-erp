@@ -29,8 +29,10 @@ export type TurnState = {
     /** Escrito só por search_produtos. */
     searchInvokedThisTurn: boolean;
     lastPrepareOutcome: { ok: boolean; errors: string[] } | null;
-    /** Escrito só por `ai.service.ts` (entre steps, via `prepareStep`) — evita repetir o nudge. */
-    forceNudgeInjected: boolean;
+    /** Escrito só por `ai.service.ts` (entre steps, via `prepareStep`) — evita repetir o nudge de prepare_order_draft. */
+    forcePrepareNudgeInjected: boolean;
+    /** Escrito só por `ai.service.ts` — evita repetir o nudge de search_produtos p/ item pendente. */
+    forceSearchPendingNudgeInjected: boolean;
 };
 
 export function createInitialTurnState(seed: {
@@ -47,6 +49,7 @@ export function createInitialTurnState(seed: {
         prepareInvokedThisTurn: false,
         searchInvokedThisTurn: false,
         lastPrepareOutcome: null,
-        forceNudgeInjected: false,
+        forcePrepareNudgeInjected: false,
+        forceSearchPendingNudgeInjected: false,
     };
 }

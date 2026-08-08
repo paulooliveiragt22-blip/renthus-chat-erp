@@ -200,6 +200,13 @@ export interface ProSessionState {
     /** Buscas vazias consecutivas — escala para cardápio web. */
     emptySearchStreak?: number;
     /**
+     * Produtos que o cliente mencionou (ex.: "quero skol e original") e que o próprio modelo
+     * declarou (`respond_to_customer.pending_items`) ainda não ter buscado/resolvido neste turno.
+     * `ai.service.ts` força `search_produtos` para estes no próximo turno antes de fechar via
+     * `respond_to_customer` — evita item citado pelo cliente sumir silenciosamente do rascunho.
+     */
+    pendingOrderMentions?: string[];
+    /**
      * Pedido acima do limiar da loja: primeira confirmação só “reconhece” o valor alto;
      * a segunda (com este flag true) fecha o pedido.
      */
@@ -419,6 +426,8 @@ export interface AiServiceResult {
         productName?: string | null;
     }>;
     emptySearchStreak?: number;
+    /** Ver `ProSessionState.pendingOrderMentions`. */
+    updatedPendingOrderMentions?: string[];
     signals: {
         toolRoundsUsed: number;
         /** Heurística a partir do sufixo da resposta do modelo (não é payload de WhatsApp). */

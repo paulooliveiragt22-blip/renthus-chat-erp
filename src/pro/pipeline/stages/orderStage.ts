@@ -229,6 +229,7 @@ export async function orderStage(params: {
                 inferredPaymentMethod: null,
                 pendingClarifyQuantity: null,
                 pendingClarifySegment: null,
+                pendingOrderMentions: [],
             },
             outboundText: orderResult.customerMessage,
             orderResult,

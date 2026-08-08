@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
     shouldForcePrepareAfterEmbalagemChoice,
     shouldForcePrepareAfterUnambiguousSearch,
+    shouldForceSearchForPendingMentions,
 } from "../../src/pro/adapters/ai/ai.service";
 
 describe("shouldForcePrepareAfterEmbalagemChoice", () => {
@@ -125,5 +126,35 @@ describe("shouldForcePrepareAfterUnambiguousSearch", () => {
             shouldForcePrepareAfterUnambiguousSearch({ ...base, searchInvokedThisTurn: false }),
             false
         );
+    });
+});
+
+describe("shouldForceSearchForPendingMentions", () => {
+    const base = {
+        infoOnly: false,
+        pendingMentionsCount: 1,
+        searchInvokedThisTurn: false,
+    };
+
+    it("força search quando há item pendente e nenhuma busca neste turno", () => {
+        assert.equal(shouldForceSearchForPendingMentions(base), true);
+    });
+
+    it("não força sem itens pendentes", () => {
+        assert.equal(
+            shouldForceSearchForPendingMentions({ ...base, pendingMentionsCount: 0 }),
+            false
+        );
+    });
+
+    it("não força se já buscou algo neste turno (dá chance de resolver o pendente)", () => {
+        assert.equal(
+            shouldForceSearchForPendingMentions({ ...base, searchInvokedThisTurn: true }),
+            false
+        );
+    });
+
+    it("não força em modo info_only", () => {
+        assert.equal(shouldForceSearchForPendingMentions({ ...base, infoOnly: true }), false);
     });
 });

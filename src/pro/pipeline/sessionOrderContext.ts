@@ -36,7 +36,8 @@ export function clearStaleClarifyUiIfNoDraft(session: ProSessionState): ProSessi
         (session.searchProdutoEmbalagemIds?.length ?? 0) > 0 ||
         session.pendingClarifyQuantity != null ||
         session.pendingClarifySegment != null ||
-        (session.pendingAskRepeatTerms?.length ?? 0) > 0;
+        (session.pendingAskRepeatTerms?.length ?? 0) > 0 ||
+        (session.pendingOrderMentions?.length ?? 0) > 0;
     if (!hasClarifyUi) return session;
     return {
         ...session,
@@ -47,6 +48,7 @@ export function clearStaleClarifyUiIfNoDraft(session: ProSessionState): ProSessi
         pendingClarifyQuantity: null,
         pendingClarifySegment: null,
         pendingAskRepeatTerms: [],
+        pendingOrderMentions: [],
         emptySearchStreak: 0,
         step:
             session.step === "pro_collecting_order" || session.step === "pro_idle"

@@ -56,6 +56,7 @@ function normalizeProV2State(raw: ProSessionState): ProSessionState {
         pendingAskRepeatTerms: raw.pendingAskRepeatTerms ?? [],
         pendingClarifyQuantity: raw.pendingClarifyQuantity ?? null,
         pendingClarifySegment: raw.pendingClarifySegment ?? null,
+        pendingOrderMentions: raw.pendingOrderMentions ?? [],
         aiHistorySummary: raw.aiHistorySummary ?? null,
         aiTurnCount: raw.aiTurnCount,
         aiWindowStartedAt: raw.aiWindowStartedAt ?? null,
