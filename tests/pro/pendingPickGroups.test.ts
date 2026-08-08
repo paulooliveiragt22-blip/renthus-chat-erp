@@ -5,6 +5,7 @@ import {
     buildPendingPickGroup,
     buildPickClarificationFreeText,
     groupsPastSafetyNet,
+    productKeyFromQuery,
     productKeyFromRows,
     removePendingPickGroupContaining,
     removePendingPickGroupsByKeys,
@@ -65,12 +66,51 @@ function originalGroup(unresolvedTurns = 0): PendingPickGroup {
     };
 }
 
+/** Produtos/variantes com NOMES DISTINTOS batendo no mesmo termo (não é a mesma família de embalagem). */
+function mixedOriginalGroup(unresolvedTurns = 0): PendingPickGroup {
+    return {
+        productKey: "original",
+        productLabel: "original",
+        unresolvedTurns,
+        options: [
+            {
+                embalagemId: "orig-600-un",
+                displayName: "ORIGINAL 600ML",
+                productName: "Original 600ml",
+                siglaComercial: "UN",
+                precoVenda: 15,
+                fatorConversao: 1,
+            },
+            {
+                embalagemId: "orig-600-cx",
+                displayName: "ORIGINAL 600ML (CX c/24)",
+                productName: "Original 600ml",
+                siglaComercial: "CX",
+                precoVenda: 360,
+                fatorConversao: 24,
+            },
+            {
+                embalagemId: "orig-lata",
+                displayName: "ORIGINAL LATA",
+                productName: "Original Lata",
+                siglaComercial: "UN",
+                precoVenda: 6,
+                fatorConversao: 1,
+            },
+        ],
+    };
+}
+
 describe("pendingPickGroups: build/upsert/remove", () => {
     it("productKeyFromRows normaliza o nome do produto", () => {
         assert.equal(
             productKeyFromRows([{ product_name: "  Skol Lata  " }]),
             "skol lata"
         );
+    });
+
+    it("productKeyFromQuery normaliza o termo de busca (usado quando as linhas têm nomes distintos)", () => {
+        assert.equal(productKeyFromQuery("  Original  "), "original");
     });
 
     it("buildPendingPickGroup limita a 4 opções e mapeia campos", () => {
@@ -141,6 +181,16 @@ describe("pendingPickGroups: buildPickClarificationFreeText", () => {
         assert.match(text, /ORIGINAL 600ML/);
         assert.equal(text.split("\n").filter((l) => l.startsWith("•")).length, 2);
     });
+
+    it("grupo com nomes DISTINTOS (não mesma família): lista o nome real de cada opção, não sigla genérica duplicada", () => {
+        const text = buildPickClarificationFreeText([mixedOriginalGroup()]);
+        assert.match(text, /ORIGINAL 600ML \(CX c\/24\)/);
+        assert.match(text, /ORIGINAL LATA/);
+        // duas opções UN com nomes diferentes não podem colapsar na mesma palavra "unidade"
+        const line = text.split("\n").find((l) => l.startsWith("•"))!;
+        assert.doesNotMatch(line, /unidade, unidade|unidade,\s*unidade/);
+        assert.doesNotMatch(text, /R\$/);
+    });
 });
 
 describe("pendingPickGroups: resolvePendingPickGroupsFromFreeText", () => {
@@ -199,6 +249,36 @@ describe("pendingPickGroups: resolvePendingPickGroupsFromFreeText", () => {
         assert.equal(resolved[0]!.productKey, "skol lata");
         assert.equal(remaining.length, 1);
         assert.equal(remaining[0]!.productKey, "original 600ml");
+        assert.equal(remaining[0]!.unresolvedTurns, 1);
+    });
+
+    it("grupo com nomes distintos: 'quero a lata' resolve pra ORIGINAL LATA (não confunde com 600ml UN)", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [mixedOriginalGroup()],
+            "quero a lata"
+        );
+        assert.equal(remaining.length, 0);
+        assert.equal(resolved.length, 1);
+        assert.equal(resolved[0]!.embalagemId, "orig-lata");
+    });
+
+    it("grupo com nomes distintos: 'quero uma caixa' resolve pra ORIGINAL 600ML (CX) via sigla explícita", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [mixedOriginalGroup()],
+            "quero uma caixa"
+        );
+        assert.equal(remaining.length, 0);
+        assert.equal(resolved.length, 1);
+        assert.equal(resolved[0]!.embalagemId, "orig-600-cx");
+    });
+
+    it("grupo com nomes distintos: '600ml' sozinho (UN e CX batem) segue genuinamente ambíguo — não adivinha", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [mixedOriginalGroup()],
+            "quero 600ml"
+        );
+        assert.equal(resolved.length, 0);
+        assert.equal(remaining.length, 1);
         assert.equal(remaining[0]!.unresolvedTurns, 1);
     });
 

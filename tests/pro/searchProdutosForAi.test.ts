@@ -98,7 +98,7 @@ describe("runSearchProdutosForAi", () => {
         assert.ok(blob.includes("Nenhum item no catálogo"));
     });
 
-    it("duas embalagens (UN/CX) da mesma família: guidance orienta botões, sem listar preço no texto", async () => {
+    it("duas embalagens (UN/CX) da mesma família: guidance orienta esclarecimento, sem listar preço no texto", async () => {
         const result = await runSearchProdutosForAi(
             { query: "skol" },
             {
@@ -115,6 +115,47 @@ describe("runSearchProdutosForAi", () => {
         assert.equal(result.allowlistIds.length, 2);
         const blob = (result.body.guidance_for_model_pt as string[]).join("\n");
         assert.ok(blob.includes("Há mais de uma opção"));
+        assert.ok(result.pendingPickGroup, "deve montar pendingPickGroup (mesma família)");
+        assert.equal(result.pendingPickGroup?.options.length, 2);
+        assert.equal(result.pendingPickGroup?.productKey, "skol");
+    });
+
+    it("2+ resultados com nomes DISTINTOS (não é a mesma família): ainda monta pendingPickGroup em texto livre", async () => {
+        const result = await runSearchProdutosForAi(
+            { query: "original" },
+            {
+                admin: fakeAdmin(),
+                catalog: catalogWith([
+                    makeRow({
+                        id: "id-600ml-un",
+                        product_name: "Original 600ml",
+                        display_name: "ORIGINAL 600ML",
+                        sigla_comercial: "UN",
+                    }),
+                    makeRow({
+                        id: "id-600ml-cx",
+                        product_name: "Original 600ml",
+                        display_name: "ORIGINAL 600ML (CX c/24)",
+                        sigla_comercial: "CX",
+                        fator_conversao: 24,
+                    }),
+                    makeRow({
+                        id: "id-lata",
+                        product_name: "Original Lata",
+                        display_name: "ORIGINAL LATA",
+                        sigla_comercial: "UN",
+                    }),
+                ]),
+                companyId: "company-1",
+                customerId: null,
+                userText: "quero original",
+            }
+        );
+        assert.equal(result.allowlistIds.length, 3);
+        assert.ok(result.pendingPickGroup, "deve montar pendingPickGroup mesmo com nomes distintos");
+        assert.equal(result.pendingPickGroup?.options.length, 3);
+        assert.equal(result.pendingPickGroup?.productKey, "original");
+        assert.equal(result.pendingPickGroup?.productLabel, "original");
     });
 
     it("did_you_mean presente: guidance cita as opções sugeridas", async () => {

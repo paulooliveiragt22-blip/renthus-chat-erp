@@ -8,7 +8,7 @@ import {
 import { loadCompanySiglas, loadCustomerSiglaHabits } from "@/src/pro/pipeline/customerPackagingHabit";
 import {
     buildPendingPickGroup,
-    productKeyFromRows,
+    productKeyFromQuery,
     type PendingPickGroup,
 } from "@/src/pro/pipeline/pendingPickGroups";
 
@@ -51,9 +51,12 @@ export type SearchProdutosForAiResult = {
     /** Busca não encontrou nada — quem chama decide se incrementa/zera o streak de vazio. */
     wasEmpty: boolean;
     /**
-     * Presente quando a busca ficou ambígua por embalagem (mesmo produto, UN/CX/Fardo)
-     * mesmo após a tentativa de desambiguação por texto do turno atual — chamador faz
-     * upsert em `TurnState.pendingPickGroups` (ver `pendingPickGroups.ts`).
+     * Presente quando a busca ainda ficou com 2+ resultados após a tentativa de
+     * desambiguação por texto do turno atual — seja ambiguidade de embalagem do mesmo
+     * produto (UN/CX/Fardo) ou de produtos/variantes com nomes distintos batendo no mesmo
+     * termo (ex.: "original" → "ORIGINAL 600ML" e "ORIGINAL LATA"). Chamador faz upsert em
+     * `TurnState.pendingPickGroups` (ver `pendingPickGroups.ts`) — resolvido em texto livre,
+     * sem o teto de 3 opções dos botões do WhatsApp.
      */
     pendingPickGroup: PendingPickGroup | null;
 };
@@ -116,7 +119,7 @@ export async function runSearchProdutosForAi(
                       : []),
                   ...(publicItems.length >= 2
                       ? [
-                            "Há mais de uma opção: NÃO liste preços/opções no texto — o servidor envia botões/lista. Só confirme que há opções e peça para tocar no botão ou responder com o número.",
+                            "Há mais de uma opção: NÃO liste preços/opções no texto — o servidor já envia a pergunta de esclarecimento ao cliente.",
                         ]
                       : [
                             "Uma opção clara: informe nome + preço de venda e pergunte a quantidade. Se o cliente responder só com número (ex.: 3), o servidor pode montar o rascunho — chame prepare_order_draft se ainda não houver itens.",
@@ -127,11 +130,14 @@ export async function runSearchProdutosForAi(
                   "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente oriente o cardápio web.",
               ];
 
+    const sameFamily = isSamePackagingFamily(rows);
     const pendingPickGroup =
-        rows.length >= 2 && isSamePackagingFamily(rows)
+        rows.length >= 2
             ? buildPendingPickGroup(
-                  productKeyFromRows(rows),
-                  String(rows[0]?.product_name ?? query).trim() || query,
+                  productKeyFromQuery(query),
+                  sameFamily
+                      ? String(rows[0]?.product_name ?? query).trim() || query
+                      : query.trim() || String(rows[0]?.product_name ?? "Item"),
                   rows as unknown as Array<{
                       id: string;
                       display_name?: string | null;
