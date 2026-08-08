@@ -9,8 +9,13 @@ import type { AiServiceInput, PipelineContext } from "../../src/types/contracts"
 
 /**
  * Regressão do bug real de smoke: "quero skol e original" (2 produtos ambíguos na mesma
- * mensagem) resolvia só "original" — "skol" sumia silenciosamente do pedido porque nada
- * forçava o modelo a retomar o item não buscado. Ver docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md.
+ * mensagem) resolvia só "original" — "skol" sumia silenciosamente do pedido.
+ *
+ * Fix final (2ª iteração — a 1ª, baseada em `respond_to_customer.pending_items` opcional +
+ * heurística lexical de texto, não sobreviveu a reteste real): `search_produtos` exige, via
+ * schema Zod OBRIGATÓRIO, o campo `outros_produtos_pendentes` a cada chamada. O modelo não pode
+ * simplesmente "esquecer" de declarar — o SDK valida o input contra o schema. Ver
+ * `shouldForceSearchForDeclaredPendingTerms` em ai.service.ts e docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md.
  */
 
 function baseContext(pendingOrderMentions: string[] = []): PipelineContext {
@@ -37,25 +42,6 @@ function baseContext(pendingOrderMentions: string[] = []): PipelineContext {
         },
         nowIso: new Date().toISOString(),
     };
-}
-
-function fakeAdminWithSiglas(): SupabaseClient {
-    const builder = {
-        select() {
-            return builder;
-        },
-        eq() {
-            return builder;
-        },
-        order() {
-            return Promise.resolve({ data: [], error: null });
-        },
-    };
-    return {
-        from() {
-            return builder;
-        },
-    } as unknown as SupabaseClient;
 }
 
 function catalogEmpty(): CatalogPort {
@@ -89,22 +75,25 @@ function toolCallResult(toolCallId: string, toolName: string, input: unknown) {
 }
 
 describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)", () => {
-    it("força search_produtos antes de deixar o modelo fechar o turno com item pendente", async () => {
+    it("carryover de turno anterior força search_produtos antes de fechar", async () => {
         let callCount = 0;
         const model = new MockLanguageModelV3({
             doGenerate: async () => {
                 callCount += 1;
                 if (callCount === 1) {
-                    // Modelo tenta fechar direto, sem se preocupar com o "skol" pendente.
+                    // Modelo tenta fechar direto, ignorando o "skol" pendente da sessão.
                     return toolCallResult("c1", "respond_to_customer", {
                         reply_text: "Aqui está sua Original!",
                     });
                 }
                 if (callCount === 2) {
-                    // Nudge forçou search_produtos — modelo busca o termo pendente.
-                    return toolCallResult("c2", "search_produtos", { query: "skol" });
+                    // Nudge forçou search_produtos — modelo busca o termo pendente e declara
+                    // que não sobrou mais nada (schema obrigatório).
+                    return toolCallResult("c2", "search_produtos", {
+                        query: "skol",
+                        outros_produtos_pendentes: [],
+                    });
                 }
-                // Resolvido (ou não): modelo fecha o turno de novo.
                 return toolCallResult("c3", "respond_to_customer", {
                     reply_text: "Não achei mais opções de skol, só a Original ficou no pedido.",
                 });
@@ -134,7 +123,7 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
             toolName: "search_produtos",
         });
         assert.equal(result.action !== "error", true);
-        assert.match(result.replyText, /skol/i);
+        assert.deepEqual(result.updatedPendingOrderMentions, []);
     });
 
     it("sem pendingOrderMentions, não força search extra (comportamento normal preservado)", async () => {
@@ -166,57 +155,32 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         assert.equal(result.action, "reply");
     });
 
-    it("propaga pending_items declarados pelo modelo para updatedPendingOrderMentions", async () => {
-        const model = new MockLanguageModelV3({
-            doGenerate: async () =>
-                toolCallResult("c1", "respond_to_customer", {
-                    reply_text: "Qual opção de ORIGINAL você quer?",
-                    pending_items: ["skol"],
-                }),
-        });
-
-        const svc = new AiServiceAdapter({} as SupabaseClient, {
-            model,
-            catalog: catalogEmpty(),
-            orderDraft: untouchableOrderDraft(),
-        });
-
-        const input: AiServiceInput = {
-            context: baseContext([]),
-            userText: "quero skol e original",
-            intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "regex_match" },
-            draft: null,
-            history: [],
-            limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
-            // Isola a propagação de pending_items do piso determinístico de multi-item
-            // (coberto em outro teste) — aqui o interesse é só o auto-relato do modelo.
-            isSyntheticPickText: true,
-        };
-
-        const result = await svc.run(input);
-        assert.deepEqual(result.updatedPendingOrderMentions, ["skol"]);
-    });
-
-    it("piso determinístico: mensagem com 2 produtos força 2ª busca mesmo sem o modelo declarar pending_items", async () => {
+    it("mensagem com 2 produtos: search_produtos declara o 2º pendente (schema obrigatório) e é forçado antes de fechar", async () => {
         let callCount = 0;
         const model = new MockLanguageModelV3({
             doGenerate: async () => {
                 callCount += 1;
                 if (callCount === 1) {
-                    // Modelo busca só o primeiro termo.
-                    return toolCallResult("c1", "search_produtos", { query: "original" });
+                    // Modelo busca "original" e é OBRIGADO pelo schema a declarar o que sobrou.
+                    return toolCallResult("c1", "search_produtos", {
+                        query: "original",
+                        outros_produtos_pendentes: ["skol"],
+                    });
                 }
                 if (callCount === 2) {
-                    // Tenta fechar perguntando só sobre "original", sem declarar pending_items
-                    // (reproduz o bug real: skol some). stopWhen/prepareStep deve barrar e forçar
-                    // outra busca antes de deixar fechar.
+                    // Tenta fechar perguntando só sobre Original — reproduz o bug real. Deve ser
+                    // barrado pelo stopWhen/prepareStep, já que turnState.pendingTermsFromSearch
+                    // ainda tem "skol".
                     return toolCallResult("c2", "respond_to_customer", {
                         reply_text: "Qual opção de Original você quer?",
                     });
                 }
                 if (callCount === 3) {
-                    // Nudge de multi-item forçou toolChoice=search_produtos de novo.
-                    return toolCallResult("c3", "search_produtos", { query: "skol" });
+                    // Nudge forçou busca do termo pendente; agora declara lista vazia.
+                    return toolCallResult("c3", "search_produtos", {
+                        query: "skol",
+                        outros_produtos_pendentes: [],
+                    });
                 }
                 return toolCallResult("c4", "respond_to_customer", {
                     reply_text: "Certo, qual das opções de Original e de Skol você prefere?",
@@ -237,7 +201,6 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
             draft: null,
             history: [],
             limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
-            isSyntheticPickText: false,
         };
 
         const result = await svc.run(input);
@@ -252,14 +215,19 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
             toolName: "search_produtos",
         });
         assert.equal(result.action !== "error", true);
+        assert.deepEqual(result.updatedPendingOrderMentions, []);
     });
 
-    it("piso determinístico não dispara em texto sintético de pick (isSyntheticPickText=true)", async () => {
+    it("item genuinamente irresolúvel não trava o turno para sempre (maxSteps é o teto)", async () => {
         let callCount = 0;
         const model = new MockLanguageModelV3({
             doGenerate: async () => {
                 callCount += 1;
-                return toolCallResult("c1", "respond_to_customer", { reply_text: "Prontinho!" });
+                // Modelo sempre tenta fechar sem nunca zerar o pendente (ex.: item fora de
+                // catálogo que o modelo insiste em não resolver) — nunca chama search_produtos.
+                return toolCallResult(`c${callCount}`, "respond_to_customer", {
+                    reply_text: "Não encontrei esse item, mas segue o resto do pedido.",
+                });
             },
         });
 
@@ -270,17 +238,17 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         });
 
         const input: AiServiceInput = {
-            context: baseContext([]),
-            userText: '[interno] Cliente escolheu a embalagem "ORIGINAL 60ML" (id allowlist x), quantity 1.',
+            context: baseContext(["produto-fantasma"]),
+            userText: "quero um produto-fantasma",
             intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "regex_match" },
             draft: null,
             history: [],
             limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
-            isSyntheticPickText: true,
         };
 
         const result = await svc.run(input);
-        assert.equal(callCount, 1);
-        assert.equal(result.action, "reply");
+        // maxSteps = maxToolRounds(8) + 4 = 12: o loop termina por stepCountIs, não trava.
+        assert.ok(callCount <= 12, `esperava no máximo 12 chamadas, teve ${callCount}`);
+        assert.ok(result.action === "error" || result.action === "reply" || result.action === "escalate");
     });
 });

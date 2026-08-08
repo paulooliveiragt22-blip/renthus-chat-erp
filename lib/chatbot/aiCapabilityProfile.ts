@@ -51,7 +51,14 @@ function profileForPlan(planKey: CommercialPlanKey): Omit<AiCapabilityProfile, "
         tools: [...ALL_TOOLS] as AiToolName[],
         sttEnabled: true,
         llmEnabled: true,
-        aiTimeoutMs: 15_000,
+        /**
+         * `generateText` cobre o turno inteiro (todas as etapas do loop de tools) numa única
+         * chamada — o abortSignal usa este teto por completo, não por etapa. Forces
+         * determinísticos (ver ai.service.ts: shouldForceSearchForDeclaredPendingTerms /
+         * shouldForcePrepareAfterEmbalagemChoice) podem adicionar 1-2 idas e voltas extras à
+         * Anthropic no mesmo turno; 15s era justo demais nesse cenário.
+         */
+        aiTimeoutMs: 20_000,
     };
     if (planKey === "essencial") {
         return {

@@ -24,8 +24,16 @@ export function createSearchProdutosTool(deps: {
         inputSchema: z.object({
             query: z.string().describe("Termo de busca completo, como o cliente escreveu."),
             category_hint: z.string().optional().describe("Categoria sugerida, se o cliente citou."),
+            outros_produtos_pendentes: z
+                .array(z.string())
+                .describe(
+                    "OBRIGATÓRIO a cada chamada: releia a mensagem do cliente e liste TODO OUTRO produto que ele citou " +
+                        "e que você ainda NÃO buscou nesta busca nem em busca anterior deste atendimento (ex.: cliente disse " +
+                        "'quero skol e original', você está buscando 'original' agora -> outros_produtos_pendentes=['skol']). " +
+                        "Array vazio [] quando não sobrar nenhum. NÃO omita este campo."
+                ),
         }),
-        execute: async ({ query, category_hint }) => {
+        execute: async ({ query, category_hint, outros_produtos_pendentes }) => {
             const result = await runSearchProdutosForAi(
                 { query, categoryHint: category_hint ?? null },
                 {
@@ -43,6 +51,12 @@ export function createSearchProdutosTool(deps: {
                 : 0;
             deps.turnState.searchInvokedThisTurn = true;
             deps.turnState.searchCallCount += 1;
+            deps.turnState.pendingTermsFromSearch = (
+                Array.isArray(outros_produtos_pendentes) ? outros_produtos_pendentes : []
+            )
+                .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+                .map((v) => v.trim())
+                .slice(0, 5);
             return result.body;
         },
     });

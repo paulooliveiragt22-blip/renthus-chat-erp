@@ -36,7 +36,6 @@ export async function aiStage(params: {
     logger?: LoggerPort;
     preferPrepareToolChoiceFirst?: boolean;
     skipForcePrepareAfterPick?: boolean;
-    isSyntheticPickText?: boolean;
 }): Promise<AiStageResult> {
     const {
         aiService,
@@ -46,7 +45,6 @@ export async function aiStage(params: {
         logger,
         preferPrepareToolChoiceFirst,
         skipForcePrepareAfterPick,
-        isSyntheticPickText,
     } = params;
 
     const raw = await aiService.run({
@@ -62,7 +60,6 @@ export async function aiStage(params: {
         },
         preferPrepareToolChoiceFirst,
         skipForcePrepareAfterPick,
-        isSyntheticPickText,
         onPrepareDraftToolResult: logger
             ? (payload) => {
                   logger.info("pro_ai.prepare_order_draft", { ...payload });

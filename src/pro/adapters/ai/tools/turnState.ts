@@ -33,8 +33,17 @@ export type TurnState = {
     lastPrepareOutcome: { ok: boolean; errors: string[] } | null;
     /** Escrito só por `ai.service.ts` (entre steps, via `prepareStep`) — evita repetir o nudge de prepare_order_draft. */
     forcePrepareNudgeInjected: boolean;
-    /** Escrito só por `ai.service.ts` — evita repetir o nudge de search_produtos p/ item pendente. */
+    /** Escrito só por `ai.service.ts` — evita repetir o nudge de search_produtos p/ item pendente (carryover de turno anterior). */
     forceSearchPendingNudgeInjected: boolean;
+    /**
+     * Termos de produto que o cliente citou e ainda não foram buscados — fonte de verdade é o
+     * campo obrigatório `outros_produtos_pendentes` que o próprio `search_produtos` exige do
+     * modelo a cada chamada (schema-enforced, não depende do modelo "lembrar" depois). Semeado
+     * com o carryover do turno anterior (`ProSessionState.pendingOrderMentions`) e sobrescrito
+     * (não acumulado) a cada nova chamada de search_produtos, que reflete o conhecimento mais
+     * atual do modelo. Ver `shouldForceSearchForDeclaredPendingTerms` em `ai.service.ts`.
+     */
+    pendingTermsFromSearch: string[];
 };
 
 export function createInitialTurnState(seed: {
@@ -42,6 +51,7 @@ export function createInitialTurnState(seed: {
     lastSearchPicks: readonly SearchPickSummary[];
     emptySearchStreak: number;
     currentDraft: OrderDraft | null;
+    pendingOrderMentions?: readonly string[];
 }): TurnState {
     return {
         currentDraft: seed.currentDraft,
@@ -54,5 +64,6 @@ export function createInitialTurnState(seed: {
         lastPrepareOutcome: null,
         forcePrepareNudgeInjected: false,
         forceSearchPendingNudgeInjected: false,
+        pendingTermsFromSearch: [...(seed.pendingOrderMentions ?? [])],
     };
 }

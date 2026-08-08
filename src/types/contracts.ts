@@ -201,9 +201,10 @@ export interface ProSessionState {
     emptySearchStreak?: number;
     /**
      * Produtos que o cliente mencionou (ex.: "quero skol e original") e que o próprio modelo
-     * declarou (`respond_to_customer.pending_items`) ainda não ter buscado/resolvido neste turno.
-     * `ai.service.ts` força `search_produtos` para estes no próximo turno antes de fechar via
-     * `respond_to_customer` — evita item citado pelo cliente sumir silenciosamente do rascunho.
+     * declarou (campo obrigatório `search_produtos.outros_produtos_pendentes`) ainda não ter
+     * buscado/resolvido neste turno. `ai.service.ts` força `search_produtos` para estes no
+     * próximo turno antes de fechar via `respond_to_customer` — evita item citado pelo cliente
+     * sumir silenciosamente do rascunho.
      */
     pendingOrderMentions?: string[];
     /**
@@ -400,12 +401,6 @@ export interface AiServiceInput {
     preferPrepareToolChoiceFirst?: boolean;
     /** Prepare já rodou no servidor neste turno (pick) — não reabrir force-prepare. */
     skipForcePrepareAfterPick?: boolean;
-    /**
-     * `userText` é instrução sintética do servidor (pick de botão via `productPickText.ts`),
-     * não texto livre do cliente — a heurística de multi-item (`multiItemMentionHeuristic.ts`)
-     * não deve rodar em cima dela.
-     */
-    isSyntheticPickText?: boolean;
 }
 
 export type AiServiceAction =

@@ -45,7 +45,7 @@ import { isAnthropicRateLimitError } from "@/lib/chatbot/anthropicResilience";
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
-import { estimateMinDistinctProductMentions } from "./multiItemMentionHeuristic";
+import { runWithAnthropicInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
 
 export type AiServiceOptions = {
     catalog?: CatalogPort;
@@ -109,57 +109,35 @@ export function shouldForcePrepareAfterUnambiguousSearch(params: {
 }
 
 /**
- * Turno anterior deixou produto(s) do cliente sem buscar (`pending_items` do
- * `respond_to_customer`). Força search_produtos até o modelo dar pelo menos uma chance a cada
- * um — evita item citado pelo cliente sumir do pedido em silêncio (bug real de smoke: "quero
- * skol e original" resolveu só "original").
+ * `search_produtos` exige (schema, não prosa) que o modelo declare `outros_produtos_pendentes`
+ * a cada chamada — termos do cliente ainda não buscados. Enquanto essa lista não estiver vazia
+ * (seja do carryover do turno anterior, seja de uma declaração desta própria chamada), o turno
+ * não pode fechar via respond_to_customer sem tentar resolvê-los. Substitui a antiga heurística
+ * lexical (contagem de conectores em texto livre): aquela gerava falso positivo em qualquer
+ * frase com vírgula/"e" e falso negativo acima do cap — esta usa o próprio entendimento do
+ * modelo sobre a mensagem, forçado por schema obrigatório em vez de instrução opcional.
  */
-export function shouldForceSearchForPendingMentions(params: {
+export function shouldForceSearchForDeclaredPendingTerms(params: {
     infoOnly: boolean;
-    pendingMentionsCount: number;
-    searchInvokedThisTurn: boolean;
+    pendingTerms: readonly string[];
 }): boolean {
     if (params.infoOnly) return false;
-    return params.pendingMentionsCount > 0 && !params.searchInvokedThisTurn;
-}
-
-/**
- * Piso determinístico (sem depender do modelo se lembrar): mensagem livre do cliente com cara
- * de citar 2+ produtos ("quero skol e original") exige pelo menos essa quantidade de chamadas
- * search_produtos neste turno antes de fechar via respond_to_customer. Não roda em cima de
- * texto sintético de pick (`isSyntheticPickText`) — aí o texto é instrução do servidor, não do
- * cliente. Ver `estimateMinDistinctProductMentions`.
- */
-export function shouldForceSearchForMultiItemMessage(params: {
-    infoOnly: boolean;
-    isSyntheticPickText: boolean;
-    intent: string;
-    step: string;
-    userText: string;
-    searchCallCount: number;
-}): boolean {
-    if (params.infoOnly || params.isSyntheticPickText) return false;
-    if (params.intent !== "order_intent") return false;
-    if (params.step !== "pro_collecting_order" && params.step !== "pro_idle") return false;
-    const minExpected = estimateMinDistinctProductMentions(params.userText);
-    return params.searchCallCount < minExpected;
+    return params.pendingTerms.length > 0;
 }
 
 const FORCE_PREPARE_NUDGE =
     "[Instrução interna] Contrato exige prepare_order_draft agora: há SKU permitido (allowlist) e intenção de pedido. Chame prepare_order_draft com items (produto_embalagem_id permitido + quantidade). Se faltar endereço ou pagamento, prepare mesmo assim com o que souber — leia guidance_for_model_pt.";
 
 /**
- * Turno anterior declarou (via `respond_to_customer.pending_items`) produto(s) do cliente ainda
- * não buscados. Força search_produtos agora — sem isso o item pode sumir silenciosamente do
- * pedido (bug real observado em smoke: "quero skol e original" resolveu só "original").
+ * Há produto(s) do cliente ainda não buscado(s) — seja porque `search_produtos` acabou de
+ * declarar `outros_produtos_pendentes`, seja por carryover do turno anterior. Força
+ * search_produtos agora: sem isso o item pode sumir silenciosamente do pedido (bug real
+ * observado em smoke: "quero skol e original" resolveu só "original").
  */
-function buildForceSearchPendingNudge(pendingMentions: readonly string[]): string {
-    const list = pendingMentions.map((m) => `"${m}"`).join(", ");
-    return `[Instrução interna] Contrato exige search_produtos agora para item(ns) que o cliente pediu e ainda não foi(ram) buscado(s) neste atendimento: ${list}. Chame search_produtos para o próximo destes antes de responder. Se depois de buscar ainda restar algo sem resolver, repita em pending_items ao chamar respond_to_customer.`;
+function buildForceSearchPendingNudge(pendingTerms: readonly string[]): string {
+    const list = pendingTerms.map((m) => `"${m}"`).join(", ");
+    return `[Instrução interna] Contrato exige search_produtos agora para item(ns) que o cliente pediu e ainda não foi(ram) buscado(s) neste atendimento: ${list}. Chame search_produtos para o próximo destes antes de responder (preencha outros_produtos_pendentes de novo, com o que ainda sobrar).`;
 }
-
-const FORCE_MULTI_ITEM_SEARCH_NUDGE =
-    "[Instrução interna] A mensagem do cliente parece citar mais de um produto. Antes de responder, confira se já chamou search_produtos para CADA produto citado (não só o primeiro) — chame agora para o que ainda faltar. Se não conseguir resolver todos agora, informe os que sobrarem em pending_items ao chamar respond_to_customer.";
 
 /** Limite de caracteres do JSON de hints anexado ao system (evita estourar contexto). */
 const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
@@ -176,8 +154,8 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - NUNCA invente payment_method nem change_for: só se o cliente disse pix/dinheiro/cartão ou troco. Sem pagamento no draft: o servidor manda botões — não invente na prosa.
 - Se o cliente quer TROCAR/SUBSTITUIR um item: search_produtos do produto NOVO, depois prepare_order_draft com o UUID permitido. Não use bootstrap/extract paralelo — só tools.
 - Se o cliente quer acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
-- Se o cliente citar MAIS DE UM produto na mesma mensagem (ex.: "quero skol e original") e você só conseguir resolver/perguntar sobre um agora (ambiguidade, precisa de dados): NÃO esqueça o(s) outro(s) — informe-os em pending_items ao chamar respond_to_customer. Assim que possível (neste turno, após buscar, ou no próximo) resolva cada pending_item antes de avançar para endereço/pagamento.
-- Se o cliente citar um produto SEM dizer a quantidade (ex.: "quero original", sem número): não assuma quantity=1 — pergunte quantas unidades ele quer antes de chamar prepare_order_draft para esse item (exceção: contexto deixa claro que é 1, ex.: "me manda uma coca"). Se ficar sem resposta, inclua o produto em pending_items.
+- Se o cliente citar MAIS DE UM produto na mesma mensagem (ex.: "quero skol e original"): toda chamada de search_produtos exige o campo outros_produtos_pendentes com os demais produtos citados e ainda não buscados (array vazio se não sobrar nenhum). Não avance para endereço/pagamento com produto citado e ainda não buscado.
+- Se o cliente citar um produto SEM dizer a quantidade (ex.: "quero original", sem número): não assuma quantity=1 — pergunte quantas unidades ele quer antes de chamar prepare_order_draft para esse item (exceção: contexto deixa claro que é 1, ex.: "me manda uma coca").
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
 - Só peça confirmação final do pedido quando a fase do servidor for confirm_order (endereço UI já confirmado).
 - Nunca diga que o pedido já foi criado/entregue: isso só ocorre após confirmação no servidor.
@@ -218,8 +196,8 @@ function buildPendingMentionsBlock(pendingMentions: readonly string[]): string {
     return (
         "\n\n--- Itens ainda não resolvidos do(s) turno(s) anterior(es) ---\n" +
         `O cliente também pediu, mas ainda não foi buscado/adicionado ao rascunho:\n${list}\n` +
-        "Chame search_produtos para cada um destes antes de avançar para endereço/pagamento (a menos que o cliente peça para não incluir). " +
-        "Se ainda não conseguir resolver algum agora, repita-o em pending_items na resposta final.\n" +
+        "Chame search_produtos para cada um destes antes de avançar para endereço/pagamento (a menos que o cliente peça para não incluir); " +
+        "repita-os em outros_produtos_pendentes se ainda não resolver agora.\n" +
         "--- Fim itens não resolvidos ---\n"
     );
 }
@@ -410,12 +388,6 @@ function createRespondToCustomerTool() {
                 .boolean()
                 .optional()
                 .describe("false só quando não entendeu a mensagem do cliente."),
-            pending_items: z
-                .array(z.string())
-                .optional()
-                .describe(
-                    "Produtos que o cliente mencionou (nesta mensagem ou antes) e que você AINDA não buscou/resolveu (não foram adicionados ao rascunho nem perguntados agora). Ex.: cliente disse 'quero skol e original', você só perguntou sobre original -> pending_items=['skol']. Deixe vazio/omitido quando não houver nada pendente."
-                ),
         }),
         execute: async (args) => args,
     });
@@ -518,9 +490,9 @@ export class AiServiceAdapter implements AiService {
             lastSearchPicks: input.context.session.lastSearchPicks ?? [],
             emptySearchStreak: input.context.session.emptySearchStreak ?? 0,
             currentDraft: input.draft,
+            pendingOrderMentions: input.context.session.pendingOrderMentions ?? [],
         });
         const allowlistAtStart = [...turnState.allowlistIds];
-        const pendingMentionsAtStart = [...(input.context.session.pendingOrderMentions ?? [])];
 
         if (!this.modelOverride && !hasLlmApiKey()) {
             return {
@@ -607,25 +579,17 @@ export class AiServiceAdapter implements AiService {
             };
 
             /**
-             * Turno anterior deixou produto(s) do cliente sem buscar (`pending_items` do
-             * `respond_to_customer`). Força search_produtos até o modelo dar pelo menos uma
-             * chance a cada um — evita item citado pelo cliente sumir do pedido em silêncio.
+             * Produto(s) do cliente ainda não buscado(s) — carryover do turno anterior
+             * (`pendingTermsFromSearch` semeado de `session.pendingOrderMentions`) e/ou
+             * declarado agora mesmo por `search_produtos.outros_produtos_pendentes`. Uma única
+             * fonte de verdade (ver `TurnState.pendingTermsFromSearch`): força search_produtos
+             * até a lista esvaziar (o próprio contador de steps do generateText, `maxSteps`, é o
+             * teto de segurança contra item irresolúvel).
              */
             const shouldForcePendingSearch = (): boolean =>
-                shouldForceSearchForPendingMentions({
+                shouldForceSearchForDeclaredPendingTerms({
                     infoOnly,
-                    pendingMentionsCount: pendingMentionsAtStart.length,
-                    searchInvokedThisTurn: turnState.searchInvokedThisTurn,
-                });
-
-            const shouldForceMultiItemSearch = (): boolean =>
-                shouldForceSearchForMultiItemMessage({
-                    infoOnly,
-                    isSyntheticPickText: Boolean(input.isSyntheticPickText),
-                    intent: input.intentDecision.intent,
-                    step: input.context.session.step,
-                    userText: input.userText,
-                    searchCallCount: turnState.searchCallCount,
+                    pendingTerms: turnState.pendingTermsFromSearch,
                 });
 
             const firstToolChoice =
@@ -634,82 +598,78 @@ export class AiServiceAdapter implements AiService {
                     : undefined;
             const maxSteps = Math.max(2, input.limits.maxToolRounds + 4);
 
-            const result = await generateText({
-                model,
-                system,
-                messages,
-                tools,
-                toolChoice: "required",
-                maxRetries: 3,
-                abortSignal: AbortSignal.timeout(input.limits.timeoutMs),
-                /**
-                 * `respond_to_customer` é obrigatoriamente a última tool do turno — sem isso o
-                 * modelo pode devolvê-la junto de `search_produtos`/`prepare_order_draft` no
-                 * mesmo step (rodam em paralelo via `Promise.all`) e a resposta ao cliente sairia
-                 * sem ver o resultado da tool de negócio. Só afeta Anthropic (OpenAI ignora a key).
-                 */
-                providerOptions: { anthropic: { disableParallelToolUse: true } },
-                stopWhen: [
-                    ({ steps }) => {
-                        if (!lastStepCalledRespond(steps)) return false;
-                        const multiItemDone = !shouldForceMultiItemSearch();
-                        const searchPendingDone =
-                            !shouldForcePendingSearch() || turnState.forceSearchPendingNudgeInjected;
-                        const prepareDone =
-                            !shouldForcePrepare() || turnState.forcePrepareNudgeInjected;
-                        return multiItemDone && searchPendingDone && prepareDone;
-                    },
-                    stepCountIs(maxSteps),
-                ],
-                prepareStep: async ({ stepNumber, steps, messages: stepMessages }) => {
-                    if (stepNumber === 0 && firstToolChoice) {
-                        return { toolChoice: firstToolChoice };
-                    }
-                    if (!lastStepCalledRespond(steps)) return undefined;
+            const result = await runWithAnthropicInFlightSlot(() =>
+                generateText({
+                    model,
+                    system,
+                    messages,
+                    tools,
+                    toolChoice: "required",
+                    maxRetries: 3,
+                    abortSignal: AbortSignal.timeout(input.limits.timeoutMs),
                     /**
-                     * Prioridade: 1) piso determinístico de multi-item (texto do cliente),
-                     * 2) item pendente declarado em turno anterior, 3) prepare do pick atual.
-                     * (1) não usa flag de "só uma vez" — o contador searchCallCount já limita
-                     * naturalmente (para de forçar assim que atingir o piso).
+                     * `respond_to_customer` é obrigatoriamente a última tool do turno — sem isso o
+                     * modelo pode devolvê-la junto de `search_produtos`/`prepare_order_draft` no
+                     * mesmo step (rodam em paralelo via `Promise.all`) e a resposta ao cliente sairia
+                     * sem ver o resultado da tool de negócio. Só afeta Anthropic (OpenAI ignora a key).
                      */
-                    if (shouldForceMultiItemSearch()) {
-                        return {
-                            toolChoice: { type: "tool", toolName: "search_produtos" },
-                            messages: [...stepMessages, { role: "user", content: FORCE_MULTI_ITEM_SEARCH_NUDGE }],
-                        };
-                    }
-                    if (!turnState.forceSearchPendingNudgeInjected && shouldForcePendingSearch()) {
-                        turnState.forceSearchPendingNudgeInjected = true;
-                        return {
-                            toolChoice: { type: "tool", toolName: "search_produtos" },
-                            messages: [
-                                ...stepMessages,
-                                { role: "user", content: buildForceSearchPendingNudge(pendingMentionsAtStart) },
-                            ],
-                        };
-                    }
-                    if (!turnState.forcePrepareNudgeInjected && shouldForcePrepare()) {
-                        turnState.forcePrepareNudgeInjected = true;
-                        return {
-                            toolChoice: { type: "tool", toolName: "prepare_order_draft" },
-                            messages: [...stepMessages, { role: "user", content: FORCE_PREPARE_NUDGE }],
-                        };
-                    }
-                    return undefined;
-                },
-                onStepFinish: async (step) => {
-                    const modelId = step.response.modelId?.trim() || "unknown";
-                    await debitFromAnthropicUsage(
-                        this.admin,
-                        companyId,
-                        {
-                            input_tokens: step.usage.inputTokens ?? 0,
-                            output_tokens: step.usage.outputTokens ?? 0,
+                    providerOptions: { anthropic: { disableParallelToolUse: true } },
+                    stopWhen: [
+                        ({ steps }) => {
+                            if (!lastStepCalledRespond(steps)) return false;
+                            const searchPendingDone = !shouldForcePendingSearch();
+                            const prepareDone = !shouldForcePrepare() || turnState.forcePrepareNudgeInjected;
+                            return searchPendingDone && prepareDone;
                         },
-                        { source: "pro_ai_service", provider, model: modelId }
-                    );
-                },
-            });
+                        stepCountIs(maxSteps),
+                    ],
+                    prepareStep: async ({ stepNumber, steps, messages: stepMessages }) => {
+                        if (stepNumber === 0 && firstToolChoice) {
+                            return { toolChoice: firstToolChoice };
+                        }
+                        if (!lastStepCalledRespond(steps)) return undefined;
+                        /**
+                         * Prioridade: 1) produto pendente (carryover ou declarado agora por
+                         * search_produtos), 2) prepare do pick atual. (1) não usa flag de "só uma
+                         * vez" — a lista `pendingTermsFromSearch` só esvazia quando o próprio
+                         * search_produtos declarar `outros_produtos_pendentes: []`, então o force
+                         * natural para assim que resolvido (maxSteps é o teto de segurança).
+                         */
+                        if (shouldForcePendingSearch()) {
+                            return {
+                                toolChoice: { type: "tool", toolName: "search_produtos" },
+                                messages: [
+                                    ...stepMessages,
+                                    {
+                                        role: "user",
+                                        content: buildForceSearchPendingNudge(turnState.pendingTermsFromSearch),
+                                    },
+                                ],
+                            };
+                        }
+                        if (!turnState.forcePrepareNudgeInjected && shouldForcePrepare()) {
+                            turnState.forcePrepareNudgeInjected = true;
+                            return {
+                                toolChoice: { type: "tool", toolName: "prepare_order_draft" },
+                                messages: [...stepMessages, { role: "user", content: FORCE_PREPARE_NUDGE }],
+                            };
+                        }
+                        return undefined;
+                    },
+                    onStepFinish: async (step) => {
+                        const modelId = step.response.modelId?.trim() || "unknown";
+                        await debitFromAnthropicUsage(
+                            this.admin,
+                            companyId,
+                            {
+                                input_tokens: step.usage.inputTokens ?? 0,
+                                output_tokens: step.usage.outputTokens ?? 0,
+                            },
+                            { source: "pro_ai_service", provider, model: modelId }
+                        );
+                    },
+                })
+            );
 
             const finalRespondCall = result.toolCalls.find((c) => c.toolName === "respond_to_customer");
             if (!finalRespondCall) {
@@ -729,22 +689,17 @@ export class AiServiceAdapter implements AiService {
                 reply_text?: string;
                 address_free_text?: boolean;
                 understood?: boolean;
-                pending_items?: unknown;
             };
             const addressFreeText = Boolean(respondArgs.address_free_text);
             const marker: IntentMarker = respondArgs.understood === false ? "unknown" : "ok";
             const updatedDraft = turnState.currentDraft;
             /**
-             * Fonte de verdade do próximo turno é a própria declaração do modelo — se ele não
-             * repetir pending_items, a pendência é descartada (evita ficar preso para sempre
-             * se o modelo simplesmente parar de reportar).
+             * Fonte de verdade do próximo turno é `outros_produtos_pendentes` (schema obrigatório
+             * de search_produtos) — não mais um campo opcional que o modelo podia esquecer de
+             * repetir no respond_to_customer final. Se search_produtos não rodou neste turno, o
+             * carryover semeado no início do turno (`pendingOrderMentions` da sessão) permanece.
              */
-            const updatedPendingOrderMentions = Array.isArray(respondArgs.pending_items)
-                ? respondArgs.pending_items
-                      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-                      .map((v) => v.trim())
-                      .slice(0, 5)
-                : [];
+            const updatedPendingOrderMentions = turnState.pendingTermsFromSearch;
 
             let visibleSafe = stripInternalCatalogIdsFromCustomerText(
                 stripHallucinatedOrderPersistenceClaims(
