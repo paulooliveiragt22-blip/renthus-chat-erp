@@ -29,6 +29,7 @@ function makeMockAdmin(tables: Tables) {
             eq: (key: string, value: unknown) => chain(tableName, [...filters, (r) => r[key] === value]),
             in: (key: string, values: unknown[]) => chain(tableName, [...filters, (r) => values.includes(r[key])]),
             lt: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") < String(value)]),
+            lte: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") <= String(value)]),
             gte: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") >= String(value)]),
             order: () => chain(tableName, filters),
             limit: () => chain(tableName, filters),
@@ -42,7 +43,9 @@ function makeMockAdmin(tables: Tables) {
             },
             then: (resolve: (v: unknown) => void) => {
                 const data = table.filter((r) => matches(r, filters));
-                return Promise.resolve({ data, error: null }).then(resolve);
+                // `.select("id", { count: "exact", head: true })` (sem `.then` explícito no route)
+                // ainda resolve via este thenable — expõe `count` igual ao Supabase real.
+                return Promise.resolve({ data, error: null, count: data.length }).then(resolve);
             },
             insert: (data: Row | Row[]) => {
                 const arr = Array.isArray(data) ? data : [data];

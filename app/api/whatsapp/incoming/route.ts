@@ -88,12 +88,26 @@ function getPositiveIntEnv(name: string, fallback: number): number {
 }
 
 /**
+ * `after()` do Next só funciona dentro do request scope de um handler chamado pelo runtime
+ * (AsyncLocalStorage). Fora dele — testes de integração que invocam `POST`/`GET` diretamente,
+ * ou qualquer chamada fora do ciclo normal de request — lança `E468` de forma síncrona. Melhor
+ * esforço nesses casos: roda a task já (sem atrasar a resposta ao Meta, que já foi enviada).
+ */
+function safeAfter(task: () => void): void {
+    try {
+        after(task);
+    } catch {
+        task();
+    }
+}
+
+/**
  * Agenda `GET /api/chatbot/process-queue` após a resposta ao Meta (`after()`).
  * Rede de segurança: cron-job.org (≈1 min) + reclaim/self-wake no worker.
  */
 function scheduleQueueWorkerWake(): void {
     if (!CHATBOT_QUEUE_WAKE_ENABLED) return;
-    after(() => {
+    safeAfter(() => {
         scheduleQueueWorkerWakeShared({ reason: "inbound_enqueue" });
     });
 }
@@ -528,7 +542,7 @@ async function enqueueInboundIfNeeded(params: {
     if (!queueErr) {
         scheduleQueueWorkerWake();
         // Aviso de fila sem atrasar o 200 ao Meta
-        after(() => {
+        safeAfter(() => {
             void maybeSendBacklogNotice({
                 admin,
                 companyId: channel.company_id,

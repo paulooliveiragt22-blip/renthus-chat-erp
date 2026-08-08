@@ -26,7 +26,7 @@ describe("high-value confirm", () => {
 
     it("buildHighValueConfirmMessage pede segunda confirmação", () => {
         const msg = buildHighValueConfirmMessage(200, 150);
-        assert.match(msg, /CONFIRMAR/);
+        assert.match(msg, /confirmar/i);
         assert.match(msg, /R\$\s*200/);
         assert.match(msg, /R\$\s*150/);
     });

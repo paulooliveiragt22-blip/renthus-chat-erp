@@ -23,6 +23,17 @@ function baseInput(): ProPipelineInput {
         tier: "pro",
         inboundText: "sim",
         nowIso: new Date().toISOString(),
+        // Sem isto, `policiesFromAiCapability(undefined)` devolve `llmEnabled: false`
+        // (perfil "degradado" implícito) e `runProPipeline` nunca chama `aiService.run()` —
+        // os testes desta suíte ficariam sempre no ramo degradado, sem exercitar o mock de IA.
+        aiCapability: {
+            tier: "avancado",
+            maxToolRounds: 12,
+            maxHistoryTurns: 24,
+            aiTimeoutMs: 15_000,
+            llmEnabled: true,
+            model: "claude-test",
+        },
     };
 }
 
@@ -173,20 +184,27 @@ describe("pro pipeline - failure regression", () => {
         );
     });
 
-    it("IA rate limit: emite métrica ai_rate_limited", async () => {
-        const out = await runProPipeline(
-            { ...baseInput(), inboundText: "quero pedir" },
-            deps({
-                aiResult: {
-                    action: "error",
-                    replyText: "Estamos com pico de uso na IA. Aguarde um instante e tente de novo.",
-                    errorCode: "AI_RATE_LIMIT",
-                    signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
-                },
-            })
-        );
-        assert.ok(
-            out.metrics.some((m) => m.name === "pro_pipeline.ai_rate_limited" && m.tags?.reason === "ai_rate_limited")
+    it("IA rate limit: nao envia bolha e devolve QueueRetryableError p/ backoff", async () => {
+        // `runProPipeline` salva a sessão e relança `QueueRetryableError` (o worker reenfileira
+        // com backoff) em vez de devolver métricas inline — não há bolha "de rate limit" ao cliente.
+        await assert.rejects(
+            async () =>
+                runProPipeline(
+                    { ...baseInput(), inboundText: "quero pedir" },
+                    deps({
+                        aiResult: {
+                            action: "error",
+                            replyText: "Estamos com pico de uso na IA. Aguarde um instante e tente de novo.",
+                            errorCode: "AI_RATE_LIMIT",
+                            signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
+                        },
+                    })
+                ),
+            (err: unknown) => {
+                assert.ok(err instanceof Error);
+                assert.equal((err as { code?: string }).code, "AI_RATE_LIMIT");
+                return true;
+            }
         );
     });
 
@@ -266,7 +284,8 @@ describe("pro pipeline - failure regression", () => {
     });
 
     it("item inexistente no fecho: PRODUCT_NOT_FOUND expõe mensagem e métrica order_failed", async () => {
-        const out = await runProPipeline(baseInput(), deps({
+        // `isExplicitOrderConfirmation` só aceita IDs de botão (HITL) — "sim"/prosa não fecha pedido.
+        const out = await runProPipeline({ ...baseInput(), inboundText: "pro_confirm_order" }, deps({
             state: stateAwaitingConfirmation(),
             intent: "greeting",
             orderResult: {
@@ -285,7 +304,7 @@ describe("pro pipeline - failure regression", () => {
     });
 
     it("falha de DB / persistência no fecho: DB_ERROR retorna mensagem retryable", async () => {
-        const out = await runProPipeline(baseInput(), deps({
+        const out = await runProPipeline({ ...baseInput(), inboundText: "pro_confirm_order" }, deps({
             state: stateAwaitingConfirmation(),
             intent: "order_intent",
             orderResult: {
@@ -302,7 +321,7 @@ describe("pro pipeline - failure regression", () => {
     });
 
     it("dados inconsistentes no fecho: INCONSISTENT_DRAFT retorna erro explícito", async () => {
-        const out = await runProPipeline(baseInput(), deps({
+        const out = await runProPipeline({ ...baseInput(), inboundText: "pro_confirm_order" }, deps({
             state: stateAwaitingConfirmation(),
             intent: "order_intent",
             orderResult: {
@@ -321,7 +340,7 @@ describe("pro pipeline - failure regression", () => {
     });
 
     it("apos order_create_failed: step permanece pro_collecting_order (nao re-sincronizar para awaiting_confirmation com draft completo)", async () => {
-        const out = await runProPipeline(baseInput(), deps({
+        const out = await runProPipeline({ ...baseInput(), inboundText: "pro_confirm_order" }, deps({
             state: stateAwaitingConfirmation(),
             intent: "order_intent",
             orderResult: {
@@ -362,7 +381,7 @@ describe("pro pipeline - failure regression", () => {
         let orderCalls = 0;
         const noDraft = stateAwaitingConfirmation();
         noDraft.draft = null;
-        const out = await runProPipeline(baseInput(), deps({
+        const out = await runProPipeline({ ...baseInput(), inboundText: "pro_confirm_order" }, deps({
             state: noDraft,
             intent: "order_intent",
             onOrderCalled: () => {
@@ -395,7 +414,7 @@ describe("pro pipeline - failure regression", () => {
             totalItems: 0,
             grandTotal: draft.deliveryFee ?? 0,
         };
-        const out = await runProPipeline(baseInput(), deps({
+        const out = await runProPipeline({ ...baseInput(), inboundText: "pro_confirm_order" }, deps({
             state: incomplete,
             intent: "order_intent",
             onOrderCalled: () => {

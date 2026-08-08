@@ -257,7 +257,13 @@ function anyMsg(msgs: string[], fragments: string[]): boolean {
 
 // ─── Testes ───────────────────────────────────────────────────────────────────
 
-describe("comandos globais: cancelar / menu / oi", () => {
+// "cancelar"/"menu" eram comandos do motor Starter (chatbot_sessions.step="welcome" + menu por
+// keyword). `processMessage.ts` hoje é só um wrapper de `runProInbound` → `runProPipeline` (motor
+// único PRO) — não existe mais esse roteamento por texto, e o mock `baseAdmin()` (tabelas Starter)
+// não cobre as deps reais do PRO (session repo via RPC, ai wallet, company policy etc.), então
+// `runProInbound` cai no catch e manda a mensagem fixa de falha (ou nada, conforme o erro). Mesmo
+// tratamento das demais describes obsoletas deste arquivo (ver `describe.skip` abaixo).
+describe.skip("comandos globais: cancelar / menu / oi (motor Starter — obsoleto, ver runProPipeline*.test.ts)", () => {
     it("'cancelar' → envia menu principal", async () => {
         const { msgs } = await send("cancelar");
         assert.ok(msgs.length > 0, "nenhuma mensagem enviada");
@@ -371,7 +377,10 @@ describe.skip("pagamento", () => {
     });
 });
 
-describe("bot inativo → sem resposta", () => {
+// Gate `chatbots.is_active` também era do motor Starter — `runProInbound`/`runProPipeline` não
+// verificam mais essa flag (não há nenhum `is_active` em `lib/chatbot/*` hoje). Sem bot ativo, o
+// motor PRO ainda tenta rodar e cai no fallback fixo de falha via `botReply` (1 mensagem, não 0).
+describe.skip("bot inativo → sem resposta (motor Starter — obsoleto, sem equivalente no PRO)", () => {
     it("sem chatbot ativo para a empresa → nenhuma mensagem enviada", async () => {
         clearMessages();
         const { client: admin } = createMockAdmin({

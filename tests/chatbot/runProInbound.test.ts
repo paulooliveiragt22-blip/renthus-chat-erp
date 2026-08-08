@@ -62,8 +62,9 @@ before(async () => {
         },
     });
 
+    // Compilado: node roda .tests-dist/**/*.test.js puro (sem ts-node) — precisa do .js, não .ts.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    runProInbound = require(targetBase + ".ts").runProInbound;
+    runProInbound = require(targetBase + ".js").runProInbound;
 });
 
 describe("runProInbound", () => {

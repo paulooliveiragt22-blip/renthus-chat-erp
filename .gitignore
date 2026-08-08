@@ -35,6 +35,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# saidas manuais de `npm test` redirecionadas a arquivo (debug local, nao versionar)
+test_output*.log
+test_run*.log
+full_test_result.log
+
 # env files (can opt-in for committing if needed)
 .env*
 
