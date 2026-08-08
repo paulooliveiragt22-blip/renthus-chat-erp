@@ -45,6 +45,7 @@ import { isAnthropicRateLimitError } from "@/lib/chatbot/anthropicResilience";
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
+import { estimateMinDistinctProductMentions } from "./multiItemMentionHeuristic";
 
 export type AiServiceOptions = {
     catalog?: CatalogPort;
@@ -122,6 +123,28 @@ export function shouldForceSearchForPendingMentions(params: {
     return params.pendingMentionsCount > 0 && !params.searchInvokedThisTurn;
 }
 
+/**
+ * Piso determinístico (sem depender do modelo se lembrar): mensagem livre do cliente com cara
+ * de citar 2+ produtos ("quero skol e original") exige pelo menos essa quantidade de chamadas
+ * search_produtos neste turno antes de fechar via respond_to_customer. Não roda em cima de
+ * texto sintético de pick (`isSyntheticPickText`) — aí o texto é instrução do servidor, não do
+ * cliente. Ver `estimateMinDistinctProductMentions`.
+ */
+export function shouldForceSearchForMultiItemMessage(params: {
+    infoOnly: boolean;
+    isSyntheticPickText: boolean;
+    intent: string;
+    step: string;
+    userText: string;
+    searchCallCount: number;
+}): boolean {
+    if (params.infoOnly || params.isSyntheticPickText) return false;
+    if (params.intent !== "order_intent") return false;
+    if (params.step !== "pro_collecting_order" && params.step !== "pro_idle") return false;
+    const minExpected = estimateMinDistinctProductMentions(params.userText);
+    return params.searchCallCount < minExpected;
+}
+
 const FORCE_PREPARE_NUDGE =
     "[Instrução interna] Contrato exige prepare_order_draft agora: há SKU permitido (allowlist) e intenção de pedido. Chame prepare_order_draft com items (produto_embalagem_id permitido + quantidade). Se faltar endereço ou pagamento, prepare mesmo assim com o que souber — leia guidance_for_model_pt.";
 
@@ -134,6 +157,9 @@ function buildForceSearchPendingNudge(pendingMentions: readonly string[]): strin
     const list = pendingMentions.map((m) => `"${m}"`).join(", ");
     return `[Instrução interna] Contrato exige search_produtos agora para item(ns) que o cliente pediu e ainda não foi(ram) buscado(s) neste atendimento: ${list}. Chame search_produtos para o próximo destes antes de responder. Se depois de buscar ainda restar algo sem resolver, repita em pending_items ao chamar respond_to_customer.`;
 }
+
+const FORCE_MULTI_ITEM_SEARCH_NUDGE =
+    "[Instrução interna] A mensagem do cliente parece citar mais de um produto. Antes de responder, confira se já chamou search_produtos para CADA produto citado (não só o primeiro) — chame agora para o que ainda faltar. Se não conseguir resolver todos agora, informe os que sobrarem em pending_items ao chamar respond_to_customer.";
 
 /** Limite de caracteres do JSON de hints anexado ao system (evita estourar contexto). */
 const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
@@ -592,11 +618,21 @@ export class AiServiceAdapter implements AiService {
                     searchInvokedThisTurn: turnState.searchInvokedThisTurn,
                 });
 
+            const shouldForceMultiItemSearch = (): boolean =>
+                shouldForceSearchForMultiItemMessage({
+                    infoOnly,
+                    isSyntheticPickText: Boolean(input.isSyntheticPickText),
+                    intent: input.intentDecision.intent,
+                    step: input.context.session.step,
+                    userText: input.userText,
+                    searchCallCount: turnState.searchCallCount,
+                });
+
             const firstToolChoice =
                 !infoOnly && input.preferPrepareToolChoiceFirst
                     ? ({ type: "tool" as const, toolName: "prepare_order_draft" as const })
                     : undefined;
-            const maxSteps = Math.max(2, input.limits.maxToolRounds + 3);
+            const maxSteps = Math.max(2, input.limits.maxToolRounds + 4);
 
             const result = await generateText({
                 model,
@@ -616,11 +652,12 @@ export class AiServiceAdapter implements AiService {
                 stopWhen: [
                     ({ steps }) => {
                         if (!lastStepCalledRespond(steps)) return false;
-                        const searchDone =
+                        const multiItemDone = !shouldForceMultiItemSearch();
+                        const searchPendingDone =
                             !shouldForcePendingSearch() || turnState.forceSearchPendingNudgeInjected;
                         const prepareDone =
                             !shouldForcePrepare() || turnState.forcePrepareNudgeInjected;
-                        return searchDone && prepareDone;
+                        return multiItemDone && searchPendingDone && prepareDone;
                     },
                     stepCountIs(maxSteps),
                 ],
@@ -629,7 +666,18 @@ export class AiServiceAdapter implements AiService {
                         return { toolChoice: firstToolChoice };
                     }
                     if (!lastStepCalledRespond(steps)) return undefined;
-                    /** Prioridade: resolver item pendente antes de forçar o prepare do pick atual. */
+                    /**
+                     * Prioridade: 1) piso determinístico de multi-item (texto do cliente),
+                     * 2) item pendente declarado em turno anterior, 3) prepare do pick atual.
+                     * (1) não usa flag de "só uma vez" — o contador searchCallCount já limita
+                     * naturalmente (para de forçar assim que atingir o piso).
+                     */
+                    if (shouldForceMultiItemSearch()) {
+                        return {
+                            toolChoice: { type: "tool", toolName: "search_produtos" },
+                            messages: [...stepMessages, { role: "user", content: FORCE_MULTI_ITEM_SEARCH_NUDGE }],
+                        };
+                    }
                     if (!turnState.forceSearchPendingNudgeInjected && shouldForcePendingSearch()) {
                         turnState.forceSearchPendingNudgeInjected = true;
                         return {

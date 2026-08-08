@@ -819,6 +819,7 @@ export async function runProPipeline(
                     (productPickApplied && !serverPreparedOnPick) ||
                     (forcePrepareOnClearSku && !serverPreparedOnPick),
                 skipForcePrepareAfterPick: serverPreparedOnPick,
+                isSyntheticPickText: productPickApplied,
             });
             invalidAiSanitized = ai.invalidAiSanitized;
             aiServiceErrorCode = ai.aiResult.errorCode;

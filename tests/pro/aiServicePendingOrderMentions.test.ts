@@ -188,9 +188,99 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
             draft: null,
             history: [],
             limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
+            // Isola a propagação de pending_items do piso determinístico de multi-item
+            // (coberto em outro teste) — aqui o interesse é só o auto-relato do modelo.
+            isSyntheticPickText: true,
         };
 
         const result = await svc.run(input);
         assert.deepEqual(result.updatedPendingOrderMentions, ["skol"]);
+    });
+
+    it("piso determinístico: mensagem com 2 produtos força 2ª busca mesmo sem o modelo declarar pending_items", async () => {
+        let callCount = 0;
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => {
+                callCount += 1;
+                if (callCount === 1) {
+                    // Modelo busca só o primeiro termo.
+                    return toolCallResult("c1", "search_produtos", { query: "original" });
+                }
+                if (callCount === 2) {
+                    // Tenta fechar perguntando só sobre "original", sem declarar pending_items
+                    // (reproduz o bug real: skol some). stopWhen/prepareStep deve barrar e forçar
+                    // outra busca antes de deixar fechar.
+                    return toolCallResult("c2", "respond_to_customer", {
+                        reply_text: "Qual opção de Original você quer?",
+                    });
+                }
+                if (callCount === 3) {
+                    // Nudge de multi-item forçou toolChoice=search_produtos de novo.
+                    return toolCallResult("c3", "search_produtos", { query: "skol" });
+                }
+                return toolCallResult("c4", "respond_to_customer", {
+                    reply_text: "Certo, qual das opções de Original e de Skol você prefere?",
+                });
+            },
+        });
+
+        const svc = new AiServiceAdapter({} as SupabaseClient, {
+            model,
+            catalog: catalogEmpty(),
+            orderDraft: untouchableOrderDraft(),
+        });
+
+        const input: AiServiceInput = {
+            context: baseContext([]),
+            userText: "quero skol e original",
+            intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "regex_match" },
+            draft: null,
+            history: [],
+            limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
+            isSyntheticPickText: false,
+        };
+
+        const result = await svc.run(input);
+
+        assert.equal(
+            callCount,
+            4,
+            "esperava 4 chamadas (search original → tentativa de fechar → nudge força search skol → respond final)"
+        );
+        assert.deepEqual(model.doGenerateCalls[2]?.toolChoice, {
+            type: "tool",
+            toolName: "search_produtos",
+        });
+        assert.equal(result.action !== "error", true);
+    });
+
+    it("piso determinístico não dispara em texto sintético de pick (isSyntheticPickText=true)", async () => {
+        let callCount = 0;
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => {
+                callCount += 1;
+                return toolCallResult("c1", "respond_to_customer", { reply_text: "Prontinho!" });
+            },
+        });
+
+        const svc = new AiServiceAdapter({} as SupabaseClient, {
+            model,
+            catalog: catalogEmpty(),
+            orderDraft: untouchableOrderDraft(),
+        });
+
+        const input: AiServiceInput = {
+            context: baseContext([]),
+            userText: '[interno] Cliente escolheu a embalagem "ORIGINAL 60ML" (id allowlist x), quantity 1.',
+            intentDecision: { intent: "order_intent", confidence: "high", reasonCode: "regex_match" },
+            draft: null,
+            history: [],
+            limits: { maxToolRounds: 8, maxHistoryTurns: 12, timeoutMs: 5_000 },
+            isSyntheticPickText: true,
+        };
+
+        const result = await svc.run(input);
+        assert.equal(callCount, 1);
+        assert.equal(result.action, "reply");
     });
 });

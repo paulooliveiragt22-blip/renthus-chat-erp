@@ -42,6 +42,7 @@ export function createSearchProdutosTool(deps: {
                 ? deps.turnState.emptySearchStreak + 1
                 : 0;
             deps.turnState.searchInvokedThisTurn = true;
+            deps.turnState.searchCallCount += 1;
             return result.body;
         },
     });

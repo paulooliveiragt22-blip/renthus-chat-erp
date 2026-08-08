@@ -400,6 +400,12 @@ export interface AiServiceInput {
     preferPrepareToolChoiceFirst?: boolean;
     /** Prepare já rodou no servidor neste turno (pick) — não reabrir force-prepare. */
     skipForcePrepareAfterPick?: boolean;
+    /**
+     * `userText` é instrução sintética do servidor (pick de botão via `productPickText.ts`),
+     * não texto livre do cliente — a heurística de multi-item (`multiItemMentionHeuristic.ts`)
+     * não deve rodar em cima dela.
+     */
+    isSyntheticPickText?: boolean;
 }
 
 export type AiServiceAction =

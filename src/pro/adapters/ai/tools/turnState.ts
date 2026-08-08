@@ -28,6 +28,8 @@ export type TurnState = {
     prepareInvokedThisTurn: boolean;
     /** Escrito só por search_produtos. */
     searchInvokedThisTurn: boolean;
+    /** Nº de chamadas search_produtos neste turno (escrito só por search_produtos). */
+    searchCallCount: number;
     lastPrepareOutcome: { ok: boolean; errors: string[] } | null;
     /** Escrito só por `ai.service.ts` (entre steps, via `prepareStep`) — evita repetir o nudge de prepare_order_draft. */
     forcePrepareNudgeInjected: boolean;
@@ -48,6 +50,7 @@ export function createInitialTurnState(seed: {
         emptySearchStreak: seed.emptySearchStreak,
         prepareInvokedThisTurn: false,
         searchInvokedThisTurn: false,
+        searchCallCount: 0,
         lastPrepareOutcome: null,
         forcePrepareNudgeInjected: false,
         forceSearchPendingNudgeInjected: false,
