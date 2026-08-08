@@ -46,7 +46,6 @@ export function createSearchProdutosTool(deps: {
                 }
             );
             deps.turnState.allowlistIds = result.allowlistIds;
-            deps.turnState.lastSearchPicks = result.lastSearchPicks;
             deps.turnState.emptySearchStreak = result.wasEmpty
                 ? deps.turnState.emptySearchStreak + 1
                 : 0;
@@ -59,10 +58,18 @@ export function createSearchProdutosTool(deps: {
                 .map((v) => v.trim())
                 .slice(0, 5);
             if (result.pendingPickGroup) {
+                /**
+                 * `pendingPickGroups` substitui totalmente `lastSearchPicks` para este achado —
+                 * deixar os dois populados junto faz o card de botão legado (`clarify_product_picks`)
+                 * disparar de novo mais tarde, quando o grupo já tiver sido resolvido (bug real do
+                 * smoke S2: "Perfeito, já anotado" + botão pedindo a mesma escolha de novo).
+                 */
                 deps.turnState.pendingPickGroups = upsertPendingPickGroup(
                     deps.turnState.pendingPickGroups,
                     result.pendingPickGroup
                 );
+            } else {
+                deps.turnState.lastSearchPicks = result.lastSearchPicks;
             }
             return result.body;
         },

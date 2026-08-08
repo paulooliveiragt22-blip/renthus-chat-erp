@@ -9,7 +9,13 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AiServiceInput, AiServiceResult, AiTurn, OrderDraft } from "@/src/types/contracts";
+import type {
+    AiServiceInput,
+    AiServiceResult,
+    AiTurn,
+    OrderDraft,
+    PendingPickGroup,
+} from "@/src/types/contracts";
 import type { AiService } from "../../services/ai/ai.types";
 import type { CatalogPort } from "@/src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "@/src/pro/ports/orderDraft.port";
@@ -42,7 +48,6 @@ import { createGetOrderHintsTool } from "@/src/pro/adapters/ai/tools/getOrderHin
 import { createPrepareOrderDraftTool } from "@/src/pro/adapters/ai/tools/prepareOrderDraft.tool";
 import { createResolvePendingPicksTool } from "@/src/pro/adapters/ai/tools/resolvePendingPicks.tool";
 import { createInitialTurnState, type SearchPickSummary, type TurnState } from "@/src/pro/adapters/ai/tools/turnState";
-import type { PendingPickGroup } from "@/src/types/contracts";
 import { isAnthropicRateLimitError } from "@/lib/chatbot/anthropicResilience";
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
@@ -543,6 +548,17 @@ export class AiServiceAdapter implements AiService {
             pendingPickGroups: input.context.session.pendingPickGroups ?? [],
         });
         const allowlistAtStart = [...turnState.allowlistIds];
+        /**
+         * Só força `resolve_pending_picks` para grupos que JÁ existiam no início do turno
+         * (carryover — o servidor já mandou a pergunta em texto livre num turno anterior e
+         * o resolvedor determinístico, `serverResolvePendingPicksFromFreeText`, não fechou
+         * 100%). Um grupo criado agora mesmo por `search_produtos` NESTE turno não pode ser
+         * forçado — o cliente ainda nem viu a pergunta; forçar aqui faz o modelo "chutar"
+         * uma embalagem sem o cliente ter respondido nada (bug real do smoke S2).
+         */
+        const carryoverPendingPickKeys = new Set(
+            (input.context.session.pendingPickGroups ?? []).map((g) => g.productKey)
+        );
 
         if (!this.modelOverride && !hasLlmApiKey()) {
             return {
@@ -649,10 +665,13 @@ export class AiServiceAdapter implements AiService {
                     pendingTerms: turnState.pendingTermsFromSearch,
                 });
 
+            const carryoverPendingPickGroups = (): PendingPickGroup[] =>
+                turnState.pendingPickGroups.filter((g) => carryoverPendingPickKeys.has(g.productKey));
+
             const shouldForcePendingPicks = (): boolean =>
                 shouldForceResolvePendingPicks({
                     infoOnly,
-                    pendingPickGroups: turnState.pendingPickGroups,
+                    pendingPickGroups: carryoverPendingPickGroups(),
                 });
 
             const firstToolChoice =
@@ -722,7 +741,7 @@ export class AiServiceAdapter implements AiService {
                                     ...stepMessages,
                                     {
                                         role: "user",
-                                        content: buildForceResolvePendingPicksNudge(turnState.pendingPickGroups),
+                                        content: buildForceResolvePendingPicksNudge(carryoverPendingPickGroups()),
                                     },
                                 ],
                             };
