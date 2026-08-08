@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0–6 concluídas (2026-08-07/08). Próxima: Fase 7 (substituir `recording.llm.ts` por `replayRecorder.ts`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** 🔄 em andamento — Fases 0–7 concluídas (2026-08-07/08). Próxima: Fase 8 (varredura final: deletar `LlmPort`/`createLlmPort`/`anthropic.llm.ts`/`openai.llm.ts`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
 
 ---
 
@@ -72,7 +72,7 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/adapters/llm/createLlmPort.ts` | **DELETAR** (fase 8) |
 | `src/pro/adapters/llm/anthropic.llm.ts` | **DELETAR** (fase 8) |
 | `src/pro/adapters/llm/openai.llm.ts` | **DELETAR** (fase 8) |
-| `src/pro/adapters/llm/recording.llm.ts` | **DELETAR** (fase 7, substituído) |
+| `src/pro/adapters/llm/recording.llm.ts` | **DELETADO** (fase 7, substituído) |
 | `src/pro/adapters/llm/llmText.ts` | **DELETAR se sem uso após fase 8** (checar antes) |
 | `src/pro/adapters/ai/modelProvider.ts` | **CRIAR** (fase 0) |
 | `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` | **CRIADO** (fase 3) |
@@ -81,7 +81,7 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/adapters/ai/tools/turnState.ts` | **CRIADO** (fase 3, não previsto no plano original — estado de turno por closure) |
 | `src/pro/adapters/ai/blockedReasonPresenter.ts` | **CRIADO** (fase 1) |
 | `src/pro/adapters/ai/ai.service.ts` | **CRIADO** (fase 3, substitui `ai.service.full.ts`) |
-| `src/pro/adapters/ai/replayRecorder.ts` | **CRIAR** (fase 7, substitui `recording.llm.ts`) |
+| `src/pro/adapters/ai/replayRecorder.ts` | **CRIADO** (fase 7, substitui `recording.llm.ts`) |
 | `src/pro/ports/orderDraft.port.ts` | **REDESENHAR** `PrepareOrderDraftResult` (fase 1) |
 | `src/pro/tools/prepareOrderDraft.ts` | **MANTÉM** lógica de cálculo (itens/entrega); só o shape de retorno muda (fase 1) |
 | `src/pro/pipeline/packagingDisambiguation.ts`, `resolveSegmentPick.ts`, `orderDraftGate.ts`, `orderSlotStep.ts`, `checkoutPostProcess.ts`, `sanitizeAiVisibleOrderClaims.ts`, `aiHistoryBudget.ts` | **NÃO TOCAR** — lógica pura, reaproveitada como está |
@@ -89,7 +89,7 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/adapters/ai/sessionMemory.llm.ts` | **MIGRADO** para `generateText` (fase 5); billing corrigido (antes nunca debitava) |
 | `src/pro/replay/structuredOrderExtract.ts` | **MIGRADO** para `generateText` (fase 6, sem `Output` — parser tolerante) |
 | `src/pro/pipeline/deps.factory.ts` | **ATUALIZADO** wiring, sem branch de flag (fase 3) |
-| `src/pro/replay/runThreadReplay.ts` | **ATUALIZADO** (fase 3): `replayLlm`/cassete removidos, `useAi?: boolean` usa `AiServiceAdapter` real sem gravação — cassete volta na fase 7 |
+| `src/pro/replay/runThreadReplay.ts` | **ATUALIZADO** (fase 3, depois fase 7): `replayLlm`/cassete removidos na fase 3; fase 7 devolve `model?: LanguageModel` opcional (`createReplayModel`) |
 
 ---
 
@@ -191,12 +191,20 @@ ai@6.0.246
 - [x] Criado `tests/pro/structuredOrderExtract.test.ts` (5 casos: texto vazio não chama o modelo, JSON válido, cerca de markdown + aliases PT-BR, "pergunta sem pedido" → null, erro do provider → null) — arquivo não tinha teste próprio antes.
 - **Critério de pronto:** `npm test` → 646 pass / 25 fail / 1 cancelled (mesmo baseline; 672 testes totais, +5 novos verdes). ✅ (Sem smoke de replay real — função sem caller hoje; nada a regredir em `runThreadReplay.ts`.)
 
-### Fase 7 — Substituir `recording.llm.ts` por `replayRecorder.ts` ⬜
+### Fase 7 — Substituir `recording.llm.ts` por `replayRecorder.ts` ✅
 
-- [ ] Criar `src/pro/adapters/ai/replayRecorder.ts`: wrapper de `LanguageModel` (proxy/decorator) que grava request/response em cassette, com a mesma finalidade de `RecordingLlmPort`/`ReplayLlmPort`.
-- [ ] Atualizar `src/pro/replay/runThreadReplay.ts` para usar o novo recorder.
-- [ ] Deletar `src/pro/adapters/llm/recording.llm.ts` neste commit.
-- **Critério de pronto:** `npm test` verde, replay de pelo menos 1 thread gravado funcionando ponta a ponta.
+**Decisões registradas (não reabrir sem motivo novo):**
+- Mecanismo escolhido: `wrapLanguageModel({ model, middleware })` + `LanguageModelMiddleware.wrapGenerate` (API oficial do SDK para instrumentar `doGenerate()` no nível do provider — não existia quando `RecordingLlmPort`/`ReplayLlmPort` foram escritos, pois decoravam `LlmPort.chat()`, API já deletada nas Fases 3-6). `createRecordingModel(model)` devolve `{ model, cassette }` (cassete viva, populada a cada `doGenerate()` real); `createReplayModel(cassette)` devolve um `LanguageModelV3` via `MockLanguageModelV3` (`ai/test`, mesmo mock oficial já usado nas Fases 5/6) que reproduz a cassete por índice — sem rede, sem custo, determinístico. Fingerprint (`fingerprintGenerateCall`) só documenta a ordem (não é usado para lookup — replay é sempre sequencial, igual ao `ReplayLlmPort` antigo).
+- `@ai-sdk/provider@3.0.14` (mesma versão já usada transitivamente por `@ai-sdk/anthropic@3.0.107`) adicionado como dependência direta e exata — é o pacote correto para tipos de baixo nível (`LanguageModelV3`, `LanguageModelV3CallOptions`, `LanguageModelV3GenerateResult`) ao escrever middleware; `ai` não os reexporta (só `LanguageModel`/`LanguageModelMiddleware`, tipos de alto nível).
+- `AiServiceAdapter` ganhou `AiServiceOptions.model?: LanguageModel` (seam de replay/teste, mesmo padrão de `modelOverride` das Fases 5/6) — quando definido, substitui `resolveLanguageModel()` e dispensa a guarda `hasLlmApiKey()` (permite rodar sem `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` em teste/replay).
+- `runThreadReplay` ganhou `model?: LanguageModel`, repassado ao `AiServiceAdapter` quando `useAi=true`. O CLI (`scripts/replay-thread.ts`) **não** ganhou flag `--cassette` nesta fase — nunca existiu (era aspiracional, "vem na próxima fatia" desde o commit original do harness); fica para quando houver primeiro uso real de gravação de thread em produção, não é bloqueador do critério de pronto.
+- **Critério de pronto interpretado de forma pragmática:** não há fixture de thread real (Supabase) disponível neste ambiente de dev para um replay ponta-a-ponta via `runThreadReplay`/CLI. O equivalente funcional e mais preciso — provar que uma cassete gravada reproduz **um turno completo do loop de IA** (`AiServiceAdapter.run()`, com as 4 tools reais registradas) sem tocar rede/catálogo/banco — foi implementado em `tests/pro/replayRecorder.test.ts` (`describe("replay de um turno completo via AiServiceAdapter (ponta a ponta)")`): cassete com 1 tool-call `respond_to_customer` é reproduzida via `createReplayModel` + `AiServiceAdapter` com `CatalogPort`/`OrderDraftPort` que lançam se chamados (prova que nenhuma tool de negócio foi executada) — turno termina em `action: "reply"` com o texto exato da cassete. Um 2º teste cobre cassete esgotada (`TOOL_FAILED`, sem lançar).
+
+- [x] Criado `src/pro/adapters/ai/replayRecorder.ts`: `createRecordingMiddleware`/`createRecordingModel` (grava), `createReplayModel` (reproduz), `fingerprintGenerateCall`.
+- [x] Atualizado `src/pro/adapters/ai/ai.service.ts` (`AiServiceOptions.model`) e `src/pro/replay/runThreadReplay.ts` (`model?: LanguageModel`) para aceitar o model override.
+- [x] Deletado `src/pro/adapters/llm/recording.llm.ts` e `tests/pro/replayHarness.test.ts` (substituído por `tests/pro/replayRecorder.test.ts`, que também manteve a cobertura de `compareOutbound` que vivia lá).
+- [x] Testes novos: `tests/pro/replayRecorder.test.ts` — 7 casos (fingerprint, round-trip texto, round-trip tool-call, cassete esgotada em `generateText` puro, 2 casos ponta a ponta via `AiServiceAdapter`, +1 `compareOutbound` portado).
+- **Critério de pronto:** `npm test` → 650 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes; 676 testes totais, net +4 — 7 novos menos 3 removidos de `replayHarness.test.ts`). ✅ Replay ponta a ponta provado via `AiServiceAdapter` (ver decisão acima); replay de thread real via CLI/Supabase não exercido (sem fixture disponível neste ambiente).
 
 ### Fase 8 — Varredura final: deletar `LlmPort` e adapters ⬜
 

@@ -6,7 +6,7 @@
  * texto `INTENT_OK`/`INTENT_UNKNOWN`/`ADDR_FREE_TEXT`.
  */
 
-import { generateText, stepCountIs, tool } from "ai";
+import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiServiceInput, AiServiceResult, AiTurn, OrderDraft } from "@/src/types/contracts";
@@ -50,6 +50,11 @@ export type AiServiceOptions = {
     catalog?: CatalogPort;
     orderDraft?: OrderDraftPort;
     sessionMemory?: SessionMemoryPort;
+    /**
+     * Seam de teste/replay — injeta `MockLanguageModelV3`/`createReplayModel`
+     * (`src/pro/adapters/ai/replayRecorder.ts`) em vez de `resolveLanguageModel()`/rede.
+     */
+    model?: LanguageModel;
 };
 
 type IntentMarker = "ok" | "unknown";
@@ -344,11 +349,13 @@ export class AiServiceAdapter implements AiService {
     private readonly catalog: CatalogPort;
     private readonly orderDraft: OrderDraftPort;
     private readonly sessionMemory: SessionMemoryPort;
+    private readonly modelOverride?: LanguageModel;
 
     constructor(private readonly admin: SupabaseClient, opts?: AiServiceOptions) {
         this.catalog = opts?.catalog ?? new SupabaseCatalogAdapter(admin);
         this.orderDraft = opts?.orderDraft ?? new SupabaseOrderDraftAdapter(admin);
         this.sessionMemory = opts?.sessionMemory ?? new NoopSessionMemoryAdapter();
+        this.modelOverride = opts?.model;
     }
 
     private buildProviderError(input: AiServiceInput, toolRoundsUsed: number, allowlistIds: string[]): AiServiceResult {
@@ -429,7 +436,7 @@ export class AiServiceAdapter implements AiService {
         });
         const allowlistAtStart = [...turnState.allowlistIds];
 
-        if (!hasLlmApiKey()) {
+        if (!this.modelOverride && !hasLlmApiKey()) {
             return {
                 action: "error",
                 replyText: "Estou sem conexão com IA agora. Pode tentar novamente em instantes?",
@@ -447,7 +454,7 @@ export class AiServiceAdapter implements AiService {
         const companyId = input.context.tenant.companyId;
 
         try {
-            const model = resolveLanguageModel();
+            const model = this.modelOverride ?? resolveLanguageModel();
             const provider = getConfiguredLlmProviderName();
 
             const respondToCustomerTool = createRespondToCustomerTool();

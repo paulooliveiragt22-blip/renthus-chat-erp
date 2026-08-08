@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { LanguageModel } from "ai";
 import type { OutboundMessage, ProSessionState } from "@/src/types/contracts";
 import type { LoggerPort } from "@/src/pro/ports/logger.port";
 import type { MessageGateway } from "@/src/pro/ports/message.gateway";
@@ -65,17 +66,17 @@ function stubIntent(): IntentService {
 /**
  * Reprocessa inbound da thread sem enviar Meta / sem criar pedido real.
  * `useAi=false` (default): AI stub (não chama LLM real, sem custo).
- * `useAi=true`: `AiServiceAdapter` real (Vercel AI SDK) — chama o provider configurado.
- *
- * Cassete determinístico (fixture de respostas do LLM) foi descontinuado nesta migração
- * (`FullAiServiceAdapter`/`ReplayLlmPort` deletados na Fase 3, ver
- * docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md) — replanejar na Fase 7 se necessário.
+ * `useAi=true`: `AiServiceAdapter` real (Vercel AI SDK) — chama o provider configurado, salvo
+ * se `model` for informado (`createReplayModel`/`src/pro/adapters/ai/replayRecorder.ts`), caso em
+ * que reproduz uma cassete gravada em vez de chamar a rede (determinístico, sem custo — Fase 7).
  */
 export async function runThreadReplay(params: {
     admin: SupabaseClient;
     companyId: string;
     threadId: string;
     useAi?: boolean;
+    /** Sobrepõe o `LanguageModel` do `AiServiceAdapter` (ex.: `createReplayModel(cassette)`). */
+    model?: LanguageModel;
     phoneE164?: string;
     channel?: "whatsapp" | "instagram" | "messenger";
 }): Promise<{ turns: ReplayTurnResult[]; summary: { turns: number; diffs: number } }> {
@@ -125,7 +126,7 @@ export async function runThreadReplay(params: {
     const intentService = stubIntent();
 
     const aiService: AiService = params.useAi
-        ? new AiServiceAdapter(params.admin)
+        ? new AiServiceAdapter(params.admin, { model: params.model })
         : {
               run: async () =>
                   ({
