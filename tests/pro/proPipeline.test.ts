@@ -169,7 +169,21 @@ describe("novo pipeline PRO - falhas reais", () => {
         assert.equal(called, 1);
     });
 
-    it("id de botão de confirmação (confirmar) deve finalizar pedido", async () => {
+    it("alias de botão de confirmação (btn_confirmar) deve finalizar pedido", async () => {
+        let called = 0;
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation(),
+            intent: "unknown",
+            onOrderCalled: () => {
+                called += 1;
+            },
+        });
+
+        await runProPipeline({ ...baseInput(), inboundText: "btn_confirmar" }, deps);
+        assert.equal(called, 1);
+    });
+
+    it("texto solto 'confirmar' (sem clique no botão) NÃO deve finalizar pedido", async () => {
         let called = 0;
         const deps = buildDeps({
             session: stateAwaitingConfirmation(),
@@ -180,7 +194,7 @@ describe("novo pipeline PRO - falhas reais", () => {
         });
 
         await runProPipeline({ ...baseInput(), inboundText: "confirmar" }, deps);
-        assert.equal(called, 1);
+        assert.equal(called, 0);
     });
 
     it("pedido vazio: não deve chamar orderService", async () => {

@@ -7,13 +7,14 @@ describe("isExplicitOrderConfirmation", () => {
         assert.equal(isExplicitOrderConfirmation("pro_confirm_order"), true);
         assert.equal(isExplicitOrderConfirmation("btn_confirm_order"), true);
         assert.equal(isExplicitOrderConfirmation("btn_confirmar"), true);
-        assert.equal(isExplicitOrderConfirmation("confirmar"), true);
-        assert.equal(isExplicitOrderConfirmation("confirm_order"), true);
     });
 
-    it("rejeita prosa afirmativa (vai para o agent loop)", () => {
+    it("rejeita prosa afirmativa, inclusive a palavra solta 'confirmar' digitada (vai para o agent loop)", () => {
         assert.equal(isExplicitOrderConfirmation("sim"), false);
         assert.equal(isExplicitOrderConfirmation("OK!"), false);
+        assert.equal(isExplicitOrderConfirmation("confirmar"), false);
+        assert.equal(isExplicitOrderConfirmation("confirm_order"), false);
+        assert.equal(isExplicitOrderConfirmation("confirmar_pedido"), false);
         assert.equal(isExplicitOrderConfirmation("pode confirmar"), false);
         assert.equal(isExplicitOrderConfirmation("sim pode confirmar"), false);
         assert.equal(isExplicitOrderConfirmation("ok obrigado"), false);

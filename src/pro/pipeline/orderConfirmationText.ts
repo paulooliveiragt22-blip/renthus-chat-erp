@@ -1,13 +1,21 @@
 /**
- * Confirmação forte de pedido no PRO: só IDs estruturados de botão (HITL).
- * Texto livre (“sim”, “ok”) não finaliza — vai para o agent loop / revisão.
+ * Confirmação forte de pedido no PRO: só IDs estruturados de botão (HITL) —
+ * eventos de `interactive.button_reply.id` do WhatsApp, nunca texto digitado.
+ * Texto livre (“sim”, “ok”, “confirmar”) não finaliza — vai para o agent loop /
+ * revisão; a IA responde normalmente e pode reforçar o botão Confirmar, mas só
+ * o clique estruturado dispara a RPC de criar pedido (mutação financeira +
+ * baixa de estoque é irreversível — não delegamos esse gatilho a NLU/regex).
  * Contexto: só é chamado quando `step === pro_awaiting_confirmation`.
+ *
+ * `confirmar` / `confirmar_pedido` / `confirm_order` eram aliases legados do
+ * WhatsApp Flow antigo (`app/api/whatsapp/flows/route.ts`, tela pré-motor-PRO)
+ * — removidos daqui porque também casavam com texto puro digitado pelo
+ * cliente. Único ID real que os botões do PRO enviam hoje: `pro_confirm_order`
+ * (`checkoutPostProcess.ts`); `btn_confirm_order`/`btn_confirmar` seguem como
+ * aliases de compatibilidade.
  */
 
 const CONFIRMATION_BUTTON_IDS = new Set([
-    "confirmar",
-    "confirmar_pedido",
-    "confirm_order",
     "pro_confirm_order",
     "btn_confirm_order",
     "btn_confirmar",
