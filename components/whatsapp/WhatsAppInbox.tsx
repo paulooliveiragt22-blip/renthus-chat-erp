@@ -12,6 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
     ChevronRight,
     Clock,
+    Eraser,
     File,
     Info,
     Menu,
@@ -212,6 +213,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [pendingText, setPendingText] = useState<string | null>(null);
     const [billingBusy, setBillingBusy] = useState(false);
     const [botToggling, setBotToggling] = useState(false);
+
+    // encerrar sessão / limpar carrinho
+    const [resetSessionOpen, setResetSessionOpen] = useState(false);
+    const [resetSessionBusy, setResetSessionBusy] = useState(false);
+    const [resetSessionDone, setResetSessionDone] = useState<string | null>(null);
 
     // profile sidebar
     const [profileOpen,     setProfileOpen]     = useState(true);
@@ -694,6 +700,22 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         finally   { setBotToggling(false); }
     }
 
+    async function resetSession(threadId: string) {
+        setResetSessionBusy(true);
+        try {
+            const res  = await fetch(`/api/whatsapp/threads/${threadId}/reset-session`, {
+                method:  "POST",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) { setErr(json?.error ?? "Falha ao encerrar sessão"); return; }
+            setResetSessionOpen(false);
+            setResetSessionDone("Sessão encerrada e carrinho limpo.");
+            setTimeout(() => setResetSessionDone(null), 4000);
+        } catch { setErr("Falha ao encerrar sessão"); }
+        finally   { setResetSessionBusy(false); }
+    }
+
     async function createThread() {
         const name        = newName.trim();
         const phoneE164 = normalizeBrazilToE164(newPhoneBR);
@@ -986,6 +1008,16 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                     </span>
                                 </div>
 
+                                {/* Encerrar sessão + limpar carrinho */}
+                                <button
+                                    onClick={() => setResetSessionOpen(true)}
+                                    aria-label="Encerrar sessão e limpar carrinho"
+                                    title="Encerrar sessão e limpar carrinho"
+                                    className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-primary/40 dark:hover:bg-zinc-800"
+                                >
+                                    <Eraser className="h-4 w-4" />
+                                </button>
+
                                 {/* Botão Info para toggle do perfil */}
                                 <button
                                     onClick={() => setProfileOpen((p) => !p)}
@@ -1225,6 +1257,46 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         </button>
                     </div>
                 </InlineModal>
+            )}
+
+            {/* ── MODAL: encerrar sessão / limpar carrinho ───────────────── */}
+            {resetSessionOpen && selectedThread && (
+                <InlineModal
+                    title="Encerrar sessão do cliente?"
+                    onClose={() => { if (!resetSessionBusy) setResetSessionOpen(false); }}
+                >
+                    <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                        Isso vai zerar o carrinho e o histórico da conversa com o bot. O cliente
+                        pode começar um pedido novo do zero na próxima mensagem. O bot continua
+                        ativo/pausado como está agora.
+                    </p>
+                    <div className="mt-4 flex justify-end gap-2">
+                        <button
+                            onClick={() => setResetSessionOpen(false)}
+                            disabled={resetSessionBusy}
+                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={() => resetSession(selectedThread.id)}
+                            disabled={resetSessionBusy}
+                            className="rounded-lg bg-red-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+                        >
+                            {resetSessionBusy ? "Encerrando..." : "Encerrar sessão"}
+                        </button>
+                    </div>
+                </InlineModal>
+            )}
+
+            {/* ── Toast: sessão encerrada ─────────────────────────────────── */}
+            {resetSessionDone && (
+                <div
+                    role="status"
+                    className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-zinc-900 px-4 py-2 text-xs font-medium text-white shadow-lg dark:bg-zinc-700"
+                >
+                    {resetSessionDone}
+                </div>
             )}
         </div>
     );
