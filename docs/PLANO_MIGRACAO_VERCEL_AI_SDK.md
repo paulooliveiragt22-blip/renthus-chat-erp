@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0, 1, 2, 3, 4 e 5 concluídas (2026-08-07/08). Próxima: Fase 6 (`structuredOrderExtract.ts` → `generateText`/`Output`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** 🔄 em andamento — Fases 0–6 concluídas (2026-08-07/08). Próxima: Fase 7 (substituir `recording.llm.ts` por `replayRecorder.ts`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
 
 ---
 
@@ -87,7 +87,7 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/pipeline/packagingDisambiguation.ts`, `resolveSegmentPick.ts`, `orderDraftGate.ts`, `orderSlotStep.ts`, `checkoutPostProcess.ts`, `sanitizeAiVisibleOrderClaims.ts`, `aiHistoryBudget.ts` | **NÃO TOCAR** — lógica pura, reaproveitada como está |
 | `src/pro/services/intent/intentClassifier.service.ts` | **MIGRADO** para `generateText`+`Output.choice` (fase 4) |
 | `src/pro/adapters/ai/sessionMemory.llm.ts` | **MIGRADO** para `generateText` (fase 5); billing corrigido (antes nunca debitava) |
-| `src/pro/replay/structuredOrderExtract.ts` | **MIGRAR** chamada LLM (fase 6) |
+| `src/pro/replay/structuredOrderExtract.ts` | **MIGRADO** para `generateText` (fase 6, sem `Output` — parser tolerante) |
 | `src/pro/pipeline/deps.factory.ts` | **ATUALIZADO** wiring, sem branch de flag (fase 3) |
 | `src/pro/replay/runThreadReplay.ts` | **ATUALIZADO** (fase 3): `replayLlm`/cassete removidos, `useAi?: boolean` usa `AiServiceAdapter` real sem gravação — cassete volta na fase 7 |
 
@@ -179,10 +179,17 @@ ai@6.0.246
 - [x] Testes (`tests/pro/sessionMemory.test.ts`) migrados de mock caseiro de `LlmPort` para `MockLanguageModelV3` (`ai/test`); +1 teste novo (fallback extrativo quando o modelo lança).
 - **Critério de pronto:** `npm test` → 641 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes; 667 testes totais, +1 novo verde). ✅
 
-### Fase 6 — `structuredOrderExtract.ts` (replay) para `generateObject` ⬜
+### Fase 6 — `structuredOrderExtract.ts` (replay) para `generateText` ✅
 
-- [ ] Idem fase 4, mas para o extrator estruturado usado em `src/pro/replay/`.
-- **Critério de pronto:** `npm test` verde, `runThreadReplay.ts` ainda funcional (rodar smoke de replay se houver script/npm task pra isso — checar `package.json`).
+**Decisões registradas:**
+- **Achado:** `extractOrderLinesStructured` não tinha (e continua sem ter) nenhum caller em produção nem em `scripts/replay-thread.ts` — é infraestrutura offline reservada para uma futura ferramenta de divergência LLM×regex (`.cursor/rules/agente-pro-hexagonal.mdc` proíbe explicitamente reintroduzi-la no hot path). Migrada mesmo assim (não é dead code a remover — é contrato documentado para uso futuro), só a transporte LLM mudou.
+- **Não usa `Output.object`/`Output.array`** (diferente das Fases 4/5, de propósito): `parseOrderLineExtractionJson` já faz reparo tolerante de JSON solto — aceita aliases PT-BR (`itens`/`troca`/`dialogo`), cerca de markdown e nomes alternativos de campo. Validação estruturada do SDK rejeitaria essas variações em vez de tolerá-las (é exatamente o cenário oposto ao do intent classifier, onde o valor é um enum fechado). Mantido `generateText` sem `output`, texto livre + parser tolerante existente.
+- Ganhou o mesmo seam de teste das Fases 5/6 (`modelOverride?: LanguageModel`, via `MockLanguageModelV3` de `ai/test`) e o mesmo padrão de billing opcional (`admin`/`companyId` → `debitFromAnthropicUsage`, `source: "pro_structured_extract"`) — consistente com todos os outros call-sites de LLM já migrados, mesmo sem caller hoje.
+- `textFromLlmContent` (helper local) removido — `result.text` do `generateText` já concatena os blocos de texto.
+
+- [x] Trocado `LlmPort.chat()` por `generateText({ model, system, prompt, maxOutputTokens, maxRetries, abortSignal })`.
+- [x] Criado `tests/pro/structuredOrderExtract.test.ts` (5 casos: texto vazio não chama o modelo, JSON válido, cerca de markdown + aliases PT-BR, "pergunta sem pedido" → null, erro do provider → null) — arquivo não tinha teste próprio antes.
+- **Critério de pronto:** `npm test` → 646 pass / 25 fail / 1 cancelled (mesmo baseline; 672 testes totais, +5 novos verdes). ✅ (Sem smoke de replay real — função sem caller hoje; nada a regredir em `runThreadReplay.ts`.)
 
 ### Fase 7 — Substituir `recording.llm.ts` por `replayRecorder.ts` ⬜
 

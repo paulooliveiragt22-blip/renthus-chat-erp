@@ -1,4 +1,6 @@
-import type { LlmPort } from "@/src/pro/ports/llm.port";
+import { generateText, type LanguageModel } from "ai";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getConfiguredLlmProviderName, resolveLanguageModel } from "@/src/pro/adapters/ai/modelProvider";
 import {
     parseOrderLineExtractionJson,
     type OrderLineExtraction,
@@ -35,18 +37,28 @@ Regras de dialogue (interprete linguagem NATURAL — não só "sim"/"não"):
 - Se a mensagem for pedido novo com produto, prefira items[] e dialogue=null.
 - Precisa de items OU swap OU dialogue (pelo menos um).`;
 
-function textFromLlmContent(content: unknown[]): string {
-    const parts: string[] = [];
-    for (const block of content) {
-        if (typeof block === "string") {
-            parts.push(block);
-            continue;
-        }
-        if (!block || typeof block !== "object") continue;
-        const b = block as { type?: string; text?: string };
-        if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
+async function debitStructuredExtractUsage(
+    admin: SupabaseClient | null | undefined,
+    companyId: string | undefined,
+    usage: { inputTokens?: number; outputTokens?: number },
+    modelId: string | undefined
+): Promise<void> {
+    if (!admin || !companyId) return;
+    try {
+        const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
+        await debitFromAnthropicUsage(
+            admin,
+            companyId,
+            { input_tokens: usage.inputTokens ?? 0, output_tokens: usage.outputTokens ?? 0 },
+            {
+                source: "pro_structured_extract",
+                provider: getConfiguredLlmProviderName(),
+                model: modelId?.trim() || "unknown",
+            }
+        );
+    } catch {
+        /* billing best-effort */
     }
-    return parts.join("\n").trim();
 }
 
 export type ExtractSessionHint = {
@@ -62,12 +74,22 @@ export type ExtractSessionHint = {
 /**
  * Uma passada LLM — sem tools.
  * Inclui atos de diálogo (add_more / confirm / qty) para o servidor executar.
+ *
+ * **Decisão (Fase 6, não reabrir sem motivo novo):** aqui NÃO se usa
+ * `generateText({ output: Output.object(schema) })` (padrão das Fases 4/5) —
+ * `parseOrderLineExtractionJson` já faz reparo/alias tolerante de JSON
+ * (aceita `itens`/`troca`/`dialogo`, cerca de markdown, nomes PT-BR) porque o
+ * `SYSTEM` acima pede um contrato solto, não um schema estrito; validação
+ * estruturada do SDK rejeitaria essas variações em vez de tolerá-las. Mantido
+ * texto livre + parser tolerante existente; só a transporte LLM mudou.
  */
 export async function extractOrderLinesStructured(params: {
-    llm: LlmPort;
     userText: string;
     companyId?: string;
+    admin?: SupabaseClient | null;
     model?: string;
+    /** Seam de teste — injeta `MockLanguageModelV3` de `ai/test` em vez de `resolveLanguageModel()`/rede. */
+    modelOverride?: LanguageModel;
     timeoutMs?: number;
     sessionHint?: ExtractSessionHint | null;
 }): Promise<OrderLineExtraction | null> {
@@ -102,17 +124,18 @@ export async function extractOrderLinesStructured(params: {
         .join("\n\n");
 
     try {
-        const res = await params.llm.chat({
+        const result = await generateText({
+            model: params.modelOverride ?? resolveLanguageModel(params.model),
             system: SYSTEM,
-            messages: [{ role: "user", content: userContent }],
-            maxTokens: 400,
-            model: params.model,
-            timeoutMs: params.timeoutMs ?? 8_000,
-            companyId: params.companyId,
-            purpose: "pro_structured_extract",
+            prompt: userContent,
+            maxOutputTokens: 400,
+            maxRetries: 2,
+            abortSignal: AbortSignal.timeout(params.timeoutMs ?? 8_000),
         });
-        const raw = textFromLlmContent(res.content as unknown[]);
-        return parseOrderLineExtractionJson(raw);
+
+        await debitStructuredExtractUsage(params.admin, params.companyId, result.usage, result.response.modelId);
+
+        return parseOrderLineExtractionJson(result.text);
     } catch (e) {
         console.warn(
             "[structured_extract] failed:",
