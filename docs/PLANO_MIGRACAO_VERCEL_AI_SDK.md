@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0–7 concluídas (2026-08-07/08). Próxima: Fase 8 (varredura final: deletar `LlmPort`/`createLlmPort`/`anthropic.llm.ts`/`openai.llm.ts`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** 🔄 em andamento — Fases 0–8 concluídas (2026-08-07/08). Próxima: Fase 9 (docs — `CHATBOT_PROD.md`, `agente-pro-hexagonal.mdc`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
 
 ---
 
@@ -68,12 +68,12 @@ Pontos que substituem mecanismos antigos:
 |---|---|
 | `src/pro/adapters/ai/ai.service.full.ts` | **DELETADO** (fase 3) |
 | `src/pro/adapters/ai/stripModelIntentSuffix.ts` | **DELETADO** (fase 3) |
-| `src/pro/ports/llm.port.ts` | **DELETAR** (fase 8) |
-| `src/pro/adapters/llm/createLlmPort.ts` | **DELETAR** (fase 8) |
-| `src/pro/adapters/llm/anthropic.llm.ts` | **DELETAR** (fase 8) |
-| `src/pro/adapters/llm/openai.llm.ts` | **DELETAR** (fase 8) |
+| `src/pro/ports/llm.port.ts` | **DELETADO** (fase 8) |
+| `src/pro/adapters/llm/createLlmPort.ts` | **DELETADO** (fase 8) |
+| `src/pro/adapters/llm/anthropic.llm.ts` | **DELETADO** (fase 8) |
+| `src/pro/adapters/llm/openai.llm.ts` | **DELETADO** (fase 8) |
 | `src/pro/adapters/llm/recording.llm.ts` | **DELETADO** (fase 7, substituído) |
-| `src/pro/adapters/llm/llmText.ts` | **DELETAR se sem uso após fase 8** (checar antes) |
+| `src/pro/adapters/llm/llmText.ts` | **MANTIDO, reduzido** (fase 8): só `hasLlmApiKey` sobrevive (`extractLlmPlainText` deletado, sem callers desde as Fases 5/6) |
 | `src/pro/adapters/ai/modelProvider.ts` | **CRIAR** (fase 0) |
 | `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` | **CRIADO** (fase 3) |
 | `src/pro/adapters/ai/tools/searchProdutos.tool.ts` | **CRIADO** (fase 3) |
@@ -206,12 +206,17 @@ ai@6.0.246
 - [x] Testes novos: `tests/pro/replayRecorder.test.ts` — 7 casos (fingerprint, round-trip texto, round-trip tool-call, cassete esgotada em `generateText` puro, 2 casos ponta a ponta via `AiServiceAdapter`, +1 `compareOutbound` portado).
 - **Critério de pronto:** `npm test` → 650 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes; 676 testes totais, net +4 — 7 novos menos 3 removidos de `replayHarness.test.ts`). ✅ Replay ponta a ponta provado via `AiServiceAdapter` (ver decisão acima); replay de thread real via CLI/Supabase não exercido (sem fixture disponível neste ambiente).
 
-### Fase 8 — Varredura final: deletar `LlmPort` e adapters ⬜
+### Fase 8 — Varredura final: deletar `LlmPort` e adapters ✅
 
-- [ ] `grep -rn "LlmPort\|createLlmPort\|llm\.port" src/` — deve retornar **zero** resultado fora dos próprios arquivos a deletar.
-- [ ] Deletar `src/pro/ports/llm.port.ts`, `src/pro/adapters/llm/createLlmPort.ts`, `anthropic.llm.ts`, `openai.llm.ts`.
-- [ ] Checar `src/pro/adapters/llm/llmText.ts` — se não sobrou nenhum consumidor, deletar também; se sobrou (ex.: helper de extração de texto reaproveitado em outro contexto), documentar por quê.
-- **Critério de pronto:** `npm test` verde, `npm run build`/`tsc` sem erro de import quebrado.
+**Decisões registradas:**
+- `grep -rn "LlmPort|createLlmPort|llm\.port" src/` (via ripgrep) devolveu, após a varredura, só comentários históricos em `replayRecorder.ts` e `modelProvider.ts` (citando os nomes antigos como contexto de migração) — zero import/uso real fora dos arquivos deletados.
+- `src/pro/adapters/llm/llmText.ts` **não foi deletado por completo**: `extractLlmPlainText` (sem callers desde as Fases 5/6, que passaram a usar `result.text` do `generateText`) foi removida; `hasLlmApiKey` sobrevive porque `ai.service.ts` e `intentClassifier.service.ts` ainda a chamam antes de `resolveLanguageModel()`. Cobertura de teste dedicada movida para `tests/pro/llmText.test.ts` (o teste antigo estava misturado em `openaiLlmConvert.test.ts`, deletado com o resto do adapter OpenAI).
+- `lib/chatbot/anthropicResilience.ts` (`runAnthropicWithResilience`/`isAnthropicRateLimitError`) **não é afetado** — tem consumidor fora deste módulo (`src/pro/pipeline/runProPipeline.ts`) e não estava no inventário de deleção; só o uso que existia dentro de `anthropic.llm.ts` (chat) foi removido.
+
+- [x] Deletados `src/pro/ports/llm.port.ts`, `src/pro/adapters/llm/createLlmPort.ts`, `anthropic.llm.ts`, `openai.llm.ts`.
+- [x] Deletados os testes que só existiam para esses arquivos: `tests/pro/createLlmPort.test.ts`, `tests/pro/openaiLlmConvert.test.ts` (parte do 2º sobrevive em `tests/pro/llmText.test.ts`).
+- [x] `src/pro/adapters/llm/llmText.ts` reduzido a `hasLlmApiKey` (removida `extractLlmPlainText`, dead code).
+- **Critério de pronto:** `npm test` → 645 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes; 671 testes totais — líquido -7 pela remoção dos 2 arquivos de teste do `LlmPort` +2 novos em `llmText.test.ts`). ✅ `tsc --project tsconfig.test.json` (parte do `npm test`) sem erro de import quebrado.
 
 ### Fase 9 — Docs ⬜
 
