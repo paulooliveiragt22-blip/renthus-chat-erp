@@ -26,6 +26,43 @@ export class WhatsAppMessageGateway implements MessageGateway {
         return Boolean(data?.length);
     }
 
+    /**
+     * `botSendButtons`/`botSendCtaUrl`/`sendFlowMessage` (lib/whatsapp/send.ts) só chamam a
+     * Graph API da Meta — diferente de `botReply` (texto simples), que já persiste via
+     * `sendWhatsAppMessage` (lib/whatsapp/sendMessage.ts). Sem isto, mensagens interativas
+     * eram entregues de verdade ao cliente mas nunca apareciam em `whatsapp_messages`
+     * (invisíveis no Inbox admin e em qualquer consulta de auditoria/replay).
+     */
+    private async persistOutbound(params: {
+        tenant: TenantRef;
+        body: string;
+        providerMessageId?: string;
+        rawPayload?: Record<string, unknown>;
+    }): Promise<void> {
+        const { tenant, body, providerMessageId, rawPayload } = params;
+        if (!tenant.threadId) return;
+        await this.admin.from("whatsapp_messages").insert({
+            thread_id: tenant.threadId,
+            direction: "outbound",
+            channel: "whatsapp",
+            provider: "meta",
+            provider_message_id: providerMessageId ?? null,
+            to_addr: tenant.phoneE164 ?? null,
+            body,
+            num_media: 0,
+            status: "sent",
+            sender_type: "bot",
+            raw_payload: rawPayload ?? null,
+        });
+        await this.admin
+            .from("whatsapp_threads")
+            .update({
+                last_message_at: new Date().toISOString(),
+                last_message_preview: body.slice(0, 120),
+            })
+            .eq("id", tenant.threadId);
+    }
+
     async send(tenant: TenantRef, message: OutboundMessage): Promise<void> {
         if (message.kind === "text") {
             const text = message.text ?? "";
@@ -52,7 +89,7 @@ export class WhatsAppMessageGateway implements MessageGateway {
                 buttons,
                 this.waConfig
             );
-            if (result && result.ok === false) {
+            if (result?.ok === false) {
                 /** Fallback: lista numerada em texto (cliente responde 1/2/3). Evita "problema técnico". */
                 console.error("[pro/whatsapp] buttons failed, fallback text:", result.error);
                 await botReply(
@@ -62,7 +99,14 @@ export class WhatsAppMessageGateway implements MessageGateway {
                     tenant.phoneE164,
                     text
                 );
+                return;
             }
+            await this.persistOutbound({
+                tenant,
+                body: text,
+                providerMessageId: result?.messageId,
+                rawPayload: { kind: "buttons", buttons },
+            });
             return;
         }
 
@@ -80,7 +124,7 @@ export class WhatsAppMessageGateway implements MessageGateway {
                 url,
                 this.waConfig
             );
-            if (result && result.ok === false) {
+            if (result?.ok === false) {
                 console.error("[pro/whatsapp] cta_url failed, fallback text:", result.error);
                 await botReply(
                     this.admin,
@@ -89,13 +133,20 @@ export class WhatsAppMessageGateway implements MessageGateway {
                     tenant.phoneE164,
                     `${bodyText}\n\n${url}`
                 );
+                return;
             }
+            await this.persistOutbound({
+                tenant,
+                body: bodyText,
+                providerMessageId: result?.messageId,
+                rawPayload: { kind: "cta_url", displayText, url },
+            });
             return;
         }
 
         if (message.kind === "flow" && message.flow) {
             if (await this.isRecentDuplicateText(tenant, message.flow.bodyText)) return;
-            await sendFlowMessage(
+            const result = await sendFlowMessage(
                 tenant.phoneE164,
                 {
                     flowId: message.flow.flowId,
@@ -105,6 +156,16 @@ export class WhatsAppMessageGateway implements MessageGateway {
                 },
                 this.waConfig
             );
+            if (result.ok === false) {
+                console.error("[pro/whatsapp] flow failed:", result.error);
+                return;
+            }
+            await this.persistOutbound({
+                tenant,
+                body: message.flow.bodyText,
+                providerMessageId: result.messageId,
+                rawPayload: { kind: "flow", flowId: message.flow.flowId },
+            });
         }
     }
 }
