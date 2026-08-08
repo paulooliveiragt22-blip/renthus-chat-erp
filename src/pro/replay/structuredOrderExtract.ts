@@ -7,7 +7,7 @@ import {
 /**
  * Extração estruturada **offline** (replay / métrica de divergência).
  * Não faz parte do hot path do pipeline PRO — o cérebro de linguagem é o agent loop
- * (`FullAiServiceAdapter` + tools). Não reintroduzir no `runProPipeline`.
+ * (`AiServiceAdapter` + tools). Não reintroduzir no `runProPipeline`.
  */
 
 const SYSTEM = `Você extrai intenção de pedido e diálogo de checkout em português do Brasil.

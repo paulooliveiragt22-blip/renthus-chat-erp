@@ -1,5 +1,5 @@
 import type { ProcessMessageParams } from "@/lib/chatbot/types";
-import { FullAiServiceAdapter } from "../adapters/ai/ai.service.full";
+import { AiServiceAdapter } from "../adapters/ai/ai.service";
 import { LlmSessionMemoryAdapter } from "../adapters/ai/sessionMemory.llm";
 import { ConsoleLoggerAdapter } from "../adapters/logger/logger.console";
 import { ConsoleMetricsAdapter } from "../adapters/metrics/metrics.console";
@@ -59,8 +59,7 @@ export function makeProPipelineDependencies(
         metrics: makeMetricsPort(params.admin),
         logger: new ConsoleLoggerAdapter(),
         intentService: new ProIntentClassifierService(params.admin),
-        aiService: new FullAiServiceAdapter(params.admin, {
-            llm,
+        aiService: new AiServiceAdapter(params.admin, {
             catalog,
             orderDraft,
             sessionMemory,

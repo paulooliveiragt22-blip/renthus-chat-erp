@@ -13,7 +13,7 @@ import {
     loadThreadTracesForReplay,
 } from "@/src/pro/replay/loadThreadForReplay";
 import { compareOutbound } from "@/src/pro/replay/compareOutbound";
-import type { ReplayLlmPort } from "@/src/pro/adapters/llm/recording.llm";
+import { AiServiceAdapter } from "@/src/pro/adapters/ai/ai.service";
 
 export type ReplayTurnResult = {
     inboundMessageId: string;
@@ -64,14 +64,18 @@ function stubIntent(): IntentService {
 
 /**
  * Reprocessa inbound da thread sem enviar Meta / sem criar pedido real.
- * Sem cassete: AI stub (bootstrap/regex ainda rodamm).
- * Com ReplayLlmPort: FullAiServiceAdapter + cassete.
+ * `useAi=false` (default): AI stub (não chama LLM real, sem custo).
+ * `useAi=true`: `AiServiceAdapter` real (Vercel AI SDK) — chama o provider configurado.
+ *
+ * Cassete determinístico (fixture de respostas do LLM) foi descontinuado nesta migração
+ * (`FullAiServiceAdapter`/`ReplayLlmPort` deletados na Fase 3, ver
+ * docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md) — replanejar na Fase 7 se necessário.
  */
 export async function runThreadReplay(params: {
     admin: SupabaseClient;
     companyId: string;
     threadId: string;
-    replayLlm?: ReplayLlmPort;
+    useAi?: boolean;
     phoneE164?: string;
     channel?: "whatsapp" | "instagram" | "messenger";
 }): Promise<{ turns: ReplayTurnResult[]; summary: { turns: number; diffs: number } }> {
@@ -120,20 +124,16 @@ export async function runThreadReplay(params: {
 
     const intentService = stubIntent();
 
-    let aiService: AiService;
-    if (params.replayLlm) {
-        const { FullAiServiceAdapter } = await import("@/src/pro/adapters/ai/ai.service.full");
-        aiService = new FullAiServiceAdapter(params.admin, params.replayLlm);
-    } else {
-        aiService = {
-            run: async () =>
-                ({
-                    action: "reply",
-                    replyText: "",
-                    signals: { toolRoundsUsed: 0 },
-                }) as never,
-        };
-    }
+    const aiService: AiService = params.useAi
+        ? new AiServiceAdapter(params.admin)
+        : {
+              run: async () =>
+                  ({
+                      action: "reply",
+                      replyText: "",
+                      signals: { toolRoundsUsed: 0 },
+                  }) as never,
+          };
 
     const orderService: OrderService = {
         createFromDraft: async () => ({
@@ -174,10 +174,10 @@ export async function runThreadReplay(params: {
                 nowIso: msg.created_at || new Date().toISOString(),
                 aiCapability: {
                     tier: "avancado",
-                    maxToolRounds: params.replayLlm ? 8 : 0,
+                    maxToolRounds: params.useAi ? 8 : 0,
                     maxHistoryTurns: 12,
                     aiTimeoutMs: 5_000,
-                    llmEnabled: Boolean(params.replayLlm),
+                    llmEnabled: Boolean(params.useAi),
                     model: "replay",
                     planKey: "market",
                 },

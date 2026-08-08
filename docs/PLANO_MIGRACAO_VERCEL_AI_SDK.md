@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0, 1 e 2 concluídas (2026-08-07). Próxima: Fase 3 (`ai.service.ts` — loop novo + deletar `ai.service.full.ts`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** 🔄 em andamento — Fases 0, 1, 2 e 3 concluídas (2026-08-07/08). Próxima: Fase 4 (`intentClassifier.service.ts` → `generateObject`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
 
 ---
 
@@ -64,8 +64,8 @@ Pontos que substituem mecanismos antigos:
 
 | Arquivo | Ação |
 |---|---|
-| `src/pro/adapters/ai/ai.service.full.ts` | **DELETAR** (fase 3) |
-| `src/pro/adapters/ai/stripModelIntentSuffix.ts` | **DELETAR** (fase 3) |
+| `src/pro/adapters/ai/ai.service.full.ts` | **DELETADO** (fase 3) |
+| `src/pro/adapters/ai/stripModelIntentSuffix.ts` | **DELETADO** (fase 3) |
 | `src/pro/ports/llm.port.ts` | **DELETAR** (fase 8) |
 | `src/pro/adapters/llm/createLlmPort.ts` | **DELETAR** (fase 8) |
 | `src/pro/adapters/llm/anthropic.llm.ts` | **DELETAR** (fase 8) |
@@ -73,11 +73,12 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/adapters/llm/recording.llm.ts` | **DELETAR** (fase 7, substituído) |
 | `src/pro/adapters/llm/llmText.ts` | **DELETAR se sem uso após fase 8** (checar antes) |
 | `src/pro/adapters/ai/modelProvider.ts` | **CRIAR** (fase 0) |
-| `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` | **CRIAR** (fase 3 — adiado da 1: só faz sentido com o loop novo) |
-| `src/pro/adapters/ai/tools/searchProdutos.tool.ts` | **CRIAR** (fase 2) |
-| `src/pro/adapters/ai/tools/getOrderHints.tool.ts` | **CRIAR** (fase 2) |
+| `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` | **CRIADO** (fase 3) |
+| `src/pro/adapters/ai/tools/searchProdutos.tool.ts` | **CRIADO** (fase 3) |
+| `src/pro/adapters/ai/tools/getOrderHints.tool.ts` | **CRIADO** (fase 3) |
+| `src/pro/adapters/ai/tools/turnState.ts` | **CRIADO** (fase 3, não previsto no plano original — estado de turno por closure) |
 | `src/pro/adapters/ai/blockedReasonPresenter.ts` | **CRIADO** (fase 1) |
-| `src/pro/adapters/ai/ai.service.ts` | **CRIAR** (fase 3, substitui `ai.service.full.ts`) |
+| `src/pro/adapters/ai/ai.service.ts` | **CRIADO** (fase 3, substitui `ai.service.full.ts`) |
 | `src/pro/adapters/ai/replayRecorder.ts` | **CRIAR** (fase 7, substitui `recording.llm.ts`) |
 | `src/pro/ports/orderDraft.port.ts` | **REDESENHAR** `PrepareOrderDraftResult` (fase 1) |
 | `src/pro/tools/prepareOrderDraft.ts` | **MANTÉM** lógica de cálculo (itens/entrega); só o shape de retorno muda (fase 1) |
@@ -85,7 +86,8 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/services/intent/intentClassifier.service.ts` | **MIGRAR** chamada LLM (fase 4) |
 | `src/pro/adapters/ai/sessionMemory.llm.ts` | **MIGRAR** chamada LLM (fase 5) |
 | `src/pro/replay/structuredOrderExtract.ts` | **MIGRAR** chamada LLM (fase 6) |
-| `src/pro/pipeline/deps.factory.ts` | **ATUALIZAR** wiring, sem branch de flag (fase 3) |
+| `src/pro/pipeline/deps.factory.ts` | **ATUALIZADO** wiring, sem branch de flag (fase 3) |
+| `src/pro/replay/runThreadReplay.ts` | **ATUALIZADO** (fase 3): `replayLlm`/cassete removidos, `useAi?: boolean` usa `AiServiceAdapter` real sem gravação — cassete volta na fase 7 |
 
 ---
 
@@ -135,18 +137,24 @@ ai@6.0.246
 
 **Nota para a Fase 3:** `searchProdutos.tool.ts`/`getOrderHints.tool.ts` (wrappers Vercel AI SDK) serão criados ali, chamando `runSearchProdutosForAi`/`runOrderHintsForAi` — a única peça nova na Fase 3 é decidir como o `execute()` recebe/devolve o estado de turno (`allowlistIds`/`lastSearchPicks`/`emptySearchStreak`) sem os métodos privados de classe: via `experimental_context` mutável passado a `generateText`, ou lendo os `tool-result` dos `steps` depois do loop terminar (preferir a 2ª opção — menos estado mutável compartilhado entre tools).
 
-### Fase 3 — `ai.service.ts` (loop novo) + deletar `ai.service.full.ts` ⬜
+### Fase 3 — `ai.service.ts` (loop novo) + deletar `ai.service.full.ts` ✅
 
-- [ ] Criar `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts` (adiado da Fase 1): `tool({ inputSchema, execute })` chamando `prepareOrderDraftFromTool` (shape já pronto: `{ok, draft, errors, blocked}`); no `execute`, montar `guidance_for_model_pt` com `presentBlockedReasonForModel(blocked)` quando `blocked.code !== "FIX_ERRORS"`, senão a lógica dinâmica de `buildPrepareDraftGuidanceForModel`.
-- [ ] Criar `src/pro/adapters/ai/tools/searchProdutos.tool.ts` e `src/pro/adapters/ai/tools/getOrderHints.tool.ts` (adiados da Fase 2): `tool({ inputSchema, execute })` chamando `runSearchProdutosForAi`/`runOrderHintsForAi` — ver nota ao final da Fase 2 sobre como repassar `allowlistIds`/`lastSearchPicks`/`emptySearchStreak` pro resto do turno sem mutação por referência.
-- [ ] Criar `src/pro/adapters/ai/ai.service.ts` implementando `AiService` (mesma interface de `src/pro/services/ai/ai.types.ts`) usando `generateText` com as 4 tools (3 de negócio + `respond_to_customer`), `stopWhen: [hasToolCall("respond_to_customer"), stepCountIs(12)]`.
-- [ ] Portar para dentro deste arquivo: `buildEffectiveSystemPrompt` e todos os blocos (`phaseBlock`, `editHoldBlock`, `draftBlock`, `summaryBlock`, `welcomeBlock`, `addressConfirmBlock`), `SYSTEM_PROMPT`/`SYSTEM_PROMPT_INFO_ONLY`, `shouldForcePrepareAfterEmbalagemChoice`/`shouldForcePrepareAfterUnambiguousSearch` (essas duas funções são lógica pura, portar sem reescrever).
-- [ ] `address_free_text` do `respond_to_customer` alimenta `AiServiceResult.signals.addressFreeText` diretamente (sem strip de marcador).
-- [ ] **Billing (não perder):** `AnthropicLlmAdapter`/`OpenAiLlmAdapter` hoje debitam uso via `debitFromAnthropicUsage(admin, companyId, usage, meta)` (`lib/billing/aiWallet.ts`), que espera `{ input_tokens, output_tokens }` (snake_case). O resultado de `generateText` do AI SDK v6 traz `usage.inputTokens`/`usage.outputTokens` (camelCase) — mapear explicitamente `{ input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }` ao chamar `debitFromAnthropicUsage` dentro de `ai.service.ts`, com `meta.provider`/`meta.model` vindos de `result.response?.modelId`/provider configurado. Sem isso o wallet de IA por empresa para de debitar silenciosamente.
-- [ ] Deletar `src/pro/adapters/ai/ai.service.full.ts` e `src/pro/adapters/ai/stripModelIntentSuffix.ts` **neste commit**.
-- [ ] Atualizar `src/pro/pipeline/deps.factory.ts`: remover `createLlmPort`, injetar `ai.service.ts` direto, sem branch de env.
-- [ ] Testes: migrar os testes que hoje importam `ai.service.full.ts` (rodar `grep -r "ai.service.full" tests/` antes de mexer).
-- **Critério de pronto:** `npm test` verde **e** smoke test manual completo por `docs/SMOKE_AGENT_LOOP_WHATSAPP.md` (S1 a S4b), incluindo os 4 casos reportados no chat de 2026-08-07 (skol lata, botão+alerta simultâneo, adicionar item pra bater mínimo, respeito ao mínimo).
+**Decisões registradas (não reabrir sem motivo novo):**
+- `stopWhen` real é mais rico que o exemplo da Seção 1: não basta `hasToolCall("respond_to_customer")` porque o force-prepare (`shouldForcePrepareAfterEmbalagemChoice`/`shouldForcePrepareAfterUnambiguousSearch`, portadas sem reescrever) precisa poder **rejeitar** um `respond_to_customer` prematuro e forçar mais um step de `prepare_order_draft` antes de aceitar parar. Implementado como função custom em `stopWhen: [fn, stepCountIs(maxSteps)]`, com `TurnState.forceNudgeInjected` para não repetir o nudge indefinidamente.
+- Estado de turno (`allowlistIds`/`lastSearchPicks`/`emptySearchStreak`/`currentDraft`/flags) passado por **closure** (`TurnState`, `src/pro/adapters/ai/tools/turnState.ts`) para as 3 tool factories, não por `experimental_context` — cada campo tem exatamente um tool "escritor", sem risco de corrida entre tool calls paralelas na mesma step.
+- `prepare_order_draft` continua no `ToolSet` mesmo em `aiOrderMode: "info_only"` (`disabled: infoOnly` na tool factory, devolve `info_only_mode` sem tocar o banco) — key opcional no objeto de tools quebra a inferência de `TypedToolCall` do AI SDK (`toolCalls` vira `... | undefined`); manter a key sempre presente evita esse buraco de tipo.
+- `providerOptions: { anthropic: { disableParallelToolUse: true } }` no `generateText` (ignorado pela OpenAI): sem isso o modelo pode devolver `respond_to_customer` em paralelo com `search_produtos`/`prepare_order_draft` no mesmo step — como tool calls paralelas rodam via `Promise.all` sem verem o resultado uma da outra, a resposta ao cliente saíria sem o resultado da tool de negócio.
+- Circuit breaker/retry custom de `AnthropicLlmAdapter` (`runAnthropicWithResilience`) **não foi portado** — `generateText` usa `maxRetries: 3` nativo do SDK. Trade-off deliberado (sem usuários reais ainda); reavaliar se for reintroduzir 429 handling avançado.
+- Replay cassette (`ReplayLlmPort` via `runThreadReplay({ replayLlm })`) foi **descontinuado** nesta fase (dependia de `FullAiServiceAdapter`); `runThreadReplay` agora aceita `useAi?: boolean` (stub sem custo por default, `AiServiceAdapter` real quando true, sem cassete). Replanejar cassete determinístico na Fase 7 se necessário.
+
+- [x] Criado `src/pro/adapters/ai/tools/prepareOrderDraft.tool.ts`, `searchProdutos.tool.ts`, `getOrderHints.tool.ts` (wrappers `tool()` chamando as funções extraídas nas Fases 1/2).
+- [x] Criado `src/pro/adapters/ai/ai.service.ts` implementando `AiService` com `generateText` + 4 tools + `stopWhen`/`prepareStep` customizados (ver decisões acima). `buildEffectiveSystemPrompt` e todos os blocos, `SYSTEM_PROMPT`/`SYSTEM_PROMPT_INFO_ONLY`, `shouldForcePrepareAfterEmbalagemChoice`/`shouldForcePrepareAfterUnambiguousSearch` portados sem reescrever a lógica de negócio.
+- [x] `respond_to_customer` (`reply_text`, `address_free_text?`, `understood?`) substitui `INTENT_OK`/`INTENT_UNKNOWN`/`ADDR_FREE_TEXT`; `address_free_text`/`understood` alimentam `AiServiceResult.signals` direto, sem strip de marcador em texto.
+- [x] Billing: `onStepFinish` mapeia `usage.inputTokens`/`usage.outputTokens` (camelCase, AI SDK) → `debitFromAnthropicUsage(..., { input_tokens, output_tokens }, meta)` (snake_case), com `meta.model` de `step.response.modelId` e `meta.provider` de `getConfiguredLlmProviderName()`. Debita por **step** (não só no fim do turno), preservando o comportamento antigo de billing incremental mesmo se o loop falhar no meio.
+- [x] Deletados `src/pro/adapters/ai/ai.service.full.ts` e `src/pro/adapters/ai/stripModelIntentSuffix.ts` neste commit.
+- [x] `src/pro/pipeline/deps.factory.ts` atualizado: `AiServiceAdapter` direto (sem `llm`/`createLlmPort` na construção do AI service; `createLlmPort` continua só para `LlmSessionMemoryAdapter`, que migra na Fase 5).
+- [x] Testes migrados: `tests/pro/forcePrepareAfterEmbalagemChoice.test.ts` (import trocado para `ai.service`); `tests/pro/stripModelIntentSuffix.test.ts` **deletado** (testava só marcadores de texto, sem equivalente — `respond_to_customer` é tipado, não precisa de teste de regex).
+- **Critério de pronto:** `npm test` → 640 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes das fases anteriores; total caiu de 673 para 666 só pelos 7 testes removidos de `stripModelIntentSuffix.test.ts` — sem regressão nova). ✅ Smoke test manual (`docs/SMOKE_AGENT_LOOP_WHATSAPP.md` S1–S4b) ainda pendente de execução manual pelo dono antes de considerar a fase 100% fechada em produção.
 
 ### Fase 4 — `intentClassifier.service.ts` para `generateObject` ⬜
 

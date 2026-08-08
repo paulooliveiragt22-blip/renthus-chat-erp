@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import {
     shouldForcePrepareAfterEmbalagemChoice,
     shouldForcePrepareAfterUnambiguousSearch,
-} from "../../src/pro/adapters/ai/ai.service.full";
+} from "../../src/pro/adapters/ai/ai.service";
 
 describe("shouldForcePrepareAfterEmbalagemChoice", () => {
     const base = {
