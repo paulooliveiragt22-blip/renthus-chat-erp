@@ -1,9 +1,25 @@
+import { generateText, Output } from "ai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Intent, IntentDecision, PipelineContext } from "@/src/types/contracts";
 import { isOrderSessionContinuityNeeded } from "@/src/pro/pipeline/sessionOrderContext";
 import type { IntentService, IntentServiceInput } from "./intent.types";
-import { createLlmPort, getConfiguredLlmProvider } from "@/src/pro/adapters/llm/createLlmPort";
-import { extractLlmPlainText, hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
+import { getConfiguredLlmProviderName, resolveLanguageModel } from "@/src/pro/adapters/ai/modelProvider";
+import { hasLlmApiKey } from "@/src/pro/adapters/llm/llmText";
+
+/**
+ * Labels aceitos pelo classificador — mesma união de `Intent`. `Output.choice`
+ * (ai@6, substitui `generateObject`, marcado @deprecated nesta versão a favor
+ * de `generateText({ output })`) garante que o modelo só pode devolver um
+ * destes valores; não há mais parsing de texto livre nem `fromLlmLabel`.
+ */
+const INTENT_LABELS: readonly Intent[] = [
+    "order_intent",
+    "status_intent",
+    "human_intent",
+    "faq",
+    "greeting",
+    "unknown",
+];
 
 const BTN_CATALOG = new Set(["btn_catalog"]);
 const BTN_ORDER = new Set(["btn_order"]);
@@ -37,17 +53,6 @@ function normalize(text: string): string {
 
 function llmLanguageEnabled(context: PipelineContext): boolean {
     return context.policies.llmEnabled !== false;
-}
-
-function fromLlmLabel(label: string): Intent | null {
-    const v = label.trim().toLowerCase();
-    if (v === "order_intent") return "order_intent";
-    if (v === "status_intent") return "status_intent";
-    if (v === "human_intent") return "human_intent";
-    if (v === "faq") return "faq";
-    if (v === "greeting") return "greeting";
-    if (v === "unknown") return "unknown";
-    return null;
 }
 
 /** Extrai texto curto de entradas recentes do utilizador no histórico da IA (para contexto do classificador). */
@@ -96,36 +101,47 @@ async function llmClassify(
     }
 
     try {
-        const provider = getConfiguredLlmProvider();
-        const model =
-            process.env.LLM_MODEL?.trim() ||
-            (provider === "openai" ? "gpt-4o-mini" : "claude-haiku-4-5-20251001");
         const sessionBlock = buildIntentClassifierContextBlock(context.session);
         const userPayload =
             `Contexto da sessão (use para desambiguar respostas curtas como quantidade ou "sim"):\n${sessionBlock}\n\n` +
-            `Mensagem actual do cliente a classificar:\n---\n${userText.trim()}\n---\n\n` +
-            `Responda só com um label: order_intent, status_intent, human_intent, faq, greeting, unknown.`;
+            `Mensagem actual do cliente a classificar:\n---\n${userText.trim()}\n---`;
 
-        const llm = createLlmPort(admin ?? null);
-        const resp = await llm.chat({
-            model,
-            maxTokens: 12,
-            timeoutMs: 12_000,
-            companyId: context.tenant.companyId,
-            purpose: "pro_intent_classifier",
+        const result = await generateText({
+            model: resolveLanguageModel(),
             system:
                 "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
                 "If the session shows an active order (draft with items, or recent user messages about products) " +
                 "and the current message is a short reply (quantity, packaging, confirmation), prefer order_intent. " +
                 "Availability questions (tem coca?, vocês vendem X?, quanto custa?) → faq (NOT order_intent). " +
-                "Greetings (oi, bom dia) → greeting. Ask for human → human_intent. " +
-                "Reply only with one label: order_intent, status_intent, human_intent, faq, greeting, unknown.",
-            messages: [{ role: "user", content: userPayload }],
+                "Greetings (oi, bom dia) → greeting. Ask for human → human_intent.",
+            prompt: userPayload,
+            output: Output.choice({ options: [...INTENT_LABELS] }),
+            maxRetries: 2,
+            abortSignal: AbortSignal.timeout(12_000),
         });
 
-        const text = extractLlmPlainText(resp.content);
-        const mapped = fromLlmLabel(text.split(/\s+/)[0] ?? text);
-        if (!mapped) return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
+        if (admin) {
+            try {
+                const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
+                await debitFromAnthropicUsage(
+                    admin,
+                    context.tenant.companyId,
+                    {
+                        input_tokens: result.usage.inputTokens ?? 0,
+                        output_tokens: result.usage.outputTokens ?? 0,
+                    },
+                    {
+                        source: "pro_intent_classifier",
+                        provider: getConfiguredLlmProviderName(),
+                        model: result.response.modelId?.trim() || "unknown",
+                    }
+                );
+            } catch {
+                /* billing best-effort */
+            }
+        }
+
+        const mapped = result.output;
         return {
             intent: mapped,
             confidence: mapped === "unknown" ? "low" : "medium",

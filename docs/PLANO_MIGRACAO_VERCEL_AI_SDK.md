@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0, 1, 2 e 3 concluídas (2026-08-07/08). Próxima: Fase 4 (`intentClassifier.service.ts` → `generateObject`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** 🔄 em andamento — Fases 0, 1, 2, 3 e 4 concluídas (2026-08-07/08). Próxima: Fase 5 (`sessionMemory.llm.ts` → `generateText`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
 
 ---
 
@@ -58,6 +58,8 @@ Pontos que substituem mecanismos antigos:
 - Tool final `respond_to_customer` com `address_free_text: boolean` substitui os marcadores de texto `INTENT_OK`/`ADDR_FREE_TEXT` e todo `stripModelIntentSuffix.ts` — não há mais string pra raspar com regex.
 - `generateObject` (mesmo pacote `ai`) substitui as chamadas de `LlmPort.chat()` sem tools em `intentClassifier.service.ts` e `structuredOrderExtract.ts`.
 
+**Correção registrada na Fase 4 (não reabrir):** em `ai@6.0.246`, `generateObject` está `@deprecated` no próprio `.d.ts` — "Use `generateText` with an `output` setting instead". O substituto real de `LlmPort.chat()` sem tools é `generateText({ model, system, prompt, output })`, com `output` vindo do namespace `Output` (`Output.object(schema)`, `Output.choice({ options })`, `Output.array(...)`); `result.output` devolve o valor já tipado (não `result.object`, que é só do `generateObject` legado). Para escolha única entre labels fixos (caso do intent classifier), `Output.choice` é mais direto que `Output.object` com schema de 1 campo — dispensa `z.object({ intent: z.enum([...]) })` e o unwrap manual. Usar este padrão também na Fase 6 (`structuredOrderExtract.ts`), ajustando para `Output.object`/`Output.array` conforme o shape esperado ali.
+
 ---
 
 ## 2. Inventário — o que é criado, o que é deletado, o que fica
@@ -83,7 +85,7 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/ports/orderDraft.port.ts` | **REDESENHAR** `PrepareOrderDraftResult` (fase 1) |
 | `src/pro/tools/prepareOrderDraft.ts` | **MANTÉM** lógica de cálculo (itens/entrega); só o shape de retorno muda (fase 1) |
 | `src/pro/pipeline/packagingDisambiguation.ts`, `resolveSegmentPick.ts`, `orderDraftGate.ts`, `orderSlotStep.ts`, `checkoutPostProcess.ts`, `sanitizeAiVisibleOrderClaims.ts`, `aiHistoryBudget.ts` | **NÃO TOCAR** — lógica pura, reaproveitada como está |
-| `src/pro/services/intent/intentClassifier.service.ts` | **MIGRAR** chamada LLM (fase 4) |
+| `src/pro/services/intent/intentClassifier.service.ts` | **MIGRADO** para `generateText`+`Output.choice` (fase 4) |
 | `src/pro/adapters/ai/sessionMemory.llm.ts` | **MIGRAR** chamada LLM (fase 5) |
 | `src/pro/replay/structuredOrderExtract.ts` | **MIGRAR** chamada LLM (fase 6) |
 | `src/pro/pipeline/deps.factory.ts` | **ATUALIZADO** wiring, sem branch de flag (fase 3) |
@@ -156,11 +158,14 @@ ai@6.0.246
 - [x] Testes migrados: `tests/pro/forcePrepareAfterEmbalagemChoice.test.ts` (import trocado para `ai.service`); `tests/pro/stripModelIntentSuffix.test.ts` **deletado** (testava só marcadores de texto, sem equivalente — `respond_to_customer` é tipado, não precisa de teste de regex).
 - **Critério de pronto:** `npm test` → 640 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes das fases anteriores; total caiu de 673 para 666 só pelos 7 testes removidos de `stripModelIntentSuffix.test.ts` — sem regressão nova). ✅ Smoke test manual (`docs/SMOKE_AGENT_LOOP_WHATSAPP.md` S1–S4b) ainda pendente de execução manual pelo dono antes de considerar a fase 100% fechada em produção.
 
-### Fase 4 — `intentClassifier.service.ts` para `generateObject` ⬜
+### Fase 4 — `intentClassifier.service.ts` para `generateText`/`Output.choice` ✅
 
-- [ ] Trocar a chamada `createLlmPort(...).chat(...)` por `generateObject({ model, schema: z.object({ intent: z.enum([...]) }) })`.
-- [ ] Remover import de `createLlmPort`/`getConfiguredLlmProvider` deste arquivo (a seleção de provider já é `modelProvider.ts`).
-- **Critério de pronto:** `npm test` verde, testes de `tests/pro/` relacionados a intent classification passando.
+**Decisão registrada:** ver correção acima (Seção 1) — usado `generateText({ output: Output.choice({ options: INTENT_LABELS }) })` em vez de `generateObject` (deprecated nesta versão). `INTENT_LABELS: readonly Intent[]` amarra o enum ao tipo `Intent` já existente em `contracts.ts`; `result.output` já vem tipado como `Intent`, sem `fromLlmLabel`/parsing de texto — a função de mapeamento foi removida (SDK garante um dos valores do enum ou lança, capturado pelo `catch` que já existia e cai em `unknown`/`fallback_unknown`, mesmo comportamento de antes). Billing preservado: antes vinha de dentro de `AnthropicLlmAdapter.chat()` (implícito, via `this.admin`); agora é explícito no próprio `llmClassify` — mesmo mapeamento camelCase→snake_case e `source: "pro_intent_classifier"` usado em `ai.service.ts`.
+
+- [x] Trocada a chamada `createLlmPort(...).chat(...)` por `generateText({ model: resolveLanguageModel(), system, prompt, output: Output.choice(...) })`.
+- [x] Removido import de `createLlmPort`/`getConfiguredLlmProvider` (LLM Port) deste arquivo; passa a usar `resolveLanguageModel`/`getConfiguredLlmProviderName` de `modelProvider.ts`. Removido também `extractLlmPlainText` (sem uso após a troca) — `hasLlmApiKey` (genérico, de `llmText.ts`) mantido como guarda de API key.
+- [x] Removida a função `fromLlmLabel` (sem uso — `Output.choice` já garante o enum).
+- **Critério de pronto:** `npm test` → 640 pass / 25 fail / 1 cancelled (mesmo baseline; zero falha nova, nenhuma em `intentClassifier`). ✅
 
 ### Fase 5 — `sessionMemory.llm.ts` para `generateText` ⬜
 
