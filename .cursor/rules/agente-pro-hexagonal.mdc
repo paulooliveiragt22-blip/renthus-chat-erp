@@ -13,8 +13,9 @@ Ao editar arquivos deste glob:
 - Offline/replay: apenas `src/pro/replay/*`.
 
 ## Agent loop
-- Linguagem → `aiStage` / `FullAiServiceAdapter` + `LlmPort`.
-- Forçar `prepare_order_draft` via `tool_choice` quando SKU único / pós-search unívoco.
+- Linguagem → `aiStage` / `AiServiceAdapter` (`src/pro/adapters/ai/ai.service.ts`) — Vercel AI SDK (`generateText` + `tools` + `stopWhen`/`prepareStep`); modelo via `modelProvider.ts` (`resolveLanguageModel`), sem `LlmPort` (deletado — ver `docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md`).
+- Tool final obrigatória `respond_to_customer` (reply_text/address_free_text/understood) — não usar marcador de texto (`INTENT_OK`/`ADDR_FREE_TEXT`, removidos).
+- Forçar `prepare_order_draft` via `tool_choice`/`prepareStep` quando SKU único / pós-search unívoco.
 - Inbound do usuário: `wrapUserInboundForLlm` + truncagem; histórico: `budgetAiHistoryForLlm`.
 
 ## Estado e fechamento
@@ -30,5 +31,5 @@ Ao editar arquivos deste glob:
 ## Ports
 - Novas leituras de config/hints: `CompanyPolicyPort` / `OrderHintsPort` (ou port novo) — evitar `admin.from` novo no orquestrador.
 - Catálogo / prepare draft no agent loop: `CatalogPort` / `OrderDraftPort` (adapters Supabase).
-- Histórico longo: `SessionMemoryPort` + `aiHistorySummary` na sessão.
-- Troca Anthropic↔OpenAI: adapter + env, não pipeline.
+- Histórico longo: `SessionMemoryPort` (`sessionMemory.llm.ts`, `generateText` sem tools) + `aiHistorySummary` na sessão.
+- Troca Anthropic↔OpenAI: `modelProvider.ts` (env `LLM_PROVIDER`/`LLM_MODEL`), não pipeline.

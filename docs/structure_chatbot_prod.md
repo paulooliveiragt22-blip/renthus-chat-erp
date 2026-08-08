@@ -177,13 +177,14 @@ src/pro/                       ← Motor PRO Pipeline V2 (tier PRO + flags; ver 
     context.ts, orderDraftGate.ts, orderSlotStep.ts, proStepTransitions.ts, errors.ts
     stages/                      ← loadState, guardRails, intent, order, route, ai, persistAndEmit
   adapters/
-    ai/                          ← FullAiServiceAdapter (orquestra tools; chama LlmPort)
-    llm/                         ← Anthropic + OpenAI adapters + createLlmPort
+    ai/                          ← AiServiceAdapter (ai.service.ts, Vercel AI SDK generateText+tools+stopWhen)
+                                   tools/ (search_produtos, prepare_order_draft, get_order_hints)
+                                   modelProvider.ts (resolveLanguageModel), replayRecorder.ts (record/replay)
     stt/                         ← Whisper (áudio WhatsApp → texto)
     order/                       ← ex.: order.service.v2.ts
     supabase/session.repository.supabase.ts  ← estado `context.__pro_v2_state`
     whatsapp/, metrics/, logger/
-  services/, ports/              ← incl. llm.port.ts (neutro de provider)
+  services/, ports/              ← sem llm.port.ts (deletado; ver PLANO_MIGRACAO_VERCEL_AI_SDK.md)
 
 lib/security/
   rateLimit.ts                   ← webhook incoming (IP)

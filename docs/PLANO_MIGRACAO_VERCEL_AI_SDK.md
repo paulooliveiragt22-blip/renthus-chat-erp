@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0–8 concluídas (2026-08-07/08). Próxima: Fase 9 (docs — `CHATBOT_PROD.md`, `agente-pro-hexagonal.mdc`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** ✅ concluído — Fases 0–9 concluídas (2026-08-07/08). `LlmPort` deletado, agente PRO 100% Vercel AI SDK (`generateText`/`tool()`/`stopWhen`/`prepareStep`). Nenhuma fase pendente.
 
 ---
 
@@ -218,11 +218,12 @@ ai@6.0.246
 - [x] `src/pro/adapters/llm/llmText.ts` reduzido a `hasLlmApiKey` (removida `extractLlmPlainText`, dead code).
 - **Critério de pronto:** `npm test` → 645 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes; 671 testes totais — líquido -7 pela remoção dos 2 arquivos de teste do `LlmPort` +2 novos em `llmText.test.ts`). ✅ `tsc --project tsconfig.test.json` (parte do `npm test`) sem erro de import quebrado.
 
-### Fase 9 — Docs ⬜
+### Fase 9 — Docs ✅
 
-- [ ] Atualizar `docs/CHATBOT_PROD.md` (seção "cérebro"/agent loop) para descrever o novo `ai.service.ts` e a ausência de `LlmPort`.
-- [ ] Atualizar `.cursor/rules/agente-pro-hexagonal.mdc` (ports/adapters do módulo PRO) removendo referência a `LlmPort`.
-- [ ] Marcar este documento como `✅ concluído` no topo.
+- [x] Atualizado `docs/CHATBOT_PROD.md`: seção "Cérebro de linguagem (produção)" descreve `AiServiceAdapter`/`ai.service.ts` (Vercel AI SDK, `generateText`+`tools`+`stopWhen`/`prepareStep`, tool final `respond_to_customer`); linha "LLM multi-provider" e env `LLM_PROVIDER` apontam para `modelProvider.ts`/`replayRecorder.ts`, sem `LlmPort`/`createLlmPort`.
+- [x] Atualizado `.cursor/rules/agente-pro-hexagonal.mdc`: linha "Agent loop" já citava `ai.service.ts`/Vercel AI SDK; complementadas as linhas de `SessionMemoryPort` (cita `sessionMemory.llm.ts`) e troca de provider (cita `modelProvider.ts` em vez de "adapter + env" genérico).
+- [x] Atualizados `docs/structure_chatbot_prod.md` (árvore `src/pro/adapters/` — removida menção a `FullAiServiceAdapter`/`llm/` port neutro, adicionada `ai/tools/`, `modelProvider.ts`, `replayRecorder.ts`) e `docs/pipeline_chatbot_prod.md` (linha do diagrama ASCII de `classifyIntent` trocada de "→ `LlmPort`?" para "→ `generateText`/`Output.choice`") e `docs/PRO_ORDER_SLOT_MACHINE.md` (2 referências a `ai.service.full.ts` → `ai.service.ts`; nota final sobre `LlmPort` → nota sobre `speechToText.port.ts` não migrado).
+- [x] Documento marcado como `✅ concluído` no topo (linha de Status).
 
 ---
 

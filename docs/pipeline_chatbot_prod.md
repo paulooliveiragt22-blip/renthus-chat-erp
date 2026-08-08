@@ -265,7 +265,7 @@ Depende de `intent` e `tier`:
         clamp → bot? → session/company → handover? skip
         → intentDetector (regex global)
         → awaiting_flow? (regex escape)
-        → classifyIntent (regex + botões → LlmPort?)
+        → classifyIntent (regex + botões → generateText/Output.choice)
         → switch(intent)
                 ↓
 [4] handleFAQ | doHandover | starterOrderFlow | …

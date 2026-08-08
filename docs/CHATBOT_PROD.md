@@ -266,7 +266,7 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 
 #### Estado no código (**já executado**)
 
-**Cérebro de linguagem (produção):** agent loop ReAct em `FullAiServiceAdapter` (`aiStage`) — modelo → tools (`search_produtos` / `get_order_hints` / `prepare_order_draft`) → resultado → continua até texto final. `tool_choice` força `prepare_order_draft` quando o contrato tem SKU único. Pós-modelo: `resolveCheckoutTurnOutcome` + `checkoutPostProcess` roteiam UI por estado do draft (**sem** novo LLM). Finalize = botão `pro_confirm_order` (HITL) → RPC.
+**Cérebro de linguagem (produção):** agent loop em `AiServiceAdapter` (`src/pro/adapters/ai/ai.service.ts`, `aiStage`) — Vercel AI SDK `generateText` com `tools` (`search_produtos` / `get_order_hints` / `prepare_order_draft` / `respond_to_customer`) + `stopWhen`/`prepareStep` no lugar do loop manual de `tool_use`; `respond_to_customer` é a tool final obrigatória (carrega `reply_text`/`address_free_text`/`understood`, sem marcador de texto). `prepareStep` força `prepare_order_draft` (via `toolChoice`) quando o contrato tem SKU único. Pós-modelo: `resolveCheckoutTurnOutcome` + `checkoutPostProcess` roteiam UI por estado do draft (**sem** novo LLM). Finalize = botão `pro_confirm_order` (HITL) → RPC. Migração completa de `LlmPort`/`FullAiServiceAdapter` para o SDK: [`PLANO_MIGRACAO_VERCEL_AI_SDK.md`](./PLANO_MIGRACAO_VERCEL_AI_SDK.md).
 
 **Smoke WhatsApp (agent loop):** checklist de prompts e GO/NO-GO em [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md). Fila/wake/dedup: [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md).
 
@@ -280,7 +280,7 @@ Implementação actual no PRO (`runProPipeline` — único motor para plano PRO)
 | Quick actions (checkout) | `runProPipeline.ts` + `stages/checkoutPostProcess.ts` (`applyQuickAction`) | IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`, `pro_confirm_typed_address`; troco em `pro_awaiting_change_amount`; texto `cancelar` / `desistir` cancela o rascunho. Após cada quick action, `withResolvedSlotStep` alinha `ProStep` ao draft. |
 | Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço estruturalmente completo sem pagamento → `pro_awaiting_address_confirmation` (salvo ou digitado); após confirmar endereço → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; draft completo → `pro_awaiting_confirmation`. |
 | Pós-processamento UI | `stages/checkoutPostProcess.ts` | `buildAddressConfirmationMessage` com morada completa e sem pagamento (com ou sem `enderecoClienteId`); botões de pagamento só após confirmação de endereço; confirmação final em `pro_awaiting_confirmation`. Mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |
-| Consistência texto IA ↔ tools | `src/pro/adapters/ai/ai.service.full.ts` + `src/pro/tools/prepareOrderDraft.ts` + `src/pro/tools/orderHints.ts` | `guidance_for_model_pt` em `search_produtos` / `prepare_order_draft`; `flow_reminder_pt` em `get_order_hints`; system prompt reforçado; `sanitizeVisibleAgainstDraft` quando o modelo contradiz o draft. |
+| Consistência texto IA ↔ tools | `src/pro/adapters/ai/ai.service.ts` + `src/pro/tools/prepareOrderDraft.ts` + `src/pro/tools/orderHints.ts` | `guidance_for_model_pt` em `search_produtos` / `prepare_order_draft`; `flow_reminder_pt` em `get_order_hints`; system prompt reforçado; `sanitizeVisibleAgainstDraft` quando o modelo contradiz o draft. |
 | Relevância catálogo | `src/pro/tools/searchRelevance.ts` + RPC `rpc_search_chat_produtos` | Rerank por long neck / CX / volume; remove 600ml quando o pedido pede long neck e há hit de descritor. |
 | Classificação de botões | `src/pro/services/intent/intentClassifier.service.ts` | Mapeia IDs de botão para `order_intent` / `status_intent` / `human_intent` com alta confiança. |
 | Passos no tipo | `src/types/contracts.ts` (`ProStep`) | `pro_awaiting_address_confirmation`, `pro_awaiting_payment_method`, `pro_awaiting_change_amount`, etc. |
@@ -305,7 +305,7 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 | Variável | Valor | Comportamento |
 |----------|--------|----------------|
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
-| `LLM_PROVIDER` | (omissão = **anthropic**) | `anthropic` \| `openai`. `LlmPort` usado por PRO (`FullAiServiceAdapter`), intent (Starter+PRO) e FAQ. |
+| `LLM_PROVIDER` | (omissão = **anthropic**) | `anthropic` \| `openai`. Resolvido em `src/pro/adapters/ai/modelProvider.ts` (`resolveLanguageModel`, Vercel AI SDK); consumido por `AiServiceAdapter` (PRO), `intentClassifier.service.ts` (intent) e `sessionMemory.llm.ts`. |
 | `LLM_MODEL` | default do provider | Ex.: `claude-haiku-4-5-20251001` ou `gpt-4o-mini`. |
 | `OPENAI_API_KEY` | — | Obrigatório se `LLM_PROVIDER=openai` e/ou STT Whisper. |
 | `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. |
@@ -458,9 +458,9 @@ Manter fronteiras claras sem microserviço:
 - Clarificação de produto: `catalogProductHintFromPicks` (`src/pro/pipeline/catalogProductHint.ts`) — hint ao cliente vem do catálogo (`productName`/stem do label), não do texto digitado; swap/edição segue a mesma regra
 - Tools PRO (ex-`lib/chatbot/pro`): `src/pro/tools/` — prepare draft, hints, allowlist, parsers de qty/endereço
 - Replay: `npm run replay -- <companyId> <threadId>` (dump); `--run` dry-run; `--extract-diff` é **harness offline** (`src/pro/replay/`, baseline `tests/fixtures/replay/extraction-baseline.v1.json`) — **não** faz parte do hot path
-- Pedido PRO (hot path): agent loop + tools (`FullAiServiceAdapter`); intent de linguagem livre via classificador quando há crédito — regex de oi/status/pedido só no degradado (IA off / sem crédito / limite de turnos)
+- Pedido PRO (hot path): agent loop + tools (`AiServiceAdapter`, `src/pro/adapters/ai/ai.service.ts`, Vercel AI SDK); intent de linguagem livre via classificador quando há crédito — regex de oi/status/pedido só no degradado (IA off / sem crédito / limite de turnos)
 - Ports CA: `CompanyPolicyPort`, `OrderHintsPort` (+ session/llm/metrics); `admin` residual só identity/handover/prepare-pick/trace
-- LLM multi-provider: `src/pro/ports/llm.port.ts`, `adapters/llm/{anthropic,openai,createLlmPort}.ts`
+- LLM multi-provider: `src/pro/adapters/ai/modelProvider.ts` (`resolveLanguageModel`/`getConfiguredLlmProviderName`, `LanguageModel` do pacote `ai` sobre `@ai-sdk/anthropic`/`@ai-sdk/openai`); replay/teste: `src/pro/adapters/ai/replayRecorder.ts` (`createRecordingModel`/`createReplayModel`). Sem `LlmPort`/`createLlmPort` (deletados — [`PLANO_MIGRACAO_VERCEL_AI_SDK.md`](./PLANO_MIGRACAO_VERCEL_AI_SDK.md)).
 - STT áudio: `src/pro/ports/speechToText.port.ts`, `adapters/stt/openai.whisper.ts`, `lib/chatbot/transcribeInboundAudio.ts`
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)
 - Fila: `process-queue/route.ts`, `queueWorkerWake.ts`, `backlogNotice.ts`; RPC `claim_chatbot_queue_jobs` (fair + skip busy thread); reclaim `reclaim_stuck_chatbot_queue_jobs`

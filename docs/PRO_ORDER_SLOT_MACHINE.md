@@ -54,9 +54,9 @@ Ordem de avaliação (simplificado):
 
 Além desta máquina de slots:
 
-- **`guidance_for_model_pt`** nas respostas das tools `search_produtos` e `prepare_order_draft` (`ai.service.full.ts` + `buildPrepareDraftGuidanceForModel` em `prepareOrderDraft.ts`).
+- **`guidance_for_model_pt`** nas respostas das tools `search_produtos` e `prepare_order_draft` (`ai.service.ts` + `buildPrepareDraftGuidanceForModel` em `prepareOrderDraft.ts`).
 - **`flow_reminder_pt`** no payload de `get_order_hints` (`orderHints.ts`).
-- **System prompt** reforçado em `ai.service.full.ts` (seguir JSON das tools, não inventar catálogo, alinhar mensagens a `errors` quando `ok:false`).
+- **System prompt** reforçado em `ai.service.ts` (seguir JSON das tools, não inventar catálogo, alinhar mensagens a `errors` quando `ok:false`).
 
 Isto **não substitui** a máquina de slots: slots governam **passo + botões**; guidance governa **texto** que o modelo gera.
 
@@ -66,7 +66,7 @@ Isto **não substitui** a máquina de slots: slots governam **passo + botões**;
 
 - **Feito (2026-08):** após IA, `aiStage` = `applyAiStateTransition` (só escalate/streak) + `withResolvedSlotStep` (draft manda). `request_confirmation` da IA **não** salta para `pro_awaiting_confirmation`.
 - Métrica `pro_pipeline.slot` com tag `step` em cada run do pipeline.
-- Ainda aberto: testes E2E multi-turno com ordem trocada; adapters OpenAI / STT atrás de `LlmPort`.
+- Ainda aberto: testes E2E multi-turno com ordem trocada; STT (`speechToText.port.ts`) segue com port próprio (não migrado ao Vercel AI SDK).
 
 ---
 
