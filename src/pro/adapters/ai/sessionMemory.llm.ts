@@ -1,11 +1,12 @@
+import { generateText, type LanguageModel } from "ai";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiTurn } from "@/src/types/contracts";
-import type { LlmPort } from "@/src/pro/ports/llm.port";
 import type {
     CompactHistoryInput,
     CompactHistoryResult,
     SessionMemoryPort,
 } from "@/src/pro/ports/sessionMemory.port";
-import { extractLlmPlainText } from "@/src/pro/adapters/llm/llmText";
+import { getConfiguredLlmProviderName, resolveLanguageModel } from "@/src/pro/adapters/ai/modelProvider";
 
 export const SESSION_MEMORY_KEEP_RECENT = 8;
 export const SESSION_MEMORY_TRIGGER_MIN = 16;
@@ -40,9 +41,17 @@ export function extractiveHistorySummary(
 
 /**
  * Compacta histórico longo via LLM (rolling summary) com fallback extrativo.
+ *
+ * `modelOverride` é um seam de teste (injeta `MockLanguageModelV3` de `ai/test`
+ * em vez de depender de `resolveLanguageModel()`/rede); em produção fica vazio
+ * e cada chamada resolve o modelo configurado por env.
  */
 export class LlmSessionMemoryAdapter implements SessionMemoryPort {
-    constructor(private readonly llm: LlmPort) {}
+    constructor(
+        private readonly admin?: SupabaseClient | null,
+        private readonly companyId?: string,
+        private readonly modelOverride?: LanguageModel
+    ) {}
 
     async compactIfNeeded(input: CompactHistoryInput): Promise<CompactHistoryResult> {
         const keep = Math.max(2, input.keepRecentTurns ?? SESSION_MEMORY_KEEP_RECENT);
@@ -63,24 +72,42 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
 
         let summary = extractiveHistorySummary(older, existing);
         try {
-            const resp = await this.llm.chat({
+            const result = await generateText({
+                model: this.modelOverride ?? resolveLanguageModel(),
                 system:
                     "Você resume histórico de chat de pedidos WhatsApp para contexto interno. " +
                     "Em português do Brasil, 5–10 linhas: itens/pedidos mencionados, endereço, pagamento, pendências. " +
                     "Sem inventar fatos. Sem UUIDs. Sem preços inventados.",
-                messages: [
-                    {
-                        role: "user",
-                        content:
-                            (existing ? `Resumo anterior:\n${existing}\n\n` : "") +
-                            `Trechos a condensar:\n${older.map((t) => turnSnippet(t, 240)).join("\n")}`,
-                    },
-                ],
-                maxTokens: 400,
-                timeoutMs: 12_000,
-                purpose: "pro_session_memory_summarize",
+                prompt:
+                    (existing ? `Resumo anterior:\n${existing}\n\n` : "") +
+                    `Trechos a condensar:\n${older.map((t) => turnSnippet(t, 240)).join("\n")}`,
+                maxOutputTokens: 400,
+                maxRetries: 2,
+                abortSignal: AbortSignal.timeout(12_000),
             });
-            const plain = extractLlmPlainText(resp.content);
+
+            if (this.admin && this.companyId) {
+                try {
+                    const { debitFromAnthropicUsage } = await import("@/lib/billing/aiWallet");
+                    await debitFromAnthropicUsage(
+                        this.admin,
+                        this.companyId,
+                        {
+                            input_tokens: result.usage.inputTokens ?? 0,
+                            output_tokens: result.usage.outputTokens ?? 0,
+                        },
+                        {
+                            source: "pro_session_memory_summarize",
+                            provider: getConfiguredLlmProviderName(),
+                            model: result.response.modelId?.trim() || "unknown",
+                        }
+                    );
+                } catch {
+                    /* billing best-effort */
+                }
+            }
+
+            const plain = result.text.trim();
             if (plain.length >= 20) {
                 summary =
                     plain.length > SESSION_MEMORY_SUMMARY_MAX_CHARS

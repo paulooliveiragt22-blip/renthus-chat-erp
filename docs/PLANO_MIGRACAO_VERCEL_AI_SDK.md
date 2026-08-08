@@ -4,7 +4,7 @@ Documento de execução. Premissa do dono: **app sem usuários reais em produç�
 
 **Decisão de arquitetura (não reabrir sem motivo novo):** ver a análise completa no chat de 2026-08-07 (resumo abaixo). Se precisar da justificativa completa de por que Vercel AI SDK e não LangGraph, ou por que não manter `LlmPort`, está lá — não repita a discussão, só execute.
 
-> **Status:** 🔄 em andamento — Fases 0, 1, 2, 3 e 4 concluídas (2026-08-07/08). Próxima: Fase 5 (`sessionMemory.llm.ts` → `generateText`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
+> **Status:** 🔄 em andamento — Fases 0, 1, 2, 3, 4 e 5 concluídas (2026-08-07/08). Próxima: Fase 6 (`structuredOrderExtract.ts` → `generateText`/`Output`). Atualize o cabeçalho de cada fase (⬜ → 🔄 → ✅) conforme avança. Se parar no meio de uma fase, deixe uma linha "Retomar em: ..." no topo da fase antes de encerrar a sessão.
 
 ---
 
@@ -86,7 +86,7 @@ Pontos que substituem mecanismos antigos:
 | `src/pro/tools/prepareOrderDraft.ts` | **MANTÉM** lógica de cálculo (itens/entrega); só o shape de retorno muda (fase 1) |
 | `src/pro/pipeline/packagingDisambiguation.ts`, `resolveSegmentPick.ts`, `orderDraftGate.ts`, `orderSlotStep.ts`, `checkoutPostProcess.ts`, `sanitizeAiVisibleOrderClaims.ts`, `aiHistoryBudget.ts` | **NÃO TOCAR** — lógica pura, reaproveitada como está |
 | `src/pro/services/intent/intentClassifier.service.ts` | **MIGRADO** para `generateText`+`Output.choice` (fase 4) |
-| `src/pro/adapters/ai/sessionMemory.llm.ts` | **MIGRAR** chamada LLM (fase 5) |
+| `src/pro/adapters/ai/sessionMemory.llm.ts` | **MIGRADO** para `generateText` (fase 5); billing corrigido (antes nunca debitava) |
 | `src/pro/replay/structuredOrderExtract.ts` | **MIGRAR** chamada LLM (fase 6) |
 | `src/pro/pipeline/deps.factory.ts` | **ATUALIZADO** wiring, sem branch de flag (fase 3) |
 | `src/pro/replay/runThreadReplay.ts` | **ATUALIZADO** (fase 3): `replayLlm`/cassete removidos, `useAi?: boolean` usa `AiServiceAdapter` real sem gravação — cassete volta na fase 7 |
@@ -167,10 +167,17 @@ ai@6.0.246
 - [x] Removida a função `fromLlmLabel` (sem uso — `Output.choice` já garante o enum).
 - **Critério de pronto:** `npm test` → 640 pass / 25 fail / 1 cancelled (mesmo baseline; zero falha nova, nenhuma em `intentClassifier`). ✅
 
-### Fase 5 — `sessionMemory.llm.ts` para `generateText` ⬜
+### Fase 5 — `sessionMemory.llm.ts` para `generateText` ✅
 
-- [ ] Trocar `LlmPort.chat()` por `generateText` simples (sem tools) usando `modelProvider.ts`.
-- **Critério de pronto:** `npm test` verde.
+**Decisões registradas:**
+- `LlmSessionMemoryAdapter` trocou a dependência de `LlmPort` (injetado no construtor) por `resolveLanguageModel()` chamado a cada `compactIfNeeded` — mesmo padrão de `intentClassifier.service.ts`. Adicionado um 3º parâmetro opcional `modelOverride?: LanguageModel` como seam de teste (injeta `MockLanguageModelV3` de `ai/test`, o helper oficial do SDK para isso — sem depender de rede nem de mocks caseiros de `LlmPort`).
+- **Bug pré-existente corrigido, não só portado:** a versão antiga nunca passava `companyId` para `llm.chat()`, então `AnthropicLlmAdapter` nunca debitava a carteira de IA para os resumos de sessão (`this.admin && req.companyId` era sempre falso). `LlmSessionMemoryAdapter` agora recebe `admin`/`companyId` no construtor (`deps.factory.ts` passa `params.admin`/`params.companyId`) e debita via `debitFromAnthropicUsage` com `source: "pro_session_memory_summarize"`, mesmo padrão de `ai.service.ts`/`intentClassifier.service.ts`. Registrado aqui porque é uma mudança de comportamento (billing passa a acontecer), não simples troca de tecnologia — na filosofia "radical" do plano, não fazia sentido portar um bug de billing conhecido só para não abrir escopo.
+- `result.text` (SDK) substitui `extractLlmPlainText(resp.content)` — `generateText` sem tools já concatena os blocos de texto da resposta.
+- `deps.factory.ts`: removida a construção de `llm = createLlmPort(params.admin)` (não tem mais nenhum consumidor de `LlmPort` neste arquivo); `LlmSessionMemoryAdapter(params.admin, params.companyId)` direto.
+
+- [x] Trocado `LlmPort.chat()` por `generateText({ model, system, prompt, maxOutputTokens, maxRetries, abortSignal })` usando `modelProvider.ts`.
+- [x] Testes (`tests/pro/sessionMemory.test.ts`) migrados de mock caseiro de `LlmPort` para `MockLanguageModelV3` (`ai/test`); +1 teste novo (fallback extrativo quando o modelo lança).
+- **Critério de pronto:** `npm test` → 641 pass / 25 fail / 1 cancelled (mesmo baseline de 25 falhas pré-existentes; 667 testes totais, +1 novo verde). ✅
 
 ### Fase 6 — `structuredOrderExtract.ts` (replay) para `generateObject` ⬜
 

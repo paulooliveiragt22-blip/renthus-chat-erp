@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { LlmPort } from "../../src/pro/ports/llm.port";
+import { MockLanguageModelV3 } from "ai/test";
 import {
     extractiveHistorySummary,
     LlmSessionMemoryAdapter,
@@ -16,6 +16,28 @@ function turns(n: number): AiTurn[] {
         content: `msg-${i}`,
         ts: i,
     }));
+}
+
+function mockModelWithText(text: string): MockLanguageModelV3 {
+    return new MockLanguageModelV3({
+        doGenerate: async () => ({
+            content: [{ type: "text", text }],
+            finishReason: { unified: "stop", raw: undefined },
+            usage: {
+                inputTokens: { total: 30, noCache: 30, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: 15, text: 15, reasoning: undefined },
+            },
+            warnings: [],
+        }),
+    });
+}
+
+function mockModelThatMustNotBeCalled(): MockLanguageModelV3 {
+    return new MockLanguageModelV3({
+        doGenerate: async () => {
+            throw new Error("não deve chamar o modelo abaixo do trigger");
+        },
+    });
 }
 
 describe("SessionMemoryPort adapters", () => {
@@ -36,15 +58,8 @@ describe("SessionMemoryPort adapters", () => {
     });
 
     it("LlmSessionMemory compacta acima do trigger e usa LLM", async () => {
-        const llm: LlmPort = {
-            chat: async () => ({
-                content: [{ type: "text", text: "Cliente pediu água e pizza; falta endereço." }],
-                stopReason: "end_turn",
-                provider: "test",
-                model: "test",
-            }),
-        };
-        const mem = new LlmSessionMemoryAdapter(llm);
+        const model = mockModelWithText("Cliente pediu água e pizza; falta endereço.");
+        const mem = new LlmSessionMemoryAdapter(undefined, undefined, model);
         const history = turns(SESSION_MEMORY_TRIGGER_MIN + 4);
         const out = await mem.compactIfNeeded({ history });
         assert.equal(out.compacted, true);
@@ -52,16 +67,26 @@ describe("SessionMemoryPort adapters", () => {
         assert.match(String(out.summary), /água|pizza|endereço/i);
     });
 
-    it("LlmSessionMemory não compacta abaixo do trigger", async () => {
-        const llm: LlmPort = {
-            chat: async () => {
-                throw new Error("não deve chamar");
-            },
-        };
-        const mem = new LlmSessionMemoryAdapter(llm);
+    it("LlmSessionMemory não compacta abaixo do trigger (nem chama o modelo)", async () => {
+        const model = mockModelThatMustNotBeCalled();
+        const mem = new LlmSessionMemoryAdapter(undefined, undefined, model);
         const history = turns(4);
         const out = await mem.compactIfNeeded({ history });
         assert.equal(out.compacted, false);
         assert.equal(out.history.length, 4);
+    });
+
+    it("LlmSessionMemory cai no resumo extrativo se o modelo falhar", async () => {
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => {
+                throw new Error("simulated provider error");
+            },
+        });
+        const mem = new LlmSessionMemoryAdapter(undefined, undefined, model);
+        const history = turns(SESSION_MEMORY_TRIGGER_MIN + 4);
+        const out = await mem.compactIfNeeded({ history });
+        assert.equal(out.compacted, true);
+        assert.equal(out.history.length, SESSION_MEMORY_KEEP_RECENT);
+        assert.match(String(out.summary), /Cliente:|Assistente:/);
     });
 });
