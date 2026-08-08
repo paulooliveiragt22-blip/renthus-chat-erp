@@ -41,19 +41,28 @@ export class WhatsAppMessageGateway implements MessageGateway {
     }): Promise<void> {
         const { tenant, body, providerMessageId, rawPayload } = params;
         if (!tenant.threadId) return;
-        await this.admin.from("whatsapp_messages").insert({
+        /** `from_addr`/`to_addr` são NOT NULL — sem placeholder o insert falha em silêncio (sem lançar). */
+        const fromAddr = this.waConfig?.phoneNumberId
+            ? `whatsapp:${this.waConfig.phoneNumberId}`
+            : "whatsapp";
+        const { error: insertErr } = await this.admin.from("whatsapp_messages").insert({
             thread_id: tenant.threadId,
             direction: "outbound",
             channel: "whatsapp",
             provider: "meta",
             provider_message_id: providerMessageId ?? null,
-            to_addr: tenant.phoneE164 ?? null,
+            from_addr: fromAddr,
+            to_addr: tenant.phoneE164 || fromAddr,
             body,
             num_media: 0,
             status: "sent",
             sender_type: "bot",
             raw_payload: rawPayload ?? null,
         });
+        if (insertErr) {
+            console.error("[pro/whatsapp] persistOutbound insert failed:", insertErr.message);
+            return;
+        }
         await this.admin
             .from("whatsapp_threads")
             .update({
