@@ -52,6 +52,8 @@ import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
 } from "./serverPrepareAfterPick";
+import { serverResolvePendingPicksFromFreeText } from "./serverResolvePendingPicks";
+import { removePendingPickGroupContaining } from "./pendingPickGroups";
 import {
     parseAddressPickButtonId,
     serverPrepareAfterAddressPick,
@@ -405,6 +407,13 @@ export async function runProPipeline(
     if (productPickApplied && deps.admin && !isInfoOnlyMode(aiPolicy)) {
         const pickedId = resolvePickedEmbalagemId(stateAfterPick);
         if (pickedId) {
+            stateAfterPick = {
+                ...stateAfterPick,
+                pendingPickGroups: removePendingPickGroupContaining(
+                    stateAfterPick.pendingPickGroups ?? [],
+                    pickedId
+                ),
+            };
             try {
                 const recentUserText = [
                     input.inboundText,
@@ -531,6 +540,56 @@ export async function runProPipeline(
             sideEffects: [],
             metrics,
         };
+    }
+
+    /**
+     * Texto livre respondendo embalagem ambígua de 1+ produtos (`pendingPickGroups`): resolve
+     * determinísticamente ANTES da IA — sem isso, a IA respondia em prosa livre em paralelo ao
+     * card de botões do servidor, gerando mensagens duplicadas/contraditórias (ver docs/PLANO_
+     * MIGRACAO_VERCEL_AI_SDK.md, bug de coerência do S2).
+     */
+    if (
+        !productPickApplied &&
+        deps.admin &&
+        !isInfoOnlyMode(aiPolicy) &&
+        (stateAfterPick.pendingPickGroups?.length ?? 0) > 0
+    ) {
+        try {
+            const pendingResolve = await serverResolvePendingPicksFromFreeText({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                customerId: stateAfterPick.customerId,
+                state: stateAfterPick,
+                userText: inboundTextForPipeline,
+            });
+            stateAfterPick = pendingResolve.state;
+            if (pendingResolve.handled) {
+                const synced = withResolvedSlotStep(stateAfterPick);
+                await emitTurn({ state: synced, outbound: pendingResolve.outbound });
+                const metrics: PipelineMetric[] = [
+                    { name: "pro_pipeline.pending_pick_free_text", value: 1 },
+                    { name: "pro_pipeline.outbound_count", value: pendingResolve.outbound.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"])
+                );
+                return {
+                    nextState: synced,
+                    outbound: pendingResolve.outbound,
+                    sideEffects: [],
+                    metrics,
+                };
+            }
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.pending_pick_resolve_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
 
     // Estado após pick de produto (allowlist estreita) ou estado do guard

@@ -8,6 +8,7 @@ import { isAddressStructurallyComplete } from "./orderSlotStep";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 
 export type CheckoutTurnOutcomeKind =
+    | "clarify_pending_picks"
     | "clarify_product_picks"
     | "register_address_flow"
     | "confirm_address"
@@ -37,6 +38,19 @@ export function resolveCheckoutTurnOutcome(params: {
 
     if (params.showAddressRegistrationPrompt) {
         return { kind: "register_address_flow", reason: "needs_address_registration" };
+    }
+
+    /**
+     * Embalagem ambígua de 1+ produtos citados no mesmo turno (`search_produtos` acabou de
+     * popular `pendingPickGroups`): pergunta consolidada em texto livre substitui a prosa da
+     * IA — nunca card de botões em paralelo (ver `pendingPickGroups.ts`).
+     */
+    if (
+        (state.pendingPickGroups?.length ?? 0) > 0 &&
+        (mode === "ai" || state.checkoutEditHold === true) &&
+        state.step !== "pro_awaiting_confirmation"
+    ) {
+        return { kind: "clarify_pending_picks", reason: "pending_pick_groups" };
     }
 
     if (

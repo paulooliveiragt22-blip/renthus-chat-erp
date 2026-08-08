@@ -18,6 +18,7 @@ import {
     parsePtMoneyInput,
 } from "../paymentFromUserText";
 import { resolveCheckoutTurnOutcome } from "../resolveCheckoutTurnOutcome";
+import { buildPickClarificationFreeText } from "../pendingPickGroups";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -162,6 +163,7 @@ function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
     if (!state.draft) return [];
     if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return [];
     if ((state.lastSearchPicks?.length ?? 0) >= 2) return [];
+    if ((state.pendingPickGroups?.length ?? 0) > 0) return [];
     if ((state.bootstrapPendingClarifications?.length ?? 0) > 0) return [];
     if (!state.draft.paymentMethod) {
         /** Itens sem endereço completo: não mostrar pagamento. */
@@ -677,6 +679,19 @@ export function checkoutPostProcess(params: {
         mode: params.mode,
         showAddressRegistrationPrompt: Boolean(showAddressRegistrationPrompt),
     });
+    /**
+     * Embalagem ambígua de 1+ produtos: descarta TODO texto da IA (nunca só um filtro por
+     * regex) e usa a pergunta consolidada determinística — elimina tanto a duplicidade quanto
+     * o risco de a IA alucinar disponibilidade/preço na prosa (Frente 1 do diagnóstico do S2).
+     */
+    if (turnOutcome.kind === "clarify_pending_picks") {
+        outbound.length = 0;
+        outbound.push({
+            kind: "text",
+            text: buildPickClarificationFreeText(nextState.pendingPickGroups ?? []),
+        });
+    }
+
     if (turnOutcome.kind === "clarify_product_picks") {
         const clarify = buildClarificationButtons(nextState.lastSearchPicks ?? []);
         if (clarify) {
@@ -733,6 +748,7 @@ export function checkoutPostProcess(params: {
 
     /** Rede de segurança: com picks pendentes, nunca terminar sem UI de escolha. */
     if (
+        turnOutcome.kind !== "clarify_pending_picks" &&
         (nextState.lastSearchPicks?.length ?? 0) >= 2 &&
         !outbound.some((m) => m.kind === "buttons")
     ) {

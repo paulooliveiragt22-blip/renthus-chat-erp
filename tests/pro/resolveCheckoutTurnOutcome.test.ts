@@ -44,6 +44,85 @@ const addr = {
 };
 
 describe("resolveCheckoutTurnOutcome", () => {
+    it("clarify_pending_picks tem prioridade sobre clarify_product_picks quando pendingPickGroups existe", () => {
+        const out = resolveCheckoutTurnOutcome({
+            mode: "ai",
+            state: state({
+                lastSearchPicks: [
+                    { embalagemId: "a", label: "UN" },
+                    { embalagemId: "b", label: "CX" },
+                ],
+                pendingPickGroups: [
+                    {
+                        productKey: "skol",
+                        productLabel: "Skol",
+                        unresolvedTurns: 0,
+                        options: [
+                            {
+                                embalagemId: "a",
+                                displayName: "SKOL LATA",
+                                productName: "SKOL LATA",
+                                siglaComercial: "UN",
+                                precoVenda: 5,
+                                fatorConversao: 1,
+                            },
+                            {
+                                embalagemId: "b",
+                                displayName: "SKOL LATA (CX c/15)",
+                                productName: "SKOL LATA",
+                                siglaComercial: "CX",
+                                precoVenda: 60,
+                                fatorConversao: 15,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        });
+        assert.equal(out.kind, "clarify_pending_picks");
+    });
+
+    it("sem pendingPickGroups: cai no clarify_product_picks legado com ≥2 lastSearchPicks", () => {
+        const out = resolveCheckoutTurnOutcome({
+            mode: "ai",
+            state: state({
+                pendingPickGroups: [],
+                lastSearchPicks: [
+                    { embalagemId: "a", label: "UN" },
+                    { embalagemId: "b", label: "CX" },
+                ],
+            }),
+        });
+        assert.equal(out.kind, "clarify_product_picks");
+    });
+
+    it("clarify_pending_picks não dispara em pro_awaiting_confirmation", () => {
+        const out = resolveCheckoutTurnOutcome({
+            mode: "ai",
+            state: state({
+                step: "pro_awaiting_confirmation",
+                pendingPickGroups: [
+                    {
+                        productKey: "skol",
+                        productLabel: "Skol",
+                        unresolvedTurns: 0,
+                        options: [
+                            {
+                                embalagemId: "a",
+                                displayName: "SKOL LATA",
+                                productName: "SKOL LATA",
+                                siglaComercial: "UN",
+                                precoVenda: 5,
+                                fatorConversao: 1,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        });
+        assert.notEqual(out.kind, "clarify_pending_picks");
+    });
+
     it("clarify quando há ≥2 picks", () => {
         const out = resolveCheckoutTurnOutcome({
             mode: "ai",

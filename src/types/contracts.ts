@@ -120,6 +120,24 @@ export interface AiTurn {
     ts: number;
 }
 
+export type PendingPickOption = {
+    embalagemId: string;
+    displayName: string | null;
+    productName: string | null;
+    siglaComercial: string | null;
+    precoVenda: number | null;
+    fatorConversao: number | null;
+};
+
+export type PendingPickGroup = {
+    /** Chave estável (nome do produto normalizado) — dedup ao reprocessar a mesma busca. */
+    productKey: string;
+    productLabel: string;
+    options: PendingPickOption[];
+    /** Turnos consecutivos sem resolução total deste grupo (rede de segurança → botão). */
+    unresolvedTurns: number;
+};
+
 export interface ProSessionState {
     step: ProStep;
     customerId: string | null;
@@ -207,6 +225,14 @@ export interface ProSessionState {
      * sumir silenciosamente do rascunho.
      */
     pendingOrderMentions?: string[];
+    /**
+     * Grupos de escolha de embalagem (UN/CX/Fardo) ainda pendentes quando 2+ produtos
+     * distintos ficam ambíguos no mesmo turno (ex.: "quero skol e original", ambos com
+     * mais de uma embalagem). Resolvidos por texto livre consolidado — ver
+     * `src/pro/pipeline/pendingPickGroups.ts`. Cada grupo carrega as opções válidas
+     * (allowlist) para não depender de a IA reescrever preço/opções na prosa.
+     */
+    pendingPickGroups?: PendingPickGroup[];
     /**
      * Pedido acima do limiar da loja: primeira confirmação só “reconhece” o valor alto;
      * a segunda (com este flag true) fecha o pedido.
@@ -429,6 +455,8 @@ export interface AiServiceResult {
     emptySearchStreak?: number;
     /** Ver `ProSessionState.pendingOrderMentions`. */
     updatedPendingOrderMentions?: string[];
+    /** Ver `ProSessionState.pendingPickGroups`. */
+    updatedPendingPickGroups?: PendingPickGroup[];
     signals: {
         toolRoundsUsed: number;
         /** Heurística a partir do sufixo da resposta do modelo (não é payload de WhatsApp). */

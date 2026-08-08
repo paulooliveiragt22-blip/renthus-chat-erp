@@ -4,6 +4,7 @@
 
 import type { ProSessionState } from "@/src/types/contracts";
 import { removeDraftItemsByEmbalagemIds } from "./mergeOrderDraft";
+import { removePendingPickGroupContaining } from "./pendingPickGroups";
 
 export const PICK_EMB_PREFIX = "pro_pick_emb:";
 
@@ -111,6 +112,10 @@ function applyPick(
             checkoutEditHold: state.step === "pro_awaiting_confirmation" ? true : state.checkoutEditHold,
             searchProdutoEmbalagemIds: allow,
             lastSearchPicks: [],
+            pendingPickGroups: removePendingPickGroupContaining(
+                state.pendingPickGroups ?? [],
+                embId
+            ),
         },
         syntheticUserText: buildAppendSyntheticText(label, embId, {
             ...state,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CatalogPort } from "@/src/pro/ports/catalog.port";
 import { runSearchProdutosForAi } from "@/src/pro/adapters/ai/tools/searchProdutosForAi";
+import { upsertPendingPickGroup } from "@/src/pro/pipeline/pendingPickGroups";
 import type { TurnState } from "./turnState";
 
 /**
@@ -57,6 +58,12 @@ export function createSearchProdutosTool(deps: {
                 .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
                 .map((v) => v.trim())
                 .slice(0, 5);
+            if (result.pendingPickGroup) {
+                deps.turnState.pendingPickGroups = upsertPendingPickGroup(
+                    deps.turnState.pendingPickGroups,
+                    result.pendingPickGroup
+                );
+            }
             return result.body;
         },
     });

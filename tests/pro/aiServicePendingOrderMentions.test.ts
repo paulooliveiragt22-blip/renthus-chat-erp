@@ -247,8 +247,9 @@ describe("AiServiceAdapter — pendingOrderMentions (item citado e não buscado)
         };
 
         const result = await svc.run(input);
-        // maxSteps = maxToolRounds(8) + 4 = 12: o loop termina por stepCountIs, não trava.
-        assert.ok(callCount <= 12, `esperava no máximo 12 chamadas, teve ${callCount}`);
+        // maxSteps = maxToolRounds(8) + 5 = 13 (buffer inclui a rodada forçada de
+        // resolve_pending_picks): o loop termina por stepCountIs, não trava.
+        assert.ok(callCount <= 13, `esperava no máximo 13 chamadas, teve ${callCount}`);
         assert.ok(result.action === "error" || result.action === "reply" || result.action === "escalate");
     });
 });

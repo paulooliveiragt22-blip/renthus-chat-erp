@@ -1,4 +1,4 @@
-import type { OrderDraft } from "@/src/types/contracts";
+import type { OrderDraft, PendingPickGroup } from "@/src/types/contracts";
 
 /**
  * Estado do turno compartilhado entre as tools de um mesmo `generateText()` (Fase 3 da
@@ -44,6 +44,15 @@ export type TurnState = {
      * atual do modelo. Ver `shouldForceSearchForDeclaredPendingTerms` em `ai.service.ts`.
      */
     pendingTermsFromSearch: string[];
+    /**
+     * Grupos de embalagem (UN/CX/Fardo) ainda ambíguos para produtos distintos citados no
+     * mesmo turno — ver `pendingPickGroups.ts`. Escrito por `search_produtos` (upsert por
+     * produto) e por `resolve_pending_picks` (remove grupo resolvido). Semeado com o
+     * carryover do turno anterior (`ProSessionState.pendingPickGroups`).
+     */
+    pendingPickGroups: PendingPickGroup[];
+    /** Escrito só por `ai.service.ts` — evita repetir o nudge de resolve_pending_picks no mesmo turno. */
+    forceResolvePendingPicksNudgeInjected: boolean;
 };
 
 export function createInitialTurnState(seed: {
@@ -52,6 +61,7 @@ export function createInitialTurnState(seed: {
     emptySearchStreak: number;
     currentDraft: OrderDraft | null;
     pendingOrderMentions?: readonly string[];
+    pendingPickGroups?: readonly PendingPickGroup[];
 }): TurnState {
     return {
         currentDraft: seed.currentDraft,
@@ -65,5 +75,7 @@ export function createInitialTurnState(seed: {
         forcePrepareNudgeInjected: false,
         forceSearchPendingNudgeInjected: false,
         pendingTermsFromSearch: [...(seed.pendingOrderMentions ?? [])],
+        pendingPickGroups: [...(seed.pendingPickGroups ?? [])],
+        forceResolvePendingPicksNudgeInjected: false,
     };
 }

@@ -91,6 +91,7 @@ export async function aiStage(params: {
         updatedHistory: raw?.updatedHistory ?? context.session.aiHistory,
         updatedSearchProdutoEmbalagemIds: raw?.updatedSearchProdutoEmbalagemIds,
         updatedPendingOrderMentions: raw?.updatedPendingOrderMentions,
+        updatedPendingPickGroups: raw?.updatedPendingPickGroups,
         signals: {
             toolRoundsUsed: Number(raw?.signals?.toolRoundsUsed ?? 0),
             intentMarker: raw?.signals?.intentMarker ?? null,
@@ -127,6 +128,8 @@ export async function aiStage(params: {
             raw?.emptySearchStreak ?? context.session.emptySearchStreak ?? 0,
         pendingOrderMentions:
             raw?.updatedPendingOrderMentions ?? context.session.pendingOrderMentions ?? [],
+        pendingPickGroups:
+            raw?.updatedPendingPickGroups ?? context.session.pendingPickGroups ?? [],
     };
 
     const outbound: OutboundMessage[] = [{ kind: "text", text: aiResult.replyText }];

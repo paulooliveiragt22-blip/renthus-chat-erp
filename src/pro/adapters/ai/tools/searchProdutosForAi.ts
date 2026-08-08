@@ -6,6 +6,11 @@ import {
     isSamePackagingFamily,
 } from "@/src/pro/pipeline/packagingDisambiguation";
 import { loadCompanySiglas, loadCustomerSiglaHabits } from "@/src/pro/pipeline/customerPackagingHabit";
+import {
+    buildPendingPickGroup,
+    productKeyFromRows,
+    type PendingPickGroup,
+} from "@/src/pro/pipeline/pendingPickGroups";
 
 /**
  * Orquestração de `search_produtos` extraída de `ai.service.full.ts` (agora reusável por
@@ -45,6 +50,12 @@ export type SearchProdutosForAiResult = {
     lastSearchPicks: SearchProdutosPickSummary[];
     /** Busca não encontrou nada — quem chama decide se incrementa/zera o streak de vazio. */
     wasEmpty: boolean;
+    /**
+     * Presente quando a busca ficou ambígua por embalagem (mesmo produto, UN/CX/Fardo)
+     * mesmo após a tentativa de desambiguação por texto do turno atual — chamador faz
+     * upsert em `TurnState.pendingPickGroups` (ver `pendingPickGroups.ts`).
+     */
+    pendingPickGroup: PendingPickGroup | null;
 };
 
 async function resolvePackagingHabitForRows(
@@ -116,6 +127,22 @@ export async function runSearchProdutosForAi(
                   "Não invente nome nem preço. Peça outro termo mais curto ou categoria; opcionalmente oriente o cardápio web.",
               ];
 
+    const pendingPickGroup =
+        rows.length >= 2 && isSamePackagingFamily(rows)
+            ? buildPendingPickGroup(
+                  productKeyFromRows(rows),
+                  String(rows[0]?.product_name ?? query).trim() || query,
+                  rows as unknown as Array<{
+                      id: string;
+                      display_name?: string | null;
+                      product_name?: string | null;
+                      sigla_comercial?: string | null;
+                      preco_venda?: number | string | null;
+                      fator_conversao?: number | string | null;
+                  }>
+              )
+            : null;
+
     return {
         body: {
             items: publicItems,
@@ -127,5 +154,6 @@ export async function runSearchProdutosForAi(
         allowlistIds,
         lastSearchPicks,
         wasEmpty: detailed.empty,
+        pendingPickGroup,
     };
 }

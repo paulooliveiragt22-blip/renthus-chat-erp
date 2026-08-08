@@ -40,7 +40,9 @@ import { isAddressStructurallyComplete } from "@/src/pro/pipeline/orderSlotStep"
 import { createSearchProdutosTool } from "@/src/pro/adapters/ai/tools/searchProdutos.tool";
 import { createGetOrderHintsTool } from "@/src/pro/adapters/ai/tools/getOrderHints.tool";
 import { createPrepareOrderDraftTool } from "@/src/pro/adapters/ai/tools/prepareOrderDraft.tool";
+import { createResolvePendingPicksTool } from "@/src/pro/adapters/ai/tools/resolvePendingPicks.tool";
 import { createInitialTurnState, type SearchPickSummary, type TurnState } from "@/src/pro/adapters/ai/tools/turnState";
+import type { PendingPickGroup } from "@/src/types/contracts";
 import { isAnthropicRateLimitError } from "@/lib/chatbot/anthropicResilience";
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
@@ -139,6 +141,29 @@ function buildForceSearchPendingNudge(pendingTerms: readonly string[]): string {
     return `[Instrução interna] Contrato exige search_produtos agora para item(ns) que o cliente pediu e ainda não foi(ram) buscado(s) neste atendimento: ${list}. Chame search_produtos para o próximo destes antes de responder (preencha outros_produtos_pendentes de novo, com o que ainda sobrar).`;
 }
 
+/**
+ * Há grupo(s) de embalagem (UN/CX/Fardo) pendente(s) — o resolvedor determinístico
+ * (`resolvePendingPickGroupsFromFreeText`, rodado antes da IA em `runProPipeline`) não
+ * conseguiu casar 100% da resposta do cliente. Uma tentativa via IA (`resolve_pending_picks`,
+ * schema-enforced) antes de deixar fechar o turno — não é loop forçado (ver
+ * `forceResolvePendingPicksNudgeInjected`): se o modelo não resolver nesta tentativa, o grupo
+ * continua pendente e a rede de segurança por turnos (`groupsPastSafetyNet`) assume depois.
+ */
+function shouldForceResolvePendingPicks(params: {
+    infoOnly: boolean;
+    pendingPickGroups: readonly PendingPickGroup[];
+}): boolean {
+    if (params.infoOnly) return false;
+    return params.pendingPickGroups.length > 0;
+}
+
+function buildForceResolvePendingPicksNudge(groups: readonly PendingPickGroup[]): string {
+    const list = groups
+        .map((g) => `${g.productLabel} (product_key="${g.productKey}", opções: ${g.options.map((o) => o.embalagemId).join(" | ")})`)
+        .join("; ");
+    return `[Instrução interna] O cliente respondeu sobre a embalagem de produto(s) com múltiplas opções ainda pendentes: ${list}. Se a mensagem do cliente já esclarece algum destes, chame resolve_pending_picks agora com o produto_embalagem_id exato. Se não esclarece nenhum, pode responder normalmente pedindo para o cliente especificar.`;
+}
+
 /** Limite de caracteres do JSON de hints anexado ao system (evita estourar contexto). */
 const PREFETCH_ORDER_HINTS_JSON_MAX = 14_000;
 
@@ -202,6 +227,23 @@ function buildPendingMentionsBlock(pendingMentions: readonly string[]): string {
     );
 }
 
+function buildPendingPickGroupsBlock(groups: readonly PendingPickGroup[]): string {
+    if (!groups.length) return "";
+    const lines = groups.map((g) => {
+        const options = g.options
+            .map((o) => `${o.embalagemId} = ${o.displayName ?? o.siglaComercial ?? "opção"}`)
+            .join("; ");
+        return `- ${g.productLabel} (product_key="${g.productKey}"): ${options}`;
+    });
+    return (
+        "\n\n--- Embalagem pendente (o cliente já foi avisado por texto do servidor) ---\n" +
+        lines.join("\n") +
+        "\nSe a mensagem atual do cliente esclarecer a embalagem/quantidade de algum destes, chame resolve_pending_picks " +
+        "com o produto_embalagem_id exato (nunca invente). NÃO liste as opções de novo na prosa — o servidor já mandou.\n" +
+        "--- Fim embalagem pendente ---\n"
+    );
+}
+
 function buildEffectiveSystemPrompt(input: AiServiceInput): string {
     const base = isInfoOnlyAi(input) ? SYSTEM_PROMPT_INFO_ONLY : SYSTEM_PROMPT;
     const session = input.context.session;
@@ -224,6 +266,9 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
     const pendingMentionsBlock = isInfoOnlyAi(input)
         ? ""
         : buildPendingMentionsBlock(session.pendingOrderMentions ?? []);
+    const pendingPickGroupsBlock = isInfoOnlyAi(input)
+        ? ""
+        : buildPendingPickGroupsBlock(session.pendingPickGroups ?? []);
 
     const summary = String(session.aiHistorySummary ?? "").trim();
     const summaryBlock =
@@ -260,6 +305,7 @@ function buildEffectiveSystemPrompt(input: AiServiceInput): string {
         editHoldBlock +
         draftBlock +
         pendingMentionsBlock +
+        pendingPickGroupsBlock +
         summaryBlock +
         welcomeBlock +
         addressConfirmBlock;
@@ -436,6 +482,7 @@ export class AiServiceAdapter implements AiService {
             emptySearchStreak: number;
             addressFreeText: boolean;
             pendingOrderMentions: string[];
+            pendingPickGroups: PendingPickGroup[];
         }
     ): Promise<AiServiceResult> {
         const nextHistoryRaw = buildNextHistory(input, replyText);
@@ -460,6 +507,7 @@ export class AiServiceAdapter implements AiService {
                 lastSearchPicks: turn.lastSearchPicks,
                 emptySearchStreak: turn.emptySearchStreak,
                 updatedPendingOrderMentions: turn.pendingOrderMentions,
+                updatedPendingPickGroups: turn.pendingPickGroups,
                 signals: { toolRoundsUsed, intentMarker: marker, addressFreeText: turn.addressFreeText },
             };
         }
@@ -480,6 +528,7 @@ export class AiServiceAdapter implements AiService {
             lastSearchPicks: turn.lastSearchPicks,
             emptySearchStreak: turn.emptySearchStreak,
             updatedPendingOrderMentions: turn.pendingOrderMentions,
+            updatedPendingPickGroups: turn.pendingPickGroups,
             signals: { toolRoundsUsed, intentMarker: marker, addressFreeText: turn.addressFreeText },
         };
     }
@@ -491,6 +540,7 @@ export class AiServiceAdapter implements AiService {
             emptySearchStreak: input.context.session.emptySearchStreak ?? 0,
             currentDraft: input.draft,
             pendingOrderMentions: input.context.session.pendingOrderMentions ?? [],
+            pendingPickGroups: input.context.session.pendingPickGroups ?? [],
         });
         const allowlistAtStart = [...turnState.allowlistIds];
 
@@ -548,6 +598,13 @@ export class AiServiceAdapter implements AiService {
                     onPrepareDraftToolResult: input.onPrepareDraftToolResult,
                     disabled: infoOnly,
                 }),
+                resolve_pending_picks: createResolvePendingPicksTool({
+                    orderDraft: this.orderDraft,
+                    companyId,
+                    customerId: input.context.session.customerId,
+                    turnState,
+                    disabled: infoOnly,
+                }),
                 respond_to_customer: respondToCustomerTool,
             };
 
@@ -592,11 +649,17 @@ export class AiServiceAdapter implements AiService {
                     pendingTerms: turnState.pendingTermsFromSearch,
                 });
 
+            const shouldForcePendingPicks = (): boolean =>
+                shouldForceResolvePendingPicks({
+                    infoOnly,
+                    pendingPickGroups: turnState.pendingPickGroups,
+                });
+
             const firstToolChoice =
                 !infoOnly && input.preferPrepareToolChoiceFirst
                     ? ({ type: "tool" as const, toolName: "prepare_order_draft" as const })
                     : undefined;
-            const maxSteps = Math.max(2, input.limits.maxToolRounds + 4);
+            const maxSteps = Math.max(2, input.limits.maxToolRounds + 5);
 
             const result = await runWithAnthropicInFlightSlot(() =>
                 generateText({
@@ -619,7 +682,9 @@ export class AiServiceAdapter implements AiService {
                             if (!lastStepCalledRespond(steps)) return false;
                             const searchPendingDone = !shouldForcePendingSearch();
                             const prepareDone = !shouldForcePrepare() || turnState.forcePrepareNudgeInjected;
-                            return searchPendingDone && prepareDone;
+                            const pendingPicksDone =
+                                !shouldForcePendingPicks() || turnState.forceResolvePendingPicksNudgeInjected;
+                            return searchPendingDone && prepareDone && pendingPicksDone;
                         },
                         stepCountIs(maxSteps),
                     ],
@@ -630,10 +695,12 @@ export class AiServiceAdapter implements AiService {
                         if (!lastStepCalledRespond(steps)) return undefined;
                         /**
                          * Prioridade: 1) produto pendente (carryover ou declarado agora por
-                         * search_produtos), 2) prepare do pick atual. (1) não usa flag de "só uma
-                         * vez" — a lista `pendingTermsFromSearch` só esvazia quando o próprio
-                         * search_produtos declarar `outros_produtos_pendentes: []`, então o force
-                         * natural para assim que resolvido (maxSteps é o teto de segurança).
+                         * search_produtos), 2) embalagem pendente por produto ambíguo (tentativa
+                         * única via IA — o resolvedor determinístico já rodou antes da IA), 3)
+                         * prepare do pick atual. (1) não usa flag de "só uma vez" — a lista
+                         * `pendingTermsFromSearch` só esvazia quando o próprio search_produtos
+                         * declarar `outros_produtos_pendentes: []`, então o force natural para assim
+                         * que resolvido (maxSteps é o teto de segurança).
                          */
                         if (shouldForcePendingSearch()) {
                             return {
@@ -643,6 +710,19 @@ export class AiServiceAdapter implements AiService {
                                     {
                                         role: "user",
                                         content: buildForceSearchPendingNudge(turnState.pendingTermsFromSearch),
+                                    },
+                                ],
+                            };
+                        }
+                        if (!turnState.forceResolvePendingPicksNudgeInjected && shouldForcePendingPicks()) {
+                            turnState.forceResolvePendingPicksNudgeInjected = true;
+                            return {
+                                toolChoice: { type: "tool", toolName: "resolve_pending_picks" },
+                                messages: [
+                                    ...stepMessages,
+                                    {
+                                        role: "user",
+                                        content: buildForceResolvePendingPicksNudge(turnState.pendingPickGroups),
                                     },
                                 ],
                             };
@@ -731,6 +811,7 @@ export class AiServiceAdapter implements AiService {
                 emptySearchStreak: turnState.emptySearchStreak,
                 addressFreeText,
                 pendingOrderMentions: updatedPendingOrderMentions,
+                pendingPickGroups: turnState.pendingPickGroups,
             });
         } catch (error) {
             if (error instanceof LlmProviderConfigError) {
