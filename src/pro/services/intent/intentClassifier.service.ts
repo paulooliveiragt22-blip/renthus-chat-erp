@@ -228,6 +228,17 @@ export class ProIntentClassifierService implements IntentService {
             return llmClassify(context, userText, this.admin);
         }
 
+        /**
+         * Saudação nunca depende de IA: detecção por regex (alta confiança, sem ambiguidade) +
+         * `routeStage.ts` responde com o menu de boas-vindas via `direct_reply`, sem chamar o LLM
+         * em nenhuma etapa. Cobre tanto o degradado (`!useLlm`) quanto o caminho normal — evita que
+         * uma falha do provider (chave ausente/inválida, rate limit) prejudique a mensagem mais
+         * comum e mais simples do fluxo inteiro.
+         */
+        if (GREETING_RE.test(raw)) {
+            return { intent: "greeting", confidence: "high", reasonCode: "regex_match" };
+        }
+
         // Degradado: regex de linguagem. Com crédito/IA: sempre LLM desde a 1ª mensagem.
         if (!useLlm) {
             const byRegex = classifyWithLanguageRegex(raw);

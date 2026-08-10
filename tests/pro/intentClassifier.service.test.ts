@@ -136,7 +136,7 @@ describe("ProIntentClassifierService", () => {
         assert.equal(out.reasonCode, "regex_match");
     });
 
-    it("com LLM ligado e sem chave: oi não usa regex de greeting", async () => {
+    it("com LLM ligado (mesmo sem chave/provider fora do ar): oi usa regex de greeting, não depende de IA", async () => {
         const prevA = process.env.ANTHROPIC_API_KEY;
         const prevO = process.env.OPENAI_API_KEY;
         delete process.env.ANTHROPIC_API_KEY;
@@ -148,8 +148,8 @@ describe("ProIntentClassifierService", () => {
         });
         if (prevA) process.env.ANTHROPIC_API_KEY = prevA;
         if (prevO) process.env.OPENAI_API_KEY = prevO;
-        assert.equal(out.intent, "unknown");
-        assert.equal(out.reasonCode, "fallback_unknown");
+        assert.equal(out.intent, "greeting");
+        assert.equal(out.reasonCode, "regex_match");
     });
 
     it("oi com lastSearchPicks residual (sem draft) → greeting, não order_intent", async () => {
