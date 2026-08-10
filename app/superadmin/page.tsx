@@ -319,6 +319,9 @@ export default function SuperAdminDashboard() {
                                     <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
                                         errorCode
                                     </th>
+                                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                        provider
+                                    </th>
                                     <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
                                         Total
                                     </th>
@@ -326,12 +329,13 @@ export default function SuperAdminDashboard() {
                             </thead>
                             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                                 {(proMetrics?.rows ?? []).slice(0, 40).map((r, i) => (
-                                    <tr key={`${r.companyId}-${r.metricName}-${r.reason ?? ""}-${r.intent ?? ""}-${r.errorCode ?? ""}-${i}`}>
+                                    <tr key={`${r.companyId}-${r.metricName}-${r.reason ?? ""}-${r.intent ?? ""}-${r.errorCode ?? ""}-${r.provider ?? ""}-${i}`}>
                                         <td className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300">{r.companyName}</td>
                                         <td className="px-3 py-2 font-mono text-[11px] text-zinc-600 dark:text-zinc-400">{r.metricName}</td>
                                         <td className="px-3 py-2 text-xs">{r.reason ?? "—"}</td>
                                         <td className="px-3 py-2 text-xs">{r.intent ?? "—"}</td>
                                         <td className="px-3 py-2 text-xs">{r.errorCode ?? "—"}</td>
+                                        <td className="px-3 py-2 text-xs">{r.provider ?? "—"}</td>
                                         <td className="px-3 py-2 text-right text-xs tabular-nums">
                                             {r.total.toLocaleString("pt-BR")}
                                         </td>
@@ -339,7 +343,7 @@ export default function SuperAdminDashboard() {
                                 ))}
                                 {!isProMetricsLoading && (proMetrics?.rows?.length ?? 0) === 0 && (
                                     <tr>
-                                        <td colSpan={6} className="px-3 py-6 text-center text-xs text-zinc-400">
+                                        <td colSpan={7} className="px-3 py-6 text-center text-xs text-zinc-400">
                                             Sem eventos na janela ou ingest ainda não ligado ao Supabase.
                                         </td>
                                     </tr>

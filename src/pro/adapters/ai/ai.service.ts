@@ -50,7 +50,11 @@ import { createGetOrderHintsTool } from "@/src/pro/adapters/ai/tools/getOrderHin
 import { createPrepareOrderDraftTool } from "@/src/pro/adapters/ai/tools/prepareOrderDraft.tool";
 import { createResolvePendingPicksTool } from "@/src/pro/adapters/ai/tools/resolvePendingPicks.tool";
 import { createInitialTurnState, type SearchPickSummary, type TurnState } from "@/src/pro/adapters/ai/tools/turnState";
-import { isLlmRateLimitError, runLlmWithResilience } from "@/lib/chatbot/llmResilience";
+import {
+    isLlmRateLimitError,
+    runLlmWithResilience,
+    type CircuitStateChangeEvent,
+} from "@/lib/chatbot/llmResilience";
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
@@ -71,6 +75,8 @@ export type AiServiceOptions = {
      */
     providerOverride?: LlmProviderName;
     modelNameOverride?: string;
+    /** Observabilidade do circuit breaker (Fase 9) — ver `deps.factory.ts` pra quem conecta ao `MetricsPort`. */
+    onCircuitStateChange?: (e: CircuitStateChangeEvent) => void;
 };
 
 type IntentMarker = "ok" | "unknown";
@@ -465,6 +471,7 @@ export class AiServiceAdapter implements AiService {
     private readonly modelOverride?: LanguageModel;
     private readonly providerOverride?: LlmProviderName;
     private readonly modelNameOverride?: string;
+    private readonly onCircuitStateChange?: (e: CircuitStateChangeEvent) => void;
 
     constructor(private readonly admin: SupabaseClient, opts?: AiServiceOptions) {
         this.catalog = opts?.catalog ?? new SupabaseCatalogAdapter(admin);
@@ -473,6 +480,7 @@ export class AiServiceAdapter implements AiService {
         this.modelOverride = opts?.model;
         this.providerOverride = opts?.providerOverride;
         this.modelNameOverride = opts?.modelNameOverride;
+        this.onCircuitStateChange = opts?.onCircuitStateChange;
     }
 
     private buildProviderError(input: AiServiceInput, toolRoundsUsed: number, allowlistIds: string[]): AiServiceResult {
@@ -792,7 +800,8 @@ export class AiServiceAdapter implements AiService {
                             { source: "pro_ai_service", provider, model: modelId }
                         );
                     },
-                })
+                }),
+                { onCircuitStateChange: this.onCircuitStateChange }
             );
 
             const finalRespondCall = result.toolCalls.find((c) => c.toolName === "respond_to_customer");

@@ -169,6 +169,38 @@ describe("novo pipeline PRO - falhas reais", () => {
         assert.equal(called, 1);
     });
 
+    it("Fase 9: tag provider vai junto em pro_pipeline.run quando aiCapability.provider é resolvido", async () => {
+        const increments: Array<{ name: string; tags?: Record<string, string> }> = [];
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({ step: "pro_collecting_order" }),
+            intent: "greeting",
+        });
+        deps.metrics.increment = (name, _value, tags) => {
+            increments.push({ name, tags });
+        };
+
+        await runProPipeline(
+            {
+                ...baseInput(),
+                inboundText: "oi, tudo bem?",
+                aiCapability: {
+                    tier: "avancado",
+                    maxToolRounds: 6,
+                    maxHistoryTurns: 12,
+                    aiTimeoutMs: 15000,
+                    llmEnabled: true,
+                    model: "gpt-5-mini",
+                    provider: "openai",
+                },
+            },
+            deps
+        );
+
+        const runMetric = increments.find((m) => m.name === "pro_pipeline.run");
+        assert.ok(runMetric, "esperava métrica pro_pipeline.run");
+        assert.equal(runMetric?.tags?.provider, "openai");
+    });
+
     it("alias de botão de confirmação (btn_confirmar) deve finalizar pedido", async () => {
         let called = 0;
         const deps = buildDeps({

@@ -9,8 +9,10 @@ Não reabra a discussão "por que duas IAs, por que GPT-5 mini e não gpt-4o-min
 Se precisar do raciocínio completo (custo/pedido, benchmarks de tool-calling, contras de cada
 opção), está no histórico daquele chat, não repita aqui.
 
-> **Status:** 🔄 Fases 0-8 concluídas (✅) — feature já **ligada de verdade** (atrás de allowlist
-> de piloto). Próximas: Fase 9 (observabilidade) e Fase 10 (docs/smoke final).
+> **Status:** ✅ **Fases 0-10 concluídas.** Feature ligada de verdade (atrás de allowlist de
+> piloto), com observabilidade por `provider` no Super Admin e docs atualizadas. Falta só o smoke
+> manual em 1 empresa Anthropic + 1 empresa OpenAI antes de sair do piloto (não é código, é
+> validação operacional — ver Fase 10).
 
 ---
 
@@ -42,7 +44,7 @@ opção), está no histórico daquele chat, não repita aqui.
 | 6 | `src/pro/adapters/ai/ai.service.ts` (mesmo arquivo, trecho diferente) | **Sim** |
 | 7 | `lib/chatbot/anthropicInFlightGate.ts` (+ novo gate OpenAI), `lib/chatbot/anthropicResilience.ts` → `llmResilience.ts` (circuit breaker religado por provider), `src/pro/adapters/ai/ai.service.ts`, `src/pro/pipeline/runProPipeline.ts` (comentário), `docs/CHATBOT_PROD.md` | **Sim** |
 | 8 | `app/api/admin/company-settings/route.ts`, `app/(admin)/configuracoes/page.tsx` (reaproveita + remove select morto "Modelo de IA" de `bots.config.model`) | **Sim — aqui a feature fica ligada de verdade** |
-| 9 | `src/pro/adapters/metrics/metrics.console.ts`, `metrics.supabase.ts`, `src/pro/pipeline/runProPipeline.ts`, `app/superadmin/page.tsx`, `lib/superadmin/actions.ts` | Não (só observabilidade) |
+| 9 | `src/pro/pipeline/runProPipeline.ts`, `lib/chatbot/llmResilience.ts`, `src/pro/adapters/ai/ai.service.ts`, `src/pro/pipeline/deps.factory.ts`, `lib/superadmin/actions.ts`, `app/superadmin/page.tsx`, migration `20260810000000_pro_pipeline_metric_totals_provider.sql` | Não (só observabilidade) |
 | 10 | `docs/CHATBOT_PROD.md`, `docs/SMOKE_AGENT_LOOP_WHATSAPP.md` (execução manual) | Não |
 
 ---
@@ -292,38 +294,60 @@ morta em `bots.config`) — confunde o cliente. Resolver **nesta fase**, não de
 
 ---
 
-### Fase 9 — Observabilidade (tag `provider`)
+### Fase 9 — Observabilidade (tag `provider`) ✅
 
 **Objetivo:** conseguir comparar qualidade/custo Claude×GPT por empresa no Super Admin, não só via
 grep de log.
 
-- [ ] `src/pro/pipeline/runProPipeline.ts`: incluir `provider` nas `tags` enviadas ao `MetricsPort`
-  (mesmo padrão de `companyId`/`threadId` já presente).
-- [ ] `src/pro/adapters/metrics/metrics.supabase.ts` / migration de
-  `pro_pipeline_metric_events` (se `tags` for coluna jsonb já genérica, não precisa migration —
-  confirmar antes de assumir).
-- [ ] `lib/superadmin/actions.ts` (`getProPipelineHealthStats`) + `app/superadmin/page.tsx`:
-  segmentar o card "Métricas PRO pipeline" por `provider`.
-- [ ] **Pendência trazida da Fase 7**: emitir evento de métrica (`circuit_open`/`circuit_close`,
-  tag `provider`) quando `lib/chatbot/llmResilience.ts` abrir/fechar o circuito. Como
-  `AiServiceAdapter` não recebe `MetricsPort` hoje, decidir: (a) injetar `MetricsPort` opcional no
-  construtor só pra esse evento, ou (b) `llmResilience.ts` expor um callback/emitter simples
-  (`onCircuitStateChange?`) que `deps.factory.ts` conecta ao `MetricsPort` já disponível ali — (b)
-  evita acoplar `lib/chatbot` a `src/pro/ports`. Até então, só `console.warn` estruturado.
-- **Critério de pronto:** `npm test` verde; card do Super Admin mostra split quando há dado de
-  ambos os providers (validar com a empresa piloto da Fase 8).
+- [x] `src/pro/pipeline/runProPipeline.ts`: `flushPipelineRunMetrics` ganhou parâmetro opcional
+  `provider`, aplicado no mesmo bloco de tags que já injeta `companyId`/`threadId` — todo call site
+  que roda depois de `context` ser montado (linha ~280) passa `context.policies.aiProvider`. Os 2
+  call sites de erro anteriores a esse ponto (guard-rails ainda não resolvido) ficam sem a tag —
+  aceitável, é caminho de erro muito cedo do turno.
+- [x] `pro_pipeline_metric_events` já tinha `tags jsonb` genérico — **sem migration na tabela**,
+  confirmado antes de assumir. A migration nova (`20260810000000_pro_pipeline_metric_totals_provider.sql`)
+  mexe só na **RPC** `superadmin_pro_pipeline_metric_totals`, que precisou de `DROP FUNCTION` +
+  `CREATE FUNCTION` (mudança de colunas de retorno não é compatível com `CREATE OR REPLACE`) pra
+  devolver `provider_key` extraído de `tags->>'provider'`. Aplicada no remoto via
+  `supabase db query --linked -f` (histórico divergente, mesmo fallback já usado nas fases
+  anteriores) e confirmada com `pg_get_function_result`.
+- [x] `lib/superadmin/actions.ts` (`getProPipelineHealthStats`): novo campo `provider` em
+  `ProPipelineMetricAggregateRow`, mapeado de `provider_key`. `app/superadmin/page.tsx`: nova coluna
+  `provider` na tabela "Métricas PRO pipeline (Supabase)" (`colSpan` do estado vazio ajustado de 6
+  para 7).
+- [x] **Pendência trazida da Fase 7**: `llmResilience.ts` ganhou `CircuitStateChangeEvent` +
+  parâmetro opcional `onCircuitStateChange` em `runLlmWithResilience` — dispara em `tripCircuit`
+  (`state: "open"`) e na primeira chamada bem-sucedida após o circuito ter aberto (`state: "close"`,
+  detectado via flag `wasOpen` por provider). Escolhida a **opção (b)** do plano original: função
+  pura exportada `applyCircuitStateChangeToMetrics(metrics, event, companyId)` em
+  `deps.factory.ts`, conectada ao `MetricsPort` já construído ali e passada como
+  `onCircuitStateChange` pro `AiServiceAdapter` — `lib/chatbot` continua sem importar
+  `src/pro/ports`. Métricas emitidas: `pro_pipeline.llm_circuit_open` / `_close`, tags
+  `{ provider, companyId }`.
+- [x] Testes novos: `tests/chatbot/llmResilience.test.ts` (emissão de open/close),
+  `tests/pro/deps.factory.test.ts` (`applyCircuitStateChangeToMetrics` isolado, sem precisar
+  simular o loop de `generateText`), `tests/pro/proPipeline.test.ts` (tag `provider` chega em
+  `pro_pipeline.run` fim a fim).
+- **Critério de pronto:** ✅ `npm test` verde (743 testes, 0 fail). Card do Super Admin mostra a
+  coluna `provider`; split real por dado só aparece quando a empresa piloto (Fase 8) gerar tráfego
+  em produção — não dá pra forçar isso em teste unitário.
 
 ---
 
-### Fase 10 — Docs finais + smoke
+### Fase 10 — Docs finais + smoke ✅ (código); ⬜ (smoke manual, fora deste checklist)
 
-- [ ] `docs/CHATBOT_PROD.md`: tabela de env ganha `OPENAI_CHATBOT_MAX_IN_FLIGHT`; seção do motor
-  de IA menciona seleção por empresa; remover qualquer menção residual ao circuit breaker morto
-  (se Fase 7 escolheu deletá-lo).
-  - `LLM_MODEL` (default do provider) - atualizar exemplo de `gpt-4o-mini` para `gpt-5-mini`.
+- [x] `docs/CHATBOT_PROD.md`: `LLM_PROVIDER` agora documenta o override por
+  `company_settings.llm_provider` (Configurações → Chatbot); `LLM_MODEL` atualizado de exemplo
+  `gpt-4o-mini` para `gpt-5-mini` (`DEFAULT_OPENAI_MODEL`); seção "Como trazer os `tags.reason`
+  para o mesmo painel" ganhou item sobre a segmentação por `provider` (Fase 9) com referência à
+  migration nova. Não havia menção residual ao circuit breaker morto pra remover — a Fase 7 já
+  tinha atualizado esse trecho ao religar o breaker.
 - [ ] `docs/SMOKE_AGENT_LOOP_WHATSAPP.md`: rodar checklist completo em 1 empresa Anthropic + 1
-  empresa OpenAI antes de considerar a feature pronta pra mais que o piloto.
-- [ ] Marcar este documento como `✅ concluído` no topo.
+  empresa OpenAI antes de considerar a feature pronta pra mais que o piloto. **Ação manual em
+  produção, não é tarefa de código** — depende de ligar `OPENAI_PROVIDER_PILOT_COMPANY_IDS` +
+  `OPENAI_API_KEY` numa empresa real e observar o Super Admin por alguns dias. Fica registrado aqui
+  como próximo passo operacional, fora do escopo do que um commit de código resolve.
+- [x] Marcar este documento como concluído no topo (ver linha de `Status` no início do arquivo).
 
 ---
 

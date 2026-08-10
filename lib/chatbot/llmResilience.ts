@@ -65,6 +65,7 @@ export function resetCircuitForTests(provider?: LlmProviderName): void {
     const targets: LlmProviderName[] = provider ? [provider] : ["anthropic", "openai"];
     for (const p of targets) {
         circuits[p] = { openUntilMs: 0, consecutive429: 0 };
+        wasOpen[p] = false;
     }
 }
 
@@ -76,10 +77,26 @@ function getPositiveIntEnv(name: string, fallback: number): number {
     return Math.floor(n);
 }
 
-function tripCircuit(provider: LlmProviderName): void {
+export type CircuitStateChangeEvent =
+    | { provider: LlmProviderName; state: "open"; openMs: number }
+    | { provider: LlmProviderName; state: "close" };
+
+/** Estado anterior por provider — usado só pra detectar a transição aberto→fechado (Fase 9). */
+const wasOpen: Record<LlmProviderName, boolean> = { anthropic: false, openai: false };
+
+function tripCircuit(provider: LlmProviderName, onCircuitStateChange?: (e: CircuitStateChangeEvent) => void): void {
     const openMs = getPositiveIntEnv(CIRCUIT_OPEN_ENV[provider], 30_000);
     circuits[provider].openUntilMs = Date.now() + openMs;
+    wasOpen[provider] = true;
     console.warn(`[llm:${provider}] circuit open`, { openMs, consecutive429: circuits[provider].consecutive429 });
+    onCircuitStateChange?.({ provider, state: "open", openMs });
+}
+
+function noteRecoveryIfNeeded(provider: LlmProviderName, onCircuitStateChange?: (e: CircuitStateChangeEvent) => void): void {
+    if (!wasOpen[provider]) return;
+    wasOpen[provider] = false;
+    console.warn(`[llm:${provider}] circuit close`);
+    onCircuitStateChange?.({ provider, state: "close" });
 }
 
 /**
@@ -87,14 +104,19 @@ function tripCircuit(provider: LlmProviderName): void {
  * - gate in-flight do provider certo
  * - até N retries em 429 com backoff
  * - circuit breaker (isolado por provider) após 3× 429 seguidos
+ *
+ * `onCircuitStateChange` é opcional (ver docs/PLANO_MULTI_PROVIDER_IA.md, Fase 9): emite tag de
+ * observabilidade sem acoplar `lib/chatbot` a `src/pro/ports` — quem chama decide o que fazer com
+ * o evento (ex.: `deps.factory.ts` conecta ao `MetricsPort` já disponível ali).
  */
 export async function runLlmWithResilience<T>(
     provider: LlmProviderName,
     fn: () => Promise<T>,
-    opts?: { maxRetries?: number }
+    opts?: { maxRetries?: number; onCircuitStateChange?: (e: CircuitStateChangeEvent) => void }
 ): Promise<T> {
     const circuit = circuits[provider];
     const runWithGate = IN_FLIGHT_GATE[provider];
+    const onCircuitStateChange = opts?.onCircuitStateChange;
 
     const remaining = getCircuitOpenRemainingMs(provider);
     if (remaining > 0) {
@@ -116,18 +138,19 @@ export async function runLlmWithResilience<T>(
         try {
             const result = await runWithGate(fn);
             circuit.consecutive429 = 0;
+            noteRecoveryIfNeeded(provider, onCircuitStateChange);
             return result;
         } catch (error) {
             lastError = error;
             if (!isLlmRateLimitError(error) || attempt >= maxRetries) {
                 if (isLlmRateLimitError(error)) {
                     circuit.consecutive429 += 1;
-                    if (circuit.consecutive429 >= 3) tripCircuit(provider);
+                    if (circuit.consecutive429 >= 3) tripCircuit(provider, onCircuitStateChange);
                 }
                 throw error;
             }
             circuit.consecutive429 += 1;
-            if (circuit.consecutive429 >= 3) tripCircuit(provider);
+            if (circuit.consecutive429 >= 3) tripCircuit(provider, onCircuitStateChange);
             const wait = retryAfterMs(error, attempt);
             console.warn(`[llm:${provider}] 429 backoff`, { attempt, waitMs: wait });
             await sleep(wait);

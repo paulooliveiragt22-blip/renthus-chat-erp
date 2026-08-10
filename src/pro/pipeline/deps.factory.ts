@@ -2,6 +2,7 @@ import type { ProcessMessageParams } from "@/lib/chatbot/types";
 import { AiServiceAdapter } from "../adapters/ai/ai.service";
 import { LlmSessionMemoryAdapter } from "../adapters/ai/sessionMemory.llm";
 import type { LlmProviderName } from "../adapters/ai/modelProvider";
+import type { CircuitStateChangeEvent } from "@/lib/chatbot/llmResilience";
 import { ConsoleLoggerAdapter } from "../adapters/logger/logger.console";
 import { ConsoleMetricsAdapter } from "../adapters/metrics/metrics.console";
 import { SupabaseMetricsAdapter } from "../adapters/metrics/metrics.supabase";
@@ -37,6 +38,21 @@ function makeMetricsPort(admin: ProcessMessageParams["admin"]): MetricsPort {
     return new ConsoleMetricsAdapter();
 }
 
+/**
+ * Extraída pra ser testável sem precisar simular o loop inteiro de `generateText`/429 (ver
+ * docs/PLANO_MULTI_PROVIDER_IA.md, Fase 9 — pendência trazida da Fase 7).
+ */
+export function applyCircuitStateChangeToMetrics(
+    metrics: MetricsPort,
+    event: CircuitStateChangeEvent,
+    companyId: string
+): void {
+    metrics.increment(`pro_pipeline.llm_circuit_${event.state}`, 1, {
+        provider: event.provider,
+        companyId,
+    });
+}
+
 function makeMessageGateway(params: ProcessMessageParams): MessageGateway {
     const channel = params.messagingChannel ?? "whatsapp";
     if (channel === "instagram" || channel === "messenger") {
@@ -52,6 +68,7 @@ export function makeProPipelineDependencies(
     const catalog = new SupabaseCatalogAdapter(params.admin);
     const orderDraft = new SupabaseOrderDraftAdapter(params.admin);
     const aiCapability = options?.aiCapability;
+    const metrics = makeMetricsPort(params.admin);
     const sessionMemory = new LlmSessionMemoryAdapter(
         params.admin,
         params.companyId,
@@ -59,12 +76,14 @@ export function makeProPipelineDependencies(
         aiCapability?.provider,
         aiCapability?.model
     );
+    const onCircuitStateChange = (e: CircuitStateChangeEvent) =>
+        applyCircuitStateChangeToMetrics(metrics, e, params.companyId);
     const base: PipelineDependencies = {
         sessionRepo: new SupabaseSessionRepository(params.admin, {
             idleMinutes: options?.sessionIdleMinutes,
         }),
         messageGateway: makeMessageGateway(params),
-        metrics: makeMetricsPort(params.admin),
+        metrics,
         logger: new ConsoleLoggerAdapter(),
         intentService: new ProIntentClassifierService(params.admin),
         aiService: new AiServiceAdapter(params.admin, {
@@ -73,6 +92,7 @@ export function makeProPipelineDependencies(
             sessionMemory,
             providerOverride: aiCapability?.provider,
             modelNameOverride: aiCapability?.model,
+            onCircuitStateChange,
         }),
         orderService: new OrderServiceV2Adapter(params.admin),
         companyPolicy: new SupabaseCompanyPolicyAdapter(params.admin),

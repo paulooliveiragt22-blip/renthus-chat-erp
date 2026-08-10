@@ -74,12 +74,17 @@ function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
 
 type PipelineMetric = { name: string; value: number; tags?: Record<string, string> };
 
-/** Envia o array de métricas do run para `MetricsPort` (logs / `METRICS_INGEST_URL` / futuro Supabase). */
+/**
+ * Envia o array de métricas do run para `MetricsPort` (logs / `METRICS_INGEST_URL` / futuro Supabase).
+ * `provider` (Fase 9 de docs/PLANO_MULTI_PROVIDER_IA.md) só existe depois que `context` é montado
+ * (linha ~274) — chamadas de erro anteriores a isso não têm o dado e seguem sem a tag.
+ */
 function flushPipelineRunMetrics(
     port: MetricsPort,
     tenant: { companyId: string; threadId: string },
     items: PipelineMetric[],
-    excludeNames?: ReadonlySet<string>
+    excludeNames?: ReadonlySet<string>,
+    provider?: string
 ): void {
     const skip = excludeNames ?? new Set<string>();
     for (const m of items) {
@@ -88,6 +93,7 @@ function flushPipelineRunMetrics(
             companyId: tenant.companyId,
             threadId: tenant.threadId,
         };
+        if (provider) tags.provider = provider;
         if (m.tags) Object.assign(tags, m.tags);
         port.increment(m.name, m.value, tags);
     }
@@ -286,7 +292,7 @@ export async function runProPipeline(
                 tags: guarded.stopReason ? { reason: guarded.stopReason } : undefined,
             },
         ];
-        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics);
+        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, undefined, context.policies.aiProvider);
         return {
             nextState: guarded.state,
             outbound: guarded.outbound,
@@ -333,7 +339,13 @@ export async function runProPipeline(
             },
             { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
         ];
-        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, new Set(["pro_pipeline.outbound_count"]));
+        flushPipelineRunMetrics(
+            deps.metrics,
+            input.tenant,
+            metrics,
+            new Set(["pro_pipeline.outbound_count"]),
+            context.policies.aiProvider
+        );
         return {
             nextState: syncedQuick,
             outbound: quickOutbound,
@@ -374,7 +386,13 @@ export async function runProPipeline(
                 },
                 { name: "pro_pipeline.outbound_count", value: finalOutbound.length },
             ];
-            flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, new Set(["pro_pipeline.outbound_count"]));
+            flushPipelineRunMetrics(
+                deps.metrics,
+                input.tenant,
+                metrics,
+                new Set(["pro_pipeline.outbound_count"]),
+                context.policies.aiProvider
+            );
             return {
                 nextState: synced,
                 outbound: finalOutbound,
@@ -533,7 +551,13 @@ export async function runProPipeline(
             { name: "pro_pipeline.quick_action", value: 1, tags: { action: quick.actionTag ?? "unknown" } },
             { name: "pro_pipeline.outbound_count", value: quickOutbound.length },
         ];
-        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, new Set(["pro_pipeline.outbound_count"]));
+        flushPipelineRunMetrics(
+            deps.metrics,
+            input.tenant,
+            metrics,
+            new Set(["pro_pipeline.outbound_count"]),
+            context.policies.aiProvider
+        );
         return {
             nextState: syncedQuick,
             outbound: quickOutbound,
@@ -745,7 +769,7 @@ export async function runProPipeline(
                 },
             });
         }
-        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics);
+        flushPipelineRunMetrics(deps.metrics, input.tenant, metrics, undefined, context.policies.aiProvider);
         return {
             nextState: syncedPre,
             outbound,
@@ -1034,7 +1058,13 @@ export async function runProPipeline(
     }
     appendAiOutcomeMetrics(runMetrics, decision.intent, invalidAiSanitized, aiServiceErrorCode);
 
-    flushPipelineRunMetrics(deps.metrics, input.tenant, runMetrics, new Set(["pro_pipeline.outbound_count"]));
+    flushPipelineRunMetrics(
+        deps.metrics,
+        input.tenant,
+        runMetrics,
+        new Set(["pro_pipeline.outbound_count"]),
+        context.policies.aiProvider
+    );
 
     return {
         nextState,

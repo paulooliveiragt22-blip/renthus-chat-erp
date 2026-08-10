@@ -5,6 +5,7 @@ import {
     resetCircuitForTests,
     runLlmWithResilience,
     getCircuitOpenRemainingMs,
+    type CircuitStateChangeEvent,
 } from "../../lib/chatbot/llmResilience";
 import type { LlmProviderName } from "../../src/pro/adapters/ai/modelProvider";
 
@@ -108,5 +109,50 @@ describe("llmResilience", () => {
         // OpenAI: circuito próprio continua fechado, chamada roda normalmente.
         const openaiResult = await runLlmWithResilience("openai", async () => "ok-openai");
         assert.equal(openaiResult, "ok-openai");
+    });
+
+    it("emite onCircuitStateChange('open') quando o circuito abre (Fase 9)", async () => {
+        process.env.OPENAI_CIRCUIT_OPEN_MS = "60000";
+        const events: CircuitStateChangeEvent[] = [];
+        await assert.rejects(() =>
+            runLlmWithResilience(
+                "openai",
+                async () => {
+                    const err = new Error("429");
+                    (err as { status?: number }).status = 429;
+                    throw err;
+                },
+                { maxRetries: 2, onCircuitStateChange: (e) => events.push(e) }
+            )
+        );
+        assert.equal(events.length, 1);
+        assert.deepEqual(events[0], { provider: "openai", state: "open", openMs: 60000 });
+    });
+
+    it("emite onCircuitStateChange('close') na primeira chamada bem-sucedida após o circuito ter aberto (Fase 9)", async () => {
+        process.env.ANTHROPIC_CIRCUIT_OPEN_MS = "1";
+        const events: CircuitStateChangeEvent[] = [];
+        await assert.rejects(() =>
+            runLlmWithResilience(
+                "anthropic",
+                async () => {
+                    const err = new Error("429");
+                    (err as { status?: number }).status = 429;
+                    throw err;
+                },
+                { maxRetries: 2, onCircuitStateChange: (e) => events.push(e) }
+            )
+        );
+        assert.equal(events.length, 1);
+        assert.equal(events[0].state, "open");
+
+        // Janela de abertura (1ms) já expirou — próxima chamada roda e, ao suceder, fecha o circuito.
+        await new Promise((r) => setTimeout(r, 5));
+        const result = await runLlmWithResilience("anthropic", async () => "ok", {
+            onCircuitStateChange: (e) => events.push(e),
+        });
+        assert.equal(result, "ok");
+        assert.equal(events.length, 2);
+        assert.deepEqual(events[1], { provider: "anthropic", state: "close" });
     });
 });

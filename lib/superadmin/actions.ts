@@ -227,6 +227,8 @@ export type ProPipelineMetricAggregateRow = {
     reason: string | null;
     intent: string | null;
     errorCode: string | null;
+    /** `anthropic` | `openai` | null (métricas de eventos anteriores à Fase 9, sem a tag). */
+    provider: string | null;
     total: number;
 };
 
@@ -236,6 +238,7 @@ type ProPipelineMetricRpcRow = {
     reason_key: string;
     intent_key: string;
     error_code: string;
+    provider_key: string;
     total: number | string;
 };
 
@@ -272,6 +275,7 @@ export async function getProPipelineHealthStats(periodMinutes = 15) {
         reason:      r.reason_key.length ? r.reason_key : null,
         intent:      r.intent_key.length ? r.intent_key : null,
         errorCode:   r.error_code.length ? r.error_code : null,
+        provider:    r.provider_key.length ? r.provider_key : null,
         total:       coerceMetricTotal(r.total),
     }));
 
