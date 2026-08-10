@@ -468,6 +468,7 @@ Manter fronteiras claras sem microserviço:
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)
 - Fila: `process-queue/route.ts`, `queueWorkerWake.ts`, `backlogNotice.ts`; RPC `claim_chatbot_queue_jobs` (fair + skip busy thread); reclaim `reclaim_stuck_chatbot_queue_jobs`
 - Ingresso: `app/api/whatsapp/incoming/route.ts` — enqueue + wake + aviso de backlog (`after()`)
+- Typing indicator (WA Cloud API): `lib/whatsapp/send.ts` (`sendTypingIndicator`, best-effort) disparado em `process-queue/route.ts` logo antes de `processInboundMessage`, só quando o job vai ser efetivamente respondido (após o gate de handover). Marca a mensagem inbound como lida + "digitando..."; a Meta encerra sozinha ao enviarmos a resposta ou após 25s. Só WhatsApp (IG/Messenger usam mecanismo próprio, não implementado).
 - Venda ativa: `app/api/chatbot/{detect-abandoned-carts,outbound-worker}/route.ts`, `lib/chatbot/outbound/`, `lib/whatsapp/customerServiceWindow.ts`; migration `20260805160000_active_sales_cart_recovery.sql` (tabelas `abandoned_carts`/`outbound_jobs`, RPCs `detect_abandoned_carts`, `claim_outbound_jobs`, `mark_abandoned_cart_recovered`)
 - Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
 - Checklist escala: [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md)

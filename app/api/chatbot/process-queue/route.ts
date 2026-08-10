@@ -20,7 +20,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { interleaveQueueJobsByCompany } from "@/lib/chatbot/interleaveQueueJobsByCompany";
 import { scheduleQueueWorkerWake } from "@/lib/chatbot/queueWorkerWake";
-import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
+import { sendTypingIndicator, sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import {
@@ -463,6 +463,27 @@ async function processJob(
                     channelUserId,
                 },
                 { kind: "text", text: REACTIVATE_MSG }
+            );
+        }
+    }
+
+    /**
+     * "Digitando..." + marca a mensagem inbound como lida antes de rodar o pipeline.
+     * Best-effort: nunca bloqueia nem falha o job por causa disso. A Meta encerra o
+     * indicador ao enviarmos a resposta ou após 25s (cobre a maior parte do E2E com IA).
+     * Só dispara quando o bot de fato vai processar/responder este job (após o gate
+     * de handover acima) — evita "digitando" sem resposta em seguida.
+     */
+    if (messagingChannel === "whatsapp" && message_id) {
+        try {
+            const typingResult = await sendTypingIndicator(message_id, waConfig);
+            if (!typingResult.ok) {
+                console.warn("[process-queue] typing_indicator falhou:", typingResult.error);
+            }
+        } catch (err) {
+            console.warn(
+                "[process-queue] typing_indicator erro inesperado:",
+                err instanceof Error ? err.message : String(err)
             );
         }
     }

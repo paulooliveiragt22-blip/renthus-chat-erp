@@ -71,6 +71,39 @@ function normalizeBrazilianNumber(raw: string): string {
     return digits;
 }
 
+/**
+ * Marca a mensagem inbound como lida e exibe "digitando..." no WhatsApp do cliente
+ * enquanto o pipeline prepara a resposta. A Meta encerra o indicador automaticamente
+ * ao enviarmos a resposta (via `sendWhatsAppMessage`/etc.) ou após 25s, o que vier primeiro.
+ * Best-effort: falha aqui nunca deve interromper o processamento da mensagem.
+ * https://developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators/
+ */
+export async function sendTypingIndicator(
+    inboundWamid: string,
+    config?: WaConfig
+): Promise<{ ok: boolean; error?: string }> {
+    const token         = config?.accessToken   ?? process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const wamid = inboundWamid.trim();
+
+    if (!token || !phoneNumberId || !wamid) {
+        return { ok: false, error: "missing_env_vars_or_wamid" };
+    }
+
+    const { ok, error } = await postWaMessage(
+        phoneNumberId,
+        token,
+        {
+            messaging_product: "whatsapp",
+            status: "read",
+            message_id: wamid,
+            typing_indicator: { type: "text" },
+        },
+        "typing_indicator"
+    );
+    return { ok, error };
+}
+
 export async function sendWhatsAppMessage(
     to: string,
     text: string,

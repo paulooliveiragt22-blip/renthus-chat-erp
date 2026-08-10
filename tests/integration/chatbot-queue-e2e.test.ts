@@ -171,6 +171,7 @@ before(() => {
         loaded: true,
         exports: {
             sendWhatsAppMessage: async () => ({ ok: true }),
+            sendTypingIndicator: async () => ({ ok: true }),
         },
     };
     cache[rateLimitPath] = {
