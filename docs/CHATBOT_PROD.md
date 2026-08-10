@@ -147,7 +147,7 @@ Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos ú
 |------|------|
 | Histórico IA PRO | Em `__pro_v2_state.aiHistory` (não `pro_anthropic_messages`). Cap / “estado basta sem replay” ainda evolutivo. |
 | Tool chain | Manter saneamento até cap estar validado em staging |
-| Concorrência na IA | **Feito (por instância):** `runAnthropicWithResilience` = in-flight + retry 429 + circuit (`lib/chatbot/anthropicResilience.ts`). **Fairness de fila por `company_id`:** no **claim SQL** (`max_per_company`) — não é teto Anthropic por tenant. **Ainda adiado:** Redis/semáforo **global entre réplicas**; teto Anthropic **por `company_id`** só se métrica de *noisy neighbor* na IA (não na fila) justificar. |
+| Concorrência na IA | **Feito (por instância, isolado por provider):** `runLlmWithResilience(provider, ...)` = in-flight gate + retry 429 + circuit breaker, com estado separado pra Anthropic e OpenAI (`lib/chatbot/llmResilience.ts` + `anthropicInFlightGate.ts`) — saturar/abrir o circuito de um provider não afeta o outro. **Fairness de fila por `company_id`:** no **claim SQL** (`max_per_company`) — não é teto por tenant. **Ainda adiado:** Redis/semáforo **global entre réplicas**; teto **por `company_id`** só se métrica de *noisy neighbor* na IA (não na fila) justificar. |
 
 **Pronto:** não reproduzir erro 400 `tool_use`/`tool_result` em conversas longas; degradação previsível sob carga (fila/latência), não falha opaca do webhook.
 
@@ -310,8 +310,11 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 | `OPENAI_API_KEY` | — | Obrigatório se `LLM_PROVIDER=openai` e/ou STT Whisper. |
 | `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. |
 | `LLM_STT_MODEL` | `gpt-4o-mini-transcribe` | Modelo STT OpenAI (`whisper-1`, `gpt-4o-transcribe`, …). Debita carteira IA por minuto. |
-| `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas `messages.create` em paralelo **por instância** (gate compartilhado: PRO V2, intent, FAQ). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
-| `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos, abre circuit breaker local por N ms (`anthropic_circuit_open`). |
+| `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas Anthropic em paralelo **por instância** (gate próprio, não compartilhado com OpenAI). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
+| `OPENAI_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Mesmo teto acima, gate independente pra chamadas OpenAI (empresas com `llm_provider="openai"`). |
+| `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos numa chamada Anthropic, abre circuit breaker local por N ms (`anthropic_circuit_open`) — só afeta empresas no provider Anthropic. |
+| `OPENAI_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Mesmo mecanismo acima (`openai_circuit_open`), circuito independente pra chamadas OpenAI. |
+| `OPENAI_PROVIDER_PILOT_COMPANY_IDS` | (omissão = nenhuma empresa) | CSV de `company_id` autorizados a setar `llm_provider="openai"` em Configurações → Chatbot (piloto controlado, ver `docs/PLANO_MULTI_PROVIDER_IA.md`, Fase 8). `anthropic` nunca precisa de allowlist. |
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |
 | `WHATSAPP_429_MAX_RETRIES` | (omissão = **3**) | Retries em 429 Meta (honra `Retry-After` quando presente). |
 | `CHATBOT_QUEUE_MAX_PER_COMPANY` | (omissão = **2**) | Máx. jobs da mesma empresa por claim (fairness SQL). |

@@ -28,7 +28,9 @@ import {
     LlmProviderConfigError,
     getConfiguredLlmProviderName,
     resolveLanguageModel,
+    type LlmProviderName,
 } from "@/src/pro/adapters/ai/modelProvider";
+import type { OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
 import {
     buildDeliverySpecialistSystemPreamble,
     buildPhasePlaybookForModel,
@@ -48,11 +50,10 @@ import { createGetOrderHintsTool } from "@/src/pro/adapters/ai/tools/getOrderHin
 import { createPrepareOrderDraftTool } from "@/src/pro/adapters/ai/tools/prepareOrderDraft.tool";
 import { createResolvePendingPicksTool } from "@/src/pro/adapters/ai/tools/resolvePendingPicks.tool";
 import { createInitialTurnState, type SearchPickSummary, type TurnState } from "@/src/pro/adapters/ai/tools/turnState";
-import { isAnthropicRateLimitError } from "@/lib/chatbot/anthropicResilience";
+import { isLlmRateLimitError, runLlmWithResilience } from "@/lib/chatbot/llmResilience";
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
-import { runWithAnthropicInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
 
 export type AiServiceOptions = {
     catalog?: CatalogPort;
@@ -63,6 +64,13 @@ export type AiServiceOptions = {
      * (`src/pro/adapters/ai/replayRecorder.ts`) em vez de `resolveLanguageModel()`/rede.
      */
     model?: LanguageModel;
+    /**
+     * Provider/modelo resolvidos por empresa (`company_settings.llm_provider`, ver
+     * docs/PLANO_MULTI_PROVIDER_IA.md). Distintos de `model` acima — aquele é só o seam de
+     * teste/replay. Ausentes = comportamento atual (env global via `getConfiguredLlmProviderName()`).
+     */
+    providerOverride?: LlmProviderName;
+    modelNameOverride?: string;
 };
 
 type IntentMarker = "ok" | "unknown";
@@ -415,7 +423,7 @@ function isTimeoutError(error: unknown): boolean {
 }
 
 function isRateLimitError(error: unknown): boolean {
-    if (isAnthropicRateLimitError(error)) return true;
+    if (isLlmRateLimitError(error)) return true;
     if (error && typeof error === "object") {
         const statusCode = (error as { statusCode?: unknown }).statusCode;
         if (statusCode === 429) return true;
@@ -455,12 +463,16 @@ export class AiServiceAdapter implements AiService {
     private readonly orderDraft: OrderDraftPort;
     private readonly sessionMemory: SessionMemoryPort;
     private readonly modelOverride?: LanguageModel;
+    private readonly providerOverride?: LlmProviderName;
+    private readonly modelNameOverride?: string;
 
     constructor(private readonly admin: SupabaseClient, opts?: AiServiceOptions) {
         this.catalog = opts?.catalog ?? new SupabaseCatalogAdapter(admin);
         this.orderDraft = opts?.orderDraft ?? new SupabaseOrderDraftAdapter(admin);
         this.sessionMemory = opts?.sessionMemory ?? new NoopSessionMemoryAdapter();
         this.modelOverride = opts?.model;
+        this.providerOverride = opts?.providerOverride;
+        this.modelNameOverride = opts?.modelNameOverride;
     }
 
     private buildProviderError(input: AiServiceInput, toolRoundsUsed: number, allowlistIds: string[]): AiServiceResult {
@@ -560,7 +572,7 @@ export class AiServiceAdapter implements AiService {
             (input.context.session.pendingPickGroups ?? []).map((g) => g.productKey)
         );
 
-        if (!this.modelOverride && !hasLlmApiKey()) {
+        if (!this.modelOverride && !hasLlmApiKey(this.providerOverride)) {
             return {
                 action: "error",
                 replyText: "Estou sem conexão com IA agora. Pode tentar novamente em instantes?",
@@ -578,8 +590,10 @@ export class AiServiceAdapter implements AiService {
         const companyId = input.context.tenant.companyId;
 
         try {
-            const model = this.modelOverride ?? resolveLanguageModel();
-            const provider = getConfiguredLlmProviderName();
+            const model =
+                this.modelOverride ??
+                resolveLanguageModel({ provider: this.providerOverride, model: this.modelNameOverride });
+            const provider = this.providerOverride ?? getConfiguredLlmProviderName();
 
             const respondToCustomerTool = createRespondToCustomerTool();
             const searchTool = createSearchProdutosTool({
@@ -680,7 +694,7 @@ export class AiServiceAdapter implements AiService {
                     : undefined;
             const maxSteps = Math.max(2, input.limits.maxToolRounds + 5);
 
-            const result = await runWithAnthropicInFlightSlot(() =>
+            const result = await runLlmWithResilience(provider, () =>
                 generateText({
                     model,
                     system,
@@ -693,9 +707,20 @@ export class AiServiceAdapter implements AiService {
                      * `respond_to_customer` é obrigatoriamente a última tool do turno — sem isso o
                      * modelo pode devolvê-la junto de `search_produtos`/`prepare_order_draft` no
                      * mesmo step (rodam em paralelo via `Promise.all`) e a resposta ao cliente sairia
-                     * sem ver o resultado da tool de negócio. Só afeta Anthropic (OpenAI ignora a key).
+                     * sem ver o resultado da tool de negócio. `disableParallelToolUse` é exclusivo da
+                     * Anthropic; `parallelToolCalls: false` é o equivalente na OpenAI — sem isso o
+                     * mesmo bug ocorreria pra empresas com `llm_provider="openai"`.
                      */
-                    providerOptions: { anthropic: { disableParallelToolUse: true } },
+                    providerOptions:
+                        provider === "anthropic"
+                            ? { anthropic: { disableParallelToolUse: true } }
+                            : {
+                                  openai: {
+                                      parallelToolCalls: false,
+                                      reasoningEffort: "minimal",
+                                      textVerbosity: "low",
+                                  } satisfies OpenAILanguageModelResponsesOptions,
+                              },
                     stopWhen: [
                         ({ steps }) => {
                             if (!lastStepCalledRespond(steps)) return false;

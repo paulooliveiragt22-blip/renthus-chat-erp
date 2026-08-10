@@ -50,6 +50,8 @@ export function policiesFromAiCapability(
             maxToolRounds: 0,
             maxHistoryTurns: 0,
             llmEnabled: false,
+            aiProvider: capability?.provider,
+            aiModel: capability?.model,
         };
     }
     return {
@@ -58,6 +60,8 @@ export function policiesFromAiCapability(
         maxHistoryTurns: capability.maxHistoryTurns,
         aiTimeoutMs: capability.aiTimeoutMs,
         llmEnabled: true,
+        aiProvider: capability.provider,
+        aiModel: capability.model,
     };
 }
 

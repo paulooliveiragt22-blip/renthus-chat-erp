@@ -15,6 +15,24 @@ describe("llmPricing", () => {
         assert.equal(m.outputUsdPerM, 0.6);
     });
 
+    it("resolve gpt-5-mini (exato, snapshot e includes)", () => {
+        const exact = resolveLlmRates("gpt-5-mini");
+        assert.equal(exact.matched, true);
+        assert.equal(exact.inputUsdPerM, 0.25);
+        assert.equal(exact.outputUsdPerM, 2);
+
+        const snapshot = resolveLlmRates("gpt-5-mini-2025-08-07");
+        assert.equal(snapshot.matched, true);
+        assert.equal(snapshot.inputUsdPerM, 0.25);
+        assert.equal(snapshot.outputUsdPerM, 2);
+
+        // variação não catalogada, mas contém "gpt-5-mini" — não pode cair no fallback caro
+        const heuristic = resolveLlmRates("gpt-5-mini-preview");
+        assert.equal(heuristic.matched, true);
+        assert.equal(heuristic.inputUsdPerM, 0.25);
+        assert.equal(heuristic.outputUsdPerM, 2);
+    });
+
     it("fallback caro para modelo desconhecido", () => {
         const u = resolveLlmRates("modelo-futuro-xyz");
         assert.equal(u.matched, false);

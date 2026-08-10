@@ -9,6 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getActiveSubscription } from "@/lib/billing/entitlements";
 import { canUseAi, isAiEnabledInBotConfig } from "@/lib/billing/aiWallet";
 import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
+import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL } from "@/src/pro/adapters/ai/modelProvider";
 
 export type AiCapabilityTier = "degradado" | "basico" | "avancado";
 
@@ -31,19 +32,32 @@ export type AiCapabilityProfile = {
 
 const ALL_TOOLS: AiToolName[] = ["search_produtos", "get_order_hints", "prepare_order_draft"];
 
-function configuredProvider(): "anthropic" | "openai" {
+/**
+ * `companyOverride` vem de `company_settings.llm_provider` (buscado pelo chamador — ver
+ * `runProInbound.ts` — nunca por uma query nova aqui dentro, pra não somar um 3º round-trip
+ * sequencial a `getActiveSubscription`/`canUseAi`). Valor inválido/ausente cai no env global,
+ * comportamento idêntico ao anterior.
+ */
+/** Exportada só para teste unitário direto (evita mockar toda a cadeia de subscription/wallet). */
+export function configuredProvider(companyOverride?: string | null): "anthropic" | "openai" {
+    const override = (companyOverride ?? "").trim().toLowerCase();
+    if (override === "anthropic" || override === "openai") return override;
     const p = (process.env.LLM_PROVIDER ?? "anthropic").trim().toLowerCase();
     return p === "openai" ? "openai" : "anthropic";
 }
 
-function configuredModel(provider: "anthropic" | "openai"): string {
+/** Exportada só para teste unitário direto (mesma razão de `configuredProvider`). */
+export function configuredModel(provider: "anthropic" | "openai"): string {
     const fromEnv = process.env.LLM_MODEL?.trim();
     if (fromEnv) return fromEnv;
-    return provider === "openai" ? "gpt-4o-mini" : "claude-haiku-4-5-20251001";
+    return provider === "openai" ? DEFAULT_OPENAI_MODEL : DEFAULT_ANTHROPIC_MODEL;
 }
 
-function profileForPlan(planKey: CommercialPlanKey): Omit<AiCapabilityProfile, "planKey"> {
-    const provider = configuredProvider();
+function profileForPlan(
+    planKey: CommercialPlanKey,
+    companyLlmProvider?: string | null
+): Omit<AiCapabilityProfile, "planKey"> {
+    const provider = configuredProvider(companyLlmProvider);
     const model = configuredModel(provider);
     const base = {
         provider,
@@ -76,8 +90,11 @@ function profileForPlan(planKey: CommercialPlanKey): Omit<AiCapabilityProfile, "
     };
 }
 
-function degradadoProfile(planKey: CommercialPlanKey | null): AiCapabilityProfile {
-    const provider = configuredProvider();
+function degradadoProfile(
+    planKey: CommercialPlanKey | null,
+    companyLlmProvider?: string | null
+): AiCapabilityProfile {
+    const provider = configuredProvider(companyLlmProvider);
     return {
         tier: "degradado",
         planKey,
@@ -99,24 +116,26 @@ function degradadoProfile(planKey: CommercialPlanKey | null): AiCapabilityProfil
 export async function resolveAiCapabilityProfile(
     admin: SupabaseClient,
     companyId: string,
-    botConfig?: Record<string, unknown> | null
+    botConfig?: Record<string, unknown> | null,
+    /** `company_settings.llm_provider` — buscado pelo chamador em paralelo, ver `runProInbound.ts`. */
+    companyLlmProvider?: string | null
 ): Promise<AiCapabilityProfile> {
     try {
         const sub = await getActiveSubscription(admin, companyId);
         const planKey = normalizePlanKey(sub?.plan_key ?? null);
-        if (!planKey) return degradadoProfile(null);
+        if (!planKey) return degradadoProfile(null, companyLlmProvider);
 
         if (!isAiEnabledInBotConfig(botConfig ?? null)) {
-            return degradadoProfile(planKey);
+            return degradadoProfile(planKey, companyLlmProvider);
         }
 
         const ok = await canUseAi(admin, companyId);
-        if (!ok) return degradadoProfile(planKey);
+        if (!ok) return degradadoProfile(planKey, companyLlmProvider);
 
-        return { ...profileForPlan(planKey), planKey };
+        return { ...profileForPlan(planKey, companyLlmProvider), planKey };
     } catch (e) {
         console.warn("[aiCapabilityProfile] falha ao resolver, fallback degradado:", e);
-        return degradadoProfile(null);
+        return degradadoProfile(null, companyLlmProvider);
     }
 }
 

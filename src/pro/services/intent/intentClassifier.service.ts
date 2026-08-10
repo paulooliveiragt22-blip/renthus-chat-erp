@@ -96,7 +96,7 @@ async function llmClassify(
     userText: string,
     admin?: SupabaseClient
 ): Promise<IntentDecision> {
-    if (!hasLlmApiKey()) {
+    if (!hasLlmApiKey(context.policies.aiProvider)) {
         return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
     }
 
@@ -107,7 +107,7 @@ async function llmClassify(
             `Mensagem actual do cliente a classificar:\n---\n${userText.trim()}\n---`;
 
         const result = await generateText({
-            model: resolveLanguageModel(),
+            model: resolveLanguageModel({ provider: context.policies.aiProvider, model: context.policies.aiModel }),
             system:
                 "Classify the client's CURRENT message for a Brazilian WhatsApp delivery assistant. " +
                 "If the session shows an active order (draft with items, or recent user messages about products) " +
@@ -132,7 +132,7 @@ async function llmClassify(
                     },
                     {
                         source: "pro_intent_classifier",
-                        provider: getConfiguredLlmProviderName(),
+                        provider: context.policies.aiProvider ?? getConfiguredLlmProviderName(),
                         model: result.response.modelId?.trim() || "unknown",
                     }
                 );

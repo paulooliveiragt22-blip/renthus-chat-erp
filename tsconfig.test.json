@@ -38,6 +38,7 @@
     "lib/whatsapp/send.ts",
     "lib/whatsapp/customerServiceWindow.ts",
     "app/api/whatsapp/incoming/route.ts",
-    "app/api/chatbot/process-queue/route.ts"
+    "app/api/chatbot/process-queue/route.ts",
+    "app/api/admin/company-settings/route.ts"
   ]
 }

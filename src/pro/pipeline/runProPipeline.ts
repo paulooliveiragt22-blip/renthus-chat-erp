@@ -956,8 +956,9 @@ export async function runProPipeline(
     });
 
     /**
-     * Rate limit Anthropic: não envia bolha ao cliente; job volta pra fila com backoff.
-     * (In-process retries já esgotados em `runAnthropicWithResilience`.)
+     * Rate limit de LLM (qualquer provider): não envia bolha ao cliente; job volta pra fila com
+     * backoff. In-process retries + circuit breaker (isolado por provider) já esgotados em
+     * `runLlmWithResilience` (`lib/chatbot/llmResilience.ts`).
      */
     if (aiServiceErrorCode === "AI_RATE_LIMIT") {
         await deps.sessionRepo.save(input.tenant.companyId, input.tenant.threadId, nextState);

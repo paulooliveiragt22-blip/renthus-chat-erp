@@ -44,23 +44,33 @@ export async function runProInbound(params: ProcessMessageParams): Promise<void>
                     : null,
             utmSource: messagingChannel === "whatsapp" ? "whatsapp" : messagingChannel,
         });
-        const { data: botRow } = await params.admin
-            .from("chatbots")
-            .select("config")
-            .eq("company_id", params.companyId)
-            .limit(1)
-            .maybeSingle();
+        const [{ data: botRow }, { data: companySettingsRow }] = await Promise.all([
+            params.admin
+                .from("chatbots")
+                .select("config")
+                .eq("company_id", params.companyId)
+                .limit(1)
+                .maybeSingle(),
+            params.admin
+                .from("company_settings")
+                .select("llm_provider")
+                .eq("company_id", params.companyId)
+                .maybeSingle(),
+        ]);
         const botConfig = (botRow?.config as Record<string, unknown> | null) ?? null;
+        const companyLlmProvider = (companySettingsRow?.llm_provider as string | null) ?? null;
         const { parseAiOrderModePolicy } = await import("@/lib/chatbot/aiOrderModePolicy");
         const { resolveAiCapabilityProfile } = await import("@/lib/chatbot/aiCapabilityProfile");
         const aiOrderModePolicy = parseAiOrderModePolicy(botConfig);
         const aiCapability = await resolveAiCapabilityProfile(
             params.admin,
             params.companyId,
-            botConfig
+            botConfig,
+            companyLlmProvider
         );
         const deps = makeProPipelineDependencies(params, {
             sessionIdleMinutes: aiOrderModePolicy.sessionIdleMinutes,
+            aiCapability: { provider: aiCapability.provider, model: aiCapability.model },
             ...(params.proPipelineDependencyOverrides
                 ? { overrides: params.proPipelineDependencyOverrides }
                 : {}),
@@ -97,6 +107,7 @@ export async function runProInbound(params: ProcessMessageParams): Promise<void>
                     aiTimeoutMs: aiCapability.aiTimeoutMs,
                     llmEnabled: aiCapability.llmEnabled,
                     model: aiCapability.model,
+                    provider: aiCapability.provider,
                     planKey: aiCapability.planKey,
                 },
             },

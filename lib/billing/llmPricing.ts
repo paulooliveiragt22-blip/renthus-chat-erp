@@ -19,6 +19,8 @@ const LLM_RATES: Record<string, LlmTokenRates> = {
     "gpt-4o": { inputUsdPerM: 2.5, outputUsdPerM: 10 },
     "gpt-4.1-mini": { inputUsdPerM: 0.4, outputUsdPerM: 1.6 },
     "gpt-4.1": { inputUsdPerM: 2, outputUsdPerM: 8 },
+    "gpt-5-mini": { inputUsdPerM: 0.25, outputUsdPerM: 2 },
+    "gpt-5-mini-2025-08-07": { inputUsdPerM: 0.25, outputUsdPerM: 2 },
 };
 
 /** Conservador: Sonnet-class se modelo desconhecido. */
@@ -48,6 +50,7 @@ export function resolveLlmRates(model: string | null | undefined): LlmTokenRates
     }
     if (key.includes("haiku")) return { ...LLM_RATES["claude-haiku-4-5"]!, matched: true };
     if (key.includes("sonnet")) return { ...LLM_RATES["claude-sonnet-4"]!, matched: true };
+    if (key.includes("gpt-5-mini")) return { ...LLM_RATES["gpt-5-mini"]!, matched: true };
     if (key.includes("gpt-4o-mini")) return { ...LLM_RATES["gpt-4o-mini"]!, matched: true };
     if (key.includes("gpt-4o")) return { ...LLM_RATES["gpt-4o"]!, matched: true };
 

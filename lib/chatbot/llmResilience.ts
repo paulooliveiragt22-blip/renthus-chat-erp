@@ -1,0 +1,138 @@
+/**
+ * Retry + circuit breaker para 429 de LLM (pico fim de semana), com estado **isolado por
+ * provider** — abrir o circuito da Anthropic não pode afetar chamadas OpenAI, e vice-versa
+ * (ver docs/PLANO_MULTI_PROVIDER_IA.md, Fase 7; substitui `anthropicResilience.ts`, que tinha um
+ * único estado global e ficou como código morto após a migração pro Vercel AI SDK).
+ *
+ * Usa o gate in-flight por instância e por provider (`anthropicInFlightGate.ts`); sem Redis
+ * ainda não há teto global entre réplicas.
+ */
+
+import { runWithAnthropicInFlightSlot, runWithOpenAiInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
+import type { LlmProviderName } from "@/src/pro/adapters/ai/modelProvider";
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isLlmRateLimitError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const e = error as { status?: number; message?: unknown; error?: { type?: string } };
+    if (e.status === 429) return true;
+    const m = String(e.message ?? "").toLowerCase();
+    if (m.includes("429") || m.includes("rate limit") || m.includes("too many requests")) return true;
+    if (String(e.error?.type ?? "").toLowerCase().includes("rate_limit")) return true;
+    return false;
+}
+
+function retryAfterMs(error: unknown, attempt: number): number {
+    const e = error as { headers?: { get?: (k: string) => string | null }; retryAfter?: number };
+    const header = typeof e.headers?.get === "function" ? e.headers.get("retry-after") : null;
+    if (header) {
+        const sec = Number(header);
+        if (Number.isFinite(sec) && sec > 0) return Math.min(30_000, sec * 1000);
+    }
+    if (typeof e.retryAfter === "number" && e.retryAfter > 0) {
+        return Math.min(30_000, e.retryAfter * 1000);
+    }
+    const base = Math.min(8_000, 400 * 2 ** attempt);
+    return base + Math.floor(Math.random() * 250);
+}
+
+type CircuitState = { openUntilMs: number; consecutive429: number };
+
+const circuits: Record<LlmProviderName, CircuitState> = {
+    anthropic: { openUntilMs: 0, consecutive429: 0 },
+    openai: { openUntilMs: 0, consecutive429: 0 },
+};
+
+const CIRCUIT_OPEN_ENV: Record<LlmProviderName, string> = {
+    anthropic: "ANTHROPIC_CIRCUIT_OPEN_MS",
+    openai: "OPENAI_CIRCUIT_OPEN_MS",
+};
+
+const IN_FLIGHT_GATE: Record<LlmProviderName, <T>(fn: () => Promise<T>) => Promise<T>> = {
+    anthropic: runWithAnthropicInFlightSlot,
+    openai: runWithOpenAiInFlightSlot,
+};
+
+export function getCircuitOpenRemainingMs(provider: LlmProviderName): number {
+    return Math.max(0, circuits[provider].openUntilMs - Date.now());
+}
+
+/** Só para testes unitários. */
+export function resetCircuitForTests(provider?: LlmProviderName): void {
+    const targets: LlmProviderName[] = provider ? [provider] : ["anthropic", "openai"];
+    for (const p of targets) {
+        circuits[p] = { openUntilMs: 0, consecutive429: 0 };
+    }
+}
+
+function getPositiveIntEnv(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 1) return fallback;
+    return Math.floor(n);
+}
+
+function tripCircuit(provider: LlmProviderName): void {
+    const openMs = getPositiveIntEnv(CIRCUIT_OPEN_ENV[provider], 30_000);
+    circuits[provider].openUntilMs = Date.now() + openMs;
+    console.warn(`[llm:${provider}] circuit open`, { openMs, consecutive429: circuits[provider].consecutive429 });
+}
+
+/**
+ * Executa chamada LLM com:
+ * - gate in-flight do provider certo
+ * - até N retries em 429 com backoff
+ * - circuit breaker (isolado por provider) após 3× 429 seguidos
+ */
+export async function runLlmWithResilience<T>(
+    provider: LlmProviderName,
+    fn: () => Promise<T>,
+    opts?: { maxRetries?: number }
+): Promise<T> {
+    const circuit = circuits[provider];
+    const runWithGate = IN_FLIGHT_GATE[provider];
+
+    const remaining = getCircuitOpenRemainingMs(provider);
+    if (remaining > 0) {
+        const err = new Error(`${provider}_circuit_open`);
+        (err as { status?: number }).status = 429;
+        throw err;
+    }
+
+    const maxRetries = Math.min(5, Math.max(0, opts?.maxRetries ?? 3));
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const openMs = getCircuitOpenRemainingMs(provider);
+        if (openMs > 0 && attempt > 0) {
+            const err = new Error(`${provider}_circuit_open`);
+            (err as { status?: number }).status = 429;
+            throw err;
+        }
+        try {
+            const result = await runWithGate(fn);
+            circuit.consecutive429 = 0;
+            return result;
+        } catch (error) {
+            lastError = error;
+            if (!isLlmRateLimitError(error) || attempt >= maxRetries) {
+                if (isLlmRateLimitError(error)) {
+                    circuit.consecutive429 += 1;
+                    if (circuit.consecutive429 >= 3) tripCircuit(provider);
+                }
+                throw error;
+            }
+            circuit.consecutive429 += 1;
+            if (circuit.consecutive429 >= 3) tripCircuit(provider);
+            const wait = retryAfterMs(error, attempt);
+            console.warn(`[llm:${provider}] 429 backoff`, { attempt, waitMs: wait });
+            await sleep(wait);
+        }
+    }
+
+    throw lastError;
+}

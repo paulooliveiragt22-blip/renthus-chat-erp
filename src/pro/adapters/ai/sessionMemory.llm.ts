@@ -6,7 +6,11 @@ import type {
     CompactHistoryResult,
     SessionMemoryPort,
 } from "@/src/pro/ports/sessionMemory.port";
-import { getConfiguredLlmProviderName, resolveLanguageModel } from "@/src/pro/adapters/ai/modelProvider";
+import {
+    getConfiguredLlmProviderName,
+    resolveLanguageModel,
+    type LlmProviderName,
+} from "@/src/pro/adapters/ai/modelProvider";
 
 export const SESSION_MEMORY_KEEP_RECENT = 8;
 export const SESSION_MEMORY_TRIGGER_MIN = 16;
@@ -50,7 +54,16 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
     constructor(
         private readonly admin?: SupabaseClient | null,
         private readonly companyId?: string,
-        private readonly modelOverride?: LanguageModel
+        /** Seam de teste — injeta `MockLanguageModelV3` em vez de `resolveLanguageModel()`/rede. */
+        private readonly modelOverride?: LanguageModel,
+        /**
+         * Provider/modelo resolvidos por empresa. Resolvidos **preguiçosamente** dentro de
+         * `compactIfNeeded` (já protegido por try/catch com fallback extrativo) — nunca aqui no
+         * construtor, pra não arriscar `LlmProviderConfigError` síncrono em toda mensagem de
+         * WhatsApp (a maioria nem aciona compactação).
+         */
+        private readonly providerOverride?: LlmProviderName,
+        private readonly modelNameOverride?: string
     ) {}
 
     async compactIfNeeded(input: CompactHistoryInput): Promise<CompactHistoryResult> {
@@ -73,7 +86,9 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
         let summary = extractiveHistorySummary(older, existing);
         try {
             const result = await generateText({
-                model: this.modelOverride ?? resolveLanguageModel(),
+                model:
+                    this.modelOverride ??
+                    resolveLanguageModel({ provider: this.providerOverride, model: this.modelNameOverride }),
                 system:
                     "Você resume histórico de chat de pedidos WhatsApp para contexto interno. " +
                     "Em português do Brasil, 5–10 linhas: itens/pedidos mencionados, endereço, pagamento, pendências. " +
@@ -98,7 +113,7 @@ export class LlmSessionMemoryAdapter implements SessionMemoryPort {
                         },
                         {
                             source: "pro_session_memory_summarize",
-                            provider: getConfiguredLlmProviderName(),
+                            provider: this.providerOverride ?? getConfiguredLlmProviderName(),
                             model: result.response.modelId?.trim() || "unknown",
                         }
                     );

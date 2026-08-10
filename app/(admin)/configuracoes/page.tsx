@@ -407,7 +407,6 @@ function ConfiguracoesPageContent() {
 
     // chatbot config
     const [chatbotId,       setChatbotId]       = useState<string | null>(null);
-    const [chatbotModel,    setChatbotModel]     = useState("claude-haiku-4-5-20251001");
     const [msgWelcomeReturning, setMsgWelcomeReturning] = useState(
         DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_returning
     );
@@ -452,6 +451,10 @@ function ConfiguracoesPageContent() {
     const [settingsSaving,  setSettingsSaving]  = useState(false);
     const [settingsMsg,     setSettingsMsg]     = useState<string | null>(null);
     const settingsMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // company_settings (motor de IA — aba Chatbot, salvo junto com saveChatbot)
+    const [llmProvider, setLlmProvider] = useState<"anthropic" | "openai">("anthropic");
+    const [openaiProviderAllowed, setOpenaiProviderAllowed] = useState(false);
 
     const [billingLoading, setBillingLoading]     = useState(false);
     const [billingData,    setBillingData]        = useState<BillingStatusJson | null>(null);
@@ -847,7 +850,6 @@ function ConfiguracoesPageContent() {
                 if (!cb) return;
                 setChatbotId(cb.id);
                 const cfg = cb.config ?? {};
-                setChatbotModel(cfg.model ?? "claude-haiku-4-5-20251001");
                 const mt = json?.messageTemplates ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES;
                 setMsgWelcomeReturning(
                     mt.msg_welcome_returning ?? DEFAULT_CHATBOT_MESSAGE_TEMPLATES.msg_welcome_returning
@@ -890,10 +892,12 @@ function ConfiguracoesPageContent() {
         fetch("/api/admin/company-settings", { cache: "no-store", credentials: "include" })
             .then((r) => r.json())
             .then((json) => {
+                setOpenaiProviderAllowed(!!json?.openaiProviderAllowed);
                 const data = json?.settings;
                 if (!data) return;
                 setRequireApproval(!!data.require_order_approval);
                 setAutoPrint(!!data.auto_print_orders);
+                setLlmProvider(data.llm_provider === "openai" ? "openai" : "anthropic");
             })
             .catch(() => {});
     }, [companyId, supabase]);
@@ -918,34 +922,47 @@ function ConfiguracoesPageContent() {
     async function saveChatbot() {
         if (!chatbotId) { setBotMsg("Nenhum chatbot encontrado para esta empresa."); return; }
         setBotSaving(true); setBotMsg(null);
-        const res = await fetch("/api/chatbot/config", {
-            method:  "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-                id: chatbotId,
-                config: {
-                    provider: "anthropic",
-                    model: chatbotModel,
-                    ai_enabled: aiEnabled,
-                    ai_order_mode: aiOrderMode,
-                    session_idle_minutes: Number(sessionIdleMinutes) || 120,
-                    ai_session_window_minutes: Number(aiSessionWindowMinutes) || 60,
-                    ai_max_turns_per_session:
-                        aiOrderMode === "info_only" ? Number(aiMaxTurnsPerSession) || 0 : 0,
-                    high_value_confirm_enabled: highValueConfirmEnabled,
-                    high_value_confirm_amount_brl: Number(highValueConfirmAmount) || 0,
-                },
-                messageTemplates: {
-                    msg_welcome_returning: msgWelcomeReturning,
-                    msg_welcome_first: msgWelcomeFirst,
-                    msg_out_for_delivery: msgOutForDelivery,
-                    msg_thank_you: msgThankYou,
-                },
+        const [res, providerRes] = await Promise.all([
+            fetch("/api/chatbot/config", {
+                method:  "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    id: chatbotId,
+                    config: {
+                        ai_enabled: aiEnabled,
+                        ai_order_mode: aiOrderMode,
+                        session_idle_minutes: Number(sessionIdleMinutes) || 120,
+                        ai_session_window_minutes: Number(aiSessionWindowMinutes) || 60,
+                        ai_max_turns_per_session:
+                            aiOrderMode === "info_only" ? Number(aiMaxTurnsPerSession) || 0 : 0,
+                        high_value_confirm_enabled: highValueConfirmEnabled,
+                        high_value_confirm_amount_brl: Number(highValueConfirmAmount) || 0,
+                    },
+                    messageTemplates: {
+                        msg_welcome_returning: msgWelcomeReturning,
+                        msg_welcome_first: msgWelcomeFirst,
+                        msg_out_for_delivery: msgOutForDelivery,
+                        msg_thank_you: msgThankYou,
+                    },
+                }),
             }),
-        });
+            // Motor de IA é por empresa (company_settings), não por bot — rota/RBAC próprias
+            // (owner/admin, ver docs/PLANO_MULTI_PROVIDER_IA.md, Fase 8).
+            fetch("/api/admin/company-settings", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ llm_provider: llmProvider }),
+            }),
+        ]);
         const json = await res.json().catch(() => ({}));
-        setBotMsg(res.ok ? "✓ Configurações do chatbot salvas" : (json?.error ?? "Erro ao salvar"));
+        const providerJson = await providerRes.json().catch(() => ({}));
+        setBotMsg(
+            res.ok && providerRes.ok
+                ? "✓ Configurações do chatbot salvas"
+                : (providerJson?.error ?? json?.error ?? "Erro ao salvar")
+        );
         setBotSaving(false);
         if (botMsgTimer.current) clearTimeout(botMsgTimer.current);
         botMsgTimer.current = setTimeout(() => setBotMsg(null), 4000);
@@ -2121,19 +2138,26 @@ function ConfiguracoesPageContent() {
                             <div className="space-y-5 rounded-xl border border-zinc-100 p-5 dark:border-zinc-800">
                                 <div className="flex flex-col gap-1">
                                     <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                                        Modelo de IA
+                                        Motor de IA
                                     </label>
                                     <select
-                                        value={chatbotModel}
-                                        onChange={(e) => setChatbotModel(e.target.value)}
+                                        value={llmProvider}
+                                        onChange={(e) => setLlmProvider(e.target.value === "openai" ? "openai" : "anthropic")}
                                         disabled={!chatbotId}
                                         className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
                                     >
-                                        <option value="claude-haiku-4-5-20251001">
-                                            Claude Haiku 4.5 — recomendado
+                                        <option value="anthropic">
+                                            Claude Haiku 4.5 (Anthropic) — recomendado
                                         </option>
-                                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                                        {(openaiProviderAllowed || llmProvider === "openai") && (
+                                            <option value="openai">GPT-5 mini (OpenAI) — custo menor</option>
+                                        )}
                                     </select>
+                                    <p className="text-[11px] text-zinc-400">
+                                        Claude Haiku é o motor validado em produção. GPT-5 mini custa menos por
+                                        pedido, mas está em piloto controlado — só disponível pra empresas
+                                        selecionadas até termos dados de qualidade suficientes.
+                                    </p>
                                 </div>
 
                                 <div className="flex items-center justify-between gap-4">

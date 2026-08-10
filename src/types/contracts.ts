@@ -330,6 +330,13 @@ export interface ProPipelineInput {
         aiTimeoutMs: number;
         llmEnabled: boolean;
         model: string;
+        /**
+         * Opcional (decisão mantida na Fase 4, revertendo a sugestão inicial do plano de tornar
+         * obrigatório): além de `runProInbound.ts`, `src/pro/replay/runThreadReplay.ts` e testes
+         * também constroem este objeto sem `provider` — torná-lo obrigatório exigiria tocar esses
+         * arquivos fora do escopo da fase. Ausente = fallback pro env global, sem risco.
+         */
+        provider?: "anthropic" | "openai";
         planKey?: string | null;
     } | null;
 }
@@ -369,6 +376,9 @@ export interface PipelinePolicies {
     aiTimeoutMs: number;
     /** false = perfil degradado: sem LLM no intent nem no aiStage. */
     llmEnabled?: boolean;
+    /** Provider/modelo resolvidos por empresa (multi-provider). Ausentes = comportamento atual (env global). */
+    aiProvider?: "anthropic" | "openai";
+    aiModel?: string;
     escalationRule: {
         unknownConsecutive: number;
         lowConfidenceConsecutive: number;

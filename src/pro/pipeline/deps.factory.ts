@@ -1,6 +1,7 @@
 import type { ProcessMessageParams } from "@/lib/chatbot/types";
 import { AiServiceAdapter } from "../adapters/ai/ai.service";
 import { LlmSessionMemoryAdapter } from "../adapters/ai/sessionMemory.llm";
+import type { LlmProviderName } from "../adapters/ai/modelProvider";
 import { ConsoleLoggerAdapter } from "../adapters/logger/logger.console";
 import { ConsoleMetricsAdapter } from "../adapters/metrics/metrics.console";
 import { SupabaseMetricsAdapter } from "../adapters/metrics/metrics.supabase";
@@ -24,6 +25,8 @@ export interface MakeProPipelineDependenciesOptions {
     overrides?: ProPipelineDependencyOverrides;
     /** Idle WhatsApp da sessão (minutos); default 120 no repositório/session. */
     sessionIdleMinutes?: number;
+    /** Provider/modelo resolvidos por empresa (ver `aiCapabilityProfile.ts`). Ausente = env global. */
+    aiCapability?: { provider?: LlmProviderName; model?: string };
 }
 
 function makeMetricsPort(admin: ProcessMessageParams["admin"]): MetricsPort {
@@ -48,7 +51,14 @@ export function makeProPipelineDependencies(
 ): PipelineDependencies {
     const catalog = new SupabaseCatalogAdapter(params.admin);
     const orderDraft = new SupabaseOrderDraftAdapter(params.admin);
-    const sessionMemory = new LlmSessionMemoryAdapter(params.admin, params.companyId);
+    const aiCapability = options?.aiCapability;
+    const sessionMemory = new LlmSessionMemoryAdapter(
+        params.admin,
+        params.companyId,
+        undefined, // modelOverride: seam de teste, não usado em produção
+        aiCapability?.provider,
+        aiCapability?.model
+    );
     const base: PipelineDependencies = {
         sessionRepo: new SupabaseSessionRepository(params.admin, {
             idleMinutes: options?.sessionIdleMinutes,
@@ -61,6 +71,8 @@ export function makeProPipelineDependencies(
             catalog,
             orderDraft,
             sessionMemory,
+            providerOverride: aiCapability?.provider,
+            modelNameOverride: aiCapability?.model,
         }),
         orderService: new OrderServiceV2Adapter(params.admin),
         companyPolicy: new SupabaseCompanyPolicyAdapter(params.admin),
