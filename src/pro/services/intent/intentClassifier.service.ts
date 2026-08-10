@@ -41,7 +41,14 @@ const HUMAN_RE = /\b(?:atendente|humano|suporte|falar\s+com)\b/iu;
 const STATUS_RE = /\b(?:status|cad[eê]|onde\s+est[aá]|acompanhar|previs[aã]o)\b/iu;
 const ORDER_RE = /\b(?:quero|pedir|comprar|card[aá]pio|cat[aá]logo|bebida|adicionar)\b/iu;
 const FAQ_RE = /\b(?:qual|quanto|como|onde|quando|aceita|entrega|funciona|tem)\b/iu;
-const GREETING_RE = /^(?:oi|ol[aá]|bom dia|boa tarde|boa noite|e ai|e aí)\W*$/iu;
+/**
+ * Ancorada (mensagem toda = saudação) para não capturar "oi" no meio de frase.
+ * `+` nas vogais finais cobre variações coloquiais comuns no WhatsApp
+ * ("oii", "oiii", "olaa", "opaa") — sem isso, "oii" caía no LLM e, se o
+ * provider falhasse, o cliente recebia o erro genérico em vez do menu.
+ */
+const GREETING_RE =
+    /^(?:oi+|ol[aá]+|opa+|al[oô]+|e\s*a[ií]+|eae+|bom\s+dia|boa\s+tarde|boa\s+noite|salve+|hey+|hello+)\W*$/iu;
 
 const CONFIRM_RE =
     /^(?:sim|ok|confirmo|confirmar|pode\s+confirmar|pode\s+fechar|fechar|confirmar_pedido|confirm_order)\b/iu;

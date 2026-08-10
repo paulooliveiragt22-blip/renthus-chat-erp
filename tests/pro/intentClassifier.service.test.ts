@@ -163,5 +163,29 @@ describe("ProIntentClassifierService", () => {
         assert.equal(out.intent, "greeting");
         assert.equal(out.reasonCode, "regex_match");
     });
+
+    /**
+     * Regressão do caso real (empresa Ferrester, provider openai fora do ar):
+     * "oii" (variação coloquial com vogal repetida) não batia na regex antiga
+     * `^(?:oi|...)$` e caía no LLM — se o provider falhasse, o cliente recebia
+     * o erro genérico ("Tive uma falha...") em vez do menu de boas-vindas.
+     */
+    for (const variant of ["oii", "oiii", "olaa", "olá", "opa", "eae", "e ai", "alô"]) {
+        it(`variação coloquial "${variant}" também usa regex de greeting, não depende de IA`, async () => {
+            const prevA = process.env.ANTHROPIC_API_KEY;
+            const prevO = process.env.OPENAI_API_KEY;
+            delete process.env.ANTHROPIC_API_KEY;
+            delete process.env.OPENAI_API_KEY;
+            const svc = new ProIntentClassifierService();
+            const out = await svc.classify({
+                context: baseContext("pro_idle", { llmEnabled: true }),
+                userText: variant,
+            });
+            if (prevA) process.env.ANTHROPIC_API_KEY = prevA;
+            if (prevO) process.env.OPENAI_API_KEY = prevO;
+            assert.equal(out.intent, "greeting");
+            assert.equal(out.reasonCode, "regex_match");
+        });
+    }
 });
 
