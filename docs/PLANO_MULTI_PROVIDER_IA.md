@@ -9,9 +9,10 @@ Não reabra a discussão "por que duas IAs, por que GPT-5 mini e não gpt-4o-min
 Se precisar do raciocínio completo (custo/pedido, benchmarks de tool-calling, contras de cada
 opção), está no histórico daquele chat, não repita aqui.
 
-> **Status:** ✅ **Fases 0-10 concluídas.** Feature ligada de verdade (atrás de allowlist de
-> piloto), com observabilidade por `provider` no Super Admin e docs atualizadas. Falta só o smoke
-> manual em 1 empresa Anthropic + 1 empresa OpenAI antes de sair do piloto (não é código, é
+> **Status:** ✅ **Fases 0-10 concluídas.** Feature ligada de verdade pra **qualquer empresa**
+> (allowlist de piloto removida — ver "Revisão pós-Fase 8"), com observabilidade por `provider` no
+> Super Admin e docs atualizadas. Falta só o smoke manual em 1 empresa Anthropic + 1 empresa OpenAI
+> antes de considerar 100% validado (não é código, é
 > validação operacional — ver Fase 10).
 
 ---
@@ -292,6 +293,16 @@ morta em `bots.config`) — confunde o cliente. Resolver **nesta fase**, não de
   configurar `OPENAI_PROVIDER_PILOT_COMPANY_IDS` + `OPENAI_API_KEY` em produção; confirmação visual
   de que só existe 1 seletor de IA na aba Chatbot.
 
+**Revisão pós-Fase 8 (decisão do dono, não reabrir):** allowlist removida por completo. Motivo
+explícito: gerenciar `company_id` por empresa manualmente numa env var não escalava operacionalmente
+(toda empresa nova que quisesse OpenAI exigiria redeploy/edição manual da env var). Trade-off aceito:
+qualquer empresa pode escolher `openai` desde o dia 1, sem gate de piloto — risco de qualidade do
+GPT-5 mini em prompt real não validado ainda vira risco geral, não mais isolado a N empresas
+selecionadas; mitigação é a observabilidade por `provider` da Fase 9 (Super Admin) pra detectar
+problema rápido, não allowlist preventiva. Removido: `isCompanyAllowedOpenAiProvider()` e o campo
+`openaiProviderAllowed` (rota e frontend), env var `OPENAI_PROVIDER_PILOT_COMPANY_IDS` (documentação
+e testes). `validateLlmProviderPatch` continua existindo só pelo gate de RBAC (owner/admin).
+
 ---
 
 ### Fase 9 — Observabilidade (tag `provider`) ✅
@@ -329,7 +340,7 @@ grep de log.
   simular o loop de `generateText`), `tests/pro/proPipeline.test.ts` (tag `provider` chega em
   `pro_pipeline.run` fim a fim).
 - **Critério de pronto:** ✅ `npm test` verde (743 testes, 0 fail). Card do Super Admin mostra a
-  coluna `provider`; split real por dado só aparece quando a empresa piloto (Fase 8) gerar tráfego
+  coluna `provider`; split real por dado só aparece quando alguma empresa gerar tráfego em `openai`
   em produção — não dá pra forçar isso em teste unitário.
 
 ---
@@ -343,9 +354,9 @@ grep de log.
   migration nova. Não havia menção residual ao circuit breaker morto pra remover — a Fase 7 já
   tinha atualizado esse trecho ao religar o breaker.
 - [ ] `docs/SMOKE_AGENT_LOOP_WHATSAPP.md`: rodar checklist completo em 1 empresa Anthropic + 1
-  empresa OpenAI antes de considerar a feature pronta pra mais que o piloto. **Ação manual em
-  produção, não é tarefa de código** — depende de ligar `OPENAI_PROVIDER_PILOT_COMPANY_IDS` +
-  `OPENAI_API_KEY` numa empresa real e observar o Super Admin por alguns dias. Fica registrado aqui
+  empresa OpenAI antes de considerar o motor `openai` totalmente validado. **Ação manual em
+  produção, não é tarefa de código** — depende de ter `OPENAI_API_KEY` configurada, alguma empresa
+  real com `llm_provider="openai"` e observar o Super Admin por alguns dias. Fica registrado aqui
   como próximo passo operacional, fora do escopo do que um commit de código resolve.
 - [x] Marcar este documento como concluído no topo (ver linha de `Status` no início do arquivo).
 

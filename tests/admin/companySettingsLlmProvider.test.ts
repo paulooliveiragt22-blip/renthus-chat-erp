@@ -1,7 +1,8 @@
 /**
  * `app/api/admin/company-settings/route.ts`: RBAC específica de `llm_provider` (Fase 8 do plano
  * multi-provider) — staff não pode alterar o motor de IA mesmo podendo alterar outros campos da
- * mesma rota; allowlist de piloto bloqueia `openai` fora da lista.
+ * mesma rota. Sem allowlist de piloto: qualquer owner/admin pode setar `anthropic` ou `openai`
+ * (decisão revertida depois da Fase 8 — ver docs/PLANO_MULTI_PROVIDER_IA.md).
  */
 import assert from "node:assert/strict";
 import { before, beforeEach, afterEach, describe, it } from "node:test";
@@ -80,11 +81,8 @@ beforeEach(() => {
 });
 
 describe("PATCH /api/admin/company-settings — llm_provider", () => {
-    const prevAllowlist = process.env.OPENAI_PROVIDER_PILOT_COMPANY_IDS;
     afterEach(() => {
         currentRole = "owner";
-        if (prevAllowlist === undefined) delete process.env.OPENAI_PROVIDER_PILOT_COMPANY_IDS;
-        else process.env.OPENAI_PROVIDER_PILOT_COMPANY_IDS = prevAllowlist;
     });
 
     it("staff tentando setar llm_provider recebe 403 (não altera outros campos existentes)", async () => {
@@ -111,17 +109,8 @@ describe("PATCH /api/admin/company-settings — llm_provider", () => {
         assert.equal(upsertCalls[0]?.llm_provider, "anthropic");
     });
 
-    it("admin fora da allowlist não consegue setar llm_provider=openai", async () => {
+    it("admin consegue setar llm_provider=openai (sem allowlist de piloto)", async () => {
         currentRole = "admin";
-        delete process.env.OPENAI_PROVIDER_PILOT_COMPANY_IDS;
-        const res = await PATCH({ json: async () => ({ llm_provider: "openai" }) });
-        assert.equal(res.status, 403);
-        assert.equal(upsertCalls.length, 0);
-    });
-
-    it("admin dentro da allowlist consegue setar llm_provider=openai", async () => {
-        currentRole = "admin";
-        process.env.OPENAI_PROVIDER_PILOT_COMPANY_IDS = "company-pilot,outra-empresa";
         const res = await PATCH({ json: async () => ({ llm_provider: "openai" }) });
         assert.equal(res.status, 200);
         assert.equal(upsertCalls[0]?.llm_provider, "openai");
@@ -135,12 +124,10 @@ describe("PATCH /api/admin/company-settings — llm_provider", () => {
 });
 
 describe("GET /api/admin/company-settings", () => {
-    it("devolve llm_provider e openaiProviderAllowed", async () => {
+    it("devolve llm_provider", async () => {
         currentRole = "staff";
-        delete process.env.OPENAI_PROVIDER_PILOT_COMPANY_IDS;
         const res = await GET();
         const body = await res.json();
         assert.equal(body.settings.llm_provider, null);
-        assert.equal(body.openaiProviderAllowed, false);
     });
 });

@@ -305,7 +305,7 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 | Variável | Valor | Comportamento |
 |----------|--------|----------------|
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
-| `LLM_PROVIDER` | (omissão = **anthropic**) | Fallback global. **Cada empresa pode sobrescrever via `company_settings.llm_provider`** (Configurações → Chatbot → "Motor de IA", RBAC owner/admin, piloto controlado por `OPENAI_PROVIDER_PILOT_COMPANY_IDS` — ver `docs/PLANO_MULTI_PROVIDER_IA.md`). Resolvido em `src/pro/adapters/ai/modelProvider.ts` (`resolveLanguageModel`, Vercel AI SDK); consumido por `AiServiceAdapter` (PRO), `intentClassifier.service.ts` (intent) e `sessionMemory.llm.ts`. |
+| `LLM_PROVIDER` | (omissão = **anthropic**) | Fallback global. **Cada empresa pode sobrescrever via `company_settings.llm_provider`** (Configurações → Chatbot → "Motor de IA", RBAC owner/admin — sem allowlist, qualquer empresa pode escolher `openai`). Resolvido em `src/pro/adapters/ai/modelProvider.ts` (`resolveLanguageModel`, Vercel AI SDK); consumido por `AiServiceAdapter` (PRO), `intentClassifier.service.ts` (intent) e `sessionMemory.llm.ts`. |
 | `LLM_MODEL` | default do provider | Ex.: `claude-haiku-4-5-20251001` (Anthropic) ou `gpt-5-mini` (OpenAI, `DEFAULT_OPENAI_MODEL`). |
 | `OPENAI_API_KEY` | — | Obrigatório se `LLM_PROVIDER=openai` e/ou STT Whisper. |
 | `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. |
@@ -314,7 +314,6 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 | `OPENAI_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Mesmo teto acima, gate independente pra chamadas OpenAI (empresas com `llm_provider="openai"`). |
 | `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos numa chamada Anthropic, abre circuit breaker local por N ms (`anthropic_circuit_open`) — só afeta empresas no provider Anthropic. |
 | `OPENAI_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Mesmo mecanismo acima (`openai_circuit_open`), circuito independente pra chamadas OpenAI. |
-| `OPENAI_PROVIDER_PILOT_COMPANY_IDS` | (omissão = nenhuma empresa) | CSV de `company_id` autorizados a setar `llm_provider="openai"` em Configurações → Chatbot (piloto controlado, ver `docs/PLANO_MULTI_PROVIDER_IA.md`, Fase 8). `anthropic` nunca precisa de allowlist. |
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |
 | `WHATSAPP_429_MAX_RETRIES` | (omissão = **3**) | Retries em 429 Meta (honra `Retry-After` quando presente). |
 | `CHATBOT_QUEUE_MAX_PER_COMPANY` | (omissão = **2**) | Máx. jobs da mesma empresa por claim (fairness SQL). |

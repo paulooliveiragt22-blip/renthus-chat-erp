@@ -454,7 +454,6 @@ function ConfiguracoesPageContent() {
 
     // company_settings (motor de IA — aba Chatbot, salvo junto com saveChatbot)
     const [llmProvider, setLlmProvider] = useState<"anthropic" | "openai">("anthropic");
-    const [openaiProviderAllowed, setOpenaiProviderAllowed] = useState(false);
 
     const [billingLoading, setBillingLoading]     = useState(false);
     const [billingData,    setBillingData]        = useState<BillingStatusJson | null>(null);
@@ -892,7 +891,6 @@ function ConfiguracoesPageContent() {
         fetch("/api/admin/company-settings", { cache: "no-store", credentials: "include" })
             .then((r) => r.json())
             .then((json) => {
-                setOpenaiProviderAllowed(!!json?.openaiProviderAllowed);
                 const data = json?.settings;
                 if (!data) return;
                 setRequireApproval(!!data.require_order_approval);
@@ -2149,14 +2147,11 @@ function ConfiguracoesPageContent() {
                                         <option value="anthropic">
                                             Claude Haiku 4.5 (Anthropic) — recomendado
                                         </option>
-                                        {(openaiProviderAllowed || llmProvider === "openai") && (
-                                            <option value="openai">GPT-5 mini (OpenAI) — custo menor</option>
-                                        )}
+                                        <option value="openai">GPT-5 mini (OpenAI) — custo menor</option>
                                     </select>
                                     <p className="text-[11px] text-zinc-400">
                                         Claude Haiku é o motor validado em produção. GPT-5 mini custa menos por
-                                        pedido, mas está em piloto controlado — só disponível pra empresas
-                                        selecionadas até termos dados de qualidade suficientes.
+                                        pedido.
                                     </p>
                                 </div>
 
