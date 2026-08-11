@@ -27,7 +27,7 @@ existente).
 | 2 | Error tracking (Sentry) + `/api/health` + uptime | Crítico | [x] 2026-08-11 |
 | 3 | Idempotência real em `create_order_with_items` | Alto | [x] 2026-08-11 |
 | 4 | Hardening RLS das 5 tabelas novas | Alto | [ ] |
-| 5 | Runbook de backup/DR do Postgres | Crítico | [ ] |
+| 5 | Runbook de backup/DR do Postgres | Crítico | [x] 2026-08-11 |
 | 6 | CI: lint + typecheck/build + `npm audit` como gate | Alto | [ ] |
 | 7 | Envelope de erro único na API | Alto | [ ] |
 | 8 | Extrair `whatsapp/flows` e `process-queue` para use cases | Alto | [ ] |
@@ -226,25 +226,42 @@ nessas tabelas (todas são service-role only hoje, via API) — não deveria hav
 
 ---
 
-## 5. Runbook de backup/DR do Postgres
+## 5. Runbook de backup/DR do Postgres ✅ (parcial — depende de decisão sua)
 
-**Objetivo:** não existe hoje nenhuma documentação sobre backup, PITR ou restore do banco —
-crítico pra sistema que guarda pedido/pagamento/saldo de cliente.
+**Objetivo:** não existia nenhuma documentação sobre backup, PITR ou restore do banco — crítico
+pra sistema que guarda pedido/pagamento/saldo de cliente.
 
-**Arquivos a criar:**
-- `docs/DR_RUNBOOK_POSTGRES.md` (novo): documentar (1) qual plano Supabase está ativo e a janela
-  de PITR incluída nele; (2) RPO/RTO alvo aceitável pro negócio; (3) passo a passo de restore
-  (dashboard Supabase → Database → Backups, ou `pg_restore` se aplicável); (4) o que **não** é
-  coberto por PITR (Storage — mídia do WhatsApp, prints — precisa de estratégia própria); (5)
-  responsável/on-call; (6) checklist de restore drill (executar 1x, registrar resultado e data).
+**O que foi levantado (dado real, não suposição):** via `npx supabase backups list --project-ref
+zwcfuvohxmvlxhdfbgxo` (CLI já autenticada e linkada neste projeto):
+- `walg_enabled: true` — backups físicos diários ativos (plano pago; Free não tem backup nenhum).
+- `pitr_enabled: false` — add-on PITR **não** está habilitado (custaria ~US$100/mês/7 dias).
+- 4 backups retornados (05, 06, 09, 10/08) — **gap em 07/08 e 08/08 não explicado**, sinalizado no
+  runbook pra você confirmar no Dashboard/suporte Supabase.
+- Tamanho do banco: 29 MB (`pg_database_size`) — confirma estágio bem inicial do projeto.
 
-**Correção:** não é código — é levantar a informação real do plano contratado (via dashboard ou
-suporte Supabase) e documentar, depois agendar o primeiro drill de restore num ambiente de teste.
+**Arquivo criado:** `docs/DR_RUNBOOK_POSTGRES.md` — contém: estado real de backup/PITR (seção 1);
+o que é/não é coberto por backup de banco (Storage de mídia WhatsApp **não** é coberto — seção 2);
+proposta de RPO (~24h aceito enquanto não há cliente real, reavaliar no primeiro cliente real,
+mesma lógica de `projeto-pre-producao-radical.mdc`) e RTO (seção 3); passo a passo de restore via
+Dashboard (destrutivo) e via projeto novo (não-destrutivo) (seção 4); lacuna de export próprio fora
+do Supabase, não implementada por baixo custo/benefício no estágio atual (seção 5); tabela de
+responsável/on-call em branco pra você preencher (seção 6); checklist de restore drill (seção 7).
 
-**Resultado esperado:** documento existe, RPO/RTO estão definidos (mesmo que a resposta inicial
-seja "aceitamos o padrão do plano X"), e há registro de ao menos 1 drill de restore executado.
+**Não executado nesta entrega (decisão que é sua, não código):**
+1. Confirmar o nome exato do plano Supabase no Dashboard (Settings → Billing) — CLI/API não expõe
+   isso diretamente.
+2. Investigar o gap de backup em 07-08/08-08.
+3. Decidir se compra o add-on PITR agora ou só quando houver cliente real (proposta no documento).
+4. Executar o primeiro drill de restore — não fiz sozinho porque envolve custo/tempo (criar projeto
+   de teste) que exige sua autorização explícita antes de eu executar.
+5. Preencher responsável/on-call.
 
-**Estado:** [ ]
+**Resultado obtido:** documento existe com dados reais do projeto (não genérico/template);
+RPO/RTO propostos e justificados, aguardando sua validação; gaps e pendências explícitas, não
+escondidas.
+
+**Estado:** [x] 2026-08-11 (documentação + levantamento reais; drill e decisões de negócio
+pendentes de você — ver acima)
 
 ---
 
