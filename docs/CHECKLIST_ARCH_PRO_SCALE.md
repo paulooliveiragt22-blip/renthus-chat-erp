@@ -39,6 +39,14 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 | P2p.4 | Redis concurrency global Anthropic | [ ] | Só se 429 multi-réplica persistir |
 | P2p.5 | Sync docs structure/pipeline/REFACTOR/smoke com P0–P2peak | [x] | 2026-08-05 |
 
+## P3 — Infra Supabase / paralelismo para picos
+
+| # | Item | Estado | Notas |
+|---|------|--------|--------|
+| P3.1 | Compute add-on + Pool Size Supavisor revisados para o volume esperado | [ ] | Plano detalhado: [`PLANO_ESCALA_PICOS_PEDIDOS.md`](./PLANO_ESCALA_PICOS_PEDIDOS.md) Fase 0 — `max_connections` hoje = 60 |
+| P3.2 | Paralelismo por thread no worker (`CHATBOT_QUEUE_CONCURRENCY`) | [ ] | Fase 3 — seguro por design (claim SQL já isola thread `processing`, ver `20260805100000_claim_chatbot_queue_jobs_fair_company.sql`) |
+| P3.3 | `pg_cron` + `pg_net` drenando a fila em batimento fixo (reduz tempestade de self-wake) | [ ] | Fase 4 |
+
 ---
 
 ## Registo de execução

@@ -8,7 +8,6 @@ import React, {
     useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import {
     Check,
     ChevronRight,
@@ -27,7 +26,6 @@ import {
     ShoppingCart,
     Square,
     Wallet,
-    WifiOff,
     X,
 } from "lucide-react";
 import type {
@@ -143,35 +141,10 @@ function isNearBottom(el: HTMLElement): boolean {
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 }
 
-/** INSERT realtime: mescla mensagem e scroll suave se perto do fim. Retorna true se tratado. */
-function applyInboundMessageRealtime(
-    payload: { eventType?: string; new?: unknown },
-    setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-    messagesAreaRef: React.RefObject<HTMLDivElement | null>
-): boolean {
-    if (payload.eventType !== "INSERT" || !payload.new) return false;
-    const newMsg = payload.new as Message;
-    setMessages((prev) => {
-        if (prev.some((m) => m.id === newMsg.id)) return prev;
-        return [...prev, newMsg];
-    });
-    requestAnimationFrame(() => {
-        const a = messagesAreaRef.current;
-        if (a && isNearBottom(a)) {
-            a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
-        }
-    });
-    return true;
-}
-
 // ─── componente principal ─────────────────────────────────────────────────────
 
 export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string | null } = {}) {
     const router = useRouter();
-
-    // Single Supabase client shared between queries and realtime
-    const sbRef = useRef<ReturnType<typeof createClient> | null>(null);
-    if (sbRef.current === null) sbRef.current = createClient();
 
     // ── state ─────────────────────────────────────────────────────────────────
     const [threads,          setThreads]          = useState<Thread[]>([]);
@@ -193,7 +166,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [loadingThreads,   setLoadingThreads]   = useState(true);
     const [loadingMessages,  setLoadingMessages]  = useState(false);
     const [err,              setErr]              = useState<string | null>(null);
-    const [realtimeOk,       setRealtimeOk]       = useState(true);
 
     // mobile sidebar
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -240,7 +212,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const threadsAbortRef   = useRef<AbortController | null>(null);
     const messagesAbortRef  = useRef<AbortController | null>(null);
     const prevThreadIdRef   = useRef<string | null>(null);
-    const threadsRealtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Profile cache: threadId → {profile, ts}
     const profileCacheRef = useRef<Map<string, { profile: CustomerProfile; ts: number }>>(new Map());
@@ -303,26 +274,40 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [q]);
 
-    const loadMessages = useCallback(async (threadId: string) => {
+    /**
+     * `silent`: usado pelo polling em segundo plano (ver efeito de polling abaixo) — não mostra
+     * skeleton nem limpa a lista em erro transitório, e só substitui o estado se algo realmente
+     * mudou (evita re-render/scroll a cada tick quando não chegou mensagem nova).
+     */
+    const loadMessages = useCallback(async (threadId: string, opts?: { silent?: boolean }) => {
         messagesAbortRef.current?.abort();
         const ctrl = new AbortController();
         messagesAbortRef.current = ctrl;
 
-        setLoadingMessages(true);
-        setErr(null);
+        if (!opts?.silent) { setLoadingMessages(true); setErr(null); }
         try {
             const url = new URL(`/api/whatsapp/threads/${threadId}/messages`, window.location.origin);
             url.searchParams.set("limit", "200");
             const res  = await fetch(url.toString(), { cache: "no-store", credentials: "include", signal: ctrl.signal });
             const json = await res.json().catch(() => ({}));
-            if (!res.ok) { setErr(json?.error ?? `Erro ${res.status}`); setMessages([]); return; }
-            setMessages(Array.isArray(json.messages) ? json.messages : []);
+            if (!res.ok) {
+                if (!opts?.silent) { setErr(json?.error ?? `Erro ${res.status}`); setMessages([]); }
+                return;
+            }
+            const next: Message[] = Array.isArray(json.messages) ? json.messages : [];
+            setMessages((prev) => {
+                const prevLast = prev.at(-1);
+                const nextLast = next.at(-1);
+                if (prev.length === next.length && prevLast?.id === nextLast?.id && prevLast?.status === nextLast?.status) {
+                    return prev;
+                }
+                return next;
+            });
         } catch (e: any) {
             if (e?.name === "AbortError") return;
-            setErr("Falha ao carregar mensagens");
-            setMessages([]);
+            if (!opts?.silent) { setErr("Falha ao carregar mensagens"); setMessages([]); }
         } finally {
-            setLoadingMessages(false);
+            if (!opts?.silent) setLoadingMessages(false);
         }
     }, []);
 
@@ -421,7 +406,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         return () => {
             threadsAbortRef.current?.abort();
             messagesAbortRef.current?.abort();
-            sbRef.current?.removeAllChannels();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -511,59 +495,36 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         return () => cancelAnimationFrame(id);
     }, [messages, loadingMessages, selectedThreadId]);
 
-    // Realtime subscriptions — proper cleanup on thread/q change
+    /**
+     * Polling em segundo plano (silencioso) em vez de `postgres_changes`.
+     *
+     * `whatsapp_threads`/`whatsapp_messages` têm RLS travada em `service_role` (por design —
+     * ver regra de governança: SELECT de tabela crua não é permitido pro client/browser). Isso
+     * significa que uma subscrição `postgres_changes` feita com o client anon/authenticated do
+     * browser nunca recebe evento nenhum dessas tabelas: o canal “conecta”, mas nenhuma
+     * mudança é entregue, e qualquer soquete que cair vira o banner falso de "desconectado".
+     * Esse é o motivo raiz do atraso relatado — a lista de threads e o painel de mensagens
+     * dependiam de um mecanismo que estruturalmente não pode funcionar com esse RLS.
+     * `PedidosClient.tsx` já resolve o mesmo problema (mesma trava em `orders`/`order_items`)
+     * com polling via API; replicamos o padrão aqui.
+     */
     useEffect(() => {
-        const sb = sbRef.current;
-        if (!sb) return;
+        const timer = setInterval(() => {
+            if (document.hidden) return;
+            loadThreads(undefined, { silent: true });
+        }, 5000);
+        return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-        const channels: ReturnType<typeof sb.channel>[] = [];
-
-        // Threads channel
-        const threadsCh = sb
-            .channel("wa_threads_rt")
-            .on("postgres_changes", { event: "*", schema: "public", table: "whatsapp_threads" }, () => {
-                // Debounce: rajada de mensagens não deve virar uma chamada por evento.
-                if (threadsRealtimeDebounceRef.current) clearTimeout(threadsRealtimeDebounceRef.current);
-                threadsRealtimeDebounceRef.current = setTimeout(() => {
-                    loadThreads(selectedThreadId, { silent: true });
-                }, 400);
-            })
-            .subscribe((status) => {
-                setRealtimeOk(status === "SUBSCRIBED");
-            });
-        channels.push(threadsCh);
-
-        // Messages channel for current thread
-        if (selectedThreadId) {
-            const msgCh = sb
-                .channel(`wa_msgs_rt_${selectedThreadId}`)
-                .on(
-                    "postgres_changes",
-                    {
-                        event:  "*",
-                        schema: "public",
-                        table:  "whatsapp_messages",
-                        filter: `thread_id=eq.${selectedThreadId}`,
-                    },
-                    (payload: any) => {
-                        if (!applyInboundMessageRealtime(payload, setMessages, messagesAreaRef)) {
-                            loadMessages(selectedThreadId);
-                        }
-                        // Nova mensagem pode ter mudado o carrinho (bot processou algo) — atualiza sem flicker.
-                        loadActiveCart(selectedThreadId, { silent: true });
-                    }
-                )
-                .subscribe((status) => {
-                    if (status === "CHANNEL_ERROR" || status === "CLOSED") setRealtimeOk(false);
-                    if (status === "SUBSCRIBED") setRealtimeOk(true);
-                });
-            channels.push(msgCh);
-        }
-
-        return () => {
-            channels.forEach((ch) => sb.removeChannel(ch));
-            if (threadsRealtimeDebounceRef.current) clearTimeout(threadsRealtimeDebounceRef.current);
-        };
+    useEffect(() => {
+        if (!selectedThreadId) return;
+        const timer = setInterval(() => {
+            if (document.hidden) return;
+            loadMessages(selectedThreadId, { silent: true });
+            loadActiveCart(selectedThreadId, { silent: true });
+        }, 3000);
+        return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
 
@@ -826,14 +787,6 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
          * ancestor com `position: relative`), preenchendo exatamente o espaço disponível.
          */
         <div className="absolute inset-0 flex gap-3 overflow-hidden p-3 md:p-4">
-
-            {/* Realtime disconnection banner */}
-            {!realtimeOk && (
-                <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-700 shadow-lg dark:border-amber-700/40 dark:bg-amber-900/30 dark:text-amber-300">
-                    <WifiOff className="h-3.5 w-3.5" />
-                    Realtime desconectado — recarregue se necessário
-                </div>
-            )}
 
             {/* ── SIDEBAR ESQUERDA: threads ─────────────────────────────── */}
             <aside
