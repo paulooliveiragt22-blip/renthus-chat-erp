@@ -13,6 +13,7 @@ import { useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import PasswordInput from "@/components/PasswordInput";
 
 const TRIAL_DAYS = process.env.NEXT_PUBLIC_TRIAL_DAYS ?? "15";
 
@@ -330,9 +331,8 @@ export default function SignupPage() {
                     <div style={S.sectionLabel}>Senha</div>
                     <div style={S.field}>
                         <label style={S.label}>Senha * (mín. 8 caracteres)</label>
-                        <input
+                        <PasswordInput
                             style={S.input}
-                            type="password"
                             value={form.password}
                             onChange={(e) => handleField("password", e.target.value)}
                             required
@@ -342,9 +342,8 @@ export default function SignupPage() {
                     </div>
                     <div style={S.field}>
                         <label style={S.label}>Confirmar senha *</label>
-                        <input
+                        <PasswordInput
                             style={S.input}
-                            type="password"
                             value={form.password_confirm}
                             onChange={(e) => handleField("password_confirm", e.target.value)}
                             required

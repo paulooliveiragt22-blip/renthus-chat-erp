@@ -9,6 +9,7 @@ import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter }  from "next/navigation";
 import { createClient }                from "@/lib/supabase/client";
+import PasswordInput                   from "@/components/PasswordInput";
 
 type CompanyData = {
     company_id:   string;
@@ -277,7 +278,8 @@ export default function SignupCompletePage() {
                         <div style={S.fieldRow}>
                             <div style={{ ...S.field, flex: 1 }}>
                                 <label style={S.label}>Senha *</label>
-                                <input style={S.input} type="password" placeholder="Mínimo 8 caracteres"
+                                <PasswordInput style={S.input} placeholder="Mínimo 8 caracteres"
+                                    autoComplete="new-password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)} required />
                                 {password.length > 0 && password.length < 8 && (
@@ -286,13 +288,13 @@ export default function SignupCompletePage() {
                             </div>
                             <div style={{ ...S.field, flex: 1 }}>
                                 <label style={S.label}>Confirmar senha *</label>
-                                <input
+                                <PasswordInput
                                     style={{
                                         ...S.input,
                                         borderColor: !passwordMatch ? "#ef4444" : undefined,
                                     }}
-                                    type="password"
                                     placeholder="Repita a senha"
+                                    autoComplete="new-password"
                                     value={confirm}
                                     onChange={(e) => setConfirm(e.target.value)} required />
                                 {!passwordMatch && (

@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import PasswordInput from "@/components/PasswordInput";
 
 /** Validação linear (sem regex com backtracking / S5852). */
 function isValidEmail(email: string) {
@@ -178,12 +179,12 @@ export default function LoginPage() {
                         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
                             Senha
                         </label>
-                        <input
-                            type="password"
+                        <PasswordInput
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             disabled={loading}
                             placeholder="••••••••"
+                            autoComplete="current-password"
                             style={{
                                 width: "100%", padding: "11px 14px",
                                 border: "1.5px solid #d1d5db", borderRadius: 10,

@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter } from "next/navigation";
 import { ORANGE } from "@/lib/orders/helpers";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
-import { Maximize2, Menu, Minimize2 } from "lucide-react";
+import { useInstallPrompt } from "@/lib/pwa/useInstallPrompt";
+import { Download, Maximize2, Menu, Minimize2 } from "lucide-react";
 
 interface HeaderClientProps {
     onOpenMobileMenu?: () => void;
@@ -28,6 +29,10 @@ export default function HeaderClient({
     const [menuOpen, setMenuOpen] = useState(false);
     const [sessionExists, setSessionExists] = useState<boolean | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
+
+    const { isStandalone, canInstallDirectly, canShowIosInstructions, promptInstall } = useInstallPrompt();
+    const [iosHintOpen, setIosHintOpen] = useState(false);
+    const iosHintRef = useRef<HTMLDivElement | null>(null);
 
     // verifica sessão (apenas no cliente)
     useEffect(() => {
@@ -60,12 +65,18 @@ export default function HeaderClient({
     // fecha ao clicar fora / ESC
     useEffect(() => {
         function onDoc(e: MouseEvent) {
-            if (!menuRef.current) return;
-            if (menuRef.current.contains(e.target as Node)) return;
-            setMenuOpen(false);
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setMenuOpen(false);
+            }
+            if (iosHintRef.current && !iosHintRef.current.contains(e.target as Node)) {
+                setIosHintOpen(false);
+            }
         }
         function onKey(e: KeyboardEvent) {
-            if (e.key === "Escape") setMenuOpen(false);
+            if (e.key === "Escape") {
+                setMenuOpen(false);
+                setIosHintOpen(false);
+            }
         }
         document.addEventListener("mousedown", onDoc);
         document.addEventListener("keydown", onKey);
@@ -74,6 +85,16 @@ export default function HeaderClient({
             document.removeEventListener("keydown", onKey);
         };
     }, []);
+
+    async function handleInstallClick() {
+        if (canInstallDirectly) {
+            await promptInstall();
+            return;
+        }
+        if (canShowIosInstructions) {
+            setIosHintOpen((s) => !s);
+        }
+    }
 
     async function handleSignOut() {
         try {
@@ -175,6 +196,54 @@ export default function HeaderClient({
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
                     {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "Renthus Service"}
                 </div>
+
+                {/* Instalar app (PWA) — só admin/PDV; some sozinho quando já instalado */}
+                {!isStandalone && (canInstallDirectly || canShowIosInstructions) && (
+                    <div ref={iosHintRef} style={{ position: "relative" }}>
+                        <button
+                            onClick={handleInstallClick}
+                            title="Instalar app"
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: 36,
+                                height: 36,
+                                borderRadius: 8,
+                                background: "rgba(255,255,255,0.12)",
+                                border: "none",
+                                cursor: "pointer",
+                                color: "#fff",
+                                flexShrink: 0,
+                            }}
+                        >
+                            <Download size={16} />
+                        </button>
+
+                        {iosHintOpen && (
+                            <div
+                                style={{
+                                    position: "absolute",
+                                    right: 0,
+                                    top: "calc(100% + 10px)",
+                                    width: 240,
+                                    background: "#fff",
+                                    color: "#222",
+                                    borderRadius: 8,
+                                    boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+                                    padding: 12,
+                                    zIndex: 60,
+                                    fontSize: 12.5,
+                                    lineHeight: 1.4,
+                                }}
+                            >
+                                <div style={{ fontWeight: 700, marginBottom: 4 }}>Instalar como app</div>
+                                Toque em <b>Compartilhar</b> (ícone □↑ na barra do Safari) e depois em{" "}
+                                <b>&quot;Adicionar à Tela de Início&quot;</b>.
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Tela cheia */}
                 {onToggleFullscreen && (
