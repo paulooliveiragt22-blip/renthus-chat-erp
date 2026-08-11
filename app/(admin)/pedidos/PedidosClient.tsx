@@ -370,8 +370,12 @@ export default function PedidosPage() {
         }
     }
 
-    async function loadOrders() {
-        setLoading(true);
+    /**
+     * `silent`: usado no auto-refresh (a cada 12s) — atualiza os dados sem trocar a grid
+     * inteira pelos skeletons. Sem isso, a tela de pedidos "apaga e recarrega" periodicamente.
+     */
+    async function loadOrders(opts?: { silent?: boolean }) {
+        if (!opts?.silent) setLoading(true);
         setMsg(null);
         const res = await fetch("/api/admin/orders", { cache: "no-store", credentials: "include" });
         const json = await res.json().catch(() => ({}));
@@ -593,7 +597,7 @@ export default function PedidosPage() {
     // ── auto refresh ──────────────────────────────────────────────────────────
     useEffect(() => {
         const timer = setInterval(() => {
-            void loadOrders();
+            void loadOrders({ silent: true });
             if (viewOrderIdRef.current) void fetchOrderFull(viewOrderIdRef.current).then((full) => full && setViewOrder(full));
             if (editOrderIdRef.current) void fetchOrderFull(editOrderIdRef.current).then((full) => full && setEditOrder(full));
         }, 12000);
@@ -1245,7 +1249,7 @@ export default function PedidosPage() {
                 </div>
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={loadOrders}
+                        onClick={() => loadOrders()}
                         className="flex items-center gap-1.5 rounded-lg border border-purple-400 bg-purple-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 transition-colors"
                     >
                         <RefreshCcw className="h-3 w-3" />

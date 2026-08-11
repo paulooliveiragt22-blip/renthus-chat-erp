@@ -230,18 +230,24 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const threadsAbortRef   = useRef<AbortController | null>(null);
     const messagesAbortRef  = useRef<AbortController | null>(null);
     const prevThreadIdRef   = useRef<string | null>(null);
+    const threadsRealtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Profile cache: phone → {profile, ts}
     const profileCacheRef = useRef<Map<string, { profile: CustomerProfile; ts: number }>>(new Map());
 
     // ── data ─────────────────────────────────────────────────────────────────
 
-    const loadThreads = useCallback(async (nextSelectedId?: string | null) => {
+    /**
+     * `silent`: atualiza a lista sem passar pelo skeleton — usado no refresh disparado por
+     * realtime (`whatsapp_threads` muda a cada mensagem, então isso roda com muita frequência
+     * numa caixa ativa). Sem isso, a tela "apaga e recarrega" a cada poucos segundos.
+     */
+    const loadThreads = useCallback(async (nextSelectedId?: string | null, opts?: { silent?: boolean }) => {
         threadsAbortRef.current?.abort();
         const ctrl = new AbortController();
         threadsAbortRef.current = ctrl;
 
-        setLoadingThreads(true);
+        if (!opts?.silent) setLoadingThreads(true);
         setErr(null);
         try {
             const url = new URL("/api/whatsapp/threads", window.location.origin);
@@ -468,7 +474,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         const threadsCh = sb
             .channel("wa_threads_rt")
             .on("postgres_changes", { event: "*", schema: "public", table: "whatsapp_threads" }, () => {
-                loadThreads(selectedThreadId);
+                // Debounce: rajada de mensagens não deve virar uma chamada por evento.
+                if (threadsRealtimeDebounceRef.current) clearTimeout(threadsRealtimeDebounceRef.current);
+                threadsRealtimeDebounceRef.current = setTimeout(() => {
+                    loadThreads(selectedThreadId, { silent: true });
+                }, 400);
             })
             .subscribe((status) => {
                 setRealtimeOk(status === "SUBSCRIBED");
@@ -500,7 +510,10 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             channels.push(msgCh);
         }
 
-        return () => { channels.forEach((ch) => sb.removeChannel(ch)); };
+        return () => {
+            channels.forEach((ch) => sb.removeChannel(ch));
+            if (threadsRealtimeDebounceRef.current) clearTimeout(threadsRealtimeDebounceRef.current);
+        };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
 

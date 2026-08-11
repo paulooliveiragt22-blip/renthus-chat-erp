@@ -396,9 +396,15 @@ export default function ProdutosListaPage() {
 
     // ── data loaders ────────────────────────────────────────────────────────
 
-    async function load() {
+    /**
+     * `silent`: usado no refresh disparado por realtime (`products`/`produto_embalagens`
+     * mudam a cada venda que debita estoque) — atualiza a lista sem trocar a tabela
+     * inteira pelos skeletons.
+     */
+    async function load(opts?: { silent?: boolean }) {
         if (!companyId) { setLoading(false); return; }
-        setLoading(true); setMsg(null);
+        if (!opts?.silent) setLoading(true);
+        setMsg(null);
         try {
             const res = await fetch("/api/admin/products", { credentials: "include" });
             const json = await res.json().catch(() => ({}));
@@ -707,8 +713,16 @@ export default function ProdutosListaPage() {
 
     useEffect(() => {
         if (!companyId) return;
-        const ch = subscribeProductListRealtime(supabase, load);
+        // Debounce: rajada de eventos (várias vendas em sequência debitando estoque) não
+        // deve virar um reload por evento; e o reload em si é silencioso (sem skeleton).
+        let debounce: ReturnType<typeof setTimeout> | null = null;
+        const onReload = () => {
+            if (debounce) clearTimeout(debounce);
+            debounce = setTimeout(() => { void load({ silent: true }); }, 400);
+        };
+        const ch = subscribeProductListRealtime(supabase, onReload);
         return () => {
+            if (debounce) clearTimeout(debounce);
             Promise.resolve(supabase.removeChannel(ch)).catch(() => {});
         };
     }, [supabase, companyId]);
@@ -1186,7 +1200,7 @@ export default function ProdutosListaPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={load} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
+                    <button onClick={() => load()} className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700">
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                     </button>
                     <button onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600">
