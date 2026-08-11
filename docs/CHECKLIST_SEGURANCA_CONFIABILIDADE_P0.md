@@ -125,14 +125,17 @@ são mais necessários).
 Sentry plugin ativo e sem `SENTRY_DSN`/`SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` definidos —
 confirma que o time até configurar a conta Sentry não trava o build nem o deploy.
 
+**Verificado em produção (2026-08-11):** conta Sentry criada, `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`
+/ `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` configurados na Vercel, deploy feito com o
+commit `0263df4`. Rota temporária `app/api/debug/sentry-test/route.ts` (removida após o teste)
+confirmou entrega ponta a ponta: `GET` retornou `{ ok: true, sentryEnabled: true, ... }` e o evento
+apareceu em **Issues** no painel da Sentry com stack trace completo. Error tracking real, ligado.
+
 **Pendente (ação do dono do projeto, fora do que código resolve):**
-1. Criar conta/projeto no [Sentry](https://sentry.io) (plano free cobre esse volume inicial) e
-   definir em produção (Vercel): `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` (mesmo valor, exposto ao
-   client), `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (esse último só em CI/build, nunca
-   client-side — gera source maps legíveis nos stack traces).
+1. ~~Criar conta/projeto no Sentry~~ — feito.
 2. Configurar monitor externo de uptime (Better Stack / Checkly / UptimeRobot, todos têm free tier)
    apontando `GET https://<domínio>/api/health` a cada 1-5 min, com alerta (e-mail/WhatsApp/Slack)
-   se 2 checagens seguidas falharem.
+   se 2 checagens seguidas falharem. Ainda não confirmado.
 
 ---
 
