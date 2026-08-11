@@ -11,6 +11,7 @@
  */
 
 import { NextResponse }      from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import {
@@ -77,6 +78,9 @@ export async function POST(req: Request) {
             } catch (err: any) {
                 const msg = `sub ${sub.id}: ${err?.message ?? String(err)}`;
                 console.error("[charge] Erro ao gerar cobrança:", msg);
+                Sentry.captureException(err, {
+                    tags: { companyId: sub.company_id, route: "billing-charge" },
+                });
                 results.errors.push(msg);
             }
         }
@@ -114,6 +118,9 @@ export async function POST(req: Request) {
             } catch (err: any) {
                 const msg = `invoice ${inv.id}: ${err?.message ?? String(err)}`;
                 console.error("[charge] Erro ao processar overdue:", msg);
+                Sentry.captureException(err, {
+                    tags: { companyId: inv.company_id, route: "billing-charge-overdue" },
+                });
                 results.errors.push(msg);
             }
         }

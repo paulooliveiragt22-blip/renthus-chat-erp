@@ -138,7 +138,9 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname.startsWith("/api/agent/") ||
         pathname === "/api/signup/complete" ||
         /** Cardápio web público (rate limit nas próprias rotas). */
-        pathname.startsWith("/api/public/")
+        pathname.startsWith("/api/public/") ||
+        /** Health check pra monitor externo de uptime — sem cookie de sessão. */
+        pathname === "/api/health"
     );
 }
 

@@ -81,6 +81,15 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), null);
     });
 
+    it("exempts /api/health (monitor externo de uptime, sem cookie)", async () => {
+        const response = await proxy(createRequest("/api/health"), undefined, {
+            createClient: factory,
+        });
+
+        assert.strictEqual(factory.mock.calls.length, 0);
+        assert.strictEqual(response.headers.get("location"), null);
+    });
+
     it("keeps session-backed chatbot routes behind auth", async () => {
         for (const path of ["/api/chatbot/config", "/api/chatbot/resolve"]) {
             const { factory: protectedFactory } = createMockClient(null);

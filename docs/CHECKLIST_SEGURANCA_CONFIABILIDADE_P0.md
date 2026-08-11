@@ -24,7 +24,7 @@ existente).
 | # | Item | Severidade | Estado |
 |---|------|------------|--------|
 | 1 | Allowlist do `proxy.ts` — billing/charge + meta/messaging | Crítico | [x] 2026-08-11 |
-| 2 | Error tracking (Sentry) + `/api/health` + uptime | Crítico | [ ] |
+| 2 | Error tracking (Sentry) + `/api/health` + uptime | Crítico | [x] 2026-08-11 |
 | 3 | Idempotência real em `create_order_with_items` | Alto | [x] 2026-08-11 |
 | 4 | Hardening RLS das 5 tabelas novas | Alto | [ ] |
 | 5 | Runbook de backup/DR do Postgres | Crítico | [ ] |
@@ -58,34 +58,81 @@ houve empresa que deveria ter sido cobrada/bloqueada e não foi.
 
 ---
 
-## 2. Error tracking (Sentry) + `/api/health` + uptime monitoring
+## 2. Error tracking (Sentry) + `/api/health` + uptime monitoring ✅
 
 **Objetivo:** hoje um erro não tratado em produção (ex.: falha na criação de pedido, worker do
 chatbot parando) só aparece se alguém for procurar log manualmente no Vercel. Foi exatamente por
 isso que o bug do item 1 passou despercebido.
 
-**Arquivos a criar/alterar:**
-- `instrumentation.ts` (novo, raiz) — hook do Next.js pra inicializar Sentry server-side.
-- `sentry.client.config.ts` / `sentry.server.config.ts` / `sentry.edge.config.ts` (novos, gerados
-  pelo wizard `npx @sentry/wizard@latest -i nextjs`).
-- `app/api/health/route.ts` (novo) — `GET`: ping simples no Postgres via `createAdminClient()`
-  (`select 1` ou equivalente barato) + retorna `{ ok, db: "up"|"down", ts }`; deve estar na
-  allowlist do `proxy.ts` (`isTechnicalApiPublic`) pra responder sem sessão.
-- `proxy.ts` — adicionar `/api/health` à allowlist.
-- Variáveis novas: `SENTRY_DSN`, `SENTRY_AUTH_TOKEN` (build, source maps).
-- Fora do repo: configurar monitor externo (Better Stack / Checkly / UptimeRobot) apontando pra
-  `/api/health`, com alerta de downtime.
+**Postura adotada (radical, mas honesta sobre o que depende de conta externa):** implementado tudo
+que é código — SDK instalado, hooks de instrumentação, captura nos pontos críticos, `/api/health` —
+com `dsn` lido de env var vazia por padrão. Sem `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` configurados
+(`enabled: Boolean(dsn)`), o SDK fica em no-op real (não lança, não tenta rede) — assim que o dono do
+projeto criar a conta/projeto no Sentry e definir as env vars, a captura liga sem nenhum novo
+deploy de código. Criar a conta Sentry e o monitor externo de uptime é **ação de infraestrutura do
+dono do projeto**, não algo que a IA pode fazer (precisa de login/cartão em serviço de terceiro).
 
-**Correção:** capturar exceções não tratadas nos Route Handlers (especialmente
-`app/api/chatbot/process-queue/route.ts`, `app/api/whatsapp/incoming/route.ts`,
-`app/api/billing/charge/route.ts`) com tag `companyId`/`threadId` quando disponível — mesmo padrão
-de tags já usado em `flushPipelineRunMetrics` (`src/pro/pipeline/runProPipeline.ts`).
+**Arquivos criados/alterados:**
+- `package.json` — dependência `@sentry/nextjs@^10.70.0`.
+- `instrumentation.ts` (novo, raiz) — `register()` importa `sentry.server.config`/`sentry.edge.config`
+  conforme `NEXT_RUNTIME`; exporta `onRequestError = Sentry.captureRequestError` (captura erros de
+  Server Components, Route Handlers e do próprio `proxy.ts`).
+- `instrumentation-client.ts` (novo, raiz) — init client-side (`NEXT_PUBLIC_SENTRY_DSN`) +
+  `onRouterTransitionStart = Sentry.captureRouterTransitionStart` (instrumentação de navegação).
+- `sentry.server.config.ts` / `sentry.edge.config.ts` (novos) — `Sentry.init` com `tracesSampleRate`
+  1.0 em dev / 0.1 em produção.
+- `app/global-error.tsx` (novo) — boundary de erro do App Router (`"use client"`), reporta erros de
+  render via `Sentry.captureException` no `useEffect`; UI mínima em pt-BR com botão "Tentar novamente".
+- `next.config.js` — `withSentryConfig(withPWA(nextConfig), { org, project, authToken, silent: true,
+  webpack: { treeshake: { removeDebugLogging: true } } })`; sem `SENTRY_ORG`/`SENTRY_PROJECT`/
+  `SENTRY_AUTH_TOKEN`, o plugin só pula o upload de source maps (build não quebra).
+- `app/api/health/route.ts` (novo) — `GET`, `runtime = "nodejs"`, `dynamic = "force-dynamic"`: ping
+  em `companies` via `createAdminClient()` (`select("id", { head: true, count: "exact" }).limit(1)`);
+  retorna `{ ok, db: "up"|"down", ts, latencyMs }`, HTTP 200 (up) ou 503 (down).
+- `proxy.ts` — `isTechnicalApiPublic()`: adicionado `pathname === "/api/health"` (sem cookie).
+- `tests/proxy.test.ts` — novo caso `"exempts /api/health"`.
+- `tests/api/health.test.ts` (novo) — 2 casos (`db up` → 200, `db down` → 503), mockando
+  `createAdminClient` via `require.cache` (mesmo padrão de
+  `tests/integration/chatbot-queue-e2e.test.ts`).
+- `tsconfig.test.json` — `app/api/health/route.ts` adicionado ao `include` (senão o teste não
+  encontra o `.js` compilado em `.tests-dist`).
+- Captura de exceção (`Sentry.captureException` com `tags: { companyId, threadId/route }`) nos
+  pontos que já tinham `catch` mas só logavam: `app/api/chatbot/process-queue/route.ts` (job falhou
+  + fallback job falhou) e `app/api/billing/charge/route.ts` (erro ao gerar cobrança + erro ao
+  processar overdue).
 
-**Resultado esperado:** exceção não tratada em produção aparece no Sentry com stack trace em
-minutos, não só quando um cliente reclama; `/api/health` retorna 200/503 conforme saúde do banco;
-alerta automático dispara se o app cair ou o cron parar de bater.
+**Efeito colateral encontrado e corrigido (import de `@sentry/nextjs` quebrou tipos de outros
+testes):** `app/api/chatbot/process-queue/route.ts` faz parte do programa TS de
+`tsconfig.test.json`; importar `@sentry/nextjs` ali carrega transitivamente
+`next/types/global.d.ts`, que declara `NodeJS.ProcessEnv.NODE_ENV` como **obrigatório** via
+declaration merging — augmentation global vale pra **todo** o programa TS, não só pro arquivo que
+importou. Isso quebrou `tests/pro/pipelineTurnTrace.test.ts`, `tests/public-menu/customDomain.test.ts`
+e `tests/public-menu/slugAndParse.test.ts`, que passavam literais `{ FOO: "x" }`/`{}` (sem
+`NODE_ENV`) como `NodeJS.ProcessEnv` em funções de config (`resolveMenuBaseDomain`, `isAppApexHost`,
+`slugFromMenuSubdomainHost`, `resolveMenuHostRewrite`, `isPipelineTurnTraceEnabled`,
+`resolvePublicAppBaseUrl`, `buildPublicMenuAbsoluteUrl`, `resolveMetaAppId/Secret`,
+`metaGraphVersion`). Correção radical (não só nos testes): criado `lib/env/EnvLike.ts`
+(`Record<string, string | undefined>`) e as 8 assinaturas dessas funções (em
+`lib/public-menu/customDomain.ts`, `lib/public-menu/menuHostRewrite.ts`,
+`lib/public-menu/appBaseUrl.ts`, `lib/pro/recordPipelineTurnTrace.ts`,
+`lib/meta/metaAppCredentials.ts`) passaram a usar `EnvLike` em vez de `NodeJS.ProcessEnv` — o tipo
+certo pra uma função que só lê algumas chaves de string, não acoplado a um ambient type global que
+qualquer dependência pode endurecer. Casts `as NodeJS.ProcessEnv` nos testes foram removidos (não
+são mais necessários).
 
-**Estado:** [ ]
+**Resultado obtido:** `npm test` verde (773 passed, 0 failed, incluindo os 2 casos novos de
+`/api/health` e o de proxy). `npm run build` (`next build --webpack`) completo sem erro com o
+Sentry plugin ativo e sem `SENTRY_DSN`/`SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` definidos —
+confirma que o time até configurar a conta Sentry não trava o build nem o deploy.
+
+**Pendente (ação do dono do projeto, fora do que código resolve):**
+1. Criar conta/projeto no [Sentry](https://sentry.io) (plano free cobre esse volume inicial) e
+   definir em produção (Vercel): `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` (mesmo valor, exposto ao
+   client), `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (esse último só em CI/build, nunca
+   client-side — gera source maps legíveis nos stack traces).
+2. Configurar monitor externo de uptime (Better Stack / Checkly / UptimeRobot, todos têm free tier)
+   apontando `GET https://<domínio>/api/health` a cada 1-5 min, com alerta (e-mail/WhatsApp/Slack)
+   se 2 checagens seguidas falharem.
 
 ---
 
@@ -276,36 +323,68 @@ testável isoladamente sem precisar de `Request`/`NextResponse` mockado.
 
 ---
 
-## 9. Rate limit + idempotência em PDV/checkout
+## 9. Rate limit + idempotência em PDV/checkout ✅
 
 **Objetivo:** rotas que movem dinheiro sem `checkRateLimit` (já existe em
 `lib/security/rateLimit.ts:19`, assinatura `checkRateLimit(key, limit, windowMs)`) e sem chave de
-idempotência (depende do item 3).
+idempotência (dependia do item 3).
 
-**Arquivos a alterar:**
-- `app/api/admin/pdv/finalize/route.ts` — adicionar `checkRateLimit` por `companyId`/sessão +
-  aceitar/gerar `idempotency_key` no body, repassar pra RPC (item 3).
-- `app/api/admin/financeiro/finalize-order/route.ts` — mesma coisa (hoje sem idempotência, retry
-  pode duplicar `bills`).
-- `lib/public-menu/checkout/createWebMenuOrder.ts` — já tem rate limit no cardápio público
-  (confirmar) mas sem idempotência real; conectar à chave do item 3.
-- `app/api/billing/create-invoice-checkout/route.ts`, `app/api/admin/ai-wallet/checkout/route.ts` —
-  adicionar `checkRateLimit`.
+**Postura adotada (radical):** em vez de só documentar "falta idempotência no PDV" e deixar pra
+depois por ser uma RPC grande (6 tabelas numa transação) sem teste automatizado pré-existente,
+a idempotência foi implementada **na própria RPC** `rpc_finalize_pdv_order` — mesmo padrão de
+verificação usado no resto do repo pra funções `plpgsql` (checagem via `execute_sql` no banco real,
+não `npm test`, já que os testes deste repo mockam o client Supabase e não executam SQL de RPC).
 
-**Resultado esperado:** rajada de requests repetidos na mesma rota/sessão recebe 429; duplo clique
-no botão "Finalizar" não cria 2 pedidos/cobranças (mesma `idempotency_key`).
+**Arquivos alterados:**
+- `app/api/admin/pdv/finalize/route.ts` — `checkRateLimit` (30 req/min por `companyId`); gera
+  `idempotency_key` determinística via `buildOrderIdempotencyKey` (`scopeId =
+  cash_register_id:active_order_id`) e repassa no `p_payload` pra RPC.
+- `supabase/migrations/20260811110000_pdv_finalize_idempotency_key.sql` (novo, **aplicado no
+  remoto**): coluna `sales.idempotency_key text` + índice único parcial por `company_id`;
+  `rpc_finalize_pdv_order` passou a checar `p_payload->>'idempotency_key'` **antes** de qualquer
+  validação/insert — se já existe `sale` com essa chave, devolve `{sale_id, order_id}` da venda
+  existente (busca `order_id` via `orders.sale_id`) sem reprocessar `sales`/`sale_items`/
+  `sale_payments`/`orders`/`order_items`/`financial_entries`. `exception when unique_violation`
+  cobre a corrida concorrente. Assinatura da função **não mudou** (ainda `(p_company_id uuid,
+  p_payload jsonb)`) — não precisou de `DROP FUNCTION`, só `CREATE OR REPLACE`; grants existentes
+  preservados. `search_path` fixado (`public, pg_temp`), ausente na versão anterior.
+- `app/api/admin/financeiro/finalize-order/route.ts` — `checkRateLimit` (30 req/min por
+  `companyId`); lançamento "a prazo" em `bills` agora usa o próprio `order_id` como
+  `idempotency_key` (1 pedido → no máximo 1 bill aqui) — `select` antes do `insert` evita duplicar
+  em retry, e o código trata `23505` (unique_violation) como sucesso silencioso pra corrida
+  concorrente.
+- `supabase/migrations/20260811120000_bills_idempotency_key.sql` (novo, **aplicado no remoto**):
+  coluna `bills.idempotency_key text` + índice único parcial por `company_id`.
+- `app/api/billing/create-invoice-checkout/route.ts` — `checkRateLimit` (10 req/min por
+  `companyId`).
+- `app/api/admin/ai-wallet/checkout/route.ts` — `checkRateLimit` (10 req/min por `companyId`).
+- `lib/public-menu/checkout/createWebMenuOrder.ts` — já tinha rate limit (`publicMenuRateLimit`, 12
+  req, no route handler `app/api/public/menu/[slug]/checkout/route.ts`); idempotência real conectada
+  no item 3.
 
-**Estado:** [ ] — depende do item 3 (chave de idempotência precisa existir antes de ser usada aqui).
+**Resultado obtido:** `npm test` verde (770 testes, 0 falha). Rajada de requests na mesma rota
+recebe 429 com `Retry-After`. Duplo clique/retry no PDV com o mesmo caixa+carrinho+pagamentos não
+duplica `sales`/`orders`/`financial_entries` (mesmo mecanismo validado via SQL direto no item 3 pra
+`create_order_with_items` — mesma lógica de short-circuit + `unique_violation`, aqui aplicada em
+`sales.idempotency_key`). Retry no finalize-order do financeiro não duplica `bills` pro mesmo
+pedido.
+
+**Estado:** [x] 2026-08-11
 
 ---
 
 ## Riscos aceitos / ordem de execução
 
-- Itens 3 e 9 são **dependentes** (9 usa a chave que 3 cria) — não abrir 9 sem 3 concluído.
 - Item 8 é o de maior esforço e menor urgência relativa desta lista — deixar por último de
   propósito, mesmo estando marcado como "Alto".
 - Item 6 (CI gate) pode expor uma quantidade grande de erros de lint/tipo pré-existentes — decidir
   na implementação se o gate entra bloqueante de imediato ou com período de tolerância.
+- Itens 3 e 9 usaram chave de idempotência **derivada no servidor** (hash do conteúdo do carrinho)
+  nas rotas sem chave natural do cliente (web menu, WhatsApp Flow, PDV) — não exigiu mudança de
+  contrato de frontend. Trade-off aceito: pedido genuinamente novo com carrinho **byte-idêntico** ao
+  anterior no mesmo escopo dentro da mesma "sessão" colide (mesma chave) — aceitável pré-produção;
+  se algum dia isso incomodar de verdade, a evolução natural é o frontend gerar um UUID por
+  tentativa de checkout e enviar como `Idempotency-Key`, substituindo o hash.
 
 ---
 
@@ -314,3 +393,4 @@ no botão "Finalizar" não cria 2 pedidos/cobranças (mesma `idempotency_key`).
 | Data | Item | Nota |
 |------|------|------|
 | 2026-08-11 | Documento criado; Item 1 corrigido e testado (765 testes verdes) | Rule nova `.cursor/rules/supabase-migrations-seguranca.mdc` criada junto |
+| 2026-08-11 | Itens 3 e 9 concluídos (770 testes verdes) | Migrations `20260811100000_orders_idempotency_key.sql`, `20260811110000_pdv_finalize_idempotency_key.sql`, `20260811120000_bills_idempotency_key.sql` aplicadas no remoto e verificadas via SQL direto. Rule nova `.cursor/rules/projeto-pre-producao-radical.mdc` criada junto (postura radical enquanto não há cliente real). |

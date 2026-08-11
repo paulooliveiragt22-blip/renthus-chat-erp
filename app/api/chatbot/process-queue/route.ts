@@ -16,6 +16,7 @@
  */
 
 import { NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundMessage } from "@/lib/chatbot/processMessage";
 import { interleaveQueueJobsByCompany } from "@/lib/chatbot/interleaveQueueJobsByCompany";
@@ -190,6 +191,9 @@ export async function GET(req: Request) {
             processed++;
         } catch (err: any) {
             console.error("[process-queue] job falhou:", job.id, err?.message);
+            Sentry.captureException(err, {
+                tags: { companyId: job.company_id, threadId: job.thread_id, route: "process-queue" },
+            });
             const attempts = (job.attempts ?? 0) + 1;
             const retryable = isQueueRetryableError(err);
             const delayMs = retryable ? queueRetryDelayMs(attempts) : 0;
@@ -337,6 +341,9 @@ async function runFallbackProcessing(admin: ReturnType<typeof createAdminClient>
             processed++;
         } catch (err: any) {
             console.error("[process-queue] fallback job falhou:", job.id, err?.message);
+            Sentry.captureException(err, {
+                tags: { companyId: job.company_id, threadId: job.thread_id, route: "process-queue-fallback" },
+            });
             const attempts = (job.attempts ?? 0) + 1;
             const retryable = isQueueRetryableError(err);
             const delayMs = retryable ? queueRetryDelayMs(attempts) : 0;

@@ -107,7 +107,7 @@ describe("public-menu app URL + offer text", () => {
             resolvePublicAppBaseUrl({
                 NEXT_PUBLIC_APP_URL: "https://app.exemplo.com/",
                 VERCEL_URL: "other.vercel.app",
-            } as NodeJS.ProcessEnv),
+            }),
             "https://app.exemplo.com"
         );
     });
@@ -115,7 +115,7 @@ describe("public-menu app URL + offer text", () => {
     it("buildPublicMenuAbsoluteUrl inclui utm_source", () => {
         const url = buildPublicMenuAbsoluteUrl("disk-teste", {
             utmSource: "whatsapp",
-            env: { NEXT_PUBLIC_APP_URL: "https://app.renthus.com.br" } as NodeJS.ProcessEnv,
+            env: { NEXT_PUBLIC_APP_URL: "https://app.renthus.com.br" },
         });
         const parsed = new URL(url);
         assert.equal(parsed.origin + parsed.pathname, "https://app.renthus.com.br/c/disk-teste");
@@ -126,7 +126,7 @@ describe("public-menu app URL + offer text", () => {
         const url = buildPublicMenuAbsoluteUrl("disk-teste", {
             utmSource: "whatsapp",
             wmToken: "abc.def",
-            env: { NEXT_PUBLIC_APP_URL: "https://app.renthus.com.br" } as NodeJS.ProcessEnv,
+            env: { NEXT_PUBLIC_APP_URL: "https://app.renthus.com.br" },
         });
         assert.equal(new URL(url).searchParams.get("wm"), "abc.def");
     });

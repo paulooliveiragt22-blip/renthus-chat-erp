@@ -3,6 +3,7 @@ import {
     normalizeMenuHost,
     slugFromMenuSubdomainHost,
 } from "@/lib/public-menu/customDomain";
+import type { EnvLike } from "@/lib/env/EnvLike";
 
 export type MenuHostRewrite =
     | { rewrite: true; slug: string; pathname: string }
@@ -15,7 +16,7 @@ export type MenuHostRewrite =
 export async function resolveMenuHostRewrite(params: {
     host: string;
     pathname: string;
-    env?: NodeJS.ProcessEnv;
+    env?: EnvLike;
     lookupCustomDomainSlug?: (host: string) => Promise<string | null>;
 }): Promise<MenuHostRewrite> {
     const env = params.env ?? process.env;

@@ -2,9 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OutboundMessage, ProSessionState, TenantRef } from "@/src/types/contracts";
+import type { EnvLike } from "@/lib/env/EnvLike";
 
 export function isPipelineTurnTraceEnabled(
-    env: NodeJS.ProcessEnv = process.env
+    env: EnvLike = process.env
 ): boolean {
     const v = env.PRO_PIPELINE_TURN_TRACE?.trim().toLowerCase() ?? "";
     return v === "1" || v === "true" || v === "yes" || v === "on";

@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const { withSentryConfig } = require("@sentry/nextjs");
+
 const withPWA = require("@ducanh2912/next-pwa").default({
   dest: "public",
   // Só ativa service worker em produção
@@ -76,4 +78,16 @@ const nextConfig = {
   },
 };
 
-module.exports = withPWA(nextConfig);
+module.exports = withSentryConfig(withPWA(nextConfig), {
+  // `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` ausentes (padrão até
+  // configurar o projeto no Sentry) só pulam o upload de source maps —
+  // não quebram o build. Ver docs/CHECKLIST_SEGURANCA_CONFIABILIDADE_P0.md item 2.
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: true,
+  widenClientFileUpload: true,
+  webpack: {
+    treeshake: { removeDebugLogging: true },
+  },
+});

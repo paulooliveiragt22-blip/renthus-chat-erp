@@ -1,4 +1,5 @@
 import { parseMenuSlug } from "@/lib/public-menu/slug";
+import type { EnvLike } from "@/lib/env/EnvLike";
 
 const HOST_RE =
     /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
@@ -30,7 +31,7 @@ export function normalizeCustomDomainInput(
 }
 
 export function resolveMenuBaseDomain(
-    env: NodeJS.ProcessEnv = process.env
+    env: EnvLike = process.env
 ): string | null {
     const d = env.NEXT_PUBLIC_MENU_BASE_DOMAIN?.trim().toLowerCase();
     if (!d) return null;
@@ -40,7 +41,7 @@ export function resolveMenuBaseDomain(
 /** Hosts do app (painel) — não devem ser tratados como cardápio vanity. */
 export function isAppApexHost(
     host: string,
-    env: NodeJS.ProcessEnv = process.env
+    env: EnvLike = process.env
 ): boolean {
     const h = normalizeMenuHost(host);
     if (!h) return true;
@@ -69,7 +70,7 @@ export function isAppApexHost(
  */
 export function slugFromMenuSubdomainHost(
     host: string,
-    env: NodeJS.ProcessEnv = process.env
+    env: EnvLike = process.env
 ): string | null {
     const h = normalizeMenuHost(host);
     const base = resolveMenuBaseDomain(env);

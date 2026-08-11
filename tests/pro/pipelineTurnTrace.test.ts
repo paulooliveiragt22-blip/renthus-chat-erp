@@ -24,14 +24,8 @@ describe("pipeline turn trace", () => {
     });
 
     it("flag PRO_PIPELINE_TURN_TRACE só liga com 1/true/on", () => {
-        assert.equal(isPipelineTurnTraceEnabled({} as NodeJS.ProcessEnv), false);
-        assert.equal(
-            isPipelineTurnTraceEnabled({ PRO_PIPELINE_TURN_TRACE: "1" } as NodeJS.ProcessEnv),
-            true
-        );
-        assert.equal(
-            isPipelineTurnTraceEnabled({ PRO_PIPELINE_TURN_TRACE: "false" } as NodeJS.ProcessEnv),
-            false
-        );
+        assert.equal(isPipelineTurnTraceEnabled({}), false);
+        assert.equal(isPipelineTurnTraceEnabled({ PRO_PIPELINE_TURN_TRACE: "1" }), true);
+        assert.equal(isPipelineTurnTraceEnabled({ PRO_PIPELINE_TURN_TRACE: "false" }), false);
     });
 });

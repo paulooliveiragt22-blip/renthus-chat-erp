@@ -1,8 +1,9 @@
 import "server-only";
+import type { EnvLike } from "@/lib/env/EnvLike";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION?.trim() || "v20.0";
 
-export function resolveMetaAppId(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveMetaAppId(env: EnvLike = process.env): string {
     return (
         env.META_APP_ID?.trim() ||
         env.FACEBOOK_APP_ID?.trim() ||
@@ -11,7 +12,7 @@ export function resolveMetaAppId(env: NodeJS.ProcessEnv = process.env): string {
     );
 }
 
-export function resolveMetaAppSecret(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveMetaAppSecret(env: EnvLike = process.env): string {
     return (
         env.META_APP_SECRET?.trim() ||
         env.WHATSAPP_APP_SECRET?.trim() ||
@@ -20,7 +21,7 @@ export function resolveMetaAppSecret(env: NodeJS.ProcessEnv = process.env): stri
     );
 }
 
-export function metaGraphVersion(env: NodeJS.ProcessEnv = process.env): string {
+export function metaGraphVersion(env: EnvLike = process.env): string {
     return env.META_GRAPH_VERSION?.trim() || GRAPH_VERSION;
 }
 

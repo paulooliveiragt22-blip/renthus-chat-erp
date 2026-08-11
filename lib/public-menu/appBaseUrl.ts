@@ -1,11 +1,12 @@
 import { resolveMenuBaseDomain } from "@/lib/public-menu/customDomain";
+import type { EnvLike } from "@/lib/env/EnvLike";
 
 /**
  * Base URL pública do app (links para clientes — cardápio `/c/[slug]`).
  * Preferir NEXT_PUBLIC_APP_URL; em deploy Vercel, VERCEL_URL; senão fallback de produção.
  */
 export function resolvePublicAppBaseUrl(
-    env: NodeJS.ProcessEnv = process.env
+    env: EnvLike = process.env
 ): string {
     const fromEnv = env.NEXT_PUBLIC_APP_URL?.trim();
     if (fromEnv) return fromEnv.replace(/\/+$/, "");
@@ -40,7 +41,7 @@ export function buildPublicMenuAbsoluteUrl(
         utmSource?: string;
         /** Token assinado `wm` (WhatsApp → pré-identifica cliente). */
         wmToken?: string;
-        env?: NodeJS.ProcessEnv;
+        env?: EnvLike;
         /** Domínio próprio verificado (F4.3). */
         customDomain?: string | null;
         customDomainVerified?: boolean;
