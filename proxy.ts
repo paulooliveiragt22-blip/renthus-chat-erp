@@ -123,9 +123,17 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname.startsWith("/api/chatbot/outbound-worker") ||
         /** Cron sync catálogo marketplace (F4.1) — Bearer CRON_SECRET. */
         pathname.startsWith("/api/marketplace/sync-catalog") ||
+        /**
+         * Cron diário de cobrança (Vercel, sem cookie de sessão) — autentica via
+         * `validateCronAuthorization` (Bearer CRON_SECRET) dentro da própria rota.
+         * Faltava aqui: o proxy redirecionava pra /login antes do handler rodar.
+         */
+        pathname.startsWith("/api/billing/charge") ||
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||
+        /** Webhook Meta Page/Instagram Messaging: assinatura própria (X-Hub-Signature-256), sem cookie. */
+        pathname.startsWith("/api/meta/messaging/incoming") ||
         /** Print agent (api_key nas rotas) + painel /api/agent/keys|settings (exige sessão na própria rota) */
         pathname.startsWith("/api/agent/") ||
         pathname === "/api/signup/complete" ||

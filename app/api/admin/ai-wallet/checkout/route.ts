@@ -13,15 +13,30 @@ import {
 } from "@/lib/billing/pagarme";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { ensureAiWallet } from "@/lib/billing/aiWallet";
+import { checkRateLimit } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
 const PACKS = new Set([1000, 2000, 5000]);
+const AI_WALLET_CHECKOUT_RATE_LIMIT = 10;
+const AI_WALLET_CHECKOUT_RATE_WINDOW_MS = 60_000;
 
 export async function POST(req: Request) {
     const ctx = await requireCompanyAccess(["owner", "admin"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
+
+    const rl = checkRateLimit(
+        `ai_wallet_checkout:${companyId}`,
+        AI_WALLET_CHECKOUT_RATE_LIMIT,
+        AI_WALLET_CHECKOUT_RATE_WINDOW_MS
+    );
+    if (!rl.allowed) {
+        return NextResponse.json(
+            { error: "rate_limit_exceeded" },
+            { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+        );
+    }
 
     const body = (await req.json().catch(() => ({}))) as {
         packCents?: number;

@@ -191,7 +191,7 @@ export class OrderServiceV2Adapter implements OrderService {
     }
 
     async createFromDraft(input: Parameters<OrderService["createFromDraft"]>[0]): Promise<OrderServiceResult> {
-        const { tenant, draft } = input;
+        const { tenant, draft, idempotencyKey } = input;
         const fresh = await this.revalidateDraft(tenant.companyId, draft);
         if (!fresh.ok) {
             return {
@@ -350,6 +350,7 @@ export class OrderServiceV2Adapter implements OrderService {
             p_change_for: draft.changeFor ?? null,
             p_paid: false,
             p_items: itemsPayload,
+            p_idempotency_key: idempotencyKey,
         });
 
         if (orderErr || !orderId) {

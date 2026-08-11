@@ -12,6 +12,7 @@ import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addre
 import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
 import { verifyWebMenuCheckoutSession } from "../sessionToken";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
+import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
 
 function isPaymentMethod(v: string): v is PaymentMethod {
     return v === "pix" || v === "cash" || v === "card";
@@ -270,6 +271,18 @@ export async function createWebMenuOrder(
     const requireApproval = Boolean(settings?.require_order_approval);
     const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
 
+    const idempotencyKey = buildOrderIdempotencyKey({
+        source: "web_menu",
+        scopeId: session.customerId,
+        items: orderItems.map((i) => ({
+            produtoEmbalagemId: i.produto_embalagem_id,
+            quantity: i.quantity,
+            unitPrice: i.unit_price,
+        })),
+        grandTotal,
+        paymentMethod,
+    });
+
     const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {
         p_company_id: params.companyId,
         p_customer_id: session.customerId,
@@ -286,6 +299,7 @@ export async function createWebMenuOrder(
         p_change_for: changeFor,
         p_paid: false,
         p_items: orderItems,
+        p_idempotency_key: idempotencyKey,
     });
 
     if (orderErr || !orderId) {

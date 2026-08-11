@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAnyPlanFeature, PDV_ACCESS_FEATURES, requirePlanFeature } from "@/lib/billing/requirePlanFeature";
+import { checkRateLimit } from "@/lib/security/rateLimit";
+import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
 
 export const runtime = "nodejs";
+
+const PDV_FINALIZE_RATE_LIMIT = 30;
+const PDV_FINALIZE_RATE_WINDOW_MS = 60_000;
 
 const PRAZO_METHODS = new Set(["credit", "boleto", "cheque", "promissoria"]);
 
@@ -13,6 +18,18 @@ export async function POST(req: Request) {
     const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
+
+    const rl = checkRateLimit(
+        `pdv_finalize:${companyId}`,
+        PDV_FINALIZE_RATE_LIMIT,
+        PDV_FINALIZE_RATE_WINDOW_MS
+    );
+    if (!rl.allowed) {
+        return NextResponse.json(
+            { error: "rate_limit_exceeded" },
+            { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+        );
+    }
 
     const body = (await req.json().catch(() => ({}))) as {
         cash_register_id?: string;
@@ -70,6 +87,21 @@ export async function POST(req: Request) {
     if (crErr) return NextResponse.json({ error: crErr.message }, { status: 500 });
     if (!cr) return NextResponse.json({ error: "cash_register_invalid" }, { status: 400 });
 
+    // Chave determinística: retry de rede ou double-click no botão "Finalizar"
+    // com o mesmo caixa/carrinho/pagamentos não duplica venda (a RPC trata
+    // via `sales.idempotency_key`, ver 20260811110000_pdv_finalize_idempotency_key.sql).
+    const idempotencyKey = buildOrderIdempotencyKey({
+        source: "pdv",
+        scopeId: `${cashRegisterId}:${body.active_order_id ?? "novo"}`,
+        items: cart.map((i) => ({
+            produtoEmbalagemId: i.variant_id,
+            quantity: i.qty,
+            unitPrice: i.unit_price,
+        })),
+        grandTotal: payTotal,
+        paymentMethod: payments.map((p) => `${p.method}:${p.value}`).join(","),
+    });
+
     const p_payload = {
         cash_register_id: cashRegisterId,
         seller_name: body.seller_name ?? null,
@@ -92,6 +124,7 @@ export async function POST(req: Request) {
         })),
         active_order_id: body.active_order_id ?? null,
         active_order_source: body.active_order_source ?? null,
+        idempotency_key: idempotencyKey,
     };
 
     const { data: rpcOut, error: rpcErr } = await admin.rpc("rpc_finalize_pdv_order", {

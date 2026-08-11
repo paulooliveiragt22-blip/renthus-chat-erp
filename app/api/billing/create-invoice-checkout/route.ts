@@ -9,6 +9,7 @@
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { checkRateLimit } from "@/lib/security/rateLimit";
 import {
     createPixInvoiceOrder,
     createSetupOrder,
@@ -25,6 +26,9 @@ import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerF
 import { getPlanLabel } from "@/lib/billing/planCatalog";
 
 export const runtime = "nodejs";
+
+const CREATE_INVOICE_CHECKOUT_RATE_LIMIT = 10;
+const CREATE_INVOICE_CHECKOUT_RATE_WINDOW_MS = 60_000;
 
 async function persistCardBillingOrder(
     admin: ReturnType<typeof createAdminClient>,
@@ -149,6 +153,19 @@ export async function POST(req: Request) {
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
         const companyId = ctx.companyId;
+
+        const rl = checkRateLimit(
+            `billing_create_invoice_checkout:${companyId}`,
+            CREATE_INVOICE_CHECKOUT_RATE_LIMIT,
+            CREATE_INVOICE_CHECKOUT_RATE_WINDOW_MS
+        );
+        if (!rl.allowed) {
+            return NextResponse.json(
+                { error: "rate_limit_exceeded" },
+                { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+            );
+        }
+
         const body      = (await req.json().catch(() => ({}))) as Body;
         const paymentMethod =
             body.payment_method === "credit_card" ? "credit_card" : "pix";

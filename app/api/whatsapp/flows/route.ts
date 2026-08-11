@@ -34,6 +34,7 @@ import {
 import { lookupCep } from "@/lib/address/cepLookup";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
+import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
 
 export const runtime = "nodejs";
 
@@ -1326,6 +1327,18 @@ export async function POST(req: NextRequest) {
                     return encryptedError("empty_cart", aesKey, iv);
                 }
 
+                const idempotencyKeyPayment = buildOrderIdempotencyKey({
+                    source: "flow_catalog",
+                    scopeId: threadId,
+                    items: cart.map((item) => ({
+                        produtoEmbalagemId: item.variantId ?? null,
+                        quantity: item.qty,
+                        unitPrice: item.price,
+                    })),
+                    grandTotal,
+                    paymentMethod,
+                });
+
                 const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {
                     p_company_id:                   companyId,
                     p_customer_id:                  customerId,
@@ -1341,6 +1354,7 @@ export async function POST(req: NextRequest) {
                     p_payment_method:               paymentMethod,
                     p_change_for:                   changeFor,
                     p_paid:                         false,
+                    p_idempotency_key:              idempotencyKeyPayment,
                     p_items: cart.map((item) => ({
                         product_name:         item.name,
                         produto_embalagem_id: item.variantId ?? null,
@@ -1657,6 +1671,18 @@ export async function POST(req: NextRequest) {
                 const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
 
                 // Cria pedido + itens atomicamente via RPC (bloqueia pedido vazio no banco)
+                const idempotencyKeyCheckout = buildOrderIdempotencyKey({
+                    source: "flow_catalog",
+                    scopeId: threadId,
+                    items: cart.map((item) => ({
+                        produtoEmbalagemId: item.variantId ?? null,
+                        quantity: item.qty,
+                        unitPrice: item.price,
+                    })),
+                    grandTotal,
+                    paymentMethod,
+                });
+
                 const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {
                     p_company_id:                   companyId,
                     p_customer_id:                  customerId,
@@ -1672,6 +1698,7 @@ export async function POST(req: NextRequest) {
                     p_payment_method:               paymentMethod,
                     p_change_for:                   changeFor,
                     p_paid:                         false,
+                    p_idempotency_key:              idempotencyKeyCheckout,
                     p_items: cart.map((item) => ({
                         product_name:         item.name,
                         produto_embalagem_id: item.variantId ?? null,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 
 export const runtime = "nodejs";
 
@@ -54,14 +55,40 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
     const phone = thread.phone_e164 as string | null;
     if (!phone) return NextResponse.json({ customer: null, orders: [] });
 
-    const { data: cust, error: custErr } = await admin
+    /**
+     * `customers.phone` não tem um formato único no banco: há registros em E.164
+     * completo (+5566992285005), sem código de país (6692285005) e sem o "9" de
+     * celular (6692285005) — cadastros antigos do PDV/admin gravam o que foi digitado,
+     * sem normalizar. Um match exato (`.eq("phone", phone)`) perde cliente com
+     * histórico real sempre que o formato salvo divergir do `phone_e164` da thread.
+     * Buscamos candidatos pelos últimos 8 dígitos (parte fixa do número local em
+     * qualquer formato) e confirmamos com `normalizeBrazilToE164` — mais tolerante,
+     * e cobre também o caso de existir mais de um cadastro duplicado pro mesmo
+     * telefone com grafias diferentes (agregamos o histórico de todos).
+     */
+    const digits = phone.replace(/\D/g, "");
+    const last8 = digits.slice(-8);
+    const targetE164 = normalizeBrazilToE164(phone);
+
+    const { data: candidates, error: custErr } = await admin
         .from("customers")
         .select("id, name, phone")
         .eq("company_id", companyId)
-        .eq("phone", phone)
-        .maybeSingle();
+        .not("phone", "is", null)
+        .ilike("phone", `%${last8}`);
     if (custErr) return NextResponse.json({ error: custErr.message }, { status: 500 });
-    if (!cust?.id) return NextResponse.json({ customer: null, orders: [] });
+
+    const matches = (candidates ?? []).filter(
+        (c) => c.phone && normalizeBrazilToE164(String(c.phone)) === targetE164
+    );
+    if (matches.length === 0) return NextResponse.json({ customer: null, orders: [] });
+
+    const customerIds = [...new Set(matches.map((c) => String(c.id)))];
+    // Entre cadastros duplicados, prefere um nome real ao genérico "Cliente WhatsApp".
+    const preferredName =
+        matches.find((c) => c.name && !/^cliente\s*whatsapp$/i.test(String(c.name)))?.name ??
+        matches[0]?.name ??
+        null;
 
     const url = new URL(req.url);
     const displayLimit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? "8") || 8, 1), 30);
@@ -69,7 +96,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
     const { data: ordersRaw, error: ordersErr } = await admin
         .from("orders")
         .select(`id, created_at, status, total_amount, order_items ( product_name, quantity, unit_price, unit_type )`)
-        .eq("customer_id", cust.id)
+        .in("customer_id", customerIds)
         .eq("company_id", companyId)
         .order("created_at", { ascending: false })
         .limit(30);
@@ -91,9 +118,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
     }));
 
     const customer = {
-        id: cust.id as string,
-        name: (cust.name as string | null) ?? null,
-        phone: (cust.phone as string | null) ?? null,
+        id: customerIds[0],
+        name: (preferredName as string | null) ?? null,
+        phone,
         totalSpent: orders.reduce((s, o) => s + o.total_amount, 0),
         orderCount: orders.length,
         tags: buildTags(orders),

@@ -57,6 +57,7 @@ describe("proxy auth routing", () => {
             "/api/chatbot/reactivate",
             "/api/chatbot/detect-abandoned-carts",
             "/api/chatbot/outbound-worker",
+            "/api/billing/charge",
         ];
 
         for (const path of paths) {
@@ -67,6 +68,17 @@ describe("proxy auth routing", () => {
         }
 
         assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
+    it("exempts Meta Page/Instagram messaging webhook (assinatura própria, sem cookie)", async () => {
+        const response = await proxy(
+            createRequest("/api/meta/messaging/incoming"),
+            undefined,
+            { createClient: factory }
+        );
+
+        assert.strictEqual(factory.mock.calls.length, 0);
+        assert.strictEqual(response.headers.get("location"), null);
     });
 
     it("keeps session-backed chatbot routes behind auth", async () => {

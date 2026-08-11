@@ -212,6 +212,9 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const threadsAbortRef   = useRef<AbortController | null>(null);
     const messagesAbortRef  = useRef<AbortController | null>(null);
     const prevThreadIdRef   = useRef<string | null>(null);
+    /** Sempre em sincronia com `selectedThreadId` — lido dentro de `loadThreads` (que não pode
+     * depender de `selectedThreadId` sem recriar a função a cada troca de conversa). */
+    const selectedThreadIdRef = useRef<string | null>(null);
 
     // Profile cache: threadId → {profile, ts}
     const profileCacheRef = useRef<Map<string, { profile: CustomerProfile; ts: number }>>(new Map());
@@ -238,7 +241,15 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             const json = await res.json().catch(() => ({}));
             if (!res.ok) { setErr(json?.error ?? `Erro ${res.status}`); setThreads([]); return; }
             const list: Thread[] = Array.isArray(json.threads) ? json.threads : [];
-            setThreads(list);
+            setThreads((prevThreads) => {
+                // Poll silencioso: se a conversa aberta caiu da página de mais recentes (outras
+                // receberam mensagem depois), mantém a linha antiga dela na lista em vez de
+                // deixá-la "desaparecer" do card esquerdo enquanto o agente está nela.
+                const keepId = selectedThreadIdRef.current;
+                if (!opts?.silent || !keepId || list.some((t) => t.id === keepId)) return list;
+                const missing = prevThreads.find((t) => t.id === keepId);
+                return missing ? [...list, missing] : list;
+            });
             setSelectedThreadId((prev) => {
                 const desired = nextSelectedId !== undefined ? nextSelectedId : prev;
 
@@ -247,6 +258,15 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     return row ? row.id : prev;
                 }
                 if (desired && !list.some((t) => t.id === desired)) {
+                    /**
+                     * Um poll silencioso em segundo plano NUNCA deve tirar o agente da conversa
+                     * que ele está atendendo. A thread aberta pode simplesmente ter caído da
+                     * página de `limit` mais recentes (outras conversas receberam mensagem
+                     * depois) — isso não significa que ela deixou de existir. Só troca de
+                     * conversa "à força" (fallback pra mais recente) numa ação explícita do
+                     * usuário (load inicial, busca) — nunca no polling silencioso.
+                     */
+                    if (opts?.silent) return prev;
                     const fb = list[0];
                     return fb ? fb.id : null;
                 }
@@ -416,6 +436,10 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [q]);
+
+    useEffect(() => {
+        selectedThreadIdRef.current = selectedThreadId;
+    }, [selectedThreadId]);
 
     // Load messages when thread changes
     useEffect(() => {

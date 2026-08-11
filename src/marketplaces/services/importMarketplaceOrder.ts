@@ -145,6 +145,7 @@ export async function importMarketplaceOrder(
         p_change_for: null,
         p_paid: String(external.paymentMethod).toLowerCase() === "online",
         p_items: items,
+        p_idempotency_key: `marketplace_${provider}:${external.externalOrderId}`,
     });
 
     if (orderErr || !orderId) {
