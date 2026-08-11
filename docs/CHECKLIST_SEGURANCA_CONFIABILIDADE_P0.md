@@ -188,7 +188,7 @@ direto no banco remoto.
 
 ---
 
-## 4. Hardening RLS das 5 tabelas novas
+## 4. Hardening RLS das 5 tabelas novas ✅ (+ achado extra: AI wallet aberta)
 
 **Objetivo:** aplicar aqui o padrão que `.cursor/rules/supabase-migrations-seguranca.mdc` agora
 documenta como obrigatório pra toda tabela nova. Tabelas afetadas (RLS habilitado, mas **sem**
@@ -222,7 +222,37 @@ nessas tabelas (todas são service-role only hoje, via API) — não deveria hav
   `anon`/`authenticated`.
 - `docs/DB_SECURITY_GLOBAL_INVENTORY.md` atualizado com a nova contagem de tabelas hardenizadas.
 
-**Estado:** [ ]
+**Estado:** [x] Concluído (2026-08-11).
+
+**O que foi feito:**
+- Confirmado no código que as 5 tabelas só são acessadas via `createAdminClient()` (service-role,
+  server-side) — sem risco de regressão no frontend.
+- Migration `supabase/migrations/20260811130000_harden_rls_post_global_tables.sql` aplicada (via MCP
+  `apply_migration`): REVOKE dos grants a `anon`/`authenticated`, `FORCE RLS`, policy única
+  `rls_<tabela>_service_role_only` nas 5 tabelas do escopo original.
+- Validado pós-migration: 0 grants a `anon`/`authenticated`, exatamente 1 policy por tabela, `FORCE`
+  ligado nas 5 (`select` de confirmação rodado via MCP, não só aplicado e assumido).
+
+**Achado extra durante a auditoria (fora do escopo original, corrigido no mesmo lote por
+severidade):** ao contar quantas tabelas de `public` já tinham a policy `service_role_only`
+(67 de 79), apareceram **mais 12 tabelas** na mesma situação de "nasceram depois da migration global
+e nunca foram hardenizadas". Duas delas — `company_ai_ledger` e `company_ai_wallets` — tinham policy
+`USING (true) WITH CHECK (true)` (sem restrição alguma) + grants completos a `anon`/`authenticated`:
+com a anon key pública, qualquer um podia ler/escrever saldo e ledger de carteira de IA de **qualquer
+empresa**. Confirmado no código que o único acesso é via `service_role`
+(`lib/billing/aiWallet.ts`, `app/api/admin/ai-wallet/*`, `app/api/billing/webhook`) — corrigido
+imediatamente em `supabase/migrations/20260811131500_harden_ai_wallet_open_policy.sql` (mesmo padrão:
+REVOKE + FORCE + `service_role_only`). As outras 10 tabelas do achado extra têm policies
+company-scoped legítimas (padrão RLS multi-tenant direto, não `service_role_only`) — recebeu só
+`FORCE RLS` (sem mudança de comportamento); decisão sobre convergir pra `service_role_only`/`v_sec_*`
+fica pendente do usuário. Detalhamento completo dos 3 grupos em
+`docs/DB_SECURITY_GLOBAL_INVENTORY.md` (seção "Atualização 2026-08-11").
+
+- `npm test` rodado após as duas migrations: 773/773 passando, 0 falhas.
+
+**Pendente (decisão do usuário):** ver `docs/DB_SECURITY_GLOBAL_INVENTORY.md` — manter RLS direto nas
+10 tabelas do Grupo C (documentando como padrão alternativo aceito) vs. convergir pro padrão
+`service_role_only` do resto do banco.
 
 ---
 
