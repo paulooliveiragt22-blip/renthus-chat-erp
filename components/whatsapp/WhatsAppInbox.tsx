@@ -244,6 +244,14 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [loadingCart,  setLoadingCart]  = useState(false);
     const [handoverInfo, setHandoverInfo] = useState<ThreadHandoverInfo | null>(null);
     const [cartCopied,   setCartCopied]   = useState(false);
+    /**
+     * Cópia editável dos itens do carrinho (qty ajustável / item removível pelo agente antes
+     * de abrir o pedido). Enquanto o agente não edita nada, sincroniza com `activeCart` a cada
+     * atualização (silenciosa ou não); ao primeiro ajuste manual, para de sincronizar — evita
+     * que um refresh em segundo plano apague a edição em andamento.
+     */
+    const [cartDraftItems, setCartDraftItems] = useState<ActiveCart["items"]>([]);
+    const [cartEdited,     setCartEdited]     = useState(false);
 
     // refs
     const bottomRef         = useRef<HTMLDivElement | null>(null);
@@ -414,21 +422,76 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         }
     }, []);
 
-    /** Manda pro Pedidos com os itens do carrinho já prontos — o agente só confere e salva. */
-    function openCartAsNewOrder() {
-        if (!selectedThreadId) return;
+    function adjustCartItemQty(produtoEmbalagemId: string, delta: number) {
+        setCartEdited(true);
+        setCartDraftItems((prev) =>
+            prev
+                .map((it) =>
+                    it.produtoEmbalagemId === produtoEmbalagemId
+                        ? { ...it, quantity: it.quantity + delta, subtotal: (it.quantity + delta) * it.unitPrice }
+                        : it
+                )
+                .filter((it) => it.quantity > 0)
+        );
+    }
+
+    function removeCartItem(produtoEmbalagemId: string) {
+        setCartEdited(true);
+        setCartDraftItems((prev) => prev.filter((it) => it.produtoEmbalagemId !== produtoEmbalagemId));
+    }
+
+    const cartDraftTotal     = cartDraftItems.reduce((s, it) => s + it.subtotal, 0);
+    const cartDraftItemCount = cartDraftItems.reduce((s, it) => s + it.quantity, 0);
+
+    /**
+     * Manda pro Pedidos com os itens do carrinho (já com os ajustes do agente) prontos —
+     * o agente só confere e salva. Reconciliação: se o bot ainda está ativo, desliga agora —
+     * o agente está assumindo o fechamento deste pedido, evitando o bot finalizar o mesmo
+     * carrinho em paralelo (pedido duplicado).
+     */
+    async function openCartAsNewOrder() {
+        if (!selectedThreadId || cartDraftItems.length === 0) return;
+        const thread = threads.find((t) => t.id === selectedThreadId);
+
+        if (thread && thread.bot_active !== false) {
+            try {
+                await fetch(`/api/whatsapp/threads/${selectedThreadId}/bot-toggle`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ bot_active: false }),
+                });
+                setThreads((prev) =>
+                    prev.map((t) => (t.id === selectedThreadId ? { ...t, bot_active: false, handover_at: new Date().toISOString() } : t))
+                );
+            } catch { /* best-effort — segue mesmo se o toggle falhar */ }
+        }
+
+        try {
+            sessionStorage.setItem(
+                "pedidos:cart_prefill",
+                JSON.stringify({
+                    threadId: selectedThreadId,
+                    items: cartDraftItems,
+                    customerName: customerProfile?.name || thread?.profile_name || null,
+                    customerPhone: thread?.phone_e164 ?? null,
+                    address: activeCart?.address ?? null,
+                })
+            );
+        } catch { /* sessionStorage indisponível — Pedidos cai no fallback via API */ }
+
         router.push(`/pedidos?from_cart_thread=${selectedThreadId}`);
     }
 
     function copyCartSummary() {
-        if (!activeCart || activeCart.items.length === 0) return;
-        const lines = activeCart.items.map(
+        if (cartDraftItems.length === 0) return;
+        const lines = cartDraftItems.map(
             (it) => `• ${it.quantity}x ${it.productName}${it.sigla ? ` (${it.sigla})` : ""} — R$ ${formatBRL(it.subtotal)}`
         );
         const text = [
             "Carrinho do cliente:",
             ...lines,
-            `Total: R$ ${formatBRL(activeCart.grandTotal)}`,
+            `Total: R$ ${formatBRL(cartDraftTotal)}`,
         ].join("\n");
         navigator.clipboard?.writeText(text)
             .then(() => {
@@ -494,14 +557,21 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     // Load active cart when thread changes
     useEffect(() => {
         setCartCopied(false);
+        setCartEdited(false);
         if (selectedThreadId) {
             loadActiveCart(selectedThreadId);
         } else {
             setActiveCart(null);
             setHandoverInfo(null);
+            setCartDraftItems([]);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
+
+    // Sincroniza a cópia editável com o carrinho carregado — só enquanto o agente não editou nada.
+    useEffect(() => {
+        if (!cartEdited) setCartDraftItems(activeCart?.items ?? []);
+    }, [activeCart, cartEdited]);
 
     // Persist selectedThreadId in URL
     useEffect(() => {
@@ -1299,6 +1369,11 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     cartCopied={cartCopied}
                     onOpenCartAsOrder={openCartAsNewOrder}
                     onCopyCartSummary={copyCartSummary}
+                    draftItems={cartDraftItems}
+                    draftTotal={cartDraftTotal}
+                    draftItemCount={cartDraftItemCount}
+                    onAdjustQty={adjustCartItemQty}
+                    onRemoveItem={removeCartItem}
                 />
             )}
 
@@ -1426,6 +1501,11 @@ function CustomerProfileSidebar({
     cartCopied,
     onOpenCartAsOrder,
     onCopyCartSummary,
+    draftItems,
+    draftTotal,
+    draftItemCount,
+    onAdjustQty,
+    onRemoveItem,
 }: {
     thread: Thread;
     profile: CustomerProfile | null;
@@ -1438,6 +1518,11 @@ function CustomerProfileSidebar({
     cartCopied: boolean;
     onOpenCartAsOrder: () => void;
     onCopyCartSummary: () => void;
+    draftItems: ActiveCart["items"];
+    draftTotal: number;
+    draftItemCount: number;
+    onAdjustQty: (produtoEmbalagemId: string, delta: number) => void;
+    onRemoveItem: (produtoEmbalagemId: string) => void;
 }) {
     const displayIn = {
         channel: thread.channel,
@@ -1501,10 +1586,10 @@ function CustomerProfileSidebar({
                 {/* Carrinho atual do cliente — vem da sessão do bot (ou do último abandono) */}
                 {cartLoading ? (
                     <div className="h-24 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
-                ) : cart && cart.items.length > 0 ? (
+                ) : cart && draftItems.length > 0 ? (
                     <div
                         className={`rounded-xl border px-3 py-2.5 ${
-                            cart.grandTotal >= HIGH_VALUE_CART_THRESHOLD
+                            draftTotal >= HIGH_VALUE_CART_THRESHOLD
                                 ? "border-orange-200 bg-orange-50 dark:border-orange-800/60 dark:bg-orange-900/15"
                                 : "border-zinc-100 dark:border-zinc-800"
                         }`}
@@ -1520,23 +1605,47 @@ function CustomerProfileSidebar({
                         </div>
 
                         <div className="divide-y divide-zinc-50 dark:divide-zinc-800">
-                            {cart.items.map((it, idx) => (
-                                <div key={`${it.produtoEmbalagemId}-${idx}`} className="flex items-center justify-between py-1">
-                                    <span className="truncate text-[11px] text-zinc-700 dark:text-zinc-300">
+                            {draftItems.map((it) => (
+                                <div key={it.produtoEmbalagemId} className="flex items-center justify-between gap-1.5 py-1">
+                                    <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-700 dark:text-zinc-300">
                                         {it.productName}{it.sigla && it.sigla !== "UN" ? ` (${it.sigla})` : ""}
                                     </span>
-                                    <span className="ml-2 shrink-0 text-[10px] font-semibold text-zinc-500">
-                                        {it.quantity}× R$ {formatBRL(it.subtotal)}
-                                    </span>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                        <button
+                                            onClick={() => onAdjustQty(it.produtoEmbalagemId, -1)}
+                                            aria-label={`Diminuir quantidade de ${it.productName}`}
+                                            className="flex h-4 w-4 items-center justify-center rounded border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                        >
+                                            −
+                                        </button>
+                                        <span className="w-4 text-center text-[10px] font-semibold text-zinc-600 dark:text-zinc-300">{it.quantity}</span>
+                                        <button
+                                            onClick={() => onAdjustQty(it.produtoEmbalagemId, 1)}
+                                            aria-label={`Aumentar quantidade de ${it.productName}`}
+                                            className="flex h-4 w-4 items-center justify-center rounded border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                        >
+                                            +
+                                        </button>
+                                        <span className="ml-1 w-14 shrink-0 text-right text-[10px] font-semibold text-zinc-500">
+                                            R$ {formatBRL(it.subtotal)}
+                                        </span>
+                                        <button
+                                            onClick={() => onRemoveItem(it.produtoEmbalagemId)}
+                                            aria-label={`Remover ${it.productName} do carrinho`}
+                                            className="flex h-4 w-4 items-center justify-center rounded text-zinc-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30"
+                                        >
+                                            <X className="h-3 w-3" aria-hidden="true" />
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
 
                         <div className="mt-1.5 flex items-center justify-between border-t border-zinc-100 pt-1.5 dark:border-zinc-800">
                             <span className="text-[11px] text-zinc-500">
-                                {cart.totalItems} {cart.totalItems === 1 ? "item" : "itens"}
+                                {draftItemCount} {draftItemCount === 1 ? "item" : "itens"}
                             </span>
-                            <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(cart.grandTotal)}</span>
+                            <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(draftTotal)}</span>
                         </div>
 
                         {(cart.address || cart.paymentMethod) && (
@@ -1561,7 +1670,8 @@ function CustomerProfileSidebar({
                         <div className="mt-2 flex gap-1.5">
                             <button
                                 onClick={onOpenCartAsOrder}
-                                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-primary/90 transition-colors"
+                                disabled={draftItems.length === 0}
+                                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 <ShoppingCart className="h-3 w-3" aria-hidden="true" />
                                 Abrir pedido

@@ -279,6 +279,8 @@ export default function PedidosPage() {
 
     // ── new order form ────────────────────────────────────────────────────────
     const [openNew,         setOpenNew]         = useState(false);
+    /** Thread WhatsApp de origem quando "Novo pedido" foi aberto a partir do carrinho da inbox. */
+    const [cartOriginThreadId, setCartOriginThreadId] = useState<string | null>(null);
     const [saving,          setSaving]          = useState(false);
     const [customerName,    setCustomerName]    = useState("");
     const [customerPhone,   setCustomerPhone]   = useState("");
@@ -598,6 +600,10 @@ export default function PedidosPage() {
      * Vindo da inbox WhatsApp (botão "Abrir pedido" no carrinho do atendimento humano):
      * abre "Novo pedido" já com os itens do carrinho do cliente — o agente só confere,
      * ajusta endereço/pagamento e salva, sem o cliente ter que repetir o pedido.
+     *
+     * Prioriza o handoff via `sessionStorage` (carrega a versão que o agente já editou —
+     * qty ajustada / item removido na inbox); se não achar (ex.: link aberto direto, sem
+     * passar pelo botão), cai pra buscar o carrinho "cru" na API.
      */
     const cartThreadAppliedRef = useRef<string | null>(null);
     useEffect(() => {
@@ -605,16 +611,42 @@ export default function PedidosPage() {
         if (!threadId || cartThreadAppliedRef.current === threadId) return;
         cartThreadAppliedRef.current = threadId;
 
+        type PrefillItem = { produtoEmbalagemId: string; productName: string; sigla: string | null; quantity: number; unitPrice: number };
+        type PrefillAddress = { logradouro: string; numero: string; bairro: string } | null;
+
         (async () => {
-            const res  = await fetch(`/api/whatsapp/threads/${threadId}/cart`, { cache: "no-store", credentials: "include" });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) { setMsg(`Erro ao carregar carrinho: ${json?.error ?? "falha desconhecida"}`); return; }
+            let items: PrefillItem[] | null = null;
+            let customerName_: string | null = null;
+            let customerPhone_: string | null = null;
+            let address: PrefillAddress = null;
 
-            const cartData = json.cart as { items: Array<{ produtoEmbalagemId: string; productName: string; sigla: string | null; quantity: number; unitPrice: number }> } | null;
-            const customer  = json.customer as { phone: string | null; name: string | null } | null;
-            const address   = cartData && (json.cart as { address?: { logradouro: string; numero: string; bairro: string } | null }).address;
+            try {
+                const raw = sessionStorage.getItem("pedidos:cart_prefill");
+                if (raw) {
+                    sessionStorage.removeItem("pedidos:cart_prefill");
+                    const parsed = JSON.parse(raw);
+                    if (parsed?.threadId === threadId && Array.isArray(parsed.items)) {
+                        items           = parsed.items;
+                        customerName_   = parsed.customerName ?? null;
+                        customerPhone_  = parsed.customerPhone ?? null;
+                        address         = parsed.address ?? null;
+                    }
+                }
+            } catch { /* sessionStorage indisponível/corrompido — cai pro fallback da API */ }
 
-            if (!cartData || cartData.items.length === 0) {
+            if (!items) {
+                const res  = await fetch(`/api/whatsapp/threads/${threadId}/cart`, { cache: "no-store", credentials: "include" });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) { setMsg(`Erro ao carregar carrinho: ${json?.error ?? "falha desconhecida"}`); return; }
+                const cartData = json.cart as { items: PrefillItem[]; address?: PrefillAddress } | null;
+                const customer = json.customer as { phone: string | null; name: string | null } | null;
+                items          = cartData?.items ?? null;
+                customerName_  = customer?.name ?? null;
+                customerPhone_ = customer?.phone ?? null;
+                address        = cartData?.address ?? null;
+            }
+
+            if (!items || items.length === 0) {
                 setMsg("Este cliente não tem carrinho ativo no momento.");
                 router.replace("/pedidos");
                 return;
@@ -622,7 +654,7 @@ export default function PedidosPage() {
 
             openPedidosNewModal();
 
-            const prefillItems: CartItem[] = cartData.items.map((it) => ({
+            const prefillItems: CartItem[] = items.map((it) => ({
                 variant: {
                     id: it.produtoEmbalagemId,
                     unit_price: it.unitPrice,
@@ -635,10 +667,11 @@ export default function PedidosPage() {
             }));
             setCart(prefillItems);
 
-            if (customer?.name) setCustomerName(customer.name);
-            if (customer?.phone) setCustomerPhone(customer.phone);
+            if (customerName_) setCustomerName(customerName_);
+            if (customerPhone_) setCustomerPhone(customerPhone_);
             if (address) setCustomerAddress([address.logradouro, address.numero, address.bairro].filter(Boolean).join(", "));
 
+            setCartOriginThreadId(threadId);
             router.replace("/pedidos");
         })();
     }, [searchParams]);
@@ -665,6 +698,21 @@ export default function PedidosPage() {
         setPaymentMethod("pix"); setPaid(false); setChangeFor("0,00");
         setCart([]); setQ(""); setResults([]); setDraftQty({}); setMsg(null);
         setDriverId(null);
+        setCartOriginThreadId(null);
+    }
+
+    /**
+     * Reconciliação: quando o pedido nasceu do carrinho de uma thread (inbox WhatsApp),
+     * limpa a sessão/draft do bot pra essa thread depois que o pedido de verdade é salvo —
+     * evita o bot (se reativado) re-oferecer ou finalizar de novo o mesmo carrinho.
+     * Best-effort: nunca bloqueia nem falha o save do pedido por causa disso.
+     */
+    function clearCartOriginSessionAfterSave() {
+        if (!cartOriginThreadId) return;
+        const threadId = cartOriginThreadId;
+        setCartOriginThreadId(null);
+        fetch(`/api/whatsapp/threads/${threadId}/reset-session`, { method: "POST", credentials: "include" })
+            .catch(() => { /* best-effort */ });
     }
 
     /** Vários `<dialog>.showModal()` empilham; só um modal “grande” pode ficar aberto por vez. */
@@ -893,6 +941,7 @@ export default function PedidosPage() {
         });
         const createJson = await createRes.json().catch(() => ({}));
         if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
+        clearCartOriginSessionAfterSave();
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
@@ -1089,6 +1138,7 @@ export default function PedidosPage() {
         // Usa reprint explícito (source='reprint') — não depende do trigger de confirmation_status
         // para evitar dupla impressão quando trigger antigo (status='new') ainda coexiste
         await callReprint(String(createJson?.order_id ?? ""));
+        clearCartOriginSessionAfterSave();
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
