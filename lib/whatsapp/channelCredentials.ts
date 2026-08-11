@@ -1,4 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
+import type { WaConfig } from "@/lib/whatsapp/send";
 
 /** Prefixo + base64(iv 12B | tag 16B | ciphertext). */
 const TOKEN_PREFIX = "wa1:";
@@ -76,6 +78,30 @@ export function stripProviderMetadataSecrets(
     delete rest.access_token;
     delete rest.waba_id;
     return rest;
+}
+
+/**
+ * Carrega o canal WhatsApp Meta ativo da empresa e monta o `WaConfig` pronto pra
+ * `sendWhatsAppMessage`/`sendAndPersistWaText`. Mesmo lookup que `process-queue`
+ * faz por job — extraído aqui pra reuso em rotas admin (ex.: enviar pedido de
+ * confirmação de pedido montado pelo atendente).
+ */
+export async function loadWaConfigForCompany(
+    admin: SupabaseClient,
+    companyId: string
+): Promise<WaConfig | undefined> {
+    const { data: channelRow } = await admin
+        .from("whatsapp_channels")
+        .select("from_identifier, provider_metadata, encrypted_access_token, waba_id")
+        .eq("company_id", companyId)
+        .eq("provider", "meta")
+        .eq("status", "active")
+        .maybeSingle();
+    if (!channelRow) return undefined;
+    return {
+        phoneNumberId: channelRow.from_identifier ?? "",
+        accessToken: resolveChannelAccessToken(channelRow),
+    };
 }
 
 export type PublicWhatsappChannel = {

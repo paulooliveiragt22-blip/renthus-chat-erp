@@ -23,6 +23,7 @@ import { scheduleQueueWorkerWake } from "@/lib/chatbot/queueWorkerWake";
 import { sendTypingIndicator, sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+import { tryResolvePendingOrderConfirmation } from "@/src/pro/pipeline/resolvePendingOrderConfirmation";
 import {
     isQueueRetryableError,
     queueRetryDelayMs,
@@ -416,6 +417,34 @@ async function processJob(
     const statusFlowId = channelMeta?.status_flow_id ?? process.env.WHATSAPP_STATUS_FLOW_ID;
     const addressRegisterFlowId =
         channelMeta?.address_register_flow_id ?? process.env.WHATSAPP_ADDRESS_REGISTER_FLOW_ID;
+
+    /**
+     * Confirmação de pedido montado pelo atendente (whatsapp_order_confirmations): roda ANTES
+     * do gate de handover porque funciona independente do bot estar ativo — o atendente pode
+     * estar em atendimento humano e ainda assim o cliente confirma/cancela por CONFIRMAR/CANCELAR
+     * sem IA nenhuma envolvida. Se resolveu (true), a mensagem já foi tratada — não passa pro
+     * bot nem fica esperando handover expirar.
+     */
+    if (messagingChannel === "whatsapp" && phone_e164) {
+        try {
+            const handled = await tryResolvePendingOrderConfirmation({
+                admin,
+                companyId: company_id,
+                threadId: thread_id,
+                phoneE164: phone_e164,
+                messageId: message_id ?? "",
+                channelUserId,
+                inboundText: body_text ?? "",
+                waConfig,
+            });
+            if (handled) return;
+        } catch (err) {
+            console.error(
+                "[process-queue] tryResolvePendingOrderConfirmation erro inesperado:",
+                err instanceof Error ? err.message : String(err)
+            );
+        }
+    }
 
     // 1. Lê bot_active fresh (pode ter mudado desde que o job foi enfileirado)
     const { data: threadRow } = await admin

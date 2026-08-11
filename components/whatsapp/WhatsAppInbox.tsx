@@ -36,10 +36,13 @@ import type {
     CustomerProfile,
     DetectedMedia,
     Message,
+    PendingOrderConfirmation,
     Thread,
     ThreadHandoverInfo,
     Usage,
 } from "@/lib/whatsapp/types";
+import CartEditModal from "./CartEditModal";
+import OrderSummaryModal from "./OrderSummaryModal";
 import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 import {
     isCustomerServiceWindowClosing,
@@ -111,27 +114,6 @@ function paymentLabel(m: string | null): string {
 
 /** Acima disso, destaca o carrinho pro agente priorizar (carrinho de valor alto). */
 const HIGH_VALUE_CART_THRESHOLD = 100;
-
-function buildTags(orders: CustomerOrder[]): string[] {
-    const tags: string[] = [];
-    if (orders.length >= 10) tags.push("Cliente VIP");
-    else if (orders.length >= 5) tags.push("Cliente Frequente");
-    const total = orders.reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
-    if (total >= 1000) tags.push("Alto Valor");
-    const names: Record<string, number> = {};
-    for (const o of orders) {
-        for (const it of o.items) {
-            const key = (it.product_name ?? "").toLowerCase();
-            if (key) names[key] = (names[key] ?? 0) + (it.quantity ?? 1);
-        }
-    }
-    const top = Object.entries(names).sort((a, b) => b[1] - a[1]).slice(0, 3);
-    for (const [name] of top) {
-        const label = name.charAt(0).toUpperCase() + name.slice(1, 20);
-        if (!tags.some((t) => t === `Prefere ${label}`)) tags.push(`Prefere ${label}`);
-    }
-    return tags.slice(0, 5);
-}
 
 /** `channelUuid` já validado (UUID) ou null — não passar query string da URL. */
 function detectBodyMedia(body: string | null, channelUuid: string | null = null): DetectedMedia | null {
@@ -244,14 +226,13 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [loadingCart,  setLoadingCart]  = useState(false);
     const [handoverInfo, setHandoverInfo] = useState<ThreadHandoverInfo | null>(null);
     const [cartCopied,   setCartCopied]   = useState(false);
-    /**
-     * Cópia editável dos itens do carrinho (qty ajustável / item removível pelo agente antes
-     * de abrir o pedido). Enquanto o agente não edita nada, sincroniza com `activeCart` a cada
-     * atualização (silenciosa ou não); ao primeiro ajuste manual, para de sincronizar — evita
-     * que um refresh em segundo plano apague a edição em andamento.
-     */
-    const [cartDraftItems, setCartDraftItems] = useState<ActiveCart["items"]>([]);
-    const [cartEdited,     setCartEdited]     = useState(false);
+    // Solicitação de confirmação de pedido em aberto (atendente já pediu, aguardando resposta do cliente)
+    const [pendingConfirmation,    setPendingConfirmation]    = useState<PendingOrderConfirmation | null>(null);
+    const [cancelingConfirmation,  setCancelingConfirmation]  = useState(false);
+    // Modal de montar/editar carrinho (produtos, endereço, pagamento) dentro do Inbox
+    const [cartModalOpen, setCartModalOpen] = useState(false);
+    // Modal de detalhe (read-only) de um pedido antigo — deep link da seção "Últimos pedidos"
+    const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
     // refs
     const bottomRef         = useRef<HTMLDivElement | null>(null);
@@ -261,7 +242,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const prevThreadIdRef   = useRef<string | null>(null);
     const threadsRealtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Profile cache: phone → {profile, ts}
+    // Profile cache: threadId → {profile, ts}
     const profileCacheRef = useRef<Map<string, { profile: CustomerProfile; ts: number }>>(new Map());
 
     // ── data ─────────────────────────────────────────────────────────────────
@@ -352,55 +333,32 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         } catch { /* silent */ }
     }, []);
 
-    const loadCustomerProfile = useCallback(async (phone: string) => {
-        const cached = profileCacheRef.current.get(phone);
+    const loadCustomerProfile = useCallback(async (threadId: string) => {
+        const cached = profileCacheRef.current.get(threadId);
         if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
             setCustomerProfile(cached.profile);
             return;
         }
         setLoadingProfile(true);
         setCustomerProfile(null);
-        const sb = sbRef.current!;
         try {
-            const { data: cust } = await sb
-                .from("customers")
-                .select("id, name, phone")
-                .eq("phone", phone)
-                .maybeSingle();
-            if (!cust?.id) return;
+            const res  = await fetch(`/api/whatsapp/threads/${threadId}/orders`, { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.customer) return;
 
-            const { data: ordersRaw } = await sb
-                .from("orders")
-                .select(`id, created_at, status, total_amount, order_items ( product_name, quantity, unit_price, unit_type )`)
-                .eq("customer_id", cust.id)
-                .order("created_at", { ascending: false })
-                .limit(30);
-
-            const orders: CustomerOrder[] = (ordersRaw ?? []).map((o: any) => ({
-                id:           o.id,
-                created_at:   o.created_at,
-                status:       o.status ?? "new",
-                total_amount: Number(o.total_amount ?? 0),
-                items: Array.isArray(o.order_items)
-                    ? o.order_items.map((it: any) => ({
-                          product_name: it.product_name ?? "Item",
-                          quantity:     Number(it.quantity ?? 1),
-                          unit_price:   Number(it.unit_price ?? 0),
-                          unit_type:    it.unit_type ?? "unit",
-                      }))
-                    : [],
-            }));
-
+            const orders: CustomerOrder[] = Array.isArray(json.orders) ? json.orders : [];
+            const c = json.customer as { id: string; name: string | null; phone: string | null; totalSpent: number; orderCount: number; tags: string[] };
             const profile: CustomerProfile = {
-                id:         cust.id,
-                name:       cust.name,
-                phone:      cust.phone,
-                totalSpent: orders.reduce((s, o) => s + o.total_amount, 0),
-                orderCount: orders.length,
+                id:         c.id,
+                name:       c.name,
+                phone:      c.phone,
+                totalSpent: c.totalSpent,
+                orderCount: c.orderCount,
                 lastOrder:  orders[0] ?? null,
-                tags:       buildTags(orders),
+                orders,
+                tags:       c.tags ?? [],
             };
-            profileCacheRef.current.set(phone, { profile, ts: Date.now() });
+            profileCacheRef.current.set(threadId, { profile, ts: Date.now() });
             setCustomerProfile(profile);
         } catch { /* silently */ }
         finally { setLoadingProfile(false); }
@@ -411,94 +369,48 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         try {
             const res  = await fetch(`/api/whatsapp/threads/${threadId}/cart`, { cache: "no-store", credentials: "include" });
             const json = await res.json().catch(() => ({}));
-            if (!res.ok) { setActiveCart(null); setHandoverInfo(null); return; }
+            if (!res.ok) { setActiveCart(null); setHandoverInfo(null); setPendingConfirmation(null); return; }
             setActiveCart((json.cart ?? null) as ActiveCart | null);
             setHandoverInfo((json.handover ?? null) as ThreadHandoverInfo | null);
+            setPendingConfirmation((json.pendingConfirmation ?? null) as PendingOrderConfirmation | null);
         } catch {
             setActiveCart(null);
             setHandoverInfo(null);
+            setPendingConfirmation(null);
         } finally {
             setLoadingCart(false);
         }
     }, []);
 
-    function adjustCartItemQty(produtoEmbalagemId: string, delta: number) {
-        setCartEdited(true);
-        setCartDraftItems((prev) =>
-            prev
-                .map((it) =>
-                    it.produtoEmbalagemId === produtoEmbalagemId
-                        ? { ...it, quantity: it.quantity + delta, subtotal: (it.quantity + delta) * it.unitPrice }
-                        : it
-                )
-                .filter((it) => it.quantity > 0)
-        );
-    }
-
-    function removeCartItem(produtoEmbalagemId: string) {
-        setCartEdited(true);
-        setCartDraftItems((prev) => prev.filter((it) => it.produtoEmbalagemId !== produtoEmbalagemId));
-    }
-
-    const cartDraftTotal     = cartDraftItems.reduce((s, it) => s + it.subtotal, 0);
-    const cartDraftItemCount = cartDraftItems.reduce((s, it) => s + it.quantity, 0);
-
-    /**
-     * Manda pro Pedidos com os itens do carrinho (já com os ajustes do agente) prontos —
-     * o agente só confere e salva. Reconciliação: se o bot ainda está ativo, desliga agora —
-     * o agente está assumindo o fechamento deste pedido, evitando o bot finalizar o mesmo
-     * carrinho em paralelo (pedido duplicado).
-     */
-    async function openCartAsNewOrder() {
-        if (!selectedThreadId || cartDraftItems.length === 0) return;
-        const thread = threads.find((t) => t.id === selectedThreadId);
-
-        if (thread && thread.bot_active !== false) {
-            try {
-                await fetch(`/api/whatsapp/threads/${selectedThreadId}/bot-toggle`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    credentials: "include",
-                    body: JSON.stringify({ bot_active: false }),
-                });
-                setThreads((prev) =>
-                    prev.map((t) => (t.id === selectedThreadId ? { ...t, bot_active: false, handover_at: new Date().toISOString() } : t))
-                );
-            } catch { /* best-effort — segue mesmo se o toggle falhar */ }
-        }
-
-        try {
-            sessionStorage.setItem(
-                "pedidos:cart_prefill",
-                JSON.stringify({
-                    threadId: selectedThreadId,
-                    items: cartDraftItems,
-                    customerName: customerProfile?.name || thread?.profile_name || null,
-                    customerPhone: thread?.phone_e164 ?? null,
-                    address: activeCart?.address ?? null,
-                })
-            );
-        } catch { /* sessionStorage indisponível — Pedidos cai no fallback via API */ }
-
-        router.push(`/pedidos?from_cart_thread=${selectedThreadId}`);
-    }
-
     function copyCartSummary() {
-        if (cartDraftItems.length === 0) return;
-        const lines = cartDraftItems.map(
+        const items = activeCart?.items ?? [];
+        if (items.length === 0) return;
+        const total = items.reduce((s, it) => s + it.subtotal, 0);
+        const lines = items.map(
             (it) => `• ${it.quantity}x ${it.productName}${it.sigla ? ` (${it.sigla})` : ""} — R$ ${formatBRL(it.subtotal)}`
         );
-        const text = [
-            "Carrinho do cliente:",
-            ...lines,
-            `Total: R$ ${formatBRL(cartDraftTotal)}`,
-        ].join("\n");
+        const text = ["Carrinho do cliente:", ...lines, `Total: R$ ${formatBRL(total)}`].join("\n");
         navigator.clipboard?.writeText(text)
             .then(() => {
                 setCartCopied(true);
                 globalThis.setTimeout(() => setCartCopied(false), 2000);
             })
             .catch(() => { /* clipboard indisponível (http/permissão) — ignora */ });
+    }
+
+    async function cancelPendingConfirmation() {
+        if (!selectedThreadId) return;
+        setCancelingConfirmation(true);
+        try {
+            await fetch(`/api/whatsapp/threads/${selectedThreadId}/cart/cancel-confirmation`, {
+                method: "POST",
+                credentials: "include",
+            });
+        } catch { /* best-effort */ }
+        finally {
+            setCancelingConfirmation(false);
+            loadActiveCart(selectedThreadId);
+        }
     }
 
     // ── effects ───────────────────────────────────────────────────────────────
@@ -548,8 +460,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
 
     // Load customer profile when thread changes
     useEffect(() => {
-        const t = threads.find((t) => t.id === selectedThreadId);
-        if (t?.phone_e164) loadCustomerProfile(t.phone_e164);
+        if (selectedThreadId) loadCustomerProfile(selectedThreadId);
         else setCustomerProfile(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
@@ -557,21 +468,15 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     // Load active cart when thread changes
     useEffect(() => {
         setCartCopied(false);
-        setCartEdited(false);
         if (selectedThreadId) {
             loadActiveCart(selectedThreadId);
         } else {
             setActiveCart(null);
             setHandoverInfo(null);
-            setCartDraftItems([]);
+            setPendingConfirmation(null);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
-
-    // Sincroniza a cópia editável com o carrinho carregado — só enquanto o agente não editou nada.
-    useEffect(() => {
-        if (!cartEdited) setCartDraftItems(activeCart?.items ?? []);
-    }, [activeCart, cartEdited]);
 
     // Persist selectedThreadId in URL
     useEffect(() => {
@@ -1374,15 +1279,34 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     cartLoading={loadingCart}
                     handover={handoverInfo}
                     cartCopied={cartCopied}
-                    onOpenCartAsOrder={openCartAsNewOrder}
                     onCopyCartSummary={copyCartSummary}
-                    draftItems={cartDraftItems}
-                    draftTotal={cartDraftTotal}
-                    draftItemCount={cartDraftItemCount}
-                    onAdjustQty={adjustCartItemQty}
-                    onRemoveItem={removeCartItem}
+                    onOpenCartEditor={() => setCartModalOpen(true)}
+                    pendingConfirmation={pendingConfirmation}
+                    onCancelConfirmation={cancelPendingConfirmation}
+                    cancelingConfirmation={cancelingConfirmation}
+                    onViewOrder={(id) => setViewOrderId(id)}
                 />
             )}
+
+            {/* ── MODAL: montar/editar carrinho (produtos, endereço, pagamento) ── */}
+            {selectedThreadId && (
+                <CartEditModal
+                    open={cartModalOpen}
+                    onClose={() => setCartModalOpen(false)}
+                    threadId={selectedThreadId}
+                    customerName={customerProfile?.name || selectedThread?.profile_name || null}
+                    customerPhone={selectedThread?.phone_e164 ?? null}
+                    initialCart={activeCart}
+                    onSent={() => { setCartModalOpen(false); loadActiveCart(selectedThreadId); }}
+                />
+            )}
+
+            {/* ── MODAL: detalhe read-only de pedido antigo (deep link) ──── */}
+            <OrderSummaryModal
+                open={!!viewOrderId}
+                onClose={() => setViewOrderId(null)}
+                orderId={viewOrderId}
+            />
 
             {/* ── MODAL: limite billing ──────────────────────────────────── */}
             {limitOpen && (
@@ -1506,13 +1430,12 @@ function CustomerProfileSidebar({
     cartLoading,
     handover,
     cartCopied,
-    onOpenCartAsOrder,
     onCopyCartSummary,
-    draftItems,
-    draftTotal,
-    draftItemCount,
-    onAdjustQty,
-    onRemoveItem,
+    onOpenCartEditor,
+    pendingConfirmation,
+    onCancelConfirmation,
+    cancelingConfirmation,
+    onViewOrder,
 }: {
     thread: Thread;
     profile: CustomerProfile | null;
@@ -1523,13 +1446,12 @@ function CustomerProfileSidebar({
     cartLoading: boolean;
     handover: ThreadHandoverInfo | null;
     cartCopied: boolean;
-    onOpenCartAsOrder: () => void;
     onCopyCartSummary: () => void;
-    draftItems: ActiveCart["items"];
-    draftTotal: number;
-    draftItemCount: number;
-    onAdjustQty: (produtoEmbalagemId: string, delta: number) => void;
-    onRemoveItem: (produtoEmbalagemId: string) => void;
+    onOpenCartEditor: () => void;
+    pendingConfirmation: PendingOrderConfirmation | null;
+    onCancelConfirmation: () => void;
+    cancelingConfirmation: boolean;
+    onViewOrder: (orderId: string) => void;
 }) {
     const displayIn = {
         channel: thread.channel,
@@ -1590,13 +1512,29 @@ function CustomerProfileSidebar({
                     </div>
                 )}
 
-                {/* Carrinho atual do cliente — vem da sessão do bot (ou do último abandono) */}
+                {/* ── Seção 1: Carrinho atual (solicitação pendente ou preview + editor) ── */}
                 {cartLoading ? (
                     <div className="h-24 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
-                ) : cart && draftItems.length > 0 ? (
+                ) : pendingConfirmation ? (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-800/60 dark:bg-blue-900/15">
+                        <div className="mb-1 flex items-center gap-1.5">
+                            <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+                            <p className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">Aguardando confirmação do cliente</p>
+                        </div>
+                        <p className="whitespace-pre-wrap text-[11px] text-zinc-600 dark:text-zinc-400 line-clamp-4">{pendingConfirmation.summaryText}</p>
+                        <p className="mt-1 text-[10px] text-zinc-400">enviado há {timeAgo(pendingConfirmation.createdAt)}</p>
+                        <button
+                            onClick={onCancelConfirmation}
+                            disabled={cancelingConfirmation}
+                            className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg border border-blue-200 px-2 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/30"
+                        >
+                            {cancelingConfirmation ? "Cancelando..." : "Cancelar solicitação"}
+                        </button>
+                    </div>
+                ) : (
                     <div
                         className={`rounded-xl border px-3 py-2.5 ${
-                            draftTotal >= HIGH_VALUE_CART_THRESHOLD
+                            cart && cart.grandTotal >= HIGH_VALUE_CART_THRESHOLD
                                 ? "border-orange-200 bg-orange-50 dark:border-orange-800/60 dark:bg-orange-900/15"
                                 : "border-zinc-100 dark:border-zinc-800"
                         }`}
@@ -1605,94 +1543,73 @@ function CustomerProfileSidebar({
                             <div className="flex items-center gap-1.5">
                                 <ShoppingCart className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
                                 <p className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
-                                    {cart.source === "live_session" ? "Carrinho atual" : "Carrinho abandonado"}
+                                    {cart ? (cart.source === "live_session" ? "Carrinho atual" : "Carrinho abandonado") : "Carrinho"}
                                 </p>
                             </div>
-                            <span className="text-[10px] text-zinc-400">{cart.stepLabel}</span>
+                            {cart && <span className="text-[10px] text-zinc-400">{cart.stepLabel}</span>}
                         </div>
 
-                        <div className="divide-y divide-zinc-50 dark:divide-zinc-800">
-                            {draftItems.map((it) => (
-                                <div key={it.produtoEmbalagemId} className="flex items-center justify-between gap-1.5 py-1">
-                                    <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-700 dark:text-zinc-300">
-                                        {it.productName}{it.sigla && it.sigla !== "UN" ? ` (${it.sigla})` : ""}
-                                    </span>
-                                    <div className="flex shrink-0 items-center gap-1">
-                                        <button
-                                            onClick={() => onAdjustQty(it.produtoEmbalagemId, -1)}
-                                            aria-label={`Diminuir quantidade de ${it.productName}`}
-                                            className="flex h-4 w-4 items-center justify-center rounded border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                                        >
-                                            −
-                                        </button>
-                                        <span className="w-4 text-center text-[10px] font-semibold text-zinc-600 dark:text-zinc-300">{it.quantity}</span>
-                                        <button
-                                            onClick={() => onAdjustQty(it.produtoEmbalagemId, 1)}
-                                            aria-label={`Aumentar quantidade de ${it.productName}`}
-                                            className="flex h-4 w-4 items-center justify-center rounded border border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                                        >
-                                            +
-                                        </button>
-                                        <span className="ml-1 w-14 shrink-0 text-right text-[10px] font-semibold text-zinc-500">
-                                            R$ {formatBRL(it.subtotal)}
-                                        </span>
-                                        <button
-                                            onClick={() => onRemoveItem(it.produtoEmbalagemId)}
-                                            aria-label={`Remover ${it.productName} do carrinho`}
-                                            className="flex h-4 w-4 items-center justify-center rounded text-zinc-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30"
-                                        >
-                                            <X className="h-3 w-3" aria-hidden="true" />
-                                        </button>
-                                    </div>
+                        {cart && cart.items.length > 0 ? (
+                            <>
+                                <div className="divide-y divide-zinc-50 dark:divide-zinc-800">
+                                    {cart.items.map((it) => (
+                                        <div key={it.produtoEmbalagemId} className="flex items-center justify-between gap-1.5 py-1">
+                                            <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-700 dark:text-zinc-300">
+                                                {it.quantity}x {it.productName}{it.sigla && it.sigla !== "UN" ? ` (${it.sigla})` : ""}
+                                            </span>
+                                            <span className="shrink-0 text-right text-[10px] font-semibold text-zinc-500">R$ {formatBRL(it.subtotal)}</span>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
-
-                        <div className="mt-1.5 flex items-center justify-between border-t border-zinc-100 pt-1.5 dark:border-zinc-800">
-                            <span className="text-[11px] text-zinc-500">
-                                {draftItemCount} {draftItemCount === 1 ? "item" : "itens"}
-                            </span>
-                            <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(draftTotal)}</span>
-                        </div>
-
-                        {(cart.address || cart.paymentMethod) && (
-                            <div className="mt-1.5 space-y-1 border-t border-zinc-100 pt-1.5 text-[10px] text-zinc-500 dark:border-zinc-800">
-                                {cart.address && (
-                                    <p className="flex items-start gap-1">
-                                        <MapPin className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
-                                        <span className="truncate">
-                                            {[cart.address.logradouro, cart.address.numero, cart.address.bairro].filter(Boolean).join(", ")}
-                                        </span>
-                                    </p>
+                                <div className="mt-1.5 flex items-center justify-between border-t border-zinc-100 pt-1.5 dark:border-zinc-800">
+                                    <span className="text-[11px] text-zinc-500">
+                                        {cart.totalItems} {cart.totalItems === 1 ? "item" : "itens"}
+                                    </span>
+                                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(cart.grandTotal)}</span>
+                                </div>
+                                {(cart.address || cart.paymentMethod) && (
+                                    <div className="mt-1.5 space-y-1 border-t border-zinc-100 pt-1.5 text-[10px] text-zinc-500 dark:border-zinc-800">
+                                        {cart.address && (
+                                            <p className="flex items-start gap-1">
+                                                <MapPin className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+                                                <span className="truncate">
+                                                    {[cart.address.logradouro, cart.address.numero, cart.address.bairro].filter(Boolean).join(", ")}
+                                                </span>
+                                            </p>
+                                        )}
+                                        {cart.paymentMethod && (
+                                            <p className="flex items-center gap-1">
+                                                <Wallet className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                                {paymentLabel(cart.paymentMethod)}
+                                            </p>
+                                        )}
+                                    </div>
                                 )}
-                                {cart.paymentMethod && (
-                                    <p className="flex items-center gap-1">
-                                        <Wallet className="h-3 w-3 shrink-0" aria-hidden="true" />
-                                        {paymentLabel(cart.paymentMethod)}
-                                    </p>
-                                )}
-                            </div>
+                            </>
+                        ) : (
+                            <p className="text-[11px] text-zinc-400">Nenhum carrinho ativo agora.</p>
                         )}
 
                         <div className="mt-2 flex gap-1.5">
                             <button
-                                onClick={onOpenCartAsOrder}
-                                disabled={draftItems.length === 0}
-                                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={onOpenCartEditor}
+                                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-primary/90 transition-colors"
                             >
                                 <ShoppingCart className="h-3 w-3" aria-hidden="true" />
-                                Abrir pedido
+                                {cart && cart.items.length > 0 ? "Editar carrinho" : "Montar carrinho"}
                             </button>
-                            <button
-                                onClick={onCopyCartSummary}
-                                title="Copiar resumo do carrinho"
-                                className="flex items-center justify-center gap-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                            >
-                                {cartCopied ? <Check className="h-3 w-3 text-emerald-600" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
-                            </button>
+                            {cart && cart.items.length > 0 && (
+                                <button
+                                    onClick={onCopyCartSummary}
+                                    title="Copiar resumo do carrinho"
+                                    className="flex items-center justify-center gap-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                >
+                                    {cartCopied ? <Check className="h-3 w-3 text-emerald-600" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+                                </button>
+                            )}
                         </div>
                     </div>
-                ) : null}
+                )}
 
                 {loading ? (
                     <div className="space-y-3 pt-2" aria-label="Carregando perfil">
@@ -1718,34 +1635,37 @@ function CustomerProfileSidebar({
                             </div>
                         </div>
 
-                        {/* Último pedido */}
-                        {profile.lastOrder ? (
+                        {/* ── Seção 2: Últimos pedidos (deep link pro detalhe) ── */}
+                        {profile.orders.length > 0 ? (
                             <div className="rounded-xl border border-zinc-100 dark:border-zinc-800">
-                                <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
-                                    <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">Último pedido</p>
-                                    <div className="flex items-center gap-2">
-                                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${statusColor(profile.lastOrder.status)}`}>
-                                            {statusLabel(profile.lastOrder.status)}
-                                        </span>
-                                        <span className="text-[10px] text-zinc-400">{formatDateShort(profile.lastOrder.created_at)}</span>
-                                    </div>
+                                <div className="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                                    <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">Últimos pedidos</p>
                                 </div>
-
                                 <div className="divide-y divide-zinc-50 dark:divide-zinc-800">
-                                    {profile.lastOrder.items.slice(0, 5).map((it, idx) => (
-                                        <div key={idx} className="flex items-center justify-between px-3 py-1.5">
-                                            <span className="truncate text-[11px] text-zinc-700 dark:text-zinc-300">{it.product_name}</span>
-                                            <span className="ml-2 shrink-0 text-[10px] font-semibold text-zinc-500">×{it.quantity}</span>
-                                        </div>
+                                    {profile.orders.slice(0, 5).map((o) => (
+                                        <button
+                                            key={o.id}
+                                            onClick={() => onViewOrder(o.id)}
+                                            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${statusColor(o.status)}`}>
+                                                        {statusLabel(o.status)}
+                                                    </span>
+                                                    <span className="text-[10px] text-zinc-400">{formatDateShort(o.created_at)}</span>
+                                                </div>
+                                                <p className="mt-0.5 truncate text-[11px] text-zinc-600 dark:text-zinc-400">
+                                                    {o.items.slice(0, 2).map((it) => it.product_name).join(", ")}
+                                                    {o.items.length > 2 ? ` +${o.items.length - 2}` : ""}
+                                                </p>
+                                            </div>
+                                            <div className="flex shrink-0 items-center gap-1">
+                                                <span className="text-[11px] font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(o.total_amount)}</span>
+                                                <ChevronRight className="h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />
+                                            </div>
+                                        </button>
                                     ))}
-                                    {profile.lastOrder.items.length > 5 && (
-                                        <p className="px-3 py-1 text-[10px] text-zinc-400">+{profile.lastOrder.items.length - 5} itens</p>
-                                    )}
-                                </div>
-
-                                <div className="flex items-center justify-between border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
-                                    <span className="text-[11px] text-zinc-500">Total</span>
-                                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(profile.lastOrder.total_amount)}</span>
                                 </div>
                             </div>
                         ) : (

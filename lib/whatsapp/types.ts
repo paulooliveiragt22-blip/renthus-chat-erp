@@ -74,6 +74,13 @@ export interface ThreadHandoverInfo {
     since:  string;
 }
 
+/** Solicitação de confirmação de pedido em aberto (atendente já mandou, aguardando resposta do cliente). */
+export interface PendingOrderConfirmation {
+    id:          string;
+    summaryText: string;
+    createdAt:   string;
+}
+
 export interface Usage {
     used:             number;
     limit_per_month:  number | null;
@@ -102,6 +109,8 @@ export interface CustomerProfile {
     totalSpent: number;
     orderCount: number;
     lastOrder:  CustomerOrder | null;
+    /** Últimos pedidos (mais recente primeiro) — usado na seção "Últimos pedidos" com deep link. */
+    orders:     CustomerOrder[];
     tags:       string[];
 }
 

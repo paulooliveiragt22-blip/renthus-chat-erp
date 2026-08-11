@@ -52,7 +52,22 @@ export async function GET(
 
         const customer = { phone: thread.phone_e164 as string | null, name: thread.profile_name as string | null };
 
-        return NextResponse.json({ cart, handover, customer });
+        // Confirmação de pedido em aberto (atendente já pediu, aguardando CONFIRMAR/CANCELAR do cliente).
+        const { data: pending } = await admin
+            .from("whatsapp_order_confirmations")
+            .select("id, summary_text, created_at")
+            .eq("thread_id", threadId)
+            .eq("company_id", companyId)
+            .in("status", ["pending", "processing"])
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const pendingConfirmation = pending
+            ? { id: pending.id as string, summaryText: pending.summary_text as string, createdAt: pending.created_at as string }
+            : null;
+
+        return NextResponse.json({ cart, handover, customer, pendingConfirmation });
     } catch (e) {
         return NextResponse.json(
             { error: e instanceof Error ? e.message : "failed_to_load_cart" },
