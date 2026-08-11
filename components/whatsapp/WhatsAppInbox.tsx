@@ -10,27 +10,34 @@ import React, {
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
+    Check,
     ChevronRight,
     Clock,
+    Copy,
     Eraser,
     File,
     Info,
+    MapPin,
     Menu,
     Mic,
     Paperclip,
     RefreshCcw,
     Send,
     ShoppingBag,
+    ShoppingCart,
     Square,
+    Wallet,
     WifiOff,
     X,
 } from "lucide-react";
 import type {
+    ActiveCart,
     CustomerOrder,
     CustomerProfile,
     DetectedMedia,
     Message,
     Thread,
+    ThreadHandoverInfo,
     Usage,
 } from "@/lib/whatsapp/types";
 import { getInitials, normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
@@ -96,6 +103,14 @@ function statusColor(s: string) {
     };
     return m[s] ?? "bg-zinc-100 text-zinc-500";
 }
+
+function paymentLabel(m: string | null): string {
+    const map: Record<string, string> = { pix: "Pix", cash: "Dinheiro", card: "Cartão" };
+    return m ? (map[m] ?? m) : "-";
+}
+
+/** Acima disso, destaca o carrinho pro agente priorizar (carrinho de valor alto). */
+const HIGH_VALUE_CART_THRESHOLD = 100;
 
 function buildTags(orders: CustomerOrder[]): string[] {
     const tags: string[] = [];
@@ -223,6 +238,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const [profileOpen,     setProfileOpen]     = useState(true);
     const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
     const [loadingProfile,  setLoadingProfile]  = useState(false);
+
+    // carrinho ativo da thread (sessão do bot / abandonado) — facilita fechar pedido no atendimento humano
+    const [activeCart,   setActiveCart]   = useState<ActiveCart | null>(null);
+    const [loadingCart,  setLoadingCart]  = useState(false);
+    const [handoverInfo, setHandoverInfo] = useState<ThreadHandoverInfo | null>(null);
+    const [cartCopied,   setCartCopied]   = useState(false);
 
     // refs
     const bottomRef         = useRef<HTMLDivElement | null>(null);
@@ -377,6 +398,46 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         finally { setLoadingProfile(false); }
     }, []);
 
+    const loadActiveCart = useCallback(async (threadId: string, opts?: { silent?: boolean }) => {
+        if (!opts?.silent) setLoadingCart(true);
+        try {
+            const res  = await fetch(`/api/whatsapp/threads/${threadId}/cart`, { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) { setActiveCart(null); setHandoverInfo(null); return; }
+            setActiveCart((json.cart ?? null) as ActiveCart | null);
+            setHandoverInfo((json.handover ?? null) as ThreadHandoverInfo | null);
+        } catch {
+            setActiveCart(null);
+            setHandoverInfo(null);
+        } finally {
+            setLoadingCart(false);
+        }
+    }, []);
+
+    /** Manda pro Pedidos com os itens do carrinho já prontos — o agente só confere e salva. */
+    function openCartAsNewOrder() {
+        if (!selectedThreadId) return;
+        router.push(`/pedidos?from_cart_thread=${selectedThreadId}`);
+    }
+
+    function copyCartSummary() {
+        if (!activeCart || activeCart.items.length === 0) return;
+        const lines = activeCart.items.map(
+            (it) => `• ${it.quantity}x ${it.productName}${it.sigla ? ` (${it.sigla})` : ""} — R$ ${formatBRL(it.subtotal)}`
+        );
+        const text = [
+            "Carrinho do cliente:",
+            ...lines,
+            `Total: R$ ${formatBRL(activeCart.grandTotal)}`,
+        ].join("\n");
+        navigator.clipboard?.writeText(text)
+            .then(() => {
+                setCartCopied(true);
+                globalThis.setTimeout(() => setCartCopied(false), 2000);
+            })
+            .catch(() => { /* clipboard indisponível (http/permissão) — ignora */ });
+    }
+
     // ── effects ───────────────────────────────────────────────────────────────
 
     // Initial load
@@ -427,6 +488,18 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         const t = threads.find((t) => t.id === selectedThreadId);
         if (t?.phone_e164) loadCustomerProfile(t.phone_e164);
         else setCustomerProfile(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedThreadId]);
+
+    // Load active cart when thread changes
+    useEffect(() => {
+        setCartCopied(false);
+        if (selectedThreadId) {
+            loadActiveCart(selectedThreadId);
+        } else {
+            setActiveCart(null);
+            setHandoverInfo(null);
+        }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedThreadId]);
 
@@ -501,6 +574,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                         if (!applyInboundMessageRealtime(payload, setMessages, messagesAreaRef)) {
                             loadMessages(selectedThreadId);
                         }
+                        // Nova mensagem pode ter mudado o carrinho (bot processou algo) — atualiza sem flicker.
+                        loadActiveCart(selectedThreadId, { silent: true });
                     }
                 )
                 .subscribe((status) => {
@@ -925,10 +1000,26 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                                             <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
                                                 {subtitle}
                                             </p>
-                                            {t.bot_active === false && (
-                                                <span className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
-                                                    🤝 Humano
-                                                </span>
+                                            {(t.bot_active === false || t.cart_summary) && (
+                                                <div className="mt-0.5 flex items-center gap-1">
+                                                    {t.bot_active === false && (
+                                                        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                                                            🤝 Humano
+                                                        </span>
+                                                    )}
+                                                    {t.cart_summary && (
+                                                        <span
+                                                            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                                                                t.cart_summary.total >= HIGH_VALUE_CART_THRESHOLD
+                                                                    ? "bg-orange-100 text-orange-700"
+                                                                    : "bg-primary/10 text-primary"
+                                                            }`}
+                                                            title={`${t.cart_summary.itemCount} itens no carrinho — R$ ${formatBRL(t.cart_summary.total)}`}
+                                                        >
+                                                            🛒 R$ {formatBRL(t.cart_summary.total)}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -1202,6 +1293,12 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                     loading={loadingProfile}
                     onClose={() => setProfileOpen(false)}
                     onRepeatOrder={repeatLastOrder}
+                    cart={activeCart}
+                    cartLoading={loadingCart}
+                    handover={handoverInfo}
+                    cartCopied={cartCopied}
+                    onOpenCartAsOrder={openCartAsNewOrder}
+                    onCopyCartSummary={copyCartSummary}
                 />
             )}
 
@@ -1323,12 +1420,24 @@ function CustomerProfileSidebar({
     loading,
     onClose,
     onRepeatOrder,
+    cart,
+    cartLoading,
+    handover,
+    cartCopied,
+    onOpenCartAsOrder,
+    onCopyCartSummary,
 }: {
     thread: Thread;
     profile: CustomerProfile | null;
     loading: boolean;
     onClose: () => void;
     onRepeatOrder: () => void;
+    cart: ActiveCart | null;
+    cartLoading: boolean;
+    handover: ThreadHandoverInfo | null;
+    cartCopied: boolean;
+    onOpenCartAsOrder: () => void;
+    onCopyCartSummary: () => void;
 }) {
     const displayIn = {
         channel: thread.channel,
@@ -1376,6 +1485,98 @@ function CustomerProfileSidebar({
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {/* Atendimento humano: motivo do handover */}
+                {thread.bot_active === false && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+                        <p className="font-semibold">Em atendimento humano</p>
+                        {handover?.reason && <p className="mt-0.5">{handover.reason}</p>}
+                        {(handover?.since || thread.handover_at) && (
+                            <p className="mt-0.5 text-amber-600/80 dark:text-amber-400/70">
+                                há {timeAgo(handover?.since ?? thread.handover_at)}
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {/* Carrinho atual do cliente — vem da sessão do bot (ou do último abandono) */}
+                {cartLoading ? (
+                    <div className="h-24 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
+                ) : cart && cart.items.length > 0 ? (
+                    <div
+                        className={`rounded-xl border px-3 py-2.5 ${
+                            cart.grandTotal >= HIGH_VALUE_CART_THRESHOLD
+                                ? "border-orange-200 bg-orange-50 dark:border-orange-800/60 dark:bg-orange-900/15"
+                                : "border-zinc-100 dark:border-zinc-800"
+                        }`}
+                    >
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                                <ShoppingCart className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                                <p className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
+                                    {cart.source === "live_session" ? "Carrinho atual" : "Carrinho abandonado"}
+                                </p>
+                            </div>
+                            <span className="text-[10px] text-zinc-400">{cart.stepLabel}</span>
+                        </div>
+
+                        <div className="divide-y divide-zinc-50 dark:divide-zinc-800">
+                            {cart.items.map((it, idx) => (
+                                <div key={`${it.produtoEmbalagemId}-${idx}`} className="flex items-center justify-between py-1">
+                                    <span className="truncate text-[11px] text-zinc-700 dark:text-zinc-300">
+                                        {it.productName}{it.sigla && it.sigla !== "UN" ? ` (${it.sigla})` : ""}
+                                    </span>
+                                    <span className="ml-2 shrink-0 text-[10px] font-semibold text-zinc-500">
+                                        {it.quantity}× R$ {formatBRL(it.subtotal)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="mt-1.5 flex items-center justify-between border-t border-zinc-100 pt-1.5 dark:border-zinc-800">
+                            <span className="text-[11px] text-zinc-500">
+                                {cart.totalItems} {cart.totalItems === 1 ? "item" : "itens"}
+                            </span>
+                            <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">R$ {formatBRL(cart.grandTotal)}</span>
+                        </div>
+
+                        {(cart.address || cart.paymentMethod) && (
+                            <div className="mt-1.5 space-y-1 border-t border-zinc-100 pt-1.5 text-[10px] text-zinc-500 dark:border-zinc-800">
+                                {cart.address && (
+                                    <p className="flex items-start gap-1">
+                                        <MapPin className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+                                        <span className="truncate">
+                                            {[cart.address.logradouro, cart.address.numero, cart.address.bairro].filter(Boolean).join(", ")}
+                                        </span>
+                                    </p>
+                                )}
+                                {cart.paymentMethod && (
+                                    <p className="flex items-center gap-1">
+                                        <Wallet className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                        {paymentLabel(cart.paymentMethod)}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="mt-2 flex gap-1.5">
+                            <button
+                                onClick={onOpenCartAsOrder}
+                                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-primary/90 transition-colors"
+                            >
+                                <ShoppingCart className="h-3 w-3" aria-hidden="true" />
+                                Abrir pedido
+                            </button>
+                            <button
+                                onClick={onCopyCartSummary}
+                                title="Copiar resumo do carrinho"
+                                className="flex items-center justify-center gap-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                            >
+                                {cartCopied ? <Check className="h-3 w-3 text-emerald-600" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+
                 {loading ? (
                     <div className="space-y-3 pt-2" aria-label="Carregando perfil">
                         {Array.from({ length: 4 }).map((_, i) => (

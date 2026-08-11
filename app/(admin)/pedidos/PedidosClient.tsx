@@ -594,6 +594,55 @@ export default function PedidosPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 
+    /**
+     * Vindo da inbox WhatsApp (botão "Abrir pedido" no carrinho do atendimento humano):
+     * abre "Novo pedido" já com os itens do carrinho do cliente — o agente só confere,
+     * ajusta endereço/pagamento e salva, sem o cliente ter que repetir o pedido.
+     */
+    const cartThreadAppliedRef = useRef<string | null>(null);
+    useEffect(() => {
+        const threadId = searchParams.get("from_cart_thread");
+        if (!threadId || cartThreadAppliedRef.current === threadId) return;
+        cartThreadAppliedRef.current = threadId;
+
+        (async () => {
+            const res  = await fetch(`/api/whatsapp/threads/${threadId}/cart`, { cache: "no-store", credentials: "include" });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) { setMsg(`Erro ao carregar carrinho: ${json?.error ?? "falha desconhecida"}`); return; }
+
+            const cartData = json.cart as { items: Array<{ produtoEmbalagemId: string; productName: string; sigla: string | null; quantity: number; unitPrice: number }> } | null;
+            const customer  = json.customer as { phone: string | null; name: string | null } | null;
+            const address   = cartData && (json.cart as { address?: { logradouro: string; numero: string; bairro: string } | null }).address;
+
+            if (!cartData || cartData.items.length === 0) {
+                setMsg("Este cliente não tem carrinho ativo no momento.");
+                router.replace("/pedidos");
+                return;
+            }
+
+            openPedidosNewModal();
+
+            const prefillItems: CartItem[] = cartData.items.map((it) => ({
+                variant: {
+                    id: it.produtoEmbalagemId,
+                    unit_price: it.unitPrice,
+                    unit_embalagem_id: it.produtoEmbalagemId,
+                    products: { name: it.sigla && it.sigla !== "UN" ? `${it.productName} (${it.sigla})` : it.productName },
+                },
+                qty: it.quantity,
+                price: it.unitPrice,
+                mode: "unit",
+            }));
+            setCart(prefillItems);
+
+            if (customer?.name) setCustomerName(customer.name);
+            if (customer?.phone) setCustomerPhone(customer.phone);
+            if (address) setCustomerAddress([address.logradouro, address.numero, address.bairro].filter(Boolean).join(", "));
+
+            router.replace("/pedidos");
+        })();
+    }, [searchParams]);
+
     // ── auto refresh ──────────────────────────────────────────────────────────
     useEffect(() => {
         const timer = setInterval(() => {

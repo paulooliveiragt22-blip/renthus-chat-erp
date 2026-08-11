@@ -12,6 +12,13 @@ export interface Message {
     sender_type?: string | null;
 }
 
+/** Resumo leve do carrinho ativo/abandonado da thread — usado pro badge 🛒 na lista de conversas. */
+export interface ThreadCartSummary {
+    source:    "live_session" | "abandoned";
+    itemCount: number;
+    total:     number;
+}
+
 export interface Thread {
     id:                   string;
     phone_e164:           string | null;
@@ -29,6 +36,42 @@ export interface Thread {
     channel?:             string | null;
     /** E.164 / IGSID / PSID */
     external_id?:         string | null;
+    cart_summary?:        ThreadCartSummary | null;
+}
+
+export interface ActiveCartItem {
+    produtoEmbalagemId: string;
+    productName:        string;
+    sigla:               string | null;
+    quantity:            number;
+    unitPrice:           number;
+    subtotal:            number;
+}
+
+export interface ActiveCartAddress {
+    logradouro:  string;
+    numero:      string;
+    bairro:      string;
+    complemento: string | null;
+    cidade?:     string | null;
+    estado?:     string | null;
+}
+
+export interface ActiveCart {
+    source:        "live_session" | "abandoned";
+    step:          string | null;
+    stepLabel:     string;
+    items:         ActiveCartItem[];
+    totalItems:    number;
+    grandTotal:    number;
+    paymentMethod: "pix" | "cash" | "card" | null;
+    address:       ActiveCartAddress | null;
+    updatedAt:     string | null;
+}
+
+export interface ThreadHandoverInfo {
+    reason: string | null;
+    since:  string;
 }
 
 export interface Usage {
