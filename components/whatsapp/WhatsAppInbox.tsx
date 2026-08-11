@@ -913,7 +913,14 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     // ─────────────────────────────────────────────────────────────────────────
 
     return (
-        <div className="flex h-[calc(100vh-64px)] gap-3 overflow-hidden">
+        /**
+         * `absolute inset-0` (mesmo padrão do PDV em `app/(admin)/pdv/page.tsx`) escapa do
+         * wrapper padded do `AdminShell` (`main > div.px-*.py-*`), que soma altura extra e
+         * fazia a página inteira rolar (cortando a caixa de digitar mensagem no fundo) em vez
+         * de só a lista de mensagens rolar internamente. Ancora relativo ao `<main>` (o único
+         * ancestor com `position: relative`), preenchendo exatamente o espaço disponível.
+         */
+        <div className="absolute inset-0 flex gap-3 overflow-hidden p-3 md:p-4">
 
             {/* Realtime disconnection banner */}
             {!realtimeOk && (
