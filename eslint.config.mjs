@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Saída compilada de `npm test` (tsc -> .tests-dist/**/*.js) — artefato gerado, não código-fonte.
+    // Achado 2026-08-11 (docs/CHECKLIST_SEGURANCA_CONFIABILIDADE_P0.md item 6): sem este ignore, 779
+    // dos 1129 erros de lint (69%) eram ruído desse diretório, mascarando o tamanho real do backlog.
+    ".tests-dist/**",
   ]),
 ]);
 

@@ -316,12 +316,28 @@ admin) só quebra no deploy da Vercel.
 ```
 
 **Medição local antes de decidir o gate (2026-08-11):**
-- `npm run lint`: **1130 erros, 196 warnings** pré-existentes (a maioria em código legado fora de
-  `tests/`, nada introduzido nesta sessão). Bloquear o merge nisso hoje pararia praticamente todo PR
-  por dívida técnica não relacionada. **Decisão:** `continue-on-error: true` — o step continua
-  visível no log do CI (não perde contexto/regressão fica registrada), mas não bloqueia. Meta futura:
-  zerar o backlog e remover o `continue-on-error` (não é item deste checklist — ficou fora de escopo
-  por ser um esforço de refactor grande, não uma correção de segurança/confiabilidade P0).
+- `npm run lint`: primeira medição deu **1130 erros, 196 warnings**, mas **779 dos 1129 erros (69%)
+  e 25 dos 196 warnings eram ruído de `.tests-dist/**`** — a saída compilada pelo `tsc` do script
+  `npm test` (JS gerado, recriado a cada run), que nunca deveria ter sido escaneada. `eslint.config.mjs`
+  sobrescreve os ignores default do `eslint-config-next` (`.next/**`, `out/**`, `build/**`) sem incluir
+  esse diretório. **Corrigido:** adicionado `.tests-dist/**` ao `globalIgnores`. Número real do
+  backlog, só em código-fonte: **350 erros, 169 warnings**, sendo:
+  - `@typescript-eslint/no-explicit-any`: 312 erros (bate com o achado de "~279 usos de `any`" da
+    auditoria original, cresceu um pouco desde então).
+  - `@typescript-eslint/no-unused-expressions`: 81 warnings.
+  - `@typescript-eslint/no-unused-vars`: 64 warnings.
+  - Diretivas `eslint-disable` obsoletas (regra já não dispara mais ali): 16 warnings.
+  - `react-hooks/set-state-in-effect`: 12 erros (regra nova do `eslint-plugin-react-hooks` — set
+    state síncrono dentro de `useEffect` sem guarda, causa re-render extra).
+  - Resto (`no-unescaped-entities`, `no-require-imports` residual, `no-img-element`,
+    `react-hooks/purity`, `exhaustive-deps`, `prefer-const`, `no-empty-object-type`,
+    `prefer-as-const`, `react-hooks/refs`, `no-html-link-for-pages`): 1 a 6 ocorrências cada.
+  Ainda assim, 350+169 é volume grande demais pra virar gate bloqueante nesta entrega — travaria
+  praticamente todo PR por dívida técnica não relacionada. **Decisão:** `continue-on-error: true` —
+  o step continua visível no log do CI (não perde contexto/regressão fica registrada), mas não
+  bloqueia. Meta futura: zerar o backlog real (350+169, não mais 1130+196) e remover o
+  `continue-on-error` (não é item deste checklist — ficou fora de escopo por ser um esforço de
+  refactor grande, não uma correção de segurança/confiabilidade P0).
 - `npm run build` (typecheck completo via `next build`): **falhou inicialmente** — ver achado extra
   abaixo (bump de `sharp` quebrou um type de `lib/billing/decodePixQrFromUrl.ts`). Corrigido; build
   passa limpo (~19min localmente no Windows com `--max-old-space-size=8192`; CI Linux deve ser mais
@@ -371,8 +387,8 @@ hoje o workflow existe mas não há evidência de que seja obrigatório.
 **Pendente para depois (não bloqueante, registrado para não perder contexto):**
 - Bump de `@anthropic-ai/sdk` para `0.116.0` (breaking, moderate severity) — fazer em entrega própria
   com teste manual do fluxo de IA do chatbot.
-- Zerar os 1130 erros / 196 warnings de lint pré-existentes e remover o `continue-on-error: true` do
-  step de lint.
+- Zerar os 350 erros / 169 warnings de lint reais (excluindo `.tests-dist/**`, já filtrado do
+  ignore) e remover o `continue-on-error: true` do step de lint.
 
 **Resultado obtido:** PR com build quebrado ou vulnerabilidade alta em dependência falha o CI antes
 de chegar em `main`. Lint continua informativo (não bloqueante) até o backlog ser zerado.
