@@ -23,3 +23,17 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Lint
+        # 1130 erros pré-existentes (auditoria 2026-08-11, ver docs/CHECKLIST_SEGURANCA_CONFIABILIDADE_P0.md
+        # item 6) — inviável travar o merge nisso hoje. continue-on-error mantém o step visível no CI
+        # (não perde contexto) sem bloquear PRs por dívida técnica anterior a este item. Meta: zerar o
+        # backlog e remover este continue-on-error.
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Build (typecheck completo)
+        run: npm run build
+
+      - name: Audit de dependências
+        run: npm audit --audit-level=high

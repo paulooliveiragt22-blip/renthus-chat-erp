@@ -4,13 +4,13 @@
  */
 
 import "server-only";
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import jsQR from "jsqr";
 import { isImageMagic, isPixEmvPayload, pickPixEmvFromText } from "@/lib/billing/pixEmv";
 
 /** Pipelines → RGBA (jsQR exige 4 canais). */
 async function decodeEmvFromImageBuffer(buf: Buffer): Promise<string | null> {
-    const pipelines: Array<(img: sharp.Sharp) => sharp.Sharp> = [
+    const pipelines: Array<(img: Sharp) => Sharp> = [
         (img) => img.rotate().flatten({ background: "#ffffff" }),
         (img) =>
             img.rotate().greyscale().normalize().toColorspace("srgb").flatten({

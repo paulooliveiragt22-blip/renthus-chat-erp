@@ -26,9 +26,9 @@ existente).
 | 1 | Allowlist do `proxy.ts` — billing/charge + meta/messaging | Crítico | [x] 2026-08-11 |
 | 2 | Error tracking (Sentry) + `/api/health` + uptime | Crítico | [x] 2026-08-11 |
 | 3 | Idempotência real em `create_order_with_items` | Alto | [x] 2026-08-11 |
-| 4 | Hardening RLS das 5 tabelas novas | Alto | [ ] |
+| 4 | Hardening RLS das 5 tabelas novas | Alto | [x] 2026-08-11 |
 | 5 | Runbook de backup/DR do Postgres | Crítico | [x] 2026-08-11 |
-| 6 | CI: lint + typecheck/build + `npm audit` como gate | Alto | [ ] |
+| 6 | CI: lint + typecheck/build + `npm audit` como gate | Alto | [x] 2026-08-11 |
 | 7 | Envelope de erro único na API | Alto | [ ] |
 | 8 | Extrair `whatsapp/flows` e `process-queue` para use cases | Alto | [ ] |
 | 9 | Rate limit + idempotência em PDV/checkout | Alto | [x] 2026-08-11 |
@@ -295,17 +295,18 @@ pendentes de você — ver acima)
 
 ---
 
-## 6. CI: lint + typecheck/build + `npm audit` como gate
+## 6. CI: lint + typecheck/build + `npm audit` como gate ✅ (+ achado extra: 3 vulns altas corrigidas)
 
 **Objetivo:** `.github/workflows/test.yml` hoje só roda `npm ci && npm test` — sem lint, sem
 `next build`, sem `npm audit`. Regressão de tipo em código fora de `tests/` (a maior parte da UI
 admin) só quebra no deploy da Vercel.
 
-**Arquivo a alterar:** `.github/workflows/test.yml` (10 linhas hoje) — adicionar steps:
+**Arquivo alterado:** `.github/workflows/test.yml` — adicionados 3 steps após `npm test`:
 
 ```yaml
       - name: Lint
         run: npm run lint
+        continue-on-error: true
 
       - name: Build (typecheck completo)
         run: npm run build
@@ -314,19 +315,69 @@ admin) só quebra no deploy da Vercel.
         run: npm audit --audit-level=high
 ```
 
-**Correção:** rodar localmente antes de subir pra ver quantos erros de lint/build já existem hoje
-(esperado: alguns, dado o achado de ~279 usos de `any` e 9 god-files) — decidir se entra como gate
-bloqueante direto ou com `continue-on-error: true` temporário enquanto se estabiliza, registrando
-aqui a decisão tomada.
+**Medição local antes de decidir o gate (2026-08-11):**
+- `npm run lint`: **1130 erros, 196 warnings** pré-existentes (a maioria em código legado fora de
+  `tests/`, nada introduzido nesta sessão). Bloquear o merge nisso hoje pararia praticamente todo PR
+  por dívida técnica não relacionada. **Decisão:** `continue-on-error: true` — o step continua
+  visível no log do CI (não perde contexto/regressão fica registrada), mas não bloqueia. Meta futura:
+  zerar o backlog e remover o `continue-on-error` (não é item deste checklist — ficou fora de escopo
+  por ser um esforço de refactor grande, não uma correção de segurança/confiabilidade P0).
+- `npm run build` (typecheck completo via `next build`): **falhou inicialmente** — ver achado extra
+  abaixo (bump de `sharp` quebrou um type de `lib/billing/decodePixQrFromUrl.ts`). Corrigido; build
+  passa limpo (~19min localmente no Windows com `--max-old-space-size=8192`; CI Linux deve ser mais
+  rápido). **Decisão: gate bloqueante** (sem `continue-on-error`) — build quebrado é sempre um bug
+  real, não dívida técnica aceitável.
+- `npm audit --audit-level=high`: **14 vulnerabilidades (1 low, 2 moderate, 11 high)** antes de
+  qualquer correção. **Decisão: gate bloqueante** (sem `continue-on-error`) — ver correção abaixo,
+  hoje passa limpo (exit 0).
 
-**Fora do repo:** configurar branch protection no GitHub (Settings → Branches → Require status
-checks) pra exigir o job `CI / test` verde antes de mergear em `main` — hoje o workflow existe mas
-não há evidência de que seja obrigatório.
+**Achado extra e correção (dependências vulneráveis, 2026-08-11):**
+- `npm audit fix` (sem `--force`, sem breaking changes): corrigiu 8 pacotes transitivos — `axios`,
+  `brace-expansion`, `dompurify`, `fast-uri`, `form-data`, `js-yaml`, `nanoid`, `ws`. Só alterou
+  `package-lock.json` (nenhuma dependência direta mudou de versão).
+- `next` 16.2.3 → **16.3.0** e `sharp` 0.34.5 → **0.35.3**: bump manual (exigia `--force` no
+  `npm audit fix` por serem "breaking" pelo semver, mas nenhum dos dois quebra o uso real do
+  projeto). Verificado antes de aplicar: Next 16.3 é release focado em performance/dev-tooling, sem
+  breaking change relevante para App Router puro (rename de endpoint interno de HMR, remoção de
+  default antigo de `moduleResolution: node10` — não usado aqui). Sharp 0.35 remove `failOnError`,
+  `paletteBitDepth`, propriedades antigas de `sharpen` e renomeia `format.jp2k`→`format.jp2` — nenhum
+  desses símbolos é usado nos 4 arquivos do repo que importam `sharp`
+  (`lib/billing/decodePixQrFromUrl.ts`, `app/api/products/upload-image/route.ts`,
+  `app/api/admin/menu-profile/upload/route.ts`, `scripts/generateFluxoPedidoChatbotPdf.mjs`).
+  Requer Node ≥ 20.9.0 (CI usa `node-version: 20`, ambiente local tem v24 — ok).
+- **Efeito colateral encontrado e corrigido:** o pacote `sharp@0.35` trocou os type declarations para
+  ESM puro (`export const sharp: SharpConstructor` em vez do antigo
+  `declare namespace sharp { interface Sharp ... } export = sharp`). Como `tsconfig.test.json` usa
+  `moduleResolution: "node"` (clássico, ignora o campo `exports` do `package.json` e lê só
+  `"types"`), o projeto passou a resolver `dist/index.d.mts` (sem namespace), quebrando a referência
+  `sharp.Sharp` em `lib/billing/decodePixQrFromUrl.ts`. Corrigido trocando para
+  `import sharp, { type Sharp } from "sharp"` e usando `Sharp` direto (sem qualificar pelo
+  namespace). `npm run build` (TypeScript completo do projeto) e `npm test` (773/773) passam limpos
+  depois da correção.
+- `@anthropic-ai/sdk` continua com **1 vulnerabilidade moderada** (permissão insegura de arquivo no
+  "Local Filesystem Memory Tool") exigindo bump `0.89.0 → 0.116.0` (breaking, salto grande de
+  versões). Não corrigido nesta entrega: é o SDK que orquestra as chamadas ao Claude no core do
+  chatbot — merece rodada própria de upgrade com teste dedicado, não bundlado aqui. Fica de fora do
+  gate porque é severidade `moderate` (< `--audit-level=high`); ver item pendente abaixo.
+- **Efeito colateral extra corrigido:** ao medir o lint, achei 1 erro real (não dívida antiga) em
+  `tests/api/health.test.ts:22` (`(require as any).cache`) — arquivo criado nesta mesma sessão no
+  item 2. Trocado para `require.cache as unknown as Record<string, unknown>` (tipo já existe em
+  `@types/node`, não precisava de `any`). Lint do arquivo limpo; `npm test` confirma 773/773.
 
-**Resultado esperado:** PR com erro de tipo, lint, build quebrado ou vulnerabilidade alta em
-dependência falha o CI antes de chegar em `main`.
+**Fora do repo (pendente, ação do usuário):** configurar branch protection no GitHub (Settings →
+Branches → Require status checks) pra exigir o job `CI / test` verde antes de mergear em `main` —
+hoje o workflow existe mas não há evidência de que seja obrigatório.
 
-**Estado:** [ ]
+**Pendente para depois (não bloqueante, registrado para não perder contexto):**
+- Bump de `@anthropic-ai/sdk` para `0.116.0` (breaking, moderate severity) — fazer em entrega própria
+  com teste manual do fluxo de IA do chatbot.
+- Zerar os 1130 erros / 196 warnings de lint pré-existentes e remover o `continue-on-error: true` do
+  step de lint.
+
+**Resultado obtido:** PR com build quebrado ou vulnerabilidade alta em dependência falha o CI antes
+de chegar em `main`. Lint continua informativo (não bloqueante) até o backlog ser zerado.
+
+**Estado:** [x] Concluído (2026-08-11)
 
 ---
 

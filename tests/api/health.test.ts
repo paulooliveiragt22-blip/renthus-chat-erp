@@ -18,8 +18,7 @@ function loadHealthRoute(dbError: unknown) {
     const adminPath = join(distRoot, "lib", "supabase", "admin.js");
     const routePath = join(distRoot, "app", "api", "health", "route.js");
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const cache = (require as any).cache as Record<string, unknown>;
+    const cache = require.cache as unknown as Record<string, unknown>;
 
     cache[adminPath] = {
         id: adminPath,
