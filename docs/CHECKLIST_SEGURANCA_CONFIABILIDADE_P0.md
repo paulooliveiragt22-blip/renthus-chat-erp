@@ -30,7 +30,7 @@ existente).
 | 5 | Runbook de backup/DR do Postgres | Crítico | [x] 2026-08-11 |
 | 6 | CI: lint + typecheck/build + `npm audit` como gate | Alto | [x] 2026-08-11 |
 | 7 | Envelope de erro único na API | Alto | [x] |
-| 8 | Extrair `whatsapp/flows` e `process-queue` para use cases | Alto | [ ] |
+| 8 | Extrair `whatsapp/flows` e `process-queue` para use cases | Alto | [x] `process-queue` extraído; `whatsapp/flows` cancelado (descontinuado, ver F5) |
 | 9 | Rate limit + idempotência em PDV/checkout | Alto | [x] 2026-08-11 |
 
 ---
@@ -446,19 +446,63 @@ nenhuma mensagem crua do Postgres (`err.message`) vazando pro client em rota pil
 **Objetivo:** os 2 maiores concentradores de complexidade fora de `src/pro` — Route Handler
 fazendo auth + query + regra de negócio + I/O externo tudo junto.
 
-**Arquivos:**
-- `app/api/whatsapp/flows/route.ts` (1782 linhas) — extrair pra `lib/whatsapp/flows/*` (use cases
-  por tipo de flow: checkout, catálogo, CEP/delivery, cadastro de endereço), deixando a rota só
-  com decrypt/routing/encrypt.
-- `app/api/chatbot/process-queue/route.ts` (777 linhas) — **nota:** este arquivo já é alvo da Fase
-  3 de `docs/PLANO_ESCALA_PICOS_PEDIDOS.md` (paralelismo por thread); coordenar as duas frentes no
-  mesmo arquivo pra não conflitar (fazer a extração de use case **antes** de paralelizar, ou depois
-  — decidir na implementação, registrar aqui a ordem escolhida).
+**Decisão de escopo (2026-08-11, aprovada):** o WhatsApp Flow inteiro (os 4 flow types de
+`app/api/whatsapp/flows/route.ts` — `status`, `address_register`, `catalog`, `checkout` legado)
+**vai ser descontinuado**, substituído pelo cardápio web (ver
+`docs/CHECKLIST_CARDAPIO_WEB_MARKETPLACE.md` F5). Não faz sentido investir em extração/testes
+extensos num arquivo com prazo de validade conhecido — **cancelado**, nenhuma mudança de código
+nele por causa deste item. `process-queue/route.ts` não é afetado por essa descontinuação
+(processa a fila do chatbot em geral, não só Flow) e seguiu como único alvo real desta frente.
 
-**Resultado esperado:** Route Handler fino (autenticação + parse + delegação), lógica de negócio
-testável isoladamente sem precisar de `Request`/`NextResponse` mockado.
+**Arquivos alterados:**
+- `app/api/chatbot/process-queue/route.ts` (784 → ~200 linhas): reduzido a auth (`validateCronAuthorization`)
+  + parse (`parseDrainDepth`) + orquestração (claim RPC, self-wake, resposta HTTP). Toda regra de
+  negócio por job foi extraída para `lib/chatbot/queue/*` (novo):
+  - `types.ts` — `ChatbotQueueJobRow` (schema real de `chatbot_queue`, sem `any`), `AdminClient`,
+    `QueueBatchCounters`.
+  - `env.ts` — `getPositiveIntEnv`, `MAX_ATTEMPTS` (fonte única, antes duplicada em `route.ts`).
+  - `coalesce.ts` — `buildCoalesceKey`, `hasRecentEquivalentProcessed`, `normalizeInboundText`,
+    `isCriticalOrderConfirmationText`, `shouldSkipCoalesceByPayload`.
+  - `processJobEntry.ts` — `processQueueJobEntry(admin, job)`: confirmação de pedido pendente →
+    gate de handover/reativação → typing indicator → `processInboundMessage`. **Hardening de
+    segurança feito na extração:** as 3 queries do bloco de handover/reativação
+    (`whatsapp_threads` select/update, `chatbot_sessions` delete) ganharam filtro `.eq("company_id",
+    company_id)` além do `.eq("id"/"thread_id", ...)` já existente — antes confiavam só no
+    `thread_id` (UUID) sem escopo explícito de tenant.
+  - `runQueueEntry.ts` — `runQueueEntryWithOutcome(admin, job, seenInBatch, opts?)`: coalesce →
+    (marca `processing` se `markProcessingBeforeRun`) → `processQueueJobEntry` → persiste
+    `done`/`failed`/retry com backoff. Retorna o outcome (`"processed" | "coalesced" | "failed"`)
+    em vez de mutar contadores por referência — facilita reuso concorrente na Fase 3 de
+    `docs/PLANO_ESCALA_PICOS_PEDIDOS.md`.
+  - `maintenance.ts` — `reclaimStuckJobs`, `cleanupOldJobs`, `emitQueueMetrics`.
+  - Todos os módulos novos importam `"server-only"` (nunca podem ser importados do client).
+- `tests/helpers/mockSupabaseAdmin.ts` (novo): mock de client Supabase (`.from().eq()...` +
+  `.rpc("claim_chatbot_queue_jobs", ...)`) extraído de
+  `tests/integration/chatbot-queue-e2e.test.ts` pra reuso em testes unitários novos.
+- `tests/integration/chatbot-queue-e2e.test.ts`: usa o helper acima em vez de duplicar o mock;
+  também corrigido `(require as any).cache` → `require.cache as unknown as ...` (mesmo padrão do
+  item 6, reduz o backlog de lint em vez de adicionar mais um `any`).
+- `tests/chatbot/queueCoalesce.test.ts` (novo, 11 casos): `normalizeInboundText`,
+  `isCriticalOrderConfirmationText`, `buildCoalesceKey` (confirmação crítica/texto curto/interativo
+  nunca coalescem; mesma chave para texto equivalente; `phone_e164` como owner preferencial) e
+  `hasRecentEquivalentProcessed` (detecta duplicata recente, ignora o próprio job, `false` sem
+  histórico).
+- `tests/chatbot/runQueueEntry.test.ts` (novo, 5 casos): processa com sucesso, coalesce pula
+  `processQueueJobEntry`, falha retryable volta pra `pending` com backoff, falha terminal marca
+  `failed` ao atingir `MAX_ATTEMPTS`, `markProcessingBeforeRun` incrementa `attempts` antes de
+  rodar. `processQueueJobEntry` é substituído via `require.cache` (mesmo padrão do e2e) — mantém o
+  teste focado só na orquestração de `runQueueEntryWithOutcome`.
+- `docs/PLANO_ESCALA_PICOS_PEDIDOS.md` (Fase 3): atualizado pra apontar pros módulos novos —
+  paralelismo por thread passa a chamar `runQueueEntryWithOutcome` dentro de
+  `runWithConcurrencyLimit`, sem precisar de nova extração.
 
-**Estado:** [ ] — **maior esforço da lista, não abrir sem os itens 1-7 estáveis.**
+**Resultado obtido:** Route Handler fino (autenticação + parse + delegação); lógica de negócio
+testável isoladamente sem `Request`/`NextResponse` mockado. `npm test` verde (790 testes, 0 falha,
++17 sobre a baseline do item 6). `npm run build` (typecheck completo) e `npm run lint` sem
+regressão (346 erros / 168 warnings pré-existentes — baseline do item 6 era 350/169; a correção do
+`(require as any).cache` reduziu o backlog em vez de aumentá-lo).
+
+**Estado:** [x] Concluído (2026-08-12) — escopo `whatsapp/flows` cancelado (ver decisão acima).
 
 ---
 
@@ -533,3 +577,4 @@ pedido.
 |------|------|------|
 | 2026-08-11 | Documento criado; Item 1 corrigido e testado (765 testes verdes) | Rule nova `.cursor/rules/supabase-migrations-seguranca.mdc` criada junto |
 | 2026-08-11 | Itens 3 e 9 concluídos (770 testes verdes) | Migrations `20260811100000_orders_idempotency_key.sql`, `20260811110000_pdv_finalize_idempotency_key.sql`, `20260811120000_bills_idempotency_key.sql` aplicadas no remoto e verificadas via SQL direto. Rule nova `.cursor/rules/projeto-pre-producao-radical.mdc` criada junto (postura radical enquanto não há cliente real). |
+| 2026-08-12 | Item 8 concluído (790 testes verdes, build e lint sem regressão) | `process-queue/route.ts` extraído pra `lib/chatbot/queue/*` (`types`, `env`, `coalesce`, `processJobEntry`, `runQueueEntry`, `maintenance`); hardening de `company_id` no gate de handover; `whatsapp/flows` cancelado (descontinuação de produto, ver `docs/CHECKLIST_CARDAPIO_WEB_MARKETPLACE.md` F5). `docs/PLANO_ESCALA_PICOS_PEDIDOS.md` (Fase 3) atualizado pra usar os módulos novos. |

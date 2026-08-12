@@ -180,19 +180,23 @@ jobs cujo `thread_id` tenha outro job `processing` — a garantia de "nunca 2 pr
 thread ao mesmo tempo" já existe no banco. Paralelizar por thread só usa essa garantia que já
 existia; não é gambiarra nova.
 
-- [ ] `app/api/chatbot/process-queue/route.ts`:
-  - Import novo: `groupQueueJobsByThread`, `runWithConcurrencyLimit`, tipo `ChatbotQueueJobRow`.
-  - Nova env: `CHATBOT_QUEUE_CONCURRENCY` (helper `getPositiveIntEnv`, já existe na linha 40-46),
-    default sugerido **3** (chute inicial — calibrar depois da Fase 0, ver Seção 5 riscos).
-  - Extrair o corpo do `for` principal (linhas 148-212) para uma função nomeada
-    `processQueueJobEntry(admin, job, seenInBatch, counters)` que faz coalesce → `processJob` →
-    `done`/retry — comportamento **idêntico** ao atual, só isolado em função pra reuso.
-  - No `GET` (após `interleaveQueueJobsByCompany`, linha 141): trocar o `for` por
-    `runWithConcurrencyLimit(groupQueueJobsByThread(jobList), CHATBOT_QUEUE_CONCURRENCY, async (bucket) => { for (const job of bucket) await processQueueJobEntry(...); })`.
-  - Mesma troca em `runFallbackProcessing` (linhas 287-359) — mesma função `processQueueJobEntry`
-    reaproveitada, sem duplicar lógica de coalesce/retry entre os dois caminhos.
-  - `job: any` (linha 370) e `claimed.map((r: any) => r.id)` (linha 115) trocam para
-    `ChatbotQueueJobRow` / tipo inferido do RPC.
+- [x] **Pré-requisito já concluído (2026-08-12, item 8 de
+  `docs/CHECKLIST_SEGURANCA_CONFIABILIDADE_P0.md`):** `app/api/chatbot/process-queue/route.ts` foi
+  extraído para `lib/chatbot/queue/*` — `route.ts` agora só faz auth + parse + orquestração
+  (claim RPC, self-wake, resposta HTTP). A unidade de trabalho por job já existe isolada e
+  testável em `lib/chatbot/queue/runQueueEntry.ts` (`runQueueEntryWithOutcome(admin, job,
+  seenInBatch, opts?)`), que por sua vez chama `lib/chatbot/queue/processJobEntry.ts`
+  (`processQueueJobEntry`, sem `any`, com `ChatbotQueueJobRow` tipado em
+  `lib/chatbot/queue/types.ts`). Isso elimina a necessidade da extração descrita originalmente
+  nesta fase — só falta o paralelismo em si:
+  - Import novo em `route.ts`: `groupQueueJobsByThread`, `runWithConcurrencyLimit`.
+  - Nova env: `CHATBOT_QUEUE_CONCURRENCY` (helper `getPositiveIntEnv` já em
+    `lib/chatbot/queue/env.ts`), default sugerido **3** (chute inicial — calibrar depois da
+    Fase 0, ver Seção 5 riscos).
+  - No `GET` e em `runFallbackProcessing`: trocar o `for` sequencial por
+    `runWithConcurrencyLimit(groupQueueJobsByThread(jobList), CHATBOT_QUEUE_CONCURRENCY, async (bucket) => { for (const job of bucket) await runQueueEntryWithOutcome(admin, job, seenInBatch, opts); })` —
+    `runQueueEntryWithOutcome` já retorna o outcome (`"processed" | "coalesced" | "failed"`) em vez
+    de mutar contador por referência, então o `reduce`/tally dos buckets é direto.
   - **Nota de design (registrar, não é bug):** `seenInBatch` (coalescing) passa a ser
     lido/escrito intercalado entre buckets concorrentes — o efeito prático (evitar duplicar
     processamento do mesmo texto na mesma janela) continua válido; a ordem exata de quem "vence"

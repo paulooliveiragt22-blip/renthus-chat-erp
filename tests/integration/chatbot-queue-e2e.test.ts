@@ -2,113 +2,11 @@ import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
-
-type Row = Record<string, unknown>;
-type Tables = Record<string, Row[]>;
+import { makeMockAdmin } from "../helpers/mockSupabaseAdmin";
 
 let incomingPost: (req: Request) => Promise<Response>;
 let processQueueGet: (req: Request) => Promise<Response>;
 let processInboundCalls: Array<Record<string, unknown>> = [];
-
-function clone<T>(v: T): T {
-    return JSON.parse(JSON.stringify(v));
-}
-
-function matches(row: Row, filters: Array<(r: Row) => boolean>): boolean {
-    return filters.every((fn) => fn(row));
-}
-
-function makeMockAdmin(tables: Tables) {
-    const writes: Array<{ table: string; operation: string; data: unknown }> = [];
-    let idSeq = 1;
-
-    function chain(tableName: string, filters: Array<(r: Row) => boolean> = []) {
-        const table = tables[tableName] ?? (tables[tableName] = []);
-        const api: Record<string, unknown> = {
-            select: () => chain(tableName, filters),
-            eq: (key: string, value: unknown) => chain(tableName, [...filters, (r) => r[key] === value]),
-            in: (key: string, values: unknown[]) => chain(tableName, [...filters, (r) => values.includes(r[key])]),
-            lt: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") < String(value)]),
-            lte: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") <= String(value)]),
-            gte: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") >= String(value)]),
-            order: () => chain(tableName, filters),
-            limit: () => chain(tableName, filters),
-            maybeSingle: async () => {
-                const row = table.find((r) => matches(r, filters)) ?? null;
-                return { data: row, error: null };
-            },
-            single: async () => {
-                const row = table.find((r) => matches(r, filters)) ?? null;
-                return { data: row, error: row ? null : { message: "not found" } };
-            },
-            then: (resolve: (v: unknown) => void) => {
-                const data = table.filter((r) => matches(r, filters));
-                // `.select("id", { count: "exact", head: true })` (sem `.then` explícito no route)
-                // ainda resolve via este thenable — expõe `count` igual ao Supabase real.
-                return Promise.resolve({ data, error: null, count: data.length }).then(resolve);
-            },
-            insert: (data: Row | Row[]) => {
-                const arr = Array.isArray(data) ? data : [data];
-                const inserted = arr.map((item) => {
-                    const row = { ...item };
-                    if (!row.id) row.id = `${tableName}-${idSeq++}`;
-                    if (!row.created_at) row.created_at = new Date().toISOString();
-                    table.push(row);
-                    return row;
-                });
-                writes.push({ table: tableName, operation: "insert", data: clone(arr) });
-                return {
-                    select: () => ({
-                        single: async () => ({ data: inserted[0] ?? null, error: null }),
-                    }),
-                    single: async () => ({ data: inserted[0] ?? null, error: null }),
-                    then: (resolve: (v: unknown) => void) =>
-                        Promise.resolve({ data: inserted, error: null }).then(resolve),
-                };
-            },
-            update: (patch: Row) => {
-                const targets = table.filter((r) => matches(r, filters));
-                for (const row of targets) Object.assign(row, patch);
-                writes.push({ table: tableName, operation: "update", data: clone(patch) });
-                return chain(tableName, filters);
-            },
-            delete: () => {
-                const keep: Row[] = [];
-                const removed: Row[] = [];
-                for (const row of table) {
-                    if (matches(row, filters)) removed.push(row);
-                    else keep.push(row);
-                }
-                tables[tableName] = keep;
-                writes.push({ table: tableName, operation: "delete", data: clone(removed) });
-                return chain(tableName, []);
-            },
-        };
-        return api;
-    }
-
-    return {
-        client: {
-            from: (tableName: string) => chain(tableName),
-            rpc: async (name: string, params: Record<string, unknown>) => {
-                if (name !== "claim_chatbot_queue_jobs") return { data: null, error: { message: "rpc not found" } };
-                const batch = Number(params.batch_size ?? 5);
-                const maxAttempts = Number(params.max_attempts ?? 3);
-                const queue = tables.chatbot_queue ?? [];
-                const pending = queue
-                    .filter((j) => j.status === "pending" && Number(j.attempts ?? 0) < maxAttempts)
-                    .slice(0, batch);
-                for (const job of pending) {
-                    job.status = "processing";
-                    job.attempts = Number(job.attempts ?? 0) + 1;
-                }
-                return { data: pending.map((j) => ({ id: j.id })), error: null };
-            },
-        },
-        writes,
-        tables,
-    };
-}
 
 before(() => {
     processInboundCalls = [];
@@ -126,8 +24,7 @@ before(() => {
     const incomingPath = join(root, "app", "api", "whatsapp", "incoming", "route.js");
     const queuePath = join(root, "app", "api", "chatbot", "process-queue", "route.js");
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-    const cache = (require as any).cache as Record<string, unknown>;
+    const cache = require.cache as unknown as Record<string, unknown>;
 
     const db = makeMockAdmin({
         whatsapp_channels: [{
