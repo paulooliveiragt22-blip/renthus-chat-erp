@@ -29,7 +29,7 @@ existente).
 | 4 | Hardening RLS das 5 tabelas novas | Alto | [x] 2026-08-11 |
 | 5 | Runbook de backup/DR do Postgres | Crítico | [x] 2026-08-11 |
 | 6 | CI: lint + typecheck/build + `npm audit` como gate | Alto | [x] 2026-08-11 |
-| 7 | Envelope de erro único na API | Alto | [ ] |
+| 7 | Envelope de erro único na API | Alto | [x] |
 | 8 | Extrair `whatsapp/flows` e `process-queue` para use cases | Alto | [ ] |
 | 9 | Rate limit + idempotência em PDV/checkout | Alto | [x] 2026-08-11 |
 
@@ -415,7 +415,29 @@ qualquer client (PDV, Electron print agent, futuro app mobile).
 **Resultado esperado:** rotas piloto devolvem `{error:{code,message}}` de forma consistente;
 nenhuma mensagem crua do Postgres (`err.message`) vazando pro client em rota piloto.
 
-**Estado:** [ ]
+**Implementado (2026-08-11):**
+- `lib/api/errors.ts` (novo): `ApiError`/`ApiErrorBody`, `jsonError(code, message, status, extra?)`,
+  `codeFromStatus(status)` (deriva code padrão quando a rota só tem status), `jsonAccessError(ctx)`
+  (traduz `{ok:false,status,error}` de `requireCompanyAccess` pro envelope novo sem mudar a
+  assinatura desse helper, usado em dezenas de rotas fora do piloto) e `jsonInternalError(err,
+  {route,...})` (loga + `Sentry.captureException` + devolve mensagem genérica, nunca `err.message`
+  cru).
+- Rotas migradas: `app/api/whatsapp/threads/[threadId]/cart/route.ts`,
+  `.../cart/cancel-confirmation/route.ts`, `.../cart/send-confirmation/route.ts`,
+  `.../orders/route.ts`, e `lib/security/cronAuth.ts` (usado por `billing/charge` e mais 7 rotas de
+  cron/scheduler do chatbot — todas ganharam o envelope novo de graça por herdarem o helper).
+- Client atualizado: `components/whatsapp/CartEditModal.tsx` lia `json?.error` como string
+  (`Erro ao enviar: ${json?.error}`, ex.: mostrava literalmente `items_required` pro atendente);
+  agora lê `json?.error?.message`, que já vem com texto legível em PT-BR.
+- `docs/API_ERROR_CONTRACT.md` (novo): contrato completo + lista de rotas migradas + decisão
+  explícita de não migrar tudo de uma vez (regra `arquitetura-lider.mdc`: rota nova usa o contrato
+  novo desde o início; rota antiga migra quando for tocada por outro motivo).
+- Verificado antes de migrar: nenhum outro componente do frontend lê `.error` como string dessas
+  4 rotas (os outros call sites só checam `res.ok`), então a mudança de formato não quebra UI
+  silenciosamente.
+- `npm test`: 773/773. `npm run build` (typecheck completo do projeto): passa limpo.
+
+**Estado:** [x] Concluído (2026-08-11)
 
 ---
 

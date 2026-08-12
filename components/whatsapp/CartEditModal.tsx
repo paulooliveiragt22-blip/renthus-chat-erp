@@ -214,7 +214,7 @@ export default function CartEditModal({
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setMsg(`Erro ao enviar: ${json?.error ?? json?.message ?? "falha desconhecida"}`);
+                setMsg(`Erro ao enviar: ${json?.error?.message ?? "falha desconhecida"}`);
                 return;
             }
             onSent();

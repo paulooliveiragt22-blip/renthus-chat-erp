@@ -6,6 +6,7 @@ import { sendAndPersistWaText } from "@/lib/whatsapp/sendAndPersist";
 import { formatEnderecoLine } from "@/lib/orders/helpers";
 import { validateDraftConsistency } from "@/src/pro/adapters/order/order.service.v2";
 import type { DraftAddress, DraftItem, OrderDraft, PaymentMethod } from "@/src/types/contracts";
+import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
@@ -61,19 +62,19 @@ function buildSummaryText(params: { items: BodyItem[]; address: DraftAddress; pa
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
     const { threadId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    if (!ctx.ok) return jsonAccessError(ctx);
     const { admin, companyId, userId } = ctx;
 
     const body = (await req.json().catch(() => null)) as Body | null;
     if (!body || !Array.isArray(body.items) || body.items.length === 0) {
-        return NextResponse.json({ error: "items_required" }, { status: 400 });
+        return jsonError("items_required", "Adicione ao menos um item ao carrinho.", 400);
     }
     if (!body.paymentMethod || !["pix", "cash", "card"].includes(body.paymentMethod)) {
-        return NextResponse.json({ error: "invalid_payment_method" }, { status: 400 });
+        return jsonError("invalid_payment_method", "Selecione uma forma de pagamento válida.", 400);
     }
     const addr = body.address;
     if (!addr?.logradouro?.trim() || !addr?.numero?.trim() || !addr?.bairro?.trim() || !addr?.cidade?.trim() || !addr?.estado?.trim() || addr.estado.trim().length < 2) {
-        return NextResponse.json({ error: "invalid_address" }, { status: 400 });
+        return jsonError("invalid_address", "Preencha o endereço completo (rua, número, bairro, cidade e estado).", 400);
     }
 
     const { data: thread, error: threadErr } = await admin
@@ -82,8 +83,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         .eq("id", threadId)
         .eq("company_id", companyId)
         .maybeSingle();
-    if (threadErr) return NextResponse.json({ error: threadErr.message }, { status: 500 });
-    if (!thread?.phone_e164) return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
+    if (threadErr) return jsonInternalError(threadErr, { route: "whatsapp/threads/:id/cart/send-confirmation:POST" });
+    if (!thread?.phone_e164) return jsonError("thread_not_found", "Conversa não encontrada.", 404);
 
     const items: DraftItem[] = body.items.map((it) => ({
         produtoEmbalagemId: String(it.produtoEmbalagemId),
@@ -128,7 +129,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
 
     const consistency = validateDraftConsistency(draft);
     if (!consistency.ok) {
-        return NextResponse.json({ error: "inconsistent_draft", message: consistency.message }, { status: 400 });
+        return jsonError("inconsistent_draft", consistency.message, 400);
     }
 
     const customer = await getOrCreateCustomer(admin, companyId, thread.phone_e164 as string, thread.profile_name as string | null);
@@ -156,7 +157,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         .select("id")
         .single();
     if (insertErr || !inserted?.id) {
-        return NextResponse.json({ error: insertErr?.message ?? "failed_to_create_confirmation" }, { status: 500 });
+        return jsonInternalError(insertErr ?? new Error("failed_to_create_confirmation"), {
+            route: "whatsapp/threads/:id/cart/send-confirmation:POST",
+            step: "insert_confirmation",
+        });
     }
 
     /**
@@ -182,9 +186,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     });
 
     if (!sendResult.ok) {
-        return NextResponse.json(
-            { error: "whatsapp_send_failed", message: sendResult.error, confirmationId: inserted.id },
-            { status: 502 }
+        return jsonError(
+            "whatsapp_send_failed",
+            sendResult.error || "Falha ao enviar a confirmação pelo WhatsApp.",
+            502,
+            { confirmationId: inserted.id }
         );
     }
 

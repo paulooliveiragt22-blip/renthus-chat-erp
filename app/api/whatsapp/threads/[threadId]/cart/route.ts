@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { getThreadActiveCart } from "@/src/pro/pipeline/getThreadActiveCart";
+import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,7 @@ export async function GET(
 ) {
     const { threadId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    if (!ctx.ok) return jsonAccessError(ctx);
 
     const { admin, companyId } = ctx;
 
@@ -28,8 +29,8 @@ export async function GET(
         .eq("company_id", companyId)
         .maybeSingle();
 
-    if (threadErr) return NextResponse.json({ error: threadErr.message }, { status: 500 });
-    if (!thread) return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
+    if (threadErr) return jsonInternalError(threadErr, { route: "whatsapp/threads/:id/cart:GET" });
+    if (!thread) return jsonError("thread_not_found", "Conversa não encontrada.", 404);
 
     try {
         const cart = await getThreadActiveCart({ admin, companyId, threadId });
@@ -69,9 +70,6 @@ export async function GET(
 
         return NextResponse.json({ cart, handover, customer, pendingConfirmation });
     } catch (e) {
-        return NextResponse.json(
-            { error: e instanceof Error ? e.message : "failed_to_load_cart" },
-            { status: 500 }
-        );
+        return jsonInternalError(e, { route: "whatsapp/threads/:id/cart:GET", threadId });
     }
 }

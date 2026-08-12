@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { loadWaConfigForCompany } from "@/lib/whatsapp/channelCredentials";
 import { sendAndPersistWaText } from "@/lib/whatsapp/sendAndPersist";
+import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,7 @@ export const runtime = "nodejs";
 export async function POST(_req: Request, { params }: { params: Promise<{ threadId: string }> }) {
     const { threadId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    if (!ctx.ok) return jsonAccessError(ctx);
     const { admin, companyId } = ctx;
 
     const { data: thread } = await admin
@@ -24,7 +25,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ thread
         .eq("id", threadId)
         .eq("company_id", companyId)
         .maybeSingle();
-    if (!thread) return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
+    if (!thread) return jsonError("thread_not_found", "Conversa não encontrada.", 404);
 
     const { data: cancelled, error } = await admin
         .from("whatsapp_order_confirmations")
@@ -34,7 +35,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ thread
         .eq("status", "pending")
         .select("id")
         .maybeSingle();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return jsonInternalError(error, { route: "whatsapp/threads/:id/cart/cancel-confirmation:POST" });
     if (!cancelled) return NextResponse.json({ ok: true, cancelled: false });
 
     if (thread.phone_e164) {

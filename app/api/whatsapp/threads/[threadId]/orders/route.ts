@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
+import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,7 @@ function buildTags(orders: CustomerOrder[]): string[] {
 export async function GET(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
     const { threadId } = await params;
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    if (!ctx.ok) return jsonAccessError(ctx);
     const { admin, companyId } = ctx;
 
     const { data: thread, error: threadErr } = await admin
@@ -49,8 +50,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
         .eq("id", threadId)
         .eq("company_id", companyId)
         .maybeSingle();
-    if (threadErr) return NextResponse.json({ error: threadErr.message }, { status: 500 });
-    if (!thread) return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
+    if (threadErr) return jsonInternalError(threadErr, { route: "whatsapp/threads/:id/orders:GET" });
+    if (!thread) return jsonError("thread_not_found", "Conversa não encontrada.", 404);
 
     const phone = thread.phone_e164 as string | null;
     if (!phone) return NextResponse.json({ customer: null, orders: [] });
@@ -76,7 +77,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
         .eq("company_id", companyId)
         .not("phone", "is", null)
         .ilike("phone", `%${last8}`);
-    if (custErr) return NextResponse.json({ error: custErr.message }, { status: 500 });
+    if (custErr) return jsonInternalError(custErr, { route: "whatsapp/threads/:id/orders:GET", step: "customers" });
 
     const matches = (candidates ?? []).filter(
         (c) => c.phone && normalizeBrazilToE164(String(c.phone)) === targetE164
@@ -100,7 +101,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ threadId
         .eq("company_id", companyId)
         .order("created_at", { ascending: false })
         .limit(30);
-    if (ordersErr) return NextResponse.json({ error: ordersErr.message }, { status: 500 });
+    if (ordersErr) return jsonInternalError(ordersErr, { route: "whatsapp/threads/:id/orders:GET", step: "orders" });
 
     const orders: CustomerOrder[] = (ordersRaw ?? []).map((o: Record<string, unknown>) => ({
         id: String(o.id),
