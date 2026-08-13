@@ -11,6 +11,23 @@ type BeforeInstallPromptEvent = Event & {
     userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+/**
+ * Captura cedo: o Chrome dispara `beforeinstallprompt` uma vez. Se o hook montar depois,
+ * o evento já passou e o botão some.
+ */
+let capturedPrompt: BeforeInstallPromptEvent | null = null;
+
+if (typeof window !== "undefined") {
+    window.addEventListener("beforeinstallprompt", (e: Event) => {
+        e.preventDefault();
+        capturedPrompt = e as BeforeInstallPromptEvent;
+        window.dispatchEvent(new Event("lysthub:beforeinstallprompt"));
+    });
+    window.addEventListener("appinstalled", () => {
+        capturedPrompt = null;
+    });
+}
+
 function detectIOS(): boolean {
     if (typeof navigator === "undefined") return false;
     const ua = navigator.userAgent;
@@ -31,46 +48,52 @@ function detectStandalone(): boolean {
  * ali não queremos oferecer instalação como app.
  */
 export function useInstallPrompt() {
-    const [deferredEvent, setDeferredEvent] = useState<BeforeInstallPromptEvent | null>(null);
+    const [deferredEvent, setDeferredEvent] = useState<BeforeInstallPromptEvent | null>(capturedPrompt);
     const [isStandalone, setIsStandalone] = useState(false);
     const [isIOS, setIsIOS] = useState(false);
 
     useEffect(() => {
         setIsStandalone(detectStandalone());
         setIsIOS(detectIOS());
+        if (capturedPrompt) setDeferredEvent(capturedPrompt);
 
-        function onBeforeInstallPrompt(e: Event) {
-            e.preventDefault();
-            setDeferredEvent(e as BeforeInstallPromptEvent);
+        function onCaptured() {
+            setDeferredEvent(capturedPrompt);
         }
         function onAppInstalled() {
+            capturedPrompt = null;
             setDeferredEvent(null);
             setIsStandalone(true);
         }
-        window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+        window.addEventListener("lysthub:beforeinstallprompt", onCaptured);
         window.addEventListener("appinstalled", onAppInstalled);
         return () => {
-            window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+            window.removeEventListener("lysthub:beforeinstallprompt", onCaptured);
             window.removeEventListener("appinstalled", onAppInstalled);
         };
     }, []);
 
     const promptInstall = useCallback(async (): Promise<boolean> => {
-        if (!deferredEvent) return false;
-        await deferredEvent.prompt();
-        const choice = await deferredEvent.userChoice;
+        const event = deferredEvent ?? capturedPrompt;
+        if (!event) return false;
+        await event.prompt();
+        const choice = await event.userChoice;
+        capturedPrompt = null;
         setDeferredEvent(null);
         return choice.outcome === "accepted";
     }, [deferredEvent]);
 
-    const canInstallDirectly = deferredEvent !== null;
+    const canInstallDirectly = deferredEvent !== null || capturedPrompt !== null;
     const canShowIosInstructions = isIOS && !isStandalone && !canInstallDirectly;
+    /** Mostra o botão mesmo se o Chrome não disparar o evento nativo (recusa/cooldown). */
+    const canOfferInstall = !isStandalone;
 
     return {
         isStandalone,
         isIOS,
         canInstallDirectly,
         canShowIosInstructions,
+        canOfferInstall,
         promptInstall,
     };
 }

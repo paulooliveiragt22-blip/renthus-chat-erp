@@ -30,8 +30,9 @@ export default function HeaderClient({
     const [sessionExists, setSessionExists] = useState<boolean | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
-    const { isStandalone, canInstallDirectly, canShowIosInstructions, promptInstall } = useInstallPrompt();
-    const [iosHintOpen, setIosHintOpen] = useState(false);
+    const { canInstallDirectly, canShowIosInstructions, canOfferInstall, promptInstall } =
+        useInstallPrompt();
+    const [installHintOpen, setInstallHintOpen] = useState(false);
     const iosHintRef = useRef<HTMLDivElement | null>(null);
 
     // verifica sessão (apenas no cliente)
@@ -69,13 +70,13 @@ export default function HeaderClient({
                 setMenuOpen(false);
             }
             if (iosHintRef.current && !iosHintRef.current.contains(e.target as Node)) {
-                setIosHintOpen(false);
+                setInstallHintOpen(false);
             }
         }
         function onKey(e: KeyboardEvent) {
             if (e.key === "Escape") {
                 setMenuOpen(false);
-                setIosHintOpen(false);
+                setInstallHintOpen(false);
             }
         }
         document.addEventListener("mousedown", onDoc);
@@ -88,12 +89,11 @@ export default function HeaderClient({
 
     async function handleInstallClick() {
         if (canInstallDirectly) {
-            await promptInstall();
+            const accepted = await promptInstall();
+            if (accepted) setInstallHintOpen(false);
             return;
         }
-        if (canShowIosInstructions) {
-            setIosHintOpen((s) => !s);
-        }
+        setInstallHintOpen((s) => !s);
     }
 
     async function handleSignOut() {
@@ -197,11 +197,11 @@ export default function HeaderClient({
                     {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "Lysthub"}
                 </div>
 
-                {/* Instalar app (PWA) — só admin/PDV; some sozinho quando já instalado */}
-                {!isStandalone && (canInstallDirectly || canShowIosInstructions) && (
+                {/* Instalar app (PWA) — some só quando já está em modo standalone */}
+                {canOfferInstall && (
                     <div ref={iosHintRef} style={{ position: "relative" }}>
                         <button
-                            onClick={handleInstallClick}
+                            onClick={() => { handleInstallClick().catch(() => {}); }}
                             title="Instalar app"
                             style={{
                                 display: "flex",
@@ -220,13 +220,13 @@ export default function HeaderClient({
                             <Download size={16} />
                         </button>
 
-                        {iosHintOpen && (
+                        {installHintOpen && (
                             <div
                                 style={{
                                     position: "absolute",
                                     right: 0,
                                     top: "calc(100% + 10px)",
-                                    width: 240,
+                                    width: 260,
                                     background: "#fff",
                                     color: "#222",
                                     borderRadius: 8,
@@ -238,8 +238,18 @@ export default function HeaderClient({
                                 }}
                             >
                                 <div style={{ fontWeight: 700, marginBottom: 4 }}>Instalar como app</div>
-                                Toque em <b>Compartilhar</b> (ícone □↑ na barra do Safari) e depois em{" "}
-                                <b>&quot;Adicionar à Tela de Início&quot;</b>.
+                                {canShowIosInstructions ? (
+                                    <>
+                                        Toque em <b>Compartilhar</b> (ícone □↑ na barra do Safari) e depois em{" "}
+                                        <b>&quot;Adicionar à Tela de Início&quot;</b>.
+                                    </>
+                                ) : (
+                                    <>
+                                        No Chrome, abra o menu <b>⋮</b> (canto superior direito) e escolha{" "}
+                                        <b>Instalar Lysthub</b>. Se a opção não aparecer, feche o Chrome por
+                                        completo e abra o site de novo.
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
