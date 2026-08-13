@@ -5,7 +5,6 @@
  * Stepper pós-cadastro com 4 etapas.
  */
 
-import Image from "next/image";
 import { useState } from "react";
 import { useRouter }  from "next/navigation";
 
@@ -68,8 +67,13 @@ export default function OnboardingPage() {
         <div style={S.page}>
             {/* Logo */}
             <div style={{ marginBottom: 32 }}>
-                <Image src="/renthus_logo.png" alt="Renthus" width={140} height={42}
-                    style={{ objectFit: "contain" }} priority />
+                <img
+                    src="/brand/lysthub-wordmark-dark.svg"
+                    alt="Lysthub"
+                    width={194}
+                    height={28}
+                    style={{ height: 32, width: "auto", display: "block" }}
+                />
             </div>
 
             {/* Stepper */}
@@ -341,7 +345,7 @@ export default function OnboardingPage() {
                 )}
             </div>
 
-            <p style={S.footer}>© {new Date().getFullYear()} Renthus · Todos os direitos reservados</p>
+            <p style={S.footer}>© {new Date().getFullYear()} Lysthub · Todos os direitos reservados</p>
         </div>
     );
 }

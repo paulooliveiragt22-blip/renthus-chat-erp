@@ -147,13 +147,17 @@ export default function AdminSidebar({
         "flex shrink-0 items-center border-b border-white/10 py-4",
         collapsed ? "justify-center px-0" : "gap-3 px-5",
       ].join(" ")}>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-base font-bold shadow-[0_0_20px_rgba(249,115,22,0.3)]">
-          R
-        </div>
+        <img
+          src="/brand/lysthub-mark-dark.svg"
+          alt={collapsed ? "Lysthub" : ""}
+          width={36}
+          height={36}
+          className="h-9 w-9 shrink-0 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.3)]"
+        />
 
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold tracking-wide">Renthus ERP</div>
+            <div className="truncate text-sm font-semibold tracking-wide">Lysthub</div>
             <div className="text-[10px] font-medium text-white/50">Painel Administrativo</div>
           </div>
         )}

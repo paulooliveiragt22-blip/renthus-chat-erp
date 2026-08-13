@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Sem conexão — Renthus ERP",
+  title: "Sem conexão — Lysthub",
 };
 
 export default function OfflinePage() {

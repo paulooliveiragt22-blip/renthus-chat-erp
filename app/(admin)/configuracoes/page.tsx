@@ -1254,7 +1254,7 @@ function ConfiguracoesPageContent() {
                         <div className="flex flex-col gap-6">
                             <SectionTitle
                                 icon={CircleDollarSign}
-                                title="Plano e pagamentos Renthus"
+                                title="Plano e pagamentos Lysthub"
                                 desc="Período de teste, mensalidade, PIX e cartões salvos no Pagar.me"
                             />
 
@@ -1440,7 +1440,7 @@ function ConfiguracoesPageContent() {
                                                     </div>
                                                 )}
                                                 <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
-                                                    {isFirstPayment ? "Ativar plano Renthus" : "Pagar mensalidade Renthus"}
+                                                    {isFirstPayment ? "Ativar plano Lysthub" : "Pagar mensalidade Lysthub"}
                                                 </h3>
                                                 <p className="mt-0.5 text-xs text-zinc-500">
                                                     {isFirstPayment
@@ -1904,7 +1904,7 @@ function ConfiguracoesPageContent() {
 
                                     <SectionTitle
                                         icon={CreditCard}
-                                        title="Formas de pagamento (cobrança Renthus)"
+                                        title="Formas de pagamento (cobrança Lysthub)"
                                         desc="Como você paga a mensalidade da plataforma — não confunde com formas aceitas no delivery"
                                     />
                                     <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
@@ -1912,7 +1912,7 @@ function ConfiguracoesPageContent() {
                                             PIX e cartão
                                         </p>
                                         <p className="mt-1 text-xs text-zinc-500">
-                                            Use o bloco &quot;Pagar mensalidade Renthus&quot; acima: PIX (QR e copia e
+                                            Use o bloco &quot;Pagar mensalidade Lysthub&quot; acima: PIX (QR e copia e
                                             cola) ou cartão tokenizado no Pagar.me. Confirmação do pagamento libera o
                                             plano automaticamente (webhook ou aprovação imediata).
                                         </p>
@@ -2664,14 +2664,14 @@ function ConfiguracoesPageContent() {
                             <MarketPlanGate
                                 featureKey="marketplace_ifood"
                                 title="Integração iFood"
-                                description="Sincronize catálogo e pedidos do iFood no Renthus."
+                                description="Sincronize catálogo e pedidos do iFood no Lysthub."
                             >
                                 <MarketplaceIfoodSettings />
                             </MarketPlanGate>
                             <MarketPlanGate
                                 featureKey="marketplace_aiqfome"
                                 title="Integração Aiqfome"
-                                description="Sincronize catálogo e pedidos do Aiqfome no Renthus."
+                                description="Sincronize catálogo e pedidos do Aiqfome no Lysthub."
                             >
                                 <MarketplaceAiqfomeSettings />
                             </MarketPlanGate>

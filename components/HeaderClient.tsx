@@ -177,10 +177,10 @@ export default function HeaderClient({
                         <Menu size={18} />
                     </button>
                 )}
-                <a href="/" aria-label="Renthus" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                <a href="/" aria-label="Lysthub" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
                     <img
-                        src="/assets/renthus-logo.svg"
-                        alt="Renthus"
+                        src="/brand/lysthub-wordmark-dark.svg"
+                        alt="Lysthub"
                         style={{
                             height: 28,
                             width: "auto",
@@ -194,7 +194,7 @@ export default function HeaderClient({
             {/* direita: empresa + fullscreen + avatar */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
-                    {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "Renthus Service"}
+                    {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "Lysthub"}
                 </div>
 
                 {/* Instalar app (PWA) — só admin/PDV; some sozinho quando já instalado */}
@@ -309,7 +309,7 @@ export default function HeaderClient({
                     }}
                 >
                     <div style={{ padding: "8px 12px", borderBottom: "1px solid #eee" }}>
-                        <div style={{ fontWeight: 900 }}>{currentCompany?.name ?? "Renthus Service"}</div>
+                        <div style={{ fontWeight: 900 }}>{currentCompany?.name ?? "Lysthub"}</div>
                         <div style={{ color: "#666", fontSize: 12 }}>Empresa</div>
                     </div>
 

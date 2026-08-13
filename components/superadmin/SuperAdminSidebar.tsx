@@ -55,11 +55,15 @@ export default function SuperAdminSidebar({ isOpen, onClose }: Props) {
         >
             {/* ── Logo ──────────────────────────────────────────────────────── */}
             <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-lg font-bold shadow-[0_0_20px_rgba(249,115,22,0.3)]">
-                    S
-                </div>
+                <img
+                    src="/brand/lysthub-mark-dark.svg"
+                    alt=""
+                    width={40}
+                    height={40}
+                    className="h-10 w-10 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.3)]"
+                />
                 <div className="flex-1">
-                    <div className="text-sm font-semibold tracking-wide">Renthus</div>
+                    <div className="text-sm font-semibold tracking-wide">Lysthub</div>
                     <div className="text-[10px] font-medium text-white/50">Super Admin</div>
                 </div>
                 <button

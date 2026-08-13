@@ -8,7 +8,6 @@
  * sem /signup/complete nem /onboarding.
  */
 
-import Image from "next/image";
 import { useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
@@ -185,13 +184,12 @@ export default function SignupPage() {
     return (
         <div style={S.page}>
             <div style={{ marginBottom: 36 }}>
-                <Image
-                    src="/renthus_logo.png"
-                    alt="Renthus"
-                    width={148}
-                    height={44}
-                    style={{ objectFit: "contain" }}
-                    priority
+                <img
+                    src="/brand/lysthub-wordmark-dark.svg"
+                    alt="Lysthub"
+                    width={194}
+                    height={28}
+                    style={{ height: 32, width: "auto", display: "block" }}
                 />
             </div>
 
@@ -364,7 +362,7 @@ export default function SignupPage() {
                 </form>
             )}
 
-            <p style={S.footer}>© {new Date().getFullYear()} Renthus · Todos os direitos reservados</p>
+            <p style={S.footer}>© {new Date().getFullYear()} Lysthub · Todos os direitos reservados</p>
         </div>
     );
 }

@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import FilaClient from "./FilaClient";
 
 export const metadata = {
-  title: "Fila de Confirmação — Renthus",
+  title: "Fila de Confirmação — Lysthub",
 };
 
 export default function FilaPage() {

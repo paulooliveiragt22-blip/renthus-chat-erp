@@ -5,7 +5,6 @@
  * Página standalone pós-pagamento: completa o cadastro e define a senha.
  */
 
-import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter }  from "next/navigation";
 import { createClient }                from "@/lib/supabase/client";
@@ -187,8 +186,13 @@ export default function SignupCompletePage() {
         <div style={S.page}>
             {/* Logo */}
             <div style={{ marginBottom: 32 }}>
-                <Image src="/renthus_logo.png" alt="Renthus" width={140} height={42}
-                    style={{ objectFit: "contain" }} priority />
+                <img
+                    src="/brand/lysthub-wordmark-dark.svg"
+                    alt="Lysthub"
+                    width={194}
+                    height={28}
+                    style={{ height: 32, width: "auto", display: "block" }}
+                />
             </div>
 
             {/* Banner de lembrete */}
@@ -315,7 +319,7 @@ export default function SignupCompletePage() {
                 </form>
             </div>
 
-            <p style={S.footer}>© {new Date().getFullYear()} Renthus · Todos os direitos reservados</p>
+            <p style={S.footer}>© {new Date().getFullYear()} Lysthub · Todos os direitos reservados</p>
         </div>
     );
 }

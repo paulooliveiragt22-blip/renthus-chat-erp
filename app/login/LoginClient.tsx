@@ -129,11 +129,18 @@ export default function LoginPage() {
                 padding:      "32px 28px",
                 boxShadow:    "0 8px 32px rgba(0,0,0,0.08)",
             }}>
+                <img
+                    src="/brand/lysthub-wordmark-light.svg"
+                    alt="Lysthub"
+                    width={194}
+                    height={28}
+                    style={{ height: 28, width: "auto", display: "block", marginBottom: 20 }}
+                />
                 <h1 style={{ fontSize: 22, fontWeight: 800, color: "#111827", margin: "0 0 6px" }}>
                     Entrar na sua conta
                 </h1>
                 <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 24px" }}>
-                    Acesse o painel Renthus
+                    Acesse o painel Lysthub
                 </p>
 
                 {msg && (

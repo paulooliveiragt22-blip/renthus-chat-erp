@@ -1,7 +1,7 @@
 {
-  "name": "Renthus ERP",
-  "short_name": "Renthus",
-  "description": "Painel de gestão Renthus — pedidos, estoque e atendimento.",
+  "name": "Lysthub",
+  "short_name": "Lysthub",
+  "description": "Painel de gestão Lysthub — pedidos, estoque e atendimento.",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
