@@ -28,8 +28,8 @@ TS hexagonal é **cliente da RPC**, não uma segunda matriz de partidas.
 |---|--------|----------------|--------|
 | F0 | Contrato | `docs/FINANCEIRO.md` com as regras desta crítica | [x] 2026-08-14 |
 | F1 | Cutover | 1 migration: journal + RPCs + views + backfill + REVOKE + swap das APIs que hoje leem `financial_entries` | [x] 2026-08-14 |
-| F2 | Writers | Pedidos: status ≠ dinheiro; liquidação explícita; `financeiro.write`; sangria idempotente | [ ] |
-| F3 | Dashboard | Home = contrato M7: recebido / a receber / ativos; gráfico de caixa; drill | [ ] |
+| F2 | Writers | Pedidos: status ≠ dinheiro; liquidação explícita; `financeiro.write`; sangria idempotente | [x] 2026-08-14 |
+| F3 | Dashboard | Home = contrato M7: recebido / a receber / ativos; gráfico de caixa; drill | [x] 2026-08-14 |
 | F4 | UI Financeiro | Tabs; A Pagar = bills; Caixa com esperado | [ ] |
 | F5 | Mata-legado | Apaga `lib/server/financeiro` residual, `expenses` API, `v_daily_sales` como faturamento | [ ] |
 
@@ -421,7 +421,7 @@ Remoto de referência (2026-08-14): 32 FE, 1 bill pago R$ 58, 1 promissória pen
 
 ## F2 — Writers (status ≠ dinheiro + write + idempotency client)
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-14
 
 - [ ] `rpc_set_order_status` **não** posta (trigger já dropado na F1).
 - [ ] `PATCH /api/admin/orders`: se o body pedir liquidação (`settle: true` / payment), chama `rpc_recognize_order_sale` com chave `order:{id}:recognize`.
@@ -441,7 +441,7 @@ Arquivos: application command + `PedidosClient` + rotas write + `rbacPermissions
 
 ## F3 — Dashboard (contrato M7 visível)
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-14
 
 A home é o financeiro do Essencial. Não é “se o JSON mudar”.
 
@@ -454,12 +454,12 @@ A home é o financeiro do Essencial. Não é “se o JSON mudar”.
 | **Pedidos ativos** | `orders` `new\|preparing\|delivered` | misturar no ticket |
 | **Ticket** | recebido / **count de sales posted no dia** (journals ou `sales.sold_at` liquidadas) | recebido / pedidos `new` criados |
 
-- [ ] `GET /api/dashboard/stats` devolve: `salesTotal` (recebido), `arOpen`, `ordersToday` (criados — operacional, rótulo na UI), `settledSalesToday`, `ticketMedio` (recebido/settled), `activeOrders`, `timeZone`, `revenueSource: "finance_journals_1_1"`, `day` YYYY-MM-DD.
-- [ ] Gráfico 24h: **caixa posted** por hora no fuso, **ou** pedidos criados com rótulo explícito “Pedidos criados (não é faturamento)”. Preferir caixa; se pesado, dois datasets.
-- [ ] Top produtos: items de **sales** do período, não `order_items` de pedidos `new`.
-- [ ] `DashboardClient.tsx`: mostra fuso; card A Receber; ticket usa `settledSalesToday`; clique no R$ → `/financeiro?from={day}&to={day}` (Pro) — Essencial sem rota: tooltip “Recebido no caixa hoje”.
-- [ ] Relatórios usam o mesmo `rpc_fin_cash_revenue` / by_day.
-- [ ] Teste: `dashboard.salesTotal === financeiro.revenue === reports.faturamento` no mesmo `[from,to)` civil.
+- [x] `GET /api/dashboard/stats` devolve: `salesTotal` (recebido), `arOpen`, `ordersToday` (criados — operacional, rótulo na UI), `settledSalesToday`, `ticketMedio` (recebido/settled), `activeOrders`, `timeZone`, `revenueSource: "finance_journals_1_1"`, `day` YYYY-MM-DD.
+- [x] Gráfico 24h: **caixa posted** por hora no fuso, **ou** pedidos criados com rótulo explícito “Pedidos criados (não é faturamento)”. Preferir caixa; se pesado, dois datasets.
+- [x] Top produtos: items de **sales** do período, não `order_items` de pedidos `new`.
+- [x] `DashboardClient.tsx`: mostra fuso; card A Receber; ticket usa `settledSalesToday`; clique no R$ → `/financeiro?from={day}&to={day}` (Pro) — Essencial sem rota: tooltip “Recebido no caixa hoje”.
+- [x] Relatórios usam o mesmo `rpc_fin_cash_revenue` / by_day.
+- [x] Teste: `dashboard.salesTotal === financeiro.revenue === reports.faturamento` no mesmo `[from,to)` civil.
 - [ ] Comparativo D−1 opcional se barato (mesmo RPC ontem); senão F3.1 depois — não bloquear.
 
 Arquivos: **T** `stats/route.ts` · **T** `DashboardClient.tsx` · **T** `reports/*` · **C** `queryHomeStats.ts`.
@@ -532,3 +532,5 @@ F3 pode começar em paralelo depois da F1 (o card R$ já está certo). F4 não c
 | 2026-08-14 | Estrutura ledger aprovada (primeira versão). |
 | 2026-08-14 | Crítica: opção A (journal sem CMV), unique só idempotency_key, cutover único, dashboard = M7, REVOKE RPCs/views, reusar aging, sem posting.ts duplicado. F0/F1/F3 reescritos neste arquivo. |
 | 2026-08-14 | F1 aplicada no remoto: `finance_ledger_v1`. Caixa backfill = R$ 12.017,50 (received antigo + R$ 58). Aging promissória R$ 305. `financial_entries`/`expenses` dropadas. |
+| 2026-08-14 | F2: `settle: true` no PATCH Pedidos; recognize a prazo só UI/PDV; cancel estorna journal (409 se caixa fechado); opex/baixa exigem `financeiro.write`; sangria via `rpc_post_cash_movement` com chave. |
+| 2026-08-14 | F3: home M7 — Recebido/A receber/Ativos/Ticket; gráfico caixa 1.1; top de `sale_items`; drill Pro `?from&to`; `queryHomeStats`. |

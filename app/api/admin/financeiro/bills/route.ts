@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
+import { settleBill } from "@/src/financeiro/application/settleBill";
+import { postOpex } from "@/src/financeiro/application/postOpex";
+import {
+    enforceFinanceWriteRateLimit,
+    financeRpcFailure,
+} from "@/src/financeiro/application/http";
 
 export const runtime = "nodejs";
 
@@ -38,44 +44,63 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "member"], "financeiro.read");
+    const ctx = await requireCompanyPlanFeature(
+        "financeiro_full",
+        ["owner", "admin", "member"],
+        "financeiro.write"
+    );
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
+
+    const limited = enforceFinanceWriteRateLimit(companyId, "opex");
+    if (limited) return limited;
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const amt = Number.parseFloat(String(body.amount ?? "0")) || 0;
     const due_date = String(body.due_date ?? "").trim();
     if (!due_date || amt <= 0) return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
 
-    const { error } = await admin.from("bills").insert({
-        company_id: companyId,
-        type: "payable",
-        description: String(body.description ?? "").trim() || null,
-        amount: amt,
-        original_amount: amt,
-        amount_paid: 0,
-        saldo_devedor: amt,
-        due_date,
-        payment_method: String(body.payment_method ?? "pix") || null,
-        status: "open",
-        notes: String(body.notes ?? "").trim() || null,
-    });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const idempotencyKey =
+        String(body.idempotency_key ?? "").trim() ||
+        `opex:${companyId}:${due_date}:${amt}:${String(body.description ?? "")}`;
+
+    try {
+        await postOpex(admin, {
+            companyId,
+            payload: {
+                category: String(body.description ?? "").trim() || "outros",
+                description: String(body.notes ?? "").trim(),
+                amount: amt,
+                due_date,
+                payment_status: "pending",
+                payment_method: String(body.payment_method ?? "pix"),
+                idempotency_key: idempotencyKey,
+            },
+        });
+    } catch (err) {
+        return financeRpcFailure(err instanceof Error ? err.message : "opex_failed");
+    }
     return NextResponse.json({ ok: true });
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "member"], "financeiro.read");
+    const ctx = await requireCompanyPlanFeature(
+        "financeiro_full",
+        ["owner", "admin", "member"],
+        "financeiro.write"
+    );
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
+
+    const limited = enforceFinanceWriteRateLimit(companyId, "settle");
+    if (limited) return limited;
 
     const body = (await req.json().catch(() => ({}))) as {
         id?: string;
         pay_amount?: number;
-        original_amount?: number;
-        saldo_devedor?: number;
         payment_method?: string;
         received_at?: string;
+        idempotency_key?: string;
     };
 
     const id = String(body.id ?? "").trim();
@@ -87,13 +112,17 @@ export async function PATCH(req: Request) {
             ? String(body.received_at).trim().slice(0, 10)
             : null;
 
-    const { error } = await admin.rpc("rpc_settle_bill", {
-        p_company_id: companyId,
-        p_bill_id: id,
-        p_pay_amount: paidNow,
-        p_payment_method: String(body.payment_method ?? "pix"),
-        p_received_at: receivedDay,
-    });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    try {
+        await settleBill(admin, {
+            companyId,
+            billId: id,
+            payAmount: paidNow,
+            paymentMethod: String(body.payment_method ?? "pix"),
+            receivedAt: receivedDay,
+            idempotencyKey: body.idempotency_key?.trim() || null,
+        });
+    } catch (err) {
+        return financeRpcFailure(err instanceof Error ? err.message : "settle_failed");
+    }
     return NextResponse.json({ ok: true });
 }

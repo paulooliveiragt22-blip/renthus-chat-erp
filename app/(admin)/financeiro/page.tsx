@@ -7,6 +7,7 @@ import {
     ResponsiveContainer, Cell, PieChart, Pie, Legend,
 } from "recharts";
 import { useTheme } from "next-themes";
+import { useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import {
     BadgeDollarSign, ShoppingCart, TrendingUp, TrendingDown,
@@ -135,9 +136,25 @@ export default function FinanceiroPage() {
     const isDark = resolvedTheme === "dark";
 
     const [activeTab,  setActiveTab]  = useState<Tab>("dashboard");
+    const searchParams = useSearchParams();
     const [period,     setPeriod]     = useState<Period>("30d");
     const [customFrom, setCustomFrom] = useState("");
     const [customTo,   setCustomTo]   = useState("");
+    const [urlPeriodApplied, setUrlPeriodApplied] = useState(false);
+
+    // Drill da home: /financeiro?from=YYYY-MM-DD&to=YYYY-MM-DD
+    useEffect(() => {
+        if (urlPeriodApplied) return;
+        const from = searchParams.get("from");
+        const to = searchParams.get("to");
+        const iso = /^\d{4}-\d{2}-\d{2}$/;
+        if (from && to && iso.test(from) && iso.test(to) && from <= to) {
+            setPeriod("custom");
+            setCustomFrom(from);
+            setCustomTo(to);
+        }
+        setUrlPeriodApplied(true);
+    }, [searchParams, urlPeriodApplied]);
     const [loading,    setLoading]    = useState(true);
     const [stats,      setStats]      = useState<Stats | null>(null);
     const [expenses,   setExpenses]   = useState<Expense[]>([]);
@@ -250,6 +267,7 @@ export default function FinanceiroPage() {
                 amount: expForm.amount.replaceAll(",", "."),
                 due_date: expForm.due_date,
                 payment_status: expForm.payment_status,
+                idempotency_key: `opex:${crypto.randomUUID()}`,
             }),
         });
         if (res.ok) {
@@ -362,6 +380,7 @@ export default function FinanceiroPage() {
                 saldo_devedor: payBill.saldo_devedor,
                 payment_method: payForm.payment_method,
                 received_at: payForm.received_at,
+                idempotency_key: `bill:${payBill.id}:settle:${paid}:${payForm.received_at}`,
             }),
         });
         const json = await res.json().catch(() => ({}));

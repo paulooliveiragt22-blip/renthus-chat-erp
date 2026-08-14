@@ -322,6 +322,7 @@ export default function PDVPage() {
         amount: Number.parseFloat(movForm.amount) || 0,
         reason: movForm.reason.trim() || null,
         operator_name: sellerName.trim() || null,
+        idempotency_key: `cash:${caixa.id}:${movForm.type}:${crypto.randomUUID()}`,
       }),
     });
     const json = await res.json().catch(() => ({}));

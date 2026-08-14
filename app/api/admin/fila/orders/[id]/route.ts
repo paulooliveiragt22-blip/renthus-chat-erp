@@ -31,7 +31,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             p_order_id: id,
             p_reject_confirmation: true,
         });
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        if (error) {
+            const msg = error.message ?? "cancel_failed";
+            if (/settlement_conflict/i.test(msg)) {
+                return NextResponse.json({ error: "settlement_conflict" }, { status: 409 });
+            }
+            return NextResponse.json({ error: msg }, { status: 500 });
+        }
         return NextResponse.json({ ok: true });
     }
 

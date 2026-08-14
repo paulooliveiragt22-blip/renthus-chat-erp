@@ -3,6 +3,8 @@ import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { orderItemsForAdminRpc } from "@/lib/server/orders/rpcAdminOrderItems";
 import { enqueuePreparingNotify } from "@/lib/orders/enqueuePreparingNotify";
 import { scheduleOutboundWorkerWake } from "@/lib/chatbot/outbound/outboundWorkerWake";
+import { recognizeOrderSale } from "@/src/financeiro/application/recognizeOrderSale";
+import { financeRpcFailure } from "@/src/financeiro/application/http";
 
 export const runtime = "nodejs";
 
@@ -52,6 +54,9 @@ export async function PATCH(req: Request) {
         delivery_fee?: number;
         total_amount?: number;
         driver_id?: string | null;
+        settle?: boolean;
+        due_date?: string | null;
+        idempotency_key?: string | null;
     };
     const id = String(body.id ?? "").trim();
     if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
@@ -67,7 +72,13 @@ export async function PATCH(req: Request) {
                 p_order_id: id,
                 p_reject_confirmation: false,
             });
-            if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
+            if (cErr) {
+                const msg = cErr.message ?? "cancel_failed";
+                if (/settlement_conflict/i.test(msg)) {
+                    return NextResponse.json({ error: "settlement_conflict" }, { status: 409 });
+                }
+                return NextResponse.json({ error: msg }, { status: 500 });
+            }
             statusChangedTo = "canceled";
         } else {
             const { data: rpcData, error: sErr } = await admin.rpc("rpc_set_order_status", {
@@ -91,21 +102,18 @@ export async function PATCH(req: Request) {
             const result = (rpcData ?? {}) as SetStatusRpcResult;
             statusChangedTo = String(result.status ?? nextStatus);
 
-            if (result.changed && statusChangedTo === "finalized") {
-                const { error: recErr } = await admin.rpc("rpc_recognize_order_sale", {
-                    p_company_id: companyId,
-                    p_order_id: id,
-                    p_idempotency_key: `order:${id}:recognize`,
-                });
-                if (recErr && !/chatbot_prazo_forbidden/i.test(recErr.message ?? "")) {
-                    console.warn(
-                        "[admin/orders] recognize:",
-                        recErr.message
-                    );
-                    return NextResponse.json(
-                        { error: recErr.message, status: statusChangedTo },
-                        { status: 500 }
-                    );
+            if (body.settle === true && statusChangedTo === "finalized") {
+                try {
+                    await recognizeOrderSale(admin, {
+                        companyId,
+                        orderId: id,
+                        idempotencyKey:
+                            body.idempotency_key?.trim() || `order:${id}:recognize`,
+                        dueDate: body.due_date ? String(body.due_date).slice(0, 10) : null,
+                    });
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : "recognize_failed";
+                    return financeRpcFailure(msg);
                 }
             }
 

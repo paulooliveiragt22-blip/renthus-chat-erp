@@ -54,12 +54,13 @@ Status do pedido **não é dinheiro**. Canônico no Postgres (RPC). TypeScript s
 
 | Card | Fonte |
 |------|--------|
-| Recebido hoje | `rpc_fin_cash_revenue` dia civil da loja |
-| A receber | `v_aging_receivables` (F3 na UI; F1 já no RPC dashboard) |
+| Recebido hoje | `rpc_fin_cash_revenue` / `rpc_fin_dashboard` dia civil da loja |
+| A receber | `rpc_fin_dashboard.ar_open` (bills receivable abertos) |
 | Pedidos ativos | `orders` operacional |
-| Ticket | recebido / sales liquidadas no dia (F3; F1 ticket = recebido / journals de caixa) |
+| Ticket | recebido / vendas liquidadas no dia (`sale_payment`/`recognize` com `sale_id`) |
 
-Fuso: `company_settings.timezone` (default `America/Cuiaba`).
+Fuso: `company_settings.timezone` (default `America/Cuiaba`). UI: `queryHomeStats` + `DashboardClient`.
+Drill Pro: `/financeiro?from={day}&to={day}`.
 
 ## Resultado gerencial
 

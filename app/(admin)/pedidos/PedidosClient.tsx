@@ -688,14 +688,27 @@ export default function PedidosPage() {
                 id: orderId,
                 status: newStatus,
                 details: opts.details ?? null,
-                ...(opts.payment_method && opts.kind === "finalize"
-                    ? { payment_method: opts.payment_method }
+                ...(opts.kind === "finalize"
+                    ? {
+                          settle: true,
+                          payment_method: opts.payment_method,
+                          idempotency_key: `order:${orderId}:recognize`,
+                      }
                     : {}),
             }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-            setMsg(`Erro ao atualizar status: ${json?.error ?? "falha desconhecida"}`);
+            const code = String(json?.error ?? "");
+            const label =
+                code === "chatbot_prazo_forbidden"
+                    ? "A prazo não é permitido neste canal (WhatsApp/cardápio)."
+                    : code === "customer_required_for_prazo"
+                      ? "Selecione um cliente para vender a prazo."
+                      : code === "settlement_conflict"
+                        ? "Não dá para estornar: o caixa da venda já foi fechado."
+                        : `Erro ao atualizar status: ${code || "falha desconhecida"}`;
+            setMsg(label);
             setActionSaving(false);
             return false;
         }

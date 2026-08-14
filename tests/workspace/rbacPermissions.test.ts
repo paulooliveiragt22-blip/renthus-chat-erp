@@ -401,6 +401,18 @@ describe("RBAC — auditoria estática de rotas (vazamento)", () => {
         }
     });
 
+    it("mutações financeiras exigem financeiro.write; PDV sangria fica em pdv.access", () => {
+        const exp = readFileSync(join(projectRoot, "app/api/admin/financeiro/expenses/route.ts"), "utf8");
+        const bills = readFileSync(join(projectRoot, "app/api/admin/financeiro/bills/route.ts"), "utf8");
+        const fin = readFileSync(join(projectRoot, "app/api/admin/financeiro/finalize-order/route.ts"), "utf8");
+        const sangria = readFileSync(join(projectRoot, "app/api/admin/pdv/cash-movements/route.ts"), "utf8");
+        assert.match(exp, /financeiro\.write/);
+        assert.match(bills, /financeiro\.write/);
+        assert.match(fin, /financeiro\.write/);
+        assert.match(sangria, /pdv\.access/);
+        assert.equal(/financeiro\.write/.test(sangria), false);
+    });
+
     it("catálogo cobre todas as keys usadas nos seeds", () => {
         const catalog = new Set<string>(CAPABILITY_KEYS);
         for (const seed of DEFAULT_PROFILE_SEEDS) {
