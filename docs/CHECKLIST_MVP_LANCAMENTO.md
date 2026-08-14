@@ -18,12 +18,12 @@ pré-produção radical (`.cursor/rules/projeto-pre-producao-radical.mdc`).
 |---|------|--------|--------|
 | M1 | Entrega vs retirar no local + liga/desliga entregas | todos | [x] 2026-08-13 |
 | M2 | Horário de atendimento + descrição do delivery | todos | [x] 2026-08-13 |
-| M3 | Cadastro de usuários com permissões | Pro + Market (`staff_users`) | [ ] |
+| M3 | Cadastro de usuários com permissões | Pro + Market (`staff_users`) | [x] |
 | M4 | Vias de impressão selecionáveis + reprint por via | Pro + Market (`printing_auto`) | [x] |
 | M5 | Status `preparing` + notificar cliente | todos (IG só com omnichannel) | [x] |
 | M6 | Limpar fila de impressão | Pro + Market (`printing_auto`) | [x] |
 | M7 | Integridade financeira (receita real) | todos (não é feature flag) | [ ] |
-| M0 | Seed de keys novas no commit do item | `staff_users` em M3 | [ ] parcial |
+| M0 | Seed de keys novas no commit do item | `staff_users` em M3 | [x] |
 
 ---
 
@@ -113,7 +113,9 @@ bloqueiam se fechado; Configurações Delivery + cardápio exibem horário/descr
 
 ## M3 — Usuários e permissões
 
-**Estado:** [ ] estrutura aprovada
+**Estado:** [x] 2026-08-13 — feature `staff_users` (Pro/Market); convite Auth +
+`company_users`; PATCH só `role`/`is_active`; admin não rebaixa owner; UI em
+Configurações → Segurança.
 
 ---
 
@@ -166,3 +168,4 @@ status fantasma (extrato/PDV).
 | 2026-08-13 | M2 aplicado no remoto (`company_settings_store_hours`); npm test 826 pass |
 | 2026-08-13 | M5 aplicado (`orders_status_preparing` + RPC + notify + UI) |
 | 2026-08-13 | M4+M6 aplicados (`print_jobs.copy_type`, clear queue, UI vias) |
+| 2026-08-13 | M3 aplicado (`staff_users` + convite + UI equipe) |

@@ -37,6 +37,7 @@ import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSett
 import MetaMessagingSettings from "@/components/menu/MetaMessagingSettings";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
+import TeamMembersPanel from "@/components/settings/TeamMembersPanel";
 import { DEFAULT_CHATBOT_MESSAGE_TEMPLATES } from "@/lib/chatbot/messageTemplates";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -2189,17 +2190,6 @@ function ConfiguracoesPageContent() {
                                 </div>
 
                                 <div className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
-                                    <Users className="mt-0.5 h-5 w-5 shrink-0 text-orange-500" />
-                                    <div>
-                                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Gestão de Equipe</p>
-                                        <p className="mt-1 text-xs text-zinc-400">Adicione colaboradores, defina funções e permissões de acesso ao sistema.</p>
-                                        <span className="mt-2 inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-600">
-                                            Em breve
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
                                     <Phone className="mt-0.5 h-5 w-5 shrink-0 text-orange-500" />
                                     <div>
                                         <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">2FA — Autenticação em 2 fatores</p>
@@ -2210,6 +2200,8 @@ function ConfiguracoesPageContent() {
                                     </div>
                                 </div>
                             </div>
+
+                            <TeamMembersPanel />
 
                             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-700/40 dark:bg-amber-900/20">
                                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />

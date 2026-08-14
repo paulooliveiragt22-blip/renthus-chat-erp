@@ -36,6 +36,7 @@
     "lib/public-menu/**/*.ts",
     "lib/delivery/**/*.ts",
     "lib/print/**/*.ts",
+    "lib/workspace/staffRoles.ts",
     "src/types/contracts.public-menu.ts",
     "src/types/contracts.marketplace.ts",
     "tests/**/*.ts",
