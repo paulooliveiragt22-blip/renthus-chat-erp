@@ -90,6 +90,16 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), null);
     });
 
+    it("exempts /api/auth/sync-session e signout (tokens no body, sem cookie prévio)", async () => {
+        for (const path of ["/api/auth/sync-session", "/api/auth/signout"]) {
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.headers.get("location"), null, path);
+        }
+        assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
     it("keeps session-backed chatbot routes behind auth", async () => {
         for (const path of ["/api/chatbot/config", "/api/chatbot/resolve"]) {
             const { factory: protectedFactory } = createMockClient(null);

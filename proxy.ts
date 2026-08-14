@@ -137,6 +137,14 @@ function isTechnicalApiPublic(pathname: string): boolean {
         /** Print agent (api_key nas rotas) + painel /api/agent/keys|settings (exige sessão na própria rota) */
         pathname.startsWith("/api/agent/") ||
         pathname === "/api/signup/complete" ||
+        /**
+         * Estabelece/encerra sessão a partir de tokens no body.
+         * Sem isto, o proxy manda /api/auth/sync-session → /login (HTML) quando ainda
+         * não há cookie — o login “funciona” no Chrome só porque createBrowserClient
+         * já gravou cookie no signIn; E2E/API puro quebra.
+         */
+        pathname === "/api/auth/sync-session" ||
+        pathname === "/api/auth/signout" ||
         /** Cardápio web público (rate limit nas próprias rotas). */
         pathname.startsWith("/api/public/") ||
         /** Health check pra monitor externo de uptime — sem cookie de sessão. */

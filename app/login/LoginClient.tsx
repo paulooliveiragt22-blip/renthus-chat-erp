@@ -153,11 +153,14 @@ export default function LoginPage() {
                     </div>
                 )}
                 {err && (
-                    <div style={{
-                        marginBottom: 16, padding: "10px 14px", borderRadius: 10,
-                        background: "#fef2f2", border: "1px solid #fecaca",
-                        fontSize: 13, color: "#b91c1c",
-                    }}>
+                    <div
+                        role="alert"
+                        style={{
+                            marginBottom: 16, padding: "10px 14px", borderRadius: 10,
+                            background: "#fef2f2", border: "1px solid #fecaca",
+                            fontSize: 13, color: "#b91c1c",
+                        }}
+                    >
                         {err}
                     </div>
                 )}

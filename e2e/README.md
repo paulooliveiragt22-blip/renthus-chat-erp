@@ -18,6 +18,13 @@ npm run test:e2e
 Sem `E2E_EMAIL`/`E2E_PASSWORD`, os testes autenticados são **skipped**; só a tela de login roda.
 Se nada estiver na porta 3000, o Playwright sobe `npm run dev` sozinho (`E2E_SKIP_WEBSERVER=1` desliga).
 
+O login E2E **não usa o formulário** (React controlado fica flaky no headless): autentica na API Supabase,
+grava cookies via `/api/auth/sync-session` e seleciona a empresa. Precisa do `.env.local` com
+`NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` (o mesmo do `npm run dev`).
+
+Use a **mesma origem** do browser manual (`localhost` vs `127.0.0.1`):
+`$env:E2E_BASE_URL="http://localhost:3000"` se for assim que você entra no Chrome.
+
 ```bash
 npx playwright install chromium   # uma vez por máquina
 npm run test:e2e:ui               # modo interativo

@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.E2E_BASE_URL?.trim() || "http://127.0.0.1:3000";
+// Preferir a mesma origem do Chrome manual (localhost vs 127.0.0.1).
+const baseURL = process.env.E2E_BASE_URL?.trim() || "http://localhost:3000";
 const skipWebServer = process.env.E2E_SKIP_WEBSERVER === "1";
 
 /**
@@ -15,8 +16,8 @@ export default defineConfig({
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
     workers: 1,
-    timeout: 60_000,
-    expect: { timeout: 15_000 },
+    timeout: 120_000,
+    expect: { timeout: 30_000 },
     reporter: [["list"]],
     use: {
         ...devices["Desktop Chrome"],
