@@ -19,6 +19,7 @@ import {
     MapPin,
     Package,
     Phone,
+    Receipt,
     Save,
     Shield,
     ShieldAlert,
@@ -72,7 +73,7 @@ type DeliveryRuleUi = {
     is_active: boolean;
 };
 
-type Tab = "geral" | "delivery" | "cardapio" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
+type Tab = "geral" | "delivery" | "taxas" | "cardapio" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
 
 type BillingStatusJson = {
     ok?: boolean;
@@ -349,6 +350,8 @@ const TAB_QUERY_MAP: Record<string, Tab> = {
     formas:             "formas_pagamento",
     geral:              "geral",
     delivery:           "delivery",
+    taxas:              "taxas",
+    taxa:               "taxas",
     cardapio:           "cardapio",
     menu:               "cardapio",
     seguranca:          "seguranca",
@@ -1080,6 +1083,7 @@ function ConfiguracoesPageContent() {
     const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
         { id: "geral",              label: "Geral",                 icon: Store },
         { id: "delivery",           label: "Delivery",              icon: Truck },
+        { id: "taxas",              label: "Taxas",                 icon: Receipt },
         { id: "cardapio",           label: "Cardápio web",          icon: BookOpen },
         { id: "plano",              label: "Plano e pagamentos",    icon: CircleDollarSign },
         { id: "formas_pagamento",   label: "Formas de pagamentos",  icon: Wallet },
@@ -1409,10 +1413,17 @@ function ConfiguracoesPageContent() {
                             {deliveryPolicyLoading && <p className="text-xs text-zinc-500">Carregando política de entrega…</p>}
                             {deliveryPolicyMsg && <p className="text-xs text-zinc-500">{deliveryPolicyMsg}</p>}
                             <SaveBar saving={saving} msg={deliveryPolicyMsg ?? msg} onSave={saveDeliveryPolicy} />
+                        </div>
+                    )}
 
-                            <div className="border-t border-zinc-200 pt-6 dark:border-zinc-800">
-                                <ServiceFeesPanel />
-                            </div>
+                    {activeTab === "taxas" && (
+                        <div className="flex flex-col gap-6">
+                            <SectionTitle
+                                icon={Receipt}
+                                title="Taxas"
+                                desc="Taxa de entrega e demais taxas aplicadas nos pedidos"
+                            />
+                            <ServiceFeesPanel />
                         </div>
                     )}
 
