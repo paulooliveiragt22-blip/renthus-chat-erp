@@ -533,43 +533,11 @@ export default function CheckoutDrawer({
                       : "Pronto";
 
     function MinOrderSoftCallout() {
-        if (minHint.kind === "none") return null;
-        const below = minHint.kind === "below";
-        const tone = below
-            ? "bg-amber-50 text-amber-950 ring-amber-200"
-            : "bg-teal-50 text-teal-950 ring-teal-200";
+        if (minHint.kind !== "below") return null;
         return (
-            <div className={`space-y-3 rounded-xl px-3 py-3 text-sm ring-1 ${tone}`}>
-                <div>
-                    <p className="font-semibold">{minHint.title}</p>
-                    <p className="mt-1 text-[13px] leading-snug opacity-90">{minHint.body}</p>
-                </div>
-                {below && pickupEnabled ? (
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                        <button
-                            type="button"
-                            onClick={onAddMore}
-                            className="flex-1 rounded-lg bg-white/80 py-2.5 text-xs font-semibold ring-1 ring-amber-300"
-                        >
-                            Adicionar mais itens
-                        </button>
-                        <button
-                            type="button"
-                            onClick={choosePickup}
-                            className="flex-1 rounded-lg bg-amber-900/90 py-2.5 text-xs font-semibold text-white"
-                        >
-                            Prefiro retirar
-                        </button>
-                    </div>
-                ) : below ? (
-                    <button
-                        type="button"
-                        onClick={onAddMore}
-                        className="w-full rounded-lg bg-white/80 py-2.5 text-xs font-semibold ring-1 ring-amber-300"
-                    >
-                        Adicionar mais itens
-                    </button>
-                ) : null}
+            <div className="rounded-xl bg-amber-50 px-3 py-3 text-sm text-amber-950 ring-1 ring-amber-200">
+                <p className="font-semibold">{minHint.title}</p>
+                <p className="mt-1 text-[13px] leading-snug opacity-90">{minHint.body}</p>
             </div>
         );
     }
@@ -739,13 +707,17 @@ export default function CheckoutDrawer({
                         <MinOrderSoftCallout />
                         <button
                             type="button"
+                            disabled={minHint.kind === "below"}
                             onClick={chooseDelivery}
-                            className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
+                            className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             <p className="text-sm font-semibold text-zinc-900">Entrega</p>
                             <p className="text-xs text-zinc-500">
-                                Receba no endereço que você informar
-                                {deliveryCardMinLine ? ` · ${deliveryCardMinLine}` : ""}
+                                {minHint.kind === "below"
+                                    ? `Disponível a partir de ${formatBRL(minHint.minOrder)} · faltam ${formatBRL(minHint.missing)}`
+                                    : `Receba no endereço que você informar${
+                                          deliveryCardMinLine ? ` · ${deliveryCardMinLine}` : ""
+                                      }`}
                             </p>
                         </button>
                         <button
@@ -783,6 +755,9 @@ export default function CheckoutDrawer({
                             </button>
                             <button
                                 type="button"
+                                disabled={
+                                    soleNotice.type === "delivery" && minHint.kind === "below"
+                                }
                                 onClick={() => {
                                     if (soleNotice.type === "pickup") {
                                         setDeliveryFee(0);
@@ -792,7 +767,7 @@ export default function CheckoutDrawer({
                                     }
                                     setStep("address");
                                 }}
-                                className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white"
+                                className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
                             >
                                 {soleNotice.cta}
                             </button>

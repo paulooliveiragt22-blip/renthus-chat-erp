@@ -36,7 +36,6 @@ export function soleFulfillmentNotice(type: FulfillmentType): SoleFulfillmentNot
 
 export type DeliveryMinOrderHint =
     | { kind: "none" }
-    | { kind: "info"; title: string; body: string; minOrder: number }
     | {
           kind: "below";
           title: string;
@@ -46,8 +45,8 @@ export type DeliveryMinOrderHint =
       };
 
 /**
- * Tip de pedido mínimo para entrega.
- * `kind: below` quando o subtotal ainda não atinge o mínimo.
+ * Tip de pedido mínimo para entrega — só quando ainda falta valor.
+ * Sem CTA embutido: as ações ficam nos controles do step (Entrega / Retirar / Voltar).
  */
 export function deliveryMinOrderHint(
     subtotal: number,
@@ -59,21 +58,13 @@ export function deliveryMinOrderHint(
     const min = Number(minOrder);
     const sub = Number(subtotal);
     if (!Number.isFinite(sub)) return { kind: "none" };
-
-    if (sub + 1e-9 >= min) {
-        return {
-            kind: "info",
-            title: "Pedido mínimo para entrega",
-            body: `Para receber em casa, o mínimo é ${formatMenuMoneyBRL(min)}. Seu carrinho já atinge esse valor.`,
-            minOrder: min,
-        };
-    }
+    if (sub + 1e-9 >= min) return { kind: "none" };
 
     const missing = Math.round((min - sub) * 100) / 100;
     return {
         kind: "below",
         title: "Quase lá para a entrega",
-        body: `O pedido mínimo para entrega é ${formatMenuMoneyBRL(min)}. Faltam ${formatMenuMoneyBRL(missing)} — ou você pode retirar no local sem mínimo.`,
+        body: `O pedido mínimo para entrega é ${formatMenuMoneyBRL(min)}. Faltam ${formatMenuMoneyBRL(missing)}.`,
         minOrder: min,
         missing,
     };

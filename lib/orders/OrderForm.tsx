@@ -219,11 +219,7 @@ export default function OrderForm({
                             </button>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setFulfillmentType("pickup");
-                                    setDeliveryFeeEnabled(false);
-                                    setDriverId?.(null);
-                                }}
+                                onClick={() => setFulfillmentType("pickup")}
                                 className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors ${
                                     isPickup
                                         ? "bg-violet-600 text-white shadow-sm"

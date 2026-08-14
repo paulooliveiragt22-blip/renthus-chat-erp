@@ -65,6 +65,10 @@ import {
     type FulfillmentType,
 } from "@/lib/delivery/fulfillment";
 import {
+    deliveryBaseFeeAmount,
+    pickDeliveryFeeDefinition,
+} from "@/lib/delivery/defaultFee";
+import {
     applyChatbotMessageTemplate,
     DEFAULT_CHATBOT_MESSAGE_TEMPLATES,
     type ChatbotMessageTemplates,
@@ -428,15 +432,26 @@ export default function PedidosPage() {
                     system_key?: string | null;
                     is_active?: boolean;
                     calc_mode?: string;
-                    value?: number;
+                    value?: number | string;
                 }>;
-                const del = defs.find((d) => d.system_key === "delivery");
-                const enabled = Boolean(del?.is_active);
-                const fee =
-                    enabled && del?.calc_mode === "fixed"
-                        ? Number(del.value ?? 0)
-                        : 0;
-                const feeStr = formatBRL(Number.isFinite(fee) ? fee : 0);
+                const del = pickDeliveryFeeDefinition(defs);
+                const calcMode = String(del?.calc_mode ?? "fixed").toLowerCase() === "percent"
+                    ? "percent"
+                    : "fixed";
+                const snap = del
+                    ? {
+                          is_active: Boolean(del.is_active),
+                          calc_mode: calcMode as "fixed" | "percent",
+                          value: Number(del.value ?? 0),
+                      }
+                    : null;
+                const enabled = Boolean(snap?.is_active);
+                // Ativo + fixed: usa o valor mesmo se for 0; percent → 0 no campo R$ (cotação no pedido)
+                const feeAmt =
+                    enabled && snap?.calc_mode === "fixed"
+                        ? (Number.isFinite(snap.value) ? Math.max(0, snap.value) : 0)
+                        : deliveryBaseFeeAmount(snap);
+                const feeStr = formatBRL(feeAmt);
                 deliveryFeeDefaultsRef.current = { enabled, fee: feeStr };
                 setDeliveryFeeEnabled(enabled);
                 setDeliveryFee(feeStr);
@@ -461,6 +476,48 @@ export default function PedidosPage() {
             /* keep defaults */
         }
         void cid;
+    }
+
+    function applyNewDeliveryFeeDefaults() {
+        const d = deliveryFeeDefaultsRef.current;
+        setDeliveryFeeEnabled(d.enabled);
+        setDeliveryFee(d.fee);
+    }
+
+    function handleNewFulfillmentType(v: FulfillmentType) {
+        setFulfillmentType(v);
+        if (v === "pickup") {
+            setDeliveryFeeEnabled(false);
+            setDriverId(null);
+        } else {
+            applyNewDeliveryFeeDefaults();
+        }
+    }
+
+    function handleNewDeliveryFeeEnabled(v: boolean) {
+        setDeliveryFeeEnabled(v);
+        if (v && brlToNumber(deliveryFee) <= 0 && deliveryFeeDefaultsRef.current.fee) {
+            setDeliveryFee(deliveryFeeDefaultsRef.current.fee);
+        }
+    }
+
+    function handleEditFulfillmentType(v: FulfillmentType) {
+        setEditFulfillmentType(v);
+        if (v === "pickup") {
+            setEditDeliveryFeeEnabled(false);
+            setEditDriverId(null);
+        } else {
+            const d = deliveryFeeDefaultsRef.current;
+            setEditDeliveryFeeEnabled(d.enabled);
+            if (brlToNumber(editDeliveryFee) <= 0) setEditDeliveryFee(d.fee);
+        }
+    }
+
+    function handleEditDeliveryFeeEnabled(v: boolean) {
+        setEditDeliveryFeeEnabled(v);
+        if (v && brlToNumber(editDeliveryFee) <= 0 && deliveryFeeDefaultsRef.current.fee) {
+            setEditDeliveryFee(deliveryFeeDefaultsRef.current.fee);
+        }
     }
 
     /**
@@ -1994,9 +2051,9 @@ export default function PedidosPage() {
                 paymentMethod={paymentMethod}          setPaymentMethod={setPaymentMethod}
                 paid={paid}                            setPaid={setPaid}
                 changeFor={changeFor}                  setChangeFor={setChangeFor}
-                deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
+                deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={handleNewDeliveryFeeEnabled}
                 deliveryFee={deliveryFee}              setDeliveryFee={setDeliveryFee}
-                fulfillmentType={fulfillmentType}      setFulfillmentType={setFulfillmentType}
+                fulfillmentType={fulfillmentType}      setFulfillmentType={handleNewFulfillmentType}
                 deliveriesEnabled={deliveriesEnabled}
                 pickupEnabled={pickupEnabled}
                 serviceFeeOptions={serviceFeeOptions}
@@ -2089,9 +2146,9 @@ export default function PedidosPage() {
                 paymentMethod={editPaymentMethod}          setPaymentMethod={setEditPaymentMethod}
                 paid={editPaid}                            setPaid={setEditPaid}
                 changeFor={editChangeFor}                  setChangeFor={setEditChangeFor}
-                deliveryFeeEnabled={editDeliveryFeeEnabled} setDeliveryFeeEnabled={setEditDeliveryFeeEnabled}
+                deliveryFeeEnabled={editDeliveryFeeEnabled} setDeliveryFeeEnabled={handleEditDeliveryFeeEnabled}
                 deliveryFee={editDeliveryFee}              setDeliveryFee={setEditDeliveryFee}
-                fulfillmentType={editFulfillmentType}      setFulfillmentType={setEditFulfillmentType}
+                fulfillmentType={editFulfillmentType}      setFulfillmentType={handleEditFulfillmentType}
                 deliveriesEnabled={deliveriesEnabled}
                 pickupEnabled={pickupEnabled}
                 serviceFeeOptions={serviceFeeOptions}
