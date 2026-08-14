@@ -173,3 +173,5 @@ dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 | 2026-08-13 | M7 aplicado (receita canônica + fuso loja + sem POST Pedidos) |
 | 2026-08-14 | RBAC perfis (capabilities + UI Geral + requireCapability nas APIs) |
 | 2026-08-14 | Aceite automatizado M1–M7 (`tests/mvp/checklistAcceptance.test.ts`) + schema remoto OK; npm test 877 pass |
+| 2026-08-14 | E2E banco remoto (RPC/constraints M1–M7) + testes falha/notify preparing; **sem** Playwright UI |
+| 2026-08-14 | Playwright smokes MVP (`e2e/mvp.smokes.spec.ts`): `npm run test:e2e` com `E2E_EMAIL`/`E2E_PASSWORD` |

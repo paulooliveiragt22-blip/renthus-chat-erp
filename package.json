@@ -9,6 +9,8 @@
     "lint": "eslint",
     "check:prod-env": "node scripts/check-production-env.mjs",
     "test": "node -e \"require('fs').rmSync('.tests-dist',{recursive:true,force:true});\" && tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs --test .tests-dist/**/*.test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "test:bot": "node -e \"require('fs').rmSync('.tests-dist',{recursive:true,force:true});\" && tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs --test .tests-dist/tests/integration/webhook-integration.test.js",
     "replay": "tsc --project tsconfig.test.json && node --require ./tests/node-resolve-server-only.cjs .tests-dist/scripts/replay-thread.js",
     "sonar:export-bugs": "node scripts/fetch-sonar-reliability.mjs",
@@ -69,6 +71,7 @@
     "undici": "^8.10.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/archiver": "^7.0.0",
     "@types/bcryptjs": "^2.4.6",
