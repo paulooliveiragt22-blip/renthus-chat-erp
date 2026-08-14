@@ -15,6 +15,11 @@ import {
     resolveSoleFulfillmentType,
     type FulfillmentType,
 } from "@/lib/delivery/fulfillment";
+import {
+    buildStoreClosedCustomerMessage,
+    isStoreOpen,
+    loadStoreHours,
+} from "@/lib/delivery/hours";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
 import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addresses";
 import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
@@ -41,6 +46,15 @@ export async function createWebMenuOrder(
     }
     if (session.needsPhone || !session.phoneE164?.trim()) {
         return { ok: false, error: "session_invalid" };
+    }
+
+    const storeHours = await loadStoreHours(admin, params.companyId);
+    if (!isStoreOpen(Date.now(), storeHours)) {
+        return {
+            ok: false,
+            error: "store_closed",
+            message: buildStoreClosedCustomerMessage(storeHours),
+        };
     }
 
     const itemsIn = params.input.items ?? [];

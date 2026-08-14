@@ -64,6 +64,13 @@ import {
     loadFulfillmentPolicy,
     type FulfillmentPolicy,
 } from "@/lib/delivery/fulfillment";
+import {
+    buildStoreClosedCustomerMessage,
+    EMPTY_STORE_HOURS,
+    isStoreOpen,
+    loadStoreHours,
+    type StoreHours,
+} from "@/lib/delivery/hours";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -228,6 +235,11 @@ export async function runProPipeline(
     const fulfillmentPolicy: FulfillmentPolicy = deps.admin
         ? await loadFulfillmentPolicy(deps.admin, input.tenant.companyId)
         : DEFAULT_FULFILLMENT_POLICY;
+    const storeHours: StoreHours = deps.admin
+        ? await loadStoreHours(deps.admin, input.tenant.companyId)
+        : EMPTY_STORE_HOURS;
+    const storeOpen = isStoreOpen(nowMs, storeHours);
+    const storeClosedMessage = buildStoreClosedCustomerMessage(storeHours);
 
     const emitTurn = async (args: {
         state: ProSessionState;
@@ -707,6 +719,10 @@ export async function runProPipeline(
     }
 
     const infoOnly = isInfoOnlyMode(aiPolicy);
+    const blockFinalize = infoOnly || !storeOpen;
+    const blockFinalizeMessage = infoOnly
+        ? buildInfoOnlyOrderBlockedText(input.webMenuUrl)
+        : storeClosedMessage;
     const preOrder = await orderStage({
         orderService: deps.orderService,
         tenant: input.tenant,
@@ -715,8 +731,8 @@ export async function runProPipeline(
         userText: inboundTextForPipeline,
         logger: deps.logger,
         highValuePolicy,
-        blockFinalize: infoOnly,
-        blockFinalizeMessage: buildInfoOnlyOrderBlockedText(input.webMenuUrl),
+        blockFinalize,
+        blockFinalizeMessage,
     });
 
     /** orderStage pode liberar confirmação (checkoutEditHold) — propaga para IA/rota. */

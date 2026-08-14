@@ -10,7 +10,7 @@ export type PaymentMethod = PaymentMethodVista | PaymentMethodPrazo | "credit";
 export type SaleOrigin = "pdv" | "ui_order" | "chatbot";
 export type SaleStatus = "open" | "paid" | "partial" | "canceled";
 
-export type OrderStatus = "new" | "canceled" | "delivered" | "finalized";
+export type OrderStatus = "new" | "preparing" | "canceled" | "delivered" | "finalized";
 
 export type CustomerRow = { name: string | null; phone: string | null; address: string | null };
 
@@ -66,6 +66,7 @@ export type OrderRow = {
     created_at: string;
     details: string | null;
     driver_id: string | null;
+    fulfillment_type?: "delivery" | "pickup" | string | null;
     customers: CustomerRow | null;
 };
 

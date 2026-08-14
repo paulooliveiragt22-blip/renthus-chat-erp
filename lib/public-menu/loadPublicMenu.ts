@@ -5,6 +5,7 @@ import type { PublicMenuResult } from "@/src/types/contracts.public-menu";
 import { parsePublicMenuRpcPayload } from "./parsePublicMenu";
 import { parseMenuSlug } from "./slug";
 import { loadFulfillmentPolicy } from "@/lib/delivery/fulfillment";
+import { loadStoreHours, toStoreHoursPublic } from "@/lib/delivery/hours";
 
 export async function loadPublicMenuBySlug(
     admin: SupabaseClient,
@@ -27,7 +28,12 @@ export async function loadPublicMenuBySlug(
     const parsed = parsePublicMenuRpcPayload(data);
     if (!parsed.ok) return parsed;
 
-    const policy = await loadFulfillmentPolicy(admin, parsed.menu.store.companyId);
+    const companyId = parsed.menu.store.companyId;
+    const [policy, hours] = await Promise.all([
+        loadFulfillmentPolicy(admin, companyId),
+        loadStoreHours(admin, companyId),
+    ]);
+    const publicHours = toStoreHoursPublic(hours);
     return {
         ok: true,
         menu: {
@@ -36,6 +42,11 @@ export async function loadPublicMenuBySlug(
                 ...parsed.menu.store,
                 deliveriesEnabled: policy.deliveriesEnabled,
                 pickupEnabled: policy.pickupEnabled,
+                openTime: publicHours.openTime,
+                closeTime: publicHours.closeTime,
+                timeZone: publicHours.timeZone,
+                deliveryDescription: publicHours.deliveryDescription,
+                isOpen: publicHours.isOpen,
             },
         },
     };

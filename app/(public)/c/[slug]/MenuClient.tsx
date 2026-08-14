@@ -268,6 +268,21 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                             {[store.city, store.state].filter(Boolean).join(" · ")}
                                         </p>
                                     )}
+                                    <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
+                                        {store.isOpen ? (
+                                            <span className="font-medium text-emerald-700">Aberto</span>
+                                        ) : (
+                                            <span className="font-medium text-amber-700">Fechado</span>
+                                        )}
+                                        {store.openTime && store.closeTime
+                                            ? ` · ${store.openTime}–${store.closeTime}`
+                                            : null}
+                                    </p>
+                                    {store.deliveryDescription ? (
+                                        <p className="mt-1 line-clamp-2 text-xs text-zinc-600 sm:text-sm">
+                                            {store.deliveryDescription}
+                                        </p>
+                                    ) : null}
                                 </div>
                             </div>
                             <button
@@ -437,6 +452,12 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     storeName={store.displayName}
                     deliveriesEnabled={store.deliveriesEnabled}
                     pickupEnabled={store.pickupEnabled}
+                    storeIsOpen={store.isOpen}
+                    storeClosedHint={
+                        store.openTime && store.closeTime
+                            ? `No momento estamos fechados. Horário: ${store.openTime}–${store.closeTime}.`
+                            : "No momento estamos fechados."
+                    }
                     cart={cart}
                     onClose={() => setCheckoutOpen(false)}
                     onClearCart={() => setCart([])}

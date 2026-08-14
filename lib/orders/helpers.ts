@@ -30,6 +30,7 @@ export function formatDT(ts: string) {
 
 export function prettyStatus(s: string) {
     if (s === "new") return "Novo";
+    if (s === "preparing") return "Em preparo";
     if (s === "canceled") return "Cancelado";
     // No domínio Pedidos: delivered = saiu / em rota (não "já entregue")
     if (s === "delivered") return "Em entrega";
@@ -39,6 +40,7 @@ export function prettyStatus(s: string) {
 
 export function statusColor(s: string) {
     if (s === "new") return "green";
+    if (s === "preparing") return "#a855f7";
     if (s === "canceled") return "crimson";
     if (s === "finalized") return "dodgerblue";
     if (s === "delivered") return "#666";

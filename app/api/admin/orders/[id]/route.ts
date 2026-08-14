@@ -13,7 +13,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: ord, error: ordErr } = await admin
         .from("orders")
-        .select(`id, status, confirmation_status, channel, source, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )`)
+        .select(`id, status, confirmation_status, channel, source, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, fulfillment_type, customers ( name, phone, address ), drivers ( id, name, vehicle, plate )`)
         .eq("id", id)
         .eq("company_id", companyId)
         .single();

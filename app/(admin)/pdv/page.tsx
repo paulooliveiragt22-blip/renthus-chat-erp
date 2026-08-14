@@ -873,9 +873,8 @@ export default function PDVPage() {
                     {pendingOrders.map(order => {
                       const statusLabels: Record<string, { label: string; color: string }> = {
                         new:        { label: "Recebido",        color: "text-blue-400"   },
-                        confirmed:  { label: "Confirmado",      color: "text-emerald-400" },
                         preparing:  { label: "Em preparo",      color: "text-orange-400" },
-                        delivering: { label: "Saiu p/ entrega", color: "text-violet-400" },
+                        delivered:  { label: "Em entrega",      color: "text-violet-400" },
                       };
                       const st = statusLabels[order.status] ?? { label: order.status, color: "text-zinc-400" };
                       const date = new Date(order.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });

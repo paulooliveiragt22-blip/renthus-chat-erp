@@ -65,7 +65,7 @@ export async function buildExtratoLines(
         .from("orders")
         .select("id, created_at, total_amount, payment_method, status, channel, source, customer_id, customers(name)")
         .eq("company_id", companyId)
-        .in("status", ["finalized", "delivered", "confirmed", "preparing", "delivering"])
+        .in("status", ["finalized", "delivered"])
         .is("sale_id", null)
         .gte("created_at", fromIso)
         .lte("created_at", toIso)

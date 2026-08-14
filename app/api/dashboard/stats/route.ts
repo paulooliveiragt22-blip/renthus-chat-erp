@@ -9,7 +9,7 @@ export const runtime = "nodejs";
  * Retorna todos os dados necessários para o Dashboard:
  *  - salesTotal        : faturamento do dia (sales finalizadas, tabela sales)
  *  - ordersToday       : quantidade de pedidos hoje
- *  - activeOrders      : pedidos com status new | delivered
+ *  - activeOrders      : pedidos com status new | preparing | delivered
  *  - ticketMedio       : média por pedido hoje
  *  - waConversations   : threads com atividade nas últimas 24h
  *  - chartData         : array { hora, pedidos, total } – últimas 24h agrupadas por hora (BRL)
@@ -64,12 +64,12 @@ export async function GET() {
                 .gte("created_at", todayStart.toISOString())
                 .neq("status", "canceled"),
 
-            // 3. Pedidos ativos (new + delivered) — contagem pura
+            // 3. Pedidos ativos (new + preparing + delivered) — contagem pura
             admin
                 .from("orders")
                 .select("id", { count: "exact", head: true })
                 .eq("company_id", companyId)
-                .in("status", ["new", "delivered"]),
+                .in("status", ["new", "preparing", "delivered"]),
 
             // 4. Pedidos das últimas 24h — para o gráfico
             admin

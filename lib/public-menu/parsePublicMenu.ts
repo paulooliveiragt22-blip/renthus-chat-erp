@@ -61,6 +61,11 @@ function parseStoreRow(raw: unknown): PublicMenuStore | null {
         isActive: asBool(raw.is_active, true),
         deliveriesEnabled: asBool(raw.deliveries_enabled, true),
         pickupEnabled: asBool(raw.pickup_enabled, true),
+        openTime: null,
+        closeTime: null,
+        timeZone: "America/Cuiaba",
+        deliveryDescription: null,
+        isOpen: true,
     };
 }
 

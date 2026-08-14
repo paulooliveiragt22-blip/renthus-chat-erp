@@ -19,11 +19,14 @@ import {
     User,
     XCircle,
     CheckCircle2,
+    ChefHat,
+    Bike,
 } from "lucide-react";
 
 // ── paletas de status ─────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
     new:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    preparing: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
     delivered: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
     finalized: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
     canceled:  "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
@@ -129,6 +132,7 @@ export default function ViewOrderModal({
     onEdit,
     onAction,
     canCancel,
+    canPrepare,
     canDeliver,
     canFinalize,
     canEdit,
@@ -144,8 +148,9 @@ export default function ViewOrderModal({
     reprintLoading?: boolean;
     reprintMsg?: { ok: boolean; text: string } | null;
     onEdit: () => void;
-    onAction: (kind: "cancel" | "deliver" | "finalize") => void;
+    onAction: (kind: "cancel" | "prepare" | "deliver" | "finalize") => void;
     canCancel: boolean;
+    canPrepare: boolean;
     canDeliver: boolean;
     canFinalize: boolean;
     canEdit: boolean;
@@ -206,6 +211,26 @@ export default function ViewOrderModal({
                         )}
 
                         {/* Ações semânticas */}
+                        {canPrepare && (
+                            <button
+                                onClick={() => onAction("prepare")}
+                                className="flex items-center gap-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
+                            >
+                                <ChefHat className="h-3.5 w-3.5" />
+                                Em preparo
+                            </button>
+                        )}
+
+                        {canDeliver && (
+                            <button
+                                onClick={() => onAction("deliver")}
+                                className="flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
+                            >
+                                <Bike className="h-3.5 w-3.5" />
+                                Em entrega
+                            </button>
+                        )}
+
                         {canFinalize && (
                             <button
                                 onClick={() => onAction("finalize")}
@@ -216,7 +241,7 @@ export default function ViewOrderModal({
                             </button>
                         )}
 
-                        {/* WhatsApp — só em pedidos ainda não finalizados/cancelados */}
+                        {/* WhatsApp — aviso manual “saiu pra entrega” */}
                         {canDeliver && order.customers?.phone && (
                             <button
                                 type="button"
@@ -225,7 +250,7 @@ export default function ViewOrderModal({
                                 className="flex items-center gap-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
                             >
                                 <MessageCircle className="h-3.5 w-3.5" />
-                                {sendingOutForDelivery ? "Enviando..." : "Saiu pra entrega"}
+                                {sendingOutForDelivery ? "Enviando..." : "Avisar WA"}
                             </button>
                         )}
 

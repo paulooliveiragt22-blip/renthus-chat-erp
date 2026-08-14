@@ -111,27 +111,8 @@ export function mergeCart(existing: CartItem[], toAdd: CartItem[]): CartItem[] {
     return cart;
 }
 
-// ─── Horário de funcionamento ─────────────────────────────────────────────────
-
-export function isWithinBusinessHours(settings: Record<string, unknown>): boolean {
-    const bh = settings?.business_hours as
-        Record<string, { open?: boolean; from?: string; to?: string }> | undefined;
-    if (!bh) return true;
-
-    const dayNames = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-    const now      = new Date();
-    const day      = bh[dayNames[now.getDay()]];
-
-    if (!day?.open) return false;
-
-    const [openH,  openM]  = (day.from ?? "08:00").split(":").map(Number);
-    const [closeH, closeM] = (day.to   ?? "22:00").split(":").map(Number);
-    const nowMin           = now.getHours() * 60 + now.getMinutes();
-
-    return nowMin >= openH * 60 + openM && nowMin < closeH * 60 + closeM;
-}
-
 // ─── Menu principal ───────────────────────────────────────────────────────────
+// Horário canônico: `@/lib/delivery/hours` (company_settings). Não usar business_hours jsonb.
 
 export function getMenuOptionsOnly(): string {
     return `Como posso te ajudar?\n\n1️⃣  Ver cardápio\n2️⃣  Status do meu pedido\n3️⃣  Falar com atendente\n\n_Digite o número da opção._`;

@@ -24,6 +24,14 @@ export interface PublicMenuStore {
     deliveriesEnabled: boolean;
     /** Loja aceita retirada no local. */
     pickupEnabled: boolean;
+    /** Horário de abertura HH:MM (fuso da loja). */
+    openTime: string | null;
+    closeTime: string | null;
+    timeZone: string;
+    /** Texto curto de delivery (ex.: área / raio). */
+    deliveryDescription: string | null;
+    /** Calculado no servidor no momento do load. */
+    isOpen: boolean;
 }
 
 export interface PublicMenuItem {

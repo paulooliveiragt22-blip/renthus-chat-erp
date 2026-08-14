@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { orderItemsForAdminRpc } from "@/lib/server/orders/rpcAdminOrderItems";
+import { enqueuePreparingNotify } from "@/lib/orders/enqueuePreparingNotify";
 
 export const runtime = "nodejs";
+
+type SetStatusRpcResult = {
+    ok?: boolean;
+    order_id?: string;
+    status?: string;
+    previous_status?: string;
+    changed?: boolean;
+    fulfillment_type?: string;
+    customer_id?: string | null;
+    order_code?: string;
+};
 
 export async function GET() {
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
@@ -11,7 +23,9 @@ export async function GET() {
 
     const { data, error } = await admin
         .from("orders")
-        .select(`id, status, channel, source, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, customers ( name, phone, address ), order_items ( product_name, quantity, unit_price, line_total )`)
+        .select(
+            `id, status, channel, source, driver_id, total_amount, delivery_fee, payment_method, paid, change_for, created_at, details, fulfillment_type, customers ( name, phone, address ), order_items ( product_name, quantity, unit_price, line_total )`
+        )
         .eq("company_id", companyId)
         .neq("confirmation_status", "pending_confirmation")
         .order("created_at", { ascending: false })
@@ -41,43 +55,84 @@ export async function PATCH(req: Request) {
     const id = String(body.id ?? "").trim();
     if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
 
+    let statusChangedTo: string | null = null;
+
+    if (body.status != null) {
+        const nextStatus = String(body.status).trim().toLowerCase();
+
+        if (nextStatus === "canceled") {
+            const { error: cErr } = await admin.rpc("rpc_admin_cancel_order", {
+                p_company_id: companyId,
+                p_order_id: id,
+                p_reject_confirmation: false,
+            });
+            if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
+            statusChangedTo = "canceled";
+        } else {
+            const { data: rpcData, error: sErr } = await admin.rpc("rpc_set_order_status", {
+                p_company_id: companyId,
+                p_order_id: id,
+                p_status: nextStatus,
+                p_details: body.details !== undefined ? body.details : null,
+                p_payment_method:
+                    body.payment_method !== undefined ? body.payment_method : null,
+            });
+            if (sErr) {
+                const msg = sErr.message ?? "status_update_failed";
+                const conflict =
+                    /não permitida|não pode|inválido|pedido não encontrado/i.test(msg);
+                return NextResponse.json(
+                    { error: msg },
+                    { status: conflict ? 409 : 500 }
+                );
+            }
+
+            const result = (rpcData ?? {}) as SetStatusRpcResult;
+            statusChangedTo = String(result.status ?? nextStatus);
+
+            // Notify best-effort: nunca desfaz o status
+            if (result.changed && statusChangedTo === "preparing") {
+                try {
+                    await enqueuePreparingNotify({
+                        admin,
+                        companyId,
+                        orderId: id,
+                        orderCode: String(result.order_code ?? `#${id.slice(-6).toUpperCase()}`),
+                        customerId: result.customer_id ?? null,
+                    });
+                } catch (err) {
+                    console.warn(
+                        "[admin/orders] preparing notify:",
+                        err instanceof Error ? err.message : err
+                    );
+                }
+            }
+        }
+
+        try {
+            const { pushMarketplaceOrderStatus } = await import(
+                "@/src/marketplaces/services/pushMarketplaceOrderStatus"
+            );
+            await pushMarketplaceOrderStatus(admin, companyId, id, statusChangedTo);
+        } catch (err) {
+            console.warn(
+                "[admin/orders] marketplace status push:",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
+
     const patch: Record<string, unknown> = {};
-    if (body.status != null) patch.status = String(body.status);
-    if (body.details !== undefined) patch.details = body.details;
-    if (body.payment_method !== undefined) patch.payment_method = body.payment_method;
+    // details/payment_method já aplicados na RPC de status quando status veio no body
+    if (body.status == null) {
+        if (body.details !== undefined) patch.details = body.details;
+        if (body.payment_method !== undefined) patch.payment_method = body.payment_method;
+    }
     if (body.paid !== undefined) patch.paid = !!body.paid;
     if (body.change_for !== undefined) patch.change_for = body.change_for;
     if (body.customer_id !== undefined) patch.customer_id = String(body.customer_id);
     if (body.delivery_fee !== undefined) patch.delivery_fee = Number(body.delivery_fee ?? 0);
     if (body.total_amount !== undefined) patch.total_amount = Number(body.total_amount ?? 0);
-    if (body.driver_id !== undefined) patch.driver_id = body.driver_id || null;
-
-    // Pedido finalizado/cancelado não volta para "em entrega" (delivered)
-    if (patch.status === "delivered") {
-        const { data: current } = await admin
-            .from("orders")
-            .select("status")
-            .eq("id", id)
-            .eq("company_id", companyId)
-            .maybeSingle();
-        const cur = String(current?.status ?? "");
-        if (cur === "finalized" || cur === "canceled") {
-            return NextResponse.json(
-                { error: "pedido_finalizado_nao_pode_voltar_para_entrega" },
-                { status: 409 }
-            );
-        }
-    }
-
-    if (patch.status === "canceled") {
-        const { error: cErr } = await admin.rpc("rpc_admin_cancel_order", {
-            p_company_id: companyId,
-            p_order_id: id,
-            p_reject_confirmation: false,
-        });
-        if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
-        delete patch.status;
-    }
 
     if (body.driver_id !== undefined) {
         const driverUuid =
@@ -90,7 +145,6 @@ export async function PATCH(req: Request) {
             p_driver_id: driverUuid,
         });
         if (dErr) return NextResponse.json({ error: dErr.message }, { status: 500 });
-        delete patch.driver_id;
     }
 
     if (Object.keys(patch).length > 0) {
@@ -103,28 +157,17 @@ export async function PATCH(req: Request) {
             .single();
 
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-        // F3: espelha status para marketplace (confirm/dispatch iFood)
-        if (typeof patch.status === "string") {
-            try {
-                const { pushMarketplaceOrderStatus } = await import(
-                    "@/src/marketplaces/services/pushMarketplaceOrderStatus"
-                );
-                await pushMarketplaceOrderStatus(admin, companyId, id, String(patch.status));
-            } catch (err) {
-                console.warn(
-                    "[admin/orders] marketplace status push:",
-                    err instanceof Error ? err.message : err
-                );
-            }
-        }
-
-        return NextResponse.json({ ok: true, order: data });
+        return NextResponse.json({ ok: true, order: data, status: statusChangedTo });
     }
 
-    const { data: row } = await admin.from("orders").select("id").eq("id", id).eq("company_id", companyId).maybeSingle();
+    const { data: row } = await admin
+        .from("orders")
+        .select("id, status")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .maybeSingle();
     if (!row) return NextResponse.json({ error: "order_not_found" }, { status: 404 });
-    return NextResponse.json({ ok: true, order: row });
+    return NextResponse.json({ ok: true, order: row, status: statusChangedTo ?? row.status });
 }
 
 export async function POST(req: Request) {

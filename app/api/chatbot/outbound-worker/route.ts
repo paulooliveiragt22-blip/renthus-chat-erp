@@ -204,12 +204,15 @@ async function loadJobContexts(
         Date.now() - FREQUENCY_WINDOW_HOURS * 3_600_000
     ).toISOString();
 
-    const [threadsRes, companiesRes, cartsRes, recentRes] = await Promise.all([
+    const [threadsRes, settingsRes, cartsRes, recentRes] = await Promise.all([
         admin
             .from("whatsapp_threads")
             .select("id, bot_active, last_inbound_at")
             .in("id", threadIds),
-        admin.from("companies").select("id, settings").in("id", companyIds),
+        admin
+            .from("company_settings")
+            .select("company_id, open_time, close_time, timezone")
+            .in("company_id", companyIds),
         cartIds.length > 0
             ? admin.from("abandoned_carts").select("id, status").in("id", cartIds)
             : Promise.resolve({ data: [] as Array<{ id: string; status: string }> }),
@@ -222,15 +225,19 @@ async function loadJobContexts(
     ]);
 
     const businessHoursByCompany = new Map<string, BusinessHours>();
-    for (const row of companiesRes.data ?? []) {
-        const settings = (row.settings ?? {}) as Record<string, unknown>;
-        businessHoursByCompany.set(String(row.id), {
-            openTime: typeof settings.open_time === "string" ? settings.open_time : null,
-            closeTime: typeof settings.close_time === "string" ? settings.close_time : null,
-            timeZone:
-                typeof settings.timezone === "string" && settings.timezone.trim()
-                    ? settings.timezone
-                    : "America/Sao_Paulo",
+    for (const row of settingsRes.data ?? []) {
+        const open =
+            typeof row.open_time === "string" && row.open_time.trim() ? row.open_time.trim() : null;
+        const close =
+            typeof row.close_time === "string" && row.close_time.trim() ? row.close_time.trim() : null;
+        const tz =
+            typeof row.timezone === "string" && row.timezone.trim()
+                ? row.timezone.trim()
+                : "America/Cuiaba";
+        businessHoursByCompany.set(String(row.company_id), {
+            openTime: open,
+            closeTime: close,
+            timeZone: tz,
         });
     }
 

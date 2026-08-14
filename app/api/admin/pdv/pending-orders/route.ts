@@ -12,7 +12,7 @@ export async function GET() {
         .from("orders")
         .select("id, customer_name, total_amount, status, created_at, source, channel")
         .eq("company_id", companyId)
-        .in("status", ["new", "confirmed", "preparing", "delivering"])
+        .in("status", ["new", "preparing", "delivered"])
         .is("sale_id", null)
         .order("created_at", { ascending: false });
 

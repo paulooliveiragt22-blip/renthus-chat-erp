@@ -394,6 +394,10 @@ function ConfiguracoesPageContent() {
     const [deliveryPolicyLoading, setDeliveryPolicyLoading] = useState(false);
     const [acceptDeliveries, setAcceptDeliveries] = useState(true);
     const [acceptPickup, setAcceptPickup] = useState(true);
+    const [openTime, setOpenTime] = useState("08:00");
+    const [closeTime, setCloseTime] = useState("22:00");
+    const [storeTimezone, setStoreTimezone] = useState("America/Cuiaba");
+    const [deliveryDescription, setDeliveryDescription] = useState("");
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [pendingDeleteNeighborhood, setPendingDeleteNeighborhood] = useState<string | null>(null);
 
@@ -553,6 +557,25 @@ function ConfiguracoesPageContent() {
                 is_active: r.is_active !== false,
             }));
             setRuleDraft(mapped);
+
+            const settingsRes = await fetch("/api/admin/company-settings", {
+                cache: "no-store",
+                credentials: "include",
+            });
+            const settingsJson = await settingsRes.json().catch(() => ({}));
+            const s = settingsJson?.settings;
+            if (s) {
+                setOpenTime(typeof s.open_time === "string" && s.open_time ? s.open_time : "08:00");
+                setCloseTime(typeof s.close_time === "string" && s.close_time ? s.close_time : "22:00");
+                setStoreTimezone(
+                    typeof s.timezone === "string" && s.timezone.trim()
+                        ? s.timezone
+                        : "America/Cuiaba"
+                );
+                setDeliveryDescription(
+                    typeof s.delivery_description === "string" ? s.delivery_description : ""
+                );
+            }
         } finally {
             setDeliveryPolicyLoading(false);
         }
@@ -648,12 +671,32 @@ function ConfiguracoesPageContent() {
             }),
         });
         const json = await res.json().catch(() => ({}));
-        setSaving(false);
         if (!res.ok) {
             setDeliveryPolicyMsg(json?.error ?? "Erro ao salvar política de entrega.");
+            setSaving(false);
             return;
         }
+
+        const hoursRes = await fetch("/api/admin/company-settings", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                open_time: openTime.trim() || null,
+                close_time: closeTime.trim() || null,
+                timezone: storeTimezone.trim() || "America/Cuiaba",
+                delivery_description: deliveryDescription.trim() || null,
+            }),
+        });
+        const hoursJson = await hoursRes.json().catch(() => ({}));
+        if (!hoursRes.ok) {
+            setDeliveryPolicyMsg(hoursJson?.error ?? "Política salva, mas falhou ao salvar horário.");
+            setSaving(false);
+            return;
+        }
+
         setDeliveryPolicyMsg("✓ Política de entrega salva.");
+        setSaving(false);
         await loadCompany();
         await loadDeliveryPolicy();
     }
@@ -1088,7 +1131,46 @@ function ConfiguracoesPageContent() {
                     {/* ── ABA: DELIVERY ─────────────────────────────────── */}
                     {activeTab === "delivery" && (
                         <div className="flex flex-col gap-6">
-                            <SectionTitle icon={Bike} title="Configurações de Delivery" desc="Cidade atendida, bairros, taxas e estimativa de entrega" />
+                            <SectionTitle icon={Bike} title="Configurações de Delivery" desc="Cidade atendida, bairros, taxas, horário e estimativa de entrega" />
+
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <Field
+                                    label="Abre às (HH:MM)"
+                                    value={openTime}
+                                    onChange={setOpenTime}
+                                    placeholder="08:00"
+                                    hint="Fuso da loja. Pode atravessar meia-noite se fechar < abrir."
+                                />
+                                <Field
+                                    label="Fecha às (HH:MM)"
+                                    value={closeTime}
+                                    onChange={setCloseTime}
+                                    placeholder="22:00"
+                                />
+                                <Field
+                                    label="Fuso horário (IANA)"
+                                    value={storeTimezone}
+                                    onChange={setStoreTimezone}
+                                    placeholder="America/Cuiaba"
+                                    hint="Ex.: America/Cuiaba, America/Sao_Paulo"
+                                />
+                            </div>
+                            <label className="block">
+                                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                    Descrição do delivery
+                                </span>
+                                <textarea
+                                    className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                                    rows={2}
+                                    maxLength={280}
+                                    value={deliveryDescription}
+                                    onChange={(e) => setDeliveryDescription(e.target.value)}
+                                    placeholder="Ex.: Entregamos até 3 km do centro. Pedido mínimo R$ 30."
+                                />
+                                <span className="mt-1 block text-xs text-zinc-400">
+                                    {deliveryDescription.length}/280 — aparece no cardápio e ajuda o bot.
+                                </span>
+                            </label>
 
                             <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
                                 <div>

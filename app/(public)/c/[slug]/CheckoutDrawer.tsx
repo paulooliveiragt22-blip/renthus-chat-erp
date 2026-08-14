@@ -24,6 +24,8 @@ type Props = {
     storeName: string;
     deliveriesEnabled: boolean;
     pickupEnabled: boolean;
+    storeIsOpen: boolean;
+    storeClosedHint: string | null;
     cart: PublicMenuCartLine[];
     onClose: () => void;
     onClearCart: () => void;
@@ -49,6 +51,8 @@ export default function CheckoutDrawer({
     storeName,
     deliveriesEnabled,
     pickupEnabled,
+    storeIsOpen,
+    storeClosedHint,
     cart,
     onClose,
     onClearCart,
@@ -180,6 +184,10 @@ export default function CheckoutDrawer({
         setError(null);
         if (cart.length === 0) {
             setError("Adicione pelo menos um item ao pedido.");
+            return;
+        }
+        if (!storeIsOpen) {
+            setError(storeClosedHint ?? "A loja está fechada no momento.");
             return;
         }
         if (sessionToken && !needsPhone) {
@@ -380,6 +388,7 @@ export default function CheckoutDrawer({
                     empty_cart: "Carrinho vazio.",
                     session_invalid: "Sessão expirada. Identifique-se de novo.",
                     change_below_total: "Troco deve ser maior ou igual ao total.",
+                    store_closed: json.message ?? "A loja está fechada no momento.",
                     fulfillment_required: "Escolha entrega ou retirada no local.",
                     delivery_disabled: "A loja não está aceitando entregas agora.",
                     pickup_disabled: "A loja não está aceitando retirada no momento.",

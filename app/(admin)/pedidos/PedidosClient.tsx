@@ -64,7 +64,11 @@ import {
 // ─── helpers puros ───────────────────────────────────────────────────────────
 
 function canCancel(s: string) { return s !== "canceled" && s !== "finalized" && s !== "delivered"; }
-function canDeliver(s: string) { return s !== "canceled" && s !== "finalized" && s !== "delivered"; }
+function canPrepare(s: string) { return s === "new"; }
+function canDeliver(s: string, fulfillmentType?: string | null) {
+    if (String(fulfillmentType ?? "delivery") === "pickup") return false;
+    return s === "new" || s === "preparing";
+}
 function canFinalize(s: string) { return s !== "canceled" && s !== "finalized"; }
 function canEdit(s: string) { return s === "new"; }
 
@@ -202,6 +206,7 @@ function orderPrintGetItemInfo(it: { product_name?: unknown; unit_type?: unknown
 
 const STATUS_BADGE: Record<string, string> = {
     new:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    preparing: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
     delivered: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
     finalized: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
     canceled:  "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500",
@@ -250,7 +255,7 @@ export default function PedidosPage() {
     // restore filter from URL or localStorage
     useEffect(() => {
         const s = searchParams.get("status") as OrderStatus | null;
-        const valid = ["new", "delivered", "finalized", "canceled", "all"] as const;
+        const valid = ["new", "preparing", "delivered", "finalized", "canceled", "all"] as const;
         if (s && (valid as readonly string[]).includes(s)) { setStatusFilter(s as any); return; }
         if (typeof window !== "undefined") {
             const saved = window.localStorage.getItem("orders_status_filter") as any;
@@ -655,7 +660,14 @@ export default function PedidosPage() {
         const note = actionNote.trim();
         if (!note && actionKind === "cancel") { setMsg("Informe uma observação para essa ação."); return; }
         setActionSaving(true); setMsg(null);
-        const newStatus: OrderStatus = actionKind === "cancel" ? "canceled" : actionKind === "deliver" ? "delivered" : "finalized";
+        const newStatus: OrderStatus =
+            actionKind === "cancel"
+                ? "canceled"
+                : actionKind === "prepare"
+                  ? "preparing"
+                  : actionKind === "deliver"
+                    ? "delivered"
+                    : "finalized";
         const res = await fetch("/api/admin/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -664,13 +676,15 @@ export default function PedidosPage() {
                 id: orderId,
                 status: newStatus,
                 details: note || null,
-                ...(actionPayMethod ? { payment_method: actionPayMethod } : {}),
+                ...(actionPayMethod && (actionKind === "finalize" || actionKind === "deliver")
+                    ? { payment_method: actionPayMethod }
+                    : {}),
             }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { setMsg(`Erro ao atualizar status: ${json?.error ?? "falha desconhecida"}`); setActionSaving(false); return; }
 
-        // Registrar em financial_entries ao finalizar ou entregar
+        // Registrar em financial_entries ao finalizar ou entregar (não em preparing)
         if ((actionKind === "finalize" || actionKind === "deliver") && companyId) {
             const ord = orders.find(o => o.id === orderId);
             const totalAmt = Number((ord as any)?.total_amount ?? 0);
@@ -726,9 +740,13 @@ export default function PedidosPage() {
             }
         }
 
-        setMsg(actionKind === "finalize"
-            ? "✅ Pedido finalizado. Agradecimento enviado ao cliente (se houver WhatsApp)."
-            : "✅ Pedido atualizado.");
+        setMsg(
+            actionKind === "finalize"
+                ? "✅ Pedido finalizado. Agradecimento enviado ao cliente (se houver WhatsApp)."
+                : actionKind === "prepare"
+                  ? "✅ Em preparo. Cliente avisado se houver conversa no WhatsApp."
+                  : "✅ Pedido atualizado."
+        );
         setOpenAction(false); setActionSaving(false);
         await loadOrders();
         if (viewOrder?.id === orderId) setViewOrder(await fetchOrderFull(orderId));
@@ -1075,8 +1093,8 @@ export default function PedidosPage() {
     async function sendWhatsAppForCurrentOrder(kind: "out_for_delivery") {
         const ord = viewOrder;
         if (!ord || !ord.customers?.phone) { setMsg("Telefone do cliente não encontrado."); return; }
-        if (!canDeliver(String(ord.status))) {
-            setMsg("Pedido finalizado/cancelado não pode voltar para em entrega.");
+        if (!canDeliver(String(ord.status), (ord as any).fulfillment_type)) {
+            setMsg("Este pedido não pode ir para em entrega (retirada ou status inválido).");
             return;
         }
         const phone = String(ord.customers.phone).trim();
@@ -1187,7 +1205,7 @@ export default function PedidosPage() {
 
     // ── computed ──────────────────────────────────────────────────────────────
     const stats = useMemo(() => {
-        const by = { new: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
+        const by = { new: 0, preparing: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
         for (const o of orders) { const s = String(o.status) as OrderStatus; if ((by as any)[s] !== undefined) (by as any)[s]++; }
         return { total: orders.length, ...by };
     }, [orders]);
@@ -1198,7 +1216,8 @@ export default function PedidosPage() {
         for (const o of orders) {
             const st = String(o.status);
             const tot = Number((o as any).total_amount ?? 0);
-            if (st === "new") { novosQtd++; novosTotal += tot; if (!(o as any).paid) prepQtd++; }
+            if (st === "new") { novosQtd++; novosTotal += tot; }
+            if (st === "preparing") prepQtd++;
             if (st === "delivered") entregaQtd++;
             if (st === "finalized" && new Date(o.created_at) >= startDay) { finalHojeQtd++; finalHojeTotal += tot; }
         }
@@ -1207,7 +1226,7 @@ export default function PedidosPage() {
 
     const filteredOrders = useMemo(() => {
         if (typeof window !== "undefined") window.localStorage.setItem("orders_status_filter", statusFilter);
-        const priority: Record<string, number> = { new: 0, delivered: 1, finalized: 2, canceled: 3 };
+        const priority: Record<string, number> = { new: 0, preparing: 1, delivered: 2, finalized: 3, canceled: 4 };
         const byStatus = statusFilter === "all" ? orders : orders.filter((o) => String(o.status) === statusFilter);
         const sq = searchText.trim().toLowerCase();
         const base = !sq ? byStatus : byStatus.filter((o) => {
@@ -1293,18 +1312,22 @@ export default function PedidosPage() {
                 </button>
 
                 {/* Em preparação */}
-                <div className="rounded-xl border-l-4 border-purple-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800">
+                <button
+                    type="button"
+                    onClick={() => setStatusFilter("preparing")}
+                    className={`rounded-xl border-l-4 border-purple-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "preparing" ? "ring-2 ring-purple-300" : ""}`}
+                >
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Em preparação</p>
+                            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Em preparo</p>
                             <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{summary.prepQtd}</p>
-                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Aguardando pagamento</p>
+                            <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Cozinha / montagem</p>
                         </div>
                         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-500/10">
                             <Package className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                         </span>
                     </div>
-                </div>
+                </button>
 
                 {/* Em entrega */}
                 <button
@@ -1354,7 +1377,7 @@ export default function PedidosPage() {
                     />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    {(["all", "new", "delivered", "finalized", "canceled"] as const).map((f) => (
+                    {(["all", "new", "preparing", "delivered", "finalized", "canceled"] as const).map((f) => (
                         <button
                             key={f}
                             onClick={() => setStatusFilter(f)}
@@ -1364,7 +1387,17 @@ export default function PedidosPage() {
                                     : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
                             }`}
                         >
-                            {f === "all" ? `Todos (${stats.total})` : f === "new" ? `Novos (${stats.new})` : f === "delivered" ? `Em entrega (${stats.delivered})` : f === "finalized" ? `Finalizados (${stats.finalized})` : `Cancelados (${stats.canceled})`}
+                            {f === "all"
+                                ? `Todos (${stats.total})`
+                                : f === "new"
+                                  ? `Novos (${stats.new})`
+                                  : f === "preparing"
+                                    ? `Em preparo (${stats.preparing})`
+                                    : f === "delivered"
+                                      ? `Em entrega (${stats.delivered})`
+                                      : f === "finalized"
+                                        ? `Finalizados (${stats.finalized})`
+                                        : `Cancelados (${stats.canceled})`}
                         </button>
                     ))}
                 </div>
@@ -1411,7 +1444,7 @@ export default function PedidosPage() {
                             admin:"bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
                             ui:"bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
                         };
-                        const BORDER_COLOR: Record<string, string> = { new:"#f97316", delivered:"#10b981", finalized:"#8b5cf6", canceled:"#52525b" };
+                        const BORDER_COLOR: Record<string, string> = { new:"#f97316", preparing:"#a855f7", delivered:"#10b981", finalized:"#8b5cf6", canceled:"#52525b" };
 
                         // Agrupa itens por produto (fallback: parse string)
                         const itemGroups = new Map<string, typeof items>();
@@ -1727,7 +1760,15 @@ export default function PedidosPage() {
                 onEdit={() => viewOrder ? openEditOrder(viewOrder.id) : undefined}
                 onAction={(k) => viewOrder ? openActionModal(k, viewOrder.id) : undefined}
                 canCancel={viewOrder ? canCancel(String((viewOrder as any).status)) : false}
-                canDeliver={viewOrder ? canDeliver(String((viewOrder as any).status)) : false}
+                canPrepare={viewOrder ? canPrepare(String((viewOrder as any).status)) : false}
+                canDeliver={
+                    viewOrder
+                        ? canDeliver(
+                              String((viewOrder as any).status),
+                              (viewOrder as any).fulfillment_type
+                          )
+                        : false
+                }
                 canFinalize={viewOrder ? canFinalize(String((viewOrder as any).status)) : false}
                 canEdit={viewOrder ? canEdit(String((viewOrder as any).status)) : false}
                 onOutForDelivery={() => sendWhatsAppForCurrentOrder("out_for_delivery")}
