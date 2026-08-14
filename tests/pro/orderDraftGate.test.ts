@@ -28,6 +28,7 @@ function minimalDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
         },
         paymentMethod: "pix",
         changeFor: null,
+        fulfillmentType: "delivery",
         deliveryFee: 0,
         deliveryZoneId: "z",
         deliveryAddressText: "Rua A",
@@ -53,6 +54,10 @@ describe("orderDraftGate (R1)", () => {
             true
         );
         assert.equal(isDraftStructurallyCompleteForFinalize(minimalDraft({ paymentMethod: null })), false);
+        assert.equal(
+            isDraftStructurallyCompleteForFinalize(minimalDraft({ fulfillmentType: null })),
+            false
+        );
     });
 
     it("isDraftStructurallyCompleteForFinalize também bloqueia abaixo do pedido mínimo", () => {

@@ -17,7 +17,9 @@ export function isDraftBelowMinimumOrder(draft: OrderDraft): boolean {
  * final antes de criar o pedido, caso o passo da sessão fique dessincronizado.
  */
 export function isDraftStructurallyCompleteForFinalize(draft: OrderDraft): boolean {
-    const addressOk = isPickupDraft(draft) || Boolean(draft.address);
+    const addressOk =
+        isPickupDraft(draft) ||
+        (draft.fulfillmentType === "delivery" && Boolean(draft.address));
     return (
         draft.items.length > 0 &&
         addressOk &&

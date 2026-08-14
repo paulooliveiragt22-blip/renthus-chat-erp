@@ -45,6 +45,8 @@ describe("fulfillment domain", () => {
     it("parseFulfillmentType aceita pt-BR e inglês", () => {
         assert.equal(parseFulfillmentType("entrega"), "delivery");
         assert.equal(parseFulfillmentType("Retirar"), "pickup");
+        assert.equal(parseFulfillmentType("Retirar no local"), "pickup");
+        assert.equal(parseFulfillmentType("pro_fulfillment_delivery"), "delivery");
         assert.equal(parseFulfillmentType("nope"), null);
     });
 

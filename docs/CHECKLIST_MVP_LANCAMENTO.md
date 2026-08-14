@@ -99,8 +99,9 @@ precisa ser honesto em **todos** os planos (M7).
 
 ## M1 — Entrega ou retirar no local
 
-**Estado:** [x] 2026-08-13 — policy flags + `orders.fulfillment_type` + RPC + bot + cardápio +
-Configurações.
+**Estado:** [x] 2026-08-14 — policy flags + `orders.fulfillment_type` + RPC + bot + cardápio +
+Configurações. Clique Entrega/Retirar casa id **e** título; endereço salvo não infere entrega;
+slot não avança pra pagamento enquanto o modo estiver vazio.
 
 ---
 
@@ -179,3 +180,4 @@ dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 | 2026-08-14 | E2E banco remoto (RPC/constraints M1–M7) + testes falha/notify preparing; **sem** Playwright UI |
 | 2026-08-14 | Playwright smokes MVP (`e2e/mvp.smokes.spec.ts`): `npm run test:e2e` com `E2E_EMAIL`/`E2E_PASSWORD` |
 | 2026-08-14 | M2 ajuste: 2 turnos (`opening_periods`), mensagem fechado, bot/cardápio no mesmo gate |
+| 2026-08-14 | M1: clique Entrega/Retirar (id+título); sem inferir entrega por endereço; slot espera o modo |

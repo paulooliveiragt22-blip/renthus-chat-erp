@@ -54,6 +54,7 @@ describe("checkoutPostProcess — resumo final canónico", () => {
             },
             paymentMethod: "pix",
             changeFor: null,
+            fulfillmentType: "delivery" as const,
             deliveryFee: 5,
             deliveryZoneId: null,
             deliveryAddressText: "Rua A, 1",

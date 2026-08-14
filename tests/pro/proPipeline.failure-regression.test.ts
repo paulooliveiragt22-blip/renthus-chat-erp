@@ -75,6 +75,7 @@ function stateAwaitingConfirmation(): ProSessionState {
             },
             paymentMethod: "pix",
             changeFor: null,
+            fulfillmentType: "delivery",
             deliveryFee: 5,
             deliveryZoneId: "z1",
             deliveryAddressText: "Rua A, 10, Centro",

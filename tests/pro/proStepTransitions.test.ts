@@ -34,6 +34,7 @@ function minimalOrderDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
         },
         paymentMethod: "pix",
         changeFor: null,
+        fulfillmentType: "delivery",
         deliveryFee: 0,
         deliveryZoneId: null,
         deliveryAddressText: null,

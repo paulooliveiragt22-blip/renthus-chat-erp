@@ -66,6 +66,7 @@ function completeDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
         },
         paymentMethod: "pix",
         changeFor: null,
+        fulfillmentType: "delivery",
         deliveryFee: 5,
         deliveryZoneId: "z1",
         deliveryAddressText: "Rua A, 1",

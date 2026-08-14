@@ -95,6 +95,11 @@ export function resolveProStepFromDraft(params: {
         return step === "pro_idle" ? "pro_idle" : "pro_collecting_order";
     }
 
+    /** Sem modo explícito: não pular pra pagamento só porque já tem endereço (cliente ainda escolhe Entrega/Retirar). */
+    if (!isPickupDraft(draft) && draft.fulfillmentType !== "delivery") {
+        return "pro_collecting_order";
+    }
+
     if (!isPickupDraft(draft) && !isAddressStructurallyComplete(draft.address)) {
         return "pro_collecting_order";
     }

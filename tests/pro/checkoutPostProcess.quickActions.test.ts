@@ -330,6 +330,49 @@ describe("applyQuickAction — entrega vs retirada", () => {
         assert.equal(r.handled, true);
         assert.equal(r.state.draft?.fulfillmentType, "delivery");
         assert.equal(r.state.step, "pro_collecting_order");
+        assert.ok(r.outbound.some((m) => m.kind === "text" && /endereço/i.test(String(m.text))));
+    });
+
+    it("título do botão WhatsApp (Entrega / Retirar no local) também aplica o modo", () => {
+        const base = state({
+            step: "pro_awaiting_payment_method",
+            draft: minimalDraft({ fulfillmentType: null }),
+        });
+        const delivery = applyQuickAction("Entrega", base);
+        assert.equal(delivery.handled, true);
+        assert.equal(delivery.state.draft?.fulfillmentType, "delivery");
+        const pickup = applyQuickAction("Retirar no local", base);
+        assert.equal(pickup.handled, true);
+        assert.equal(pickup.state.draft?.fulfillmentType, "pickup");
+        assert.equal(pickup.state.step, "pro_awaiting_payment_method");
+    });
+
+    it("strict gate não engole clique de Entrega/Retirar em awaiting_payment_method", () => {
+        const g = strictCheckoutStructuredGate(
+            "pro_fulfillment_pickup",
+            state({
+                step: "pro_awaiting_payment_method",
+                draft: minimalDraft({ fulfillmentType: null }),
+            })
+        );
+        assert.equal(g, null);
+    });
+
+    it("checkoutPostProcess oferece Entrega / Retirar mesmo com endereço salvo (não infere entrega)", () => {
+        const out = checkoutPostProcess({
+            state: state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ paymentMethod: null, fulfillmentType: null }),
+            }),
+            outbound: [],
+            mode: "ai",
+            fulfillmentPolicy: { deliveriesEnabled: true, pickupEnabled: true },
+        });
+        const buttons = out.outbound.find((m) => m.kind === "buttons");
+        assert.ok(buttons);
+        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_delivery"));
+        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_pickup"));
+        assert.equal(out.state.draft?.fulfillmentType ?? null, null);
     });
 
     it("checkoutPostProcess oferece Entrega / Retirar quando os dois modos estão ligados", () => {

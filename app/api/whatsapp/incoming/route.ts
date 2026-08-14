@@ -300,7 +300,7 @@ function extractMessageText(msg: any, msgType: string): string {
             return interactive.list_reply?.id ?? interactive.list_reply?.title ?? "";
         }
     }
-    if (msgType === "button") return msg?.button?.text ?? "";
+    if (msgType === "button") return msg?.button?.payload ?? msg?.button?.text ?? "";
     return "";
 }
 

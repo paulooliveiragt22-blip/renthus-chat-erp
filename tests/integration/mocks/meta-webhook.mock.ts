@@ -257,7 +257,8 @@ export function extractBodyText(payload: MetaWebhookPayload): string {
     }
 
     if (msgType === "button") {
-        return (msg as MetaButtonMessage).button?.text ?? "";
+        const btn = (msg as MetaButtonMessage).button;
+        return btn?.payload ?? btn?.text ?? "";
     }
 
     return "";

@@ -247,9 +247,9 @@ describe("1. Payload Meta — extração de bodyText", () => {
         assert.strictEqual(extractBodyText(payload), "cat-cervejas-idx-2");
     });
 
-    it("extrai texto de mensagem type=button (template legado)", () => {
-        const payload = legacyButtonPayload("Ver cardápio");
-        assert.strictEqual(extractBodyText(payload), "Ver cardápio");
+    it("extrai payload de mensagem type=button (template legado)", () => {
+        const payload = legacyButtonPayload("Ver cardápio", "btn_catalog");
+        assert.strictEqual(extractBodyText(payload), "btn_catalog");
     });
 
     it("retorna string vazia quando não há mensagens no payload", () => {

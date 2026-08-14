@@ -16,6 +16,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { getWaConfig } from "@/lib/whatsapp/waConfigCache";
 import { storeHoursFromRow } from "@/lib/delivery/hours";
+import {
+    evaluateOutboundGates,
+    type BusinessHours,
+} from "@/lib/chatbot/outbound/gates";
 import { sendOutboundPayload } from "@/lib/chatbot/outbound/sendOutbound";
 import { isOutboundJobPayload, type OutboundJobRow } from "@/lib/chatbot/outbound/types";
 

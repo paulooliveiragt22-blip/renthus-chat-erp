@@ -16,9 +16,25 @@ export const DEFAULT_FULFILLMENT_POLICY: FulfillmentPolicy = {
 export function parseFulfillmentType(raw: unknown): FulfillmentType | null {
     const s = String(raw ?? "")
         .trim()
-        .toLowerCase();
-    if (s === "delivery" || s === "entrega") return "delivery";
-    if (s === "pickup" || s === "retirada" || s === "retirar") return "pickup";
+        .toLowerCase()
+        .normalize("NFD")
+        .replaceAll(/\p{Diacritic}/gu, "");
+    if (!s) return null;
+    if (
+        s === "delivery" ||
+        s === "entrega" ||
+        s === "pro_fulfillment_delivery"
+    ) {
+        return "delivery";
+    }
+    if (
+        s === "pickup" ||
+        s === "retirada" ||
+        s === "pro_fulfillment_pickup" ||
+        s.startsWith("retirar")
+    ) {
+        return "pickup";
+    }
     return null;
 }
 

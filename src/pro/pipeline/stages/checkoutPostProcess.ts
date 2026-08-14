@@ -27,8 +27,8 @@ import {
     isFulfillmentUnavailable,
     isPickupDraft,
     needsFulfillmentChoice,
+    parseFulfillmentType,
     type FulfillmentPolicy,
-    type FulfillmentType,
 } from "@/lib/delivery/fulfillment";
 
 export interface QuickActionResult {
@@ -309,6 +309,7 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
         if (!action) return null;
         if (isCancelOrderPlainText(text)) return null;
         if (PAYMENT_BUTTON_IDS.has(action)) return null;
+        if (parseFulfillmentType(text) != null) return null;
         if (looksLikePendingProductPick(text, state)) return null;
         return {
             handled: true,
@@ -539,13 +540,10 @@ export function applyQuickAction(
     const paymentAction = resolvePaymentQuickAction(action, state);
     if (paymentAction) return paymentAction;
 
-    if (
-        (action === "pro_fulfillment_delivery" || action === "pro_fulfillment_pickup") &&
-        state.draft &&
-        state.draft.items.length > 0
-    ) {
+    const fulfillmentChoice = parseFulfillmentType(text);
+    if (fulfillmentChoice && state.draft && state.draft.items.length > 0) {
         const policy = opts?.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
-        const type: FulfillmentType = action === "pro_fulfillment_pickup" ? "pickup" : "delivery";
+        const type = fulfillmentChoice;
         const allowed = assertFulfillmentAllowed(policy, type);
         if (!allowed.ok) {
             const msg =
@@ -554,7 +552,7 @@ export function applyQuickAction(
                     : "No momento não estamos fazendo entregas. Você pode retirar no local.";
             return {
                 handled: true,
-                actionTag: action,
+                actionTag: type === "pickup" ? "pro_fulfillment_pickup" : "pro_fulfillment_delivery",
                 state,
                 outbound: [{ kind: "text", text: msg }],
             };
@@ -568,14 +566,22 @@ export function applyQuickAction(
             draft: nextDraft,
             deliveryAddressUiConfirmed: type === "pickup",
         };
+        const addrReady = isAddressStructurallyComplete(nextDraft.address);
         return {
             handled: true,
-            actionTag: action,
+            actionTag: type === "pickup" ? "pro_fulfillment_pickup" : "pro_fulfillment_delivery",
             state: withResolvedSlotStep(merged),
             outbound:
                 type === "pickup"
                     ? [{ kind: "text", text: "Combinado: retirada no local, sem taxa de entrega." }]
-                    : [],
+                    : addrReady
+                      ? []
+                      : [
+                            {
+                                kind: "text",
+                                text: "Combinado: entrega. Me envia o endereço: rua, número, bairro, cidade e UF.",
+                            },
+                        ],
         };
     }
 
@@ -713,13 +719,7 @@ export function checkoutPostProcess(params: {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     let nextState = params.state;
     if (nextState.draft) {
-        let draft = applyFulfillmentPolicyToDraft(nextState.draft, policy);
-        if (
-            !draft.fulfillmentType &&
-            isAddressStructurallyComplete(draft.address)
-        ) {
-            draft = { ...draft, fulfillmentType: "delivery" };
-        }
+        const draft = applyFulfillmentPolicyToDraft(nextState.draft, policy);
         if (draft !== nextState.draft) {
             nextState = { ...nextState, draft };
         }

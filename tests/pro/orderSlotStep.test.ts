@@ -30,6 +30,7 @@ function draft(overrides: Partial<OrderDraft> = {}): OrderDraft {
         },
         paymentMethod: null,
         changeFor: null,
+        fulfillmentType: "delivery",
         deliveryFee: 0,
         deliveryZoneId: null,
         deliveryAddressText: null,
@@ -48,6 +49,16 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         assert.equal(
             resolveProStepFromDraft({ step: "pro_idle", draft: null }),
             "pro_idle"
+        );
+    });
+
+    it("sem modo de recebimento: não avança pra pagamento mesmo com endereço completo", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: draft({ fulfillmentType: null }),
+            }),
+            "pro_collecting_order"
         );
     });
 

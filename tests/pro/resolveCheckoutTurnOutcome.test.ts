@@ -180,6 +180,7 @@ describe("resolveCheckoutTurnOutcome", () => {
                     ],
                     address: addr,
                     paymentMethod: "pix",
+                    fulfillmentType: "delivery",
                     totalItems: 10,
                     grandTotal: 10,
                     pendingConfirmation: true,
