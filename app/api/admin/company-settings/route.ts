@@ -3,7 +3,8 @@ import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import {
     DELIVERY_DESCRIPTION_MAX,
-    normalizeHhMm,
+    MAX_OPENING_PERIODS,
+    normalizeOpeningPeriods,
     normalizeTimezone,
     sanitizeDeliveryDescription,
 } from "@/lib/delivery/hours";
@@ -14,7 +15,7 @@ export const runtime = "nodejs";
 const VALID_LLM_PROVIDERS = new Set(["anthropic", "openai"]);
 
 const SETTINGS_SELECT =
-    "require_order_approval, auto_print_orders, llm_provider, open_time, close_time, timezone, delivery_description, print_auto_copies";
+    "require_order_approval, auto_print_orders, llm_provider, open_time, close_time, opening_periods, timezone, delivery_description, print_auto_copies";
 
 export async function GET() {
     const ctx = await requireCapability("settings.company");
@@ -63,6 +64,7 @@ export async function PATCH(req: Request) {
         llm_provider?: string | null;
         open_time?: string | null;
         close_time?: string | null;
+        opening_periods?: unknown;
         timezone?: string | null;
         delivery_description?: string | null;
         print_auto_copies?: unknown;
@@ -81,23 +83,22 @@ export async function PATCH(req: Request) {
         patch.llm_provider = result.value;
     }
 
-    if (body.open_time !== undefined) {
-        if (body.open_time === null || String(body.open_time).trim() === "") {
-            patch.open_time = null;
-        } else {
-            const n = normalizeHhMm(body.open_time);
-            if (!n) return NextResponse.json({ error: "open_time inválido (use HH:MM)" }, { status: 400 });
-            patch.open_time = n;
+    if (body.opening_periods !== undefined) {
+        const periods = normalizeOpeningPeriods(body.opening_periods);
+        if (Array.isArray(body.opening_periods) && body.opening_periods.length > MAX_OPENING_PERIODS) {
+            return NextResponse.json(
+                { error: `Máximo ${MAX_OPENING_PERIODS} turnos de atendimento` },
+                { status: 400 }
+            );
         }
-    }
-    if (body.close_time !== undefined) {
-        if (body.close_time === null || String(body.close_time).trim() === "") {
-            patch.close_time = null;
-        } else {
-            const n = normalizeHhMm(body.close_time);
-            if (!n) return NextResponse.json({ error: "close_time inválido (use HH:MM)" }, { status: 400 });
-            patch.close_time = n;
-        }
+        patch.opening_periods = periods.map((p) => ({ open: p.openTime, close: p.closeTime }));
+        patch.open_time = periods[0]?.openTime ?? null;
+        patch.close_time = periods[0]?.closeTime ?? null;
+    } else if (body.open_time !== undefined || body.close_time !== undefined) {
+        return NextResponse.json(
+            { error: "Envie opening_periods (até 2 turnos). open_time/close_time isolados não são aceitos." },
+            { status: 400 }
+        );
     }
     if (body.timezone !== undefined) {
         patch.timezone = normalizeTimezone(body.timezone);

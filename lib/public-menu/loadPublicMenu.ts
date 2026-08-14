@@ -47,6 +47,9 @@ export async function loadPublicMenuBySlug(
                 timeZone: publicHours.timeZone,
                 deliveryDescription: publicHours.deliveryDescription,
                 isOpen: publicHours.isOpen,
+                periods: publicHours.periods,
+                hoursLabel: publicHours.hoursLabel,
+                closedMessage: publicHours.closedMessage,
             },
         },
     };

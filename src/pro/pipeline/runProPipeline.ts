@@ -239,7 +239,7 @@ export async function runProPipeline(
         ? await loadStoreHours(deps.admin, input.tenant.companyId)
         : EMPTY_STORE_HOURS;
     const storeOpen = isStoreOpen(nowMs, storeHours);
-    const storeClosedMessage = buildStoreClosedCustomerMessage(storeHours);
+    const storeClosedMessage = buildStoreClosedCustomerMessage(storeHours, nowMs);
 
     const emitTurn = async (args: {
         state: ProSessionState;
@@ -262,6 +262,23 @@ export async function runProPipeline(
             },
         });
     };
+
+    if (!storeOpen) {
+        await emitTurn({
+            state: sessionWithCustomer,
+            outbound: [{ kind: "text", text: storeClosedMessage }],
+            telemetryReason: "store_closed",
+        });
+        flushPipelineRunMetrics(deps.metrics, input.tenant, [
+            { name: "pro_pipeline.store_closed", value: 1 },
+        ]);
+        return {
+            nextState: sessionWithCustomer,
+            outbound: [{ kind: "text", text: storeClosedMessage }],
+            sideEffects: [],
+            metrics: [{ name: "pro_pipeline.store_closed", value: 1 }],
+        };
+    }
 
     /** Só captura telefone no passo dedicado (após NEEDS_PHONE no checkout). */
     if (deps.admin && sessionWithCustomer.step === "pro_awaiting_phone") {

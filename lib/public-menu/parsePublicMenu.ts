@@ -66,6 +66,9 @@ function parseStoreRow(raw: unknown): PublicMenuStore | null {
         timeZone: "America/Cuiaba",
         deliveryDescription: null,
         isOpen: true,
+        periods: [],
+        hoursLabel: "",
+        closedMessage: "",
     };
 }
 

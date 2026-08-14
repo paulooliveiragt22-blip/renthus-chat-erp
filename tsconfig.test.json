@@ -55,5 +55,11 @@
     "app/api/chatbot/process-queue/route.ts",
     "app/api/admin/company-settings/route.ts",
     "app/api/health/route.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".tests-dist",
+    "e2e",
+    "playwright.config.ts"
   ]
 }

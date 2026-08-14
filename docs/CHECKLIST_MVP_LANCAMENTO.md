@@ -17,7 +17,7 @@ pré-produção radical (`.cursor/rules/projeto-pre-producao-radical.mdc`).
 | # | Item | Planos | Estado |
 |---|------|--------|--------|
 | M1 | Entrega vs retirar no local + liga/desliga entregas | todos | [x] 2026-08-13 |
-| M2 | Horário de atendimento + descrição do delivery | todos | [x] 2026-08-13 |
+| M2 | Horário de atendimento + descrição do delivery | todos | [x] 2026-08-14 |
 | M3 | Cadastro de usuários com permissões | Pro + Market (`staff_users`) | [x] |
 | M4 | Vias de impressão selecionáveis + reprint por via | Pro + Market (`printing_auto`) | [x] |
 | M5 | Status `preparing` + notificar cliente | todos (IG só com omnichannel) | [x] |
@@ -47,11 +47,12 @@ precisa ser honesto em **todos** os planos (M7).
 ## Estruturas aprovadas (resumo)
 
 ### M2 — Horário + descrição
-- Canônico: `company_settings.open_time`, `close_time`, `timezone` (default `America/Cuiaba`),
-  `delivery_description` (≤280 chars, texto).
-- Um módulo `lib/delivery/hours.ts`; remover leitura de jsonb / `business_hours` weekday.
-- Checkout web recusa no servidor se fechado. Bot informa horário (distinto de entregas
-  pausadas M1). Overnight suportado.
+- Canônico: `company_settings.opening_periods` (até 2 turnos `{open,close}` HH:MM).
+  `open_time`/`close_time` = 1º turno (compat). `timezone` (default `America/Cuiaba`),
+  `delivery_description` (≤280 chars).
+- Um módulo `lib/delivery/hours.ts`; não usar jsonb / `business_hours` weekday.
+- Checkout web e bot recusam se fechado (mensagem padrão hoje/amanhã). Overnight no turno.
+- Sem períodos cadastrados → aberto (não inventar fechamento).
 
 ### M3 — Usuários
 - Convite Supabase; Auth + `company_users` com compensação. Roles atuais.
@@ -105,9 +106,11 @@ Configurações.
 
 ## M2 — Horário de atendimento + descrição do delivery
 
-**Estado:** [x] 2026-08-13 — `company_settings` (`open_time`, `close_time`, `timezone`,
-`delivery_description`); `lib/delivery/hours.ts`; outbound lê tipado; checkout/bot
-bloqueiam se fechado; Configurações Delivery + cardápio exibem horário/descrição.
+**Estado:** [x] 2026-08-14 — até 2 turnos/dia (`company_settings.opening_periods`);
+`open_time`/`close_time` = 1º turno (compat); `lib/delivery/hours.ts`; cardápio e bot
+usam o mesmo `isStoreOpen`; fechado → mensagem padrão (“não estamos atendendo… hoje/amanhã
+a partir das HH:MM”); checkout recusa no servidor. Sem horário cadastrado = loja aberta
+(não inventar fechamento). Overnight no 1º turno (ex. 18:00–02:00).
 
 ---
 
@@ -175,3 +178,4 @@ dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 | 2026-08-14 | Aceite automatizado M1–M7 (`tests/mvp/checklistAcceptance.test.ts`) + schema remoto OK; npm test 877 pass |
 | 2026-08-14 | E2E banco remoto (RPC/constraints M1–M7) + testes falha/notify preparing; **sem** Playwright UI |
 | 2026-08-14 | Playwright smokes MVP (`e2e/mvp.smokes.spec.ts`): `npm run test:e2e` com `E2E_EMAIL`/`E2E_PASSWORD` |
+| 2026-08-14 | M2 ajuste: 2 turnos (`opening_periods`), mensagem fechado, bot/cardápio no mesmo gate |

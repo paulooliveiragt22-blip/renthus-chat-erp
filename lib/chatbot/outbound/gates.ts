@@ -24,7 +24,9 @@ export type OutboundSkipReason =
 export type OutboundGateDecision = { allow: true } | { allow: false; reason: OutboundSkipReason };
 
 /** @deprecated Preferir StoreHours de `@/lib/delivery/hours`. Alias compatível. */
-export type BusinessHours = Pick<StoreHours, "openTime" | "closeTime" | "timeZone">;
+export type BusinessHours = Pick<StoreHours, "openTime" | "closeTime" | "timeZone"> & {
+    periods?: StoreHours["periods"];
+};
 
 export interface OutboundGateContext {
     purpose: OutboundPurpose;
@@ -43,6 +45,7 @@ export interface OutboundGateContext {
 /** Reexport — outbound usa quiet hours quando a loja ainda não cadastrou horário. */
 export function isWithinBusinessHours(nowMs: number, hours: BusinessHours | null): boolean {
     return isWithinProactiveHours(nowMs, {
+        periods: hours?.periods ?? [],
         openTime: hours?.openTime ?? null,
         closeTime: hours?.closeTime ?? null,
         timeZone: hours?.timeZone ?? "America/Cuiaba",

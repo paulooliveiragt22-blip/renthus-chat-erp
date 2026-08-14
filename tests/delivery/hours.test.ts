@@ -59,12 +59,49 @@ describe("store hours (M2)", () => {
         assert.equal(isStoreOpen(noon, hours), false);
     });
 
-    it("mensagem de fechado em PT-BR", () => {
-        const msg = buildStoreClosedCustomerMessage(
-            storeHoursFromRow({ open_time: "09:00", close_time: "21:00", timezone: "America/Cuiaba" })
-        );
-        assert.match(msg, /fechados/i);
-        assert.match(msg, /09:00/);
-        assert.match(msg, /21:00/);
+    it("mensagem de fechado — hoje vs amanhã", () => {
+        const hours = storeHoursFromRow({
+            open_time: "09:00",
+            close_time: "21:00",
+            timezone: "America/Cuiaba",
+        });
+        const beforeOpen = Date.parse("2026-08-13T12:00:00.000Z"); // 08:00 Cuiaba
+        const afterClose = Date.parse("2026-08-14T02:00:00.000Z"); // 22:00 Cuiaba
+        const msgToday = buildStoreClosedCustomerMessage(hours, beforeOpen);
+        assert.match(msgToday, /não estamos atendendo/i);
+        assert.match(msgToday, /hoje a partir das 09:00/i);
+        const msgTomorrow = buildStoreClosedCustomerMessage(hours, afterClose);
+        assert.match(msgTomorrow, /amanhã a partir das 09:00/i);
+    });
+
+    it("isStoreOpen — dois turnos (almoço + jantar)", () => {
+        const hours = storeHoursFromRow({
+            opening_periods: [
+                { open: "11:00", close: "14:30" },
+                { open: "18:00", close: "23:00" },
+            ],
+            timezone: "America/Cuiaba",
+        });
+        const lunch = Date.parse("2026-08-13T16:00:00.000Z"); // 12:00 Cuiaba
+        const afternoon = Date.parse("2026-08-13T20:00:00.000Z"); // 16:00 Cuiaba
+        const dinner = Date.parse("2026-08-14T00:00:00.000Z"); // 20:00 Cuiaba
+        assert.equal(isStoreOpen(lunch, hours), true);
+        assert.equal(isStoreOpen(afternoon, hours), false);
+        assert.equal(isStoreOpen(dinner, hours), true);
+        const gapMsg = buildStoreClosedCustomerMessage(hours, afternoon);
+        assert.match(gapMsg, /hoje a partir das 18:00/);
+    });
+
+    it("mensagem de fechado após o último turno — amanhã", () => {
+        const hours = storeHoursFromRow({
+            opening_periods: [
+                { open: "11:00", close: "14:30" },
+                { open: "18:00", close: "23:00" },
+            ],
+            timezone: "America/Cuiaba",
+        });
+        const afterDinner = Date.parse("2026-08-14T03:30:00.000Z"); // 23:30 Cuiaba
+        const msg = buildStoreClosedCustomerMessage(hours, afterDinner);
+        assert.match(msg, /amanhã a partir das 11:00/);
     });
 });

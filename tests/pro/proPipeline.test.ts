@@ -355,5 +355,66 @@ describe("novo pipeline PRO - falhas reais", () => {
         assert.equal(out.nextState.step, "pro_awaiting_change_amount");
         assert.ok(out.outbound.some((m) => (m.text ?? "").toLowerCase().includes("troco")));
     });
+
+    it("loja fechada: mensagem padrão e não chama IA nem pedido", async () => {
+        let orderCalled = 0;
+        let aiCalled = 0;
+        const deps = buildDeps({
+            session: stateAwaitingConfirmation({ step: "pro_collecting_order" }),
+            intent: "order_intent",
+            onOrderCalled: () => {
+                orderCalled += 1;
+            },
+        });
+        const pipelineDeps = deps as typeof deps & { admin?: unknown };
+        pipelineDeps.aiService.run = async () => {
+            aiCalled += 1;
+            return {
+                action: "reply",
+                replyText: "não deveria",
+                signals: { toolRoundsUsed: 0 },
+            } as never;
+        };
+        const maybeSingle = async (table: string) => {
+            if (table === "company_settings") {
+                return {
+                    data: {
+                        opening_periods: [
+                            { open: "11:00", close: "14:30" },
+                            { open: "18:00", close: "23:00" },
+                        ],
+                        timezone: "America/Cuiaba",
+                    },
+                    error: null,
+                };
+            }
+            return { data: null, error: null };
+        };
+        pipelineDeps.admin = {
+            from(table: string) {
+                const chain = {
+                    select: () => chain,
+                    eq: () => chain,
+                    maybeSingle: () => maybeSingle(table),
+                };
+                return chain;
+            },
+        };
+
+        const out = await runProPipeline(
+            {
+                ...baseInput(),
+                inboundText: "quero uma heineken",
+                nowIso: "2026-08-13T20:00:00.000Z", // 16:00 Cuiaba — intervalo
+            },
+            pipelineDeps as never
+        );
+
+        assert.equal(orderCalled, 0);
+        assert.equal(aiCalled, 0);
+        assert.match(out.outbound[0]?.text ?? "", /não estamos atendendo/i);
+        assert.match(out.outbound[0]?.text ?? "", /hoje a partir das 18:00/);
+        assert.equal(out.metrics.some((m) => m.name === "pro_pipeline.store_closed"), true);
+    });
 });
 

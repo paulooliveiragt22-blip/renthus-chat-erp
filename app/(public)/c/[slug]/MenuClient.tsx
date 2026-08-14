@@ -274,10 +274,13 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                         ) : (
                                             <span className="font-medium text-amber-700">Fechado</span>
                                         )}
-                                        {store.openTime && store.closeTime
-                                            ? ` · ${store.openTime}–${store.closeTime}`
-                                            : null}
+                                        {store.hoursLabel ? ` · ${store.hoursLabel}` : null}
                                     </p>
+                                    {!store.isOpen && store.closedMessage ? (
+                                        <p className="mt-1 text-xs text-amber-800 sm:text-sm">
+                                            {store.closedMessage}
+                                        </p>
+                                    ) : null}
                                     {store.deliveryDescription ? (
                                         <p className="mt-1 line-clamp-2 text-xs text-zinc-600 sm:text-sm">
                                             {store.deliveryDescription}
@@ -454,9 +457,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     pickupEnabled={store.pickupEnabled}
                     storeIsOpen={store.isOpen}
                     storeClosedHint={
-                        store.openTime && store.closeTime
-                            ? `No momento estamos fechados. Horário: ${store.openTime}–${store.closeTime}.`
-                            : "No momento estamos fechados."
+                        store.closedMessage || "Não estamos atendendo no momento."
                     }
                     cart={cart}
                     onClose={() => setCheckoutOpen(false)}

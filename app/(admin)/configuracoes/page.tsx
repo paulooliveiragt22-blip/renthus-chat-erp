@@ -398,6 +398,9 @@ function ConfiguracoesPageContent() {
     const [acceptPickup, setAcceptPickup] = useState(true);
     const [openTime, setOpenTime] = useState("08:00");
     const [closeTime, setCloseTime] = useState("22:00");
+    const [openTime2, setOpenTime2] = useState("");
+    const [closeTime2, setCloseTime2] = useState("");
+    const [hoursConfigured, setHoursConfigured] = useState(false);
     const [storeTimezone, setStoreTimezone] = useState("America/Cuiaba");
     const [deliveryDescription, setDeliveryDescription] = useState("");
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -567,8 +570,26 @@ function ConfiguracoesPageContent() {
             const settingsJson = await settingsRes.json().catch(() => ({}));
             const s = settingsJson?.settings;
             if (s) {
-                setOpenTime(typeof s.open_time === "string" && s.open_time ? s.open_time : "08:00");
-                setCloseTime(typeof s.close_time === "string" && s.close_time ? s.close_time : "22:00");
+                const periods = Array.isArray(s.opening_periods) ? s.opening_periods : [];
+                const p0 = periods[0] as { open?: string; close?: string } | undefined;
+                const p1 = periods[1] as { open?: string; close?: string } | undefined;
+                setOpenTime(
+                    (typeof p0?.open === "string" && p0.open) ||
+                        (typeof s.open_time === "string" && s.open_time) ||
+                        "08:00"
+                );
+                setCloseTime(
+                    (typeof p0?.close === "string" && p0.close) ||
+                        (typeof s.close_time === "string" && s.close_time) ||
+                        "22:00"
+                );
+                setOpenTime2(typeof p1?.open === "string" ? p1.open : "");
+                setCloseTime2(typeof p1?.close === "string" ? p1.close : "");
+                setHoursConfigured(
+                    periods.length > 0 ||
+                        (typeof s.open_time === "string" && Boolean(s.open_time) &&
+                            typeof s.close_time === "string" && Boolean(s.close_time))
+                );
                 setStoreTimezone(
                     typeof s.timezone === "string" && s.timezone.trim()
                         ? s.timezone
@@ -684,8 +705,12 @@ function ConfiguracoesPageContent() {
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({
-                open_time: openTime.trim() || null,
-                close_time: closeTime.trim() || null,
+                opening_periods: [
+                    { open: openTime.trim(), close: closeTime.trim() },
+                    ...(openTime2.trim() && closeTime2.trim()
+                        ? [{ open: openTime2.trim(), close: closeTime2.trim() }]
+                        : []),
+                ],
                 timezone: storeTimezone.trim() || "America/Cuiaba",
                 delivery_description: deliveryDescription.trim() || null,
             }),
@@ -1143,26 +1168,49 @@ function ConfiguracoesPageContent() {
                         <div className="flex flex-col gap-6">
                             <SectionTitle icon={Bike} title="Configurações de Delivery" desc="Cidade atendida, bairros, taxas, horário e estimativa de entrega" />
 
+                            {!hoursConfigured ? (
+                                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
+                                    Nenhum horário gravado ainda. Até salvar, cardápio e WhatsApp ficam
+                                    sempre abertos. Preencha 1 ou 2 turnos e salve esta aba.
+                                </p>
+                            ) : null}
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                 <Field
-                                    label="Abre às (HH:MM)"
+                                    label="1º turno — abre"
                                     value={openTime}
                                     onChange={setOpenTime}
-                                    placeholder="08:00"
-                                    hint="Fuso da loja. Pode atravessar meia-noite se fechar < abrir."
+                                    type="time"
+                                    placeholder="11:00"
+                                    hint="Almoço ou único período. Fuso da loja abaixo."
                                 />
                                 <Field
-                                    label="Fecha às (HH:MM)"
+                                    label="1º turno — fecha"
                                     value={closeTime}
                                     onChange={setCloseTime}
-                                    placeholder="22:00"
+                                    type="time"
+                                    placeholder="14:30"
+                                />
+                                <Field
+                                    label="2º turno — abre (opcional)"
+                                    value={openTime2}
+                                    onChange={setOpenTime2}
+                                    type="time"
+                                    placeholder="18:00"
+                                    hint="Jantar. Deixe vazio se a loja tem um só horário."
+                                />
+                                <Field
+                                    label="2º turno — fecha (opcional)"
+                                    value={closeTime2}
+                                    onChange={setCloseTime2}
+                                    type="time"
+                                    placeholder="23:00"
                                 />
                                 <Field
                                     label="Fuso horário (IANA)"
                                     value={storeTimezone}
                                     onChange={setStoreTimezone}
                                     placeholder="America/Cuiaba"
-                                    hint="Ex.: America/Cuiaba, America/Sao_Paulo"
+                                    hint="Ex.: America/Cuiaba, America/Sao_Paulo. Turno 1 pode atravessar meia-noite (ex. 18:00–02:00)."
                                 />
                             </div>
                             <label className="block">

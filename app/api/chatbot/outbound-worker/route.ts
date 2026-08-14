@@ -15,7 +15,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { getWaConfig } from "@/lib/whatsapp/waConfigCache";
-import { evaluateOutboundGates, type BusinessHours } from "@/lib/chatbot/outbound/gates";
+import { storeHoursFromRow } from "@/lib/delivery/hours";
 import { sendOutboundPayload } from "@/lib/chatbot/outbound/sendOutbound";
 import { isOutboundJobPayload, type OutboundJobRow } from "@/lib/chatbot/outbound/types";
 
@@ -211,7 +211,7 @@ async function loadJobContexts(
             .in("id", threadIds),
         admin
             .from("company_settings")
-            .select("company_id, open_time, close_time, timezone")
+            .select("company_id, opening_periods, open_time, close_time, timezone")
             .in("company_id", companyIds),
         cartIds.length > 0
             ? admin.from("abandoned_carts").select("id, status").in("id", cartIds)
@@ -226,18 +226,12 @@ async function loadJobContexts(
 
     const businessHoursByCompany = new Map<string, BusinessHours>();
     for (const row of settingsRes.data ?? []) {
-        const open =
-            typeof row.open_time === "string" && row.open_time.trim() ? row.open_time.trim() : null;
-        const close =
-            typeof row.close_time === "string" && row.close_time.trim() ? row.close_time.trim() : null;
-        const tz =
-            typeof row.timezone === "string" && row.timezone.trim()
-                ? row.timezone.trim()
-                : "America/Cuiaba";
+        const hours = storeHoursFromRow(row);
         businessHoursByCompany.set(String(row.company_id), {
-            openTime: open,
-            closeTime: close,
-            timeZone: tz,
+            openTime: hours.openTime,
+            closeTime: hours.closeTime,
+            timeZone: hours.timeZone,
+            periods: hours.periods,
         });
     }
 

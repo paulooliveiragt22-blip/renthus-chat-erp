@@ -76,7 +76,8 @@ describe("MVP E2E contratos UI/API (sem browser)", () => {
     });
 
     it("M2 UI horário na aba Delivery", () => {
-        assert.match(read("app/(admin)/configuracoes/page.tsx"), /open_time|openTime|Abre às/);
+        assert.match(read("app/(admin)/configuracoes/page.tsx"), /1º turno|2º turno/);
+        assert.match(read("app/api/admin/company-settings/route.ts"), /opening_periods/);
         assert.match(read("app/api/admin/company-settings/route.ts"), /delivery_description/);
     });
 

@@ -521,9 +521,14 @@ export default function CheckoutDrawer({
                         >
                             + Adicionar mais itens
                         </button>
+                        {!storeIsOpen ? (
+                            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                {storeClosedHint ?? "Não estamos atendendo no momento."}
+                            </p>
+                        ) : null}
                         <button
                             type="button"
-                            disabled={busy || cart.length === 0}
+                            disabled={busy || cart.length === 0 || !storeIsOpen}
                             onClick={continueFromCart}
                             className="w-full rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
                         >

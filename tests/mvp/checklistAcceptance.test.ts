@@ -94,14 +94,19 @@ describe("MVP checklist — M2 horário + descrição", () => {
 
         assert.equal(sanitizeDeliveryDescription("a".repeat(300))?.length, 280);
         assert.match(
-            buildStoreClosedCustomerMessage(day),
-            /fechados/i
+            buildStoreClosedCustomerMessage(day, Date.parse("2026-08-14T06:00:00.000Z")),
+            /não estamos atendendo/i
+        );
+        assert.match(
+            buildStoreClosedCustomerMessage(day, Date.parse("2026-08-14T06:00:00.000Z")),
+            /hoje a partir das 08:00/i
         );
     });
 
     it("fonte canônica company_settings (não business_hours weekday)", () => {
         const hours = read("lib/delivery/hours.ts");
         assert.match(hours, /company_settings/);
+        assert.match(hours, /opening_periods/);
         assert.match(hours, /não usar.*business_hours|Não usar.*business_hours/i);
         assert.equal(hours.includes("business_hours"), true); // só na proibição comentada
     });

@@ -32,6 +32,10 @@ export interface PublicMenuStore {
     deliveryDescription: string | null;
     /** Calculado no servidor no momento do load. */
     isOpen: boolean;
+    /** Turnos HH:MM (almoço + jantar). */
+    periods: Array<{ openTime: string; closeTime: string }>;
+    hoursLabel: string;
+    closedMessage: string;
 }
 
 export interface PublicMenuItem {
