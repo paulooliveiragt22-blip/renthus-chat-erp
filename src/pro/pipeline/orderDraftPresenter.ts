@@ -18,6 +18,7 @@ function paymentLabel(pm: OrderDraft["paymentMethod"]): string {
 }
 
 function addressLine(draft: OrderDraft): string {
+    if (draft.fulfillmentType === "pickup") return "Retirada no local";
     const a = draft.address;
     if (!a) return "—";
     return [
@@ -47,7 +48,9 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
     lines.push("");
     lines.push(`Subtotal itens: R$ ${brl(Number(draft.totalItems) || 0)}`);
     const fee = Number(draft.deliveryFee) || 0;
-    if (fee > 0) {
+    if (draft.fulfillmentType === "pickup") {
+        lines.push("Modo: retirada no local");
+    } else if (fee > 0) {
         lines.push(`Taxa de entrega: R$ ${brl(fee)}`);
     } else {
         lines.push("Taxa de entrega: R$ 0,00");

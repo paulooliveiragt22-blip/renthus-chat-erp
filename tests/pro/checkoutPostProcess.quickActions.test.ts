@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { OrderDraft, ProSessionState } from "../../src/types/contracts";
 import {
     applyQuickAction,
+    checkoutPostProcess,
     checkoutPostProcessForQuickAction,
     strictCheckoutStructuredGate,
 } from "../../src/pro/pipeline/stages/checkoutPostProcess";
@@ -211,7 +212,7 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         assert.equal(r.handled, false);
     });
 
-    it("pro_new_address_flow com flow: mesmo comportamento que Alterar", () => {
+    it("pro_new_address_flow com handoff: CTA do cardápio", () => {
         const r = applyQuickAction(
             "pro_new_address_flow",
             state({
@@ -219,19 +220,16 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
                 draft: minimalDraft(),
             }),
             {
-                flowAddressRegister: {
-                    flowId: "flow-meta-id",
-                    threadId: "thread-1",
-                    companyId: "company-1",
-                },
+                checkoutHandoffUrl: "https://app.renthus.com.br/c/loja?hc=tok&checkout=1",
             }
         );
         assert.equal(r.handled, true);
         assert.equal(r.outbound.length, 1);
-        assert.equal(r.outbound[0]?.kind, "flow");
+        assert.equal(r.outbound[0]?.kind, "cta_url");
+        assert.ok(r.outbound[0]?.ctaUrl?.url.includes("hc=tok"));
     });
 
-    it("pro_edit_delivery_address com flow configurado: inclui mensagem de flow", () => {
+    it("pro_edit_delivery_address com handoff: CTA cadastrar endereço", () => {
         const r = applyQuickAction(
             "pro_edit_delivery_address",
             state({
@@ -239,19 +237,15 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
                 draft: minimalDraft(),
             }),
             {
-                flowAddressRegister: {
-                    flowId: "flow-meta-id",
-                    threadId: "thread-1",
-                    companyId: "company-1",
-                },
+                checkoutHandoffUrl: "https://app.renthus.com.br/c/loja?hc=tok&checkout=1",
             }
         );
         assert.equal(r.handled, true);
         assert.equal(r.outbound.length, 1);
-        const flow = r.outbound[0];
-        assert.equal(flow?.kind, "flow");
-        assert.equal(flow?.flow?.flowToken, "thread-1|company-1|address_register");
-        assert.equal(flow?.flow?.ctaLabel, "Cadastrar endereço");
+        const msg = r.outbound[0];
+        assert.equal(msg?.kind, "cta_url");
+        assert.equal(msg?.ctaUrl?.displayText, "Cadastrar endereço");
+        assert.ok(msg?.ctaUrl?.url.includes("checkout=1"));
     });
 
     it("strict gate: com pagamento e endereco completo, texto pix nao bloqueia", () => {
@@ -306,5 +300,71 @@ describe("applyQuickAction — confirmação órfã e pagamento em texto", () =>
         });
         assert.ok(out.some((m) => m.kind === "text" && String(m.text).includes("adicionar")));
         assert.ok(!out.some((m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order")));
+    });
+});
+
+describe("applyQuickAction — entrega vs retirada", () => {
+    it("pro_fulfillment_pickup zera taxa e não exige endereço", () => {
+        const r = applyQuickAction(
+            "pro_fulfillment_pickup",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ address: null, deliveryFee: 12, grandTotal: 22 }),
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.state.draft?.fulfillmentType, "pickup");
+        assert.equal(r.state.draft?.deliveryFee, 0);
+        assert.equal(r.state.draft?.grandTotal, 10);
+        assert.ok(r.outbound.some((m) => m.kind === "text" && /retirada/i.test(String(m.text))));
+    });
+
+    it("pro_fulfillment_delivery marca entrega e deixa endereço pendente", () => {
+        const r = applyQuickAction(
+            "pro_fulfillment_delivery",
+            state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ address: null }),
+            })
+        );
+        assert.equal(r.handled, true);
+        assert.equal(r.state.draft?.fulfillmentType, "delivery");
+        assert.equal(r.state.step, "pro_collecting_order");
+    });
+
+    it("checkoutPostProcess oferece Entrega / Retirar quando os dois modos estão ligados", () => {
+        const out = checkoutPostProcess({
+            state: state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ address: null, paymentMethod: null }),
+            }),
+            outbound: [],
+            mode: "ai",
+            fulfillmentPolicy: { deliveriesEnabled: true, pickupEnabled: true },
+        });
+        const buttons = out.outbound.find((m) => m.kind === "buttons");
+        assert.ok(buttons);
+        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_delivery"));
+        assert.ok(buttons!.buttons?.some((b) => b.id === "pro_fulfillment_pickup"));
+        assert.ok(!buttons!.buttons?.some((b) => b.id === "pro_pay_pix"));
+    });
+
+    it("loja só retirada: checkoutPostProcess aplica pickup e oferece pagamento sem endereço", () => {
+        const out = checkoutPostProcess({
+            state: state({
+                step: "pro_collecting_order",
+                draft: minimalDraft({ address: null, paymentMethod: null, deliveryFee: 9 }),
+            }),
+            outbound: [],
+            mode: "ai",
+            fulfillmentPolicy: { deliveriesEnabled: false, pickupEnabled: true },
+        });
+        assert.equal(out.state.draft?.fulfillmentType, "pickup");
+        assert.equal(out.state.draft?.deliveryFee, 0);
+        assert.ok(
+            out.outbound.some(
+                (m) => m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_pay_pix")
+            )
+        );
     });
 });

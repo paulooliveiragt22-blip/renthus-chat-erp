@@ -16,9 +16,9 @@
  *
  * Este arquivo é só auth + parse + orquestração. Lógica de negócio testável isoladamente
  * (sem Request/NextResponse) está em `lib/chatbot/queue/*` — ver item 8 de
- * docs/CHECKLIST_SEGURANCA_CONFIABILIDADE_P0.md. Fase 3 de docs/PLANO_ESCALA_PICOS_PEDIDOS.md
- * (paralelismo por thread) troca o `for` abaixo por `runWithConcurrencyLimit` chamando
- * `runQueueEntryWithOutcome` — sem precisar re-extrair nada.
+ * docs/CHECKLIST_SEGURANCA_CONFIABILIDADE_P0.md. Fase 3 de docs/PLANO_ESCALA_PICOS_PEDIDOS.md:
+ * jobs de threads diferentes no mesmo lote correm em paralelo (`CHATBOT_QUEUE_CONCURRENCY`);
+ * a mesma thread continua sequencial via `groupQueueJobsByThread`.
  */
 
 import { NextResponse } from "next/server";
@@ -26,9 +26,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { interleaveQueueJobsByCompany } from "@/lib/chatbot/interleaveQueueJobsByCompany";
 import { scheduleQueueWorkerWake } from "@/lib/chatbot/queueWorkerWake";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
+import { runWithConcurrencyLimit } from "@/lib/chatbot/queue/concurrencyLimit";
 import { getPositiveIntEnv, MAX_ATTEMPTS } from "@/lib/chatbot/queue/env";
+import { groupQueueJobsByThread } from "@/lib/chatbot/queue/groupByThread";
 import { cleanupOldJobs, emitQueueMetrics, reclaimStuckJobs } from "@/lib/chatbot/queue/maintenance";
-import { runQueueEntryWithOutcome, type QueueEntryOutcome } from "@/lib/chatbot/queue/runQueueEntry";
+import { runQueueEntryWithOutcome, type QueueEntryOutcome, type RunQueueEntryOptions } from "@/lib/chatbot/queue/runQueueEntry";
 import type { AdminClient, ChatbotQueueJobRow, QueueBatchCounters } from "@/lib/chatbot/queue/types";
 
 export const runtime = "nodejs";
@@ -40,6 +42,8 @@ const ALLOW_CLAIM_FALLBACK = process.env.NODE_ENV !== "production";
 
 const STALE_PROCESSING_MINUTES = getPositiveIntEnv("CHATBOT_QUEUE_STALE_MINUTES", 3);
 const MAX_PER_COMPANY = getPositiveIntEnv("CHATBOT_QUEUE_MAX_PER_COMPANY", 2);
+/** Threads/empresas diferentes no mesmo lote. Default 3 — calibrar após Fase 0 (compute). */
+const QUEUE_CONCURRENCY = getPositiveIntEnv("CHATBOT_QUEUE_CONCURRENCY", 3);
 
 function parseDrainDepth(req: Request): number {
     try {
@@ -60,6 +64,23 @@ function tally(counters: QueueBatchCounters, outcome: QueueEntryOutcome): void {
     } else {
         counters.failed++;
     }
+}
+
+async function processJobList(
+    admin: AdminClient,
+    jobList: ChatbotQueueJobRow[],
+    opts?: RunQueueEntryOptions
+): Promise<QueueBatchCounters> {
+    const counters: QueueBatchCounters = { processed: 0, failed: 0, coalesced: 0 };
+    const seenInBatch = new Set<string>();
+    const buckets = groupQueueJobsByThread(jobList);
+    await runWithConcurrencyLimit(buckets, QUEUE_CONCURRENCY, async (bucket) => {
+        for (const job of bucket) {
+            const outcome = await runQueueEntryWithOutcome(admin, job, seenInBatch, opts);
+            tally(counters, outcome);
+        }
+    });
+    return counters;
 }
 
 export async function GET(req: Request) {
@@ -111,14 +132,7 @@ export async function GET(req: Request) {
     const { data: jobs } = await admin.from("chatbot_queue").select("*").in("id", jobIds);
 
     const jobList = interleaveQueueJobsByCompany((jobs ?? []) as ChatbotQueueJobRow[]);
-
-    const counters: QueueBatchCounters = { processed: 0, failed: 0, coalesced: 0 };
-    const seenInBatch = new Set<string>();
-
-    for (const job of jobList) {
-        const outcome = await runQueueEntryWithOutcome(admin, job, seenInBatch);
-        tally(counters, outcome);
-    }
+    const counters = await processJobList(admin, jobList);
 
     await cleanupOldJobs(admin);
 
@@ -179,17 +193,11 @@ async function runFallbackProcessing(admin: AdminClient, t0: number) {
         return NextResponse.json({ ok: true, processed: 0, ms: Date.now() - t0 });
     }
 
-    const counters: QueueBatchCounters = { processed: 0, failed: 0, coalesced: 0 };
-    const seenInBatch = new Set<string>();
     const fallbackJobList = interleaveQueueJobsByCompany(jobs as ChatbotQueueJobRow[]);
-
-    for (const job of fallbackJobList) {
-        const outcome = await runQueueEntryWithOutcome(admin, job, seenInBatch, {
-            markProcessingBeforeRun: true,
-            sentryRoute: "process-queue-fallback",
-        });
-        tally(counters, outcome);
-    }
+    const counters = await processJobList(admin, fallbackJobList, {
+        markProcessingBeforeRun: true,
+        sentryRoute: "process-queue-fallback",
+    });
 
     await cleanupOldJobs(admin);
     await emitQueueMetrics(admin, counters);

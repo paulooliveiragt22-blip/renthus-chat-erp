@@ -103,10 +103,8 @@ export function bumpAiTurnCount<T extends AiTurnQuotaState>(
 
 export function buildAiLimitExceededOutbound(opts: {
     webMenuUrl?: string | null;
-    flowCatalogId?: string | null;
 }): OutboundMessage[] {
     const web = String(opts.webMenuUrl ?? "").trim();
-    const flowId = String(opts.flowCatalogId ?? "").trim();
     const lines = [
         "Você atingiu o limite de mensagens com a IA nesta conversa.",
         "Pode continuar pelo *cardápio web*, falar com um *atendente* ou usar o *menu automático*.",
@@ -117,24 +115,11 @@ export function buildAiLimitExceededOutbound(opts: {
         { id: "human", title: "Falar com atendente" },
     ];
     if (web) buttons.unshift({ id: "catalog", title: "Cardápio web" });
-    else if (flowId) buttons.unshift({ id: "catalog", title: "Cardápio" });
 
-    const outbound: OutboundMessage[] = [
+    return [
         { kind: "text", text: lines.join("\n") },
         { kind: "buttons", text: "Como prefere seguir?", buttons: buttons.slice(0, 3) },
     ];
-    if (flowId && !web) {
-        outbound.push({
-            kind: "flow",
-            flow: {
-                flowId,
-                flowToken: `catalog_limit_${Date.now()}`,
-                ctaLabel: "Abrir cardápio",
-                bodyText: "Veja o cardápio e finalize o pedido por aqui.",
-            },
-        });
-    }
-    return outbound;
 }
 
 export function buildInfoOnlyOrderBlockedText(webMenuUrl?: string | null): string {

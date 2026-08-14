@@ -7,6 +7,14 @@ import type {
     PublicMenuCheckoutResult,
 } from "@/src/types/contracts.public-menu";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
+import {
+    assertFulfillmentAllowed,
+    isFulfillmentUnavailable,
+    loadFulfillmentPolicy,
+    parseFulfillmentType,
+    resolveSoleFulfillmentType,
+    type FulfillmentType,
+} from "@/lib/delivery/fulfillment";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
 import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addresses";
 import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
@@ -180,83 +188,104 @@ export async function createWebMenuOrder(
         subtotal += unitPrice * qty;
     }
 
-    // Endereço
+    const policy = await loadFulfillmentPolicy(admin, params.companyId);
+    if (isFulfillmentUnavailable(policy)) {
+        return { ok: false, error: "fulfillment_unavailable" };
+    }
+
+    let fulfillmentType: FulfillmentType | null = parseFulfillmentType(params.input.fulfillmentType);
+    if (!fulfillmentType) {
+        fulfillmentType = resolveSoleFulfillmentType(policy);
+    }
+    if (!fulfillmentType) {
+        return { ok: false, error: "fulfillment_required" };
+    }
+    const allowed = assertFulfillmentAllowed(policy, fulfillmentType);
+    if (!allowed.ok) {
+        return { ok: false, error: allowed.error };
+    }
+
+    const isPickup = fulfillmentType === "pickup";
+
     let deliveryEnderecoClienteId: string | null = null;
-    let addressText = "";
+    let addressText = isPickup ? "Retirada no local" : "";
     let bairro = "";
-    let cidade = "";
-    let estado = "";
+    let deliveryFee = 0;
+    let etaMin: number | null = null;
 
-    const selectedId = params.input.savedAddressId
-        ? String(params.input.savedAddressId).trim()
-        : "";
+    if (!isPickup) {
+        const selectedId = params.input.savedAddressId
+            ? String(params.input.savedAddressId).trim()
+            : "";
 
-    if (selectedId) {
-        const addresses = await listCustomerAddressesForMenu(
-            admin,
-            params.companyId,
-            session.customerId
-        );
-        const found = addresses.find((a) => a.id === selectedId);
-        if (!found) return { ok: false, error: "address_not_found" };
-        deliveryEnderecoClienteId = found.id;
-        bairro = found.bairro ?? "";
-        cidade = found.cidade;
-        estado = found.estado;
-        addressText = formatDeliveryAddressText(found);
-    } else {
-        const a = params.input.newAddress;
-        if (!a) return { ok: false, error: "address_required" };
-        const logradouro = String(a.logradouro ?? "").trim();
-        const numero = String(a.numero ?? "").trim();
-        bairro = String(a.bairro ?? "").trim();
-        cidade = String(a.cidade ?? "").trim();
-        estado = String(a.estado ?? "").trim().toUpperCase().slice(0, 2);
-        if (!logradouro || !numero || !bairro || !cidade || estado.length !== 2) {
-            return { ok: false, error: "address_incomplete" };
+        if (selectedId) {
+            const addresses = await listCustomerAddressesForMenu(
+                admin,
+                params.companyId,
+                session.customerId
+            );
+            const found = addresses.find((a) => a.id === selectedId);
+            if (!found) return { ok: false, error: "address_not_found" };
+            deliveryEnderecoClienteId = found.id;
+            bairro = found.bairro ?? "";
+            addressText = formatDeliveryAddressText(found);
+        } else {
+            const a = params.input.newAddress;
+            if (!a) return { ok: false, error: "address_required" };
+            const logradouro = String(a.logradouro ?? "").trim();
+            const numero = String(a.numero ?? "").trim();
+            bairro = String(a.bairro ?? "").trim();
+            const cidade = String(a.cidade ?? "").trim();
+            const estado = String(a.estado ?? "").trim().toUpperCase().slice(0, 2);
+            if (!logradouro || !numero || !bairro || !cidade || estado.length !== 2) {
+                return { ok: false, error: "address_incomplete" };
+            }
+            const persisted = await persistEnderecoClienteFromFlow(admin, {
+                companyId: params.companyId,
+                customerId: session.customerId,
+                existingAddressId: null,
+                apelido: String(a.apelido ?? "").trim() || "Cardápio web",
+                logradouro,
+                numero,
+                complemento: String(a.complemento ?? "").trim() || null,
+                bairro,
+                cidade,
+                estado,
+                cep: a.cep == null ? null : String(a.cep),
+            });
+            if (!persisted.ok) return { ok: false, error: "address_persist_failed" };
+            deliveryEnderecoClienteId = persisted.id;
+            addressText = formatDeliveryAddressText({
+                logradouro,
+                numero,
+                complemento: a.complemento,
+                bairro,
+                cidade,
+                estado,
+            });
         }
-        const persisted = await persistEnderecoClienteFromFlow(admin, {
-            companyId: params.companyId,
-            customerId: session.customerId,
-            existingAddressId: null,
-            apelido: String(a.apelido ?? "").trim() || "Cardápio web",
-            logradouro,
-            numero,
-            complemento: String(a.complemento ?? "").trim() || null,
-            bairro,
-            cidade,
-            estado,
-            cep: a.cep == null ? null : String(a.cep),
-        });
-        if (!persisted.ok) return { ok: false, error: "address_persist_failed" };
-        deliveryEnderecoClienteId = persisted.id;
-        addressText = formatDeliveryAddressText({
-            logradouro,
-            numero,
-            complemento: a.complemento,
-            bairro,
-            cidade,
-            estado,
-        });
+
+        const delivery = await resolveDeliveryForNeighborhood(admin, params.companyId, bairro);
+        if (!delivery.served) {
+            return { ok: false, error: "delivery_not_served", message: delivery.reason ?? undefined };
+        }
+
+        deliveryFee = delivery.fee;
+        etaMin = delivery.eta_min;
+
+        const grandCheck = subtotal + deliveryFee;
+        if (delivery.min_order != null && grandCheck + 1e-9 < delivery.min_order) {
+            return {
+                ok: false,
+                error: "min_order_not_met",
+                message: `Pedido mínimo: R$ ${delivery.min_order.toFixed(2).replace(".", ",")}`,
+                minOrder: delivery.min_order,
+                grandTotal: grandCheck,
+            };
+        }
     }
 
-    const delivery = await resolveDeliveryForNeighborhood(admin, params.companyId, bairro);
-    if (!delivery.served) {
-        return { ok: false, error: "delivery_not_served", message: delivery.reason ?? undefined };
-    }
-
-    const deliveryFee = delivery.fee;
     const grandTotal = subtotal + deliveryFee;
-
-    if (delivery.min_order != null && grandTotal + 1e-9 < delivery.min_order) {
-        return {
-            ok: false,
-            error: "min_order_not_met",
-            message: `Pedido mínimo: R$ ${delivery.min_order.toFixed(2).replace(".", ",")}`,
-            minOrder: delivery.min_order,
-            grandTotal,
-        };
-    }
 
     if (paymentMethod === "cash" && changeFor != null && changeFor + 1e-9 < grandTotal) {
         return { ok: false, error: "change_below_total" };
@@ -297,9 +326,10 @@ export async function createWebMenuOrder(
         p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
         p_payment_method: paymentMethod,
         p_change_for: changeFor,
-        p_paid: false,
-        p_items: orderItems,
-        p_idempotency_key: idempotencyKey,
+            p_paid: false,
+            p_items: orderItems,
+            p_idempotency_key: idempotencyKey,
+            p_fulfillment_type: fulfillmentType,
     });
 
     if (orderErr || !orderId) {
@@ -321,7 +351,8 @@ export async function createWebMenuOrder(
         deliveryAddress: addressText,
         paymentMethod,
         changeFor,
-        etaMin: delivery.eta_min,
+        etaMin,
+        fulfillmentType,
     });
 
     return {
@@ -333,6 +364,6 @@ export async function createWebMenuOrder(
         deliveryFee,
         grandTotal,
         deliveryAddress: addressText,
-        etaMin: delivery.eta_min,
+        etaMin,
     };
 }

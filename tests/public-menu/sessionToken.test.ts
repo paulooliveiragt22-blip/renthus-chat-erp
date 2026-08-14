@@ -76,4 +76,21 @@ describe("web menu sessionToken v1/v2", () => {
         });
         assert.equal(verifyWebMenuCheckoutSession(token), null);
     });
+
+    it("assina e verifica token hc (handoff v3)", async () => {
+        const { signMenuHandoffToken, verifyMenuHandoffToken } = await import(
+            "@/lib/public-menu/sessionToken"
+        );
+        const token = signMenuHandoffToken({
+            handoffId: "33333333-3333-3333-3333-333333333333",
+            companyId: "11111111-1111-1111-1111-111111111111",
+            slug: "loja-demo",
+        });
+        const parsed = verifyMenuHandoffToken(token);
+        assert.ok(parsed);
+        assert.equal(parsed.v, 3);
+        assert.equal(parsed.kind, "handoff");
+        assert.equal(parsed.slug, "loja-demo");
+        assert.equal(parsed.handoffId, "33333333-3333-3333-3333-333333333333");
+    });
 });

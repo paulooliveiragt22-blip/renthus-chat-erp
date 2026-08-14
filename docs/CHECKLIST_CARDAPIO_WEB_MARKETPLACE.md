@@ -112,41 +112,24 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 
 ### F5 — Descontinuar WhatsApp Flow (Meta) em favor do cardápio web
 
-**Decisão de produto (2026-08-11, registrada aqui — não implementar ainda, só planejar):**
-WhatsApp Flow (`app/api/whatsapp/flows/route.ts`, os 4 flow types — `status`, `address_register`,
-`catalog`, `checkout` legado) será **descontinuado**. Motivo: o cardápio web (`/c/[slug]`) já cobre
-a mesma necessidade com UX melhor (fotos reais, sem limite de 3 imagens/base64 do Flow, sem tela
-nativa do WhatsApp) e **já tem a maior parte da infraestrutura pronta** (F2 acima: checkout,
-endereço/delivery, "Meus pedidos" via `MyOrdersDrawer.tsx` + `/api/public/menu/[slug]/orders`).
+**Decisão de produto (2026-08-11). Implementado 2026-08-13 (F5a–F5c).**
 
-Direção acordada com o dono do produto:
-- **Status do pedido:** cliente recebe o link do cardápio web (`/c/[slug]`) em vez de abrir o Flow
-  `status` — usa a tela "Meus pedidos" que já existe lá. Falta: gatilho no chatbot pra mandar esse
-  link quando o cliente pergunta "cadê meu pedido" (hoje isso abre o Flow `status`).
-- **Cadastro/troca de endereço + finalizar pedido:** em vez de abrir o Flow `address_register` ou
-  `catalog`/`checkout`, o chatbot manda o link do cardápio web **com o carrinho já carregado**
-  (reaproveitar o mecanismo de link com carrinho pré-populado, similar ao token `wm` já usado em
-  `sendCardapioLinkAsWa`/fluxo atual do chatbot pra abrir o cardápio a partir do WhatsApp — verificar
-  na implementação se dá pra serializar o carrinho corrente do bot nesse link). Cliente completa
-  endereço/pagamento no cardápio web (F2.3/F2.4 já existem), sem precisar do Flow nativo.
-- **Escopo da descontinuação:** os **4 flow types** de `app/api/whatsapp/flows/route.ts` ficam
-  candidatos a remoção (não só o Flow catálogo) — `status` e `address_register` são substituídos
-  pelo link do cardápio web; `catalog`/`checkout` (legado 2 partes) idem.
+WhatsApp Flow outbound (`status`, `address_register`, `catalog`, `checkout`) foi substituído pelo
+cardápio web (`/c/[slug]`). Motivo: UX melhor (fotos reais, sem limite de 3 imagens/base64, sem
+tela nativa do WhatsApp) e infraestrutura F2 já pronta (checkout, endereço, `MyOrdersDrawer`).
 
-**Não fazer agora:** nenhuma mudança de código por causa desta seção. Serve só de registro pra não
-perder contexto e pra informar decisões de refactor no arquivo atual (`docs/CHECKLIST_SEGURANCA_
-CONFIABILIDADE_P0.md` item 8) — não vale a pena investir em arquitetura definitiva/testes extensos
-em código que tem prazo de validade conhecido.
+| Fase | O quê | Status |
+|------|--------|--------|
+| F5a | Status/catálogo via `cta_url` (`?orders=1` para Meus pedidos) | [x] `routeStage` |
+| F5b | Snapshot `menu_handoffs` + token `hc` (carrinho **não** vai na URL) | [x] |
+| F5c | Pipeline deixa de enviar Flow; inbound `flows/route.ts` permanece até o dashboard Meta remover os flows | [x] |
 
-**Pendente (próxima estrutura, fora deste checklist):**
-- [ ] Endpoint/lógica pra gerar link do cardápio web com carrinho pré-carregado a partir do estado
-  atual do bot (`chatbot_sessions.cart`/`context`).
-- [ ] Trocar gatilho de "status do pedido" no chatbot: link do cardápio em vez de abrir Flow `status`.
-- [ ] Trocar gatilho de "cadastrar endereço" / finalizar pedido: link do cardápio com carrinho
-  carregado em vez de abrir Flow `address_register`/`catalog`/`checkout`.
-- [ ] Depois que os gatilhos novos estiverem em produção e estáveis: remover
-  `app/api/whatsapp/flows/route.ts` e os 4 flow types (webhook Meta correspondente também sai da
-  config do canal).
+Direção:
+- **Status:** CTA “Meus pedidos” → `withMenuSearchParams(webMenuUrl, { orders: "1" })`. `MenuClient` abre `MyOrdersDrawer`.
+- **Checkout/endereço:** `createCheckoutHandoff` persiste o draft em `menu_handoffs`; URL só leva `hc` + `checkout=1`. GET `/api/public/menu/[slug]/handoff?hc=` hidrata o carrinho.
+- **Inbound Flow:** `app/api/whatsapp/flows/route.ts` e `persistEnderecoClienteFromFlow` ficam para WebView Meta ainda ativo no canal. Remoção do webhook/4 types: depois que o dashboard Meta não tiver mais Flow publicado.
+
+**Não fazer:** serializar carrinho no token `wm` / query string.
 
 ---
 
@@ -210,3 +193,4 @@ em código que tem prazo de validade conhecido.
 | 2026-08-04 | F4.3: domínio próprio / subdomínio (`NEXT_PUBLIC_MENU_BASE_DOMAIN` + rewrite no proxy) |
 | 2026-08-04 | F4.4: complementos iFood → produtos + `produto_embalagem_acompanhamentos` (≤2) |
 | 2026-08-11 | F5 registrada (não implementada): decisão de descontinuar WhatsApp Flow em favor do cardápio web (status do pedido + endereço/checkout via link com carrinho carregado) |
+| 2026-08-13 | F5a–F5c: CTA cardápio/`?orders=1`, tabela `menu_handoffs` + token `hc`, pipeline sem Flow outbound |

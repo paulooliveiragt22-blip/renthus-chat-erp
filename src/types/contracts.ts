@@ -7,6 +7,8 @@ export type Locale = "pt-BR";
 /** @deprecated Starter removido — motor único PRO. Mantido para tipagem legada de testes. */
 export type ChatbotTier = "pro";
 export type PaymentMethod = "pix" | "cash" | "card";
+/** Como o cliente recebe o pedido. `null` = ainda não escolheu. */
+export type FulfillmentType = "delivery" | "pickup";
 
 /** Canal de mensagem Meta / WhatsApp (ActorRef + TenantRef). */
 export type MessagingChannelRef = "whatsapp" | "instagram" | "messenger";
@@ -78,6 +80,8 @@ export interface OrderDraft {
     address: DraftAddress | null;
     paymentMethod: PaymentMethod | null;
     changeFor: number | null;
+    /** `null` até o cliente escolher Entrega ou Retirada. */
+    fulfillmentType?: FulfillmentType | null;
     deliveryFee: number;
     deliveryZoneId: string | null;
     deliveryAddressText: string | null;

@@ -18,6 +18,7 @@ import {
     withResolvedSlotStep,
 } from "../orderSlotStep";
 import { applyAiStateTransition } from "../proStepTransitions";
+import { withFulfillmentPreserved } from "@/lib/delivery/fulfillment";
 
 export interface AiStageResult {
     state: ProSessionState;
@@ -100,7 +101,10 @@ export async function aiStage(params: {
         errorCode: raw?.errorCode,
     };
 
-    const nextDraft = aiResult.updatedDraft ?? null;
+    const nextDraft = withFulfillmentPreserved(
+        context.session.draft,
+        aiResult.updatedDraft ?? null
+    );
     const prevFp = orderDraftFingerprintForAddressConfirm(context.session.draft);
     const nextFp = orderDraftFingerprintForAddressConfirm(nextDraft);
     /** Endereço completo (match servidor) = confirmado; senão mantém flag só se fingerprint estável. */

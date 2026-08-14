@@ -6,6 +6,7 @@
 import type { ProSessionState } from "@/src/types/contracts";
 import { isAddressStructurallyComplete } from "./orderSlotStep";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
+import { isPickupDraft, needsFulfillmentChoice, type FulfillmentPolicy } from "@/lib/delivery/fulfillment";
 
 export type CheckoutTurnOutcomeKind =
     | "clarify_pending_picks"
@@ -32,6 +33,7 @@ export function resolveCheckoutTurnOutcome(params: {
     state: ProSessionState;
     mode: "direct_reply" | "ai";
     showAddressRegistrationPrompt?: boolean;
+    fulfillmentPolicy?: FulfillmentPolicy;
 }): CheckoutTurnOutcome {
     const { state, mode } = params;
     const draft = state.draft;
@@ -73,7 +75,11 @@ export function resolveCheckoutTurnOutcome(params: {
         return { kind: "clarify_product_picks", reason: "bootstrap_clarify_queue" };
     }
 
-    const addrOk = isAddressStructurallyComplete(draft.address ?? null);
+    if (params.fulfillmentPolicy && needsFulfillmentChoice(params.fulfillmentPolicy, draft.fulfillmentType)) {
+        return { kind: "collecting", reason: "needs_fulfillment" };
+    }
+
+    const addrOk = isPickupDraft(draft) || isAddressStructurallyComplete(draft.address ?? null);
     if (addrOk && state.deliveryAddressUiConfirmed !== true) {
         return { kind: "confirm_address", reason: "address_needs_ui_confirm" };
     }

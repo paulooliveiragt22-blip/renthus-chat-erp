@@ -273,7 +273,7 @@ describe("novo pipeline PRO - falhas reais", () => {
         );
     });
 
-    it("botão Cardápio com flow configurado deve emitir mensagem kind flow", async () => {
+    it("botão Cardápio sem webMenuUrl explica que o catálogo não está configurado", async () => {
         const deps = buildDeps({
             session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
             intent: "order_intent",
@@ -282,16 +282,20 @@ describe("novo pipeline PRO - falhas reais", () => {
             {
                 ...baseInput(),
                 inboundText: "btn_catalog",
-                flowCatalogId: "FLOW_CATALOG_TEST",
             },
             deps
         );
+        assert.ok(out.outbound.every((m) => m.kind !== "flow"));
         assert.ok(
-            out.outbound.some((m) => m.kind === "flow" && m.flow?.flowId === "FLOW_CATALOG_TEST")
+            out.outbound.some(
+                (m) =>
+                    m.kind === "text" &&
+                    (m.text ?? "").toLowerCase().includes("não está configurado")
+            )
         );
     });
 
-    it("botão Cardápio com webMenuUrl ativo prefere CTA URL ao Flow", async () => {
+    it("botão Cardápio com webMenuUrl ativo envia CTA URL", async () => {
         const deps = buildDeps({
             session: stateAwaitingConfirmation({ step: "pro_idle", customerId: null, draft: null }),
             intent: "order_intent",
@@ -301,7 +305,6 @@ describe("novo pipeline PRO - falhas reais", () => {
             {
                 ...baseInput(),
                 inboundText: "btn_catalog",
-                flowCatalogId: "FLOW_CATALOG_TEST",
                 webMenuUrl: menuUrl,
             },
             deps

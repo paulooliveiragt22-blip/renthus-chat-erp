@@ -19,6 +19,17 @@ import {
 } from "../paymentFromUserText";
 import { resolveCheckoutTurnOutcome } from "../resolveCheckoutTurnOutcome";
 import { buildPickClarificationFreeText } from "../pendingPickGroups";
+import {
+    applyFulfillmentPolicyToDraft,
+    applyPickupTotals,
+    assertFulfillmentAllowed,
+    DEFAULT_FULFILLMENT_POLICY,
+    isFulfillmentUnavailable,
+    isPickupDraft,
+    needsFulfillmentChoice,
+    type FulfillmentPolicy,
+    type FulfillmentType,
+} from "@/lib/delivery/fulfillment";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -27,11 +38,14 @@ export interface QuickActionResult {
     outbound: OutboundMessage[];
 }
 
-/** Quando definido, o botão «Alterar» endereço também oferece o Flow Meta de cadastro. */
-export type FlowAddressRegisterQuickOpts = {
-    flowId: string;
-    threadId: string;
-    companyId: string;
+/** Quando definido, o botão «Alterar» endereço manda o cliente ao cardápio web (carrinho pré-carregado). */
+export type CheckoutHandoffQuickOpts = {
+    url: string;
+};
+
+export type CheckoutQuickActionOpts = {
+    checkoutHandoffUrl?: string | null;
+    fulfillmentPolicy?: FulfillmentPolicy;
 };
 
 function normalizeInboundAction(text: string): string {
@@ -159,27 +173,43 @@ export function prioritizeInteractiveFirst(messages: OutboundMessage[]): Outboun
     return [...interactive, ...plain];
 }
 
-function checkoutButtonsForState(state: ProSessionState): OutboundMessage[] {
+function buildFulfillmentButtons(): OutboundMessage {
+    return {
+        kind: "buttons",
+        text: "Como você prefere receber este pedido?",
+        buttons: [
+            { id: "pro_fulfillment_delivery", title: "Entrega" },
+            { id: "pro_fulfillment_pickup", title: "Retirar no local" },
+        ],
+    };
+}
+
+function checkoutAddressReady(draft: OrderDraft): boolean {
+    return isPickupDraft(draft) || isAddressStructurallyComplete(draft.address);
+}
+
+function checkoutButtonsForState(
+    state: ProSessionState,
+    policy: FulfillmentPolicy = DEFAULT_FULFILLMENT_POLICY
+): OutboundMessage[] {
     if (!state.draft) return [];
     if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return [];
     if ((state.lastSearchPicks?.length ?? 0) >= 2) return [];
     if ((state.pendingPickGroups?.length ?? 0) > 0) return [];
     if ((state.bootstrapPendingClarifications?.length ?? 0) > 0) return [];
+    if (isFulfillmentUnavailable(policy) && state.draft.items.length > 0) {
+        return [];
+    }
     if (!state.draft.paymentMethod) {
-        /** Itens sem endereço completo: não mostrar pagamento. */
-        if (
-            state.draft.items.length > 0 &&
-            !isAddressStructurallyComplete(state.draft.address)
-        ) {
+        if (needsFulfillmentChoice(policy, state.draft.fulfillmentType) && state.draft.items.length > 0) {
+            return [buildFulfillmentButtons()];
+        }
+        if (state.draft.items.length > 0 && !checkoutAddressReady(state.draft)) {
             return [];
         }
-        /**
-         * Abaixo do pedido mínimo: não oferecer forma de pagamento ainda — pagar não resolve
-         * o bloqueio e gera mensagem contraditória junto do aviso de mínimo não atingido.
-         */
         if (
             state.draft.items.length > 0 &&
-            isAddressStructurallyComplete(state.draft.address) &&
+            checkoutAddressReady(state.draft) &&
             !isDraftBelowMinimumOrder(state.draft)
         ) {
             return [buildPaymentButtons()];
@@ -365,7 +395,7 @@ function keepOnlyFinalConfirmationCard(messages: OutboundMessage[], draft: Order
 export function applyQuickAction(
     text: string,
     state: ProSessionState,
-    opts?: { flowAddressRegister?: FlowAddressRegisterQuickOpts | null }
+    opts?: CheckoutQuickActionOpts
 ): QuickActionResult {
     const action = normalizeInboundAction(text);
     if (!action) return { handled: false, actionTag: null, state, outbound: [] };
@@ -486,23 +516,68 @@ export function applyQuickAction(
             };
         }
         const resumed = withResolvedSlotStep({ ...state, checkoutEditHold: false });
+        const pickup = isPickupDraft(resumed.draft);
+        const askAddress =
+            !pickup &&
+            resumed.draft?.fulfillmentType === "delivery" &&
+            !isAddressStructurallyComplete(resumed.draft?.address ?? null);
         return {
             handled: true,
             actionTag: "pro_recover_cart",
             state: resumed,
-            outbound: isAddressStructurallyComplete(resumed.draft?.address ?? null)
-                ? []
-                : [
+            outbound: askAddress
+                ? [
                       {
                           kind: "text",
                           text: "Ótimo! Falta só o endereço de entrega: rua, número, bairro, cidade e UF.",
                       },
-                  ],
+                  ]
+                : [],
         };
     }
 
     const paymentAction = resolvePaymentQuickAction(action, state);
     if (paymentAction) return paymentAction;
+
+    if (
+        (action === "pro_fulfillment_delivery" || action === "pro_fulfillment_pickup") &&
+        state.draft &&
+        state.draft.items.length > 0
+    ) {
+        const policy = opts?.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
+        const type: FulfillmentType = action === "pro_fulfillment_pickup" ? "pickup" : "delivery";
+        const allowed = assertFulfillmentAllowed(policy, type);
+        if (!allowed.ok) {
+            const msg =
+                allowed.error === "pickup_disabled"
+                    ? "No momento não estamos aceitando retirada no local. Posso enviar por entrega."
+                    : "No momento não estamos fazendo entregas. Você pode retirar no local.";
+            return {
+                handled: true,
+                actionTag: action,
+                state,
+                outbound: [{ kind: "text", text: msg }],
+            };
+        }
+        const nextDraft =
+            type === "pickup"
+                ? applyPickupTotals({ ...state.draft, fulfillmentType: "pickup" })
+                : { ...state.draft, fulfillmentType: "delivery" as const };
+        const merged: ProSessionState = {
+            ...state,
+            draft: nextDraft,
+            deliveryAddressUiConfirmed: type === "pickup",
+        };
+        return {
+            handled: true,
+            actionTag: action,
+            state: withResolvedSlotStep(merged),
+            outbound:
+                type === "pickup"
+                    ? [{ kind: "text", text: "Combinado: retirada no local, sem taxa de entrega." }]
+                    : [],
+        };
+    }
 
     if (state.step === "pro_awaiting_change_amount" && state.draft?.paymentMethod === "cash") {
         /** “tem coca 2l?” / “exatamente” não são valor de troco — libera o slot. */
@@ -583,24 +658,21 @@ export function applyQuickAction(
                 pendingConfirmation: false,
             },
         };
-        const fr = opts?.flowAddressRegister;
-        /** Só o card de flow: sem bolha de texto extra — o cliente toca no CTA do flow para abrir (limite da API Meta). */
-        if (fr?.flowId) {
+        const handoffUrl = opts?.checkoutHandoffUrl?.trim();
+        if (handoffUrl) {
             return {
                 handled: true,
                 actionTag: action,
                 state: withResolvedSlotStep(merged),
                 outbound: [
                     {
-                        kind: "flow",
-                        flow: {
-                            flowId:    fr.flowId,
-                            flowToken: `${fr.threadId}|${fr.companyId}|address_register`,
+                        kind: "cta_url",
+                        ctaUrl: {
                             bodyText:
-                                "Toque no botão abaixo para abrir o cadastro de endereço (CEP opcional). " +
-                                "Se preferir, pode enviar o endereço em texto: rua, número, bairro, cidade e UF. " +
-                                "Ex.: Rua Tangara, 850, Sao Mateus, Sorriso-MT.",
-                            ctaLabel: "Cadastrar endereço",
+                                "Toque para cadastrar o endereço e finalizar no cardápio. " +
+                                "Se preferir, envie o endereço em texto: rua, número, bairro, cidade e UF.",
+                            displayText: "Cadastrar endereço",
+                            url: handoffUrl,
                         },
                     },
                 ],
@@ -626,8 +698,8 @@ export function checkoutPostProcess(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
     mode: "direct_reply" | "ai";
-    /** Flow Meta cadastro de endereco (apos carrinho com itens). */
-    flowAddressRegister?: FlowAddressRegisterQuickOpts | null;
+    /** URL do cardápio com carrinho (handoff). Sem Flow Meta. */
+    checkoutHandoffUrl?: string | null;
     /** Resultado de `buildOrderHintsPayload` quando o checkout precisa decidir cadastro. */
     orderHints?: Record<string, unknown> | null;
     /**
@@ -636,38 +708,61 @@ export function checkoutPostProcess(params: {
      * Suprime os botões de escolha de endereço para não duplicar a pergunta.
      */
     addressFreeTextSignaled?: boolean;
+    fulfillmentPolicy?: FulfillmentPolicy;
 }): { state: ProSessionState; outbound: OutboundMessage[] } {
+    const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     let nextState = params.state;
+    if (nextState.draft) {
+        let draft = applyFulfillmentPolicyToDraft(nextState.draft, policy);
+        if (
+            !draft.fulfillmentType &&
+            isAddressStructurallyComplete(draft.address)
+        ) {
+            draft = { ...draft, fulfillmentType: "delivery" };
+        }
+        if (draft !== nextState.draft) {
+            nextState = { ...nextState, draft };
+        }
+    }
     const outbound = [...params.outbound];
+
+    if (isFulfillmentUnavailable(policy) && nextState.draft && nextState.draft.items.length > 0) {
+        outbound.push({
+            kind: "text",
+            text: "No momento a loja não está aceitando pedidos de entrega nem de retirada.",
+        });
+    }
 
     const addrComplete =
         Boolean(nextState.draft?.address) && isAddressStructurallyComplete(nextState.draft!.address);
+    const skipAddressUi =
+        isPickupDraft(nextState.draft) ||
+        needsFulfillmentChoice(policy, nextState.draft?.fulfillmentType);
     const needAddrRegistration = params.orderHints?.requires_address_flow_registration === true;
+    const handoffUrl = params.checkoutHandoffUrl?.trim() ?? "";
     const showAddressRegistrationPrompt =
         params.mode === "ai" &&
-        Boolean(params.flowAddressRegister?.flowId) &&
+        Boolean(handoffUrl) &&
         needAddrRegistration &&
         nextState.draft &&
         nextState.draft.items.length > 0 &&
         !addrComplete &&
+        !skipAddressUi &&
         nextState.deliveryAddressUiConfirmed !== true;
-    if (showAddressRegistrationPrompt && params.flowAddressRegister) {
-        const ref = params.flowAddressRegister;
+    if (showAddressRegistrationPrompt && handoffUrl) {
         outbound.push(
             {
                 kind: "text",
                 text:
-                    "Seu pedido já tem produtos. Para entregar, cadastre o endereço completo (rua, número, bairro, cidade e UF). " +
-                    "O CEP é opcional e ajuda a preencher automaticamente. Use o formulário abaixo ou descreva tudo em uma mensagem.",
+                    "Seu pedido já tem produtos. Para entregar, cadastre o endereço completo no cardápio " +
+                    "(rua, número, bairro, cidade e UF) ou descreva tudo em uma mensagem.",
             },
             {
-                kind: "flow",
-                flow: {
-                    flowId:    ref.flowId,
-                    flowToken: `${ref.threadId}|${ref.companyId}|address_register`,
-                    bodyText:
-                        "Abra o formulário para cadastrar o endereço de entrega. Você também pode enviar o endereço em texto no chat.",
-                    ctaLabel: "Cadastrar endereço",
+                kind: "cta_url",
+                ctaUrl: {
+                    bodyText: "Abra o cardápio para cadastrar o endereço e finalizar o pedido.",
+                    displayText: "Cadastrar endereço",
+                    url: handoffUrl,
                 },
             }
         );
@@ -678,6 +773,7 @@ export function checkoutPostProcess(params: {
         state: nextState,
         mode: params.mode,
         showAddressRegistrationPrompt: Boolean(showAddressRegistrationPrompt),
+        fulfillmentPolicy: policy,
     });
     /**
      * Embalagem ambígua de 1+ produtos: descarta TODO texto da IA (nunca só um filtro por
@@ -715,6 +811,7 @@ export function checkoutPostProcess(params: {
         turnOutcome.kind === "collecting" &&
         params.mode === "ai" &&
         !params.addressFreeTextSignaled &&
+        !skipAddressUi &&
         !outbound.some((m) => m.kind === "buttons" || m.kind === "flow")
     ) {
         const candidates = extractAddressChoiceCandidates(params.orderHints);
@@ -732,7 +829,7 @@ export function checkoutPostProcess(params: {
         }),
     });
 
-    const checkoutCards = checkoutButtonsForState(nextState);
+    const checkoutCards = checkoutButtonsForState(nextState, policy);
     if (nextState.step === "pro_awaiting_confirmation" && nextState.draft) {
         const composed = keepOnlyFinalConfirmationCard(
             [...outbound, ...checkoutCards],
@@ -762,13 +859,15 @@ export function checkoutPostProcess(params: {
 export function checkoutPostProcessForQuickAction(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
+    fulfillmentPolicy?: FulfillmentPolicy;
 }): OutboundMessage[] {
+    const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     const state = withResolvedSlotStep(params.state);
     if (state.checkoutEditHold) {
         // Corrigir / Adicionar: não reenviar resumo de confirmação nesta volta.
         return prioritizeInteractiveFirst([...params.outbound]);
     }
-    const cards = checkoutButtonsForState(state);
+    const cards = checkoutButtonsForState(state, policy);
     if (state.step === "pro_awaiting_confirmation" && state.draft) {
         return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft);
     }

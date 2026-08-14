@@ -34,8 +34,8 @@ import {
     checkoutPostProcess,
     checkoutPostProcessForQuickAction,
     strictCheckoutStructuredGate,
-    type FlowAddressRegisterQuickOpts,
 } from "./stages/checkoutPostProcess";
+import { createCheckoutHandoff } from "@/lib/public-menu/handoff/createCheckoutHandoff";
 import {
     isAddressStructurallyComplete,
     withResolvedSlotStep,
@@ -59,6 +59,11 @@ import {
     serverPrepareAfterAddressPick,
 } from "./serverPrepareAfterAddressPick";
 import { isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
+import {
+    DEFAULT_FULFILLMENT_POLICY,
+    loadFulfillmentPolicy,
+    type FulfillmentPolicy,
+} from "@/lib/delivery/fulfillment";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -220,6 +225,10 @@ export async function runProPipeline(
         channelUserId: input.tenant.channelUserId,
     });
 
+    const fulfillmentPolicy: FulfillmentPolicy = deps.admin
+        ? await loadFulfillmentPolicy(deps.admin, input.tenant.companyId)
+        : DEFAULT_FULFILLMENT_POLICY;
+
     const emitTurn = async (args: {
         state: ProSessionState;
         outbound: OutboundMessage[];
@@ -326,6 +335,7 @@ export async function runProPipeline(
         const quickOutbound = checkoutPostProcessForQuickAction({
             state: syncedQuick,
             outbound: strictGate.outbound,
+            fulfillmentPolicy,
         });
         await emitTurn({
             state: syncedQuick,
@@ -375,7 +385,11 @@ export async function runProPipeline(
             });
             const synced = withResolvedSlotStep(addrPrep.state);
             const finalOutbound = addrPrep.preparedOk
-                ? checkoutPostProcessForQuickAction({ state: synced, outbound: [] })
+                ? checkoutPostProcessForQuickAction({
+                      state: synced,
+                      outbound: [],
+                      fulfillmentPolicy,
+                  })
                 : addrPrep.outbound;
             await emitTurn({ state: synced, outbound: finalOutbound });
             const metrics: PipelineMetric[] = [
@@ -490,6 +504,7 @@ export async function runProPipeline(
                     const finalOutbound = checkoutPostProcessForQuickAction({
                         state: finalState,
                         outbound: [],
+                        fulfillmentPolicy,
                     });
                     await emitTurn({
                 state: finalState,
@@ -526,14 +541,10 @@ export async function runProPipeline(
         }
     }
 
+    const handoffUrl = await resolveCheckoutHandoffUrl(deps, input, stateAfterPick);
     const quick = applyQuickAction(inboundTextForPipeline, stateAfterPick, {
-        flowAddressRegister: input.flowAddressRegisterId
-            ? {
-                  flowId:    input.flowAddressRegisterId,
-                  threadId:  input.tenant.threadId,
-                  companyId: input.tenant.companyId,
-              }
-            : undefined,
+        checkoutHandoffUrl: handoffUrl,
+        fulfillmentPolicy,
     });
     /** Sempre aplica estado do quick (ex.: sair de awaiting_change sem engolir a mensagem). */
     stateAfterPick = quick.state;
@@ -542,6 +553,7 @@ export async function runProPipeline(
         const quickOutbound = checkoutPostProcessForQuickAction({
             state: syncedQuick,
             outbound: quick.outbound,
+            fulfillmentPolicy,
         });
         await emitTurn({
                 state: syncedQuick,
@@ -732,7 +744,11 @@ export async function runProPipeline(
                 : withResolvedSlotStep(preOrder.state);
         const outbound: OutboundMessage[] = [
             { kind: "text", text: preOrder.outboundText },
-            ...checkoutPostProcessForQuickAction({ state: syncedPre, outbound: [] }),
+            ...checkoutPostProcessForQuickAction({
+                state: syncedPre,
+                outbound: [],
+                fulfillmentPolicy,
+            }),
         ];
         await emitTurn({
             state: syncedPre,
@@ -783,8 +799,6 @@ export async function runProPipeline(
         decision,
         inboundText: inboundTextForPipeline,
         tenant: input.tenant,
-        flowCatalogId: input.flowCatalogId ?? null,
-        flowStatusId: input.flowStatusId ?? null,
         webMenuUrl: input.webMenuUrl ?? null,
         messageTemplates: input.messageTemplates ?? null,
         llmEnabled,
@@ -823,7 +837,6 @@ export async function runProPipeline(
             outbound.push(
                 ...buildAiLimitExceededOutbound({
                     webMenuUrl: input.webMenuUrl,
-                    flowCatalogId: input.flowCatalogId,
                 })
             );
             deps.logger?.info("pro_pipeline.ai_turn_limit_exceeded", {
@@ -952,23 +965,17 @@ export async function runProPipeline(
             }
         }
     }
-    const flowIdTrim = String(input.flowAddressRegisterId ?? "").trim();
-    const flowRef: FlowAddressRegisterQuickOpts | null = flowIdTrim
-        ? {
-              flowId:    flowIdTrim,
-              threadId:  input.tenant.threadId,
-              companyId: input.tenant.companyId,
-          }
-        : null;
+    const checkoutHandoffUrl = await resolveCheckoutHandoffUrl(deps, input, nextState);
     const checkout = aiLimitExceeded
         ? { state: nextState, outbound }
         : checkoutPostProcess({
               state: nextState,
               outbound,
               mode: routed.mode,
-              flowAddressRegister: flowRef,
+              checkoutHandoffUrl,
               orderHints: checkoutOrderHints,
               addressFreeTextSignaled,
+              fulfillmentPolicy,
           });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;
@@ -1072,5 +1079,22 @@ export async function runProPipeline(
         sideEffects: [],
         metrics: runMetrics,
     };
+}
+
+async function resolveCheckoutHandoffUrl(
+    deps: PipelineDependencies,
+    input: ProPipelineInput,
+    state: ProSessionState
+): Promise<string | null> {
+    const web = String(input.webMenuUrl ?? "").trim();
+    if (!web) return null;
+    if (!state.draft?.items.length || !deps.admin) return web;
+    return createCheckoutHandoff({
+        admin: deps.admin,
+        companyId: input.tenant.companyId,
+        threadId: input.tenant.threadId,
+        webMenuUrl: web,
+        draft: state.draft,
+    });
 }
 

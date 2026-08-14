@@ -1,4 +1,5 @@
 import type { DraftAddress, OrderDraft, ProSessionState, ProStep } from "@/src/types/contracts";
+import { isPickupDraft } from "@/lib/delivery/fulfillment";
 import { isDraftBelowMinimumOrder, isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
 
 /** Endereço mínimo para entrega (rua, número, bairro, cidade, UF — colunas em `enderecos_cliente`). */
@@ -47,6 +48,7 @@ export function shouldHoldAwaitingAddressUi(
 
 /** Endereço completo no draft ⇒ tratado como confirmado (match interno). */
 export function isDeliveryAddressAutoConfirmed(draft: OrderDraft | null): boolean {
+    if (isPickupDraft(draft)) return true;
     return isAddressStructurallyComplete(draft?.address ?? null);
 }
 
@@ -93,7 +95,7 @@ export function resolveProStepFromDraft(params: {
         return step === "pro_idle" ? "pro_idle" : "pro_collecting_order";
     }
 
-    if (!isAddressStructurallyComplete(draft.address)) {
+    if (!isPickupDraft(draft) && !isAddressStructurallyComplete(draft.address)) {
         return "pro_collecting_order";
     }
 

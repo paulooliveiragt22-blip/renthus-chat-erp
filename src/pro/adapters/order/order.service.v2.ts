@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderService } from "../../services/order/order.types";
 import type { DraftAddress, OrderDraft, OrderServiceResult } from "@/src/types/contracts";
+import { isPickupDraft } from "@/lib/delivery/fulfillment";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { resolveOrCreateCustomerByIdentity } from "@/lib/chatbot/db/channelIdentity";
 import { loadPackRowForValidation } from "@/src/pro/tools/prepareOrderDraft";
@@ -95,8 +96,11 @@ export function buildOrderCustomerMessage(params: {
     const recomputedGrandTotal = asCurrency(recomputedItemsTotal + draft.deliveryFee);
     const inconsistentGrandTotal = Math.abs(recomputedGrandTotal - draft.grandTotal) >= 0.02;
     const safeGrandTotal = inconsistentGrandTotal ? recomputedGrandTotal : draft.grandTotal;
-    const deliveryFeeText =
-        draft.deliveryFee > 0 ? ` Taxa R$ ${moneyBr(draft.deliveryFee)}.` : " Taxa R$ 0,00.";
+    const deliveryFeeText = isPickupDraft(draft)
+        ? " Retirada no local."
+        : draft.deliveryFee > 0
+          ? ` Taxa R$ ${moneyBr(draft.deliveryFee)}.`
+          : " Taxa R$ 0,00.";
 
     if (requireApproval) {
         return `Pedido ${orderCode} recebido. Itens: ${items}. Total R$ ${moneyBr(safeGrandTotal)} via ${payment}.${deliveryFeeText} Estamos confirmando e já voltamos.`;
@@ -271,7 +275,8 @@ export class OrderServiceV2Adapter implements OrderService {
         const customer = { id: customerId };
 
         const address = draft.address;
-        if (!address) {
+        const isPickup = draft.fulfillmentType === "pickup";
+        if (!isPickup && !address) {
             return {
                 ok: false,
                 customerMessage: buildOrderErrorMessage("INVALID_ADDRESS"),
@@ -280,41 +285,45 @@ export class OrderServiceV2Adapter implements OrderService {
             };
         }
 
-        const payload: Record<string, unknown> = {
-            address_id: address.enderecoClienteId ?? null,
-            apelido: address.apelido?.trim() || "WhatsApp",
-            logradouro: address.logradouro,
-            numero: address.numero,
-            complemento: address.complemento ?? "",
-            bairro: address.bairro,
-            cidade: address.cidade ?? "",
-            estado: address.estado ?? "",
-            cep: address.cep ?? "",
-            is_principal: true,
-        };
-
-        const { data: deliveryEnderecoClienteId, error: addrErr } = await this.admin.rpc(
-            "rpc_chatbot_pro_upsert_endereco_cliente",
-            {
-                p_company_id: tenant.companyId,
-                p_customer_id: customer.id,
-                p_payload: payload,
-            }
-        );
-
-        if (addrErr || !deliveryEnderecoClienteId) {
-            console.warn("[chatbot/order-v2] rpc_chatbot_pro_upsert_endereco_cliente failed", {
-                companyId: tenant.companyId,
-                threadId: tenant.threadId,
-                message: addrErr?.message,
-                code: addrErr?.code,
-            });
-            return {
-                ok: false,
-                customerMessage: buildOrderErrorMessage("INVALID_ADDRESS"),
-                errorCode: "INVALID_ADDRESS",
-                retryable: false,
+        let deliveryEnderecoClienteId: string | null = null;
+        if (!isPickup && address) {
+            const payload: Record<string, unknown> = {
+                address_id: address.enderecoClienteId ?? null,
+                apelido: address.apelido?.trim() || "WhatsApp",
+                logradouro: address.logradouro,
+                numero: address.numero,
+                complemento: address.complemento ?? "",
+                bairro: address.bairro,
+                cidade: address.cidade ?? "",
+                estado: address.estado ?? "",
+                cep: address.cep ?? "",
+                is_principal: true,
             };
+
+            const { data: upsertedId, error: addrErr } = await this.admin.rpc(
+                "rpc_chatbot_pro_upsert_endereco_cliente",
+                {
+                    p_company_id: tenant.companyId,
+                    p_customer_id: customer.id,
+                    p_payload: payload,
+                }
+            );
+
+            if (addrErr || !upsertedId) {
+                console.warn("[chatbot/order-v2] rpc_chatbot_pro_upsert_endereco_cliente failed", {
+                    companyId: tenant.companyId,
+                    threadId: tenant.threadId,
+                    message: addrErr?.message,
+                    code: addrErr?.code,
+                });
+                return {
+                    ok: false,
+                    customerMessage: buildOrderErrorMessage("INVALID_ADDRESS"),
+                    errorCode: "INVALID_ADDRESS",
+                    retryable: false,
+                };
+            }
+            deliveryEnderecoClienteId = String(upsertedId);
         }
 
         const { data: settings } = await this.admin
@@ -325,7 +334,11 @@ export class OrderServiceV2Adapter implements OrderService {
 
         const requireApproval = Boolean(settings?.require_order_approval);
         const confirmationStatus = requireApproval ? "pending_confirmation" : "confirmed";
-        const deliveryAddress = draft.deliveryAddressText || buildAddressText(address);
+        const deliveryAddress = isPickup
+            ? draft.deliveryAddressText?.trim() || "Retirada no local"
+            : draft.deliveryAddressText || (address ? buildAddressText(address) : "");
+        const deliveryFee = isPickup ? 0 : draft.deliveryFee;
+        const fulfillmentType = isPickup ? "pickup" : "delivery";
 
         const itemsPayload = draft.items.map((item) => ({
             product_name: item.productName,
@@ -343,7 +356,7 @@ export class OrderServiceV2Adapter implements OrderService {
             p_channel: messagingChannel,
             p_total_amount: draft.grandTotal,
             p_total: draft.totalItems,
-            p_delivery_fee: draft.deliveryFee,
+            p_delivery_fee: deliveryFee,
             p_delivery_address: deliveryAddress,
             p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
             p_payment_method: draft.paymentMethod,
@@ -351,6 +364,7 @@ export class OrderServiceV2Adapter implements OrderService {
             p_paid: false,
             p_items: itemsPayload,
             p_idempotency_key: idempotencyKey,
+            p_fulfillment_type: fulfillmentType,
         });
 
         if (orderErr || !orderId) {

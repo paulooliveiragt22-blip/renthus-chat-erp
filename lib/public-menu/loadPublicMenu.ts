@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PublicMenuResult } from "@/src/types/contracts.public-menu";
 import { parsePublicMenuRpcPayload } from "./parsePublicMenu";
 import { parseMenuSlug } from "./slug";
+import { loadFulfillmentPolicy } from "@/lib/delivery/fulfillment";
 
 export async function loadPublicMenuBySlug(
     admin: SupabaseClient,
@@ -23,5 +24,19 @@ export async function loadPublicMenuBySlug(
         return { ok: false, error: "menu_not_found" };
     }
 
-    return parsePublicMenuRpcPayload(data);
+    const parsed = parsePublicMenuRpcPayload(data);
+    if (!parsed.ok) return parsed;
+
+    const policy = await loadFulfillmentPolicy(admin, parsed.menu.store.companyId);
+    return {
+        ok: true,
+        menu: {
+            ...parsed.menu,
+            store: {
+                ...parsed.menu.store,
+                deliveriesEnabled: policy.deliveriesEnabled,
+                pickupEnabled: policy.pickupEnabled,
+            },
+        },
+    };
 }

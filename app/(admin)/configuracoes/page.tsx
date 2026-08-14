@@ -392,6 +392,8 @@ function ConfiguracoesPageContent() {
     const [customNeighborhood, setCustomNeighborhood] = useState("");
     const [deliveryPolicyMsg, setDeliveryPolicyMsg] = useState<string | null>(null);
     const [deliveryPolicyLoading, setDeliveryPolicyLoading] = useState(false);
+    const [acceptDeliveries, setAcceptDeliveries] = useState(true);
+    const [acceptPickup, setAcceptPickup] = useState(true);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [pendingDeleteNeighborhood, setPendingDeleteNeighborhood] = useState<string | null>(null);
 
@@ -539,6 +541,8 @@ function ConfiguracoesPageContent() {
             setServiceByZone(Boolean(p.service_by_zone));
             const mode = String(p.default_mode ?? "all_city");
             setZoneMode(mode === "allow_list" || mode === "deny_list" ? mode : "all_city");
+            setAcceptDeliveries(p.deliveries_enabled !== false);
+            setAcceptPickup(p.pickup_enabled !== false);
             setCityNeighborhoods(Array.isArray(json.city_neighborhoods) ? json.city_neighborhoods as string[] : []);
             const mapped: DeliveryRuleUi[] = (Array.isArray(json.rules) ? json.rules : []).map((r: Record<string, unknown>) => ({
                 neighborhood: String(r.neighborhood ?? ""),
@@ -639,6 +643,8 @@ function ConfiguracoesPageContent() {
                 delivery_radius_km: deliveryRadius ? Number(deliveryRadius) : null,
                 delivery_est_minutes: estTime ? Number(estTime) : null,
                 delivery_free_above: freeAbove ? Number(freeAbove) : null,
+                deliveries_enabled: acceptDeliveries,
+                pickup_enabled: acceptPickup,
             }),
         });
         const json = await res.json().catch(() => ({}));
@@ -1086,8 +1092,24 @@ function ConfiguracoesPageContent() {
 
                             <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
                                 <div>
+                                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Aceitar entregas</p>
+                                    <p className="text-xs text-zinc-400">Chatbot e cardápio web oferecem entrega com endereço</p>
+                                </div>
+                                <Toggle checked={acceptDeliveries} onChange={setAcceptDeliveries} />
+                            </div>
+
+                            <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
+                                <div>
+                                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Aceitar retirada no local</p>
+                                    <p className="text-xs text-zinc-400">Cliente retira na loja, sem taxa nem endereço de entrega</p>
+                                </div>
+                                <Toggle checked={acceptPickup} onChange={setAcceptPickup} />
+                            </div>
+
+                            <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
+                                <div>
                                     <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Cobrar taxa de entrega</p>
-                                    <p className="text-xs text-zinc-400">Habilita o campo de taxa de entrega nos pedidos</p>
+                                    <p className="text-xs text-zinc-400">Só vale para pedidos de entrega — independente de aceitar ou não entregas</p>
                                 </div>
                                 <Toggle checked={deliveryEnabled} onChange={setDeliveryEnabled} />
                             </div>

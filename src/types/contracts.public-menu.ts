@@ -20,6 +20,10 @@ export interface PublicMenuStore {
     city: string | null;
     state: string | null;
     isActive: boolean;
+    /** Loja aceita entrega (canônico: `company_delivery_policy.deliveries_enabled`). */
+    deliveriesEnabled: boolean;
+    /** Loja aceita retirada no local. */
+    pickupEnabled: boolean;
 }
 
 export interface PublicMenuItem {
@@ -196,6 +200,7 @@ export interface PublicMenuCheckoutInput {
     items: Array<{ embalagemId: string; qty: number }>;
     paymentMethod: "pix" | "cash" | "card";
     changeFor?: number | string | null;
+    fulfillmentType?: "delivery" | "pickup" | null;
     savedAddressId?: string | null;
     newAddress?: PublicMenuNewAddressInput | null;
 }

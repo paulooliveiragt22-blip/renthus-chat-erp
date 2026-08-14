@@ -44,8 +44,8 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 | # | Item | Estado | Notas |
 |---|------|--------|--------|
 | P3.1 | Compute add-on + Pool Size Supavisor revisados para o volume esperado | [ ] | Plano detalhado: [`PLANO_ESCALA_PICOS_PEDIDOS.md`](./PLANO_ESCALA_PICOS_PEDIDOS.md) Fase 0 — `max_connections` hoje = 60 |
-| P3.2 | Paralelismo por thread no worker (`CHATBOT_QUEUE_CONCURRENCY`) | [ ] | Fase 3 — seguro por design (claim SQL já isola thread `processing`, ver `20260805100000_claim_chatbot_queue_jobs_fair_company.sql`) |
-| P3.3 | `pg_cron` + `pg_net` drenando a fila em batimento fixo (reduz tempestade de self-wake) | [ ] | Fase 4 |
+| P3.2 | Paralelismo por thread no worker (`CHATBOT_QUEUE_CONCURRENCY`) | [x] 2026-08-12 | Fase 3 — `lib/chatbot/queue/groupByThread.ts` + `concurrencyLimit.ts`; default 3 |
+| P3.3 | `pg_cron` + `pg_net` drenando a fila em batimento fixo (reduz tempestade de self-wake) | [x] 2026-08-12 | Fase 4 — job `chatbot-queue-drain` a cada 10s; secret no Vault (`chatbot_queue_cron_secret`) |
 
 ---
 
@@ -57,4 +57,4 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 | 2026-04-16 | P0.4a: falha V2 em `active` → mensagem fixa, sem `inboundPipeline` / pedido legado |
 | 2026-04-16 | P1.3 v1: intercalação de jobs por `company_id` no batch; P1.4: `EVIDENCE_CHECKLIST_P14.md` |
 | 2026-08-05 | P1.3 SQL + P2-peak: claim fair, backlog UX, catalog cache; P1 resiliência Anthropic/Meta |
-| 2026-08-05 | P2p.5: sync documental structure / pipeline / REFACTOR / smoke / CHECKLIST |
+| 2026-08-12 | P3.2 + P3.3: paralelismo por thread no worker + cron `chatbot-queue-drain`; P3.1 (compute/pool) continua operacional no Dashboard |

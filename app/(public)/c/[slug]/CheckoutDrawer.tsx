@@ -10,16 +10,20 @@ import type {
 } from "@/src/types/contracts.public-menu";
 import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { nextMenuCheckoutStep } from "@/lib/delivery/fulfillment";
+import type { FulfillmentType } from "@/lib/delivery/fulfillment";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-type Step = "cart" | "identify" | "address" | "payment" | "done";
+type Step = "cart" | "identify" | "fulfillment" | "address" | "payment" | "done";
 
 type Props = {
     slug: string;
     storeName: string;
+    deliveriesEnabled: boolean;
+    pickupEnabled: boolean;
     cart: PublicMenuCartLine[];
     onClose: () => void;
     onClearCart: () => void;
@@ -43,6 +47,8 @@ const emptyAddress: PublicMenuNewAddressInput = {
 export default function CheckoutDrawer({
     slug,
     storeName,
+    deliveriesEnabled,
+    pickupEnabled,
     cart,
     onClose,
     onClearCart,
@@ -71,6 +77,11 @@ export default function CheckoutDrawer({
 
     const [paymentMethod, setPaymentMethod] = useState<"pix" | "cash" | "card">("pix");
     const [changeFor, setChangeFor] = useState("");
+    const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType | null>(() => {
+        if (deliveriesEnabled && !pickupEnabled) return "delivery";
+        if (!deliveriesEnabled && pickupEnabled) return "pickup";
+        return null;
+    });
     const [orderResult, setOrderResult] = useState<Extract<
         PublicMenuCheckoutResult,
         { ok: true }
@@ -142,6 +153,29 @@ export default function CheckoutDrawer({
         }
     }
 
+    const fulfillmentPolicy = { deliveriesEnabled, pickupEnabled };
+
+    function goAfterIdentify() {
+        const next = nextMenuCheckoutStep(fulfillmentPolicy);
+        if (next === "unavailable") {
+            setError("A loja não está aceitando pedidos de entrega nem de retirada no momento.");
+            return;
+        }
+        if (next === "fulfillment") {
+            setStep("fulfillment");
+            return;
+        }
+        if (next === "payment") {
+            setFulfillmentType("pickup");
+            setDeliveryFee(0);
+            setDeliveryMsg(null);
+            setStep("payment");
+            return;
+        }
+        setFulfillmentType("delivery");
+        setStep("address");
+    }
+
     function continueFromCart() {
         setError(null);
         if (cart.length === 0) {
@@ -149,7 +183,7 @@ export default function CheckoutDrawer({
             return;
         }
         if (sessionToken && !needsPhone) {
-            setStep("address");
+            goAfterIdentify();
             return;
         }
         setStep("identify");
@@ -185,7 +219,7 @@ export default function CheckoutDrawer({
                 setError("Informe um telefone válido para continuar.");
                 return;
             }
-            setStep("address");
+            goAfterIdentify();
         } catch {
             setError("Falha de conexão. Tente novamente.");
         } finally {
@@ -322,8 +356,19 @@ export default function CheckoutDrawer({
                         paymentMethod === "cash" && changeFor.trim()
                             ? Number(changeFor.replace(",", "."))
                             : null,
-                    savedAddressId: addressMode === "saved" ? savedAddressId : null,
-                    newAddress: addressMode === "new" ? newAddress : null,
+                    fulfillmentType,
+                    savedAddressId:
+                        fulfillmentType === "pickup"
+                            ? null
+                            : addressMode === "saved"
+                              ? savedAddressId
+                              : null,
+                    newAddress:
+                        fulfillmentType === "pickup"
+                            ? null
+                            : addressMode === "new"
+                              ? newAddress
+                              : null,
                 }),
             });
             const json = (await res.json()) as PublicMenuCheckoutResult;
@@ -335,6 +380,10 @@ export default function CheckoutDrawer({
                     empty_cart: "Carrinho vazio.",
                     session_invalid: "Sessão expirada. Identifique-se de novo.",
                     change_below_total: "Troco deve ser maior ou igual ao total.",
+                    fulfillment_required: "Escolha entrega ou retirada no local.",
+                    delivery_disabled: "A loja não está aceitando entregas agora.",
+                    pickup_disabled: "A loja não está aceitando retirada no momento.",
+                    fulfillment_unavailable: "A loja não está aceitando pedidos no momento.",
                 };
                 setError(map[json.error] ?? json.message ?? "Não foi possível criar o pedido.");
                 return;
@@ -350,18 +399,22 @@ export default function CheckoutDrawer({
     }
 
     const grand =
-        subtotal + (deliveryFee != null && Number.isFinite(deliveryFee) ? deliveryFee : 0);
+        fulfillmentType === "pickup"
+            ? subtotal
+            : subtotal + (deliveryFee != null && Number.isFinite(deliveryFee) ? deliveryFee : 0);
 
     const stepTitle =
         step === "cart"
             ? "Seu pedido"
             : step === "identify"
               ? "Seus dados"
-              : step === "address"
-                ? "Entrega"
-                : step === "payment"
-                  ? "Pagamento"
-                  : "Pronto";
+              : step === "fulfillment"
+                ? "Como receber"
+                : step === "address"
+                  ? "Entrega"
+                  : step === "payment"
+                    ? "Pagamento"
+                    : "Pronto";
 
     return (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#f6f3ee]">
@@ -517,6 +570,43 @@ export default function CheckoutDrawer({
                     </section>
                 )}
 
+                {step === "fulfillment" && (
+                    <section className="space-y-4">
+                        <h2 className="text-lg font-semibold text-zinc-900">Como prefere receber?</h2>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFulfillmentType("delivery");
+                                setStep("address");
+                            }}
+                            className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
+                        >
+                            <p className="text-sm font-semibold text-zinc-900">Entrega</p>
+                            <p className="text-xs text-zinc-500">Receba no endereço que você informar</p>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFulfillmentType("pickup");
+                                setDeliveryFee(0);
+                                setDeliveryMsg(null);
+                                setStep("payment");
+                            }}
+                            className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
+                        >
+                            <p className="text-sm font-semibold text-zinc-900">Retirar no local</p>
+                            <p className="text-xs text-zinc-500">Sem taxa de entrega</p>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setStep(sessionToken ? "cart" : "identify")}
+                            className="w-full rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
+                        >
+                            Voltar
+                        </button>
+                    </section>
+                )}
+
                 {step === "address" && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold text-zinc-900">Entrega</h2>
@@ -658,7 +748,15 @@ export default function CheckoutDrawer({
                         <div className="flex gap-2">
                             <button
                                 type="button"
-                                onClick={() => setStep(sessionToken ? "cart" : "identify")}
+                                onClick={() =>
+                                    setStep(
+                                        deliveriesEnabled && pickupEnabled
+                                            ? "fulfillment"
+                                            : sessionToken
+                                              ? "cart"
+                                              : "identify"
+                                    )
+                                }
                                 className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
                             >
                                 Voltar
@@ -699,9 +797,13 @@ export default function CheckoutDrawer({
                                 <span>{formatBRL(subtotal)}</span>
                             </div>
                             <div className="flex justify-between">
-                                <span>Entrega</span>
+                                <span>{fulfillmentType === "pickup" ? "Retirada" : "Entrega"}</span>
                                 <span>
-                                    {deliveryFee != null ? formatBRL(deliveryFee) : "—"}
+                                    {fulfillmentType === "pickup"
+                                        ? formatBRL(0)
+                                        : deliveryFee != null
+                                          ? formatBRL(deliveryFee)
+                                          : "—"}
                                 </span>
                             </div>
                             <div className="flex justify-between text-base font-bold">
@@ -748,7 +850,19 @@ export default function CheckoutDrawer({
                         <div className="flex gap-2">
                             <button
                                 type="button"
-                                onClick={() => setStep("address")}
+                                onClick={() => {
+                                    if (fulfillmentType === "pickup") {
+                                        setStep(
+                                            deliveriesEnabled && pickupEnabled
+                                                ? "fulfillment"
+                                                : sessionToken
+                                                  ? "cart"
+                                                  : "identify"
+                                        );
+                                        return;
+                                    }
+                                    setStep("address");
+                                }}
                                 className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
                             >
                                 Voltar

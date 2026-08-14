@@ -26,7 +26,9 @@ export async function GET() {
 
     const { data: policy } = await admin
         .from("company_delivery_policy")
-        .select("service_city, service_state, service_by_zone, default_mode")
+        .select(
+            "service_city, service_state, service_by_zone, default_mode, deliveries_enabled, pickup_enabled"
+        )
         .eq("company_id", companyId)
         .maybeSingle();
 
@@ -53,6 +55,8 @@ export async function GET() {
             service_state: serviceState,
             service_by_zone: Boolean(policy?.service_by_zone),
             default_mode: (policy?.default_mode as string | null) ?? "all_city",
+            deliveries_enabled: policy?.deliveries_enabled !== false,
+            pickup_enabled: policy?.pickup_enabled !== false,
         },
         rules: rules ?? [],
         city_neighborhoods: (catalog ?? []).map((n) => String(n.neighborhood ?? "")).filter(Boolean),
@@ -110,16 +114,22 @@ export async function PATCH(req: Request) {
         .eq("id", companyId);
     if (companyErr) return NextResponse.json({ error: companyErr.message }, { status: 500 });
 
-    const { error: policyErr } = await admin
-        .from("company_delivery_policy")
-        .upsert({
-            company_id: companyId,
-            service_city: serviceCity || null,
-            service_state: serviceState || null,
-            service_by_zone: serviceByZone,
-            default_mode: defaultMode,
-            updated_at: new Date().toISOString(),
-        });
+    const deliveriesEnabled =
+        body.deliveries_enabled != null ? Boolean(body.deliveries_enabled) : null;
+    const pickupEnabled = body.pickup_enabled != null ? Boolean(body.pickup_enabled) : null;
+
+    const policyUpsert: Record<string, unknown> = {
+        company_id: companyId,
+        service_city: serviceCity || null,
+        service_state: serviceState || null,
+        service_by_zone: serviceByZone,
+        default_mode: defaultMode,
+        updated_at: new Date().toISOString(),
+    };
+    if (deliveriesEnabled != null) policyUpsert.deliveries_enabled = deliveriesEnabled;
+    if (pickupEnabled != null) policyUpsert.pickup_enabled = pickupEnabled;
+
+    const { error: policyErr } = await admin.from("company_delivery_policy").upsert(policyUpsert);
     if (policyErr) return NextResponse.json({ error: policyErr.message }, { status: 500 });
 
     const { error: delErr } = await admin

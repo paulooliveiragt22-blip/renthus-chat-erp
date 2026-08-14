@@ -1,7 +1,9 @@
 import type { OrderDraft, ProSessionState } from "@/src/types/contracts";
+import { isPickupDraft } from "@/lib/delivery/fulfillment";
 
 /** Total do rascunho abaixo do pedido mínimo de entrega (quando a política define um). */
 export function isDraftBelowMinimumOrder(draft: OrderDraft): boolean {
+    if (isPickupDraft(draft)) return false;
     const min = draft.deliveryMinOrder;
     if (min == null || !(min > 0)) return false;
     return draft.grandTotal < min;
@@ -15,9 +17,10 @@ export function isDraftBelowMinimumOrder(draft: OrderDraft): boolean {
  * final antes de criar o pedido, caso o passo da sessão fique dessincronizado.
  */
 export function isDraftStructurallyCompleteForFinalize(draft: OrderDraft): boolean {
+    const addressOk = isPickupDraft(draft) || Boolean(draft.address);
     return (
         draft.items.length > 0 &&
-        Boolean(draft.address) &&
+        addressOk &&
         Boolean(draft.paymentMethod) &&
         !isDraftBelowMinimumOrder(draft)
     );

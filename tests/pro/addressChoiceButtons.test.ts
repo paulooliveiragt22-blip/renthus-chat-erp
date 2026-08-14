@@ -19,6 +19,7 @@ function draftWithItemsNoAddress(): OrderDraft {
         address: null,
         paymentMethod: null,
         changeFor: null,
+        fulfillmentType: "delivery",
         deliveryFee: 0,
         deliveryZoneId: null,
         deliveryAddressText: null,

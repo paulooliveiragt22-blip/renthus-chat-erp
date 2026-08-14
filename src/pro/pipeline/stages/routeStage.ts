@@ -3,6 +3,7 @@ import {
     buildWelcomeMenuBody,
     type ChatbotMessageTemplates,
 } from "@/lib/chatbot/messageTemplates";
+import { withMenuSearchParams } from "@/lib/public-menu/menuUrlQuery";
 import { isOrderSessionContinuityNeeded } from "../sessionOrderContext";
 import { canTransition } from "../proStepTransitions";
 
@@ -43,12 +44,15 @@ export function mainMenuButtons(): Array<{ id: string; title: string }> {
     ];
 }
 
-export function buildWebMenuCtaOutbound(webMenuUrl: string): OutboundMessage {
+export function buildWebMenuCtaOutbound(
+    webMenuUrl: string,
+    copy?: { bodyText?: string; displayText?: string }
+): OutboundMessage {
     return {
         kind: "cta_url",
         ctaUrl: {
-            bodyText: "Toque para abrir o cardápio no celular:",
-            displayText: "Abrir cardápio",
+            bodyText: copy?.bodyText?.trim() || "Toque para abrir o cardápio no celular:",
+            displayText: copy?.displayText?.trim() || "Abrir cardápio",
             url: webMenuUrl.trim(),
         },
     };
@@ -74,8 +78,6 @@ export function routeStage(params: {
     decision: IntentDecision;
     inboundText: string;
     tenant: TenantRef;
-    flowCatalogId?: string | null;
-    flowStatusId?: string | null;
     webMenuUrl?: string | null;
     messageTemplates?: ChatbotMessageTemplates | null;
     /**
@@ -88,9 +90,6 @@ export function routeStage(params: {
         state,
         decision,
         inboundText,
-        tenant,
-        flowCatalogId,
-        flowStatusId,
         webMenuUrl,
         messageTemplates,
         llmEnabled = true,
@@ -138,65 +137,16 @@ export function routeStage(params: {
         };
     }
 
-    if (wantsCatalogBrowse(norm) && flowCatalogId) {
+    if ((norm === "btn_status" || decision.intent === "status_intent") && webMenuUrl) {
         return {
             mode: "direct_reply",
             state,
             outbound: [
-                {
-                    kind: "flow",
-                    flow: {
-                        flowId: flowCatalogId,
-                        flowToken: `${tenant.threadId}|${tenant.companyId}|catalog`,
-                        bodyText: "Abra o formulário do catálogo para escolher os produtos.",
-                        ctaLabel: "Ver catálogo",
-                    },
-                },
+                buildWebMenuCtaOutbound(withMenuSearchParams(webMenuUrl, { orders: "1" }), {
+                    bodyText: "Toque para ver seus pedidos:",
+                    displayText: "Meus pedidos",
+                }),
             ],
-        };
-    }
-
-    if (norm === "btn_status" && flowStatusId) {
-        return {
-            mode: "direct_reply",
-            state,
-            outbound: [
-                {
-                    kind: "flow",
-                    flow: {
-                        flowId: flowStatusId,
-                        flowToken: `${tenant.threadId}|${tenant.companyId}|status`,
-                        bodyText: "Consulte o status do seu pedido no formulário.",
-                        ctaLabel: "Ver status",
-                    },
-                },
-            ],
-        };
-    }
-
-    if (decision.intent === "status_intent" && flowStatusId) {
-        return {
-            mode: "direct_reply",
-            state,
-            outbound: [
-                {
-                    kind: "flow",
-                    flow: {
-                        flowId: flowStatusId,
-                        flowToken: `${tenant.threadId}|${tenant.companyId}|status`,
-                        bodyText: "Consulte o status do seu pedido no formulário.",
-                        ctaLabel: "Ver status",
-                    },
-                },
-            ],
-        };
-    }
-
-    if (decision.intent === "status_intent") {
-        return {
-            mode: "direct_reply",
-            state,
-            outbound: [{ kind: "text", text: "Vou verificar o status do seu pedido." }],
         };
     }
 
@@ -213,14 +163,14 @@ export function routeStage(params: {
         };
     }
 
-    if (norm === "btn_status") {
+    if (norm === "btn_status" || decision.intent === "status_intent") {
         return {
             mode: "direct_reply",
             state,
             outbound: [
                 {
                     kind: "text",
-                    text: "A consulta de pedido interativa não está configurada neste canal. Digite o número do pedido ou use Falar com atendente.",
+                    text: "A consulta de pedido não está configurada neste canal. Digite o número do pedido ou use Falar com atendente.",
                 },
             ],
         };

@@ -24,6 +24,16 @@ export type WebMenuLinkPayloadV2 = {
 
 export type WebMenuLinkPayload = WebMenuLinkPayloadV1 | WebMenuLinkPayloadV2;
 
+/** Token `hc` do handoff bot → cardápio (carrinho no servidor, não na URL). */
+export type MenuHandoffTokenPayload = {
+    v: 3;
+    kind: "handoff";
+    handoffId: string;
+    companyId: string;
+    slug: string;
+    exp: number;
+};
+
 export type WebMenuCheckoutSession = {
     v: 1 | 2;
     companyId: string;
@@ -88,6 +98,7 @@ function decodeToken<T extends { exp: number }>(token: string): T | null {
 
 const LINK_TTL_SEC = 7 * 24 * 60 * 60;
 const SESSION_TTL_SEC = 24 * 60 * 60;
+const HANDOFF_TTL_SEC = 2 * 60 * 60;
 
 /** @deprecated Prefer `signWebMenuChannelLinkToken` (v2). Mantido para links WA legados. */
 export function signWebMenuLinkToken(input: {
@@ -170,6 +181,30 @@ export function signWebMenuCheckoutSession(input: {
         exp: Math.floor(Date.now() / 1000) + (input.ttlSec ?? SESSION_TTL_SEC),
     };
     return encodeToken(payload);
+}
+
+export function signMenuHandoffToken(input: {
+    handoffId: string;
+    companyId: string;
+    slug: string;
+    ttlSec?: number;
+}): string {
+    const payload: MenuHandoffTokenPayload = {
+        v: 3,
+        kind: "handoff",
+        handoffId: input.handoffId,
+        companyId: input.companyId,
+        slug: input.slug,
+        exp: Math.floor(Date.now() / 1000) + (input.ttlSec ?? HANDOFF_TTL_SEC),
+    };
+    return encodeToken(payload);
+}
+
+export function verifyMenuHandoffToken(token: string): MenuHandoffTokenPayload | null {
+    const p = decodeToken<MenuHandoffTokenPayload>(token);
+    if (!p || p.v !== 3 || p.kind !== "handoff") return null;
+    if (!p.handoffId || !p.companyId || !p.slug) return null;
+    return p;
 }
 
 export function verifyWebMenuCheckoutSession(token: string): WebMenuCheckoutSession | null {

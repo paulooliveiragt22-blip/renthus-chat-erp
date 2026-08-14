@@ -46,6 +46,12 @@ describe("orderDraftGate (R1)", () => {
         assert.equal(isDraftStructurallyCompleteForFinalize(minimalDraft()), true);
         assert.equal(isDraftStructurallyCompleteForFinalize(minimalDraft({ items: [] })), false);
         assert.equal(isDraftStructurallyCompleteForFinalize(minimalDraft({ address: null })), false);
+        assert.equal(
+            isDraftStructurallyCompleteForFinalize(
+                minimalDraft({ address: null, fulfillmentType: "pickup" })
+            ),
+            true
+        );
         assert.equal(isDraftStructurallyCompleteForFinalize(minimalDraft({ paymentMethod: null })), false);
     });
 

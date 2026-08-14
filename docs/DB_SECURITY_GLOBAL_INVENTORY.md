@@ -72,29 +72,25 @@ FORCE + policy `service_role_only`), substituindo a policy `true/true`. Confirma
 único acesso no código é via `createAdminClient()` em `lib/billing/aiWallet.ts`,
 `app/api/admin/ai-wallet/*` e `app/api/billing/webhook`; nenhum uso client-side.
 
-### Grupo C — policies company-scoped legítimas, sem `FORCE` (decisão pendente, não bloqueante)
+### Grupo C — convergido para `service_role_only` (2026-08-12)
 
 `company_menu_profile`, `customer_channel_identities`, `dining_tables`, `marketplace_catalog_map`,
 `marketplace_connections`, `marketplace_external_orders`, `menu_page_events`,
-`meta_messaging_channels`, `table_session_items`, `table_sessions` — diferente dos outros dois grupos,
-essas 10 têm policy real e bem escrita (`company_id in (select company_id from company_users where
-user_id = auth.uid())`, algumas restringindo a `owner`/`admin`). É o padrão RLS "multi-tenant direto",
-não o padrão `service_role_only` deste projeto. Grants a `anon`/`authenticated` continuam de pé, mas o
-`with_check`/`using` protege — não é um buraco aberto como os grupos A/B.
+`meta_messaging_channels`, `table_session_items`, `table_sessions`.
 
-Auditoria no código (`grep` por nome de tabela + por uso de `createBrowserClient`/`@/lib/supabase/client`
-em `.tsx`) não encontrou nenhum componente client-side lendo essas tabelas direto hoje — todo o acesso
-observado é via API routes com `createAdminClient()`. Ou seja, o design "RLS direto" existe mas não está
-sendo usado; não há motivo conhecido para mantê-lo.
+Tinham policy company-scoped (`company_id in (select company_id from company_users where user_id =
+auth.uid())`) + grants a `anon`/`authenticated`. Auditoria no código não encontrou SELECT/INSERT
+client-side — acesso via `createAdminClient()` (API) ou RPC `SECURITY DEFINER` (mesa, identidade
+omnichannel, analytics do cardápio).
 
-**Ação tomada agora:** apenas `FORCE ROW LEVEL SECURITY` (zero mudança de comportamento pra
-`anon`/`authenticated`, que nunca são owner da tabela — fecha só o bypass teórico de owner/superuser).
-**Não** removi as policies nem os grants dessas 10, porque isso é decisão de arquitetura (manter RLS
-direto para uso futuro client-side/Realtime vs. migrar 100% para `v_sec_*`/RPC como o resto do banco),
-não um patch de segurança — precisa de sinal do dono do produto antes de descartar um padrão que
-alguém decidiu implementar de propósito.
+**Decisão do dono (2026-08-12):** opção (b) — convergir para o padrão do resto do banco, sem manter
+RLS direto "para uso futuro" de Realtime/browser.
 
-**Pendente (decisão do usuário):** escolher entre (a) manter RLS direto nessas 10 e documentar como
-padrão alternativo aceito, ou (b) convergir para `service_role_only` + `v_sec_*`/RPC como as demais 77
-tabelas, exigindo trocar os call sites que hoje passam por `createAdminClient()` — sem regressão
-funcional esperada já que nenhum client-side depende disso hoje.
+**Corrigido em `20260812231500_harden_rls_grupo_c_service_role_only.sql`:** REVOKE de
+`anon`/`authenticated`, `FORCE RLS` (já estava da migration anterior), drop das policies
+company-scoped, policy única `rls_<t>_service_role_only`. Views genéricas `v_sec_*` **não** foram
+recriadas (dropadas em `20260414072621` como lixo técnico; leitura de domínio continua em
+views/RPCs específicas). Call sites TypeScript **não** mudaram — já eram service-role.
+
+**Validação esperada:** exatamente 1 policy `..._service_role_only` por tabela; zero grants a
+`anon`/`authenticated`.

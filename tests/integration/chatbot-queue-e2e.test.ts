@@ -6,7 +6,8 @@ import { makeMockAdmin } from "../helpers/mockSupabaseAdmin";
 
 let incomingPost: (req: Request) => Promise<Response>;
 let processQueueGet: (req: Request) => Promise<Response>;
-let processInboundCalls: Array<Record<string, unknown>> = [];
+let processInboundCalls: Array<Record<string, unknown> & { _start: number; _end: number }> = [];
+let inboundDelayMs = 0;
 
 before(() => {
     processInboundCalls = [];
@@ -58,7 +59,11 @@ before(() => {
         loaded: true,
         exports: {
             processInboundMessage: async (payload: Record<string, unknown>) => {
-                processInboundCalls.push(payload);
+                const start = Date.now();
+                if (inboundDelayMs > 0) {
+                    await new Promise((r) => setTimeout(r, inboundDelayMs));
+                }
+                processInboundCalls.push({ ...payload, _start: start, _end: Date.now() });
             },
         },
     };
@@ -203,5 +208,114 @@ describe("chatbot queue e2e", () => {
         assert.equal(processInboundCalls.length, 1, "apenas uma mensagem deve ser processada de fato");
         assert.equal(processInboundCalls[0]?.text, "quero 1 heineken");
     });
+
+    it("threads/empresas diferentes no mesmo lote processam em paralelo", async () => {
+        processInboundCalls = [];
+        inboundDelayMs = 50;
+        try {
+            await postIncoming("wamid-par-a", "5511911111111", "pedido a");
+            await postIncoming("wamid-par-b", "5511922222222", "pedido b");
+
+            const t0 = Date.now();
+            const queueRes = await processQueueGet(queueRequest());
+            const elapsed = Date.now() - t0;
+            assert.equal(queueRes.status, 200);
+            const json = (await queueRes.json()) as { processed?: number; failed?: number };
+            assert.equal(json.processed, 2);
+            assert.equal(json.failed, 0);
+            assert.equal(processInboundCalls.length, 2);
+
+            const [a, b] = processInboundCalls;
+            assert.ok(a && b);
+            const overlapped = a._start < b._end && b._start < a._end;
+            assert.ok(overlapped, "as duas threads devem estar em voo ao mesmo tempo");
+            assert.ok(elapsed < 140, `paralelo deve ser ~1x o delay, não ~2x (elapsed=${elapsed}ms)`);
+        } finally {
+            inboundDelayMs = 0;
+        }
+    });
+
+    it("dois jobs da mesma thread no mesmo lote continuam sequenciais", async () => {
+        processInboundCalls = [];
+        inboundDelayMs = 40;
+        try {
+            const payload = {
+                object: "whatsapp_business_account",
+                entry: [{
+                    changes: [{
+                        field: "messages",
+                        value: {
+                            metadata: { phone_number_id: "5511999999999" },
+                            contacts: [{ wa_id: "5511933333333", profile: { name: "Cliente" } }],
+                            messages: [
+                                { id: "wamid-seq-1", from: "5511933333333", type: "text", text: { body: "primeiro" } },
+                                { id: "wamid-seq-2", from: "5511933333333", type: "text", text: { body: "segundo" } },
+                            ],
+                        },
+                    }],
+                }],
+            };
+            const incomingRes = await incomingPost(signedRequest(payload));
+            assert.equal(incomingRes.status, 200);
+
+            const queueRes = await processQueueGet(queueRequest());
+            assert.equal(queueRes.status, 200);
+            const json = (await queueRes.json()) as { processed?: number; failed?: number };
+            assert.equal(json.processed, 2);
+            assert.equal(json.failed, 0);
+            assert.equal(processInboundCalls.length, 2);
+            assert.equal(processInboundCalls[0]?.text, "primeiro");
+            assert.equal(processInboundCalls[1]?.text, "segundo");
+            const first = processInboundCalls[0];
+            const second = processInboundCalls[1];
+            assert.ok(first && second);
+            assert.ok(
+                second._start >= first._end - 2,
+                "mesma thread não pode sobrepor processamento"
+            );
+        } finally {
+            inboundDelayMs = 0;
+        }
+    });
 });
+
+function queueRequest(): Request {
+    return new Request("http://localhost/api/chatbot/process-queue", {
+        method: "GET",
+        headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+    });
+}
+
+function signedRequest(payload: unknown): Request {
+    const rawBody = JSON.stringify(payload);
+    const signature = createHmac("sha256", process.env.WHATSAPP_APP_SECRET ?? "")
+        .update(rawBody, "utf8")
+        .digest("hex");
+    return new Request("http://localhost/api/whatsapp/incoming", {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            "x-hub-signature-256": `sha256=${signature}`,
+        },
+        body: rawBody,
+    });
+}
+
+async function postIncoming(messageId: string, waId: string, text: string): Promise<void> {
+    const payload = {
+        object: "whatsapp_business_account",
+        entry: [{
+            changes: [{
+                field: "messages",
+                value: {
+                    metadata: { phone_number_id: "5511999999999" },
+                    contacts: [{ wa_id: waId, profile: { name: "Cliente" } }],
+                    messages: [{ id: messageId, from: waId, type: "text", text: { body: text } }],
+                },
+            }],
+        }],
+    };
+    const res = await incomingPost(signedRequest(payload));
+    assert.equal(res.status, 200);
+}
 

@@ -1,5 +1,6 @@
 import type { DraftItem, OrderDraft } from "@/src/types/contracts";
 import { roundBrl } from "@/lib/chatbot/utils";
+import { applyPickupTotals } from "@/lib/delivery/fulfillment";
 
 function normalizeNameKey(text: string): string {
     return String(text ?? "")
@@ -42,9 +43,9 @@ function rebuildDraftTotals(draft: OrderDraft, kept: DraftItem[]): OrderDraft {
         grandTotal,
         pendingConfirmation: Boolean(
             kept.length &&
-                draft.address &&
                 draft.paymentMethod &&
-                (draft.paymentMethod !== "cash" || draft.changeFor != null)
+                (draft.paymentMethod !== "cash" || draft.changeFor != null) &&
+                (draft.fulfillmentType === "pickup" || draft.address)
         ),
     };
 }
@@ -113,9 +114,9 @@ export function removeDraftItemsByEmbalagemIds(
         grandTotal,
         pendingConfirmation: Boolean(
             kept.length &&
-                draft.address &&
                 draft.paymentMethod &&
-                (draft.paymentMethod !== "cash" || draft.changeFor != null)
+                (draft.paymentMethod !== "cash" || draft.changeFor != null) &&
+                (draft.fulfillmentType === "pickup" || draft.address)
         ),
     };
 }
@@ -157,14 +158,23 @@ export function mergePreparedDraftIntoCurrent(
         ? prepared.deliveryEtaMin
         : current.deliveryEtaMin;
 
+    const fulfillmentType = prepared.fulfillmentType ?? current.fulfillmentType ?? null;
     const totalItems = roundBrl(items.reduce((s, i) => s + i.unitPrice * i.quantity, 0));
-    const grandTotal = roundBrl(totalItems + (deliveryFee ?? 0));
+    const grandTotal = roundBrl(totalItems + (fulfillmentType === "pickup" ? 0 : (deliveryFee ?? 0)));
 
-    return {
+    const pendingConfirmation = Boolean(
+        items.length &&
+            paymentMethod &&
+            (paymentMethod !== "cash" || changeFor != null) &&
+            (fulfillmentType === "pickup" || address)
+    );
+
+    const merged: OrderDraft = {
         items,
-        address,
+        address: fulfillmentType === "pickup" ? (prepared.address ?? current.address) : address,
         paymentMethod,
         changeFor,
+        fulfillmentType,
         deliveryFee: deliveryFee ?? 0,
         deliveryZoneId: deliveryZoneId ?? null,
         deliveryAddressText: deliveryAddressText ?? null,
@@ -172,13 +182,12 @@ export function mergePreparedDraftIntoCurrent(
         deliveryEtaMin: deliveryEtaMin ?? null,
         totalItems,
         grandTotal,
-        pendingConfirmation: Boolean(
-            items.length && address && paymentMethod && (paymentMethod !== "cash" || changeFor != null)
-        ),
+        pendingConfirmation,
         addressResolutionNote:
             prepared.addressResolutionNote ?? current.addressResolutionNote ?? null,
         version: 1,
     };
+    return fulfillmentType === "pickup" ? applyPickupTotals(merged) : merged;
 }
 
 /** Allowlist da busca ∪ embalagens já no draft (prepare aditivo). */

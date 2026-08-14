@@ -38,6 +38,8 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
 - Self-wake (pico): worker agenda outra invocação se ainda há `pending` após o claim (`?drain=N`, teto `CHATBOT_QUEUE_DRAIN_MAX`, default 5) — cobre batch cheio e claim parcial (fairness / skip-busy).
 - Reclaim: RPC `reclaim_stuck_chatbot_queue_jobs` devolve `processing` stuck (> `CHATBOT_QUEUE_STALE_MINUTES`, default 3) para `pending`.
 - **Claim justo (P2):** `claim_chatbot_queue_jobs(batch, max_attempts, max_per_company)` — teto por `company_id` + não claima `thread_id` já em `processing` (single-flight por conversa).
+- **Paralelismo por thread (P3):** no mesmo lote, threads diferentes correm em paralelo (`CHATBOT_QUEUE_CONCURRENCY`, default 3); a mesma conversa continua sequencial. Claim SQL já garante que 2 jobs da mesma thread nunca ficam `processing` ao mesmo tempo.
+- **Cron de drenagem (P3):** `pg_cron` + `pg_net` chama `GET /api/chatbot/process-queue` a cada 10s (job `chatbot-queue-drain`). Complementa o wake; não desliga wake/`CHATBOT_QUEUE_DRAIN_MAX` sem métrica de produção.
 - **Backlog UX:** se a fila da empresa estiver profunda/atrasada, `incoming` envia aviso PT-BR (cooldown por thread) via `lib/chatbot/backlogNotice.ts`.
 - **Cache busca catálogo:** TTL in-memory em `src/pro/tools/catalogSearchCache.ts` (por instância).
 - Desligar wake: `CHATBOT_QUEUE_WAKE_ENABLED=0`.
@@ -317,6 +319,7 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 | `WHATSAPP_MIN_GAP_MS` | (omissão = **100**) | Gap mínimo entre POSTs Graph por `phone_number_id` (throttle local). |
 | `WHATSAPP_429_MAX_RETRIES` | (omissão = **3**) | Retries em 429 Meta (honra `Retry-After` quando presente). |
 | `CHATBOT_QUEUE_MAX_PER_COMPANY` | (omissão = **2**) | Máx. jobs da mesma empresa por claim (fairness SQL). |
+| `CHATBOT_QUEUE_CONCURRENCY` | (omissão = **3**) | Máx. threads/empresas processadas em paralelo no mesmo lote do worker. Jobs da mesma `thread_id` continuam sequenciais. Calibrar após compute/pool (Fase 0 de `PLANO_ESCALA_PICOS_PEDIDOS.md`). |
 | `CHATBOT_BACKLOG_DEPTH` | (omissão = **8**) | Pending da empresa ≥ N ⇒ candidata a aviso de fila. |
 | `CHATBOT_BACKLOG_AGE_SECONDS` | (omissão = **45**) | Idade do pending mais antigo ≥ N s ⇒ aviso. |
 | `CHATBOT_BACKLOG_NOTICE_COOLDOWN_SEC` | (omissão = **120**) | Cooldown do aviso por thread. |

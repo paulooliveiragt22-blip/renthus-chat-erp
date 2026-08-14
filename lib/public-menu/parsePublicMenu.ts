@@ -59,6 +59,8 @@ function parseStoreRow(raw: unknown): PublicMenuStore | null {
         city: asNullableString(raw.city),
         state: asNullableString(raw.state),
         isActive: asBool(raw.is_active, true),
+        deliveriesEnabled: asBool(raw.deliveries_enabled, true),
+        pickupEnabled: asBool(raw.pickup_enabled, true),
     };
 }
 

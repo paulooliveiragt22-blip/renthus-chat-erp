@@ -61,21 +61,56 @@ function loadCart(slug: string): PublicMenuCartLine[] {
 export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     const [activeCat, setActiveCat] = useState<string | "all">("all");
     const [cart, setCart] = useState<PublicMenuCartLine[]>([]);
+    const [cartReady, setCartReady] = useState(false);
     const [checkoutOpen, setCheckoutOpen] = useState(false);
     const [ordersOpen, setOrdersOpen] = useState(false);
     const store = menu.store;
 
     useEffect(() => {
-        setCart(loadCart(store.slug));
+        const params = new URLSearchParams(globalThis.location.search);
+        if (params.get("orders") === "1") setOrdersOpen(true);
+        const wantCheckout = params.get("checkout") === "1";
+        const hc = params.get("hc")?.trim() ?? "";
+
+        if (!hc) {
+            setCart(loadCart(store.slug));
+            if (wantCheckout) setCheckoutOpen(true);
+            setCartReady(true);
+            return;
+        }
+
+        void fetch(
+            `/api/public/menu/${encodeURIComponent(store.slug)}/handoff?hc=${encodeURIComponent(hc)}`
+        )
+            .then(async (res) => {
+                const json = (await res.json()) as {
+                    ok?: boolean;
+                    purpose?: string;
+                    cart?: PublicMenuCartLine[];
+                };
+                if (json.ok && Array.isArray(json.cart) && json.cart.length > 0) {
+                    setCart(json.cart);
+                    if (json.purpose === "checkout" || wantCheckout) setCheckoutOpen(true);
+                } else {
+                    setCart(loadCart(store.slug));
+                    if (wantCheckout) setCheckoutOpen(true);
+                }
+            })
+            .catch(() => {
+                setCart(loadCart(store.slug));
+                if (wantCheckout) setCheckoutOpen(true);
+            })
+            .finally(() => setCartReady(true));
     }, [store.slug]);
 
     useEffect(() => {
+        if (!cartReady) return;
         try {
             globalThis.localStorage?.setItem(cartKey(store.slug), JSON.stringify(cart));
         } catch {
             /* ignore */
         }
-    }, [cart, store.slug]);
+    }, [cart, cartReady, store.slug]);
 
     const categories = menu.categories;
     const visible: PublicMenuCategory[] = useMemo(() => {
@@ -400,6 +435,8 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 <CheckoutDrawer
                     slug={store.slug}
                     storeName={store.displayName}
+                    deliveriesEnabled={store.deliveriesEnabled}
+                    pickupEnabled={store.pickupEnabled}
                     cart={cart}
                     onClose={() => setCheckoutOpen(false)}
                     onClearCart={() => setCart([])}

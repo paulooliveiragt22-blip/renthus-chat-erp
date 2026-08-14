@@ -4,8 +4,8 @@ Documento de execução. Origem: chat "pra que serve o pooling do Supabase / com
 pra picos" (2026-08-11). Diagnóstico completo (achados de código + SQL real do projeto) não é
 repetido aqui — está no histórico daquele chat. Este documento é só o plano de implementação.
 
-**Status:** ⬜ Nenhuma fase iniciada. Aguardando aprovação/comando explícito por fase (protocolo de
-2 fases da regra `arquitetura-lider`).
+**Status:** Fases 1–5 de código concluídas (2026-08-12). Fase 0 (compute/pool no Dashboard) continua
+operacional — não é commit. `CHATBOT_QUEUE_CONCURRENCY` default **3** até o compute subir.
 
 **Vinculado a:** [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) — nova seção "P3 —
 Infra Supabase / paralelismo para picos" aponta pra este documento, mesmo padrão de
@@ -53,10 +53,10 @@ Fora de escopo nesta rodada (Seção 4): migrar `chatbot_queue` para `pgmq`; enx
 
 - [ ] **Compute Add-on** (Dashboard → Settings → Compute): confirmar/subir tier. Hoje
   `max_connections = 60` (confirmado via SQL nesta sessão) — pouco para PostgREST + Realtime +
-  admin + picos do worker somados.
+  admin + picos do worker somados. **Fora desta entrega (Dashboard) — P3.1 continua aberto.**
 - [ ] **Connection Pooling** (Dashboard → Settings → Database → Connection Pooling): revisar
   **Pool Size** do Supavisor (modo *Transaction*, porta 6543) — pode subir sem mudar de tier, até
-  o teto do compute atual.
+  o teto do compute atual. **Fora desta entrega (Dashboard) — P3.1 continua aberto.**
 - [ ] Registrar aqui o novo `max_connections` e Pool Size depois de aplicado (linha na Seção
   "Registo de execução").
 - **Critério de pronto:** `select setting from pg_settings where name = 'max_connections';` mostra
@@ -71,7 +71,9 @@ Fora de escopo nesta rodada (Seção 4): migrar `chatbot_queue` para `pgmq`; enx
 implícito em `claimed.map((r: any) => r.id)` (linha 115) ganham tipo — pré-requisito pra escrever
 as funções puras da Fase 2 com segurança, sem tocar ainda no route.
 
-- [ ] Novo `lib/chatbot/queueTypes.ts`:
+- [x] Novo `lib/chatbot/queue/types.ts` (`ChatbotQueueJobRow`, `QueueBatchCounters`) — já existia
+  da extração do item 8 (2026-08-12); Fase 1 do plano original (`lib/chatbot/queueTypes.ts`) ficou
+  sem arquivo novo.
 
 ```ts
 export interface ChatbotQueueJobRow {
@@ -108,7 +110,7 @@ export interface QueueBatchOutcome {
 **Objetivo:** ter as duas peças que a Fase 3 vai conectar, testadas isoladamente antes de tocar no
 worker real.
 
-- [ ] `lib/chatbot/groupQueueJobsByThread.ts`: agrupa um array já intercalado por empresa
+- [x] `lib/chatbot/queue/groupByThread.ts`: agrupa um array já intercalado por empresa
   (`interleaveQueueJobsByCompany`) em *buckets* por `thread_id`, preservando a ordem relativa
   dentro de cada bucket (garante que jobs da mesma conversa continuem sequenciais mesmo se um dia
   o claim SQL devolver 2 jobs pendentes da mesma thread no mesmo lote).
@@ -133,7 +135,7 @@ export function groupQueueJobsByThread<T extends Pick<ChatbotQueueJobRow, "threa
 }
 ```
 
-- [ ] `lib/chatbot/concurrencyLimit.ts`: limitador simples sem dependência nova (não há `p-limit`
+- [x] `lib/chatbot/queue/concurrencyLimit.ts`: limitador simples sem dependência nova (não há `p-limit`
   no `package.json` — checado nesta sessão).
 
 ```ts
@@ -154,7 +156,7 @@ export async function runWithConcurrencyLimit<T>(
 }
 ```
 
-- [ ] Testes novos:
+- [x] Testes novos:
   - `tests/chatbot/groupQueueJobsByThread.test.ts`: ordem preservada dentro do bucket; threads
     diferentes geram buckets diferentes; `thread_id` nulo/vazio não junta jobs de conversas
     diferentes no mesmo bucket.
@@ -201,12 +203,12 @@ existia; não é gambiarra nova.
     lido/escrito intercalado entre buckets concorrentes — o efeito prático (evitar duplicar
     processamento do mesmo texto na mesma janela) continua válido; a ordem exata de quem "vence"
     o coalesce entre duas threads diferentes não importa (são conversas diferentes).
-- [ ] `tests/integration/chatbot-queue-e2e.test.ts`: novo caso — 2 jobs de **threads/empresas
+- [x] `tests/integration/chatbot-queue-e2e.test.ts`: novo caso — 2 jobs de **threads/empresas
   diferentes**, mock de `processInboundMessage` com delay artificial (`await new Promise(r =>
   setTimeout(r, 50))`), assert que o tempo total do `processQueueGet` é **~1x** o delay (paralelo),
   não ~2x (sequencial) — prova real de paralelismo, não só contagem de `processed`. Os 2 testes
   existentes (linha 202-309) continuam verdes sem alteração de asserts.
-- [ ] Novo teste dedicado (ou ampliar o e2e): 2 jobs pendentes da **mesma thread** no mesmo lote
+- [x] Novo teste dedicado (ou ampliar o e2e): 2 jobs pendentes da **mesma thread** no mesmo lote
   (simulando o caso raro descrito na Fase 2) continuam processados em ordem, nunca em paralelo
   entre si.
 - **Critério de pronto:** `npm test` verde; teste de timing novo passando; nenhuma regressão nos
@@ -223,11 +225,11 @@ worker batendo no PostgREST ao mesmo tempo — não é bug de correção (o clai
 é ineficiência de recursos. `pg_cron` dá uma drenagem previsível de dentro do banco, complementar
 ao wake (que continua cobrindo a latência do "primeiro job").
 
-- [ ] Confirmar extensões disponíveis (já checado nesta sessão via MCP `user-supabase`): `pg_cron`
+- [x] Confirmar extensões disponíveis (já checado nesta sessão via MCP `user-supabase`): `pg_cron`
   1.6.4 e `pg_net` 0.19.5 (este já **instalado**, schema `extensions`).
-- [ ] **Fora da migration, via `execute_sql`/dashboard** (nunca versionar o valor em texto plano):
+- [x] **Fora da migration, via `execute_sql`/dashboard** (nunca versionar o valor em texto plano):
   `select vault.create_secret('<valor real do CRON_SECRET>', 'chatbot_queue_cron_secret');`
-- [ ] Migration nova `supabase/migrations/<timestamp>_pg_cron_chatbot_queue_drain.sql`:
+- [x] Migration nova `supabase/migrations/20260812233000_pg_cron_chatbot_queue_drain.sql`:
 
 ```sql
 create extension if not exists pg_cron;
@@ -254,9 +256,9 @@ select cron.schedule(
   `<APP_URL>` = mesma origem já usada em `CHATBOT_QUEUE_WAKE_URL`/`APP_INTERNAL_URL` — decidir na
   implementação se vem hardcoded na migration (domínio de produção é estável) ou lido de uma
   `app.settings` custom (mais indireção, avaliar se compensa).
-- [ ] Aplicar no remoto (regra `supabase-migrations.mdc`) e confirmar:
+- [x] Aplicar no remoto (regra `supabase-migrations.mdc`) e confirmar:
   `select * from cron.job;` (job ativo) e `select * from cron.job_run_details order by start_time desc limit 5;` (execuções OK, sem erro).
-- [ ] Decisão operacional a registrar (não é código): com cron de 10s ativo, avaliar se reduz
+- [x] Decisão operacional a registrar (não é código): com cron de 10s ativo, avaliar se reduz
   `CHATBOT_QUEUE_DRAIN_MAX` (menos self-wake recursivo) ou desliga
   `CHATBOT_QUEUE_WAKE_ENABLED` — **não fazer nesta fase sem dado real de produção**, registrar
   como próximo passo observacional.
@@ -267,10 +269,10 @@ select cron.schedule(
 
 ### Fase 5 — Documentação cruzada
 
-- [ ] `docs/CHATBOT_PROD.md`: nova env `CHATBOT_QUEUE_CONCURRENCY` na tabela de variáveis (perto de
+- [x] `docs/CHATBOT_PROD.md`: nova env `CHATBOT_QUEUE_CONCURRENCY` na tabela de variáveis (perto de
   `CHATBOT_QUEUE_MAX_PER_COMPANY`, linha ~319); seção "Fluxo canónico" ganha nota sobre o cron de
   drenagem (linhas 37-39, ao lado de wake/self-wake/reclaim já documentados).
-- [ ] `docs/CHECKLIST_ARCH_PRO_SCALE.md`: marcar os itens da nova seção "P3" (ver Seção 3 abaixo)
+- [x] `docs/CHECKLIST_ARCH_PRO_SCALE.md`: marcar os itens da nova seção "P3" (ver Seção 3 abaixo)
   conforme cada fase fechar, igual ao padrão já usado em P0-P2.
 - **Critério de pronto:** docs refletem exatamente o que está em produção, sem menção a mecanismo
   removido/alterado deixada pra trás.
@@ -350,3 +352,4 @@ Adicionar (Fase 5) a seção:
 | Data | Itens |
 |------|--------|
 | 2026-08-11 | Documento criado (Fase 0-5 planejadas, nenhuma executada) |
+| 2026-08-12 | Fases 1–5 executadas (tipos já existiam em `lib/chatbot/queue/`; paralelismo + cron). Fase 0 (compute/pool) permanece Dashboard / P3.1. |

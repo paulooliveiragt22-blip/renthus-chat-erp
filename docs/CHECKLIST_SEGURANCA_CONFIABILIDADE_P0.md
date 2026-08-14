@@ -250,9 +250,11 @@ fica pendente do usuário. Detalhamento completo dos 3 grupos em
 
 - `npm test` rodado após as duas migrations: 773/773 passando, 0 falhas.
 
-**Pendente (decisão do usuário):** ver `docs/DB_SECURITY_GLOBAL_INVENTORY.md` — manter RLS direto nas
-10 tabelas do Grupo C (documentando como padrão alternativo aceito) vs. convergir pro padrão
-`service_role_only` do resto do banco.
+**Decisão (2026-08-12):** convergir o Grupo C para `service_role_only` (opção b). Migration
+`20260812231500_harden_rls_grupo_c_service_role_only.sql` — ver
+`docs/DB_SECURITY_GLOBAL_INVENTORY.md` (atualização 2026-08-12). Views genéricas `v_sec_*` não
+foram recriadas (já dropadas como lixo técnico); call sites continuam em API/`createAdminClient()`
+e RPCs `SECURITY DEFINER`.
 
 ---
 
