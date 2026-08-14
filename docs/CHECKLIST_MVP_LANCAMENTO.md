@@ -19,9 +19,9 @@ pré-produção radical (`.cursor/rules/projeto-pre-producao-radical.mdc`).
 | M1 | Entrega vs retirar no local + liga/desliga entregas | todos | [x] 2026-08-13 |
 | M2 | Horário de atendimento + descrição do delivery | todos | [x] 2026-08-13 |
 | M3 | Cadastro de usuários com permissões | Pro + Market (`staff_users`) | [ ] |
-| M4 | Vias de impressão selecionáveis + reprint por via | Pro + Market (`printing_auto`) | [ ] |
+| M4 | Vias de impressão selecionáveis + reprint por via | Pro + Market (`printing_auto`) | [x] |
 | M5 | Status `preparing` + notificar cliente | todos (IG só com omnichannel) | [x] |
-| M6 | Limpar fila de impressão | Pro + Market (`printing_auto`) | [ ] |
+| M6 | Limpar fila de impressão | Pro + Market (`printing_auto`) | [x] |
 | M7 | Integridade financeira (receita real) | todos (não é feature flag) | [ ] |
 | M0 | Seed de keys novas no commit do item | `staff_users` em M3 | [ ] parcial |
 
@@ -119,7 +119,9 @@ bloqueiam se fechado; Configurações Delivery + cardápio exibem horário/descr
 
 ## M4 — Vias de impressão selecionáveis + reimprimir por via
 
-**Estado:** [ ] estrutura aprovada
+**Estado:** [x] 2026-08-13 — `print_jobs.copy_type`; unique ativo por via;
+`rpc_enqueue_print_job` multi-via; `company_settings.print_auto_copies`; reprint
+multi-select; payload com `copy_type`.
 
 ---
 
@@ -133,7 +135,8 @@ status fantasma (extrato/PDV).
 
 ## M6 — Limpar fila de impressão
 
-**Estado:** [ ] estrutura aprovada
+**Estado:** [x] 2026-08-13 — `job_status.canceled` + `rpc_clear_print_queue`
+(pending + processing stale); UI “Limpar fila” em Impressoras.
 
 ---
 
@@ -162,3 +165,4 @@ status fantasma (extrato/PDV).
 | 2026-08-13 | M1 commit `c89bfea`; estruturas M2–M7 + matriz de planos aprovadas; inicia M2 |
 | 2026-08-13 | M2 aplicado no remoto (`company_settings_store_hours`); npm test 826 pass |
 | 2026-08-13 | M5 aplicado (`orders_status_preparing` + RPC + notify + UI) |
+| 2026-08-13 | M4+M6 aplicados (`print_jobs.copy_type`, clear queue, UI vias) |

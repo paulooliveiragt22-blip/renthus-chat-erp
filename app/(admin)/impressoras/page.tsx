@@ -22,6 +22,13 @@ import {
     Zap,
 } from "lucide-react";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
+import {
+    DEFAULT_AUTO_PRINT_COPIES,
+    PRINT_COPY_TYPES,
+    normalizePrintCopyTypes,
+    printCopyLabel,
+    type PrintCopyType,
+} from "@/lib/print/copyTypes";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -39,6 +46,7 @@ type PrintJob = {
     order_id: string;
     printed_at: string;
     status: string;
+    copy_type?: string;
     total_amount: number | null;
     customer_name: string | null;
 };
@@ -48,7 +56,6 @@ type PrintSettings = {
     print_footer: string;
     auto_print: boolean;
     print_on_receive: boolean;
-    print_delivery_copy: boolean;
     hide_prices_kitchen: boolean;
 };
 
@@ -146,8 +153,10 @@ export default function ImpressorasPage() {
     // ── settings state ────────────────────────────────────────────────────────
     const [settings,     setSettings]     = useState<PrintSettings>({
         print_header: "", print_footer: "", auto_print: true,
-        print_on_receive: true, print_delivery_copy: false, hide_prices_kitchen: false,
+        print_on_receive: true, hide_prices_kitchen: false,
     });
+    const [autoCopies, setAutoCopies] = useState<PrintCopyType[]>([...DEFAULT_AUTO_PRINT_COPIES]);
+    const [clearingQueue, setClearingQueue] = useState(false);
     const [loadingSettings, setLoadingSettings] = useState(true);
     const [savingSettings,  setSavingSettings]  = useState(false);
     const [settingsMsg,     setSettingsMsg]      = useState<string | null>(null);
@@ -184,12 +193,29 @@ export default function ImpressorasPage() {
 
     const loadSettings = useCallback(async () => {
         setLoadingSettings(true);
-        const res = await fetch("/api/agent/settings", { credentials: "include", cache: "no-store" });
-        if (res.ok) {
-            const json = await res.json();
+        const [agentRes, companyRes] = await Promise.all([
+            fetch("/api/agent/settings", { credentials: "include", cache: "no-store" }),
+            fetch("/api/admin/company-settings", { credentials: "include", cache: "no-store" }),
+        ]);
+        if (agentRes.ok) {
+            const json = await agentRes.json();
             if (json.settings && typeof json.settings === "object") {
-                setSettings((prev) => ({ ...prev, ...json.settings }));
+                setSettings((prev) => ({
+                    ...prev,
+                    print_header: String(json.settings.print_header ?? prev.print_header),
+                    print_footer: String(json.settings.print_footer ?? prev.print_footer),
+                    auto_print: Boolean(json.settings.auto_print ?? prev.auto_print),
+                    print_on_receive: Boolean(json.settings.print_on_receive ?? prev.print_on_receive),
+                    hide_prices_kitchen: Boolean(
+                        json.settings.hide_prices_kitchen ?? prev.hide_prices_kitchen
+                    ),
+                }));
             }
+        }
+        if (companyRes.ok) {
+            const json = await companyRes.json();
+            const copies = normalizePrintCopyTypes(json?.settings?.print_auto_copies);
+            setAutoCopies(copies.length > 0 ? copies : [...DEFAULT_AUTO_PRINT_COPIES]);
         }
         setLoadingSettings(false);
     }, []);
@@ -264,19 +290,70 @@ export default function ImpressorasPage() {
         if (!job.order_id) return;
         setReprintingId(job.id);
         setReprintMsg(null);
-        const res = await fetch("/api/agent/reprint", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ order_id: job.order_id }) });
+        const copy = normalizePrintCopyTypes([job.copy_type ?? "cashier"]);
+        const res = await fetch("/api/agent/reprint", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                order_id: job.order_id,
+                copy_types: copy.length > 0 ? copy : ["cashier"],
+            }),
+        });
         const json = await res.json().catch(() => ({}));
         setReprintMsg(res.ok ? "✓ Job de reimpressão criado" : (json?.error ?? "Erro ao reimprimir"));
         setReprintingId(null);
         if (res.ok) { setTimeout(() => { setReprintMsg(null); loadJobs(); }, 3000); }
     }
 
+    async function clearQueue() {
+        if (!confirm("Limpar a fila? Cancela jobs pendentes e processing sem resposta (não apaga histórico).")) return;
+        setClearingQueue(true);
+        setReprintMsg(null);
+        const res = await fetch("/api/admin/impressoras/clear-queue", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: "{}",
+        });
+        const json = await res.json().catch(() => ({}));
+        setClearingQueue(false);
+        if (!res.ok) {
+            setReprintMsg(json?.error ?? "Erro ao limpar fila");
+            return;
+        }
+        const pending = Number(json.canceled_pending ?? 0);
+        const stale = Number(json.canceled_stale_processing ?? 0);
+        setReprintMsg(`✓ Fila limpa: ${pending} pendente(s), ${stale} travado(s)`);
+        void loadJobs();
+        setTimeout(() => setReprintMsg(null), 4000);
+    }
+
     // ── settings save ─────────────────────────────────────────────────────────
     async function saveSettings() {
         setSavingSettings(true); setSettingsMsg(null);
-        const res = await fetch("/api/agent/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(settings) });
-        const json = await res.json().catch(() => ({}));
-        setSettingsMsg(res.ok ? "✓ Configurações salvas" : (json?.error ?? "Erro ao salvar"));
+        const [agentRes, companyRes] = await Promise.all([
+            fetch("/api/agent/settings", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify(settings),
+            }),
+            fetch("/api/admin/company-settings", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ print_auto_copies: autoCopies }),
+            }),
+        ]);
+        const agentJson = await agentRes.json().catch(() => ({}));
+        const companyJson = await companyRes.json().catch(() => ({}));
+        const ok = agentRes.ok && companyRes.ok;
+        setSettingsMsg(
+            ok
+                ? "✓ Configurações salvas"
+                : (companyJson?.error ?? agentJson?.error ?? "Erro ao salvar")
+        );
         setSavingSettings(false);
         if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
         msgTimerRef.current = setTimeout(() => setSettingsMsg(null), 3000);
@@ -284,6 +361,12 @@ export default function ImpressorasPage() {
 
     function setSetting<K extends keyof PrintSettings>(key: K, val: PrintSettings[K]) {
         setSettings((prev) => ({ ...prev, [key]: val }));
+    }
+
+    function toggleAutoCopy(copy: PrintCopyType) {
+        setAutoCopies((prev) =>
+            prev.includes(copy) ? prev.filter((c) => c !== copy) : [...prev, copy]
+        );
     }
 
     // ── test print ────────────────────────────────────────────────────────────
@@ -542,15 +625,25 @@ export default function ImpressorasPage() {
                             </span>
                             <div>
                                 <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Fila de Impressão</p>
-                                <p className="text-xs text-zinc-400">Últimos 10 jobs enviados ao agente</p>
+                                <p className="text-xs text-zinc-400">Últimos jobs enviados ao agente</p>
                             </div>
                         </div>
-                        <button
-                            onClick={loadJobs}
-                            className="rounded-lg border border-zinc-200 p-1.5 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                        >
-                            <RefreshCw className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => void clearQueue()}
+                                disabled={clearingQueue}
+                                className="rounded-lg border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                            >
+                                {clearingQueue ? "Limpando…" : "Limpar fila"}
+                            </button>
+                            <button
+                                onClick={loadJobs}
+                                className="rounded-lg border border-zinc-200 p-1.5 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                            >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
                     </div>
 
                     {reprintMsg && (
@@ -595,7 +688,16 @@ export default function ImpressorasPage() {
                                             )}
                                         </div>
                                         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-400">
-                                            <span>Impresso {new Date(job.printed_at).toLocaleString("pt-BR")}</span>
+                                            <span>
+                                                {job.copy_type
+                                                    ? printCopyLabel(
+                                                          normalizePrintCopyTypes([job.copy_type])[0] ??
+                                                              "cashier"
+                                                      )
+                                                    : "Caixa"}
+                                            </span>
+                                            <span>·</span>
+                                            <span>{new Date(job.printed_at).toLocaleString("pt-BR")}</span>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 ml-2 shrink-0">
@@ -715,40 +817,72 @@ export default function ImpressorasPage() {
                             </div>
                         ) : (
                             <div className="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
-                                {[
-                                    {
-                                        key: "print_on_receive" as keyof PrintSettings,
-                                        title: "Imprimir ao receber pedido",
-                                        desc: "Envia para impressão automaticamente quando um novo pedido chegar no ERP.",
-                                        accent: "text-violet-600",
-                                    },
-                                    {
-                                        key: "print_delivery_copy" as keyof PrintSettings,
-                                        title: "Imprimir via do entregador",
-                                        desc: "Gera um segundo cupom simplificado (sem preços) para o entregador.",
-                                        accent: "text-orange-500",
-                                    },
-                                    {
-                                        key: "hide_prices_kitchen" as keyof PrintSettings,
-                                        title: "Ocultar preços no cupom da cozinha",
-                                        desc: "Remove os valores dos itens no cupom enviado para a cozinha/bar.",
-                                        accent: "text-blue-500",
-                                    },
-                                ].map(({ key, title, desc, accent }) => (
-                                    <div key={key} className="flex items-center justify-between gap-4 py-4">
-                                        <div className="flex items-start gap-3">
-                                            <Settings2 className={`mt-0.5 h-4 w-4 shrink-0 ${accent}`} />
-                                            <div>
-                                                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
-                                                <p className="mt-0.5 text-xs text-zinc-400">{desc}</p>
+                                <div className="flex items-center justify-between gap-4 py-4">
+                                    <div className="flex items-start gap-3">
+                                        <Settings2 className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
+                                        <div>
+                                            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                                Imprimir ao receber pedido
+                                            </p>
+                                            <p className="mt-0.5 text-xs text-zinc-400">
+                                                Envia para impressão automaticamente quando um novo pedido chegar no ERP.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <Toggle
+                                        checked={settings.print_on_receive}
+                                        onChange={(v) => setSettings((prev) => ({ ...prev, print_on_receive: v }))}
+                                    />
+                                </div>
+                                <div className="py-4">
+                                    <div className="flex items-start gap-3">
+                                        <Settings2 className="mt-0.5 h-4 w-4 shrink-0 text-orange-500" />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                                Vias no auto-print
+                                            </p>
+                                            <p className="mt-0.5 text-xs text-zinc-400">
+                                                Escolha quais cupons entram na fila ao confirmar o pedido. Via entregador só em pedidos de entrega.
+                                            </p>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {PRINT_COPY_TYPES.map((copy) => {
+                                                    const on = autoCopies.includes(copy);
+                                                    return (
+                                                        <button
+                                                            key={copy}
+                                                            type="button"
+                                                            onClick={() => toggleAutoCopy(copy)}
+                                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                                                on
+                                                                    ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                                                                    : "border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-700"
+                                                            }`}
+                                                        >
+                                                            {printCopyLabel(copy)}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
-                                        <Toggle
-                                            checked={settings[key] as boolean}
-                                            onChange={(v) => setSetting(key, v as PrintSettings[typeof key])}
-                                        />
                                     </div>
-                                ))}
+                                </div>
+                                <div className="flex items-center justify-between gap-4 py-4">
+                                    <div className="flex items-start gap-3">
+                                        <Settings2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                                        <div>
+                                            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                                Ocultar preços no cupom da cozinha
+                                            </p>
+                                            <p className="mt-0.5 text-xs text-zinc-400">
+                                                Remove os valores dos itens no cupom enviado para a cozinha/bar.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <Toggle
+                                        checked={settings.hide_prices_kitchen}
+                                        onChange={(v) => setSettings((prev) => ({ ...prev, hide_prices_kitchen: v }))}
+                                    />
+                                </div>
                             </div>
                         )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import Modal from "./Modal";
 import {
     formatBRL,
@@ -9,6 +9,13 @@ import {
     calcTroco,
 } from "@/lib/orders/helpers";
 import type { OrderFull, PaymentMethod } from "@/lib/orders/types";
+import {
+    filterCopiesForFulfillment,
+    normalizePrintCopyTypes,
+    printCopyLabel,
+    PRINT_COPY_TYPES,
+    type PrintCopyType,
+} from "@/lib/print/copyTypes";
 import {
     MapPin,
     MessageCircle,
@@ -144,7 +151,7 @@ export default function ViewOrderModal({
     loading: boolean;
     order: OrderFull | null;
     onPrint: () => void;
-    onReprint?: () => void;
+    onReprint?: (copyTypes: PrintCopyType[]) => void;
     reprintLoading?: boolean;
     reprintMsg?: { ok: boolean; text: string } | null;
     onEdit: () => void;
@@ -159,6 +166,17 @@ export default function ViewOrderModal({
 }) {
     const st     = order ? String(order.status) : "";
     const ordNum = order ? String(order.id).slice(-6).toUpperCase() : "";
+    const fulfill = String((order as { fulfillment_type?: string } | null)?.fulfillment_type ?? "delivery");
+    const availableCopies = useMemo(
+        () => filterCopiesForFulfillment([...PRINT_COPY_TYPES], fulfill),
+        [fulfill]
+    );
+    const [reprintCopies, setReprintCopies] = useState<PrintCopyType[]>(["kitchen", "cashier"]);
+
+    const activeReprintCopies = useMemo(
+        () => normalizePrintCopyTypes(reprintCopies).filter((c) => availableCopies.includes(c)),
+        [reprintCopies, availableCopies]
+    );
 
     return (
         <Modal
@@ -190,14 +208,39 @@ export default function ViewOrderModal({
                         </button>
 
                         {onReprint && (
-                            <button
-                                onClick={onReprint}
-                                disabled={reprintLoading}
-                                className="flex items-center gap-1.5 rounded-lg border border-orange-300 dark:border-orange-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-orange-600 dark:text-orange-400 shadow-sm hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors"
-                            >
-                                <Printer className="h-3.5 w-3.5" />
-                                {reprintLoading ? "Enviando..." : "Reimprimir"}
-                            </button>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                {availableCopies.map((copy) => {
+                                    const on = activeReprintCopies.includes(copy);
+                                    return (
+                                        <button
+                                            key={copy}
+                                            type="button"
+                                            onClick={() =>
+                                                setReprintCopies((prev) =>
+                                                    prev.includes(copy)
+                                                        ? prev.filter((c) => c !== copy)
+                                                        : [...prev, copy]
+                                                )
+                                            }
+                                            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition ${
+                                                on
+                                                    ? "border-orange-400 bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300"
+                                                    : "border-zinc-200 text-zinc-500 dark:border-zinc-700"
+                                            }`}
+                                        >
+                                            {printCopyLabel(copy)}
+                                        </button>
+                                    );
+                                })}
+                                <button
+                                    onClick={() => onReprint(activeReprintCopies)}
+                                    disabled={reprintLoading || activeReprintCopies.length === 0}
+                                    className="flex items-center gap-1.5 rounded-lg border border-orange-300 dark:border-orange-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-orange-600 dark:text-orange-400 shadow-sm hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors"
+                                >
+                                    <Printer className="h-3.5 w-3.5" />
+                                    {reprintLoading ? "Enviando..." : "Reimprimir"}
+                                </button>
+                            </div>
                         )}
 
                         {canEdit && (

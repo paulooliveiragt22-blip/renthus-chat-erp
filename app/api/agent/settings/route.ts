@@ -14,7 +14,6 @@ export type PrintSettings = {
   print_footer:           string;
   auto_print:             boolean;
   print_on_receive:       boolean;
-  print_delivery_copy:    boolean;
   hide_prices_kitchen:    boolean;
 };
 
@@ -23,7 +22,6 @@ const DEFAULTS: PrintSettings = {
   print_footer:           "",
   auto_print:             false,
   print_on_receive:       true,
-  print_delivery_copy:    false,
   hide_prices_kitchen:    false,
 };
 
@@ -33,7 +31,6 @@ function extractSettings(raw: Record<string, unknown>): PrintSettings {
     print_footer:        (raw.print_footer         as string)  ?? DEFAULTS.print_footer,
     auto_print:          (raw.auto_print           as boolean) ?? DEFAULTS.auto_print,
     print_on_receive:    (raw.print_on_receive     as boolean) ?? DEFAULTS.print_on_receive,
-    print_delivery_copy: (raw.print_delivery_copy  as boolean) ?? DEFAULTS.print_delivery_copy,
     hide_prices_kitchen: (raw.hide_prices_kitchen  as boolean) ?? DEFAULTS.hide_prices_kitchen,
   };
 }
@@ -74,7 +71,7 @@ export async function PATCH(req: Request) {
 
   const keys: (keyof PrintSettings)[] = [
     "print_header", "print_footer", "auto_print",
-    "print_on_receive", "print_delivery_copy", "hide_prices_kitchen",
+    "print_on_receive", "hide_prices_kitchen",
   ];
 
   const patch: Record<string, unknown> = {};

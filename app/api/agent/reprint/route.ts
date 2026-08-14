@@ -1,11 +1,12 @@
 // app/api/agent/reprint/route.ts
-// POST { order_id } → insere um novo print_job com status 'pending' para reimprimir
+// POST { order_id, copy_types?: string[], change? } → enfileira job(s) por via
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import { enqueuePrintJob } from "@/lib/server/print/enqueuePrintJob";
+import { normalizePrintCopyTypes } from "@/lib/print/copyTypes";
 
 export const runtime = "nodejs";
 
@@ -16,15 +17,23 @@ export async function POST(req: Request) {
   const feat = await requirePlanFeature(access.admin, access.companyId, "printing_auto");
   if (!feat.ok) return feat.response;
 
-  const { order_id, change } = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as {
+    order_id?: string;
+    change?: number;
+    copy_types?: unknown;
+  };
+  const order_id = String(body.order_id ?? "").trim();
   if (!order_id) return NextResponse.json({ error: "order_id obrigatório" }, { status: 400 });
+
+  const copyTypes = normalizePrintCopyTypes(body.copy_types);
+  // Sem seleção → só caixa (reprint legado)
+  const copies = copyTypes.length > 0 ? copyTypes : (["cashier"] as const);
 
   const admin = createAdminClient();
 
-  // Garante que o pedido pertence a esta empresa
   const { data: order, error: ordErr } = await admin
     .from("orders")
-    .select("id, company_id")
+    .select("id, company_id, fulfillment_type")
     .eq("id", order_id)
     .eq("company_id", access.companyId)
     .maybeSingle();
@@ -36,11 +45,18 @@ export async function POST(req: Request) {
   const queued = await enqueuePrintJob({
     admin,
     companyId: access.companyId,
-    orderId: String(order_id),
+    orderId: order_id,
     source: "reprint",
-    change: typeof change === "number" ? change : Number(change ?? 0),
+    change: typeof body.change === "number" ? body.change : Number(body.change ?? 0),
     priority: 5,
+    copyTypes: [...copies],
   });
   if (!queued.ok) return NextResponse.json({ error: queued.error }, { status: 500 });
-  return NextResponse.json({ ok: true, job_id: queued.jobId });
+
+  return NextResponse.json({
+    ok: true,
+    job_id: queued.jobId,
+    jobs: queued.jobs,
+    skipped: queued.skipped,
+  });
 }

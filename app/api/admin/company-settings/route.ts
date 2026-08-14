@@ -6,13 +6,14 @@ import {
     normalizeTimezone,
     sanitizeDeliveryDescription,
 } from "@/lib/delivery/hours";
+import { normalizePrintCopyTypes } from "@/lib/print/copyTypes";
 
 export const runtime = "nodejs";
 
 const VALID_LLM_PROVIDERS = new Set(["anthropic", "openai"]);
 
 const SETTINGS_SELECT =
-    "require_order_approval, auto_print_orders, llm_provider, open_time, close_time, timezone, delivery_description";
+    "require_order_approval, auto_print_orders, llm_provider, open_time, close_time, timezone, delivery_description, print_auto_copies";
 
 export async function GET() {
     const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
@@ -63,11 +64,15 @@ export async function PATCH(req: Request) {
         close_time?: string | null;
         timezone?: string | null;
         delivery_description?: string | null;
+        print_auto_copies?: unknown;
     };
 
     const patch: Record<string, unknown> = { company_id: companyId };
     if (body.require_order_approval !== undefined) patch.require_order_approval = Boolean(body.require_order_approval);
     if (body.auto_print_orders !== undefined) patch.auto_print_orders = Boolean(body.auto_print_orders);
+    if (body.print_auto_copies !== undefined) {
+        patch.print_auto_copies = normalizePrintCopyTypes(body.print_auto_copies);
+    }
 
     if (body.llm_provider !== undefined) {
         const result = validateLlmProviderPatch(body.llm_provider, role);

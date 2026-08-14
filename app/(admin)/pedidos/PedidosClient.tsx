@@ -966,7 +966,10 @@ export default function PedidosPage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ order_id: orderId }),
+                body: JSON.stringify({
+                    order_id: orderId,
+                    copy_types: ["kitchen", "cashier"],
+                }),
             });
         } catch { /* silent — print job is best-effort */ }
     }
@@ -1183,18 +1186,27 @@ export default function PedidosPage() {
     }
 
     // ── reprint via agente ────────────────────────────────────────────────────
-    async function reprintOrder(orderId: string) {
+    async function reprintOrder(orderId: string, copyTypes?: string[]) {
         setReprintLoading(true);
         setReprintMsg(null);
         try {
+            const fulfill = String(
+                (viewOrder?.id === orderId ? (viewOrder as any).fulfillment_type : null) ?? "delivery"
+            );
+            const defaultCopies =
+                fulfill === "pickup" ? ["kitchen", "cashier"] : ["kitchen", "cashier", "driver"];
+            const copies =
+                Array.isArray(copyTypes) && copyTypes.length > 0 ? copyTypes : defaultCopies;
             const res  = await fetch("/api/agent/reprint", {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({ order_id: orderId }),
+                credentials: "include",
+                body:    JSON.stringify({ order_id: orderId, copy_types: copies }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(json.error ?? "Erro desconhecido");
-            setReprintMsg({ ok: true, text: "Pedido enviado para impressão!" });
+            const n = Array.isArray(json.jobs) ? json.jobs.length : copies.length;
+            setReprintMsg({ ok: true, text: `${n} via(s) enviada(s) para impressão!` });
         } catch (e: unknown) {
             setReprintMsg({ ok: false, text: "Erro: " + String((e as Error)?.message ?? e) });
         } finally {
@@ -1754,7 +1766,7 @@ export default function PedidosPage() {
                 loading={viewLoading}
                 order={viewOrder}
                 onPrint={() => viewOrder ? printOrder(viewOrder.id) : undefined}
-                onReprint={() => viewOrder ? reprintOrder(viewOrder.id) : undefined}
+                onReprint={(copies) => viewOrder ? reprintOrder(viewOrder.id, copies) : undefined}
                 reprintLoading={reprintLoading}
                 reprintMsg={reprintMsg}
                 onEdit={() => viewOrder ? openEditOrder(viewOrder.id) : undefined}

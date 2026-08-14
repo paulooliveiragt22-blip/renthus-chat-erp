@@ -35,6 +35,7 @@
     "scripts/replay-thread.ts",
     "lib/public-menu/**/*.ts",
     "lib/delivery/**/*.ts",
+    "lib/print/**/*.ts",
     "src/types/contracts.public-menu.ts",
     "src/types/contracts.marketplace.ts",
     "tests/**/*.ts",
