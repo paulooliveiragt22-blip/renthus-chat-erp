@@ -172,3 +172,4 @@ dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 | 2026-08-13 | M3 aplicado (`staff_users` + convite + UI equipe) |
 | 2026-08-13 | M7 aplicado (receita canônica + fuso loja + sem POST Pedidos) |
 | 2026-08-14 | RBAC perfis (capabilities + UI Geral + requireCapability nas APIs) |
+| 2026-08-14 | Aceite automatizado M1–M7 (`tests/mvp/checklistAcceptance.test.ts`) + schema remoto OK; npm test 877 pass |
