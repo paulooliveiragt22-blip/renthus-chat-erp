@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { deliveryBaseFeeAmount } from "@/lib/delivery/defaultFee";
 
 export type DeliveryMode = "all_city" | "allow_list" | "deny_list";
 
@@ -59,12 +60,27 @@ export async function resolveDeliveryForNeighborhood(
 ): Promise<DeliveryPolicyResolved> {
     const { data: company } = await admin
         .from("companies")
-        .select("cidade, uf, default_delivery_fee, settings")
+        .select("cidade, uf, settings")
         .eq("id", companyId)
         .maybeSingle();
 
+    const { data: deliveryDef } = await admin
+        .from("service_fee_definitions")
+        .select("is_active, calc_mode, value")
+        .eq("company_id", companyId)
+        .eq("system_key", "delivery")
+        .maybeSingle();
+
     const settings = (company?.settings ?? {}) as Record<string, unknown>;
-    const baseFee = parseMoney(company?.default_delivery_fee ?? 0);
+    const baseFee = deliveryBaseFeeAmount(
+        deliveryDef
+            ? {
+                  is_active: Boolean(deliveryDef.is_active),
+                  calc_mode: deliveryDef.calc_mode === "percent" ? "percent" : "fixed",
+                  value: parseMoney(deliveryDef.value),
+              }
+            : null
+    );
     const baseMinOrder = parseNullableMoney(settings.delivery_min_order);
     const baseEta = parseNullableInt(settings.delivery_est_minutes);
 

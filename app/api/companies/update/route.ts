@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 const ALLOWED_FIELDS = [
   "nome_fantasia","razao_social","cnpj","phone","email",
   "whatsapp_phone","cep","endereco","numero","bairro","cidade","uf",
-  "delivery_fee_enabled","default_delivery_fee","settings",
+  "settings",
 ] as const;
 
 export async function PATCH(req: Request) {
@@ -43,7 +43,7 @@ export async function GET() {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("companies")
-    .select("id,nome_fantasia,razao_social,cnpj,phone,email,whatsapp_phone,cep,endereco,numero,bairro,cidade,uf,delivery_fee_enabled,default_delivery_fee,settings")
+    .select("id,nome_fantasia,razao_social,cnpj,phone,email,whatsapp_phone,cep,endereco,numero,bairro,cidade,uf,settings")
     .eq("id", access.companyId)
     .single();
 

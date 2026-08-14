@@ -59,8 +59,6 @@ type Company = {
     bairro: string | null;
     cidade: string | null;
     uf: string | null;
-    delivery_fee_enabled: boolean;
-    default_delivery_fee: number | null;
     settings: Record<string, unknown> | null;
 };
 
@@ -382,9 +380,7 @@ function ConfiguracoesPageContent() {
     const [cidade,           setCidade]           = useState("");
     const [uf,               setUf]               = useState("");
 
-    // delivery
-    const [deliveryEnabled,  setDeliveryEnabled]  = useState(false);
-    const [deliveryFee,      setDeliveryFee]      = useState("0");
+    // delivery (política operacional — valor da taxa fica em aba Taxas)
     const [freeAbove,        setFreeAbove]        = useState("");
     const [minOrder,         setMinOrder]         = useState("");
     const [deliveryRadius,   setDeliveryRadius]   = useState("");
@@ -518,8 +514,6 @@ function ConfiguracoesPageContent() {
                 cidade:   c.cidade ?? "",
                 uf:       c.uf ?? "",
             });
-            setDeliveryEnabled(!!c.delivery_fee_enabled);
-            setDeliveryFee(c.default_delivery_fee != null ? String(c.default_delivery_fee) : "0");
 
             const s = c.settings ?? {};
             setFreeAbove(String(s.delivery_free_above ?? ""));
@@ -687,8 +681,6 @@ function ConfiguracoesPageContent() {
                 service_by_zone: serviceByZone,
                 default_mode: zoneMode,
                 rules: parsedRules,
-                delivery_fee_enabled: deliveryEnabled,
-                default_delivery_fee: Number(deliveryFee) || 0,
                 delivery_min_order: minOrder ? Number(minOrder) : null,
                 delivery_radius_km: deliveryRadius ? Number(deliveryRadius) : null,
                 delivery_est_minutes: estTime ? Number(estTime) : null,
@@ -1067,8 +1059,6 @@ function ConfiguracoesPageContent() {
                 cnpj, phone, email,
                 whatsapp_phone:       whatsappPhone,
                 cep, endereco, numero, bairro, cidade, uf,
-                delivery_fee_enabled: deliveryEnabled,
-                default_delivery_fee: Number(deliveryFee) || 0,
                 settings:             settingsPatch,
             }),
         });
@@ -1251,12 +1241,21 @@ function ConfiguracoesPageContent() {
                                 <Toggle checked={acceptPickup} onChange={setAcceptPickup} />
                             </div>
 
-                            <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
-                                <div>
-                                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Cobrar taxa de entrega</p>
-                                    <p className="text-xs text-zinc-400">Só vale para pedidos de entrega — independente de aceitar ou não entregas</p>
-                                </div>
-                                <Toggle checked={deliveryEnabled} onChange={setDeliveryEnabled} />
+                            <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/40">
+                                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                    Valor da taxa de entrega
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                    O valor padrão (R$ ou %) fica só na aba Taxas — aqui você define
+                                    onde entrega, bairros e frete grátis.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab("taxas")}
+                                    className="mt-2 text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
+                                >
+                                    Abrir aba Taxas →
+                                </button>
                             </div>
 
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1271,14 +1270,6 @@ function ConfiguracoesPageContent() {
                                     value={serviceState}
                                     onChange={setServiceState}
                                     placeholder="Ex: MT"
-                                />
-                                <Field
-                                    label="Taxa de entrega padrão (R$)"
-                                    value={deliveryFee}
-                                    onChange={setDeliveryFee}
-                                    placeholder="5.00"
-                                    type="number"
-                                    hint="Valor cobrado por padrão em novos pedidos."
                                 />
                                 <Field
                                     label="Frete grátis acima de (R$)"

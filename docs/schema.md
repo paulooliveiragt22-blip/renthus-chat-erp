@@ -68,10 +68,6 @@ phone — text — YES — —
 
 created_at — timestamp with time zone — NO — now()
 
-delivery_fee_enabled — boolean — NO — false
-
-default_delivery_fee — numeric — NO — 0
-
 Constraints
 
 PK: companies_pkey — PRIMARY KEY (id) 

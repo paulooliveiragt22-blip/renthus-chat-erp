@@ -29,9 +29,10 @@ export default function ServiceFeesPanel() {
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
 
-    // Entrega: só cálculo + valor
+    // Entrega: cálculo + valor + ativo
     const [deliveryCalc, setDeliveryCalc] = useState<"fixed" | "percent">("fixed");
     const [deliveryValue, setDeliveryValue] = useState("0");
+    const [deliveryActive, setDeliveryActive] = useState(true);
 
     // Outras taxas
     const [name, setName] = useState("");
@@ -68,6 +69,7 @@ export default function ServiceFeesPanel() {
         if (del) {
             setDeliveryCalc(del.calc_mode);
             setDeliveryValue(String(del.value).replace(".", ","));
+            setDeliveryActive(Boolean(del.is_active));
         }
     }, []);
 
@@ -116,7 +118,7 @@ export default function ServiceFeesPanel() {
                 system_key: "delivery",
                 calc_mode: deliveryCalc,
                 value: n,
-                is_active: true,
+                is_active: deliveryActive,
                 sort_order: delivery.sort_order,
             }),
         });
@@ -206,7 +208,8 @@ export default function ServiceFeesPanel() {
                             Taxa de entrega
                         </h3>
                         <p className="mt-1 text-xs text-zinc-500">
-                            Valor padrão da loja. Overrides por bairro ficam em Delivery.
+                            Único lugar para o valor padrão da loja. Overrides por bairro ficam em
+                            Delivery.
                         </p>
                         {!delivery ? (
                             <p className="mt-3 text-sm text-zinc-500">
@@ -214,6 +217,17 @@ export default function ServiceFeesPanel() {
                             </p>
                         ) : (
                             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 sm:col-span-2 dark:border-zinc-700">
+                                    <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                                        Cobrar taxa de entrega
+                                    </span>
+                                    <input
+                                        type="checkbox"
+                                        className="h-4 w-4"
+                                        checked={deliveryActive}
+                                        onChange={(e) => setDeliveryActive(e.target.checked)}
+                                    />
+                                </label>
                                 <label className="block text-sm">
                                     <span className="text-zinc-600 dark:text-zinc-400">Cálculo</span>
                                     <select

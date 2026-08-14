@@ -69,7 +69,7 @@ Drill Pro: `/financeiro?from={day}&to={day}`.
 |----------|-----------|---------------------|
 | **Preço de venda** | `produto_embalagens.preco_venda` → `order_items.unit_price` / carrinho PDV → `sale_items.unit_price` | Não vira linha de journal item a item. O **pagamento** (`sale_payments.amount` / total liquidado) posta **CR 3.1** (e **CR 3.2** se houver taxa). |
 | **Preço de custo** | `products.preco_custo_unitario` × `produto_embalagens.fator_conversao` | Snapshot em `sale_items.unit_cost` / `line_cost` na liquidação. **Não entra no journal** (opção A). Alimenta CMV do `rpc_fin_dashboard` / DRE / “Resultado gerencial”. |
-| **Taxa de entrega** | `order_fees` (`system_key=delivery`) → espelho `orders.delivery_fee` → `sales.delivery_fee` | Liquidação: **CR 3.2**. Política de bairro só alimenta o quote; persiste em `order_fees`. |
+| **Taxa de entrega** | Config: `service_fee_definitions` (`system_key=delivery`). Pedido: `order_fees` delivery → espelho `orders.delivery_fee` → `sales.delivery_fee` | Liquidação: **CR 3.2**. Cotação/bairro usa a definição (fixed) como base; override por bairro na policy. Sem `companies.default_delivery_fee`. |
 | **Taxas de serviço** (garçom, couvert, …) | `service_fee_definitions` + `order_fees` (`system_key` ≠ delivery); espelho `orders.service_fees_total` | Liquidação: **CR 3.3**. `%` sobre subtotal de itens. `total_amount = total + delivery_fee + service_fees_total`. |
 
 Idempotency de liquidação **não muda** (`order:{id}:recognize`, `sale:{id}:pay:{i}`): o split 3.1/3.2/3.3 é determinístico a partir de `order_fees` no post.

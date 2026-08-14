@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 
 /**
- * Chave de idempotência determinística pra rotas que não têm uma chave natural
- * do cliente (web menu, WhatsApp Flow). Duas chamadas com o mesmo conteúdo
- * (mesmo carrinho/total/pagamento, mesmo escopo) produzem a mesma chave — retry
- * de rede ou double-click não duplica o pedido. Pedido novo com conteúdo
- * idêntico ao anterior dentro do mesmo escopo é o único caso que colide de
- * propósito (aceitável: cliente pode variar 1 item pra reforçar intenção).
+ * Chave de idempotência.
+ *
+ * Preferir `attemptId` (UUID gerado no cliente por tentativa de checkout):
+ * - double-click / retry de rede → mesma chave → 1 pedido
+ * - novo pedido com o mesmo carrinho → attemptId novo → pedido novo
+ *
+ * Sem `attemptId`, cai no hash de conteúdo (legado Flow / clientes antigos).
+ * Esse fallback colide se o mesmo cliente repetir o carrinho idêntico de propósito.
  */
 export function buildOrderIdempotencyKey(parts: {
     source: string;
@@ -14,7 +16,15 @@ export function buildOrderIdempotencyKey(parts: {
     items: Array<{ produtoEmbalagemId?: string | null; quantity: number; unitPrice: number }>;
     grandTotal: number;
     paymentMethod?: string | null;
+    /** UUID (ou hex 64) da tentativa — canônico no cardápio web. */
+    attemptId?: string | null;
 }): string {
+    const attempt = String(parts.attemptId ?? "").trim();
+    if (isValidOrderIdempotencyKey(attempt)) {
+        const raw = [parts.source, parts.scopeId, attempt].join("::");
+        return createHash("sha256").update(raw).digest("hex");
+    }
+
     const stableItems = parts.items
         .map((i) => `${i.produtoEmbalagemId ?? ""}:${i.quantity}:${i.unitPrice}`)
         .sort()
@@ -28,3 +38,13 @@ export function buildOrderIdempotencyKey(parts: {
     ].join("::");
     return createHash("sha256").update(raw).digest("hex");
 }
+
+/** UUID v4 ou sha256 hex (64). */
+export function isValidOrderIdempotencyKey(raw: unknown): boolean {
+    const s = String(raw ?? "").trim();
+    if (/^[0-9a-f]{64}$/i.test(s)) return true;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        s
+    );
+}
+

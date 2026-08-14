@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
     PublicMenuCartLine,
     PublicMenuCheckoutResult,
@@ -90,6 +90,27 @@ export default function CheckoutDrawer({
         PublicMenuCheckoutResult,
         { ok: true }
     > | null>(null);
+
+    /** Uma chave por tentativa — retry/double-click reusa; pós-sucesso gera outra. */
+    const checkoutAttemptKeyRef = useRef<string | null>(null);
+
+    function ensureCheckoutAttemptKey(): string {
+        if (!checkoutAttemptKeyRef.current) {
+            if (globalThis.crypto?.randomUUID) {
+                checkoutAttemptKeyRef.current = globalThis.crypto.randomUUID();
+            } else {
+                checkoutAttemptKeyRef.current = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+                    /[xy]/g,
+                    (ch) => {
+                        const r = (Math.random() * 16) | 0;
+                        const v = ch === "x" ? r : (r & 0x3) | 0x8;
+                        return v.toString(16);
+                    }
+                );
+            }
+        }
+        return checkoutAttemptKeyRef.current;
+    }
 
     const subtotal = useMemo(
         () => cart.reduce((s, l) => s + l.unitPrice * l.qty, 0),
@@ -359,12 +380,14 @@ export default function CheckoutDrawer({
             return;
         }
         setBusy(true);
+        const attemptKey = ensureCheckoutAttemptKey();
         try {
             const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/checkout`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     sessionToken,
+                    idempotencyKey: attemptKey,
                     items: cart.map((l) => ({ embalagemId: l.embalagemId, qty: l.qty })),
                     paymentMethod,
                     changeFor:
@@ -404,6 +427,7 @@ export default function CheckoutDrawer({
                 setError(map[json.error] ?? json.message ?? "Não foi possível criar o pedido.");
                 return;
             }
+            checkoutAttemptKeyRef.current = null;
             setOrderResult(json);
             setStep("done");
             onClearCart();

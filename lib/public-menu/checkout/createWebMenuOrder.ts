@@ -324,6 +324,7 @@ export async function createWebMenuOrder(
         })),
         grandTotal,
         paymentMethod,
+        attemptId: params.input.idempotencyKey,
     });
 
     const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {

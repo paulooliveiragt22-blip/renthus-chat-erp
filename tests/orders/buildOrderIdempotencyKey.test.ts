@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildOrderIdempotencyKey } from "../../lib/orders/buildOrderIdempotencyKey";
+import {
+    buildOrderIdempotencyKey,
+    isValidOrderIdempotencyKey,
+} from "../../lib/orders/buildOrderIdempotencyKey";
 
 describe("buildOrderIdempotencyKey", () => {
     it("mesmo conteúdo (retry/double-click) gera a mesma chave", () => {
@@ -15,6 +18,46 @@ describe("buildOrderIdempotencyKey", () => {
             paymentMethod: "pix",
         };
         assert.equal(buildOrderIdempotencyKey(base), buildOrderIdempotencyKey(base));
+    });
+
+    it("attemptId igual (retry) gera a mesma chave mesmo com carrinho idêntico", () => {
+        const attemptId = "550e8400-e29b-41d4-a716-446655440000";
+        const a = buildOrderIdempotencyKey({
+            source: "web_menu",
+            scopeId: "cust-1",
+            items: [{ produtoEmbalagemId: "pe-1", quantity: 1, unitPrice: 10 }],
+            grandTotal: 10,
+            paymentMethod: "pix",
+            attemptId,
+        });
+        const b = buildOrderIdempotencyKey({
+            source: "web_menu",
+            scopeId: "cust-1",
+            items: [{ produtoEmbalagemId: "pe-1", quantity: 1, unitPrice: 10 }],
+            grandTotal: 10,
+            paymentMethod: "pix",
+            attemptId,
+        });
+        assert.equal(a, b);
+    });
+
+    it("attemptId diferente permite segundo pedido com o mesmo carrinho", () => {
+        const base = {
+            source: "web_menu" as const,
+            scopeId: "cust-1",
+            items: [{ produtoEmbalagemId: "pe-1", quantity: 1, unitPrice: 10 }],
+            grandTotal: 10,
+            paymentMethod: "pix",
+        };
+        const a = buildOrderIdempotencyKey({
+            ...base,
+            attemptId: "550e8400-e29b-41d4-a716-446655440000",
+        });
+        const b = buildOrderIdempotencyKey({
+            ...base,
+            attemptId: "550e8400-e29b-41d4-a716-446655440001",
+        });
+        assert.notEqual(a, b);
     });
 
     it("ordem diferente dos itens não muda a chave (mesmo carrinho, ordem de envio diferente)", () => {
@@ -95,5 +138,11 @@ describe("buildOrderIdempotencyKey", () => {
             paymentMethod: "pix",
         });
         assert.notEqual(a, b);
+    });
+
+    it("isValidOrderIdempotencyKey aceita uuid e sha256", () => {
+        assert.equal(isValidOrderIdempotencyKey("550e8400-e29b-41d4-a716-446655440000"), true);
+        assert.equal(isValidOrderIdempotencyKey("a".repeat(64)), true);
+        assert.equal(isValidOrderIdempotencyKey("not-a-key"), false);
     });
 });

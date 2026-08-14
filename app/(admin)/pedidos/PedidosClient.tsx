@@ -416,14 +416,32 @@ export default function PedidosPage() {
 
     // ── data fetching ─────────────────────────────────────────────────────────
     async function loadCompanySettings(cid: string) {
-        const res = await fetch("/api/companies/update", { cache: "no-store", credentials: "include" });
-        const json = await res.json().catch(() => ({}));
-        const comp = json?.company ?? null;
-        if (comp) {
-            setDeliveryFeeEnabled(!!comp.delivery_fee_enabled);
-            setDeliveryFee(formatBRL(Number(comp.default_delivery_fee ?? 0)));
-            setEditDeliveryFeeEnabled(!!comp.delivery_fee_enabled);
-            setEditDeliveryFee(formatBRL(Number(comp.default_delivery_fee ?? 0)));
+        try {
+            const taxasRes = await fetch("/api/admin/taxas", {
+                cache: "no-store",
+                credentials: "include",
+            });
+            const taxasJson = await taxasRes.json().catch(() => ({}));
+            if (taxasRes.ok) {
+                const defs = (taxasJson.definitions ?? []) as Array<{
+                    system_key?: string | null;
+                    is_active?: boolean;
+                    calc_mode?: string;
+                    value?: number;
+                }>;
+                const del = defs.find((d) => d.system_key === "delivery");
+                const enabled = Boolean(del?.is_active);
+                const fee =
+                    enabled && del?.calc_mode === "fixed"
+                        ? Number(del.value ?? 0)
+                        : 0;
+                setDeliveryFeeEnabled(enabled);
+                setDeliveryFee(formatBRL(Number.isFinite(fee) ? fee : 0));
+                setEditDeliveryFeeEnabled(enabled);
+                setEditDeliveryFee(formatBRL(Number.isFinite(fee) ? fee : 0));
+            }
+        } catch {
+            /* keep defaults */
         }
         try {
             const polRes = await fetch("/api/delivery/policy", { cache: "no-store", credentials: "include" });

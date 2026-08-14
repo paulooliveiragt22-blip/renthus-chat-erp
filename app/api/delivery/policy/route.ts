@@ -20,7 +20,7 @@ export async function GET() {
 
     const { data: company } = await admin
         .from("companies")
-        .select("id, cidade, uf, delivery_fee_enabled, default_delivery_fee, settings")
+        .select("id, cidade, uf, settings")
         .eq("id", companyId)
         .maybeSingle();
 
@@ -80,8 +80,6 @@ export async function PATCH(req: Request) {
         : "all_city";
     const rulesInput = (Array.isArray(body.rules) ? body.rules : []) as RuleInput[];
 
-    const defaultDeliveryFee = body.default_delivery_fee != null ? Number(body.default_delivery_fee) : null;
-    const deliveryEnabled = body.delivery_fee_enabled != null ? Boolean(body.delivery_fee_enabled) : null;
     const deliveryMinOrder = body.delivery_min_order != null ? Number(body.delivery_min_order) : null;
     const deliveryEstMinutes = body.delivery_est_minutes != null ? Number(body.delivery_est_minutes) : null;
     const deliveryRadiusKm = body.delivery_radius_km != null ? Number(body.delivery_radius_km) : null;
@@ -105,8 +103,6 @@ export async function PATCH(req: Request) {
     };
     if (serviceCity) companyPatch.cidade = serviceCity;
     if (serviceState) companyPatch.uf = serviceState;
-    if (Number.isFinite(defaultDeliveryFee)) companyPatch.default_delivery_fee = defaultDeliveryFee;
-    if (deliveryEnabled != null) companyPatch.delivery_fee_enabled = deliveryEnabled;
 
     const { error: companyErr } = await admin
         .from("companies")

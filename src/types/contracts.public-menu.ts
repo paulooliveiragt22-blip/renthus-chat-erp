@@ -215,6 +215,11 @@ export interface PublicMenuCheckoutInput {
     fulfillmentType?: "delivery" | "pickup" | null;
     savedAddressId?: string | null;
     newAddress?: PublicMenuNewAddressInput | null;
+    /**
+     * UUID da tentativa de checkout (cliente). Mesma chave = retry;
+     * chave nova = novo pedido mesmo com carrinho idêntico.
+     */
+    idempotencyKey?: string | null;
 }
 
 export type PublicMenuCheckoutResult =
