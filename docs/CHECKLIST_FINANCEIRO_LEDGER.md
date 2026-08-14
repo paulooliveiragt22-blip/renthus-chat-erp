@@ -30,7 +30,7 @@ TS hexagonal é **cliente da RPC**, não uma segunda matriz de partidas.
 | F1 | Cutover | 1 migration: journal + RPCs + views + backfill + REVOKE + swap das APIs que hoje leem `financial_entries` | [x] 2026-08-14 |
 | F2 | Writers | Pedidos: status ≠ dinheiro; liquidação explícita; `financeiro.write`; sangria idempotente | [x] 2026-08-14 |
 | F3 | Dashboard | Home = contrato M7: recebido / a receber / ativos; gráfico de caixa; drill | [x] 2026-08-14 |
-| F4 | UI Financeiro | Tabs; A Pagar = bills; Caixa com esperado | [ ] |
+| F4 | UI Financeiro | Tabs; A Pagar = bills; Caixa com esperado | [x] 2026-08-14 |
 | F5 | Mata-legado | Apaga `lib/server/financeiro` residual, `expenses` API, `v_daily_sales` como faturamento | [ ] |
 
 M7 (R$ da home = caixa **posted** no fuso da loja) vale em **todos** os planos.
@@ -468,16 +468,16 @@ Arquivos: **T** `stats/route.ts` · **T** `DashboardClient.tsx` · **T** `report
 
 ## F4 — UI Financeiro
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-14
 
-- [ ] `page.tsx` shell (período + tabs + `PlanFeatureGate`). Respeita `?from&to` da home.
-- [ ] 6 componentes de tab.
-- [ ] KPIs com as definições do FINANCEIRO.md. Resultado gerencial + aviso se CMV=0.
-- [ ] A Pagar = `bills` payable; modal → `POST /opex`.
-- [ ] A Receber = lista + aging (reusar totais da view).
-- [ ] Caixa: “Total esperado” preenchido (`v_fin_cash_session`).
-- [ ] Origem: PDV / Chat / Web / UI / IA / Mesa / Marketplace — `ai_chat` não cai em balcão.
-- [ ] Extrato: cursor; linha abre pedido/venda.
+- [x] `page.tsx` shell (período + tabs + `PlanFeatureGate`). Respeita `?from&to` da home.
+- [x] 6 componentes de tab.
+- [x] KPIs com as definições do FINANCEIRO.md. Resultado gerencial + aviso se CMV=0.
+- [x] A Pagar = `bills` payable; modal → `POST /opex`.
+- [x] A Receber = lista + aging (reusar totais da view).
+- [x] Caixa: “Total esperado” preenchido (`v_fin_cash_session`).
+- [x] Origem: PDV / Chat / Web / UI / IA / Mesa / Marketplace — `ai_chat` não cai em balcão.
+- [x] Extrato: cursor; linha abre pedido/venda.
 
 ---
 
@@ -534,3 +534,4 @@ F3 pode começar em paralelo depois da F1 (o card R$ já está certo). F4 não c
 | 2026-08-14 | F1 aplicada no remoto: `finance_ledger_v1`. Caixa backfill = R$ 12.017,50 (received antigo + R$ 58). Aging promissória R$ 305. `financial_entries`/`expenses` dropadas. |
 | 2026-08-14 | F2: `settle: true` no PATCH Pedidos; recognize a prazo só UI/PDV; cancel estorna journal (409 se caixa fechado); opex/baixa exigem `financeiro.write`; sangria via `rpc_post_cash_movement` com chave. |
 | 2026-08-14 | F3: home M7 — Recebido/A receber/Ativos/Ticket; gráfico caixa 1.1; top de `sale_items`; drill Pro `?from&to`; `queryHomeStats`. |
+| 2026-08-14 | F4: Financeiro em 6 tabs; opex via `POST /opex`; aging em A Receber; esperado no Caixa; origens F0; extrato com cursor. |

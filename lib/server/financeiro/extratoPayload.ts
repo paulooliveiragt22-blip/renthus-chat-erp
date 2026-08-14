@@ -37,18 +37,21 @@ type ExtratoViewRow = {
 
 /**
  * Extrato: journals posted no intervalo civil da loja (`v_fin_extrato`).
+ * Cursor: `posted_at` do último item da página (próxima página = posted_at < cursor).
  */
 export async function buildExtratoLines(
     admin: SupabaseClient,
     companyId: string,
     dateRange: { from: string; to: string },
-    _expenses: ExpenseRow[]
-): Promise<ExtratoLine[]> {
+    _expenses?: ExpenseRow[],
+    opts?: { limit?: number; cursor?: string | null }
+): Promise<{ lines: ExtratoLine[]; nextCursor: string | null }> {
     const timeZone = await loadCompanyTimezone(admin, companyId);
     const bounds = civilRangeToUtcBounds(dateRange.from, dateRange.to, timeZone);
     const lines: ExtratoLine[] = [];
+    const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
 
-    const { data: rows, error } = await admin
+    let q = admin
         .from("v_fin_extrato")
         .select(
             "id, posted_at, source_type, origin, payment_method, description, status, sale_id, order_id, cash_amount, debit_total, line_type"
@@ -57,14 +60,24 @@ export async function buildExtratoLines(
         .gte("posted_at", bounds.from.toISOString())
         .lt("posted_at", bounds.toExclusive.toISOString())
         .order("posted_at", { ascending: false })
-        .limit(800);
+        .limit(limit + 1);
+
+    if (opts?.cursor) {
+        q = q.lt("posted_at", opts.cursor);
+    }
+
+    const { data: rows, error } = await q;
 
     if (error) throw new Error(error.message);
 
+    const fetched = (rows ?? []) as ExtratoViewRow[];
+    const hasMore = fetched.length > limit;
+    const pageRows = hasMore ? fetched.slice(0, limit) : fetched;
+
     const orderIds = [
         ...new Set(
-            (rows ?? [])
-                .map((r: ExtratoViewRow) => r.order_id)
+            pageRows
+                .map((r) => r.order_id)
                 .filter((id): id is string => Boolean(id))
         ),
     ];
@@ -86,7 +99,7 @@ export async function buildExtratoLines(
         }
     }
 
-    for (const row of (rows ?? []) as ExtratoViewRow[]) {
+    for (const row of pageRows) {
         const meta = row.order_id ? orderMeta[row.order_id] : undefined;
         const isExpense = row.line_type === "expense";
         const cash = asMoney(row.cash_amount);
@@ -114,5 +127,9 @@ export async function buildExtratoLines(
     }
 
     lines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    return lines;
+    const last = pageRows[pageRows.length - 1];
+    return {
+        lines,
+        nextCursor: hasMore && last ? String(last.posted_at) : null,
+    };
 }

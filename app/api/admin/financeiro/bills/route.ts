@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 import { settleBill } from "@/src/financeiro/application/settleBill";
 import { postOpex } from "@/src/financeiro/application/postOpex";
+import { queryAging } from "@/src/financeiro/application/queryAging";
 import {
     enforceFinanceWriteRateLimit,
     financeRpcFailure,
@@ -40,7 +41,16 @@ export async function GET(req: NextRequest) {
         customer_name: (b.customers as { name?: string } | null)?.name ?? null,
     }));
 
-    return NextResponse.json({ bills });
+    let aging = null;
+    if (type === "receivable") {
+        try {
+            aging = await queryAging(admin, companyId);
+        } catch (e) {
+            console.error("[financeiro/bills] aging", e instanceof Error ? e.message : e);
+        }
+    }
+
+    return NextResponse.json({ bills, aging });
 }
 
 export async function POST(req: Request) {

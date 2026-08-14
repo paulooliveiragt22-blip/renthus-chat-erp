@@ -34,9 +34,10 @@ describe("F3 dashboard M7 — fontes alinhadas", () => {
     });
 
     it("Financeiro respeita ?from&to da home; reports usam caixa RPC", () => {
-        const fin = read("app/(admin)/financeiro/page.tsx");
-        assert.match(fin, /useSearchParams/);
-        assert.match(fin, /searchParams\.get\("from"\)/);
+        const period = read("app/(admin)/financeiro/hooks/useFinancePeriod.ts");
+        assert.match(period, /useSearchParams/);
+        assert.match(period, /searchParams\.get\("from"\)/);
+        assert.match(read("app/(admin)/financeiro/page.tsx"), /useFinancePeriod/);
 
         assert.match(read("app/api/reports/summary/route.ts"), /fetchReceivedIncome|rpc_fin_cash_revenue|rpcCashRevenue/);
         assert.match(read("app/api/reports/daily/route.ts"), /fetchReceivedIncome|rpc_fin_cash_revenue|rpcCashRevenue/);

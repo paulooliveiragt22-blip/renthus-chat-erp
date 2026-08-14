@@ -402,10 +402,12 @@ describe("RBAC — auditoria estática de rotas (vazamento)", () => {
     });
 
     it("mutações financeiras exigem financeiro.write; PDV sangria fica em pdv.access", () => {
+        const opex = readFileSync(join(projectRoot, "app/api/admin/financeiro/opex/route.ts"), "utf8");
         const exp = readFileSync(join(projectRoot, "app/api/admin/financeiro/expenses/route.ts"), "utf8");
         const bills = readFileSync(join(projectRoot, "app/api/admin/financeiro/bills/route.ts"), "utf8");
         const fin = readFileSync(join(projectRoot, "app/api/admin/financeiro/finalize-order/route.ts"), "utf8");
         const sangria = readFileSync(join(projectRoot, "app/api/admin/pdv/cash-movements/route.ts"), "utf8");
+        assert.match(opex, /financeiro\.write/);
         assert.match(exp, /financeiro\.write/);
         assert.match(bills, /financeiro\.write/);
         assert.match(fin, /financeiro\.write/);

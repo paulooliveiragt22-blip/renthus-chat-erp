@@ -1,235 +1,46 @@
-// app/(admin)/financeiro/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-    ResponsiveContainer, Cell, PieChart, Pie, Legend,
-} from "recharts";
-import { useTheme } from "next-themes";
-import { useSearchParams } from "next/navigation";
-import { useWorkspace } from "@/lib/workspace/useWorkspace";
-import {
-    BadgeDollarSign, ShoppingCart, TrendingUp, TrendingDown,
-    Wallet, CreditCard, Banknote, QrCode, RefreshCcw,
-    Calendar, Plus, Trash2, CheckCircle2, Clock, AlertCircle,
-    ArrowDownCircle, ArrowUpCircle, X, FileText, ChevronDown,
+    ArrowDownCircle,
+    ArrowUpCircle,
+    BadgeDollarSign,
+    Banknote,
+    Calendar,
+    FileText,
+    RefreshCcw,
 } from "lucide-react";
+import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import PlanFeatureGate from "@/components/billing/PlanFeatureGate";
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-function brl(v: number) {
-    return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-function pct(v: number) { return v.toFixed(1) + "%"; }
-function shortDay(iso: string) {
-    const d = new Date(iso + "T12:00:00");
-    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-}
-function pad(n: number) { return String(n).padStart(2, "0"); }
-function isoDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
-
-// ─── types ────────────────────────────────────────────────────────────────────
-
-type Period = "today" | "7d" | "15d" | "30d" | "custom";
-type Tab    = "dashboard" | "extrato" | "receber" | "pagar" | "caixa" | "dre";
-
-interface Bill {
-    id: string;
-    type: "receivable" | "payable";
-    description: string | null;
-    customer_name: string | null;
-    original_amount: number;
-    saldo_devedor: number;
-    due_date: string;
-    status: "open" | "partial" | "paid" | "overdue" | "canceled";
-    payment_method: string | null;
-    sale_id: string | null;
-    order_id: string | null;
-}
-
-interface ExtratoLine {
-    id:             string;
-    date:           string;
-    type:           "income" | "expense";
-    source:         "order" | "financial_entry" | "expense";
-    description:    string;
-    customer:       string;
-    channel:        string;
-    payment_method: string;
-    amount:         number;
-    status:         string;
-    // referências para ação no modal
-    orderId?:       string | null;
-    saleId?:        string | null;
-    customerId?:    string | null;
-    orderStatus?:   string | null;
-}
-
-interface DaySummary  { isoDate: string; label: string; revenue: number; cost: number; orders: number; expensesDay: number }
-interface PaySummary  { method: string; label: string; color: string; total: number; count: number }
-interface Expense     { id: string; category: string; description: string; amount: number; due_date: string; payment_status: string }
-
-interface Stats {
-    revenue: number; cost: number; expensesPaid: number;
-    profit: number; realProfit: number;
-    orders: number; ticket: number;
-    byDay: DaySummary[]; byPay: PaySummary[];
-    byOrigin: Record<string, number>;
-    totalAReceber: number;
-}
-
-const A_PRAZO_METHODS = new Set(["credit", "credit_installment", "boleto", "promissoria", "cheque"]);
-
-const PAY_META: Record<string, { label: string; color: string }> = {
-    pix:                { label: "PIX",           color: "#22c55e" },
-    card:               { label: "Cartão",         color: "#6d28d9" },
-    cash:               { label: "Dinheiro",       color: "#f97316" },
-    debit:              { label: "Débito",          color: "#3b82f6" },
-    credit_installment: { label: "Crédito Parc.",  color: "#a855f7" },
-    boleto:             { label: "Boleto",          color: "#0ea5e9" },
-    promissoria:        { label: "Promissória",     color: "#f59e0b" },
-    cheque:             { label: "Cheque",          color: "#64748b" },
-    credit:             { label: "A Prazo",         color: "#ef4444" }, // legado
-};
-
-const EXPENSE_CATS = [
-    "Fornecedor de Bebidas",
-    "Aluguel",
-    "Energia/Água",
-    "Salários",
-    "Marketing",
-    "Outros",
-];
-
-const EXP_STATUS: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
-    pending:  { label: "Pendente",  icon: Clock,         cls: "text-amber-600  bg-amber-50  dark:bg-amber-900/20"  },
-    paid:     { label: "Pago",      icon: CheckCircle2,  cls: "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" },
-    overdue:  { label: "Vencido",   icon: AlertCircle,   cls: "text-red-600    bg-red-50    dark:bg-red-900/20"    },
-};
-
-function Skeleton({ className = "" }: { className?: string }) {
-    return <div className={`animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-700 ${className}`} />;
-}
-
-function BarTooltip({ active, payload, label }: any) {
-    if (!active || !payload?.length) return null;
-    const revenue     = payload.find((p: any) => p.dataKey === "revenue")?.value     ?? 0;
-    const realProfit  = payload.find((p: any) => p.dataKey === "realProfit")?.value  ?? 0;
-    const expensesDay = payload.find((p: any) => p.dataKey === "expensesDay")?.value ?? 0;
-    return (
-        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 shadow-lg text-xs dark:border-zinc-700 dark:bg-zinc-900 space-y-1 min-w-[140px]">
-            <p className="mb-1 font-bold text-zinc-700 dark:text-zinc-200">{label}</p>
-            <p className="text-violet-600">Receita: <b>{brl(revenue)}</b></p>
-            {realProfit > 0  && <p className="text-emerald-600">Lucro est.: <b>{brl(realProfit)}</b></p>}
-            {expensesDay > 0 && <p className="text-red-500">Despesas: <b>{brl(expensesDay)}</b></p>}
-        </div>
-    );
-}
-
-// ─── page ─────────────────────────────────────────────────────────────────────
+import { useFinancePeriod, type Period } from "./hooks/useFinancePeriod";
+import type { ExpenseRow, FinanceTab, Stats } from "./lib/types";
+import DashboardTab from "./components/DashboardTab";
+import ExtratoTab from "./components/ExtratoTab";
+import ReceberTab from "./components/ReceberTab";
+import PagarTab from "./components/PagarTab";
+import CaixaTab from "./components/CaixaTab";
+import DreTab from "./components/DreTab";
 
 export default function FinanceiroPage() {
     const { currentCompanyId: companyId } = useWorkspace();
-    const { resolvedTheme } = useTheme();
-    const isDark = resolvedTheme === "dark";
+    const {
+        period,
+        setPeriod,
+        customFrom,
+        setCustomFrom,
+        customTo,
+        setCustomTo,
+        dateRange,
+        periodLabel,
+    } = useFinancePeriod();
 
-    const [activeTab,  setActiveTab]  = useState<Tab>("dashboard");
-    const searchParams = useSearchParams();
-    const [period,     setPeriod]     = useState<Period>("30d");
-    const [customFrom, setCustomFrom] = useState("");
-    const [customTo,   setCustomTo]   = useState("");
-    const [urlPeriodApplied, setUrlPeriodApplied] = useState(false);
+    const [activeTab, setActiveTab] = useState<FinanceTab>("dashboard");
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [stats, setStats] = useState<Stats | null>(null);
+    const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
 
-    // Drill da home: /financeiro?from=YYYY-MM-DD&to=YYYY-MM-DD
-    useEffect(() => {
-        if (urlPeriodApplied) return;
-        const from = searchParams.get("from");
-        const to = searchParams.get("to");
-        const iso = /^\d{4}-\d{2}-\d{2}$/;
-        if (from && to && iso.test(from) && iso.test(to) && from <= to) {
-            setPeriod("custom");
-            setCustomFrom(from);
-            setCustomTo(to);
-        }
-        setUrlPeriodApplied(true);
-    }, [searchParams, urlPeriodApplied]);
-    const [loading,    setLoading]    = useState(true);
-    const [stats,      setStats]      = useState<Stats | null>(null);
-    const [expenses,   setExpenses]   = useState<Expense[]>([]);
-    const [expLoading, setExpLoading] = useState(false);
-
-    // Extrato
-    const [extrato,        setExtrato]        = useState<ExtratoLine[]>([]);
-    const [extratoLoading, setExtratoLoading] = useState(false);
-    const [extratoPage,    setExtratoPage]    = useState(1);
-    const EXTRATO_PAGE_SIZE = 50;
-
-    // Modal de detalhe do lançamento
-    const [extratoModal,  setExtratoModal]  = useState<ExtratoLine | null>(null);
-    const [finalizeForm,  setFinalizeForm]  = useState({ payment_method: "pix", due_date: isoDate(new Date()), notes: "" });
-    const [finalizing,    setFinalizing]    = useState(false);
-    const [finalizeMsg,   setFinalizeMsg]   = useState<string | null>(null);
-    const extratoDialogRef = useRef<HTMLDialogElement>(null);
-
-    // Contas a Receber / Pagar
-    const [bills,        setBills]        = useState<Bill[]>([]);
-    const [billsLoading, setBillsLoading] = useState(false);
-    const [billFilter,   setBillFilter]   = useState<"open" | "partial" | "paid" | "overdue" | "all">("open");
-    const [payBill,      setPayBill]      = useState<Bill | null>(null);
-    const [payForm,      setPayForm]      = useState({ amount: "", payment_method: "pix", received_at: isoDate(new Date()) });
-    const [payingBill,   setPayingBill]   = useState(false);
-
-    // Nova conta a pagar
-    const [showNewBill,  setShowNewBill]  = useState(false);
-    const [newBillForm,  setNewBillForm]  = useState({ description: "", amount: "", due_date: isoDate(new Date()), payment_method: "pix", notes: "" });
-    const [savingBill,   setSavingBill]   = useState(false);
-
-    // Caixa
-    interface CaixaReg { id: string; opened_at: string; closed_at: string|null; operator_name: string|null; initial_amount: number; closing_amount: number|null; difference: number|null; status: string }
-    const [caixaList,    setCaixaList]    = useState<CaixaReg[]>([]);
-    const [caixaListLoading, setCaixaListLoading] = useState(false);
-    const [caixaMovs,    setCaixaMovs]    = useState<any[]>([]);
-    const [selectedCaixa, setSelectedCaixa] = useState<string|null>(null);
-
-    // DRE
-    interface DRELine { account_name: string; account_type: string; total: number }
-    const [dreData,      setDreData]      = useState<DRELine[]>([]);
-    const [dreLoading,   setDreLoading]   = useState(false);
-
-    // New expense modal
-    const [showExpModal, setShowExpModal] = useState(false);
-    const [expForm, setExpForm] = useState({ category: "Fornecedor de Bebidas", description: "", amount: "", due_date: isoDate(new Date()), payment_status: "pending" });
-    const [saving, setSaving] = useState(false);
-
-    // ── date range ────────────────────────────────────────────────────────────
-    const dateRange = useMemo(() => {
-        const now   = new Date();
-        const today = isoDate(now);
-        if (period === "today") return { from: today, to: today, days: 1 };
-        if (period === "7d")    return { from: isoDate(new Date(Date.now() - 6  * 86400000)), to: today, days: 7  };
-        if (period === "15d")   return { from: isoDate(new Date(Date.now() - 14 * 86400000)), to: today, days: 15 };
-        if (period === "30d")   return { from: isoDate(new Date(Date.now() - 29 * 86400000)), to: today, days: 30 };
-        if (period === "custom" && customFrom && customTo) {
-            const diff = Math.round((new Date(customTo).getTime() - new Date(customFrom).getTime()) / 86400000) + 1;
-            return { from: customFrom, to: customTo, days: Math.max(diff, 1) };
-        }
-        return { from: isoDate(new Date(Date.now() - 29 * 86400000)), to: today, days: 30 };
-    }, [period, customFrom, customTo]);
-
-    useEffect(() => {
-        const el = extratoDialogRef.current;
-        if (!el) return;
-        if (extratoModal) {
-            if (!el.open) el.showModal();
-        } else if (el.open) {
-            el.close();
-        }
-    }, [extratoModal]);
-
-    // ── load (agregação no servidor) ───────────────────────────────────────────
-    const load = useCallback(async () => {
+    const loadDashboard = useCallback(async () => {
         if (!companyId) return;
         setLoading(true);
         const qs = new URLSearchParams({
@@ -237,1359 +48,147 @@ export default function FinanceiroPage() {
             to: dateRange.to,
             days: String(dateRange.days),
         });
-        const res = await fetch(`/api/admin/financeiro/dashboard?${qs}`, { credentials: "include", cache: "no-store" });
+        const res = await fetch(`/api/admin/financeiro/dashboard?${qs}`, {
+            credentials: "include",
+            cache: "no-store",
+        });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-            console.error("[financeiro] dashboard:", json?.error ?? res.statusText);
             setStats(null);
             setExpenses([]);
             setLoading(false);
             return;
         }
         setStats(json.stats as Stats);
-        setExpenses((json.expenses ?? []) as Expense[]);
+        setExpenses((json.expenses ?? []) as ExpenseRow[]);
         setLoading(false);
     }, [companyId, dateRange]);
 
-    useEffect(() => { load(); }, [load]);
-
-    // ── expense CRUD ──────────────────────────────────────────────────────────
-    const saveExpense = async () => {
-        if (!companyId || !expForm.amount || !expForm.due_date) return;
-        setSaving(true);
-        const res = await fetch("/api/admin/financeiro/expenses", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                category: expForm.category,
-                description: expForm.description,
-                amount: expForm.amount.replaceAll(",", "."),
-                due_date: expForm.due_date,
-                payment_status: expForm.payment_status,
-                idempotency_key: `opex:${crypto.randomUUID()}`,
-            }),
-        });
-        if (res.ok) {
-            setExpForm({ category: "Fornecedor de Bebidas", description: "", amount: "", due_date: isoDate(new Date()), payment_status: "pending" });
-            setShowExpModal(false);
-            load();
-        }
-        setSaving(false);
-    };
-
-    const deleteExpense = async (id: string) => {
-        await fetch(`/api/admin/financeiro/expenses?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
-        setExpenses((p) => p.filter((e) => e.id !== id));
-        load();
-    };
-
-    const markPaid = async (id: string) => {
-        await fetch("/api/admin/financeiro/expenses", {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, action: "mark_paid" }),
-        });
-        load();
-    };
-
-    // ── extrato (aba) ────────────────────────────────────────────────────────
-    const loadExtrato = useCallback(async () => {
-        if (!companyId) return;
-        setExtratoLoading(true);
-        const qs = new URLSearchParams({
-            from: dateRange.from,
-            to: dateRange.to,
-            days: String(dateRange.days),
-        });
-        const res = await fetch(`/api/admin/financeiro/extrato?${qs}`, { credentials: "include", cache: "no-store" });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            console.error("[financeiro] extrato:", json?.error ?? res.statusText);
-            setExtrato([]);
-        } else {
-            setExtrato((json.lines ?? []) as ExtratoLine[]);
-        }
-        setExtratoPage(1);
-        setExtratoLoading(false);
-    }, [companyId, dateRange]);
-
     useEffect(() => {
-        if (activeTab === "extrato") loadExtrato();
-    }, [activeTab, loadExtrato]);
+        loadDashboard();
+    }, [loadDashboard, refreshKey]);
 
-    // Finalizar pedido do extrato + roteamento à vista / a prazo
-    const handleFinalizeOrder = async () => {
-        if (!extratoModal?.orderId || !companyId) return;
-        setFinalizing(true);
-        setFinalizeMsg(null);
-        const res = await fetch("/api/admin/financeiro/finalize-order", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                order_id: extratoModal.orderId,
-                payment_method: finalizeForm.payment_method,
-                due_date: finalizeForm.due_date,
-                notes: finalizeForm.notes,
-                customer_id: extratoModal.customerId,
-                amount: extratoModal.amount,
-            }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            setFinalizeMsg("Erro: " + (json?.error ?? "falha"));
-            setFinalizing(false);
-            return;
-        }
-        setFinalizing(false);
-        setExtratoModal(null);
-        loadExtrato();
-    };
+    function refresh() {
+        setRefreshKey((k) => k + 1);
+        if (activeTab === "dashboard" || activeTab === "dre") loadDashboard();
+    }
 
-    // ── contas a receber / pagar ──────────────────────────────────────────────
-    const loadBills = useCallback(async (type: "receivable" | "payable") => {
-        if (!companyId) return;
-        setBillsLoading(true);
-        const qs = new URLSearchParams({ type, status: billFilter });
-        const res = await fetch(`/api/admin/financeiro/bills?${qs}`, { credentials: "include", cache: "no-store" });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) console.error("[financeiro] bills:", json?.error ?? res.statusText);
-        setBills((json.bills ?? []) as Bill[]);
-        setBillsLoading(false);
-    }, [companyId, billFilter]);
+    const tabs: Array<{ id: FinanceTab; label: string; icon: typeof BadgeDollarSign; active: string }> = [
+        { id: "dashboard", label: "Dashboard", icon: BadgeDollarSign, active: "text-violet-700 dark:text-violet-400" },
+        { id: "extrato", label: "Extrato", icon: FileText, active: "text-violet-700 dark:text-violet-400" },
+        { id: "receber", label: "A Receber", icon: ArrowDownCircle, active: "text-emerald-700 dark:text-emerald-400" },
+        { id: "pagar", label: "A Pagar", icon: ArrowUpCircle, active: "text-red-700 dark:text-red-400" },
+        { id: "caixa", label: "Caixa", icon: Banknote, active: "text-orange-700 dark:text-orange-400" },
+        { id: "dre", label: "DRE", icon: FileText, active: "text-violet-700 dark:text-violet-400" },
+    ];
 
-    useEffect(() => {
-        if (activeTab === "receber") loadBills("receivable");
-        if (activeTab === "pagar")   loadBills("payable");
-    }, [activeTab, loadBills]);
-
-    const handlePayBill = async () => {
-        if (!payBill || !companyId || !payForm.amount) return;
-        setPayingBill(true);
-        const paid = Number.parseFloat(payForm.amount) || 0;
-        const res = await fetch("/api/admin/financeiro/bills", {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                id: payBill.id,
-                pay_amount: paid,
-                original_amount: payBill.original_amount,
-                saldo_devedor: payBill.saldo_devedor,
-                payment_method: payForm.payment_method,
-                received_at: payForm.received_at,
-                idempotency_key: `bill:${payBill.id}:settle:${paid}:${payForm.received_at}`,
-            }),
-        });
-        const json = await res.json().catch(() => ({}));
-        setPayingBill(false);
-        if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
-        setPayBill(null);
-        setPayForm({ amount: "", payment_method: "pix", received_at: isoDate(new Date()) });
-        loadBills(payBill.type);
-    };
-
-    const handleNewBill = async () => {
-        if (!companyId || !newBillForm.amount || !newBillForm.due_date) return;
-        setSavingBill(true);
-        const res = await fetch("/api/admin/financeiro/bills", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                description: newBillForm.description.trim() || null,
-                amount: Number.parseFloat(newBillForm.amount) || 0,
-                due_date: newBillForm.due_date,
-                payment_method: newBillForm.payment_method || null,
-                notes: newBillForm.notes.trim() || null,
-            }),
-        });
-        const json = await res.json().catch(() => ({}));
-        setSavingBill(false);
-        if (!res.ok) { alert("Erro: " + (json?.error ?? "falha")); return; }
-        setShowNewBill(false);
-        setNewBillForm({ description: "", amount: "", due_date: isoDate(new Date()), payment_method: "pix", notes: "" });
-        loadBills("payable");
-    };
-
-    // ── caixa histórico ───────────────────────────────────────────────────────
-    const loadCaixaList = useCallback(async () => {
-        if (!companyId) return;
-        setCaixaListLoading(true);
-        const res = await fetch("/api/admin/financeiro/cash-registers", { credentials: "include", cache: "no-store" });
-        const json = await res.json().catch(() => ({}));
-        setCaixaList((json.registers ?? []) as CaixaReg[]);
-        setCaixaListLoading(false);
-    }, [companyId]);
-
-    const loadCaixaMovs = useCallback(async (caixaId: string) => {
-        const res = await fetch(`/api/admin/financeiro/cash-movements?register_id=${encodeURIComponent(caixaId)}`, {
-            credentials: "include",
-            cache: "no-store",
-        });
-        const json = await res.json().catch(() => ({}));
-        setCaixaMovs((json.movements ?? []) as any[]);
-        setSelectedCaixa(caixaId);
-    }, []);
-
-    useEffect(() => {
-        if (activeTab === "caixa") loadCaixaList();
-    }, [activeTab, loadCaixaList]);
-
-    // ── DRE ───────────────────────────────────────────────────────────────────
-    const loadDRE = useCallback(async () => {
-        if (!companyId) return;
-        setDreLoading(true);
-        const qs = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
-        const res = await fetch(`/api/admin/financeiro/dre?${qs}`, { credentials: "include", cache: "no-store" });
-        const json = await res.json().catch(() => ({}));
-        const dreRows = json.rows as DRELine[] | undefined;
-        if (res.ok && dreRows && dreRows.length > 0) {
-            setDreData(dreRows);
-        } else if (stats) {
-            setDreData([
-                { account_name: "Vendas à Vista",        account_type: "revenue", total: stats.revenue - stats.totalAReceber },
-                { account_name: "Vendas a Prazo (realiz.)", account_type: "revenue", total: stats.totalAReceber },
-                { account_name: "Custo de Mercadorias",  account_type: "cost",    total: stats.cost },
-                { account_name: "Despesas Operacionais", account_type: "expense", total: stats.expensesPaid },
-            ]);
-        }
-        setDreLoading(false);
-    }, [companyId, dateRange, stats]);
-
-    useEffect(() => {
-        if (activeTab === "dre") loadDRE();
-    }, [activeTab, loadDRE]);
-
-    const extratoPages     = Math.ceil(extrato.length / EXTRATO_PAGE_SIZE);
-    const extratoSlice     = extrato.slice((extratoPage - 1) * EXTRATO_PAGE_SIZE, extratoPage * EXTRATO_PAGE_SIZE);
-    const extratoIncome    = extrato.filter(e => e.type === "income").reduce((s, e) => s + e.amount, 0);
-    const extratoExpenses  = extrato.filter(e => e.type === "expense").reduce((s, e) => s + e.amount, 0);
-
-    const CHANNEL_LABEL: Record<string, string> = {
-        whatsapp: "WhatsApp",
-        admin:    "Admin",
-        pdv:      "PDV",
-        manual:   "Manual",
-        pedido:   "Pedido",
-        despesa:  "Despesa",
-    };
-    const PAY_LABEL: Record<string, string> = {
-        pix:      "PIX",
-        card:     "Cartão",
-        cash:     "Dinheiro",
-        credit:   "A Prazo",
-        a_prazo:  "A Prazo",
-        "—":      "—",
-    };
-
-    // ── chart config ──────────────────────────────────────────────────────────
-    const chartColor = isDark ? "#a78bfa" : "#7c3aed";
-    const gridColor  = isDark ? "#3f3f46" : "#e4e4e7";
-    const axisColor  = isDark ? "#71717a" : "#a1a1aa";
-
-    const periodLabel = { today:"Hoje","7d":"7d","15d":"15d","30d":"30d",custom:"Personalizado" }[period];
-    const profitMargin  = stats && stats.revenue > 0 ? (stats.profit     / stats.revenue) * 100 : 0;
-    const realMargin    = stats && stats.revenue > 0 ? (stats.realProfit / stats.revenue) * 100 : 0;
-
-    // Pie chart data for expenses category
-    const expensePieData = useMemo(() => {
-        const catMap: Record<string, number> = {};
-        expenses.forEach((e) => { catMap[e.category] = (catMap[e.category] ?? 0) + Number(e.amount); });
-        const COLORS = ["#7c3aed","#f97316","#22c55e","#0ea5e9","#f43f5e","#a855f7","#eab308"];
-        return Object.entries(catMap).map(([name, value], i) => ({ name, value, fill: COLORS[i % COLORS.length] }));
-    }, [expenses]);
-
-    // Chart data: revenue + estimated profit + daily expenses
-    const realProfitData = useMemo(() => {
-        if (!stats) return [];
-        return stats.byDay.map((d) => ({
-            ...d,
-            realProfit:   Math.max(0, d.revenue - d.cost),
-            expensesDay:  d.expensesDay,
-        }));
-    }, [stats]);
-
-    // ─────────────────────────────────────────────────────────────────────────
     return (
         <PlanFeatureGate
             featureKey="financeiro_full"
             title="Financeiro completo"
-            description="Receita, custos, despesas, extrato e lucro real do período."
+            description="Recebido, a receber, opex, extrato e resultado gerencial do período."
             requiredPlanLabel="Pro ou Market"
         >
-        <><div className="flex flex-col gap-6 p-6">
-
-            {/* Header */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Financeiro</h1>
-                    <p className="mt-0.5 text-xs text-zinc-400">Receita, custos, despesas e lucro real do período</p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                    {(["today","7d","15d","30d","custom"] as Period[]).map((p) => (
-                        <button key={p} onClick={() => setPeriod(p)}
-                            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                                period === p
-                                    ? "border-violet-600 bg-violet-600 text-white"
-                                    : "border-zinc-200 bg-white text-zinc-600 hover:border-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                            }`}>
-                            <Calendar className="h-3 w-3" />
-                            {{ today:"Hoje","7d":"7d","15d":"15d","30d":"30d",custom:"Personalizado" }[p]}
-                        </button>
-                    ))}
-                    <button onClick={
-                        activeTab === "extrato" ? loadExtrato
-                        : activeTab === "receber" ? () => loadBills("receivable")
-                        : activeTab === "pagar"   ? () => loadBills("payable")
-                        : load
-                    } disabled={loading || extratoLoading || billsLoading}
-                        className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
-                        <RefreshCcw className={`h-3 w-3 ${(loading || extratoLoading || billsLoading) ? "animate-spin" : ""}`} />
-                        Atualizar
-                    </button>
-                </div>
-            </div>
-
-            {/* Tab switcher */}
-            <div className="flex gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/50 w-fit">
-                <button onClick={() => setActiveTab("dashboard")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
-                        activeTab === "dashboard"
-                            ? "bg-white text-violet-700 shadow dark:bg-zinc-800 dark:text-violet-400"
-                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                    }`}>
-                    <BadgeDollarSign className="h-3.5 w-3.5" /> Dashboard
-                </button>
-                <button onClick={() => setActiveTab("extrato")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
-                        activeTab === "extrato"
-                            ? "bg-white text-violet-700 shadow dark:bg-zinc-800 dark:text-violet-400"
-                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                    }`}>
-                    <FileText className="h-3.5 w-3.5" /> Extrato
-                    {extrato.length > 0 && (
-                        <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-600 dark:bg-violet-900/40 dark:text-violet-300">
-                            {extrato.length}
-                        </span>
-                    )}
-                </button>
-                <button onClick={() => setActiveTab("receber")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
-                        activeTab === "receber"
-                            ? "bg-white text-emerald-700 shadow dark:bg-zinc-800 dark:text-emerald-400"
-                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                    }`}>
-                    <ArrowDownCircle className="h-3.5 w-3.5" /> A Receber
-                    {bills.filter(b => b.type === "receivable" && b.status !== "paid" && b.status !== "canceled").length > 0 && activeTab === "receber" && (
-                        <span className="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                            {bills.filter(b => b.status !== "paid" && b.status !== "canceled").length}
-                        </span>
-                    )}
-                </button>
-                <button onClick={() => setActiveTab("pagar")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
-                        activeTab === "pagar"
-                            ? "bg-white text-red-700 shadow dark:bg-zinc-800 dark:text-red-400"
-                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                    }`}>
-                    <ArrowUpCircle className="h-3.5 w-3.5" /> A Pagar
-                </button>
-                <button onClick={() => setActiveTab("caixa")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
-                        activeTab === "caixa"
-                            ? "bg-white text-orange-700 shadow dark:bg-zinc-800 dark:text-orange-400"
-                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                    }`}>
-                    <Banknote className="h-3.5 w-3.5" /> Caixa
-                </button>
-                <button onClick={() => setActiveTab("dre")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-all ${
-                        activeTab === "dre"
-                            ? "bg-white text-violet-700 shadow dark:bg-zinc-800 dark:text-violet-400"
-                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                    }`}>
-                    <FileText className="h-3.5 w-3.5" /> DRE
-                </button>
-            </div>
-
-            {period === "custom" && (
-                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-                    <p className="text-xs font-medium text-zinc-500">Período:</p>
-                    <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-                        className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" />
-                    <span className="text-xs text-zinc-400">até</span>
-                    <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-                        className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" />
-                </div>
-            )}
-
-            {activeTab === "dashboard" && (<>
-            {/* KPI cards — clicáveis: redirecionam para a aba/fonte */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                    { icon: BadgeDollarSign, label: "Receita Bruta",   value: stats ? brl(stats.revenue)     : "—", sub: `${stats?.orders ?? 0} vendas`, bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600", tab: "extrato" as Tab, title: "Ver extrato completo" },
-                    { icon: ArrowDownCircle, label: "A Receber",        value: stats ? brl(stats.totalAReceber): "—", sub: "saldo devedor aberto",          bg: "bg-emerald-100 dark:bg-emerald-900/30", ic: "text-emerald-600", tab: "receber" as Tab, title: "Ver contas a receber" },
-                    { icon: TrendingDown,    label: "Despesas Pagas",  value: stats ? brl(stats.expensesPaid): "—", sub: `${expenses.filter(e=>e.payment_status==="paid").length} lançamentos`, bg: "bg-red-100 dark:bg-red-900/30", ic: "text-red-500", tab: "pagar" as Tab, title: "Ver contas a pagar" },
-                    { icon: Wallet,          label: "Lucro Real",      value: stats ? brl(stats.realProfit)  : "—", sub: stats && stats.revenue > 0 ? `Margem ${pct(realMargin)}` : "após despesas", bg: "bg-orange-100 dark:bg-orange-900/30", ic: "text-orange-500", tab: null, title: null },
-                ].map(({ icon: Icon, label, value, sub, bg, ic, tab, title }) => (
-                    <button key={label} onClick={() => tab && setActiveTab(tab)}
-                        title={title ?? undefined}
-                        className={`flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900 text-left w-full ${tab ? "cursor-pointer ring-0 hover:ring-2 hover:ring-violet-200 dark:hover:ring-violet-800" : "cursor-default"}`}>
-                        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${bg}`}>
-                            <Icon className={`h-5 w-5 ${ic}`} />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                            <p className="text-xs text-zinc-400">{label}</p>
-                            {loading ? <Skeleton className="mt-1 h-7 w-28" /> : <p className="truncate text-xl font-bold text-zinc-900 dark:text-zinc-50">{value}</p>}
-                            <p className="mt-0.5 text-xs text-zinc-400">{sub}</p>
-                        </div>
-                        {tab && <ChevronDown className="h-3.5 w-3.5 shrink-0 -rotate-90 text-zinc-300 dark:text-zinc-600" />}
-                    </button>
-                ))}
-            </div>
-
-            {/* Cards de origem de venda */}
-            {stats && (stats.byOrigin.pdv > 0 || stats.byOrigin.chatbot > 0 || stats.byOrigin.ui_order > 0) && (
-                <div className="grid grid-cols-3 gap-4">
-                    {[
-                        { key: "pdv",      label: "PDV / Balcão",    cls: "text-orange-600 bg-orange-100 dark:bg-orange-900/30" },
-                        { key: "chatbot",  label: "Chat / WhatsApp", cls: "text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30" },
-                        { key: "ui_order", label: "Pedidos Web/UI",  cls: "text-blue-600 bg-blue-100 dark:bg-blue-900/30" },
-                    ].map(({ key, label, cls }) => (
-                        <button key={key} onClick={() => setActiveTab("extrato")}
-                            title="Ver extrato filtrado"
-                            className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:shadow-md hover:ring-2 hover:ring-zinc-200 dark:bg-zinc-900 dark:hover:ring-zinc-700 transition-all text-left">
-                            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-black ${cls}`}>
-                                {key === "pdv" ? "PDV" : key === "chatbot" ? "Chat" : "UI"}
-                            </span>
-                            <div>
-                                <p className="text-[10px] text-zinc-400">{label}</p>
-                                <p className="text-base font-bold text-zinc-900 dark:text-zinc-50">{brl(stats.byOrigin[key] ?? 0)}</p>
-                            </div>
-                            <ChevronDown className="ml-auto h-3 w-3 -rotate-90 text-zinc-300 dark:text-zinc-600 shrink-0" />
-                        </button>
-                    ))}
-                </div>
-            )}
-
-            {/* Bar chart */}
-            <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
-                <div className="mb-4 flex items-center justify-between">
+            <div className="flex flex-col gap-6 p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Faturamento por dia — {periodLabel}</p>
-                        <p className="text-xs text-zinc-400">Barra roxa = receita · Verde claro = lucro estimado</p>
+                        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Financeiro</h1>
+                        <p className="mt-0.5 text-xs text-zinc-400">
+                            Recebido (caixa 1.1), títulos e resultado gerencial
+                        </p>
                     </div>
-                    {stats && <span className="rounded-full bg-violet-100 px-3 py-0.5 text-xs font-bold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">{brl(stats.revenue)}</span>}
-                </div>
-                {loading ? <Skeleton className="h-[220px] w-full" /> : (
-                    <ResponsiveContainer width="100%" height={220}>
-                        <BarChart data={realProfitData} barCategoryGap="30%">
-                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                            <XAxis dataKey="label" tick={{ fontSize: 11, fill: axisColor }} axisLine={false} tickLine={false}
-                                interval={stats && stats.byDay.length > 14 ? Math.floor(stats.byDay.length / 7) : 0} />
-                            <YAxis tickFormatter={(v) => `R$${v >= 1000 ? (v/1000).toFixed(0)+"k" : v}`}
-                                tick={{ fontSize: 11, fill: axisColor }} axisLine={false} tickLine={false} width={52} />
-                            <Tooltip content={<BarTooltip />} cursor={{ fill: isDark ? "#3f3f4650" : "#f4f4f550" }} />
-                            <Bar dataKey="revenue" radius={[4,4,0,0]} maxBarSize={36} fill={chartColor} opacity={0.9} />
-                            <Bar dataKey="realProfit" radius={[4,4,0,0]} maxBarSize={36} fill="#22c55e" opacity={0.75} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                )}
-            </div>
-
-            {/* Bottom row */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-
-                {/* Payment methods */}
-                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
-                    <div className="mb-4 flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-violet-600" />
-                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Formas de Pagamento</p>
-                    </div>
-                    {loading ? <div className="space-y-3">{[0,1,2].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
-                        : !stats?.byPay.length ? <p className="py-8 text-center text-sm text-zinc-400">Sem dados.</p>
-                        : (
-                            <div className="space-y-3">
-                                {stats.byPay.map(({ method, label, color, total, count }) => {
-                                    const share = stats.revenue > 0 ? (total / stats.revenue) * 100 : 0;
-                                    const Icon = method === "pix" ? QrCode : method === "card" ? CreditCard : Banknote;
-                                    return (
-                                        <div key={method}>
-                                            <div className="mb-1 flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <Icon className="h-4 w-4" style={{ color }} />
-                                                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{label}</span>
-                                                    <span className="text-xs text-zinc-400">({count})</span>
-                                                </div>
-                                                <span className="text-sm font-bold text-zinc-900 dark:text-zinc-50">{brl(total)}</span>
-                                            </div>
-                                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${share}%`, backgroundColor: color }} />
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                </div>
-
-                {/* Profit breakdown */}
-                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
-                    <div className="mb-4 flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4 text-emerald-600" />
-                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Análise de Resultado</p>
-                    </div>
-                    {loading ? <div className="space-y-3">{[0,1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div> : (
-                        <div className="space-y-3">
-                            {[
-                                { label: "Receita bruta",  value: stats?.revenue      ?? 0, color: "#7c3aed", textCls: "text-violet-600",  icon: BadgeDollarSign },
-                                { label: "Custo produtos", value: stats?.cost         ?? 0, color: "#f43f5e", textCls: "text-red-500",     icon: ShoppingCart    },
-                                { label: "Despesas pagas", value: stats?.expensesPaid ?? 0, color: "#f97316", textCls: "text-orange-500",  icon: TrendingDown    },
-                                { label: "Lucro real",     value: stats?.realProfit   ?? 0, color: "#22c55e", textCls: "text-emerald-600", icon: TrendingUp      },
-                            ].map(({ label, value, color, textCls, icon: Icon }) => {
-                                const share = (stats?.revenue ?? 1) > 0 ? Math.min(Math.abs(value) / (stats?.revenue ?? 1) * 100, 100) : 0;
-                                return (
-                                    <div key={label} className="rounded-xl border border-zinc-100 p-3 dark:border-zinc-800">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <Icon className={`h-4 w-4 ${textCls}`} />
-                                                <p className="text-xs text-zinc-500">{label}</p>
-                                            </div>
-                                            <p className={`text-sm font-bold ${textCls}`}>{brl(value)}</p>
-                                        </div>
-                                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                                            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${share}%`, backgroundColor: color }} />
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {stats && stats.cost === 0 && (
-                                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-400">
-                                    ⚠️ Cadastre o <strong>Preço de Custo</strong> nos produtos para ver o lucro real.
-                                </p>
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                {/* Expenses pie */}
-                <div className="rounded-xl bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
-                    <div className="mb-4 flex items-center gap-2">
-                        <TrendingDown className="h-4 w-4 text-red-500" />
-                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Despesas por categoria</p>
-                    </div>
-                    {expensePieData.length === 0
-                        ? <p className="py-8 text-center text-xs text-zinc-400">Nenhuma despesa no período.</p>
-                        : (
-                            <ResponsiveContainer width="100%" height={180}>
-                                <PieChart>
-                                    <Pie data={expensePieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
-                                        {expensePieData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                                    </Pie>
-                                    <Tooltip formatter={(v: number) => brl(v)} />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        )}
-                </div>
-            </div>
-
-            {/* Expenses table */}
-            <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-                <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-                    <TrendingDown className="h-4 w-4 text-red-500" />
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Despesas — {periodLabel}</p>
-                    <span className="ml-auto text-xs text-zinc-400">
-                        Total: <b className="text-red-500">{brl(expenses.reduce((s,e) => s + Number(e.amount), 0))}</b>
-                    </span>
-                    <button onClick={() => setShowExpModal(true)}
-                        className="flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1 text-xs font-semibold text-white hover:bg-red-600 transition-colors">
-                        <Plus className="h-3 w-3" /> Nova
-                    </button>
-                </div>
-
-                {/* New expense form */}
-                {showExpModal && (
-                    <div className="border-b border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50">
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                            <select value={expForm.category} onChange={(e) => setExpForm(f => ({ ...f, category: e.target.value }))}
-                                className="col-span-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
-                                {EXPENSE_CATS.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                            <input placeholder="Descrição" value={expForm.description} onChange={(e) => setExpForm(f => ({ ...f, description: e.target.value }))}
-                                className="col-span-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" />
-                            <input placeholder="Valor (R$)" value={expForm.amount} onChange={(e) => setExpForm(f => ({ ...f, amount: e.target.value }))}
-                                className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" />
-                            <input type="date" value={expForm.due_date} onChange={(e) => setExpForm(f => ({ ...f, due_date: e.target.value }))}
-                                className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" />
-                            <div className="flex gap-2">
-                                <select value={expForm.payment_status} onChange={(e) => setExpForm(f => ({ ...f, payment_status: e.target.value }))}
-                                    className="flex-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
-                                    <option value="pending">Pendente</option>
-                                    <option value="paid">Pago</option>
-                                </select>
-                                <button onClick={saveExpense} disabled={saving}
-                                    className="rounded-lg bg-violet-600 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50">
-                                    {saving ? "…" : "OK"}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {expenses.length === 0
-                    ? <p className="py-12 text-center text-sm text-zinc-400">Nenhuma despesa cadastrada para este período.</p>
-                    : (
-                        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                            <div className="grid grid-cols-5 gap-4 bg-zinc-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:bg-zinc-800/50">
-                                <span>Categoria</span><span>Descrição</span><span className="text-right">Valor</span><span className="text-right">Vencimento</span><span className="text-right">Status</span>
-                            </div>
-                            {expenses.map((e) => {
-                                const st = EXP_STATUS[e.payment_status] ?? EXP_STATUS.pending;
-                                const StIcon = st.icon;
-                                return (
-                                    <div key={e.id} className="group grid grid-cols-5 gap-4 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors items-center">
-                                        <span className="text-xs font-medium capitalize text-zinc-700 dark:text-zinc-300">{e.category}</span>
-                                        <span className="truncate text-xs text-zinc-500">{e.description || "—"}</span>
-                                        <span className="text-right text-sm font-bold text-red-500">{brl(Number(e.amount))}</span>
-                                        <span className="text-right text-xs text-zinc-500">{new Date(e.due_date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
-                                        <div className="flex items-center justify-end gap-2">
-                                            <span className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${st.cls}`}>
-                                                <StIcon className="h-3 w-3" />{st.label}
-                                            </span>
-                                            {e.payment_status !== "paid" && (
-                                                <button onClick={() => markPaid(e.id)} title="Marcar como pago"
-                                                    className="hidden group-hover:flex items-center rounded-lg bg-emerald-100 p-1 text-emerald-600 hover:bg-emerald-200 dark:bg-emerald-900/30">
-                                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                                </button>
-                                            )}
-                                            <button onClick={() => deleteExpense(e.id)}
-                                                className="hidden group-hover:flex items-center rounded-lg bg-red-100 p-1 text-red-500 hover:bg-red-200 dark:bg-red-900/30">
-                                                <Trash2 className="h-3.5 w-3.5" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-            </div>
-
-            {/* Day-by-day table */}
-            <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-                <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-                    <Wallet className="h-4 w-4 text-violet-600" />
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Detalhamento por dia</p>
-                    <span className="ml-auto text-xs text-zinc-400">{periodLabel}</span>
-                </div>
-                {loading ? (
-                    <div className="space-y-px p-4">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-                ) : !stats?.byDay.filter(d => d.orders > 0).length ? (
-                    <p className="py-16 text-center text-sm text-zinc-400">Nenhum pedido no período.</p>
-                ) : (
-                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                        <div className="grid grid-cols-4 gap-4 bg-zinc-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:bg-zinc-800/50">
-                            <span>Data</span><span className="text-right">Pedidos</span><span className="text-right">Faturamento</span><span className="text-right">Lucro est.</span>
-                        </div>
-                        {stats.byDay.filter(d => d.orders > 0).reverse().map((d) => (
-                            <div key={d.isoDate} className="grid grid-cols-4 gap-4 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
-                                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{d.label}</p>
-                                <p className="text-right text-sm text-zinc-500">{d.orders}</p>
-                                <p className="text-right text-sm font-bold text-violet-600">{brl(d.revenue)}</p>
-                                <p className={`text-right text-sm font-bold ${d.cost > 0 ? "text-emerald-600" : "text-zinc-300 dark:text-zinc-600"}`}>
-                                    {d.cost > 0 ? brl(d.revenue - d.cost) : "—"}
-                                </p>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-            </>)}
-
-            {/* ── Extrato Tab ─────────────────────────────────────────────────── */}
-            {activeTab === "extrato" && (
-                <div className="flex flex-col gap-4">
-                    {/* summary strip */}
-                    <div className="grid grid-cols-3 gap-4">
-                        {[
-                            { icon: ArrowUpCircle,   label: "Entradas",  value: brl(extratoIncome),   cls: "text-emerald-600" },
-                            { icon: ArrowDownCircle, label: "Saídas",    value: brl(extratoExpenses), cls: "text-red-500" },
-                            { icon: Wallet,          label: "Saldo",     value: brl(extratoIncome - extratoExpenses), cls: extratoIncome - extratoExpenses >= 0 ? "text-violet-600" : "text-red-500" },
-                        ].map(({ icon: Icon, label, value, cls }) => (
-                            <div key={label} className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-900">
-                                <Icon className={`h-5 w-5 ${cls}`} />
-                                <div>
-                                    <p className="text-xs text-zinc-400">{label}</p>
-                                    <p className={`text-lg font-bold ${cls}`}>{value}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* table */}
-                    <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-                        <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-                            <FileText className="h-4 w-4 text-violet-600" />
-                            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Extrato — {periodLabel}</p>
-                            <span className="ml-auto text-xs text-zinc-400">{extrato.length} lançamentos</span>
-                        </div>
-
-                        {extratoLoading ? (
-                            <div className="space-y-px p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-                        ) : extrato.length === 0 ? (
-                            <p className="py-16 text-center text-sm text-zinc-400">Nenhum lançamento no período.</p>
-                        ) : (
-                            <>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-xs">
-                                    <thead>
-                                        <tr className="bg-zinc-50 dark:bg-zinc-800/50">
-                                            <th className="px-4 py-2.5 text-left font-semibold uppercase tracking-wide text-zinc-400">Data</th>
-                                            <th className="px-4 py-2.5 text-left font-semibold uppercase tracking-wide text-zinc-400">Descrição</th>
-                                            <th className="px-4 py-2.5 text-left font-semibold uppercase tracking-wide text-zinc-400">Cliente</th>
-                                            <th className="px-4 py-2.5 text-left font-semibold uppercase tracking-wide text-zinc-400">Canal</th>
-                                            <th className="px-4 py-2.5 text-left font-semibold uppercase tracking-wide text-zinc-400">Pagamento</th>
-                                            <th className="px-4 py-2.5 text-right font-semibold uppercase tracking-wide text-zinc-400">Valor</th>
-                                            <th className="px-4 py-2.5 text-right font-semibold uppercase tracking-wide text-zinc-400">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                                        {extratoSlice.map((line) => (
-                                            <tr key={line.id}
-                                                onClick={() => {
-                                                    setExtratoModal(line);
-                                                    setFinalizeForm({ payment_method: line.payment_method !== "—" ? line.payment_method : "pix", due_date: isoDate(new Date()), notes: "" });
-                                                    setFinalizeMsg(null);
-                                                }}
-                                                className="cursor-pointer hover:bg-violet-50/50 dark:hover:bg-violet-900/10 transition-colors">
-                                                <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
-                                                    {new Date(line.date).toLocaleDateString("pt-BR")}
-                                                    <span className="ml-1 text-zinc-300 dark:text-zinc-600">
-                                                        {new Date(line.date).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                                                    </span>
-                                                </td>
-                                                <td className="max-w-[220px] truncate px-4 py-3 font-medium text-zinc-700 dark:text-zinc-200">{line.description}</td>
-                                                <td className="px-4 py-3 text-zinc-500">{line.customer}</td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                                        line.channel === "whatsapp" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                                                        line.channel === "pdv"      ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" :
-                                                        line.channel === "despesa"  ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" :
-                                                        "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
-                                                    }`}>
-                                                        {CHANNEL_LABEL[line.channel] ?? line.channel}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-3 text-zinc-500">{PAY_LABEL[line.payment_method] ?? line.payment_method}</td>
-                                                <td className={`px-4 py-3 text-right font-bold ${line.type === "expense" ? "text-red-500" : "text-emerald-600"}`}>
-                                                    {line.type === "expense" ? "− " : "+ "}{brl(line.amount)}
-                                                </td>
-                                                <td className="px-4 py-3 text-right">
-                                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                                        line.status === "finalized" || line.status === "delivered" || line.status === "lançado" || line.status === "pago"
-                                                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                                            : line.status === "new"
-                                                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                                    }`}>
-                                                        {line.status}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {/* pagination */}
-                            {extratoPages > 1 && (
-                                <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-3 dark:border-zinc-800">
-                                    <p className="text-xs text-zinc-400">
-                                        Página {extratoPage} de {extratoPages} · {extrato.length} registros
-                                    </p>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setExtratoPage(p => Math.max(1, p - 1))} disabled={extratoPage === 1}
-                                            className="rounded-lg border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-zinc-700">← Anterior</button>
-                                        <button onClick={() => setExtratoPage(p => Math.min(extratoPages, p + 1))} disabled={extratoPage === extratoPages}
-                                            className="rounded-lg border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-zinc-700">Próxima →</button>
-                                    </div>
-                                </div>
-                            )}
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* ── Contas a Receber / Pagar ────────────────────────────────────── */}
-            {(activeTab === "receber" || activeTab === "pagar") && (
-                <div className="flex flex-col gap-4">
-                    {/* Filter strip */}
-                    <div className="flex items-center gap-2">
-                        {(["open","partial","overdue","paid","all"] as const).map(f => (
-                            <button key={f} onClick={() => setBillFilter(f)}
-                                className={`rounded-lg px-3 py-1.5 text-xs font-semibold border transition-all ${
-                                    billFilter === f
-                                        ? "bg-violet-600 text-white border-violet-600"
-                                        : "border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                                }`}>
-                                {{ open:"Em aberto", partial:"Parcial", overdue:"Vencidas", paid:"Pagas", all:"Todas" }[f]}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {(["today", "7d", "15d", "30d", "custom"] as Period[]).map((p) => (
+                            <button
+                                key={p}
+                                type="button"
+                                onClick={() => setPeriod(p)}
+                                className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                                    period === p
+                                        ? "border-violet-600 bg-violet-600 text-white"
+                                        : "border-zinc-200 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                }`}
+                            >
+                                <Calendar className="h-3 w-3" />
+                                {{ today: "Hoje", "7d": "7d", "15d": "15d", "30d": "30d", custom: "Personalizado" }[p]}
                             </button>
                         ))}
-                        <button onClick={() => activeTab === "receber" ? loadBills("receivable") : loadBills("payable")}
-                            disabled={billsLoading}
-                            className="ml-auto flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
-                            <RefreshCcw className={`h-3 w-3 ${billsLoading ? "animate-spin" : ""}`} />
+                        <button
+                            type="button"
+                            onClick={refresh}
+                            disabled={loading}
+                            className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800"
+                        >
+                            <RefreshCcw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
                             Atualizar
                         </button>
                     </div>
-
-                    {/* Totais rápidos */}
-                    {bills.length > 0 && (
-                        <div className="grid grid-cols-3 gap-4">
-                            {[
-                                { label: "Total em aberto",  value: bills.filter(b => b.status === "open" || b.status === "partial").reduce((s,b) => s + b.saldo_devedor, 0), cls: "text-amber-600" },
-                                { label: "Total vencido",    value: bills.filter(b => b.status === "overdue").reduce((s,b) => s + b.saldo_devedor, 0), cls: "text-red-600" },
-                                { label: "Total recebido",   value: bills.filter(b => b.status === "paid").reduce((s,b) => s + b.original_amount, 0), cls: "text-emerald-600" },
-                            ].map(c => (
-                                <div key={c.label} className="rounded-xl bg-white p-4 shadow-sm dark:bg-zinc-900">
-                                    <p className="text-xs text-zinc-400">{c.label}</p>
-                                    <p className={`mt-1 text-lg font-bold ${c.cls}`}>{brl(c.value)}</p>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Table */}
-                    <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-                        <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-                            {activeTab === "receber"
-                                ? <ArrowDownCircle className="h-4 w-4 text-emerald-600" />
-                                : <ArrowUpCircle className="h-4 w-4 text-red-600" />
-                            }
-                            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
-                                {activeTab === "receber" ? "Contas a Receber" : "Contas a Pagar"}
-                            </p>
-                            <span className="ml-auto text-xs text-zinc-400">{bills.length} registros</span>
-                            {activeTab === "pagar" && (
-                                <button onClick={() => setShowNewBill(true)}
-                                    className="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 transition-colors">
-                                    <Plus className="h-3 w-3" /> Nova conta
-                                </button>
-                            )}
-                        </div>
-
-                        {billsLoading ? (
-                            <div className="space-y-2 p-5">
-                                {[...Array(5)].map((_,i) => <Skeleton key={i} className="h-10 w-full" />)}
-                            </div>
-                        ) : bills.length === 0 ? (
-                            <div className="py-12 text-center">
-                                <CheckCircle2 className="mx-auto h-8 w-8 text-zinc-300 dark:text-zinc-600" />
-                                <p className="mt-2 text-sm text-zinc-400">Nenhum registro encontrado</p>
-                            </div>
-                        ) : (
-                            <table className="w-full text-xs">
-                                <thead>
-                                    <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                                        {["Vencimento","Cliente","Descrição","Forma","Valor","Saldo","Status",""].map(h => (
-                                            <th key={h} className="px-4 py-2.5 text-left font-semibold text-zinc-400">{h}</th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
-                                    {bills.map(b => {
-                                        const isOverdue = b.status === "overdue" || (b.status === "open" && new Date(b.due_date) < new Date());
-                                        const statusInfo = {
-                                            open:     { label: "Em aberto",  cls: "text-amber-600 bg-amber-50 dark:bg-amber-900/20" },
-                                            partial:  { label: "Parcial",    cls: "text-blue-600 bg-blue-50 dark:bg-blue-900/20" },
-                                            paid:     { label: "Pago",       cls: "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" },
-                                            overdue:  { label: "Vencido",    cls: "text-red-600 bg-red-50 dark:bg-red-900/20" },
-                                            canceled: { label: "Cancelado",  cls: "text-zinc-400 bg-zinc-100 dark:bg-zinc-800" },
-                                        }[isOverdue && b.status !== "paid" ? "overdue" : b.status] ?? { label: b.status, cls: "text-zinc-400" };
-                                        return (
-                                            <tr key={b.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                                                <td className={`px-4 py-3 font-mono ${isOverdue && b.status !== "paid" ? "text-red-500" : "text-zinc-600 dark:text-zinc-400"}`}>
-                                                    {new Date(b.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
-                                                </td>
-                                                <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{b.customer_name ?? "—"}</td>
-                                                <td className="px-4 py-3 text-zinc-500">{b.description ?? "—"}</td>
-                                                <td className="px-4 py-3 text-zinc-500">{PAY_META[b.payment_method ?? ""]?.label ?? b.payment_method ?? "—"}</td>
-                                                <td className="px-4 py-3 font-mono font-semibold text-zinc-700 dark:text-zinc-200">{brl(b.original_amount)}</td>
-                                                <td className={`px-4 py-3 font-mono font-semibold ${b.saldo_devedor > 0 ? "text-amber-600" : "text-emerald-600"}`}>{brl(b.saldo_devedor)}</td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${statusInfo.cls}`}>
-                                                        {statusInfo.label}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    {b.status !== "paid" && b.status !== "canceled" && (
-                                                        <button
-                                                            onClick={() => { setPayBill(b); setPayForm({ amount: b.saldo_devedor.toFixed(2), payment_method: b.payment_method ?? "pix", received_at: isoDate(new Date()) }); }}
-                                                            className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-emerald-500 transition-colors whitespace-nowrap">
-                                                            <CheckCircle2 className="h-3 w-3" />
-                                                            {activeTab === "receber" ? "Receber" : "Pagar"}
-                                                        </button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
                 </div>
-            )}
-        </div>
 
-        {/* ── Modal: Registrar Pagamento (bill) ─────────────────────────────── */}
-        {payBill && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
-                    <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                        <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
-                            {payBill.type === "receivable" ? "Registrar Recebimento" : "Registrar Pagamento"}
-                        </p>
-                        <button onClick={() => setPayBill(null)} className="ml-auto text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"><X className="h-4 w-4" /></button>
-                    </div>
-                    <div className="p-5 space-y-4">
-                        <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 px-4 py-3 text-sm">
-                            <p className="text-xs text-zinc-400 mb-0.5">{payBill.customer_name ?? payBill.description ?? "Conta"}</p>
-                            <p className="font-bold text-zinc-900 dark:text-zinc-50">
-                                Saldo devedor: <span className="text-amber-600">{brl(payBill.saldo_devedor)}</span>
-                            </p>
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor recebido (R$)</label>
-                            <input type="number" min={0.01} step={0.01} value={payForm.amount}
-                                onChange={e => setPayForm(p => ({...p, amount: e.target.value}))}
-                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:border-emerald-500 focus:outline-none" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Forma</label>
-                                <select value={payForm.payment_method} onChange={e => setPayForm(p => ({...p, payment_method: e.target.value}))}
-                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none">
-                                    {Object.entries(PAY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Data</label>
-                                <input type="date" value={payForm.received_at} onChange={e => setPayForm(p => ({...p, received_at: e.target.value}))}
-                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none" />
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                        <button onClick={() => setPayBill(null)}
-                            className="flex-1 rounded-xl border border-zinc-200 py-2.5 text-sm text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800 transition-colors">Cancelar</button>
-                        <button onClick={handlePayBill} disabled={payingBill || !payForm.amount}
-                            className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition-all">
-                            {payingBill ? "Salvando…" : "Confirmar"}
+                <div className="flex w-fit gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/50">
+                    {tabs.map(({ id, label, icon: Icon, active }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setActiveTab(id)}
+                            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold ${
+                                activeTab === id ? `bg-white shadow dark:bg-zinc-800 ${active}` : "text-zinc-500"
+                            }`}
+                        >
+                            <Icon className="h-3.5 w-3.5" /> {label}
                         </button>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* ── Modal: Nova Conta a Pagar ──────────────────────────────────────── */}
-        {showNewBill && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
-                    <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                        <ArrowUpCircle className="h-5 w-5 text-red-600" />
-                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Nova Conta a Pagar</p>
-                        <button onClick={() => setShowNewBill(false)} className="ml-auto text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"><X className="h-4 w-4" /></button>
-                    </div>
-                    <div className="p-5 space-y-4">
-                        <div>
-                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Descrição / Fornecedor</label>
-                            <input value={newBillForm.description} onChange={e => setNewBillForm(p => ({...p, description: e.target.value}))}
-                                placeholder="Ex: Fornecedor bebidas, Aluguel…"
-                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 placeholder-zinc-400 focus:border-red-500 focus:outline-none" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Valor (R$)</label>
-                                <input type="number" min={0.01} step={0.01} value={newBillForm.amount}
-                                    onChange={e => setNewBillForm(p => ({...p, amount: e.target.value}))}
-                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:border-red-500 focus:outline-none" />
-                            </div>
-                            <div>
-                                <label className="mb-1 block text-xs font-semibold text-zinc-500">Vencimento</label>
-                                <input type="date" value={newBillForm.due_date} onChange={e => setNewBillForm(p => ({...p, due_date: e.target.value}))}
-                                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none" />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Forma de pagamento</label>
-                            <select value={newBillForm.payment_method} onChange={e => setNewBillForm(p => ({...p, payment_method: e.target.value}))}
-                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none">
-                                {Object.entries(PAY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-xs font-semibold text-zinc-500">Observação</label>
-                            <input value={newBillForm.notes} onChange={e => setNewBillForm(p => ({...p, notes: e.target.value}))}
-                                placeholder="Opcional"
-                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none" />
-                        </div>
-                    </div>
-                    <div className="flex gap-3 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
-                        <button onClick={() => setShowNewBill(false)}
-                            className="flex-1 rounded-xl border border-zinc-200 py-2.5 text-sm text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800 transition-colors">Cancelar</button>
-                        <button onClick={handleNewBill} disabled={savingBill || !newBillForm.amount || !newBillForm.due_date}
-                            className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-50 transition-all">
-                            {savingBill ? "Salvando…" : "Salvar"}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* ── Aba: Caixa ──────────────────────────────────────────────────────── */}
-        {activeTab === "caixa" && (
-            <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Histórico de Caixas</p>
-                    <button onClick={loadCaixaList} disabled={caixaListLoading}
-                        className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
-                        <RefreshCcw className={`h-3 w-3 ${caixaListLoading ? "animate-spin" : ""}`} /> Atualizar
-                    </button>
+                    ))}
                 </div>
 
-                <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-                    {caixaListLoading ? (
-                        <div className="space-y-2 p-5">{[...Array(4)].map((_,i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-                    ) : caixaList.length === 0 ? (
-                        <div className="py-12 text-center">
-                            <Banknote className="mx-auto h-8 w-8 text-zinc-300 dark:text-zinc-600" />
-                            <p className="mt-2 text-sm text-zinc-400">Nenhum caixa encontrado. Abra o primeiro caixa no PDV.</p>
-                        </div>
-                    ) : (
-                        <table className="w-full text-xs">
-                            <thead>
-                                <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                                    {["Abertura","Fechamento","Operador","Fundo","Total esperado","Contagem","Diferença","Status","Movimentos"].map(h => (
-                                        <th key={h} className="px-4 py-2.5 text-left font-semibold text-zinc-400">{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
-                                {caixaList.map((cx: any) => (
-                                    <tr key={cx.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                                        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono">{new Date(cx.opened_at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</td>
-                                        <td className="px-4 py-3 text-zinc-500 font-mono">{cx.closed_at ? new Date(cx.closed_at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—"}</td>
-                                        <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{cx.operator_name ?? "—"}</td>
-                                        <td className="px-4 py-3 font-mono">{brl(cx.initial_amount ?? 0)}</td>
-                                        <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-200">—</td>
-                                        <td className="px-4 py-3 font-mono">{cx.closing_amount != null ? brl(cx.closing_amount) : "—"}</td>
-                                        <td className={`px-4 py-3 font-mono font-bold ${(cx.difference ?? 0) < 0 ? "text-red-600" : (cx.difference ?? 0) > 0 ? "text-emerald-600" : "text-zinc-400"}`}>
-                                            {cx.difference != null ? brl(cx.difference) : "—"}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${cx.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-500"}`}>
-                                                {cx.status === "open" ? "Aberto" : "Fechado"}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <button onClick={() => loadCaixaMovs(cx.id)}
-                                                className="rounded-lg border border-zinc-200 px-2.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800 transition-colors">
-                                                Ver movimentos
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
-
-                {/* Movimentos do caixa selecionado */}
-                {selectedCaixa && caixaMovs.length > 0 && (
-                    <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-                        <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-                            <Banknote className="h-4 w-4 text-orange-500" />
-                            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Movimentos do caixa</p>
-                            <button onClick={() => { setSelectedCaixa(null); setCaixaMovs([]); }} className="ml-auto text-xs text-zinc-400 hover:text-zinc-700">fechar</button>
-                        </div>
-                        <table className="w-full text-xs">
-                            <thead>
-                                <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                                    {["Hora","Tipo","Valor","Operador","Motivo"].map(h => (
-                                        <th key={h} className="px-4 py-2.5 text-left font-semibold text-zinc-400">{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
-                                {caixaMovs.map((m: any) => (
-                                    <tr key={m.id}>
-                                        <td className="px-4 py-3 font-mono text-zinc-500">{new Date(m.occurred_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${m.type === "sangria" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
-                                                {m.type === "sangria" ? "Sangria" : "Suprimento"}
-                                            </span>
-                                        </td>
-                                        <td className={`px-4 py-3 font-mono font-bold ${m.type === "sangria" ? "text-red-600" : "text-emerald-600"}`}>
-                                            {m.type === "sangria" ? "- " : "+ "}{brl(m.amount ?? 0)}
-                                        </td>
-                                        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{m.operator_name ?? "—"}</td>
-                                        <td className="px-4 py-3 text-zinc-500">{m.reason ?? "—"}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                {period === "custom" && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                        <p className="text-xs font-medium text-zinc-500">Período:</p>
+                        <input
+                            type="date"
+                            value={customFrom}
+                            onChange={(e) => setCustomFrom(e.target.value)}
+                            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                        />
+                        <span className="text-xs text-zinc-400">até</span>
+                        <input
+                            type="date"
+                            value={customTo}
+                            onChange={(e) => setCustomTo(e.target.value)}
+                            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                        />
                     </div>
                 )}
+
+                {activeTab === "dashboard" && (
+                    <DashboardTab
+                        stats={stats}
+                        expenses={expenses}
+                        loading={loading}
+                        periodLabel={periodLabel}
+                        onGoTab={setActiveTab}
+                    />
+                )}
+                {activeTab === "extrato" && (
+                    <ExtratoTab
+                        companyId={companyId}
+                        dateRange={dateRange}
+                        periodLabel={periodLabel}
+                        refreshKey={refreshKey}
+                    />
+                )}
+                {activeTab === "receber" && <ReceberTab companyId={companyId} refreshKey={refreshKey} />}
+                {activeTab === "pagar" && <PagarTab companyId={companyId} refreshKey={refreshKey} />}
+                {activeTab === "caixa" && <CaixaTab companyId={companyId} refreshKey={refreshKey} />}
+                {activeTab === "dre" && (
+                    <DreTab
+                        companyId={companyId}
+                        dateRange={dateRange}
+                        periodLabel={periodLabel}
+                        stats={stats}
+                        refreshKey={refreshKey}
+                    />
+                )}
             </div>
-        )}
-
-        {/* ── Aba: DRE ────────────────────────────────────────────────────────── */}
-        {activeTab === "dre" && (
-            <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Demonstrativo de Resultado — {periodLabel}</p>
-                        <p className="text-xs text-zinc-400">Resumo gerencial de receitas e despesas no período</p>
-                    </div>
-                    <button onClick={loadDRE} disabled={dreLoading}
-                        className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800">
-                        <RefreshCcw className={`h-3 w-3 ${dreLoading ? "animate-spin" : ""}`} /> Atualizar
-                    </button>
-                </div>
-
-                <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden max-w-2xl">
-                    {dreLoading ? (
-                        <div className="space-y-2 p-5">{[...Array(6)].map((_,i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-                    ) : (
-                        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                            {/* Receitas */}
-                            <div className="bg-zinc-50 dark:bg-zinc-800/50 px-5 py-2.5">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Receitas</p>
-                            </div>
-                            {dreData.filter(r => r.account_type === "revenue").map(r => (
-                                <div key={r.account_name} className="flex items-center justify-between px-5 py-3 text-sm">
-                                    <span className="text-zinc-600 dark:text-zinc-400">{r.account_name}</span>
-                                    <span className="font-bold text-emerald-600">+ {brl(r.total)}</span>
-                                </div>
-                            ))}
-                            {stats && (
-                                <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-900/20 px-5 py-3 text-sm font-black">
-                                    <span className="text-zinc-700 dark:text-zinc-200">= Receita Total</span>
-                                    <span className="text-emerald-600 text-base">{brl(stats.revenue)}</span>
-                                </div>
-                            )}
-                            {/* Custos */}
-                            <div className="bg-zinc-50 dark:bg-zinc-800/50 px-5 py-2.5">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Custos e Despesas</p>
-                            </div>
-                            {dreData.filter(r => r.account_type === "cost" || r.account_type === "expense").map(r => (
-                                <div key={r.account_name} className="flex items-center justify-between px-5 py-3 text-sm">
-                                    <span className="text-zinc-600 dark:text-zinc-400">{r.account_name}</span>
-                                    <span className="font-bold text-red-500">- {brl(r.total)}</span>
-                                </div>
-                            ))}
-                            {/* Resultado */}
-                            {stats && (
-                                <div className={`flex items-center justify-between px-5 py-4 text-sm font-black border-t-2 ${stats.realProfit >= 0 ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700" : "border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700"}`}>
-                                    <span className="text-zinc-700 dark:text-zinc-200 text-base">= Resultado do Período</span>
-                                    <span className={`text-xl ${stats.realProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{brl(stats.realProfit)}</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-        )}
-
-        {/* ── Nova Despesa Modal (dark mode) ────────────────────────────────── */}
-        {showExpModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                <div className="w-full max-w-md rounded-3xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden">
-                    <div className="flex items-center gap-3 border-b border-zinc-800 px-6 py-4">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/20">
-                            <ArrowDownCircle className="h-5 w-5 text-red-400" />
-                        </div>
-                        <div className="flex-1">
-                            <p className="text-sm font-bold text-zinc-100">Nova Despesa</p>
-                            <p className="text-xs text-zinc-500">Registre um lançamento de saída</p>
-                        </div>
-                        <button onClick={() => setShowExpModal(false)} className="rounded-lg p-1 text-zinc-500 hover:text-zinc-200">
-                            <X className="h-5 w-5" />
-                        </button>
-                    </div>
-                    <div className="space-y-4 px-6 py-5">
-                        <div>
-                            <label className="mb-1.5 block text-xs font-semibold text-zinc-400">Categoria</label>
-                            <select value={expForm.category} onChange={(e) => setExpForm(f => ({ ...f, category: e.target.value }))}
-                                className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-red-500 focus:outline-none">
-                                {EXPENSE_CATS.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="mb-1.5 block text-xs font-semibold text-zinc-400">Descrição <span className="text-zinc-600">(opcional)</span></label>
-                            <input value={expForm.description} onChange={(e) => setExpForm(f => ({ ...f, description: e.target.value }))}
-                                placeholder="Ex: Nota fiscal fornecedor X"
-                                className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-red-500 focus:outline-none" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="mb-1.5 block text-xs font-semibold text-zinc-400">Valor (R$)</label>
-                                <input type="number" min={0} step={0.01} value={expForm.amount}
-                                    onChange={(e) => setExpForm(f => ({ ...f, amount: e.target.value }))}
-                                    placeholder="0,00"
-                                    className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-red-500 focus:outline-none" />
-                            </div>
-                            <div>
-                                <label className="mb-1.5 block text-xs font-semibold text-zinc-400">Vencimento</label>
-                                <input type="date" value={expForm.due_date}
-                                    onChange={(e) => setExpForm(f => ({ ...f, due_date: e.target.value }))}
-                                    className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-red-500 focus:outline-none" />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="mb-1.5 block text-xs font-semibold text-zinc-400">Status</label>
-                            <div className="flex gap-2">
-                                {[{v:"pending",l:"Pendente"},{v:"paid",l:"Pago"}].map(({ v, l }) => (
-                                    <button key={v} type="button" onClick={() => setExpForm(f => ({ ...f, payment_status: v }))}
-                                        className={`flex-1 rounded-xl border py-2 text-xs font-semibold transition-colors ${
-                                            expForm.payment_status === v
-                                                ? v==="paid" ? "border-emerald-600 bg-emerald-900/30 text-emerald-400" : "border-amber-600 bg-amber-900/30 text-amber-400"
-                                                : "border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600"
-                                        }`}>
-                                        {l}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex gap-3 border-t border-zinc-800 px-6 py-4">
-                        <button onClick={() => setShowExpModal(false)}
-                            className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm font-semibold text-zinc-400 hover:border-zinc-600 transition-colors">
-                            Cancelar
-                        </button>
-                        <button onClick={saveExpense} disabled={saving || !expForm.amount || !expForm.due_date}
-                            className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-40 transition-colors">
-                            {saving ? "Salvando…" : "Registrar Despesa"}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
-        {/* ── Modal detalhe / finalização de lançamento ──────────────────── */}
-        <dialog
-            ref={extratoDialogRef}
-            className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm dark:border-zinc-700 dark:bg-zinc-900"
-            onCancel={(e) => {
-                e.preventDefault();
-                setExtratoModal(null);
-            }}
-        >
-            {extratoModal && (
-                <>
-                    {/* header */}
-                    <div className="flex items-center gap-3 border-b border-zinc-100 px-6 py-4 dark:border-zinc-800">
-                        <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${extratoModal.type === "income" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
-                            {extratoModal.type === "income"
-                                ? <ArrowUpCircle className="h-5 w-5 text-emerald-600" />
-                                : <ArrowDownCircle className="h-5 w-5 text-red-500" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-100">{extratoModal.description}</p>
-                            <p className="text-xs text-zinc-400">{new Date(extratoModal.date).toLocaleString("pt-BR")}</p>
-                        </div>
-                        <button onClick={() => setExtratoModal(null)} className="rounded-lg p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
-                            <X className="h-5 w-5" />
-                        </button>
-                    </div>
-
-                    {/* detalhes */}
-                    <div className="space-y-3 px-6 py-4">
-                        <div className="grid grid-cols-2 gap-3 rounded-xl bg-zinc-50 px-4 py-3 text-xs dark:bg-zinc-800">
-                            <div><p className="text-zinc-400">Cliente</p><p className="font-semibold text-zinc-700 dark:text-zinc-200">{extratoModal.customer}</p></div>
-                            <div><p className="text-zinc-400">Canal</p><p className="font-semibold text-zinc-700 dark:text-zinc-200">{CHANNEL_LABEL[extratoModal.channel] ?? extratoModal.channel}</p></div>
-                            <div><p className="text-zinc-400">Pagamento</p><p className="font-semibold text-zinc-700 dark:text-zinc-200">{PAY_LABEL[extratoModal.payment_method] ?? extratoModal.payment_method}</p></div>
-                            <div><p className="text-zinc-400">Valor</p><p className={`text-lg font-bold ${extratoModal.type === "income" ? "text-emerald-600" : "text-red-500"}`}>{brl(extratoModal.amount)}</p></div>
-                        </div>
-
-                        {/* ── Seção de finalização — só para pedidos não finalizados ── */}
-                        {extratoModal.source === "order" && extratoModal.orderId &&
-                         !["finalized","delivered"].includes(extratoModal.orderStatus ?? "") && (
-                            <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-4 dark:border-violet-800 dark:bg-violet-900/20">
-                                <p className="text-xs font-bold text-violet-700 dark:text-violet-300">Finalizar pedido</p>
-
-                                <div>
-                                    <label className="mb-1 block text-xs font-semibold text-zinc-600 dark:text-zinc-300">Forma de pagamento</label>
-                                    <select value={finalizeForm.payment_method}
-                                        onChange={(e) => setFinalizeForm(f => ({ ...f, payment_method: e.target.value }))}
-                                        className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100">
-                                        <optgroup label="À vista">
-                                            <option value="pix">PIX</option>
-                                            <option value="cash">Dinheiro</option>
-                                            <option value="card">Cartão de crédito</option>
-                                            <option value="debit">Cartão de débito</option>
-                                        </optgroup>
-                                        <optgroup label="A prazo (lança em Contas a Receber)">
-                                            <option value="credit">A Prazo / Fiado</option>
-                                            <option value="credit_installment">Crédito Parcelado</option>
-                                            <option value="boleto">Boleto</option>
-                                            <option value="promissoria">Promissória</option>
-                                            <option value="cheque">Cheque</option>
-                                        </optgroup>
-                                    </select>
-                                </div>
-
-                                {A_PRAZO_METHODS.has(finalizeForm.payment_method) && (
-                                    <div>
-                                        <label className="mb-1 block text-xs font-semibold text-zinc-600 dark:text-zinc-300">Vencimento</label>
-                                        <input type="date" value={finalizeForm.due_date}
-                                            onChange={(e) => setFinalizeForm(f => ({ ...f, due_date: e.target.value }))}
-                                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
-                                    </div>
-                                )}
-
-                                <div>
-                                    <label className="mb-1 block text-xs font-semibold text-zinc-600 dark:text-zinc-300">Observação <span className="font-normal text-zinc-400">(opcional)</span></label>
-                                    <input type="text" value={finalizeForm.notes}
-                                        onChange={(e) => setFinalizeForm(f => ({ ...f, notes: e.target.value }))}
-                                        placeholder="Ex: cliente pagou na entrega"
-                                        className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
-                                </div>
-
-                                {finalizeMsg && (
-                                    <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 dark:bg-red-900/20 dark:text-red-400">{finalizeMsg}</p>
-                                )}
-
-                                <button onClick={handleFinalizeOrder} disabled={finalizing}
-                                    className="w-full rounded-xl bg-violet-600 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50 transition-colors">
-                                    {finalizing ? "Finalizando…" : A_PRAZO_METHODS.has(finalizeForm.payment_method) ? "Finalizar + Lançar a prazo" : "Finalizar pedido (à vista)"}
-                                </button>
-                            </div>
-                        )}
-
-                        {extratoModal.source === "order" &&
-                         ["finalized","delivered"].includes(extratoModal.orderStatus ?? "") && (
-                            <div className="rounded-xl bg-emerald-50 px-4 py-3 text-xs dark:bg-emerald-900/20">
-                                <p className="font-semibold text-emerald-700 dark:text-emerald-400">✅ Pedido já finalizado</p>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="border-t border-zinc-100 px-6 py-3 dark:border-zinc-800">
-                        <button type="button" onClick={() => setExtratoModal(null)}
-                            className="w-full rounded-xl border border-zinc-200 py-2 text-xs font-semibold text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
-                            Fechar
-                        </button>
-                    </div>
-                </>
-            )}
-        </dialog>
-        </>
         </PlanFeatureGate>
     );
 }

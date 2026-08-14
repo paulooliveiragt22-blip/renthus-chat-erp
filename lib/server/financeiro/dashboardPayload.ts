@@ -5,6 +5,7 @@ import {
 } from "@/lib/server/financeiro/receivedIncome";
 import { financeQuerySupabase } from "@/src/financeiro/adapters/supabase/financeQuery.supabase";
 import { asMoney } from "@/src/financeiro/domain/money";
+import { FINANCE_ORIGINS, normalizeFinanceOrigin } from "@/src/financeiro/domain/origin";
 
 export type DaySummary = {
     isoDate: string;
@@ -71,18 +72,6 @@ function eachCivilDay(from: string, to: string): string[] {
         cur.setUTCDate(cur.getUTCDate() + 1);
     }
     return out;
-}
-
-function normOrigin(raw: string | null | undefined): string {
-    if (!raw) return "pdv";
-    if (raw === "chatbot" || raw.startsWith("flow_")) return "chatbot";
-    if (raw === "ui" || raw === "ui_order" || raw === "admin") return "ui_order";
-    if (raw === "balcao" || raw === "pdv" || raw === "pdv_direct") return "pdv";
-    if (raw === "web_menu") return "web_menu";
-    if (raw === "ai_chat") return "ai_chat";
-    if (raw === "table_service" || raw === "mesa") return "table_service";
-    if (raw.startsWith("marketplace")) return "marketplace";
-    return "pdv";
 }
 
 export async function buildFinanceDashboard(
@@ -170,9 +159,9 @@ export async function buildFinanceDashboard(
         })
         .sort((a, b) => b.total - a.total);
 
-    const originMap: Record<string, number> = { pdv: 0, chatbot: 0, ui_order: 0 };
+    const originMap: Record<string, number> = Object.fromEntries(FINANCE_ORIGINS.map((k) => [k, 0]));
     for (const o of dash.byOrigin) {
-        const key = normOrigin(o.origin);
+        const key = normalizeFinanceOrigin(o.origin);
         originMap[key] = (originMap[key] ?? 0) + o.amount;
     }
 
