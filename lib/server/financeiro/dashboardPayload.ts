@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+    civilRangeToUtcBounds,
+    fetchReceivedIncome,
+    loadCompanyTimezone,
+} from "@/lib/server/financeiro/receivedIncome";
 
 export type DaySummary = {
     isoDate: string;
@@ -49,12 +54,30 @@ const PAY_META: Record<string, { label: string; color: string }> = {
 function pad(n: number) {
     return String(n).padStart(2, "0");
 }
-function isoDate(d: Date) {
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 function shortDay(iso: string) {
     const d = new Date(iso + "T12:00:00");
     return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function eachCivilDay(from: string, to: string): string[] {
+    const out: string[] = [];
+    const cur = new Date(from + "T12:00:00Z");
+    const end = new Date(to + "T12:00:00Z");
+    while (cur <= end) {
+        out.push(
+            `${cur.getUTCFullYear()}-${pad(cur.getUTCMonth() + 1)}-${pad(cur.getUTCDate())}`
+        );
+        cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return out;
+}
+
+function normOrigin(raw: string | null | undefined): string {
+    if (!raw) return "pdv";
+    if (raw === "chatbot" || raw.startsWith("flow_")) return "chatbot";
+    if (raw === "ui" || raw === "ui_order" || raw === "admin") return "ui_order";
+    if (raw === "balcao" || raw === "pdv" || raw === "pdv_direct") return "pdv";
+    return "pdv";
 }
 
 export async function buildFinanceDashboard(
@@ -62,41 +85,46 @@ export async function buildFinanceDashboard(
     companyId: string,
     dateRange: { from: string; to: string; days: number }
 ): Promise<{ stats: StatsPayload; expenses: ExpenseRow[] }> {
-    const fromIso = dateRange.from + "T00:00:00.000Z";
-    const toIso = dateRange.to + "T23:59:59.999Z";
+    const timeZone = await loadCompanyTimezone(admin, companyId);
+    const bounds = civilRangeToUtcBounds(dateRange.from, dateRange.to, timeZone);
+    const income = await fetchReceivedIncome(
+        admin,
+        companyId,
+        { from: bounds.from, toExclusive: bounds.toExclusive },
+        timeZone
+    );
 
-    const { data: salesRaw } = await admin
-        .from("sales")
-        .select("id, created_at, total, subtotal, origin, status")
+    // Custo: entradas recebidas → order_id / sale_id
+    const { data: feRows } = await admin
+        .from("financial_entries")
+        .select("id, order_id, sale_id, amount, received_at, occurred_at")
         .eq("company_id", companyId)
-        .neq("status", "canceled")
-        .gte("created_at", fromIso)
-        .lte("created_at", toIso)
-        .order("created_at", { ascending: true });
+        .eq("type", "income")
+        .eq("status", "received")
+        .gte("received_at", bounds.from.toISOString())
+        .lt("received_at", bounds.toExclusive.toISOString());
 
-    const { data: ordersRaw } = await admin
-        .from("orders")
-        .select("id, created_at, total_amount, delivery_fee, payment_method, status, source, channel")
+    // Fallback: algumas linhas antigas só têm occurred_at
+    const { data: feOcc } = await admin
+        .from("financial_entries")
+        .select("id, order_id, sale_id, amount, received_at, occurred_at")
         .eq("company_id", companyId)
-        .in("status", ["finalized", "delivered"])
-        .is("sale_id", null)
-        .gte("created_at", fromIso)
-        .lte("created_at", toIso)
-        .order("created_at", { ascending: true });
+        .eq("type", "income")
+        .eq("status", "received")
+        .is("received_at", null)
+        .gte("occurred_at", bounds.from.toISOString())
+        .lt("occurred_at", bounds.toExclusive.toISOString());
 
-    const safeSales = (salesRaw ?? []) as Record<string, unknown>[];
-    const safeOrders = (ordersRaw ?? []) as Record<string, unknown>[];
-
-    const saleIds = safeSales.map((s) => s.id as string);
-    let salePayments: { sale_id?: string; payment_method?: string; amount?: number }[] = [];
-    if (saleIds.length > 0) {
-        const { data: spRows } = await admin
-            .from("sale_payments")
-            .select("sale_id, payment_method, amount")
-            .in("sale_id", saleIds)
-            .not("payment_method", "in", '("credit_installment","boleto","cheque","promissoria")');
-        salePayments = (spRows ?? []) as typeof salePayments;
+    const feMap = new Map<string, { order_id: string | null; sale_id: string | null }>();
+    for (const row of [...(feRows ?? []), ...(feOcc ?? [])]) {
+        feMap.set(String(row.id), {
+            order_id: (row.order_id as string) ?? null,
+            sale_id: (row.sale_id as string) ?? null,
+        });
     }
+
+    const saleIds = [...new Set([...feMap.values()].map((v) => v.sale_id).filter(Boolean))] as string[];
+    const orderIds = [...new Set([...feMap.values()].map((v) => v.order_id).filter(Boolean))] as string[];
 
     const costBySale: Record<string, number> = {};
     if (saleIds.length > 0) {
@@ -107,13 +135,18 @@ export async function buildFinanceDashboard(
     }
 
     const costByOrder: Record<string, number> = {};
-    const orderIds = safeOrders.map((o) => o.id as string);
     if (orderIds.length > 0) {
         const { data: items } = await admin
             .from("order_items")
             .select("order_id, quantity, qty, produto_embalagem_id")
             .in("order_id", orderIds);
-        const embIds = [...new Set((items ?? []).map((it: { produto_embalagem_id?: string }) => it.produto_embalagem_id).filter(Boolean))] as string[];
+        const embIds = [
+            ...new Set(
+                (items ?? [])
+                    .map((it: { produto_embalagem_id?: string }) => it.produto_embalagem_id)
+                    .filter(Boolean)
+            ),
+        ] as string[];
         const embCostMap: Record<string, { baseCost: number; fator: number }> = {};
         if (embIds.length > 0) {
             const { data: embRows } = await admin
@@ -122,14 +155,26 @@ export async function buildFinanceDashboard(
                 .eq("company_id", companyId)
                 .in("id", embIds);
             (embRows ?? []).forEach((e: { id: string; product_preco_custo?: number; fator_conversao?: number }) => {
-                embCostMap[e.id] = { baseCost: Number(e.product_preco_custo ?? 0), fator: Number(e.fator_conversao ?? 1) };
+                embCostMap[e.id] = {
+                    baseCost: Number(e.product_preco_custo ?? 0),
+                    fator: Number(e.fator_conversao ?? 1),
+                };
             });
         }
-        (items ?? []).forEach((it: { order_id: string; quantity?: number; qty?: number; produto_embalagem_id?: string }) => {
-            const q = Number(it.quantity ?? it.qty ?? 1);
-            const em = it.produto_embalagem_id ? embCostMap[it.produto_embalagem_id] : undefined;
-            costByOrder[it.order_id] = (costByOrder[it.order_id] ?? 0) + (em ? em.baseCost * em.fator * q : 0);
-        });
+        (items ?? []).forEach(
+            (it: { order_id: string; quantity?: number; qty?: number; produto_embalagem_id?: string }) => {
+                const q = Number(it.quantity ?? it.qty ?? 1);
+                const em = it.produto_embalagem_id ? embCostMap[it.produto_embalagem_id] : undefined;
+                costByOrder[it.order_id] =
+                    (costByOrder[it.order_id] ?? 0) + (em ? em.baseCost * em.fator * q : 0);
+            }
+        );
+    }
+
+    let costTotal = 0;
+    for (const v of feMap.values()) {
+        if (v.sale_id) costTotal += costBySale[v.sale_id] ?? 0;
+        else if (v.order_id) costTotal += costByOrder[v.order_id] ?? 0;
     }
 
     const { data: expData } = await admin
@@ -147,87 +192,73 @@ export async function buildFinanceDashboard(
         .eq("company_id", companyId)
         .eq("type", "receivable")
         .in("status", ["open", "partial", "overdue"]);
-    const totalAReceber = (billsOpen ?? []).reduce((s: number, b: { saldo_devedor?: number }) => s + Number(b.saldo_devedor ?? 0), 0);
+    const totalAReceber = (billsOpen ?? []).reduce(
+        (s: number, b: { saldo_devedor?: number }) => s + Number(b.saldo_devedor ?? 0),
+        0
+    );
 
     const dayMap: Record<string, DaySummary> = {};
-    for (let i = 0; i < dateRange.days; i++) {
-        const d = new Date(Date.now() - (dateRange.days - 1 - i) * 86400000);
-        const iso = isoDate(d);
+    for (const iso of eachCivilDay(dateRange.from, dateRange.to)) {
         dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
     }
-    safeSales.forEach((s) => {
-        const iso = String(s.created_at).slice(0, 10);
-        if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
-        dayMap[iso].revenue += Number(s.total ?? 0);
-        dayMap[iso].cost += costBySale[s.id as string] ?? 0;
-        dayMap[iso].orders += 1;
-    });
-    safeOrders.forEach((o) => {
-        const iso = String(o.created_at).slice(0, 10);
-        if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
-        dayMap[iso].revenue += Number(o.total_amount ?? 0);
-        dayMap[iso].cost += costByOrder[o.id as string] ?? 0;
-        dayMap[iso].orders += 1;
-    });
+    for (const d of income.byDay) {
+        if (!dayMap[d.day]) {
+            dayMap[d.day] = {
+                isoDate: d.day,
+                label: shortDay(d.day),
+                revenue: 0,
+                cost: 0,
+                orders: 0,
+                expensesDay: 0,
+            };
+        }
+        dayMap[d.day].revenue += d.amount;
+        dayMap[d.day].orders += d.entries_count;
+    }
+    // Distribui custo proporcional por dia via entries_count — aproximação; detalhe por FE seria pesado.
+    // Melhor: custo total no período (já calculado); custo diário fica 0 aqui se não quisermos alocar.
+    // Aloca custo nos dias na proporção da receita do dia.
+    const revenue = income.total;
+    if (revenue > 0 && costTotal > 0) {
+        for (const d of Object.values(dayMap)) {
+            if (d.revenue <= 0) continue;
+            d.cost = (d.revenue / revenue) * costTotal;
+        }
+    }
     safeExp.forEach((e) => {
         if (e.payment_status !== "paid") return;
         const iso = e.due_date;
-        if (!dayMap[iso]) dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
+        if (!dayMap[iso]) {
+            dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
+        }
         dayMap[iso].expensesDay += Number(e.amount);
     });
     const byDay = Object.values(dayMap).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
 
-    const payMap: Record<string, { total: number; count: number }> = {};
-    salePayments.forEach((sp) => {
-        const m = sp.payment_method ?? "outros";
-        if (!payMap[m]) payMap[m] = { total: 0, count: 0 };
-        payMap[m].total += Number(sp.amount ?? 0);
-        payMap[m].count += 1;
-    });
-    safeOrders.forEach((o) => {
-        const m = (o.payment_method ?? "outros") as string;
-        if (!payMap[m]) payMap[m] = { total: 0, count: 0 };
-        payMap[m].total += Number(o.total_amount ?? 0);
-        payMap[m].count += 1;
-    });
-    const byPay: PaySummary[] = Object.entries(payMap).map(([method, v]) => {
-        const meta = PAY_META[method] ?? { label: method, color: "#a1a1aa" };
-        return { method, ...meta, ...v };
-    }).sort((a, b) => b.total - a.total);
+    const byPay: PaySummary[] = income.byPaymentMethod
+        .map((p) => {
+            const meta = PAY_META[p.method] ?? { label: p.method, color: "#a1a1aa" };
+            return { method: p.method, ...meta, total: p.amount, count: p.entries_count };
+        })
+        .sort((a, b) => b.total - a.total);
 
-    const normOrigin = (raw: string | null | undefined): string => {
-        if (!raw) return "pdv";
-        if (raw === "chatbot" || raw.startsWith("flow_")) return "chatbot";
-        if (raw === "ui" || raw === "ui_order") return "ui_order";
-        return "pdv";
-    };
     const originMap: Record<string, number> = { pdv: 0, chatbot: 0, ui_order: 0 };
-    safeSales.forEach((s) => {
-        const key = normOrigin(s.origin as string);
-        originMap[key] = (originMap[key] ?? 0) + Number(s.total ?? 0);
-    });
-    safeOrders.forEach((o) => {
-        const src = (o.source ?? o.channel ?? null) as string | null;
-        const key =
-            !src || src === "balcao" || src === "pdv_direct"
-                ? "pdv"
-                : src === "whatsapp" || src === "chatbot" || src.startsWith("flow_")
-                  ? "chatbot"
-                  : "ui_order";
-        originMap[key] = (originMap[key] ?? 0) + Number(o.total_amount ?? 0);
-    });
+    for (const o of income.byOrigin) {
+        const key = normOrigin(o.origin);
+        originMap[key] = (originMap[key] ?? 0) + o.amount;
+    }
 
-    const revenue = byDay.reduce((s, d) => s + d.revenue, 0);
-    const cost = byDay.reduce((s, d) => s + d.cost, 0);
-    const expensesPaid = safeExp.filter((e) => e.payment_status === "paid").reduce((s, e) => s + Number(e.amount), 0);
-    const orders = byDay.reduce((s, d) => s + d.orders, 0);
+    const expensesPaid = safeExp
+        .filter((e) => e.payment_status === "paid")
+        .reduce((s, e) => s + Number(e.amount), 0);
+    const orders = income.count;
 
     const stats: StatsPayload = {
         revenue,
-        cost,
+        cost: costTotal,
         expensesPaid,
-        profit: revenue - cost,
-        realProfit: revenue - cost - expensesPaid,
+        profit: revenue - costTotal,
+        realProfit: revenue - costTotal - expensesPaid,
         orders,
         ticket: orders > 0 ? revenue / orders : 0,
         byDay,

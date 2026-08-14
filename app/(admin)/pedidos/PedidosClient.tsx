@@ -684,29 +684,6 @@ export default function PedidosPage() {
         const json = await res.json().catch(() => ({}));
         if (!res.ok) { setMsg(`Erro ao atualizar status: ${json?.error ?? "falha desconhecida"}`); setActionSaving(false); return; }
 
-        // Registrar em financial_entries ao finalizar ou entregar (não em preparing)
-        if ((actionKind === "finalize" || actionKind === "deliver") && companyId) {
-            const ord = orders.find(o => o.id === orderId);
-            const totalAmt = Number((ord as any)?.total_amount ?? 0);
-            if (totalAmt > 0) {
-                const feRes = await fetch("/api/admin/financial-entries", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    credentials: "include",
-                    body: JSON.stringify({
-                        order_id: orderId,
-                        type: "income",
-                        amount: totalAmt,
-                        payment_method: actionPayMethod || (ord as any)?.payment_method || "pix",
-                        description: `Pedido #${orderId.slice(0,8)} — ${note || ""}`.trim().replace(/— $/, ""),
-                        reference_date: new Date().toISOString().slice(0, 10),
-                    }),
-                });
-                const feJson = await feRes.json().catch(() => ({}));
-                if (!feRes.ok) console.warn("[runAction] financial_entries:", feJson?.error ?? "falha desconhecida");
-            }
-        }
-
         // Ao finalizar: envia agradecimento WhatsApp (antes no botão separado)
         if (actionKind === "finalize") {
             const full = viewOrder?.id === orderId ? viewOrder : await fetchOrderFull(orderId);

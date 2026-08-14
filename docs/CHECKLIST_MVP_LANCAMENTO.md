@@ -22,7 +22,7 @@ pré-produção radical (`.cursor/rules/projeto-pre-producao-radical.mdc`).
 | M4 | Vias de impressão selecionáveis + reprint por via | Pro + Market (`printing_auto`) | [x] |
 | M5 | Status `preparing` + notificar cliente | todos (IG só com omnichannel) | [x] |
 | M6 | Limpar fila de impressão | Pro + Market (`printing_auto`) | [x] |
-| M7 | Integridade financeira (receita real) | todos (não é feature flag) | [ ] |
+| M7 | Integridade financeira (receita real) | todos (não é feature flag) | [x] |
 | M0 | Seed de keys novas no commit do item | `staff_users` em M3 | [x] |
 
 ---
@@ -144,7 +144,8 @@ status fantasma (extrato/PDV).
 
 ## M7 — Integridade de valores
 
-**Estado:** [ ] estrutura aprovada
+**Estado:** [x] 2026-08-13 — receita = `financial_entries` received; RPC agregação;
+dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 
 ---
 
@@ -169,3 +170,4 @@ status fantasma (extrato/PDV).
 | 2026-08-13 | M5 aplicado (`orders_status_preparing` + RPC + notify + UI) |
 | 2026-08-13 | M4+M6 aplicados (`print_jobs.copy_type`, clear queue, UI vias) |
 | 2026-08-13 | M3 aplicado (`staff_users` + convite + UI equipe) |
+| 2026-08-13 | M7 aplicado (receita canônica + fuso loja + sem POST Pedidos) |

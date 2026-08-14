@@ -37,7 +37,7 @@ export default function ActionModal({
     paymentMethod?: string;
     setPaymentMethod?: (v: string) => void;
 }) {
-    const showPayment = (kind === "finalize" || kind === "deliver") && !!setPaymentMethod;
+    const showPayment = kind === "finalize" && !!setPaymentMethod;
 
     function actionTitle(k: ActionKind) {
         if (k === "cancel") return "Cancelar pedido";
@@ -132,7 +132,7 @@ export default function ActionModal({
                 <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
                     Status final: <strong>{prettyStatus(actionStatus(kind))}</strong>
                     {kind === "prepare" && " · avisa o cliente (best-effort)"}
-                    {showPayment && " · pagamento registrado em financial_entries"}
+                    {showPayment && " · lançamento financeiro na finalização do pedido"}
                 </p>
             </div>
         </Modal>

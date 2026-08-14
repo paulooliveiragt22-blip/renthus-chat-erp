@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseRow } from "./dashboardPayload";
+import { civilRangeToUtcBounds, loadCompanyTimezone } from "@/lib/server/financeiro/receivedIncome";
 
 export type ExtratoLine = {
     id: string;
@@ -18,79 +19,67 @@ export type ExtratoLine = {
     orderStatus?: string | null;
 };
 
+/**
+ * Extrato de receita: somente `financial_entries` (income).
+ * Despesas: `expenses` do período.
+ */
 export async function buildExtratoLines(
     admin: SupabaseClient,
     companyId: string,
     dateRange: { from: string; to: string },
     expenses: ExpenseRow[]
 ): Promise<ExtratoLine[]> {
-    const fromIso = dateRange.from + "T00:00:00.000Z";
-    const toIso = dateRange.to + "T23:59:59.999Z";
+    const timeZone = await loadCompanyTimezone(admin, companyId);
+    const bounds = civilRangeToUtcBounds(dateRange.from, dateRange.to, timeZone);
     const lines: ExtratoLine[] = [];
 
-    const { data: spRows } = await admin
-        .from("sale_payments")
-        .select("id, created_at, amount, payment_method, status, sale_id, sales(origin, notes, customer_id, customers(name))")
+    const { data: feRows } = await admin
+        .from("financial_entries")
+        .select(
+            "id, amount, payment_method, status, description, origin, order_id, sale_id, received_at, occurred_at, orders(customers(name), customer_id, status)"
+        )
         .eq("company_id", companyId)
-        .gte("created_at", fromIso)
-        .lte("created_at", toIso)
-        .order("created_at", { ascending: false })
-        .limit(500);
+        .eq("type", "income")
+        .gte("occurred_at", bounds.from.toISOString())
+        .lt("occurred_at", bounds.toExclusive.toISOString())
+        .order("occurred_at", { ascending: false })
+        .limit(800);
 
-    (spRows ?? []).forEach((sp: Record<string, unknown>) => {
-        const sale = sp.sales as Record<string, unknown> | null | undefined;
-        const origin = (sale?.origin as string) ?? "pdv";
-        const channel = origin === "chatbot" ? "whatsapp" : origin === "ui_order" ? "admin" : "pdv";
-        const cust = sale?.customers as { name?: string } | undefined;
+    // Filtra received pelo instante canônico (received_at ?? occurred_at) no intervalo civil
+    const fromMs = bounds.from.getTime();
+    const toMs = bounds.toExclusive.getTime();
+
+    for (const fe of feRows ?? []) {
+        const when = new Date(String(fe.received_at ?? fe.occurred_at)).getTime();
+        if (!Number.isFinite(when) || when < fromMs || when >= toMs) continue;
+
+        const ord = fe.orders as
+            | { customers?: { name?: string }; customer_id?: string; status?: string }
+            | null
+            | undefined;
+        const status = String(fe.status ?? "");
         lines.push({
-            id: `sp-${String(sp.id)}`,
-            date: String(sp.created_at),
+            id: `fe-${String(fe.id)}`,
+            date: String(fe.received_at ?? fe.occurred_at),
             type: "income",
             source: "financial_entry",
-            description: `Venda — ${(sale?.notes as string) ?? origin}`,
-            customer: cust?.name ?? "—",
-            channel,
-            payment_method: String(sp.payment_method ?? "—"),
-            amount: Number(sp.amount ?? 0),
+            description:
+                String(fe.description ?? "").trim() ||
+                (fe.order_id
+                    ? `Pedido #${String(fe.order_id).slice(-6).toUpperCase()}`
+                    : "Recebimento"),
+            customer: ord?.customers?.name ?? "—",
+            channel: String(fe.origin ?? "—"),
+            payment_method: String(fe.payment_method ?? "—"),
+            amount: Number(fe.amount ?? 0),
             status:
-                sp.status === "received" ? "recebido" : sp.status === "pending" ? "pendente" : String(sp.status ?? ""),
-            orderId: null,
-            saleId: (sp.sale_id as string) ?? null,
-            customerId: (sale?.customer_id as string) ?? null,
-            orderStatus: null,
+                status === "received" ? "recebido" : status === "pending" ? "pendente" : status,
+            orderId: (fe.order_id as string) ?? null,
+            saleId: (fe.sale_id as string) ?? null,
+            customerId: ord?.customer_id ?? null,
+            orderStatus: ord?.status ?? null,
         });
-    });
-
-    const { data: ordRows } = await admin
-        .from("orders")
-        .select("id, created_at, total_amount, payment_method, status, channel, source, customer_id, customers(name)")
-        .eq("company_id", companyId)
-        .in("status", ["finalized", "delivered"])
-        .is("sale_id", null)
-        .gte("created_at", fromIso)
-        .lte("created_at", toIso)
-        .order("created_at", { ascending: false })
-        .limit(300);
-
-    (ordRows ?? []).forEach((o: Record<string, unknown>) => {
-        const cust = o.customers as { name?: string } | undefined;
-        lines.push({
-            id: `ord-${String(o.id)}`,
-            date: String(o.created_at),
-            type: "income",
-            source: "order",
-            description: `Pedido #${String(o.id).slice(-6).toUpperCase()}`,
-            customer: cust?.name ?? "—",
-            channel: (o.source as string) ?? (o.channel as string) ?? "admin",
-            payment_method: String(o.payment_method ?? "—"),
-            amount: Number(o.total_amount ?? 0),
-            status: String(o.status),
-            orderId: o.id as string,
-            saleId: null,
-            customerId: (o.customer_id as string) ?? null,
-            orderStatus: String(o.status),
-        });
-    });
+    }
 
     expenses.forEach((e) => {
         lines.push({

@@ -37,6 +37,7 @@
     "lib/delivery/**/*.ts",
     "lib/print/**/*.ts",
     "lib/workspace/staffRoles.ts",
+    "lib/server/financeiro/dayBounds.ts",
     "src/types/contracts.public-menu.ts",
     "src/types/contracts.marketplace.ts",
     "tests/**/*.ts",
