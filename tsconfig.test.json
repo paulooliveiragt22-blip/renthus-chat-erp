@@ -42,6 +42,7 @@
     "lib/workspace/rbac/requireCapability.ts",
     "lib/workspace/requireCompanyAccess.ts",
     "lib/server/financeiro/dayBounds.ts",
+    "lib/orders/enqueuePreparingNotify.ts",
     "src/types/contracts.public-menu.ts",
     "src/types/contracts.marketplace.ts",
     "tests/**/*.ts",

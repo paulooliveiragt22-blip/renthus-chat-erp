@@ -75,7 +75,7 @@ describe("evaluateOutboundGates", () => {
         assert.deepEqual(decision, { allow: false, reason: "outside_business_hours" });
     });
 
-    it("transacional ignora horário e teto de frequência, mas não a janela", () => {
+    it("transacional: libera fora do horário; ainda exige janela 24h Meta (envio real)", () => {
         const ctx = baseContext({
             purpose: "transactional",
             cartStatus: null,
@@ -86,6 +86,11 @@ describe("evaluateOutboundGates", () => {
         assert.deepEqual(
             evaluateOutboundGates({ ...ctx, lastInboundAt: null }),
             { allow: false, reason: "outside_service_window" }
+        );
+        // Handover humano também bloqueia o envio do "em preparo"
+        assert.deepEqual(
+            evaluateOutboundGates({ ...ctx, botActive: false }),
+            { allow: false, reason: "human_handover" }
         );
     });
 });
