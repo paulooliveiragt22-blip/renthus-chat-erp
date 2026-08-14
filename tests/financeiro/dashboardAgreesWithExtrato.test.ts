@@ -42,7 +42,7 @@ describe("F3 dashboard M7 — fontes alinhadas", () => {
         assert.match(read("app/api/reports/summary/route.ts"), /fetchReceivedIncome|rpc_fin_cash_revenue|rpcCashRevenue/);
         assert.match(read("app/api/reports/daily/route.ts"), /fetchReceivedIncome|rpc_fin_cash_revenue|rpcCashRevenue/);
         assert.match(
-            read("lib/server/financeiro/dashboardPayload.ts"),
+            read("src/financeiro/application/queryDashboard.ts"),
             /rpc_fin_dashboard|financeQuerySupabase/
         );
     });

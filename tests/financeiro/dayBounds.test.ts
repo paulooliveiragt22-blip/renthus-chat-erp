@@ -6,7 +6,7 @@ import {
     zonedHour,
     zonedIsoDate,
     zonedLocalToUtc,
-} from "../../lib/server/financeiro/dayBounds";
+} from "../../src/financeiro/domain/dayBounds";
 
 describe("dayBounds (M7)", () => {
     it("zonedIsoDate em America/Cuiaba", () => {

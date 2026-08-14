@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
     civilRangeToUtcBounds,
     loadCompanyTimezone,
-} from "@/lib/server/financeiro/receivedIncome";
+} from "@/src/financeiro/application/cashRevenue";
 import { financeQuerySupabase } from "@/src/financeiro/adapters/supabase/financeQuery.supabase";
 import { asMoney } from "@/src/financeiro/domain/money";
 import { FINANCE_ORIGINS, normalizeFinanceOrigin } from "@/src/financeiro/domain/origin";

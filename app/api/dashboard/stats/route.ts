@@ -4,7 +4,7 @@ import {
     mergeChartWithOrders,
     queryHomeStats,
 } from "@/src/financeiro/application/queryHomeStats";
-import { zonedDayRange } from "@/lib/server/financeiro/dayBounds";
+import { zonedDayRange } from "@/src/financeiro/domain/dayBounds";
 
 export const runtime = "nodejs";
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
-import { buildFinanceDashboard } from "@/lib/server/financeiro/dashboardPayload";
+import { buildFinanceDashboard } from "@/src/financeiro/application/queryDashboard";
 
 export const runtime = "nodejs";
 

@@ -109,7 +109,7 @@ describe("MVP E2E contratos UI/API (sem browser)", () => {
     });
 
     it("M7 dashboard/extrato + sem POST Pedidos financial-entries", () => {
-        assert.match(read("lib/server/financeiro/receivedIncome.ts"), /rpcCashRevenue/);
+        assert.match(read("src/financeiro/application/cashRevenue.ts"), /rpcCashRevenue/);
         assert.match(
             read("src/financeiro/adapters/supabase/financeQuery.supabase.ts"),
             /rpc_fin_cash_revenue/

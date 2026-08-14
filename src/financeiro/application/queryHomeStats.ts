@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadCompanyTimezone } from "@/lib/server/financeiro/receivedIncome";
-import { todayIsoInZone, zonedDayRange, zonedHour } from "@/lib/server/financeiro/dayBounds";
+import { loadCompanyTimezone } from "@/src/financeiro/application/cashRevenue";
+import { todayIsoInZone, zonedDayRange, zonedHour } from "@/src/financeiro/domain/dayBounds";
 import { asMoney, roundMoney } from "@/src/financeiro/domain/money";
 import { financeQuerySupabase } from "@/src/financeiro/adapters/supabase/financeQuery.supabase";
 

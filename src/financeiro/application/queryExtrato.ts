@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ExpenseRow } from "./dashboardPayload";
-import { civilRangeToUtcBounds, loadCompanyTimezone } from "@/lib/server/financeiro/receivedIncome";
+import type { ExpenseRow } from "@/src/financeiro/application/queryDashboard";
+import { civilRangeToUtcBounds, loadCompanyTimezone } from "@/src/financeiro/application/cashRevenue";
 import { asMoney } from "@/src/financeiro/domain/money";
 
 export type ExtratoLine = {

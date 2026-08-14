@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
-import { buildExtratoLines } from "@/lib/server/financeiro/extratoPayload";
+import { buildExtratoLines } from "@/src/financeiro/application/queryExtrato";
 
 export const runtime = "nodejs";
 

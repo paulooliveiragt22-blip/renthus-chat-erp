@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeTimezone, DEFAULT_STORE_TIMEZONE } from "@/lib/delivery/hours";
-import { todayIsoInZone, zonedDayRange } from "@/lib/server/financeiro/dayBounds";
+import { todayIsoInZone, zonedDayRange } from "@/src/financeiro/domain/dayBounds";
 import { rpcCashRevenue } from "@/src/financeiro/adapters/supabase/financeQuery.supabase";
 import type { CashRevenueSummary } from "@/src/financeiro/ports/financeQuery.port";
 

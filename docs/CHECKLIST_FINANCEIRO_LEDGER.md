@@ -31,7 +31,7 @@ TS hexagonal é **cliente da RPC**, não uma segunda matriz de partidas.
 | F2 | Writers | Pedidos: status ≠ dinheiro; liquidação explícita; `financeiro.write`; sangria idempotente | [x] 2026-08-14 |
 | F3 | Dashboard | Home = contrato M7: recebido / a receber / ativos; gráfico de caixa; drill | [x] 2026-08-14 |
 | F4 | UI Financeiro | Tabs; A Pagar = bills; Caixa com esperado | [x] 2026-08-14 |
-| F5 | Mata-legado | Apaga `lib/server/financeiro` residual, `expenses` API, `v_daily_sales` como faturamento | [ ] |
+| F5 | Mata-legado | Apaga `lib/server/financeiro` residual, `expenses` API, `v_daily_sales` como faturamento | [x] 2026-08-14 |
 
 M7 (R$ da home = caixa **posted** no fuso da loja) vale em **todos** os planos.
 A home **é** o financeiro do Essencial. `financeiro_full` = extrato / DRE / opex /
@@ -483,12 +483,12 @@ Arquivos: **T** `stats/route.ts` · **T** `DashboardClient.tsx` · **T** `report
 
 ## F5 — Mata-legado
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-14
 
-- [ ] Apagar arquivos da lista A.
-- [ ] Grep zero: `from("financial_entries")`, `from("expenses")`, `rpc_upsert_expense`, `rpc_company_received_income`, `rpc_pay_bill`, `v_daily_sales` em faturamento.
-- [ ] `postingMatrix`: PDV misto; a prazo→baixa; chatbot à vista; chatbot prazo recusa; estorno; retry mesma chave mesmo id; sangria dupla.
-- [ ] `npm test`. Prova `to_regclass('public.financial_entries')` IS NULL.
+- [x] Apagar arquivos da lista A.
+- [x] Grep zero: `from("financial_entries")`, `from("expenses")`, `rpc_upsert_expense`, `rpc_company_received_income`, `rpc_pay_bill`, `v_daily_sales` em faturamento.
+- [x] `postingMatrix`: PDV misto; a prazo→baixa; chatbot à vista; chatbot prazo recusa; estorno; retry mesma chave mesmo id; sangria dupla.
+- [x] `npm test`. Prova `to_regclass('public.financial_entries')` IS NULL.
 
 ---
 
@@ -535,3 +535,4 @@ F3 pode começar em paralelo depois da F1 (o card R$ já está certo). F4 não c
 | 2026-08-14 | F2: `settle: true` no PATCH Pedidos; recognize a prazo só UI/PDV; cancel estorna journal (409 se caixa fechado); opex/baixa exigem `financeiro.write`; sangria via `rpc_post_cash_movement` com chave. |
 | 2026-08-14 | F3: home M7 — Recebido/A receber/Ativos/Ticket; gráfico caixa 1.1; top de `sale_items`; drill Pro `?from&to`; `queryHomeStats`. |
 | 2026-08-14 | F4: Financeiro em 6 tabs; opex via `POST /opex`; aging em A Receber; esperado no Caixa; origens F0; extrato com cursor. |
+| 2026-08-14 | F5: moveu helpers para `src/financeiro`; drop `expenses` API + `v_daily_sales`; PDV passa a CR 3.2 na taxa de entrega. |

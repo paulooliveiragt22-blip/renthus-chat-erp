@@ -5,7 +5,7 @@ import {
     civilRangeToUtcBounds,
     fetchReceivedIncome,
     loadCompanyTimezone,
-} from "@/lib/server/financeiro/receivedIncome";
+} from "@/src/financeiro/application/cashRevenue";
 
 export const runtime = "nodejs";
 

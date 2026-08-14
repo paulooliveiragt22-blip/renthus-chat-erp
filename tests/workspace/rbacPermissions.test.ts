@@ -3,7 +3,7 @@
  */
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
-import { readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import {
     canChangeMemberRole,
@@ -403,16 +403,19 @@ describe("RBAC — auditoria estática de rotas (vazamento)", () => {
 
     it("mutações financeiras exigem financeiro.write; PDV sangria fica em pdv.access", () => {
         const opex = readFileSync(join(projectRoot, "app/api/admin/financeiro/opex/route.ts"), "utf8");
-        const exp = readFileSync(join(projectRoot, "app/api/admin/financeiro/expenses/route.ts"), "utf8");
         const bills = readFileSync(join(projectRoot, "app/api/admin/financeiro/bills/route.ts"), "utf8");
         const fin = readFileSync(join(projectRoot, "app/api/admin/financeiro/finalize-order/route.ts"), "utf8");
         const sangria = readFileSync(join(projectRoot, "app/api/admin/pdv/cash-movements/route.ts"), "utf8");
         assert.match(opex, /financeiro\.write/);
-        assert.match(exp, /financeiro\.write/);
         assert.match(bills, /financeiro\.write/);
         assert.match(fin, /financeiro\.write/);
         assert.match(sangria, /pdv\.access/);
         assert.equal(/financeiro\.write/.test(sangria), false);
+        assert.equal(
+            existsSync(join(projectRoot, "app/api/admin/financeiro/expenses/route.ts")),
+            false,
+            "expenses route deve ter sido removida (F5 → /opex)"
+        );
     });
 
     it("catálogo cobre todas as keys usadas nos seeds", () => {

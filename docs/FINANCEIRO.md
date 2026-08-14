@@ -62,6 +62,19 @@ Status do pedido **não é dinheiro**. Canônico no Postgres (RPC). TypeScript s
 Fuso: `company_settings.timezone` (default `America/Cuiaba`). UI: `queryHomeStats` + `DashboardClient`.
 Drill Pro: `/financeiro?from={day}&to={day}`.
 
+## Preço, custo e taxas — como entram no financeiro
+
+| Conceito | Onde mora | O que o ledger faz |
+|----------|-----------|---------------------|
+| **Preço de venda** | `produto_embalagens.preco_venda` → `order_items.unit_price` / carrinho PDV → `sale_items.unit_price` | Não vira linha de journal item a item. O **pagamento** (`sale_payments.amount` / total liquidado) posta **CR 3.1** (e **CR 3.2** se houver taxa). |
+| **Preço de custo** | `products.preco_custo_unitario` × `produto_embalagens.fator_conversao` | Snapshot em `sale_items.unit_cost` / `line_cost` na liquidação. **Não entra no journal** (opção A). Alimenta CMV do `rpc_fin_dashboard` / DRE / “Resultado gerencial”. |
+| **Taxa de entrega** | `orders.delivery_fee` → `sales.delivery_fee` | Na liquidação: **CR 3.2** (Taxa de entrega) + **CR 3.1** no restante; débito em **1.1** (à vista) ou **1.2** (a prazo). Recognize e PDV (`fn_fin_post_sale_payments`) separam a taxa. |
+| **Taxa de garçom / serviço** | **Não modelada** hoje | Não há coluna nem conta. Papel “garçom” é só RBAC de mesa. Se restaurante precisar: campo em `orders`/`sales` + conta receita (ex. 3.3) + split no post — fora do escopo atual. |
+
+KPI **Recebido** (home) = só caixa **1.1** de liquidações (`sale_payment` / `recognize` / `bill_settlement`). Taxa de entrega **entra** nesse KPI quando paga à vista (faz parte do débito 1.1), mas no extrato/DRE a parcela fica creditada em **3.2**.
+
+---
+
 ## Resultado gerencial
 
 Recebido (caixa) − CMV snapshot das sales ligadas aos journals do período − opex pago (conta 4.2) no período.

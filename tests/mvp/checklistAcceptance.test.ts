@@ -24,7 +24,7 @@ import {
     filterCopiesForFulfillment,
     normalizePrintCopyTypes,
 } from "../../lib/print/copyTypes";
-import { zonedDayRange, zonedIsoDate } from "../../lib/server/financeiro/dayBounds";
+import { zonedDayRange, zonedIsoDate } from "../../src/financeiro/domain/dayBounds";
 import {
     canInviteRole,
     canManageTeam,
@@ -187,13 +187,13 @@ describe("MVP checklist — M6 limpar fila", () => {
 
 describe("MVP checklist — M7 receita canônica", () => {
     it("dashboard/extrato usam received income + fuso loja", () => {
-        assert.match(read("lib/server/financeiro/receivedIncome.ts"), /rpcCashRevenue/);
+        assert.match(read("src/financeiro/application/cashRevenue.ts"), /rpcCashRevenue/);
         assert.match(
             read("src/financeiro/adapters/supabase/financeQuery.supabase.ts"),
             /rpc_fin_cash_revenue/
         );
-        assert.match(read("lib/server/financeiro/dashboardPayload.ts"), /receivedIncome|loadCompanyTimezone|rpc_fin_dashboard/);
-        assert.match(read("lib/server/financeiro/extratoPayload.ts"), /v_fin_extrato|rpc_fin_cash_revenue/);
+        assert.match(read("src/financeiro/application/queryDashboard.ts"), /loadCompanyTimezone|rpc_fin_dashboard|financeQuerySupabase/);
+        assert.match(read("src/financeiro/application/queryExtrato.ts"), /v_fin_extrato|rpc_fin_cash_revenue/);
         assert.match(read("app/api/dashboard/stats/route.ts"), /queryHomeStats/);
         assert.match(read("app/api/dashboard/stats/route.ts"), /arOpen|settledSalesToday/);
         assert.match(read("components/DashboardClient.tsx"), /Recebido hoje|settledSalesToday|arOpen/);
@@ -213,7 +213,7 @@ describe("MVP checklist — M7 receita canônica", () => {
         assert.match(modal, /showPayment = kind === "finalize"/);
         assert.match(read("app/(admin)/pedidos/PedidosClient.tsx"), /settle:\s*true/);
         assert.match(read("app/api/admin/orders/route.ts"), /body\.settle === true/);
-        assert.match(read("app/api/admin/financeiro/expenses/route.ts"), /financeiro\.write/);
+        assert.match(read("app/api/admin/financeiro/opex/route.ts"), /financeiro\.write/);
         assert.match(read("app/api/admin/financeiro/bills/route.ts"), /financeiro\.write/);
         assert.match(read("app/api/admin/pdv/cash-movements/route.ts"), /rpc_post_cash_movement|postCashMovement/);
     });

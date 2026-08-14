@@ -57,6 +57,6 @@ describe("F4 UI Financeiro", () => {
         const dash = read("app/(admin)/financeiro/components/DashboardTab.tsx");
         assert.match(dash, /ORIGIN_LABELS/);
         assert.match(dash, /FINANCE_ORIGINS/);
-        assert.match(read("lib/server/financeiro/dashboardPayload.ts"), /normalizeFinanceOrigin/);
+        assert.match(read("src/financeiro/application/queryDashboard.ts"), /normalizeFinanceOrigin/);
     });
 });
