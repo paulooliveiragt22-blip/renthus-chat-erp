@@ -54,6 +54,7 @@ export async function POST(
             items: body.items,
             paymentMethod: body.paymentMethod,
             changeFor: body.changeFor,
+            fulfillmentType: body.fulfillmentType,
             savedAddressId: body.savedAddressId,
             newAddress: body.newAddress,
         },

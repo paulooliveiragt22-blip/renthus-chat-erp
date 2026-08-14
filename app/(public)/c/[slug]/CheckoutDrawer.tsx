@@ -323,6 +323,7 @@ export default function CheckoutDrawer({
             const q = await quoteDelivery({ sessionToken, savedAddressId });
             setBusy(false);
             if (!q.served) return;
+            setFulfillmentType((prev) => prev ?? "delivery");
             setStep("payment");
             return;
         }
@@ -345,12 +346,18 @@ export default function CheckoutDrawer({
         });
         setBusy(false);
         if (!q.served) return;
+        setFulfillmentType((prev) => prev ?? "delivery");
         setStep("payment");
     }
 
     async function placeOrder() {
         if (!sessionToken) return;
         setError(null);
+        if (!fulfillmentType) {
+            setError("Escolha entrega ou retirada no local.");
+            setStep("fulfillment");
+            return;
+        }
         setBusy(true);
         try {
             const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/checkout`, {

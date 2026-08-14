@@ -73,6 +73,10 @@ describe("MVP E2E contratos UI/API (sem browser)", () => {
     it("M1 UI policy + API delivery", () => {
         assert.match(read("app/(admin)/configuracoes/page.tsx"), /deliveries_enabled|acceptDeliveries/);
         assert.match(read("app/api/delivery/policy/route.ts"), /pickup_enabled/);
+        assert.match(
+            read("app/api/public/menu/[slug]/checkout/route.ts"),
+            /fulfillmentType:\s*body\.fulfillmentType/
+        );
     });
 
     it("M2 UI horário na aba Delivery", () => {
