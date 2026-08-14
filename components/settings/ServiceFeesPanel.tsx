@@ -262,9 +262,15 @@ export default function ServiceFeesPanel() {
 
                     {/* Outras taxas */}
                     <section className="space-y-4">
-                        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                            Outras taxas
-                        </h3>
+                        <div>
+                            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                Outras taxas
+                            </h3>
+                            <p className="mt-1 text-xs text-zinc-500">
+                                Nomes livres (ex.: garçom, couvert). Valor fixo (R$) ou % sobre o
+                                subtotal dos itens.
+                            </p>
+                        </div>
 
                         <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                             <p className="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">
@@ -277,7 +283,7 @@ export default function ServiceFeesPanel() {
                                         className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        placeholder="Nome da taxa"
+                                        placeholder="Ex.: Taxa de garçom"
                                     />
                                 </label>
                                 <label className="block text-sm">

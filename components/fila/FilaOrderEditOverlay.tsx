@@ -17,6 +17,10 @@ import {
   cartSubtotal,
   formatBRL,
 } from "@/lib/orders/helpers";
+import {
+  parseFulfillmentType,
+  type FulfillmentType,
+} from "@/lib/delivery/fulfillment";
 
 interface Props {
   orderId: string;
@@ -40,6 +44,7 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
   const [changeFor,       setChangeFor]       = useState("0,00");
   const [deliveryFeeEnabled, setDeliveryFeeEnabled] = useState(false);
   const [deliveryFee,     setDeliveryFee]     = useState("0,00");
+  const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>("delivery");
   const [drivers,         setDrivers]         = useState<Driver[]>([]);
   const [driverId,        setDriverId]        = useState<string | null>(null);
 
@@ -55,7 +60,8 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
   const clearDraft = (id: string) => setDraftQty((prev) => ({ ...prev, [id]: { unit: "", box: "" } }));
 
   // totals
-  const fee         = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+  const isPickup    = fulfillmentType === "pickup";
+  const fee         = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
   const totalNow    = cartSubtotal(cart) + fee;
   const custPays    = paymentMethod === "cash" ? brlToNumber(changeFor) : 0;
   const trocoNow    = calcTroco(totalNow, custPays);
@@ -95,8 +101,10 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
       setPaymentMethod((ord as any).payment_method ?? "pix");
       setPaid(!!(ord as any).paid);
       setChangeFor(formatBRL(Number((ord as any).change_for ?? 0)));
+      const ft = parseFulfillmentType((ord as any).fulfillment_type) ?? "delivery";
+      setFulfillmentType(ft);
       const feeVal = Number((ord as any).delivery_fee ?? 0);
-      setDeliveryFeeEnabled(feeVal > 0);
+      setDeliveryFeeEnabled(ft !== "pickup" && feeVal > 0);
       setDeliveryFee(formatBRL(feeVal));
       setDriverId((ord as any).driver_id ?? null);
 
@@ -208,7 +216,7 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
     if (!custRes.ok) { setMsg(`Erro ao salvar cliente: ${custJson?.error ?? "falha"}`); setSaving(false); return; }
     const customerId = String(custJson.customer_id ?? "");
 
-    const feeVal   = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+    const feeVal   = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
     const change   = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
     const o        = order as Record<string, unknown>;
 
@@ -227,8 +235,10 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
         paid,
         change_for: change,
         delivery_fee: feeVal,
+        delivery_address: isPickup ? null : customerAddress.trim() || null,
+        fulfillment_type: fulfillmentType,
         details: o.details === undefined || o.details === null ? undefined : String(o.details),
-        driver_id: driverId || null,
+        driver_id: isPickup ? null : driverId || null,
         items: buildItemsPayload(order.id, companyId, cart),
       }),
     });
@@ -259,6 +269,7 @@ export function FilaOrderEditOverlay({ orderId, companyId, onClose, onSaved }: P
       changeFor={changeFor}             setChangeFor={setChangeFor}
       deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
       deliveryFee={deliveryFee}         setDeliveryFee={setDeliveryFee}
+      fulfillmentType={fulfillmentType} setFulfillmentType={setFulfillmentType}
       drivers={drivers}
       driverId={driverId}               setDriverId={setDriverId}
       q={q}                             onSearchChange={onSearchChange}
