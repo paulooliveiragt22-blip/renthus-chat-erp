@@ -66,9 +66,38 @@ async function requestJson(
     return parsed;
 }
 
+async function setReactInput(page: Page, selector: string, value: string): Promise<void> {
+    const loc = page.locator(selector).first();
+    await loc.waitFor({ state: "visible" });
+    await loc.click();
+    await loc.evaluate((el, v) => {
+        const input = el as HTMLInputElement;
+        const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+        desc?.set?.call(input, v);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, value);
+}
+
+/** Login pela tela (como o Chrome). Usado quando o deploy ainda não libera POST /api/auth/sync-session. */
+async function loginViaUi(page: Page, creds: { email: string; password: string }): Promise<void> {
+    await page.goto("/login", { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await setReactInput(page, 'input[type="email"]', creds.email.trim().toLowerCase());
+    await setReactInput(page, 'input[type="password"]', creds.password);
+    await page.getByRole("button", { name: /^entrar$/i }).click();
+    try {
+        await expect(page).not.toHaveURL(/\/login(?:\?|$)/, { timeout: 45_000 });
+    } catch {
+        const alert = page.getByRole("alert");
+        const errText = (await alert.textContent().catch(() => null))?.trim();
+        throw new Error(
+            `Login UI ficou em ${page.url()}. ${errText ? `Tela: "${errText}"` : "Sem alerta — senha/e-mail ou sessão."}`
+        );
+    }
+}
+
 /**
- * Login E2E: Auth no Node + cookies via page.request (mesmo jar do browser).
- * Não usa page.evaluate/fetch — no Next `dev` isso trava na compilação da rota.
+ * Login E2E: tenta cookies via API; se o deploy antigo devolver 405/HTML, cai no formulário.
  */
 export async function loginAsAdmin(page: Page): Promise<void> {
     loadEnvLocal();
@@ -95,10 +124,17 @@ export async function loginAsAdmin(page: Page): Promise<void> {
         throw new Error(`Supabase signIn falhou: ${error?.message ?? "sem session"}`);
     }
 
-    await requestJson(page, "sync-session", "POST", "/api/auth/sync-session", {
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-    });
+    try {
+        await requestJson(page, "sync-session", "POST", "/api/auth/sync-session", {
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/405|HTML|não-JSON/i.test(msg)) throw err;
+        await loginViaUi(page, creds);
+        return;
+    }
 
     const list = (await requestJson(page, "workspace/list", "GET", "/api/workspace/list")) as {
         companies?: Array<{ id: string }>;
@@ -115,9 +151,7 @@ export async function loginAsAdmin(page: Page): Promise<void> {
         (c) => c.name.includes("auth-token") || c.name.startsWith("sb-")
     );
     if (!hasAuth) {
-        throw new Error(
-            `Sessão não gravou cookies (recebidos: ${cookies.map((c) => c.name).join(", ") || "nenhum"})`
-        );
+        await loginViaUi(page, creds);
     }
 }
 
