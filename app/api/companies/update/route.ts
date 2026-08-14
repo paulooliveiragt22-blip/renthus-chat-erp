@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,7 @@ const ALLOWED_FIELDS = [
 ] as const;
 
 export async function PATCH(req: Request) {
-  const access = await requireCompanyAccess();
+  const access = await requireCompanyAccess(["owner", "admin"]);
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
   const body = await req.json().catch(() => ({}));
@@ -36,7 +37,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function GET() {
-  const access = await requireCompanyAccess();
+  const access = await requireCapability("settings.company");
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
   const admin = createAdminClient();

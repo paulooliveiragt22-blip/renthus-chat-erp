@@ -1,6 +1,6 @@
 // app/api/reports/summary/route.ts
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
         const body = (await req.json()) || {};
         const { start: startStr, end: endStr } = body;
 
-        const access = await requireCompanyAccess();
+        const access = await requireCapability("financeiro.read");
         if (!access.ok) {
             return NextResponse.json({ error: access.error }, { status: access.status });
         }

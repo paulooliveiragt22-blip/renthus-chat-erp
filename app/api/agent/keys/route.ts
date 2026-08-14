@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -13,7 +14,7 @@ export const runtime = "nodejs";
 
 // GET — lista agentes
 export async function GET() {
-  const access = await requireCompanyAccess();
+  const access = await requireCapability("print.operate");
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
   const admin = createAdminClient();
@@ -29,7 +30,7 @@ export async function GET() {
 
 // POST — gera nova API key
 export async function POST(req: Request) {
-  const access = await requireCompanyAccess();
+  const access = await requireCompanyAccess(["owner", "admin"]);
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
   const feat = await requirePlanFeature(access.admin, access.companyId, "printing_auto");
@@ -84,7 +85,7 @@ export async function POST(req: Request) {
 
 // DELETE — desativa agente
 export async function DELETE(req: Request) {
-  const access = await requireCompanyAccess();
+  const access = await requireCompanyAccess(["owner", "admin"]);
   if (!access.ok) return new NextResponse(access.error, { status: access.status });
 
   const feat = await requirePlanFeature(access.admin, access.companyId, "printing_auto");
