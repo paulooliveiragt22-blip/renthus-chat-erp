@@ -5,7 +5,7 @@ import Modal from "./Modal";
 import { prettyStatus } from "@/lib/orders/helpers";
 import type { OrderStatus } from "@/lib/orders/types";
 
-export type ActionKind = "cancel" | "prepare" | "deliver" | "finalize";
+export type ActionKind = "cancel" | "finalize";
 
 const PAYMENT_OPTIONS = [
     { value: "pix",     label: "PIX" },
@@ -41,14 +41,10 @@ export default function ActionModal({
 
     function actionTitle(k: ActionKind) {
         if (k === "cancel") return "Cancelar pedido";
-        if (k === "prepare") return "Marcar em preparo";
-        if (k === "deliver") return "Marcar como em entrega";
         return "Finalizar e registrar pagamento";
     }
     function actionStatus(k: ActionKind): OrderStatus {
         if (k === "cancel") return "canceled";
-        if (k === "prepare") return "preparing";
-        if (k === "deliver") return "delivered";
         return "finalized";
     }
 
@@ -91,21 +87,17 @@ export default function ActionModal({
 
                 <div>
                     <p className="mb-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                        {kind === "prepare"
-                            ? "Observação (opcional). O cliente será avisado no WhatsApp se houver conversa:"
-                            : showPayment
-                              ? "Observação (opcional):"
-                              : "Observação para registrar esta ação:"}
+                        {kind === "cancel"
+                            ? "Observação para registrar esta ação:"
+                            : "Observação (opcional):"}
                     </p>
                     <textarea
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
                         placeholder={
-                            kind === "prepare"
-                                ? "Ex: Cliente pediu sem gelo…"
-                                : showPayment
-                                  ? "Ex: Pago na entrega, cupom fiscal entregue…"
-                                  : "Digite a observação..."
+                            showPayment
+                                ? "Ex: Pago na entrega, cupom fiscal entregue…"
+                                : "Digite a observação..."
                         }
                         rows={3}
                         className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50 dark:placeholder:text-zinc-500"
@@ -131,7 +123,6 @@ export default function ActionModal({
 
                 <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
                     Status final: <strong>{prettyStatus(actionStatus(kind))}</strong>
-                    {kind === "prepare" && " · avisa o cliente (best-effort)"}
                     {showPayment && " · lançamento financeiro na finalização do pedido"}
                 </p>
             </div>

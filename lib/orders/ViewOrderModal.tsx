@@ -18,7 +18,6 @@ import {
 } from "@/lib/print/copyTypes";
 import {
     MapPin,
-    MessageCircle,
     Pencil,
     Phone,
     Printer,
@@ -143,7 +142,6 @@ export default function ViewOrderModal({
     canDeliver,
     canFinalize,
     canEdit,
-    onOutForDelivery,
     sendingOutForDelivery,
 }: {
     open: boolean;
@@ -161,8 +159,7 @@ export default function ViewOrderModal({
     canDeliver: boolean;
     canFinalize: boolean;
     canEdit: boolean;
-    onOutForDelivery: () => void;
-    sendingOutForDelivery: boolean;
+    sendingOutForDelivery?: boolean;
 }) {
     const st     = order ? String(order.status) : "";
     const ordNum = order ? String(order.id).slice(-6).toUpperCase() : "";
@@ -266,11 +263,13 @@ export default function ViewOrderModal({
 
                         {canDeliver && (
                             <button
+                                type="button"
                                 onClick={() => onAction("deliver")}
-                                className="flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors"
+                                disabled={sendingOutForDelivery}
+                                className="flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 transition-colors"
                             >
                                 <Bike className="h-3.5 w-3.5" />
-                                Em entrega
+                                {sendingOutForDelivery ? "Enviando..." : "Saiu pra entregar"}
                             </button>
                         )}
 
@@ -281,19 +280,6 @@ export default function ViewOrderModal({
                             >
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 Finalizar
-                            </button>
-                        )}
-
-                        {/* WhatsApp — aviso manual “saiu pra entrega” */}
-                        {canDeliver && order.customers?.phone && (
-                            <button
-                                type="button"
-                                onClick={onOutForDelivery}
-                                disabled={sendingOutForDelivery}
-                                className="flex items-center gap-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-                            >
-                                <MessageCircle className="h-3.5 w-3.5" />
-                                {sendingOutForDelivery ? "Enviando..." : "Avisar WA"}
                             </button>
                         )}
 

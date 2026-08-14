@@ -91,8 +91,9 @@ export async function PATCH(req: Request) {
             const result = (rpcData ?? {}) as SetStatusRpcResult;
             statusChangedTo = String(result.status ?? nextStatus);
 
-            // Notify best-effort: nunca desfaz o status. Wake o worker — sem isso
-            // o job espera o cron diário (03:20 UTC) ou o scheduler externo.
+            // Notify best-effort: nunca desfaz o status.
+            // cron-job.org cobre process-queue (~1 min); outbound-worker no Hobby
+            // só sai rápido se o wake rodar (igual cart_recovery). Cron Vercel é diário.
             if (result.changed && statusChangedTo === "preparing") {
                 try {
                     const notify = await enqueuePreparingNotify({
