@@ -155,7 +155,7 @@ describe("MVP checklist — M5 preparing + notify", () => {
     it("transições: pickup não vai para delivered; preparing existe", () => {
         const src = read("tests/orders/statusTransitions.test.ts");
         assert.match(src, /preparing/);
-        assert.match(src, /pickup.*delivered.*false|delivered.*pickup.*false/s);
+        assert.match(src, /isAllowedTransition\("preparing", "delivered", "pickup"\), false\)/);
     });
 
     it("API pedidos usa rpc_set_order_status e enqueuePreparingNotify", () => {
