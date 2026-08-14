@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CHATBOT_SESSION_PRO_V2_STATE_KEY } from "@/src/pro/adapters/supabase/session.repository.supabase";
 import type { OrderDraft } from "@/src/types/contracts";
@@ -67,7 +67,7 @@ async function loadCartSummariesByThread(
 }
 
 export async function GET(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("whatsapp.operate");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     const { admin, companyId } = ctx;

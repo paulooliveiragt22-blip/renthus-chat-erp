@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { checkLimit, requireFeature } from "@/lib/billing/entitlements";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
             if (!mediaUrl) return NextResponse.json({ error: "media_url is required for media messages" }, { status: 400 });
         }
 
-        const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+        const ctx = await requireCapability("whatsapp.operate");
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
         const { admin, companyId } = ctx;

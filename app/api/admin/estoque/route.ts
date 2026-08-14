@@ -10,7 +10,7 @@ import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 export const runtime = "nodejs";
 
 export async function GET() {
-    const ctx = await requireCompanyPlanFeature("estoque_full", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("estoque_full", ["owner", "admin", "member"], "estoque.write");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
@@ -40,7 +40,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyPlanFeature("estoque_full", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("estoque_full", ["owner", "admin", "member"], "estoque.write");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

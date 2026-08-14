@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 const PRAZO_PAYMENT_METHODS = ["credit", "boleto", "cheque", "promissoria", "credit_installment"];
 
 export async function GET() {
-    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
@@ -51,7 +51,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

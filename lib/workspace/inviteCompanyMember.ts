@@ -15,12 +15,14 @@ function appBaseUrl(): string {
 /**
  * Garante usuário Auth + membership em company_users.
  * Compensa: se membership falhar após criar usuário novo, remove o auth user.
+ * Member exige profile_id; admin limpa profile_id.
  */
 export async function inviteCompanyMember(params: {
     admin: SupabaseClient;
     companyId: string;
     email: string;
     role: Exclude<CompanyRole, "owner">;
+    profileId?: string | null;
 }): Promise<
     | { ok: true; userId: string; membershipId: string; invited: boolean }
     | { ok: false; error: string; status: number }
@@ -28,6 +30,26 @@ export async function inviteCompanyMember(params: {
     const email = params.email.trim().toLowerCase();
     if (!email || !email.includes("@")) {
         return { ok: false, error: "e-mail inválido", status: 400 };
+    }
+
+    if (params.role === "member") {
+        if (!params.profileId) {
+            return { ok: false, error: "perfil obrigatório para operador", status: 400 };
+        }
+    }
+
+    let profileId: string | null = params.role === "member" ? String(params.profileId) : null;
+    if (profileId) {
+        const { data: profile, error: pErr } = await params.admin
+            .from("company_staff_profiles")
+            .select("id, is_active")
+            .eq("id", profileId)
+            .eq("company_id", params.companyId)
+            .maybeSingle();
+        if (pErr) return { ok: false, error: pErr.message, status: 500 };
+        if (!profile?.id || !profile.is_active) {
+            return { ok: false, error: "perfil inválido", status: 400 };
+        }
     }
 
     const { data: existingId, error: findErr } = await params.admin.rpc(
@@ -76,7 +98,11 @@ export async function inviteCompanyMember(params: {
         }
         const { data: updated, error: upErr } = await params.admin
             .from("company_users")
-            .update({ role: params.role, is_active: true })
+            .update({
+                role: params.role,
+                is_active: true,
+                profile_id: profileId,
+            })
             .eq("id", existingMembership.id)
             .eq("company_id", params.companyId)
             .select("id")
@@ -94,6 +120,7 @@ export async function inviteCompanyMember(params: {
             user_id: userId,
             role: params.role,
             is_active: true,
+            profile_id: profileId,
         })
         .select("id")
         .single();
@@ -122,7 +149,6 @@ export async function inviteCompanyMember(params: {
 
 export async function revokeAuthSessions(admin: SupabaseClient, userId: string): Promise<void> {
     try {
-        // supabase-js: encerra sessões do usuário (best-effort)
         const authAdmin = admin.auth.admin as {
             signOut?: (id: string, scope?: string) => Promise<{ error: Error | null }>;
         };

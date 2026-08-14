@@ -7,14 +7,20 @@ import {
     inviteableRolesFor,
     normalizeCompanyRole,
 } from "../../lib/workspace/staffRoles";
+import {
+    hasCapability,
+    normalizeCapabilities,
+} from "../../lib/workspace/rbac/capabilities";
+import { DEFAULT_PROFILE_SEEDS, templateLabel } from "../../lib/workspace/rbac/profileTemplates";
 
-describe("staff roles (M3)", () => {
+describe("staff roles (RBAC)", () => {
     it("normalize e inviteable", () => {
         assert.equal(normalizeCompanyRole("Admin"), "admin");
+        assert.equal(normalizeCompanyRole("staff"), "member");
         assert.equal(normalizeCompanyRole("x"), null);
-        assert.deepEqual(inviteableRolesFor("owner"), ["admin", "staff"]);
-        assert.deepEqual(inviteableRolesFor("admin"), ["staff"]);
-        assert.deepEqual(inviteableRolesFor("staff"), []);
+        assert.deepEqual(inviteableRolesFor("owner"), ["admin", "member"]);
+        assert.deepEqual(inviteableRolesFor("admin"), ["member"]);
+        assert.deepEqual(inviteableRolesFor("member"), []);
         assert.equal(canInviteRole("owner", "admin"), true);
         assert.equal(canInviteRole("admin", "admin"), false);
         assert.equal(canInviteRole("owner", "owner"), false);
@@ -25,7 +31,7 @@ describe("staff roles (M3)", () => {
             canChangeMemberRole({
                 actorRole: "admin",
                 targetRole: "owner",
-                nextRole: "staff",
+                nextRole: "member",
                 isSelf: false,
             }),
             false
@@ -43,7 +49,7 @@ describe("staff roles (M3)", () => {
             canChangeMemberRole({
                 actorRole: "owner",
                 targetRole: "admin",
-                nextRole: "staff",
+                nextRole: "member",
                 isSelf: false,
             }),
             true
@@ -52,7 +58,7 @@ describe("staff roles (M3)", () => {
 
     it("desativar: não self, não owner", () => {
         assert.equal(
-            canDeactivateMember({ actorRole: "owner", targetRole: "staff", isSelf: true }),
+            canDeactivateMember({ actorRole: "owner", targetRole: "member", isSelf: true }),
             false
         );
         assert.equal(
@@ -64,8 +70,23 @@ describe("staff roles (M3)", () => {
             false
         );
         assert.equal(
-            canDeactivateMember({ actorRole: "admin", targetRole: "staff", isSelf: false }),
+            canDeactivateMember({ actorRole: "admin", targetRole: "member", isSelf: false }),
             true
         );
+    });
+});
+
+describe("capabilities catalog", () => {
+    it("normalize e hasCapability", () => {
+        assert.deepEqual(normalizeCapabilities(["pdv.access", "pdv.access", "x"]), ["pdv.access"]);
+        assert.equal(hasCapability(["pdv.access"], "pdv.access"), true);
+        assert.equal(hasCapability(["kitchen.view"], "pdv.access"), false);
+        assert.equal(hasCapability(["orders.read", "orders.write"], ["orders.write"], "all"), true);
+    });
+
+    it("templates padrão", () => {
+        assert.equal(templateLabel("cashier"), "Atendente / Caixa");
+        assert.equal(DEFAULT_PROFILE_SEEDS.length, 4);
+        assert.ok(DEFAULT_PROFILE_SEEDS.every((s) => s.capabilities.length > 0));
     });
 });

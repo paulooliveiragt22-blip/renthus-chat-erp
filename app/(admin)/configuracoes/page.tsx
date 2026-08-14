@@ -38,6 +38,7 @@ import MetaMessagingSettings from "@/components/menu/MetaMessagingSettings";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
 import TeamMembersPanel from "@/components/settings/TeamMembersPanel";
+import StaffProfilesPanel from "@/components/settings/StaffProfilesPanel";
 import { DEFAULT_CHATBOT_MESSAGE_TEMPLATES } from "@/lib/chatbot/messageTemplates";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -1126,6 +1127,14 @@ function ConfiguracoesPageContent() {
                             </div>
 
                             <SaveBar saving={saving} msg={msg} onSave={save} />
+
+                            <SectionTitle
+                                icon={Users}
+                                title="Equipe e permissões"
+                                desc="Perfis de acesso e colaboradores (somente proprietário e administrador)"
+                            />
+                            <StaffProfilesPanel />
+                            <TeamMembersPanel />
                         </div>
                     )}
 
@@ -2162,7 +2171,7 @@ function ConfiguracoesPageContent() {
                     {/* ── ABA: SEGURANÇA ────────────────────────────────── */}
                     {activeTab === "seguranca" && (
                         <div className="flex flex-col gap-6">
-                            <SectionTitle icon={Shield} title="Segurança da Conta" desc="Gerenciamento de acesso e equipe" />
+                            <SectionTitle icon={Shield} title="Segurança da Conta" desc="Senha, e-mail e proteção da conta" />
 
                             {/* Info cards */}
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -2201,12 +2210,11 @@ function ConfiguracoesPageContent() {
                                 </div>
                             </div>
 
-                            <TeamMembersPanel />
-
                             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-700/40 dark:bg-amber-900/20">
                                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                                 <p className="text-xs text-amber-700 dark:text-amber-400">
                                     Nunca compartilhe sua chave de API do Agente de Impressão ou tokens de integração com terceiros.
+                                    Gestão de equipe e perfis fica na aba Geral.
                                 </p>
                             </div>
                         </div>

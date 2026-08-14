@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 
 export const runtime = "nodejs";
 
 type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 
 export async function GET(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("dashboard.view");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("dashboard.view");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 

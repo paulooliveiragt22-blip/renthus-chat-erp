@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { getThreadActiveCart } from "@/src/pro/pipeline/getThreadActiveCart";
 import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
@@ -17,7 +17,7 @@ export async function GET(
     { params }: { params: Promise<{ threadId: string }> }
 ) {
     const { threadId } = await params;
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("whatsapp.operate");
     if (!ctx.ok) return jsonAccessError(ctx);
 
     const { admin, companyId } = ctx;

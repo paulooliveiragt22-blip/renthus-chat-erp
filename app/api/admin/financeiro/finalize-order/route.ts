@@ -10,7 +10,7 @@ const FINALIZE_ORDER_RATE_WINDOW_MS = 60_000;
 const A_PRAZO_METHODS = new Set(["credit", "credit_installment", "boleto", "promissoria", "cheque"]);
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "member"], "financeiro.read");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

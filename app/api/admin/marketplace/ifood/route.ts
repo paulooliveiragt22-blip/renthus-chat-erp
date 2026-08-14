@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import { encryptCredential } from "@/lib/security/credentialCrypto";
 import { clampCatalogSyncIntervalHours } from "@/src/marketplaces/services/catalogSyncSchedule";
@@ -31,7 +32,7 @@ function mapConnection(row: Record<string, unknown> | null) {
 }
 
 export async function GET() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("menu.manage");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 

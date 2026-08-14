@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import {
     DEFAULT_CHATBOT_MESSAGE_TEMPLATES,
     mergeMessageTemplatesIntoBotConfig,
@@ -12,7 +13,7 @@ export const runtime = "nodejs";
 
 export async function GET() {
     // staff precisa ler templates (avisos WhatsApp em Pedidos)
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("settings.company");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 

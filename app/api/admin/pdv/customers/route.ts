@@ -8,7 +8,7 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

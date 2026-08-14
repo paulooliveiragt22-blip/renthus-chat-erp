@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import {
     parseMenuAnalyticsRpc,
     resolveAnalyticsRange,
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
  * Agregados do cardápio web (visitas, top produtos, UTM).
  */
 export async function GET(req: NextRequest) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("menu.manage");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 

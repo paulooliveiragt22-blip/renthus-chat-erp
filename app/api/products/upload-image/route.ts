@@ -7,14 +7,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { assertUploadAllowed } from "@/lib/security/uploadGuards";
 import sharp from "sharp";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+  const ctx = await requireCapability("products.read");
   if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const { admin, userId } = ctx;

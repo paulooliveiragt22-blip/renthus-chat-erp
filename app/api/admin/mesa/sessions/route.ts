@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 /** Abre sessão em uma mesa. */
 export async function POST(req: Request) {
-    const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "member"], "mesa.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

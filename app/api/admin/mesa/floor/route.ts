@@ -4,7 +4,7 @@ import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 export const runtime = "nodejs";
 
 export async function GET() {
-    const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "member"], "mesa.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

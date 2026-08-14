@@ -4,7 +4,7 @@ import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "member"], "financeiro.read");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: NextRequest) {
-    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "member"], "financeiro.read");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
@@ -42,7 +42,7 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "member"], "financeiro.read");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

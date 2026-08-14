@@ -8,6 +8,7 @@ import {
     type CompanyRole,
 } from "@/lib/workspace/staffRoles";
 import { inviteCompanyMember } from "@/lib/workspace/inviteCompanyMember";
+import { ensureDefaultStaffProfiles } from "@/lib/workspace/rbac/ensureDefaultStaffProfiles";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,7 @@ type MemberRow = {
     role: string;
     is_active: boolean;
     created_at: string;
+    profile_id: string | null;
 };
 
 export async function GET() {
@@ -27,11 +29,28 @@ export async function GET() {
     const feat = await requirePlanFeature(admin, companyId, "staff_users");
     if (!feat.ok) return feat.response;
 
-    const { data, error } = await admin
-        .from("company_users")
-        .select("id, user_id, role, is_active, created_at")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: true });
+    try {
+        await ensureDefaultStaffProfiles(admin, companyId);
+    } catch (e) {
+        return NextResponse.json(
+            { error: e instanceof Error ? e.message : "seed_failed" },
+            { status: 500 }
+        );
+    }
+
+    const [{ data, error }, { data: profiles }] = await Promise.all([
+        admin
+            .from("company_users")
+            .select("id, user_id, role, is_active, created_at, profile_id")
+            .eq("company_id", companyId)
+            .order("created_at", { ascending: true }),
+        admin
+            .from("company_staff_profiles")
+            .select("id, name, template_key, is_active")
+            .eq("company_id", companyId)
+            .eq("is_active", true)
+            .order("name", { ascending: true }),
+    ]);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -48,9 +67,10 @@ export async function GET() {
             return {
                 id: row.id,
                 user_id: row.user_id,
-                role: row.role,
+                role: normalizeCompanyRole(row.role) ?? row.role,
                 is_active: row.is_active,
                 created_at: row.created_at,
+                profile_id: row.profile_id,
                 email,
             };
         })
@@ -58,6 +78,7 @@ export async function GET() {
 
     return NextResponse.json({
         members,
+        profiles: profiles ?? [],
         inviteable_roles: inviteableRolesFor(role as CompanyRole),
     });
 }
@@ -70,7 +91,11 @@ export async function POST(req: Request) {
     const feat = await requirePlanFeature(admin, companyId, "staff_users");
     if (!feat.ok) return feat.response;
 
-    const body = (await req.json().catch(() => ({}))) as { email?: string; role?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+        email?: string;
+        role?: string;
+        profile_id?: string | null;
+    };
     const email = String(body.email ?? "").trim().toLowerCase();
     const targetRole = normalizeCompanyRole(body.role);
     if (!email) return NextResponse.json({ error: "email_required" }, { status: 400 });
@@ -86,6 +111,7 @@ export async function POST(req: Request) {
         companyId,
         email,
         role: targetRole,
+        profileId: targetRole === "member" ? body.profile_id : null,
     });
     if (!result.ok) {
         return NextResponse.json({ error: result.error }, { status: result.status });

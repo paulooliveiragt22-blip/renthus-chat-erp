@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import { enqueuePrintJob } from "@/lib/server/print/enqueuePrintJob";
 
 export const runtime = "nodejs";
 
 export async function POST() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("print.operate");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 

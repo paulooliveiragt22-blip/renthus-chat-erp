@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import {
     DELIVERY_DESCRIPTION_MAX,
     normalizeHhMm,
@@ -16,7 +17,7 @@ const SETTINGS_SELECT =
     "require_order_approval, auto_print_orders, llm_provider, open_time, close_time, timezone, delivery_description, print_auto_copies";
 
 export async function GET() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("settings.company");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 
@@ -52,7 +53,7 @@ function validateLlmProviderPatch(rawValue: string | null, role: string): LlmPro
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAccess(["owner", "admin"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId, role } = ctx;
 

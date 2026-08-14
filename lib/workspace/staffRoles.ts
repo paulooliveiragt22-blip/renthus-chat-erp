@@ -1,17 +1,22 @@
-/** Papéis de equipe no tenant (M3). Domínio puro. */
+/** Papéis de sistema no tenant. Operadores usam role=member + profile_id (RBAC). */
 
-export const COMPANY_ROLES = ["owner", "admin", "staff"] as const;
+export const COMPANY_ROLES = ["owner", "admin", "member"] as const;
 export type CompanyRole = (typeof COMPANY_ROLES)[number];
 
 export function isCompanyRole(v: unknown): v is CompanyRole {
-    return typeof v === "string" && (COMPANY_ROLES as readonly string[]).includes(v);
+    if (typeof v !== "string") return false;
+    const s = v.trim().toLowerCase();
+    // legado staff → member
+    if (s === "staff") return true;
+    return (COMPANY_ROLES as readonly string[]).includes(s);
 }
 
 export function normalizeCompanyRole(v: unknown): CompanyRole | null {
     const s = String(v ?? "")
         .trim()
         .toLowerCase();
-    return isCompanyRole(s) ? s : null;
+    if (s === "staff") return "member";
+    return (COMPANY_ROLES as readonly string[]).includes(s) ? (s as CompanyRole) : null;
 }
 
 export function roleLabel(role: CompanyRole): string {
@@ -22,8 +27,8 @@ export function roleLabel(role: CompanyRole): string {
 
 /** Quem o ator pode convidar (nunca owner via convite). */
 export function inviteableRolesFor(actor: CompanyRole): CompanyRole[] {
-    if (actor === "owner") return ["admin", "staff"];
-    if (actor === "admin") return ["staff"];
+    if (actor === "owner") return ["admin", "member"];
+    if (actor === "admin") return ["member"];
     return [];
 }
 
@@ -33,7 +38,7 @@ export function canInviteRole(actor: CompanyRole, target: CompanyRole): boolean 
 
 /**
  * Admin não rebaixa/altera owner. Ninguém promove a owner pelo PATCH de equipe.
- * Owner pode alterar admin↔staff. Admin só edita staff.
+ * Owner pode alterar admin↔member. Admin só edita member (papel fixo member).
  */
 export function canChangeMemberRole(params: {
     actorRole: CompanyRole;
@@ -46,15 +51,15 @@ export function canChangeMemberRole(params: {
     if (targetRole === "owner") return false;
     if (isSelf) return false;
     if (actorRole === "owner") {
-        return nextRole === "admin" || nextRole === "staff";
+        return nextRole === "admin" || nextRole === "member";
     }
     if (actorRole === "admin") {
-        return targetRole === "staff" && nextRole === "staff";
+        return targetRole === "member" && nextRole === "member";
     }
     return false;
 }
 
-/** Desativar: owner pode admin/staff; admin só staff. Nunca o próprio usuário; nunca owner. */
+/** Desativar: owner pode admin/member; admin só member. Nunca o próprio; nunca owner. */
 export function canDeactivateMember(params: {
     actorRole: CompanyRole;
     targetRole: CompanyRole;
@@ -64,7 +69,7 @@ export function canDeactivateMember(params: {
     if (isSelf) return false;
     if (targetRole === "owner") return false;
     if (actorRole === "owner") return true;
-    if (actorRole === "admin") return targetRole === "staff";
+    if (actorRole === "admin") return targetRole === "member";
     return false;
 }
 
@@ -73,4 +78,17 @@ export function canReactivateMember(params: {
     targetRole: CompanyRole;
 }): boolean {
     return canDeactivateMember({ ...params, isSelf: false });
+}
+
+/** Remover vínculo da empresa (mesmas regras de desativar). */
+export function canRemoveMember(params: {
+    actorRole: CompanyRole;
+    targetRole: CompanyRole;
+    isSelf: boolean;
+}): boolean {
+    return canDeactivateMember(params);
+}
+
+export function canManageTeam(role: CompanyRole): boolean {
+    return role === "owner" || role === "admin";
 }

@@ -113,9 +113,9 @@ bloqueiam se fechado; Configurações Delivery + cardápio exibem horário/descr
 
 ## M3 — Usuários e permissões
 
-**Estado:** [x] 2026-08-13 — feature `staff_users` (Pro/Market); convite Auth +
-`company_users`; PATCH só `role`/`is_active`; admin não rebaixa owner; UI em
-Configurações → Segurança.
+**Estado:** [x] 2026-08-14 — RBAC por perfil (`company_staff_profiles` + capabilities);
+role `member` (ex-`staff`); gestão owner+admin em **Configurações → Geral**;
+`requireCapability` nas APIs operacionais; feature `staff_users` (Pro/Market).
 
 ---
 
@@ -171,3 +171,4 @@ dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 | 2026-08-13 | M4+M6 aplicados (`print_jobs.copy_type`, clear queue, UI vias) |
 | 2026-08-13 | M3 aplicado (`staff_users` + convite + UI equipe) |
 | 2026-08-13 | M7 aplicado (receita canônica + fuso loja + sem POST Pedidos) |
+| 2026-08-14 | RBAC perfis (capabilities + UI Geral + requireCapability nas APIs) |

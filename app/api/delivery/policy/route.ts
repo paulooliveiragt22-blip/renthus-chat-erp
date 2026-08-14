@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 
 type RuleInput = {
     neighborhood: string;
@@ -12,7 +12,7 @@ type RuleInput = {
 };
 
 export async function GET() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("delivery.view");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     const admin = createAdminClient();
@@ -64,7 +64,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("delivery.view");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     const body = await req.json().catch(() => ({} as Record<string, unknown>));

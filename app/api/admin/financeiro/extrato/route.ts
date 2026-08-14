@@ -6,7 +6,7 @@ import { buildExtratoLines } from "@/lib/server/financeiro/extratoPayload";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("financeiro_full", ["owner", "admin", "member"], "financeiro.read");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

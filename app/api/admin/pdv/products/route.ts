@@ -84,7 +84,7 @@ async function findExactPackByCode(
 }
 
 export async function GET(req: NextRequest) {
-    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

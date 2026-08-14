@@ -13,7 +13,7 @@ import {
 export const runtime = "nodejs";
 
 export async function GET() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAccess(["owner", "admin", "member"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     try {

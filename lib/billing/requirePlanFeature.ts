@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hasFeature } from "@/lib/billing/entitlements";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
+import type { CapabilityKey } from "@/lib/workspace/rbac/capabilities";
 
 const FEATURE_HINTS: Record<string, string> = {
     marketplace_ifood: "Disponível no plano Market. Faça upgrade em Configurações → Plano.",
@@ -80,7 +82,8 @@ export async function requirePlanFeature(
 /** Sessão + workspace + feature do plano em um passo. */
 export async function requireCompanyPlanFeature(
     featureKey: string,
-    allowedRoles?: string[]
+    allowedRoles?: string[],
+    capability?: CapabilityKey | CapabilityKey[]
 ): Promise<
     | {
           ok: true;
@@ -91,7 +94,9 @@ export async function requireCompanyPlanFeature(
       }
     | { ok: false; response: NextResponse }
 > {
-    const ctx = await requireCompanyAccess(allowedRoles);
+    const ctx = capability
+        ? await requireCapability(capability)
+        : await requireCompanyAccess(allowedRoles);
     if (!ctx.ok) {
         return {
             ok: false,
@@ -112,7 +117,8 @@ export async function requireCompanyPlanFeature(
 /** Sessão + workspace + qualquer feature da lista (ex.: pdv_basic | pdv). */
 export async function requireCompanyAnyPlanFeature(
     featureKeys: string[],
-    allowedRoles?: string[]
+    allowedRoles?: string[],
+    capability?: CapabilityKey | CapabilityKey[]
 ): Promise<
     | {
           ok: true;
@@ -123,7 +129,9 @@ export async function requireCompanyAnyPlanFeature(
       }
     | { ok: false; response: NextResponse }
 > {
-    const ctx = await requireCompanyAccess(allowedRoles);
+    const ctx = capability
+        ? await requireCapability(capability)
+        : await requireCompanyAccess(allowedRoles);
     if (!ctx.ok) {
         return {
             ok: false,

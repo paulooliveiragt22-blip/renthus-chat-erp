@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { parseMenuSlug, slugFromDisplayName } from "@/lib/public-menu/slug";
 import { normalizeCustomDomainInput } from "@/lib/public-menu/customDomain";
 import { buildPublicMenuAbsoluteUrl } from "@/lib/public-menu/appBaseUrl";
@@ -30,7 +31,7 @@ function mapProfile(row: Record<string, unknown>, companyId: string): MenuProfil
 }
 
 export async function GET() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("menu.manage");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 
 type IbgeMunicipio = {
     id: number;
@@ -51,7 +51,7 @@ async function fetchIbgeNeighborhoods(city: string, state: string): Promise<stri
 }
 
 export async function GET(req: NextRequest) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("delivery.view");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const admin = createAdminClient();
 

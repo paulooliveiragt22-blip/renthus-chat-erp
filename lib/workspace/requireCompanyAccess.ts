@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { getCurrentCompanyIdFromCookie } from "./getCurrentCompanyId";
+import { normalizeCompanyRole } from "./staffRoles";
 
 export async function requireCompanyAccess(allowedRoles?: string[]) {
     const companyId = await getCurrentCompanyIdFromCookie();
@@ -26,10 +27,14 @@ export async function requireCompanyAccess(allowedRoles?: string[]) {
         return { ok: false as const, status: 403, error: "Forbidden" };
     }
 
-    const role = String(membership.role || "").toLowerCase();
+    const role =
+        normalizeCompanyRole(membership.role) ??
+        String(membership.role || "").toLowerCase();
 
     if (allowedRoles && allowedRoles.length > 0) {
-        const allowed = allowedRoles.map((r) => r.toLowerCase());
+        const allowed = allowedRoles
+            .map((r) => normalizeCompanyRole(r) ?? r.toLowerCase())
+            .filter(Boolean);
         if (!allowed.includes(role)) {
             return { ok: false as const, status: 403, error: "Insufficient role" };
         }

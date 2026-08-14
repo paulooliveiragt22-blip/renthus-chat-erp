@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { normalizeBrazilToE164 } from "@/lib/whatsapp/phone";
 import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
@@ -40,7 +40,7 @@ function buildTags(orders: CustomerOrder[]): string[] {
  */
 export async function GET(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
     const { threadId } = await params;
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("whatsapp.operate");
     if (!ctx.ok) return jsonAccessError(ctx);
     const { admin, companyId } = ctx;
 

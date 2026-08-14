@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertUploadAllowed } from "@/lib/security/uploadGuards";
 
@@ -15,7 +15,7 @@ const BUCKET = "whatsapp-media";
  * Requer bucket "whatsapp-media" no Supabase Storage com acesso público de leitura.
  */
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("whatsapp.operate");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     const { companyId } = ctx;

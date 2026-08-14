@@ -7,7 +7,7 @@ export async function GET(
     _req: Request,
     ctxParams: { params: Promise<{ sessionId: string }> }
 ) {
-    const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyPlanFeature("table_service", ["owner", "admin", "member"], "mesa.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
     const { sessionId } = await ctxParams.params;

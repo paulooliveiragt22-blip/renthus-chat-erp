@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { loadWaConfigForCompany } from "@/lib/whatsapp/channelCredentials";
 import { sendAndPersistWaText } from "@/lib/whatsapp/sendAndPersist";
 import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ threadId: string }> }) {
     const { threadId } = await params;
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("whatsapp.operate");
     if (!ctx.ok) return jsonAccessError(ctx);
     const { admin, companyId } = ctx;
 

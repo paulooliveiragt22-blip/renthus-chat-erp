@@ -4,7 +4,7 @@ import { requireCompanyAnyPlanFeature, PDV_ACCESS_FEATURES } from "@/lib/billing
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "staff"]);
+    const ctx = await requireCompanyAnyPlanFeature([...PDV_ACCESS_FEATURES], ["owner", "admin", "member"], "pdv.access");
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 

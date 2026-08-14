@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
+import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
 import { pollAndImportIfoodOrders } from "@/src/marketplaces/services/pollIfoodOrders";
 
@@ -8,7 +8,7 @@ export const maxDuration = 60;
 
 /** POST — Polling de eventos iFood + importação para Fila (mock se use_mock). */
 export async function POST() {
-    const ctx = await requireCompanyAccess(["owner", "admin", "staff"]);
+    const ctx = await requireCapability("menu.manage");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
     const feat = await requirePlanFeature(ctx.admin, ctx.companyId, "marketplace_ifood");
