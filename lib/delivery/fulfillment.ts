@@ -8,6 +8,36 @@ export type FulfillmentPolicy = {
     pickupEnabled: boolean;
 };
 
+export const PICKUP_ADDRESS_LABEL = "Retirada no local";
+
+export function isPickupFulfillment(raw: unknown): boolean {
+    return parseFulfillmentType(raw) === "pickup" || String(raw ?? "").trim().toLowerCase() === "pickup";
+}
+
+/** Badge / label curto para UI admin e cardápio. */
+export function formatFulfillmentLabel(raw: unknown): "Entrega" | "Retirada" {
+    return isPickupFulfillment(raw) ? "Retirada" : "Entrega";
+}
+
+/**
+ * Endereço canônico do pedido para exibição/impressão.
+ * Preferir `orders.delivery_address`; em retirada não usar endereço de cadastro do cliente.
+ */
+export function orderFulfillmentAddressLine(input: {
+    fulfillmentType?: unknown;
+    deliveryAddress?: string | null;
+    customerAddress?: string | null;
+}): string {
+    if (isPickupFulfillment(input.fulfillmentType)) {
+        const d = String(input.deliveryAddress ?? "").trim();
+        return d || PICKUP_ADDRESS_LABEL;
+    }
+    const d = String(input.deliveryAddress ?? "").trim();
+    if (d) return d;
+    const c = String(input.customerAddress ?? "").trim();
+    return c || "Não informado";
+}
+
 export const DEFAULT_FULFILLMENT_POLICY: FulfillmentPolicy = {
     deliveriesEnabled: true,
     pickupEnabled: true,

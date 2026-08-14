@@ -31,6 +31,12 @@ import {
     formatDeliveryEtaConfirmLine,
     getCompanyDeliveryEtaMin,
 } from "@/lib/delivery/policy";
+import {
+    loadFulfillmentPolicy,
+    PICKUP_ADDRESS_LABEL,
+    resolveSoleFulfillmentType,
+    type FulfillmentType,
+} from "@/lib/delivery/fulfillment";
 import { lookupCep } from "@/lib/address/cepLookup";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
@@ -1339,6 +1345,15 @@ export async function POST(req: NextRequest) {
                     paymentMethod,
                 });
 
+                const fulfillPolicy = await loadFulfillmentPolicy(admin, companyId);
+                const soleFulfill = resolveSoleFulfillmentType(fulfillPolicy);
+                const fulfillmentType: FulfillmentType = soleFulfill ?? "delivery";
+                const isPickupFlow = fulfillmentType === "pickup";
+                const orderDeliveryFee = isPickupFlow ? 0 : deliveryFee;
+                const orderAddress = isPickupFlow ? PICKUP_ADDRESS_LABEL : address;
+                const orderAddrId = isPickupFlow ? null : deliveryEnderecoClienteId;
+                const orderGrandTotal = isPickupFlow ? totalItems : grandTotal;
+
                 const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {
                     p_company_id:                   companyId,
                     p_customer_id:                  customerId,
@@ -1346,15 +1361,16 @@ export async function POST(req: NextRequest) {
                     p_confirmation_status:          confirmationStatus,
                     p_source:                       "flow_catalog",
                     p_channel:                      "whatsapp",
-                    p_total_amount:                 grandTotal,
+                    p_total_amount:                 orderGrandTotal,
                     p_total:                        totalItems,   // subtotal sem frete
-                    p_delivery_fee:                 deliveryFee,
-                    p_delivery_address:             address,
-                    p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
+                    p_delivery_fee:                 orderDeliveryFee,
+                    p_delivery_address:             orderAddress,
+                    p_delivery_endereco_cliente_id: orderAddrId,
                     p_payment_method:               paymentMethod,
                     p_change_for:                   changeFor,
                     p_paid:                         false,
                     p_idempotency_key:              idempotencyKeyPayment,
+                    p_fulfillment_type:             fulfillmentType,
                     p_items: cart.map((item) => ({
                         product_name:         item.name,
                         produto_embalagem_id: item.variantId ?? null,
@@ -1377,19 +1393,24 @@ export async function POST(req: NextRequest) {
                 // Usa telefone pré-carregado no início (sem DB extra)
                 if (customerPhone) {
                     const pmLabel = flowOrderPaymentLabel(paymentMethod);
-                    const feeText   = deliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}` : "";
+                    const feeText   = !isPickupFlow && orderDeliveryFee > 0 ? `\n🛵 Taxa de entrega: ${formatCurrency(orderDeliveryFee)}` : "";
                     const chgText   = changeFor ? ` (troco para ${formatCurrency(changeFor)})` : "";
                     const orderCode = `#${order.id.replaceAll("-", "").slice(-6).toUpperCase()}`;
                     let etaMin = context.delivery_eta_min != null ? Number(context.delivery_eta_min) : NaN;
-                    if (!Number.isFinite(etaMin)) {
+                    if (!isPickupFlow && !Number.isFinite(etaMin)) {
                         etaMin = (await getCompanyDeliveryEtaMin(admin, companyId)) ?? NaN;
                     }
-                    const etaLine = formatDeliveryEtaConfirmLine(Number.isFinite(etaMin) ? etaMin : null);
+                    const etaLine = isPickupFlow
+                        ? ""
+                        : formatDeliveryEtaConfirmLine(Number.isFinite(etaMin) ? etaMin : null);
                     const etaBlock = etaLine ? `\n\n${etaLine}` : "";
+                    const placeLine = isPickupFlow
+                        ? `\n🏪 ${PICKUP_ADDRESS_LABEL}`
+                        : `\n📍 ${orderAddress}`;
 
                     const msg = requireApproval
-                        ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-                        : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${chgText}${etaBlock}\n\nObrigado pela preferência! 🍺`;
+                        ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${formatCurrency(orderGrandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
+                        : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${formatCart(cart)}${feeText}${placeLine}\n💳 ${pmLabel}${chgText}${etaBlock}\n\nObrigado pela preferência! 🍺`;
 
                     await sendWhatsAppMessage(customerPhone, msg, waConfig);
                 }
@@ -1683,6 +1704,15 @@ export async function POST(req: NextRequest) {
                     paymentMethod,
                 });
 
+                const fulfillPolicyCheckout = await loadFulfillmentPolicy(admin, companyId);
+                const soleFulfillCheckout = resolveSoleFulfillmentType(fulfillPolicyCheckout);
+                const fulfillmentTypeCheckout: FulfillmentType = soleFulfillCheckout ?? "delivery";
+                const isPickupCheckout = fulfillmentTypeCheckout === "pickup";
+                const orderDeliveryFeeCheckout = isPickupCheckout ? 0 : deliveryFee;
+                const orderAddressCheckout = isPickupCheckout ? PICKUP_ADDRESS_LABEL : address;
+                const orderAddrIdCheckout = isPickupCheckout ? null : deliveryEnderecoClienteId;
+                const orderGrandTotalCheckout = isPickupCheckout ? totalItems : grandTotal;
+
                 const { data: orderId, error: orderErr } = await admin.rpc("create_order_with_items", {
                     p_company_id:                   companyId,
                     p_customer_id:                  customerId,
@@ -1690,15 +1720,16 @@ export async function POST(req: NextRequest) {
                     p_confirmation_status:          confirmationStatus,
                     p_source:                       "flow_catalog",
                     p_channel:                      "whatsapp",
-                    p_total_amount:                 grandTotal,
+                    p_total_amount:                 orderGrandTotalCheckout,
                     p_total:                        totalItems,   // subtotal sem frete
-                    p_delivery_fee:                 deliveryFee,
-                    p_delivery_address:             address,
-                    p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
+                    p_delivery_fee:                 orderDeliveryFeeCheckout,
+                    p_delivery_address:             orderAddressCheckout,
+                    p_delivery_endereco_cliente_id: orderAddrIdCheckout,
                     p_payment_method:               paymentMethod,
                     p_change_for:                   changeFor,
                     p_paid:                         false,
                     p_idempotency_key:              idempotencyKeyCheckout,
+                    p_fulfillment_type:             fulfillmentTypeCheckout,
                     p_items: cart.map((item) => ({
                         product_name:         item.name,
                         produto_embalagem_id: item.variantId ?? null,
@@ -1722,22 +1753,27 @@ export async function POST(req: NextRequest) {
                 // Envia confirmação WhatsApp
                 if (phoneE164) {
                     const pmLabel = flowOrderPaymentLabel(paymentMethod);
-                    const feeText = deliveryFee > 0
-                        ? `\n🛵 Taxa de entrega: ${formatCurrency(deliveryFee)}`
+                    const feeText = !isPickupCheckout && orderDeliveryFeeCheckout > 0
+                        ? `\n🛵 Taxa de entrega: ${formatCurrency(orderDeliveryFeeCheckout)}`
                         : "";
                     const changeText = changeFor
                         ? ` (troco para ${formatCurrency(changeFor)})`
                         : "";
                     let etaMin = context.delivery_eta_min != null ? Number(context.delivery_eta_min) : NaN;
-                    if (!Number.isFinite(etaMin)) {
+                    if (!isPickupCheckout && !Number.isFinite(etaMin)) {
                         etaMin = (await getCompanyDeliveryEtaMin(admin, companyId)) ?? NaN;
                     }
-                    const etaLine = formatDeliveryEtaConfirmLine(Number.isFinite(etaMin) ? etaMin : null);
+                    const etaLine = isPickupCheckout
+                        ? ""
+                        : formatDeliveryEtaConfirmLine(Number.isFinite(etaMin) ? etaMin : null);
                     const etaBlock = etaLine ? `\n\n${etaLine}` : "";
+                    const placeLine = isPickupCheckout
+                        ? `\n🏪 ${PICKUP_ADDRESS_LABEL}`
+                        : `\n📍 ${orderAddressCheckout}`;
 
                     const msg = requireApproval
-                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}\n📍 ${address}\n💳 ${pmLabel}${changeText}${etaBlock}\n\nObrigado pela preferência! 🍺`;
+                        ? `✅ *Pedido Recebido!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\nTotal: ${formatCurrency(orderGrandTotalCheckout)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
+                        : `✅ *Pedido Confirmado!*\n\nPedido #${order.id.replaceAll("-", "").slice(-6).toUpperCase()}\n\n${formatCart(cart)}${feeText}${placeLine}\n💳 ${pmLabel}${changeText}${etaBlock}\n\nObrigado pela preferência! 🍺`;
 
                     await sendWhatsAppMessage(phoneE164, msg, waConfig);
                 }

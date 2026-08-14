@@ -12,7 +12,7 @@ export async function GET() {
         .from("orders")
         .select(
             `
-        id, customer_id, customer_phone, delivery_address, payment_method,
+        id, customer_id, customer_phone, delivery_address, fulfillment_type, payment_method,
         total, total_amount, delivery_fee, change_for, created_at,
         customers ( name, phone ),
         order_items ( product_name, quantity, unit_price, line_total, produto_embalagem_id )

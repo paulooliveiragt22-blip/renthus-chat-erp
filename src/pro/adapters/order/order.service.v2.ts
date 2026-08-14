@@ -177,14 +177,16 @@ export class OrderServiceV2Adapter implements OrderService {
         }
 
         const ufOk = draft.address?.estado && String(draft.address.estado).trim().length >= 2;
-        if (
-            !draft.address?.logradouro ||
-            !draft.address.numero ||
-            !draft.address.bairro ||
-            !draft.address.cidade?.trim() ||
-            !ufOk
-        ) {
-            return { ok: false, message: buildOrderErrorMessage("INVALID_ADDRESS"), errorCode: "INVALID_ADDRESS" };
+        if (draft.fulfillmentType !== "pickup") {
+            if (
+                !draft.address?.logradouro ||
+                !draft.address.numero ||
+                !draft.address.bairro ||
+                !draft.address.cidade?.trim() ||
+                !ufOk
+            ) {
+                return { ok: false, message: buildOrderErrorMessage("INVALID_ADDRESS"), errorCode: "INVALID_ADDRESS" };
+            }
         }
 
         if (!draft.paymentMethod) {

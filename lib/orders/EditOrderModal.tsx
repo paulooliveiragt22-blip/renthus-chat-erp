@@ -5,6 +5,7 @@ import Modal from "./Modal";
 import OrderForm from "./OrderForm";
 import { formatDT, prettyStatus } from "@/lib/orders/helpers";
 import type { CartItem, Driver, DraftQty, OrderFull, PaymentMethod, Variant } from "@/lib/orders/types";
+import type { FulfillmentType } from "@/lib/delivery/fulfillment";
 import { Lock } from "lucide-react";
 
 export default function EditOrderModal({
@@ -28,6 +29,10 @@ export default function EditOrderModal({
 
     deliveryFeeEnabled, setDeliveryFeeEnabled,
     deliveryFee,        setDeliveryFee,
+
+    fulfillmentType,    setFulfillmentType,
+    deliveriesEnabled = true,
+    pickupEnabled = true,
 
     serviceFeeOptions = [],
     selectedServiceFeeIds = [],
@@ -64,6 +69,11 @@ export default function EditOrderModal({
 
     deliveryFeeEnabled: boolean; setDeliveryFeeEnabled: (v: boolean) => void;
     deliveryFee: string;        setDeliveryFee: (v: string) => void;
+
+    fulfillmentType: FulfillmentType;
+    setFulfillmentType: (v: FulfillmentType) => void;
+    deliveriesEnabled?: boolean;
+    pickupEnabled?: boolean;
 
     serviceFeeOptions?: Array<{
         id: string;
@@ -123,6 +133,9 @@ export default function EditOrderModal({
                         changeFor={changeFor}               setChangeFor={setChangeFor}
                         deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
                         deliveryFee={deliveryFee}           setDeliveryFee={setDeliveryFee}
+                        fulfillmentType={fulfillmentType}   setFulfillmentType={setFulfillmentType}
+                        deliveriesEnabled={deliveriesEnabled}
+                        pickupEnabled={pickupEnabled}
                         serviceFeeOptions={serviceFeeOptions}
                         selectedServiceFeeIds={selectedServiceFeeIds}
                         onToggleServiceFee={onToggleServiceFee}

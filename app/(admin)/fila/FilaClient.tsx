@@ -6,6 +6,11 @@ import { useWorkspace } from "@/lib/workspace/useWorkspace";
 import { Check, Clock, MessageCircle, Pencil, RefreshCcw, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { FilaOrderEditOverlay } from "@/components/fila/FilaOrderEditOverlay";
 import WhatsAppInbox from "@/components/whatsapp/WhatsAppInbox";
+import {
+  formatFulfillmentLabel,
+  isPickupFulfillment,
+  orderFulfillmentAddressLine,
+} from "@/lib/delivery/fulfillment";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -104,6 +109,7 @@ interface PendingOrder {
   customer_id: string | null;
   customer_phone: string | null;
   delivery_address: string | null;
+  fulfillment_type?: string | null;
   payment_method: string | null;
   total: number;
   total_amount: number;
@@ -303,8 +309,10 @@ export default function FilaClient() {
       const shortId = orderId.replaceAll("-", "").slice(-6).toUpperCase();
       const total   = Number(order?.total_amount || order?.total || 0)
         .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
-      const etaLine = deliveryEtaMin != null && Number.isFinite(deliveryEtaMin)
+      const isPickup = isPickupFulfillment(order?.fulfillment_type);
+      const modeLine = isPickup ? `🏪 *Retirada no local*\n\n` : "";
+      const etaLine =
+        !isPickup && deliveryEtaMin != null && Number.isFinite(deliveryEtaMin)
         ? `🚚 *Previsão de entrega:* ${Math.max(0, Math.floor(deliveryEtaMin))} minutos\n\n`
         : "";
 
@@ -312,6 +320,7 @@ export default function FilaClient() {
         `✅ *Pedido Confirmado!*\n\n` +
         `Pedido #${shortId}\n` +
         `Total: ${total}\n\n` +
+        modeLine +
         etaLine +
         `Obrigado pela preferência! 🍺`
       );
@@ -517,11 +526,18 @@ export default function FilaClient() {
                   <FilaOrderItemsGrouped items={items} />
                 </div>
 
-                {/* Endereço */}
-                {order.delivery_address && (
+                {/* Entrega / Retirada */}
+                {(order.delivery_address || order.fulfillment_type) && (
                   <div>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Entrega</p>
-                    <p className="text-[11px] text-gray-600 dark:text-gray-400">{order.delivery_address}</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                      {formatFulfillmentLabel(order.fulfillment_type)}
+                    </p>
+                    <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                      {orderFulfillmentAddressLine({
+                        fulfillmentType: order.fulfillment_type,
+                        deliveryAddress: order.delivery_address,
+                      })}
+                    </p>
                   </div>
                 )}
 
@@ -544,7 +560,9 @@ export default function FilaClient() {
                 {/* Total */}
                 <div className="pt-2 border-t dark:border-zinc-700 flex items-center justify-between">
                   <span className="text-[11px] text-gray-400">
-                    {order.delivery_fee > 0
+                    {isPickupFulfillment(order.fulfillment_type)
+                      ? "Retirada no local"
+                      : order.delivery_fee > 0
                       ? `+ R$ ${Number(order.delivery_fee).toFixed(2)} entrega`
                       : "Sem taxa de entrega"}
                   </span>

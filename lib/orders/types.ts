@@ -67,6 +67,7 @@ export type OrderRow = {
     details: string | null;
     driver_id: string | null;
     fulfillment_type?: "delivery" | "pickup" | string | null;
+    delivery_address?: string | null;
     customers: CustomerRow | null;
 };
 

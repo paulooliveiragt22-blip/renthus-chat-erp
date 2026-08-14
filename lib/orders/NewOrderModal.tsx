@@ -14,6 +14,7 @@ import type {
     SavedCustomerAddress,
     Variant,
 } from "@/lib/orders/types";
+import type { FulfillmentType } from "@/lib/delivery/fulfillment";
 
 export default function NewOrderModal({
     open,
@@ -45,6 +46,10 @@ export default function NewOrderModal({
 
     deliveryFeeEnabled, setDeliveryFeeEnabled,
     deliveryFee,        setDeliveryFee,
+
+    fulfillmentType,    setFulfillmentType,
+    deliveriesEnabled = true,
+    pickupEnabled = true,
 
     serviceFeeOptions = [],
     selectedServiceFeeIds = [],
@@ -90,6 +95,11 @@ export default function NewOrderModal({
 
     deliveryFeeEnabled: boolean; setDeliveryFeeEnabled: (v: boolean) => void;
     deliveryFee: string;        setDeliveryFee: (v: string) => void;
+
+    fulfillmentType: FulfillmentType;
+    setFulfillmentType: (v: FulfillmentType) => void;
+    deliveriesEnabled?: boolean;
+    pickupEnabled?: boolean;
 
     serviceFeeOptions?: Array<{
         id: string;
@@ -140,6 +150,9 @@ export default function NewOrderModal({
                 changeFor={changeFor}               setChangeFor={setChangeFor}
                 deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
                 deliveryFee={deliveryFee}           setDeliveryFee={setDeliveryFee}
+                fulfillmentType={fulfillmentType}   setFulfillmentType={setFulfillmentType}
+                deliveriesEnabled={deliveriesEnabled}
+                pickupEnabled={pickupEnabled}
                 serviceFeeOptions={serviceFeeOptions}
                 selectedServiceFeeIds={selectedServiceFeeIds}
                 onToggleServiceFee={onToggleServiceFee}

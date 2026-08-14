@@ -58,6 +58,8 @@ type Row = {
     details:     string | null;
     id_unit_type: string | null;
     volume_value: number | null;
+    volume_formatado: string | null;
+    unit_type_sigla: string | null;
     unit:        Unit;
     unit_price:  number;
     cost_price:  number | null;
@@ -72,6 +74,7 @@ type Row = {
     case_details: string | null;
     case_sigla_id: string | null;
     case_codigo_interno: string | null;
+    case_codigo_barras_ean: string | null;
     is_active:   boolean;
     vender_com_estoque_zero: boolean;
     product_volume_id: string | null;
@@ -113,6 +116,8 @@ function normalizeRowsFromView(input: unknown): Row[] {
             product_id:   String(r?.product_id ?? ""),
             details:      r?.details ?? null,
             volume_value: r?.volume_value != null ? Number(r.volume_value) : null,
+            volume_formatado: r?.volume_formatado != null ? String(r.volume_formatado) : null,
+            unit_type_sigla: r?.unit_type_sigla != null ? String(r.unit_type_sigla) : null,
             unit,
             unit_price:   Number(r?.unit_price ?? 0),
             cost_price:   r?.cost_price != null ? Number(r.cost_price) : null,
@@ -127,6 +132,7 @@ function normalizeRowsFromView(input: unknown): Row[] {
             case_details: r?.case_details ?? null,
             case_sigla_id: r?.case_sigla_id ?? null,
             case_codigo_interno: r?.case_codigo_interno ?? null,
+            case_codigo_barras_ean: r?.case_codigo_barras_ean ?? null,
             id_unit_type: r?.id_unit_type ?? null,
             is_active:    Boolean(r?.is_active),
             vender_com_estoque_zero: r?.vender_com_estoque_zero !== false,
@@ -172,9 +178,11 @@ function mapVolumesApplyCodigo(prev: FormVolume[], itemId: string, codigo: strin
     }));
 }
 
-function productRowGridClassName(r: Row, flashId: string | null): string {
-    const base =
-        "grid grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] items-center gap-2 px-4 py-3 transition-colors";
+function productRowGridClassName(r: Row, flashId: string | null, showEan: boolean): string {
+    const cols = showEan
+        ? "grid-cols-[1fr_1.5fr_1.2fr_70px_90px_80px_70px_80px_80px_80px_1fr_60px_80px]"
+        : "grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px]";
+    const base = `grid ${cols} items-center gap-2 px-4 py-3 transition-colors`;
     const missingCost = r.cost_price == null || r.cost_price === 0;
     if (flashId === r.id) {
         return `${base} bg-emerald-50 dark:bg-emerald-900/15`;
@@ -191,14 +199,20 @@ function productRowGridClassName(r: Row, flashId: string | null): string {
 type ProductListRowProps = {
     readonly r: Row;
     readonly flashId: string | null;
+    readonly showEan: boolean;
     readonly onToggleActive: (row: Row) => void;
     readonly onOpenEdit: (row: Row) => void;
 };
 
-function ProductListRow({ r, flashId, onToggleActive, onOpenEdit }: ProductListRowProps) {
+function ProductListRow({ r, flashId, showEan, onToggleActive, onOpenEdit }: ProductListRowProps) {
     const missingCost = r.cost_price == null || r.cost_price === 0;
+    const volText =
+        r.volume_formatado ??
+        (r.volume_value != null
+            ? `${r.volume_value}${r.unit_type_sigla ? ` ${r.unit_type_sigla}` : r.unit !== "none" ? ` ${unitLabel(r.unit)}` : ""}`
+            : null);
     return (
-        <div className={productRowGridClassName(r, flashId)}>
+        <div className={productRowGridClassName(r, flashId, showEan)}>
             <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">
                 {r.products?.categories?.name ?? <span className="text-zinc-300">—</span>}
             </span>
@@ -209,9 +223,18 @@ function ProductListRow({ r, flashId, onToggleActive, onOpenEdit }: ProductListR
             <span className="truncate text-right text-xs text-zinc-500" title={r.codigo_interno ?? ""}>
                 {r.codigo_interno ?? "—"}
             </span>
-            <span className="text-right text-xs text-zinc-500">
-                {r.unit === "none" || r.volume_value == null ? "—" : `${r.volume_value} ${unitLabel(r.unit)}`}
-            </span>
+            {showEan && (
+                <span
+                    className="truncate text-right text-[11px] text-zinc-500"
+                    title={[r.codigo_barras_ean, r.case_codigo_barras_ean].filter(Boolean).join(" / ")}
+                >
+                    {r.codigo_barras_ean ?? "—"}
+                    {r.has_case && r.case_codigo_barras_ean ? (
+                        <span className="block text-[10px] text-zinc-400">CX {r.case_codigo_barras_ean}</span>
+                    ) : null}
+                </span>
+            )}
+            <span className="text-right text-xs text-zinc-500">{volText ?? "—"}</span>
             <span className="text-right text-xs text-zinc-500">
                 {r.estoque_un != null
                     ? <span className={r.estoque_un === 0 ? "text-red-500" : ""}>{r.estoque_un} UN{r.estoque_cx != null ? ` / ${r.estoque_cx} CX` : ""}</span>
@@ -333,6 +356,7 @@ export default function ProdutosListaPage() {
     const [loading,    setLoading]    = useState(true);
     const [msg,        setMsg]        = useState<string | null>(null);
     const [search,     setSearch]     = useState("");
+    const [showEan,    setShowEan]    = useState(false);
 
     // edit modal
     const [open,     setOpen]     = useState(false);
@@ -1240,18 +1264,30 @@ export default function ProdutosListaPage() {
             )}
 
             {/* Search */}
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por categoria, marca ou detalhes…"
-                    className="w-full rounded-xl border border-zinc-200 bg-white py-2.5 pl-9 pr-4 text-sm placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por categoria, marca ou detalhes…"
+                        className="w-full rounded-xl border border-zinc-200 bg-white py-2.5 pl-9 pr-4 text-sm placeholder-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                    <input
+                        type="checkbox"
+                        checked={showEan}
+                        onChange={(e) => setShowEan(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    />
+                    Coluna EAN
+                </label>
             </div>
 
             {/* Table */}
             <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
                 {/* sticky header */}
-                <div className="grid grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px] gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800">
+                <div className={`grid ${showEan ? "grid-cols-[1fr_1.5fr_1.2fr_70px_90px_80px_70px_80px_80px_80px_1fr_60px_80px]" : "grid-cols-[1fr_1.5fr_1.2fr_70px_80px_70px_80px_80px_80px_1fr_60px_80px]"} gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800`}>
                     <span>Categoria</span><span>Produto</span><span>Detalhes</span>
                     <span className="text-right">Cód.</span>
+                    {showEan && <span className="text-right">EAN</span>}
                     <span className="text-right">Vol.</span>
                     <span className="text-right">Estoque</span>
                     <span className="text-right">Venda</span>
@@ -1277,6 +1313,7 @@ export default function ProdutosListaPage() {
                                 key={r.id}
                                 r={r}
                                 flashId={flashId}
+                                showEan={showEan}
                                 onToggleActive={toggleActive}
                                 onOpenEdit={openEdit}
                             />
@@ -1604,7 +1641,9 @@ export default function ProdutosListaPage() {
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">EAN</label>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    EAN {isUnSigla(it.siglaLabel) ? "(UN)" : `(${it.siglaLabel || "CX"})`}
+                                                                </label>
                                                                 <input value={it.codigo_barras_ean} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_barras_ean: e.target.value })} placeholder="789..." className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
                                                             </div>
                                                             <div className="sm:col-span-2">
@@ -2027,7 +2066,9 @@ export default function ProdutosListaPage() {
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">EAN</label>
+                                                                <label className="mb-0.5 block text-[10px] font-semibold text-zinc-500">
+                                                                    EAN {isUnSigla(it.siglaLabel) ? "(UN)" : `(${it.siglaLabel || "CX"})`}
+                                                                </label>
                                                                 <input value={it.codigo_barras_ean} onChange={(e) => updateFormItem(vol.id, it.id, { codigo_barras_ean: e.target.value })} placeholder="789..." className={`${inputCls} py-1.5 text-xs`} inputMode="numeric" />
                                                             </div>
                                                             <div className="sm:col-span-2">

@@ -12,8 +12,9 @@ export async function enqueuePreparingNotify(params: {
     orderId: string;
     orderCode: string;
     customerId: string | null;
+    fulfillmentType?: string | null;
 }): Promise<{ enqueued: boolean; reason?: string }> {
-    const { admin, companyId, orderId, orderCode, customerId } = params;
+    const { admin, companyId, orderId, orderCode, customerId, fulfillmentType } = params;
     if (!customerId) return { enqueued: false, reason: "no_customer" };
 
     const { data: customer } = await admin
@@ -55,9 +56,13 @@ export async function enqueuePreparingNotify(params: {
         return { enqueued: false, reason: "unsupported_channel" };
     }
 
+    const readyLine =
+        String(fulfillmentType ?? "").toLowerCase() === "pickup"
+            ? "Avisamos assim que estiver pronto para retirada."
+            : "Avisamos assim que sair para entrega.";
+
     const text =
-        `🍳 Seu pedido ${orderCode} está em preparo!\n` +
-        `Avisamos assim que sair para entrega ou estiver pronto para retirada.`;
+        `🍳 Seu pedido ${orderCode} está em preparo!\n` + readyLine;
 
     const { error } = await admin.from("outbound_jobs").upsert(
         {

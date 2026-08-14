@@ -10,6 +10,11 @@ import {
 } from "@/lib/orders/helpers";
 import type { OrderFull, PaymentMethod } from "@/lib/orders/types";
 import {
+    formatFulfillmentLabel,
+    isPickupFulfillment,
+    orderFulfillmentAddressLine,
+} from "@/lib/delivery/fulfillment";
+import {
     filterCopiesForFulfillment,
     normalizePrintCopyTypes,
     printCopyLabel,
@@ -21,6 +26,7 @@ import {
     Pencil,
     Phone,
     Printer,
+    Store,
     Truck,
     User,
     XCircle,
@@ -164,6 +170,12 @@ export default function ViewOrderModal({
     const st     = order ? String(order.status) : "";
     const ordNum = order ? String(order.id).slice(-6).toUpperCase() : "";
     const fulfill = String((order as { fulfillment_type?: string } | null)?.fulfillment_type ?? "delivery");
+    const isPickup = isPickupFulfillment(fulfill);
+    const addrLine = orderFulfillmentAddressLine({
+        fulfillmentType: fulfill,
+        deliveryAddress: (order as { delivery_address?: string | null } | null)?.delivery_address,
+        customerAddress: order?.customers?.address,
+    });
     const availableCopies = useMemo(
         () => filterCopiesForFulfillment([...PRINT_COPY_TYPES], fulfill),
         [fulfill]
@@ -316,6 +328,19 @@ export default function ViewOrderModal({
 
                         <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Cliente</p>
 
+                        <div className="mb-3">
+                            <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                    isPickup
+                                        ? "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300"
+                                        : "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300"
+                                }`}
+                            >
+                                {isPickup ? <Store className="h-3 w-3" /> : <Truck className="h-3 w-3" />}
+                                {formatFulfillmentLabel(fulfill)}
+                            </span>
+                        </div>
+
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center gap-2">
                                 <User className="h-4 w-4 shrink-0 text-zinc-400" />
@@ -326,8 +351,12 @@ export default function ViewOrderModal({
                                 <span className="text-sm text-zinc-700 dark:text-zinc-300">{order.customers?.phone ?? "-"}</span>
                             </div>
                             <div className="flex items-start gap-2">
-                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
-                                <span className="text-sm text-zinc-700 dark:text-zinc-300">{order.customers?.address || "Não informado"}</span>
+                                {isPickup ? (
+                                    <Store className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
+                                ) : (
+                                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
+                                )}
+                                <span className="text-sm text-zinc-700 dark:text-zinc-300">{addrLine}</span>
                             </div>
                         </div>
 
@@ -343,7 +372,7 @@ export default function ViewOrderModal({
                         </div>
 
                         {/* Entregador */}
-                        {(order as any).drivers?.name && (
+                        {!isPickup && (order as any).drivers?.name && (
                             <div className="mt-3 border-t border-zinc-200 dark:border-zinc-700 pt-3">
                                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Entregador</p>
                                 <div className="flex items-center gap-2">

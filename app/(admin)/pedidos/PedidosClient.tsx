@@ -58,6 +58,13 @@ import {
     prettyStatus,
 } from "@/lib/orders/helpers";
 import {
+    formatFulfillmentLabel,
+    isPickupFulfillment,
+    orderFulfillmentAddressLine,
+    parseFulfillmentType,
+    type FulfillmentType,
+} from "@/lib/delivery/fulfillment";
+import {
     applyChatbotMessageTemplate,
     DEFAULT_CHATBOT_MESSAGE_TEMPLATES,
     type ChatbotMessageTemplates,
@@ -306,11 +313,15 @@ export default function PedidosPage() {
             .catch(() => {});
     }, [companyId]);
 
-    // ── delivery fee ──────────────────────────────────────────────────────────
+    // ── delivery fee / fulfillment ────────────────────────────────────────────
     const [deliveryFeeEnabled,     setDeliveryFeeEnabled]     = useState(false);
     const [deliveryFee,            setDeliveryFee]            = useState("0,00");
     const [editDeliveryFeeEnabled, setEditDeliveryFeeEnabled] = useState(false);
     const [editDeliveryFee,        setEditDeliveryFee]        = useState("0,00");
+    const [fulfillmentType,        setFulfillmentType]        = useState<FulfillmentType>("delivery");
+    const [editFulfillmentType,    setEditFulfillmentType]    = useState<FulfillmentType>("delivery");
+    const [deliveriesEnabled,      setDeliveriesEnabled]      = useState(true);
+    const [pickupEnabled,          setPickupEnabled]          = useState(true);
 
     type ServiceFeeOpt = {
         id: string;
@@ -414,6 +425,21 @@ export default function PedidosPage() {
             setEditDeliveryFeeEnabled(!!comp.delivery_fee_enabled);
             setEditDeliveryFee(formatBRL(Number(comp.default_delivery_fee ?? 0)));
         }
+        try {
+            const polRes = await fetch("/api/delivery/policy", { cache: "no-store", credentials: "include" });
+            const polJson = await polRes.json().catch(() => ({}));
+            const del = polJson?.policy?.deliveries_enabled !== false;
+            const pick = polJson?.policy?.pickup_enabled !== false;
+            setDeliveriesEnabled(del);
+            setPickupEnabled(pick);
+            const sole: FulfillmentType =
+                del && !pick ? "delivery" : !del && pick ? "pickup" : "delivery";
+            setFulfillmentType(sole);
+            setEditFulfillmentType(sole);
+        } catch {
+            /* keep defaults */
+        }
+        void cid;
     }
 
     /**
@@ -663,6 +689,14 @@ export default function PedidosPage() {
         setCart([]); setQ(""); setResults([]); setDraftQty({}); setMsg(null);
         setDriverId(null);
         setSelectedServiceFeeIds([]);
+        const sole: FulfillmentType =
+            deliveriesEnabled && !pickupEnabled
+                ? "delivery"
+                : !deliveriesEnabled && pickupEnabled
+                  ? "pickup"
+                  : "delivery";
+        setFulfillmentType(sole);
+        if (sole === "pickup") setDeliveryFeeEnabled(false);
     }
 
     function toggleServiceFeeId(
@@ -866,8 +900,9 @@ export default function PedidosPage() {
         if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); return; }
         setSaving(true); setMsg(null);
 
+        const isPickup = fulfillmentType === "pickup";
         let customerId: string | null = selectedOrderCustomerId;
-        let addressForOrder = customerAddress.trim();
+        let addressForOrder = isPickup ? "" : customerAddress.trim();
 
         if (customerId) {
             if (!customerName.trim() || !customerPhone.trim()) {
@@ -875,7 +910,7 @@ export default function PedidosPage() {
                 setSaving(false);
                 return;
             }
-            if (orderAddressMode === "saved") {
+            if (!isPickup && orderAddressMode === "saved") {
                 if (orderSavedAddresses.length === 0) {
                     setMsg("Este cliente não tem endereço salvo. Escolha “Salvar novo endereço” ou “Texto livre”.");
                     setSaving(false);
@@ -893,7 +928,7 @@ export default function PedidosPage() {
                     return;
                 }
                 addressForOrder = formatEnderecoLine(e);
-            } else if (orderAddressMode === "new") {
+            } else if (!isPickup && orderAddressMode === "new") {
                 const f = newOrderAddrForm;
                 if (!f.logradouro?.trim()) {
                     setMsg("Informe o logradouro do novo endereço.");
@@ -943,11 +978,15 @@ export default function PedidosPage() {
                 return;
             }
         } else {
-            const createdId = await upsertCustomerFromFields(customerName, customerPhone, customerAddress);
+            const createdId = await upsertCustomerFromFields(
+                customerName,
+                customerPhone,
+                isPickup ? "" : customerAddress
+            );
             if (!createdId) { setSaving(false); return; }
             customerId = createdId;
         }
-        const fee    = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+        const fee    = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
         const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
         const total  = cartSubtotal(cart) + fee;
         const createRes = await fetch("/api/admin/orders", {
@@ -962,9 +1001,11 @@ export default function PedidosPage() {
                 paid,
                 change_for: change,
                 delivery_fee: fee,
+                delivery_address: isPickup ? null : addressForOrder || null,
+                fulfillment_type: fulfillmentType,
                 total_amount: total,
                 details: null,
-                driver_id: driverId || null,
+                driver_id: isPickup ? null : driverId || null,
                 items: buildItemsPayload("temp", companyId, cart),
             }),
         });
@@ -998,8 +1039,10 @@ export default function PedidosPage() {
         setEditPaymentMethod((full as any).payment_method);
         setEditPaid(!!(full as any).paid);
         setEditChangeFor(formatBRL(Number((full as any).change_for ?? 0)));
+        const ft = parseFulfillmentType((full as any).fulfillment_type) ?? "delivery";
+        setEditFulfillmentType(ft);
         const feeVal = Number((full as any).delivery_fee ?? 0);
-        setEditDeliveryFeeEnabled(feeVal > 0);
+        setEditDeliveryFeeEnabled(ft !== "pickup" && feeVal > 0);
         setEditDeliveryFee(formatBRL(feeVal));
         try {
             const feesRes = await fetch(
@@ -1065,7 +1108,8 @@ export default function PedidosPage() {
         setEditSaving(true); setMsg(null);
         const customerId = await upsertCustomerFromFields(editCustomerName, editCustomerPhone, editCustomerAddress);
         if (!customerId) { setEditSaving(false); return; }
-        const fee    = editDeliveryFeeEnabled ? brlToNumber(editDeliveryFee) : 0;
+        const isPickup = editFulfillmentType === "pickup";
+        const fee    = isPickup ? 0 : editDeliveryFeeEnabled ? brlToNumber(editDeliveryFee) : 0;
         const change = editPaymentMethod === "cash" ? brlToNumber(editChangeFor) : null;
         const eo     = editOrder as Record<string, unknown>;
         if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); setEditSaving(false); return; }
@@ -1084,8 +1128,12 @@ export default function PedidosPage() {
                 paid: editPaid,
                 change_for: change,
                 delivery_fee: fee,
+                delivery_address: isPickup
+                    ? null
+                    : editCustomerAddress.trim() || null,
+                fulfillment_type: editFulfillmentType,
                 details: eo.details === undefined || eo.details === null ? undefined : String(eo.details),
-                driver_id: editDriverId || null,
+                driver_id: isPickup ? null : editDriverId || null,
                 items: buildItemsPayload(editOrder.id, companyId, editCart),
             }),
         });
@@ -1116,18 +1164,19 @@ export default function PedidosPage() {
         if (!companyId) { setMsg("Nenhuma empresa ativa selecionada."); return; }
         setSaving(true); setMsg(null);
 
+        const isPickup = fulfillmentType === "pickup";
         let customerId: string | null = selectedOrderCustomerId;
-        let addressForOrder = customerAddress.trim();
+        let addressForOrder = isPickup ? "" : customerAddress.trim();
 
         if (customerId) {
             if (!customerName.trim() || !customerPhone.trim()) { setMsg("Cliente sem nome ou telefone."); setSaving(false); return; }
-            if (orderAddressMode === "saved") {
+            if (!isPickup && orderAddressMode === "saved") {
                 if (orderSavedAddresses.length === 0) { setMsg("Este cliente não tem endereço salvo."); setSaving(false); return; }
                 if (!orderSelectedAddrId) { setMsg("Selecione um endereço salvo."); setSaving(false); return; }
                 const e = orderSavedAddresses.find((a) => a.id === orderSelectedAddrId);
                 if (!e) { setMsg("Endereço selecionado não encontrado."); setSaving(false); return; }
                 addressForOrder = formatEnderecoLine(e);
-            } else if (orderAddressMode === "new") {
+            } else if (!isPickup && orderAddressMode === "new") {
                 const f = newOrderAddrForm;
                 if (!f.logradouro?.trim()) { setMsg("Informe o logradouro do novo endereço."); setSaving(false); return; }
                 const addrRes = await fetch("/api/admin/order-addresses", {
@@ -1165,12 +1214,16 @@ export default function PedidosPage() {
             const customerJson = await customerRes.json().catch(() => ({}));
             if (!customerRes.ok) { setMsg(`Erro ao atualizar cliente: ${customerJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
         } else {
-            const createdId = await upsertCustomerFromFields(customerName, customerPhone, customerAddress);
+            const createdId = await upsertCustomerFromFields(
+                customerName,
+                customerPhone,
+                isPickup ? "" : customerAddress
+            );
             if (!createdId) { setSaving(false); return; }
             customerId = createdId;
         }
 
-        const fee    = deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
+        const fee    = isPickup ? 0 : deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0;
         const change = paymentMethod === "cash" ? brlToNumber(changeFor) : null;
         const total  = cartSubtotal(cart) + fee;
 
@@ -1186,9 +1239,11 @@ export default function PedidosPage() {
                 paid,
                 change_for: change,
                 delivery_fee: fee,
+                delivery_address: isPickup ? null : addressForOrder || null,
+                fulfillment_type: fulfillmentType,
                 total_amount: total,
                 details: null,
-                driver_id: driverId || null,
+                driver_id: isPickup ? null : driverId || null,
                 items: buildItemsPayload("temp", companyId, cart),
             }),
         });
@@ -1313,11 +1368,19 @@ export default function PedidosPage() {
         const w = window.open("", "_blank", "width=900,height=700");
         if (!w) { setMsg("Erro: popup bloqueado."); return; }
         w.document.open();
-        const driverLine = driver?.name
+        const fulfillType = (full as any).fulfillment_type ?? "delivery";
+        const fulfillLabel = formatFulfillmentLabel(fulfillType);
+        const addrLine = orderFulfillmentAddressLine({
+            fulfillmentType: fulfillType,
+            deliveryAddress: (full as any).delivery_address,
+            customerAddress: cust?.address,
+        });
+        const driverLine =
+            !isPickupFulfillment(fulfillType) && driver?.name
             ? `<div style="margin-top:4px"><b>Entregador:</b> <b>${escapeHtml(driver.name)}</b>${driver.vehicle ? ` • ${escapeHtml(driver.vehicle)}` : ""}${driver.plate ? ` (${escapeHtml(driver.plate)})` : ""}</div>`
             : "";
 
-        w.document.write(`<html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:10px;max-width:460px}h1{font-size:16px;font-weight:700;margin:5px 0 3px}table{width:100%;border-collapse:collapse;margin-top:6px}.obs{border:1px solid #ddd;border-radius:5px;padding:5px;margin-top:6px;font-size:10px;font-weight:700;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:3px 8px;border:1px solid #999;border-radius:5px;cursor:pointer;font-size:10px;margin-bottom:5px">Imprimir</button><h1>Pedido #${String(full.id).slice(0,8).toUpperCase()} &bull; ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div style="font-size:10px;margin:1px 0"><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div style="font-size:10px;margin:1px 0"><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} &bull; ${escapeHtml(cust?.phone ?? "")}</div><div style="font-size:10px;margin:1px 0"><b>End:</b> ${escapeHtml(cust?.address ?? "-")}</div>${driverLine}<div style="font-size:10px;margin-top:3px"><b>Pagamento:</b> ${escapeHtml(pmLabel)}${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><tbody>${itemsHtml}</tbody></table><div style="margin-top:8px"><div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div><div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:2px solid #222;padding-top:3px;margin-top:3px"><span>TOTAL</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+        w.document.write(`<html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:10px;max-width:460px}h1{font-size:16px;font-weight:700;margin:5px 0 3px}table{width:100%;border-collapse:collapse;margin-top:6px}.obs{border:1px solid #ddd;border-radius:5px;padding:5px;margin-top:6px;font-size:10px;font-weight:700;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:3px 8px;border:1px solid #999;border-radius:5px;cursor:pointer;font-size:10px;margin-bottom:5px">Imprimir</button><h1>Pedido #${String(full.id).slice(0,8).toUpperCase()} &bull; ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div style="font-size:10px;margin:1px 0"><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div style="font-size:10px;margin:1px 0"><b>Modo:</b> ${escapeHtml(fulfillLabel.toUpperCase())}</div><div style="font-size:10px;margin:1px 0"><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} &bull; ${escapeHtml(cust?.phone ?? "")}</div><div style="font-size:10px;margin:1px 0"><b>${isPickupFulfillment(fulfillType) ? "Retirada" : "End"}:</b> ${escapeHtml(addrLine)}</div>${driverLine}<div style="font-size:10px;margin-top:3px"><b>Pagamento:</b> ${escapeHtml(pmLabel)}${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><tbody>${itemsHtml}</tbody></table><div style="margin-top:8px">${isPickupFulfillment(fulfillType) ? "" : `<div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div>`}<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:2px solid #222;padding-top:3px;margin-top:3px"><span>TOTAL</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
         w.document.close();
     }
 
@@ -1399,12 +1462,12 @@ export default function PedidosPage() {
         () =>
             cartTotalPreview(
                 cart,
-                deliveryFeeEnabled,
+                fulfillmentType === "pickup" ? false : deliveryFeeEnabled,
                 deliveryFee,
                 serviceFeesAmount(cart, selectedServiceFeeIds)
             ),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [cart, deliveryFeeEnabled, deliveryFee, selectedServiceFeeIds, serviceFeeOptions]
+        [cart, deliveryFeeEnabled, deliveryFee, selectedServiceFeeIds, serviceFeeOptions, fulfillmentType]
     );
     const newCustomerPays  = useMemo(() => brlToNumber(changeFor), [changeFor]);
     const newTroco         = useMemo(() => calcTroco(newTotalNow, newCustomerPays), [newTotalNow, newCustomerPays]);
@@ -1412,12 +1475,12 @@ export default function PedidosPage() {
         () =>
             cartTotalPreview(
                 editCart,
-                editDeliveryFeeEnabled,
+                editFulfillmentType === "pickup" ? false : editDeliveryFeeEnabled,
                 editDeliveryFee,
                 serviceFeesAmount(editCart, editSelectedServiceFeeIds)
             ),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [editCart, editDeliveryFeeEnabled, editDeliveryFee, editSelectedServiceFeeIds, serviceFeeOptions]
+        [editCart, editDeliveryFeeEnabled, editDeliveryFee, editSelectedServiceFeeIds, serviceFeeOptions, editFulfillmentType]
     );
     const editCustomerPays = useMemo(() => brlToNumber(editChangeFor), [editChangeFor]);
     const editTroco        = useMemo(() => calcTroco(editTotalNow, editCustomerPays), [editTotalNow, editCustomerPays]);
@@ -1590,7 +1653,14 @@ export default function PedidosPage() {
                         const num        = orderNum(o.id);
                         const name       = o.customers?.name ?? "-";
                         const phone      = o.customers?.phone ?? "";
-                        const addr       = o.customers?.address ?? "";
+                        const fulfill    = (o as any).fulfillment_type ?? "delivery";
+                        const fulfillLbl = formatFulfillmentLabel(fulfill);
+                        const addr       = orderFulfillmentAddressLine({
+                            fulfillmentType: fulfill,
+                            deliveryAddress: (o as any).delivery_address,
+                            customerAddress: o.customers?.address,
+                        });
+                        const showAddr   = isPickupFulfillment(fulfill) || Boolean(addr && addr !== "Não informado");
                         const pmKey      = String((o as any).payment_method ?? "");
                         const pmStr      = paymentLabel(pmKey);
                         const obs        = ((o as any).details ?? "").trim();
@@ -1655,6 +1725,15 @@ export default function PedidosPage() {
                                                 {SOURCE_LABEL[source]}
                                             </span>
                                         )}
+                                        <span
+                                            className={`inline-flex rounded-full px-1.5 py-px text-[9px] font-bold ${
+                                                isPickupFulfillment(fulfill)
+                                                    ? "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300"
+                                                    : "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300"
+                                            }`}
+                                        >
+                                            {fulfillLbl}
+                                        </span>
                                         <span className="text-[9px] text-zinc-400 dark:text-zinc-600 truncate">{timeAgo(o.created_at)}</span>
                                     </div>
                                     <span className={`shrink-0 inline-flex rounded-full px-2 py-px text-[9px] font-bold ${STATUS_BADGE[st] ?? "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
@@ -1665,8 +1744,8 @@ export default function PedidosPage() {
                                 {/* ── Cliente ── */}
                                 <div className="px-3 py-2">
                                     <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate leading-tight">{name}</p>
-                                    {(phone || addr) && (
-                                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate leading-tight mt-0.5">{[phone, addr].filter(Boolean).join(" · ")}</p>
+                                    {(phone || showAddr) && (
+                                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate leading-tight mt-0.5">{[phone, showAddr ? addr : ""].filter(Boolean).join(" · ")}</p>
                                     )}
                                 </div>
 
@@ -1890,6 +1969,9 @@ export default function PedidosPage() {
                 changeFor={changeFor}                  setChangeFor={setChangeFor}
                 deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
                 deliveryFee={deliveryFee}              setDeliveryFee={setDeliveryFee}
+                fulfillmentType={fulfillmentType}      setFulfillmentType={setFulfillmentType}
+                deliveriesEnabled={deliveriesEnabled}
+                pickupEnabled={pickupEnabled}
                 serviceFeeOptions={serviceFeeOptions}
                 selectedServiceFeeIds={selectedServiceFeeIds}
                 onToggleServiceFee={(id) => toggleServiceFeeId(id, setSelectedServiceFeeIds)}
@@ -1982,6 +2064,9 @@ export default function PedidosPage() {
                 changeFor={editChangeFor}                  setChangeFor={setEditChangeFor}
                 deliveryFeeEnabled={editDeliveryFeeEnabled} setDeliveryFeeEnabled={setEditDeliveryFeeEnabled}
                 deliveryFee={editDeliveryFee}              setDeliveryFee={setEditDeliveryFee}
+                fulfillmentType={editFulfillmentType}      setFulfillmentType={setEditFulfillmentType}
+                deliveriesEnabled={deliveriesEnabled}
+                pickupEnabled={pickupEnabled}
                 serviceFeeOptions={serviceFeeOptions}
                 selectedServiceFeeIds={editSelectedServiceFeeIds}
                 onToggleServiceFee={(id) => toggleServiceFeeId(id, setEditSelectedServiceFeeIds)}

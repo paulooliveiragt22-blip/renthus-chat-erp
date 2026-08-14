@@ -20,7 +20,8 @@ import {
 } from "@/lib/orders/helpers";
 import VariantResultRow from "./VariantResultRow";
 import CartRow from "./CartRow";
-import { Search, Truck } from "lucide-react";
+import { Search, Store, Truck } from "lucide-react";
+import type { FulfillmentType } from "@/lib/delivery/fulfillment";
 
 const inputCls =
     "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50 dark:placeholder:text-zinc-500";
@@ -61,7 +62,11 @@ export default function OrderForm({
     changeFor,
     setChangeFor,
 
-    // entrega
+    // entrega / retirada
+    fulfillmentType,
+    setFulfillmentType,
+    deliveriesEnabled = true,
+    pickupEnabled = true,
     deliveryFeeEnabled,
     setDeliveryFeeEnabled,
     deliveryFee,
@@ -126,6 +131,11 @@ export default function OrderForm({
     changeFor: string;
     setChangeFor: (v: string) => void;
 
+    fulfillmentType: FulfillmentType;
+    setFulfillmentType: (v: FulfillmentType) => void;
+    deliveriesEnabled?: boolean;
+    pickupEnabled?: boolean;
+
     deliveryFeeEnabled: boolean;
     setDeliveryFeeEnabled: (v: boolean) => void;
     deliveryFee: string;
@@ -183,9 +193,54 @@ export default function OrderForm({
         cep: "",
     };
     const setNaForm = setNewOrderAddrForm ?? (() => {});
+    const isPickup = fulfillmentType === "pickup";
+    const showModeToggle = deliveriesEnabled && pickupEnabled;
 
     return (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+            {/* ── Modo ── */}
+            {(showModeToggle || isPickup || !deliveriesEnabled || !pickupEnabled) && (
+                <div className={`${sectionCls} sm:col-span-2`}>
+                    <div className={labelCls}>Modo do pedido</div>
+                    {showModeToggle ? (
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setFulfillmentType("delivery")}
+                                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors ${
+                                    !isPickup
+                                        ? "bg-violet-600 text-white shadow-sm"
+                                        : "border border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                }`}
+                            >
+                                <Truck className="h-3.5 w-3.5" />
+                                Entrega
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setFulfillmentType("pickup");
+                                    setDeliveryFeeEnabled(false);
+                                    setDriverId?.(null);
+                                }}
+                                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors ${
+                                    isPickup
+                                        ? "bg-violet-600 text-white shadow-sm"
+                                        : "border border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                }`}
+                            >
+                                <Store className="h-3.5 w-3.5" />
+                                Retirada no local
+                            </button>
+                        </div>
+                    ) : (
+                        <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                            {isPickup || !deliveriesEnabled ? "Retirada no local" : "Entrega"}
+                        </p>
+                    )}
+                </div>
+            )}
 
             {/* ── Cliente ── */}
             <div className={`${sectionCls} sm:col-span-2`}>
@@ -233,6 +288,8 @@ export default function OrderForm({
                             </p>
                         )}
 
+                        {!isPickup && (
+                            <>
                         <div className={`${labelCls} mt-4`}>Endereço de entrega</div>
                         {selCust ? (
                             <div className="space-y-3">
@@ -363,6 +420,13 @@ export default function OrderForm({
                                 className={`${inputCls} resize-y min-h-[4.5rem]`}
                             />
                         )}
+                            </>
+                        )}
+                        {isPickup && (
+                            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                                Retirada no local — endereço de entrega não é necessário.
+                            </p>
+                        )}
                     </>
                 ) : (
                     <>
@@ -380,13 +444,19 @@ export default function OrderForm({
                                 className={inputCls}
                             />
                         </div>
-                        <textarea
-                            placeholder="Endereço (texto livre)"
-                            value={customerAddress}
-                            onChange={(e) => setCustomerAddress(e.target.value)}
-                            rows={3}
-                            className={`${inputCls} mt-2 resize-y min-h-[4.5rem]`}
-                        />
+                        {!isPickup ? (
+                            <textarea
+                                placeholder="Endereço (texto livre)"
+                                value={customerAddress}
+                                onChange={(e) => setCustomerAddress(e.target.value)}
+                                rows={3}
+                                className={`${inputCls} mt-2 resize-y min-h-[4.5rem]`}
+                            />
+                        ) : (
+                            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                                Retirada no local — endereço de entrega não é necessário.
+                            </p>
+                        )}
                     </>
                 )}
             </div>
@@ -447,9 +517,10 @@ export default function OrderForm({
                 )}
             </div>
 
-            {/* ── Entrega ── */}
+            {/* ── Entrega (taxa) ── */}
+            {!isPickup && (
             <div className={sectionCls}>
-                <div className={labelCls}>Entrega</div>
+                <div className={labelCls}>Taxa de entrega</div>
 
                 <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
                     <input
@@ -507,9 +578,40 @@ export default function OrderForm({
                     </div>
                 )}
             </div>
+            )}
+
+            {isPickup && serviceFeeOptions.length > 0 && onToggleServiceFee && (
+                <div className={sectionCls}>
+                    <div className={labelCls}>Outras taxas</div>
+                    <div className="space-y-2">
+                        {serviceFeeOptions.map((opt) => {
+                            const checked = selectedServiceFeeIds.includes(opt.id);
+                            const labelExtra =
+                                opt.calc_mode === "percent"
+                                    ? `${opt.value}%`
+                                    : `R$ ${formatBRL(opt.value)}`;
+                            return (
+                                <label
+                                    key={opt.id}
+                                    className="flex cursor-pointer items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => onToggleServiceFee(opt.id)}
+                                        className="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                                    />
+                                    {opt.name}
+                                    <span className="text-xs text-zinc-400">({labelExtra})</span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* ── Entregador ── */}
-            {drivers && drivers.length > 0 && (
+            {!isPickup && drivers && drivers.length > 0 && (
                 <div className={`${sectionCls} sm:col-span-2`}>
                     <div className={`${labelCls} flex items-center gap-1.5`}>
                         <Truck className="h-3.5 w-3.5" />
