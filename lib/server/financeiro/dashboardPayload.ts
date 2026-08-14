@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
     civilRangeToUtcBounds,
-    fetchReceivedIncome,
     loadCompanyTimezone,
 } from "@/lib/server/financeiro/receivedIncome";
+import { financeQuerySupabase } from "@/src/financeiro/adapters/supabase/financeQuery.supabase";
+import { asMoney } from "@/src/financeiro/domain/money";
 
 export type DaySummary = {
     isoDate: string;
@@ -77,6 +78,10 @@ function normOrigin(raw: string | null | undefined): string {
     if (raw === "chatbot" || raw.startsWith("flow_")) return "chatbot";
     if (raw === "ui" || raw === "ui_order" || raw === "admin") return "ui_order";
     if (raw === "balcao" || raw === "pdv" || raw === "pdv_direct") return "pdv";
+    if (raw === "web_menu") return "web_menu";
+    if (raw === "ai_chat") return "ai_chat";
+    if (raw === "table_service" || raw === "mesa") return "table_service";
+    if (raw.startsWith("marketplace")) return "marketplace";
     return "pdv";
 }
 
@@ -87,121 +92,45 @@ export async function buildFinanceDashboard(
 ): Promise<{ stats: StatsPayload; expenses: ExpenseRow[] }> {
     const timeZone = await loadCompanyTimezone(admin, companyId);
     const bounds = civilRangeToUtcBounds(dateRange.from, dateRange.to, timeZone);
-    const income = await fetchReceivedIncome(
+    const dash = await financeQuerySupabase.dashboard(
         admin,
         companyId,
         { from: bounds.from, toExclusive: bounds.toExclusive },
         timeZone
     );
 
-    // Custo: entradas recebidas → order_id / sale_id
-    const { data: feRows } = await admin
-        .from("financial_entries")
-        .select("id, order_id, sale_id, amount, received_at, occurred_at")
+    const { data: payables } = await admin
+        .from("bills")
+        .select("id, description, notes, original_amount, due_date, status")
         .eq("company_id", companyId)
-        .eq("type", "income")
-        .eq("status", "received")
-        .gte("received_at", bounds.from.toISOString())
-        .lt("received_at", bounds.toExclusive.toISOString());
-
-    // Fallback: algumas linhas antigas só têm occurred_at
-    const { data: feOcc } = await admin
-        .from("financial_entries")
-        .select("id, order_id, sale_id, amount, received_at, occurred_at")
-        .eq("company_id", companyId)
-        .eq("type", "income")
-        .eq("status", "received")
-        .is("received_at", null)
-        .gte("occurred_at", bounds.from.toISOString())
-        .lt("occurred_at", bounds.toExclusive.toISOString());
-
-    const feMap = new Map<string, { order_id: string | null; sale_id: string | null }>();
-    for (const row of [...(feRows ?? []), ...(feOcc ?? [])]) {
-        feMap.set(String(row.id), {
-            order_id: (row.order_id as string) ?? null,
-            sale_id: (row.sale_id as string) ?? null,
-        });
-    }
-
-    const saleIds = [...new Set([...feMap.values()].map((v) => v.sale_id).filter(Boolean))] as string[];
-    const orderIds = [...new Set([...feMap.values()].map((v) => v.order_id).filter(Boolean))] as string[];
-
-    const costBySale: Record<string, number> = {};
-    if (saleIds.length > 0) {
-        const { data: siRows } = await admin.from("sale_items").select("sale_id, qty, unit_cost").in("sale_id", saleIds);
-        (siRows ?? []).forEach((si: { sale_id: string; qty: number; unit_cost: number | null }) => {
-            costBySale[si.sale_id] = (costBySale[si.sale_id] ?? 0) + Number(si.qty) * Number(si.unit_cost ?? 0);
-        });
-    }
-
-    const costByOrder: Record<string, number> = {};
-    if (orderIds.length > 0) {
-        const { data: items } = await admin
-            .from("order_items")
-            .select("order_id, quantity, qty, produto_embalagem_id")
-            .in("order_id", orderIds);
-        const embIds = [
-            ...new Set(
-                (items ?? [])
-                    .map((it: { produto_embalagem_id?: string }) => it.produto_embalagem_id)
-                    .filter(Boolean)
-            ),
-        ] as string[];
-        const embCostMap: Record<string, { baseCost: number; fator: number }> = {};
-        if (embIds.length > 0) {
-            const { data: embRows } = await admin
-                .from("view_pdv_produtos")
-                .select("id, fator_conversao, product_preco_custo")
-                .eq("company_id", companyId)
-                .in("id", embIds);
-            (embRows ?? []).forEach((e: { id: string; product_preco_custo?: number; fator_conversao?: number }) => {
-                embCostMap[e.id] = {
-                    baseCost: Number(e.product_preco_custo ?? 0),
-                    fator: Number(e.fator_conversao ?? 1),
-                };
-            });
-        }
-        (items ?? []).forEach(
-            (it: { order_id: string; quantity?: number; qty?: number; produto_embalagem_id?: string }) => {
-                const q = Number(it.quantity ?? it.qty ?? 1);
-                const em = it.produto_embalagem_id ? embCostMap[it.produto_embalagem_id] : undefined;
-                costByOrder[it.order_id] =
-                    (costByOrder[it.order_id] ?? 0) + (em ? em.baseCost * em.fator * q : 0);
-            }
-        );
-    }
-
-    let costTotal = 0;
-    for (const v of feMap.values()) {
-        if (v.sale_id) costTotal += costBySale[v.sale_id] ?? 0;
-        else if (v.order_id) costTotal += costByOrder[v.order_id] ?? 0;
-    }
-
-    const { data: expData } = await admin
-        .from("expenses")
-        .select("id, category, description, amount, due_date, payment_status")
-        .eq("company_id", companyId)
+        .eq("type", "payable")
         .gte("due_date", dateRange.from)
         .lte("due_date", dateRange.to)
         .order("due_date", { ascending: false });
-    const safeExp = (expData ?? []) as ExpenseRow[];
 
-    const { data: billsOpen } = await admin
-        .from("bills")
-        .select("saldo_devedor, status")
-        .eq("company_id", companyId)
-        .eq("type", "receivable")
-        .in("status", ["open", "partial", "overdue"]);
-    const totalAReceber = (billsOpen ?? []).reduce(
-        (s: number, b: { saldo_devedor?: number }) => s + Number(b.saldo_devedor ?? 0),
-        0
+    const safeExp: ExpenseRow[] = (payables ?? []).map(
+        (b: {
+            id: string;
+            description?: string | null;
+            notes?: string | null;
+            original_amount?: number;
+            due_date: string;
+            status: string;
+        }) => ({
+            id: String(b.id),
+            category: String(b.description ?? "outros"),
+            description: String(b.notes ?? ""),
+            amount: asMoney(b.original_amount),
+            due_date: String(b.due_date).slice(0, 10),
+            payment_status: b.status === "paid" ? "paid" : "pending",
+        })
     );
 
     const dayMap: Record<string, DaySummary> = {};
     for (const iso of eachCivilDay(dateRange.from, dateRange.to)) {
         dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
     }
-    for (const d of income.byDay) {
+    for (const d of dash.byDay) {
         if (!dayMap[d.day]) {
             dayMap[d.day] = {
                 isoDate: d.day,
@@ -215,10 +144,9 @@ export async function buildFinanceDashboard(
         dayMap[d.day].revenue += d.amount;
         dayMap[d.day].orders += d.entries_count;
     }
-    // Distribui custo proporcional por dia via entries_count — aproximação; detalhe por FE seria pesado.
-    // Melhor: custo total no período (já calculado); custo diário fica 0 aqui se não quisermos alocar.
-    // Aloca custo nos dias na proporção da receita do dia.
-    const revenue = income.total;
+
+    const revenue = dash.total;
+    const costTotal = dash.cogs;
     if (revenue > 0 && costTotal > 0) {
         for (const d of Object.values(dayMap)) {
             if (d.revenue <= 0) continue;
@@ -235,7 +163,7 @@ export async function buildFinanceDashboard(
     });
     const byDay = Object.values(dayMap).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
 
-    const byPay: PaySummary[] = income.byPaymentMethod
+    const byPay: PaySummary[] = dash.byPaymentMethod
         .map((p) => {
             const meta = PAY_META[p.method] ?? { label: p.method, color: "#a1a1aa" };
             return { method: p.method, ...meta, total: p.amount, count: p.entries_count };
@@ -243,15 +171,13 @@ export async function buildFinanceDashboard(
         .sort((a, b) => b.total - a.total);
 
     const originMap: Record<string, number> = { pdv: 0, chatbot: 0, ui_order: 0 };
-    for (const o of income.byOrigin) {
+    for (const o of dash.byOrigin) {
         const key = normOrigin(o.origin);
         originMap[key] = (originMap[key] ?? 0) + o.amount;
     }
 
-    const expensesPaid = safeExp
-        .filter((e) => e.payment_status === "paid")
-        .reduce((s, e) => s + Number(e.amount), 0);
-    const orders = income.count;
+    const expensesPaid = dash.opexPaid;
+    const orders = dash.count;
 
     const stats: StatsPayload = {
         revenue,
@@ -264,7 +190,7 @@ export async function buildFinanceDashboard(
         byDay,
         byPay,
         byOrigin: originMap,
-        totalAReceber,
+        totalAReceber: dash.arOpen,
     };
 
     return { stats, expenses: safeExp };

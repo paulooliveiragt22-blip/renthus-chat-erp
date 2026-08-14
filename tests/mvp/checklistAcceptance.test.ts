@@ -187,9 +187,13 @@ describe("MVP checklist — M6 limpar fila", () => {
 
 describe("MVP checklist — M7 receita canônica", () => {
     it("dashboard/extrato usam received income + fuso loja", () => {
-        assert.match(read("lib/server/financeiro/receivedIncome.ts"), /rpc_company_received_income/);
-        assert.match(read("lib/server/financeiro/dashboardPayload.ts"), /receivedIncome|loadCompanyTimezone/);
-        assert.match(read("lib/server/financeiro/extratoPayload.ts"), /receivedIncome|financial_entries/);
+        assert.match(read("lib/server/financeiro/receivedIncome.ts"), /rpcCashRevenue/);
+        assert.match(
+            read("src/financeiro/adapters/supabase/financeQuery.supabase.ts"),
+            /rpc_fin_cash_revenue/
+        );
+        assert.match(read("lib/server/financeiro/dashboardPayload.ts"), /receivedIncome|loadCompanyTimezone|rpc_fin_dashboard/);
+        assert.match(read("lib/server/financeiro/extratoPayload.ts"), /v_fin_extrato|rpc_fin_cash_revenue/);
         assert.match(read("app/api/dashboard/stats/route.ts"), /receivedIncomeToday|loadCompanyTimezone/);
 
         const d = new Date("2026-08-14T02:30:00.000Z");

@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseRow } from "./dashboardPayload";
 import { civilRangeToUtcBounds, loadCompanyTimezone } from "@/lib/server/financeiro/receivedIncome";
+import { asMoney } from "@/src/financeiro/domain/money";
 
 export type ExtratoLine = {
     id: string;
     date: string;
     type: "income" | "expense";
-    source: "order" | "financial_entry" | "expense";
+    source: "order" | "financial_entry" | "expense" | "journal";
     description: string;
     customer: string;
     channel: string;
@@ -19,82 +20,98 @@ export type ExtratoLine = {
     orderStatus?: string | null;
 };
 
+type ExtratoViewRow = {
+    id: string;
+    posted_at: string;
+    source_type: string;
+    origin: string | null;
+    payment_method: string | null;
+    description: string | null;
+    status: string;
+    sale_id: string | null;
+    order_id: string | null;
+    cash_amount: number | null;
+    debit_total: number | null;
+    line_type: string;
+};
+
 /**
- * Extrato de receita: somente `financial_entries` (income).
- * Despesas: `expenses` do período.
+ * Extrato: journals posted no intervalo civil da loja (`v_fin_extrato`).
  */
 export async function buildExtratoLines(
     admin: SupabaseClient,
     companyId: string,
     dateRange: { from: string; to: string },
-    expenses: ExpenseRow[]
+    _expenses: ExpenseRow[]
 ): Promise<ExtratoLine[]> {
     const timeZone = await loadCompanyTimezone(admin, companyId);
     const bounds = civilRangeToUtcBounds(dateRange.from, dateRange.to, timeZone);
     const lines: ExtratoLine[] = [];
 
-    const { data: feRows } = await admin
-        .from("financial_entries")
+    const { data: rows, error } = await admin
+        .from("v_fin_extrato")
         .select(
-            "id, amount, payment_method, status, description, origin, order_id, sale_id, received_at, occurred_at, orders(customers(name), customer_id, status)"
+            "id, posted_at, source_type, origin, payment_method, description, status, sale_id, order_id, cash_amount, debit_total, line_type"
         )
         .eq("company_id", companyId)
-        .eq("type", "income")
-        .gte("occurred_at", bounds.from.toISOString())
-        .lt("occurred_at", bounds.toExclusive.toISOString())
-        .order("occurred_at", { ascending: false })
+        .gte("posted_at", bounds.from.toISOString())
+        .lt("posted_at", bounds.toExclusive.toISOString())
+        .order("posted_at", { ascending: false })
         .limit(800);
 
-    // Filtra received pelo instante canônico (received_at ?? occurred_at) no intervalo civil
-    const fromMs = bounds.from.getTime();
-    const toMs = bounds.toExclusive.getTime();
+    if (error) throw new Error(error.message);
 
-    for (const fe of feRows ?? []) {
-        const when = new Date(String(fe.received_at ?? fe.occurred_at)).getTime();
-        if (!Number.isFinite(when) || when < fromMs || when >= toMs) continue;
-
-        const ord = fe.orders as
-            | { customers?: { name?: string }; customer_id?: string; status?: string }
-            | null
-            | undefined;
-        const status = String(fe.status ?? "");
-        lines.push({
-            id: `fe-${String(fe.id)}`,
-            date: String(fe.received_at ?? fe.occurred_at),
-            type: "income",
-            source: "financial_entry",
-            description:
-                String(fe.description ?? "").trim() ||
-                (fe.order_id
-                    ? `Pedido #${String(fe.order_id).slice(-6).toUpperCase()}`
-                    : "Recebimento"),
-            customer: ord?.customers?.name ?? "—",
-            channel: String(fe.origin ?? "—"),
-            payment_method: String(fe.payment_method ?? "—"),
-            amount: Number(fe.amount ?? 0),
-            status:
-                status === "received" ? "recebido" : status === "pending" ? "pendente" : status,
-            orderId: (fe.order_id as string) ?? null,
-            saleId: (fe.sale_id as string) ?? null,
-            customerId: ord?.customer_id ?? null,
-            orderStatus: ord?.status ?? null,
-        });
+    const orderIds = [
+        ...new Set(
+            (rows ?? [])
+                .map((r: ExtratoViewRow) => r.order_id)
+                .filter((id): id is string => Boolean(id))
+        ),
+    ];
+    const orderMeta: Record<string, { customer: string; customerId: string | null; status: string | null }> =
+        {};
+    if (orderIds.length > 0) {
+        const { data: ords } = await admin
+            .from("orders")
+            .select("id, status, customer_id, customers(name)")
+            .eq("company_id", companyId)
+            .in("id", orderIds);
+        for (const o of ords ?? []) {
+            const cust = o.customers as { name?: string } | null;
+            orderMeta[String(o.id)] = {
+                customer: cust?.name ?? "—",
+                customerId: (o.customer_id as string | null) ?? null,
+                status: (o.status as string | null) ?? null,
+            };
+        }
     }
 
-    expenses.forEach((e) => {
+    for (const row of (rows ?? []) as ExtratoViewRow[]) {
+        const meta = row.order_id ? orderMeta[row.order_id] : undefined;
+        const isExpense = row.line_type === "expense";
+        const cash = asMoney(row.cash_amount);
+        const amount = isExpense ? asMoney(row.debit_total) : cash !== 0 ? cash : asMoney(row.debit_total);
         lines.push({
-            id: `exp-${e.id}`,
-            date: e.due_date + "T12:00:00",
-            type: "expense",
-            source: "expense",
-            description: `${e.category}${e.description ? ` — ${e.description}` : ""}`,
-            customer: "—",
-            channel: "despesa",
-            payment_method: "—",
-            amount: Number(e.amount ?? 0),
-            status: e.payment_status === "paid" ? "pago" : "pendente",
+            id: `j-${row.id}`,
+            date: String(row.posted_at),
+            type: isExpense ? "expense" : "income",
+            source: "journal",
+            description:
+                String(row.description ?? "").trim() ||
+                (row.order_id
+                    ? `Pedido #${String(row.order_id).slice(-6).toUpperCase()}`
+                    : row.source_type),
+            customer: meta?.customer ?? "—",
+            channel: String(row.origin ?? "—"),
+            payment_method: String(row.payment_method ?? "—"),
+            amount,
+            status: row.status === "posted" ? (isExpense ? "pago" : "recebido") : row.status,
+            orderId: row.order_id,
+            saleId: row.sale_id,
+            customerId: meta?.customerId ?? null,
+            orderStatus: meta?.status ?? null,
         });
-    });
+    }
 
     lines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return lines;

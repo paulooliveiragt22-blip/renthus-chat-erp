@@ -9,8 +9,10 @@ export async function GET() {
     const { admin, companyId } = ctx;
 
     const { data, error } = await admin
-        .from("cash_registers")
-        .select("id, opened_at, closed_at, operator_name, initial_amount, closing_amount, difference, status")
+        .from("v_fin_cash_session")
+        .select(
+            "id, opened_at, closed_at, operator_name, initial_amount, closing_amount, expected_balance, status"
+        )
         .eq("company_id", companyId)
         .order("opened_at", { ascending: false })
         .limit(30);

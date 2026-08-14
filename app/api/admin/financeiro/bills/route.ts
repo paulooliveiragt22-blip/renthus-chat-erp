@@ -87,7 +87,7 @@ export async function PATCH(req: Request) {
             ? String(body.received_at).trim().slice(0, 10)
             : null;
 
-    const { error } = await admin.rpc("rpc_pay_bill", {
+    const { error } = await admin.rpc("rpc_settle_bill", {
         p_company_id: companyId,
         p_bill_id: id,
         p_pay_amount: paidNow,

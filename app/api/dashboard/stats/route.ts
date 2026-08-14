@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 /**
  * GET /api/dashboard/stats
  *
- * Faturamento (salesTotal) = soma de financial_entries income/received no dia civil da loja (M7).
+ * Faturamento (salesTotal) = caixa 1.1 posted no dia civil da loja (rpc_fin_cash_revenue).
  * Pedidos do dia / ativos / gráfico / top produtos permanecem operacionais sobre orders.
  */
 
@@ -137,7 +137,7 @@ export async function GET() {
         waConversations,
         chartData,
         topProducts,
-        revenueSource: "financial_entries_received",
+        revenueSource: "finance_journals_1_1",
         timeZone,
     });
 }

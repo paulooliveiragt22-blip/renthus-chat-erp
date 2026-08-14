@@ -91,6 +91,24 @@ export async function PATCH(req: Request) {
             const result = (rpcData ?? {}) as SetStatusRpcResult;
             statusChangedTo = String(result.status ?? nextStatus);
 
+            if (result.changed && statusChangedTo === "finalized") {
+                const { error: recErr } = await admin.rpc("rpc_recognize_order_sale", {
+                    p_company_id: companyId,
+                    p_order_id: id,
+                    p_idempotency_key: `order:${id}:recognize`,
+                });
+                if (recErr && !/chatbot_prazo_forbidden/i.test(recErr.message ?? "")) {
+                    console.warn(
+                        "[admin/orders] recognize:",
+                        recErr.message
+                    );
+                    return NextResponse.json(
+                        { error: recErr.message, status: statusChangedTo },
+                        { status: 500 }
+                    );
+                }
+            }
+
             // Notify best-effort: nunca desfaz o status.
             // cron-job.org cobre process-queue (~1 min); outbound-worker no Hobby
             // só sai rápido se o wake rodar (igual cart_recovery). Cron Vercel é diário.

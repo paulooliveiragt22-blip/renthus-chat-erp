@@ -46,13 +46,18 @@ export async function POST(req: Request) {
 
     const isPrazo = A_PRAZO_METHODS.has(payment_method);
 
-    const { error: orderErr } = await admin
-        .from("orders")
-        .update({ status: "finalized", payment_method, paid: !isPrazo })
-        .eq("id", orderId)
-        .eq("company_id", companyId);
+    const { error: orderErr } = await admin.rpc("rpc_set_order_status", {
+        p_company_id: companyId,
+        p_order_id: orderId,
+        p_status: "finalized",
+        p_payment_method: payment_method,
+    });
 
-    if (orderErr) return NextResponse.json({ error: orderErr.message }, { status: 500 });
+    if (orderErr) {
+        const msg = orderErr.message ?? "status_update_failed";
+        const conflict = /não permitida|não pode|inválido|pedido não encontrado/i.test(msg);
+        return NextResponse.json({ error: msg }, { status: conflict ? 409 : 500 });
+    }
 
     if (isPrazo) {
         if (!customerId) return NextResponse.json({ error: "customer_required_for_prazo" }, { status: 400 });
@@ -87,6 +92,15 @@ export async function POST(req: Request) {
             if (prazoErr && (prazoErr as { code?: string }).code !== "23505") {
                 return NextResponse.json({ error: prazoErr.message }, { status: 500 });
             }
+        }
+    } else {
+        const { error: recErr } = await admin.rpc("rpc_recognize_order_sale", {
+            p_company_id: companyId,
+            p_order_id: orderId,
+            p_idempotency_key: `order:${orderId}:recognize`,
+        });
+        if (recErr && !/chatbot_prazo_forbidden/i.test(recErr.message ?? "")) {
+            return NextResponse.json({ error: recErr.message }, { status: 500 });
         }
     }
 
