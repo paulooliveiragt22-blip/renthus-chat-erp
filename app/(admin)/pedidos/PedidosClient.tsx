@@ -654,20 +654,26 @@ export default function PedidosPage() {
         setActionKind(kind); setActionOrderId(orderId); setActionNote(""); setOpenAction(true);
     }
 
-    async function runAction() {
-        const orderId = actionOrderId;
-        if (!orderId) return;
-        const note = actionNote.trim();
-        if (!note && actionKind === "cancel") { setMsg("Informe uma observação para essa ação."); return; }
-        setActionSaving(true); setMsg(null);
-        const newStatus: OrderStatus =
-            actionKind === "cancel"
-                ? "canceled"
-                : actionKind === "prepare"
-                  ? "preparing"
-                  : actionKind === "deliver"
-                    ? "delivered"
-                    : "finalized";
+    /** Em preparo: um clique — sem modal (nota interna não vai no WhatsApp). */
+    function handleOrderAction(kind: ActionKind, orderId: string) {
+        if (kind === "prepare") {
+            void (async () => {
+                const ok = await applyOrderStatus(orderId, "preparing", { kind: "prepare" });
+                if (!ok) return;
+                await afterStatusChanged(orderId, "prepare");
+            })();
+            return;
+        }
+        openActionModal(kind, orderId);
+    }
+
+    async function applyOrderStatus(
+        orderId: string,
+        newStatus: OrderStatus,
+        opts: { kind: ActionKind; details?: string | null; payment_method?: string }
+    ) {
+        setActionSaving(true);
+        setMsg(null);
         const res = await fetch("/api/admin/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -675,14 +681,53 @@ export default function PedidosPage() {
             body: JSON.stringify({
                 id: orderId,
                 status: newStatus,
-                details: note || null,
-                ...(actionPayMethod && (actionKind === "finalize" || actionKind === "deliver")
-                    ? { payment_method: actionPayMethod }
+                details: opts.details ?? null,
+                ...(opts.payment_method && (opts.kind === "finalize" || opts.kind === "deliver")
+                    ? { payment_method: opts.payment_method }
                     : {}),
             }),
         });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) { setMsg(`Erro ao atualizar status: ${json?.error ?? "falha desconhecida"}`); setActionSaving(false); return; }
+        if (!res.ok) {
+            setMsg(`Erro ao atualizar status: ${json?.error ?? "falha desconhecida"}`);
+            setActionSaving(false);
+            return false;
+        }
+        return true;
+    }
+
+    async function afterStatusChanged(orderId: string, kind: ActionKind) {
+        setMsg(
+            kind === "finalize"
+                ? "✅ Pedido finalizado. Agradecimento enviado ao cliente (se houver WhatsApp)."
+                : kind === "prepare"
+                  ? "✅ Em preparo. Cliente avisado se houver conversa no WhatsApp."
+                  : "✅ Pedido atualizado."
+        );
+        setOpenAction(false);
+        setActionSaving(false);
+        await loadOrders();
+        if (viewOrder?.id === orderId) setViewOrder(await fetchOrderFull(orderId));
+        if (editOrder?.id === orderId) setEditOrder(await fetchOrderFull(orderId));
+    }
+
+    async function runAction() {
+        const orderId = actionOrderId;
+        if (!orderId) return;
+        const note = actionNote.trim();
+        if (!note && actionKind === "cancel") { setMsg("Informe uma observação para essa ação."); return; }
+        const newStatus: OrderStatus =
+            actionKind === "cancel"
+                ? "canceled"
+                : actionKind === "deliver"
+                  ? "delivered"
+                  : "finalized";
+        const ok = await applyOrderStatus(orderId, newStatus, {
+            kind: actionKind,
+            details: note || null,
+            payment_method: actionPayMethod,
+        });
+        if (!ok) return;
 
         // Ao finalizar: envia agradecimento WhatsApp (antes no botão separado)
         if (actionKind === "finalize") {
@@ -720,9 +765,7 @@ export default function PedidosPage() {
         setMsg(
             actionKind === "finalize"
                 ? "✅ Pedido finalizado. Agradecimento enviado ao cliente (se houver WhatsApp)."
-                : actionKind === "prepare"
-                  ? "✅ Em preparo. Cliente avisado se houver conversa no WhatsApp."
-                  : "✅ Pedido atualizado."
+                : "✅ Pedido atualizado."
         );
         setOpenAction(false); setActionSaving(false);
         await loadOrders();
@@ -1747,7 +1790,7 @@ export default function PedidosPage() {
                 reprintLoading={reprintLoading}
                 reprintMsg={reprintMsg}
                 onEdit={() => viewOrder ? openEditOrder(viewOrder.id) : undefined}
-                onAction={(k) => viewOrder ? openActionModal(k, viewOrder.id) : undefined}
+                onAction={(k) => viewOrder ? handleOrderAction(k, viewOrder.id) : undefined}
                 canCancel={viewOrder ? canCancel(String((viewOrder as any).status)) : false}
                 canPrepare={viewOrder ? canPrepare(String((viewOrder as any).status)) : false}
                 canDeliver={

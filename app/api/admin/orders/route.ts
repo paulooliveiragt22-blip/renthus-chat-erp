@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { orderItemsForAdminRpc } from "@/lib/server/orders/rpcAdminOrderItems";
 import { enqueuePreparingNotify } from "@/lib/orders/enqueuePreparingNotify";
+import { scheduleOutboundWorkerWake } from "@/lib/chatbot/outbound/outboundWorkerWake";
 
 export const runtime = "nodejs";
 
@@ -90,16 +91,20 @@ export async function PATCH(req: Request) {
             const result = (rpcData ?? {}) as SetStatusRpcResult;
             statusChangedTo = String(result.status ?? nextStatus);
 
-            // Notify best-effort: nunca desfaz o status
+            // Notify best-effort: nunca desfaz o status. Wake o worker — sem isso
+            // o job espera o cron diário (03:20 UTC) ou o scheduler externo.
             if (result.changed && statusChangedTo === "preparing") {
                 try {
-                    await enqueuePreparingNotify({
+                    const notify = await enqueuePreparingNotify({
                         admin,
                         companyId,
                         orderId: id,
                         orderCode: String(result.order_code ?? `#${id.slice(-6).toUpperCase()}`),
                         customerId: result.customer_id ?? null,
                     });
+                    if (notify.enqueued) {
+                        after(() => scheduleOutboundWorkerWake("order_preparing"));
+                    }
                 } catch (err) {
                     console.warn(
                         "[admin/orders] preparing notify:",

@@ -93,9 +93,10 @@ describe("MVP E2E contratos UI/API (sem browser)", () => {
         assert.match(read("app/api/agent/reprint/route.ts"), /print\.operate|copy_types/);
     });
 
-    it("M5 Pedidos ActionModal prepare → preparing + notify helper", () => {
-        assert.match(read("lib/orders/ActionModal.tsx"), /prepare/);
+    it("M5 Pedidos Em preparo direto + notify + wake outbound", () => {
+        assert.match(read("app/(admin)/pedidos/PedidosClient.tsx"), /kind === "prepare"/);
         assert.match(read("app/api/admin/orders/route.ts"), /enqueuePreparingNotify/);
+        assert.match(read("app/api/admin/orders/route.ts"), /scheduleOutboundWorkerWake/);
         assert.match(
             read("lib/orders/enqueuePreparingNotify.ts"),
             /está em preparo/

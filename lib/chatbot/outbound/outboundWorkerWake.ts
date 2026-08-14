@@ -20,11 +20,9 @@ export function scheduleOutboundWorkerWake(reason = "wake"): void {
     const origin = resolveQueueWorkerWakeOrigin();
     const secret = process.env.CRON_SECRET?.trim();
     if (!origin || !secret) {
-        if (process.env.NODE_ENV === "development") {
-            console.warn(
-                "[outbound-wake] skipped: define CRON_SECRET e NEXT_PUBLIC_APP_URL (ou CHATBOT_QUEUE_WAKE_URL / APP_INTERNAL_URL)"
-            );
-        }
+        console.warn(
+            "[outbound-wake] skipped: define CRON_SECRET e NEXT_PUBLIC_APP_URL (ou CHATBOT_QUEUE_WAKE_URL / APP_INTERNAL_URL)"
+        );
         return;
     }
 
