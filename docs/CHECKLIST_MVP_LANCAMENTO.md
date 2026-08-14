@@ -100,7 +100,9 @@ precisa ser honesto em **todos** os planos (M7).
 ## M1 — Entrega ou retirar no local
 
 **Estado:** [x] 2026-08-14 — policy flags + `orders.fulfillment_type` + RPC + bot + cardápio +
-Configurações. Clique Entrega/Retirar casa id **e** título; endereço salvo não infere entrega;
+Configurações + **admin Pedidos/Fila** (badge + endereço canônico) + **novo/editar pedido**
+(`rpc_admin_upsert` com `p_fulfillment_type`) + PDV balcão=`pickup` + Flow/WA confirm por modo.
+Clique Entrega/Retirar casa id **e** título; endereço salvo não infere entrega;
 slot não avança pra pagamento enquanto o modo estiver vazio.
 
 ---
