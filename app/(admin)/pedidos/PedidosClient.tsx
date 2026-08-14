@@ -318,6 +318,7 @@ export default function PedidosPage() {
     const [deliveryFee,            setDeliveryFee]            = useState("0,00");
     const [editDeliveryFeeEnabled, setEditDeliveryFeeEnabled] = useState(false);
     const [editDeliveryFee,        setEditDeliveryFee]        = useState("0,00");
+    const deliveryFeeDefaultsRef = useRef({ enabled: false, fee: "0,00" });
     const [fulfillmentType,        setFulfillmentType]        = useState<FulfillmentType>("delivery");
     const [editFulfillmentType,    setEditFulfillmentType]    = useState<FulfillmentType>("delivery");
     const [deliveriesEnabled,      setDeliveriesEnabled]      = useState(true);
@@ -435,10 +436,12 @@ export default function PedidosPage() {
                     enabled && del?.calc_mode === "fixed"
                         ? Number(del.value ?? 0)
                         : 0;
+                const feeStr = formatBRL(Number.isFinite(fee) ? fee : 0);
+                deliveryFeeDefaultsRef.current = { enabled, fee: feeStr };
                 setDeliveryFeeEnabled(enabled);
-                setDeliveryFee(formatBRL(Number.isFinite(fee) ? fee : 0));
+                setDeliveryFee(feeStr);
                 setEditDeliveryFeeEnabled(enabled);
-                setEditDeliveryFee(formatBRL(Number.isFinite(fee) ? fee : 0));
+                setEditDeliveryFee(feeStr);
             }
         } catch {
             /* keep defaults */
@@ -714,7 +717,12 @@ export default function PedidosPage() {
                   ? "pickup"
                   : "delivery";
         setFulfillmentType(sole);
-        if (sole === "pickup") setDeliveryFeeEnabled(false);
+        if (sole === "pickup") {
+            setDeliveryFeeEnabled(false);
+        } else {
+            setDeliveryFeeEnabled(deliveryFeeDefaultsRef.current.enabled);
+            setDeliveryFee(deliveryFeeDefaultsRef.current.fee);
+        }
     }
 
     function toggleServiceFeeId(
@@ -761,8 +769,9 @@ export default function PedidosPage() {
         setEditLoading(false);
     }
 
-    function openPedidosNewModal() {
+    async function openPedidosNewModal() {
         closeAllPedidosModals();
+        if (companyId) await loadCompanySettings(companyId);
         resetNewOrder();
         setOpenNew(true);
     }

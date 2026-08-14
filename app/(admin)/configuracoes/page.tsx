@@ -380,7 +380,16 @@ function ConfiguracoesPageContent() {
     const [cidade,           setCidade]           = useState("");
     const [uf,               setUf]               = useState("");
 
-    // delivery (política operacional — valor da taxa fica em aba Taxas)
+    // delivery (política operacional — cobrir? aqui; valor/cálculo na aba Taxas)
+    const [chargeDeliveryFee, setChargeDeliveryFee] = useState(false);
+    const [deliveryFeeDef, setDeliveryFeeDef] = useState<{
+        id: string;
+        name: string;
+        slug: string;
+        calc_mode: "fixed" | "percent";
+        value: number;
+        sort_order: number;
+    } | null>(null);
     const [freeAbove,        setFreeAbove]        = useState("");
     const [minOrder,         setMinOrder]         = useState("");
     const [deliveryRadius,   setDeliveryRadius]   = useState("");
@@ -561,6 +570,44 @@ function ConfiguracoesPageContent() {
             }));
             setRuleDraft(mapped);
 
+            // Cobrança de taxa = is_active da definição canônica (não companies.*)
+            try {
+                const taxasRes = await fetch("/api/admin/taxas", {
+                    cache: "no-store",
+                    credentials: "include",
+                });
+                const taxasJson = await taxasRes.json().catch(() => ({}));
+                if (taxasRes.ok) {
+                    const defs = (taxasJson.definitions ?? []) as Array<{
+                        id: string;
+                        name: string;
+                        slug: string;
+                        system_key: string | null;
+                        calc_mode: "fixed" | "percent";
+                        value: number;
+                        is_active: boolean;
+                        sort_order: number;
+                    }>;
+                    const del = defs.find((d) => d.system_key === "delivery") ?? null;
+                    if (del) {
+                        setChargeDeliveryFee(Boolean(del.is_active));
+                        setDeliveryFeeDef({
+                            id: del.id,
+                            name: del.name,
+                            slug: del.slug,
+                            calc_mode: del.calc_mode === "percent" ? "percent" : "fixed",
+                            value: Number(del.value) || 0,
+                            sort_order: del.sort_order ?? 10,
+                        });
+                    } else {
+                        setChargeDeliveryFee(false);
+                        setDeliveryFeeDef(null);
+                    }
+                }
+            } catch {
+                /* keep previous */
+            }
+
             const settingsRes = await fetch("/api/admin/company-settings", {
                 cache: "no-store",
                 credentials: "include",
@@ -716,6 +763,33 @@ function ConfiguracoesPageContent() {
             setDeliveryPolicyMsg(hoursJson?.error ?? "Política salva, mas falhou ao salvar horário.");
             setSaving(false);
             return;
+        }
+
+        if (deliveryFeeDef) {
+            const feeRes = await fetch("/api/admin/taxas", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    id: deliveryFeeDef.id,
+                    name: deliveryFeeDef.name,
+                    slug: deliveryFeeDef.slug,
+                    system_key: "delivery",
+                    calc_mode: deliveryFeeDef.calc_mode,
+                    value: deliveryFeeDef.value,
+                    is_active: chargeDeliveryFee,
+                    sort_order: deliveryFeeDef.sort_order,
+                }),
+            });
+            const feeJson = await feeRes.json().catch(() => ({}));
+            if (!feeRes.ok) {
+                setDeliveryPolicyMsg(
+                    feeJson?.error ??
+                        "Política salva, mas falhou ao atualizar cobrança da taxa de entrega."
+                );
+                setSaving(false);
+                return;
+            }
         }
 
         setDeliveryPolicyMsg("✓ Política de entrega salva.");
@@ -1241,13 +1315,31 @@ function ConfiguracoesPageContent() {
                                 <Toggle checked={acceptPickup} onChange={setAcceptPickup} />
                             </div>
 
+                            <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/50">
+                                <div>
+                                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Cobrar taxa de entrega</p>
+                                    <p className="text-xs text-zinc-400">
+                                        Só vale para pedidos de entrega. O valor (R$ ou %) fica na aba Taxas.
+                                    </p>
+                                </div>
+                                <Toggle
+                                    checked={chargeDeliveryFee}
+                                    onChange={setChargeDeliveryFee}
+                                    disabled={!deliveryFeeDef}
+                                />
+                            </div>
+
                             <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/40">
                                 <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                                     Valor da taxa de entrega
                                 </p>
                                 <p className="mt-1 text-xs text-zinc-500">
-                                    O valor padrão (R$ ou %) fica só na aba Taxas — aqui você define
-                                    onde entrega, bairros e frete grátis.
+                                    {deliveryFeeDef
+                                        ? deliveryFeeDef.calc_mode === "percent"
+                                            ? `Atual: ${String(deliveryFeeDef.value).replace(".", ",")}%.`
+                                            : `Atual: ${deliveryFeeDef.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`
+                                        : "Definição ainda não encontrada — abra Taxas ou salve de novo."}{" "}
+                                    Overrides por bairro ficam nesta aba (zonas).
                                 </p>
                                 <button
                                     type="button"
