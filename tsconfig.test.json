@@ -33,6 +33,7 @@
     "src/pro/replay/measureExtractionDivergence.ts",
     "src/pro/replay/structuredOrderExtract.ts",
     "scripts/replay-thread.ts",
+    "lib/products/**/*.ts",
     "lib/public-menu/**/*.ts",
     "lib/delivery/**/*.ts",
     "lib/print/**/*.ts",

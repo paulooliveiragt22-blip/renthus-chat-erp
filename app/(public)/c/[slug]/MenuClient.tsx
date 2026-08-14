@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Search, X } from "lucide-react";
 import type {
     PublicMenuCartLine,
     PublicMenuCategory,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/public-menu/menuEvents";
 import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import { filterPublicMenuCategories } from "@/lib/public-menu/searchMenuItems";
 import CheckoutDrawer from "./CheckoutDrawer";
 import MyOrdersDrawer from "./MyOrdersDrawer";
 
@@ -60,6 +62,7 @@ function loadCart(slug: string): PublicMenuCartLine[] {
 
 export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     const [activeCat, setActiveCat] = useState<string | "all">("all");
+    const [searchQuery, setSearchQuery] = useState("");
     const [cart, setCart] = useState<PublicMenuCartLine[]>([]);
     const [cartReady, setCartReady] = useState(false);
     const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -113,10 +116,15 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     }, [cart, cartReady, store.slug]);
 
     const categories = menu.categories;
+    const searched: PublicMenuCategory[] = useMemo(
+        () => filterPublicMenuCategories(categories, searchQuery),
+        [categories, searchQuery]
+    );
     const visible: PublicMenuCategory[] = useMemo(() => {
-        if (activeCat === "all") return categories;
-        return categories.filter((c) => c.id === activeCat);
-    }, [activeCat, categories]);
+        if (activeCat === "all") return searched;
+        return searched.filter((c) => c.id === activeCat);
+    }, [activeCat, searched]);
+    const searchActive = searchQuery.trim().length >= 2;
 
     useEffect(() => {
         trackMenuEvent({ slug: store.slug, eventType: "page_view" });
@@ -300,49 +308,88 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 </div>
             </header>
 
-            {categories.length > 1 && (
-                <nav className="sticky top-0 z-10 border-b border-zinc-200/80 bg-[#f0f2f5]/95 backdrop-blur">
-                    <div className={`${shell} flex gap-2 overflow-x-auto py-3`}>
-                        <button
-                            type="button"
-                            onClick={() => setActiveCat("all")}
-                            className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold sm:text-sm ${
-                                activeCat === "all"
-                                    ? "bg-zinc-900 text-white"
-                                    : "bg-white text-zinc-600 ring-1 ring-zinc-200"
-                            }`}
-                        >
-                            Todos
-                        </button>
-                        {categories.map((c) => (
-                            <button
-                                key={c.id}
-                                type="button"
-                                onClick={() => {
-                                    setActiveCat(c.id);
-                                    trackMenuEvent({
-                                        slug: store.slug,
-                                        eventType: "category_view",
-                                        categoryId: c.id,
-                                    });
-                                }}
-                                className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold sm:text-sm ${
-                                    activeCat === c.id
-                                        ? "bg-zinc-900 text-white"
-                                        : "bg-white text-zinc-600 ring-1 ring-zinc-200"
-                                }`}
-                            >
-                                {c.name}
-                            </button>
-                        ))}
+            {menu.itemCount > 0 && (
+                <div className="sticky top-0 z-10 border-b border-zinc-200/80 bg-[#f0f2f5]/95 backdrop-blur">
+                    <div className={`${shell} py-3`}>
+                        <label className="relative block">
+                            <Search
+                                aria-hidden
+                                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+                            />
+                            <input
+                                type="text"
+                                inputMode="search"
+                                enterKeyHint="search"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Buscar produto…"
+                                aria-label="Buscar no cardápio"
+                                className="w-full rounded-xl bg-white py-2.5 pl-10 pr-10 text-sm text-zinc-900 shadow-sm ring-1 ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 sm:text-[15px]"
+                            />
+                            {searchQuery ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchQuery("")}
+                                    aria-label="Limpar busca"
+                                    className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            ) : null}
+                        </label>
+                        {categories.length > 1 && (
+                            <nav className="mt-3 flex gap-2 overflow-x-auto" aria-label="Categorias">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveCat("all")}
+                                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold sm:text-sm ${
+                                        activeCat === "all"
+                                            ? "bg-zinc-900 text-white"
+                                            : "bg-white text-zinc-600 ring-1 ring-zinc-200"
+                                    }`}
+                                >
+                                    Todos
+                                </button>
+                                {categories.map((c) => (
+                                    <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={() => {
+                                            setActiveCat(c.id);
+                                            trackMenuEvent({
+                                                slug: store.slug,
+                                                eventType: "category_view",
+                                                categoryId: c.id,
+                                            });
+                                        }}
+                                        className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold sm:text-sm ${
+                                            activeCat === c.id
+                                                ? "bg-zinc-900 text-white"
+                                                : "bg-white text-zinc-600 ring-1 ring-zinc-200"
+                                        }`}
+                                    >
+                                        {c.name}
+                                    </button>
+                                ))}
+                            </nav>
+                        )}
                     </div>
-                </nav>
+                </div>
             )}
 
             <main className={`${shell} py-5 sm:py-7`}>
                 {menu.itemCount === 0 ? (
                     <p className="py-16 text-center text-sm text-zinc-500 sm:text-base">
                         Nenhum item disponível no cardápio no momento.
+                    </p>
+                ) : visible.length === 0 ? (
+                    <p className="py-16 text-center text-sm text-zinc-500 sm:text-base">
+                        {searchActive
+                            ? `Nenhum item encontrado para “${searchQuery.trim()}”.`
+                            : "Nenhum item nesta categoria."}
                     </p>
                 ) : (
                     <div className="flex flex-col gap-7 sm:gap-9">
