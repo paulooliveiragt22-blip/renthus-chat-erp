@@ -166,9 +166,14 @@ export function toQtyInt(v: string) {
 export function cartSubtotal(list: CartItem[]) {
     return list.reduce((sum, item) => sum + item.qty * item.price, 0);
 }
-export function cartTotalPreview(list: CartItem[], feeEnabled: boolean, feeStr: string) {
+export function cartTotalPreview(
+    list: CartItem[],
+    feeEnabled: boolean,
+    feeStr: string,
+    extraFees = 0
+) {
     const fee = brlToNumber(feeStr);
-    return cartSubtotal(list) + (feeEnabled ? fee : 0);
+    return cartSubtotal(list) + (feeEnabled ? fee : 0) + Math.max(0, extraFees);
 }
 
 /** ✅ INSERT PAYLOAD (sem line_total) */

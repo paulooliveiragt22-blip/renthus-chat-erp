@@ -15,7 +15,6 @@ import type {
 import {
     brlToNumber,
     cartSubtotal,
-    cartTotalPreview,
     formatBRL,
     formatBRLInput,
 } from "@/lib/orders/helpers";
@@ -67,6 +66,10 @@ export default function OrderForm({
     setDeliveryFeeEnabled,
     deliveryFee,
     setDeliveryFee,
+
+    serviceFeeOptions = [],
+    selectedServiceFeeIds = [],
+    onToggleServiceFee,
 
     // entregador (opcional)
     drivers,
@@ -127,6 +130,15 @@ export default function OrderForm({
     setDeliveryFeeEnabled: (v: boolean) => void;
     deliveryFee: string;
     setDeliveryFee: (v: string) => void;
+
+    serviceFeeOptions?: Array<{
+        id: string;
+        name: string;
+        calc_mode: "fixed" | "percent";
+        value: number;
+    }>;
+    selectedServiceFeeIds?: string[];
+    onToggleServiceFee?: (id: string) => void;
 
     drivers?: Driver[];
     driverId?: string | null;
@@ -464,6 +476,36 @@ export default function OrderForm({
                         Se desligado, taxa fica R$ 0,00.
                     </p>
                 </div>
+
+                {serviceFeeOptions.length > 0 && onToggleServiceFee && (
+                    <div className="mt-4 space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                        <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                            Outras taxas
+                        </p>
+                        {serviceFeeOptions.map((opt) => {
+                            const checked = selectedServiceFeeIds.includes(opt.id);
+                            const labelExtra =
+                                opt.calc_mode === "percent"
+                                    ? `${opt.value}%`
+                                    : `R$ ${formatBRL(opt.value)}`;
+                            return (
+                                <label
+                                    key={opt.id}
+                                    className="flex cursor-pointer items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => onToggleServiceFee(opt.id)}
+                                        className="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                                    />
+                                    {opt.name}
+                                    <span className="text-xs text-zinc-400">({labelExtra})</span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
             {/* ── Entregador ── */}
@@ -572,10 +614,27 @@ export default function OrderForm({
                         <span>Taxa de entrega</span>
                         <span className="font-semibold">R$ {formatBRL(deliveryFeeEnabled ? brlToNumber(deliveryFee) : 0)}</span>
                     </div>
+                    {serviceFeeOptions
+                        .filter((o) => selectedServiceFeeIds.includes(o.id))
+                        .map((o) => {
+                            const amt =
+                                o.calc_mode === "percent"
+                                    ? Math.round(cartSubtotal(cart) * (o.value / 100) * 100) / 100
+                                    : o.value;
+                            return (
+                                <div
+                                    key={o.id}
+                                    className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400"
+                                >
+                                    <span>{o.name}</span>
+                                    <span className="font-semibold">R$ {formatBRL(amt)}</span>
+                                </div>
+                            );
+                        })}
                     <div className="flex items-center justify-between text-sm">
                         <span className="font-semibold text-zinc-900 dark:text-zinc-50">Total</span>
                         <span className="font-bold text-violet-700 dark:text-violet-400">
-                            R$ {formatBRL(cartTotalPreview(cart, deliveryFeeEnabled, deliveryFee))}
+                            R$ {formatBRL(totalNow)}
                         </span>
                     </div>
                 </div>

@@ -39,6 +39,7 @@ import MarketPlanGate from "@/components/menu/MarketPlanGate";
 import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
 import TeamMembersPanel from "@/components/settings/TeamMembersPanel";
 import StaffProfilesPanel from "@/components/settings/StaffProfilesPanel";
+import ServiceFeesPanel from "@/components/settings/ServiceFeesPanel";
 import { DEFAULT_CHATBOT_MESSAGE_TEMPLATES } from "@/lib/chatbot/messageTemplates";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -1408,6 +1409,10 @@ function ConfiguracoesPageContent() {
                             {deliveryPolicyLoading && <p className="text-xs text-zinc-500">Carregando política de entrega…</p>}
                             {deliveryPolicyMsg && <p className="text-xs text-zinc-500">{deliveryPolicyMsg}</p>}
                             <SaveBar saving={saving} msg={deliveryPolicyMsg ?? msg} onSave={saveDeliveryPolicy} />
+
+                            <div className="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+                                <ServiceFeesPanel />
+                            </div>
                         </div>
                     )}
 

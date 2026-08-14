@@ -22,6 +22,7 @@ Status do pedido **não é dinheiro**. Canônico no Postgres (RPC). TypeScript s
 | 2.1 | `00000000-0001-0000-0000-000000000201` | Contas a pagar |
 | 3.1 | `00000000-0001-0000-0000-000000000301` | Receita de vendas |
 | 3.2 | `00000000-0001-0000-0000-000000000302` | Taxa de entrega |
+| 3.3 | `00000000-0001-0000-0000-000000000303` | Taxas de serviço |
 | 4.2 | `00000000-0001-0000-0000-000000000402` | Despesas operacionais |
 | 5.1 | `00000000-0001-0000-0000-000000000501` | Ajustes |
 
@@ -29,8 +30,8 @@ Status do pedido **não é dinheiro**. Canônico no Postgres (RPC). TypeScript s
 
 | Fato | Débito | Crédito |
 |------|--------|---------|
-| Venda à vista | 1.1 | 3.1 (3.2 se taxa) |
-| Venda a prazo | 1.2 | 3.1 |
+| Venda à vista | 1.1 | 3.1 (+ 3.2 entrega + 3.3 serviço) |
+| Venda a prazo | 1.2 | 3.1 (+ 3.2 + 3.3) |
 | Baixa AR | 1.1 | 1.2 |
 | Opex pago | 4.2 | 1.1 |
 | Opex a pagar | 4.2 | 2.1 |
@@ -68,10 +69,12 @@ Drill Pro: `/financeiro?from={day}&to={day}`.
 |----------|-----------|---------------------|
 | **Preço de venda** | `produto_embalagens.preco_venda` → `order_items.unit_price` / carrinho PDV → `sale_items.unit_price` | Não vira linha de journal item a item. O **pagamento** (`sale_payments.amount` / total liquidado) posta **CR 3.1** (e **CR 3.2** se houver taxa). |
 | **Preço de custo** | `products.preco_custo_unitario` × `produto_embalagens.fator_conversao` | Snapshot em `sale_items.unit_cost` / `line_cost` na liquidação. **Não entra no journal** (opção A). Alimenta CMV do `rpc_fin_dashboard` / DRE / “Resultado gerencial”. |
-| **Taxa de entrega** | `orders.delivery_fee` → `sales.delivery_fee` | Na liquidação: **CR 3.2** (Taxa de entrega) + **CR 3.1** no restante; débito em **1.1** (à vista) ou **1.2** (a prazo). Recognize e PDV (`fn_fin_post_sale_payments`) separam a taxa. |
-| **Taxa de garçom / serviço** | **Não modelada** hoje | Não há coluna nem conta. Papel “garçom” é só RBAC de mesa. Se restaurante precisar: campo em `orders`/`sales` + conta receita (ex. 3.3) + split no post — fora do escopo atual. |
+| **Taxa de entrega** | `order_fees` (`system_key=delivery`) → espelho `orders.delivery_fee` → `sales.delivery_fee` | Liquidação: **CR 3.2**. Política de bairro só alimenta o quote; persiste em `order_fees`. |
+| **Taxas de serviço** (garçom, couvert, …) | `service_fee_definitions` + `order_fees` (`system_key` ≠ delivery); espelho `orders.service_fees_total` | Liquidação: **CR 3.3**. `%` sobre subtotal de itens. `total_amount = total + delivery_fee + service_fees_total`. |
 
-KPI **Recebido** (home) = só caixa **1.1** de liquidações (`sale_payment` / `recognize` / `bill_settlement`). Taxa de entrega **entra** nesse KPI quando paga à vista (faz parte do débito 1.1), mas no extrato/DRE a parcela fica creditada em **3.2**.
+Idempotency de liquidação **não muda** (`order:{id}:recognize`, `sale:{id}:pay:{i}`): o split 3.1/3.2/3.3 é determinístico a partir de `order_fees` no post.
+
+KPI **Recebido** (home) = só caixa **1.1** de liquidações (`sale_payment` / `recognize` / `bill_settlement`). Taxas **entram** nesse KPI quando pagas à vista (fazem parte do débito 1.1); no extrato/DRE a parcela fica em **3.2** ou **3.3**.
 
 ---
 

@@ -278,11 +278,50 @@ export default function PedidosPage() {
             .catch(() => {});
     }, [companyId]);
 
+    useEffect(() => {
+        if (!companyId) return;
+        fetch("/api/admin/taxas?active=1", { credentials: "include", cache: "no-store" })
+            .then((r) => r.json())
+            .then((json) => {
+                const defs = (json.definitions ?? []) as Array<{
+                    id: string;
+                    name: string;
+                    calc_mode: "fixed" | "percent";
+                    value: number;
+                    system_key: string | null;
+                    is_active: boolean;
+                }>;
+                setServiceFeeOptions(
+                    defs
+                        .filter((d) => d.is_active && d.system_key !== "delivery")
+                        .map((d) => ({
+                            id: d.id,
+                            name: d.name,
+                            calc_mode: d.calc_mode,
+                            value: Number(d.value),
+                            system_key: d.system_key,
+                        }))
+                );
+            })
+            .catch(() => {});
+    }, [companyId]);
+
     // ── delivery fee ──────────────────────────────────────────────────────────
     const [deliveryFeeEnabled,     setDeliveryFeeEnabled]     = useState(false);
     const [deliveryFee,            setDeliveryFee]            = useState("0,00");
     const [editDeliveryFeeEnabled, setEditDeliveryFeeEnabled] = useState(false);
     const [editDeliveryFee,        setEditDeliveryFee]        = useState("0,00");
+
+    type ServiceFeeOpt = {
+        id: string;
+        name: string;
+        calc_mode: "fixed" | "percent";
+        value: number;
+        system_key: string | null;
+    };
+    const [serviceFeeOptions, setServiceFeeOptions] = useState<ServiceFeeOpt[]>([]);
+    const [selectedServiceFeeIds, setSelectedServiceFeeIds] = useState<string[]>([]);
+    const [editSelectedServiceFeeIds, setEditSelectedServiceFeeIds] = useState<string[]>([]);
 
     // ── new order form ────────────────────────────────────────────────────────
     const [openNew,         setOpenNew]         = useState(false);
@@ -623,6 +662,38 @@ export default function PedidosPage() {
         setPaymentMethod("pix"); setPaid(false); setChangeFor("0,00");
         setCart([]); setQ(""); setResults([]); setDraftQty({}); setMsg(null);
         setDriverId(null);
+        setSelectedServiceFeeIds([]);
+    }
+
+    function toggleServiceFeeId(
+        id: string,
+        setter: React.Dispatch<React.SetStateAction<string[]>>
+    ) {
+        setter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    }
+
+    function serviceFeesAmount(list: CartItem[], selectedIds: string[]) {
+        const sub = cartSubtotal(list);
+        return serviceFeeOptions
+            .filter((o) => selectedIds.includes(o.id))
+            .reduce((sum, o) => {
+                if (o.calc_mode === "percent") {
+                    return sum + Math.round(sub * (o.value / 100) * 100) / 100;
+                }
+                return sum + o.value;
+            }, 0);
+    }
+
+    async function applySelectedServiceFees(orderId: string, selectedIds: string[]) {
+        const fees = serviceFeeOptions
+            .filter((o) => selectedIds.includes(o.id))
+            .map((o) => ({ definition_id: o.id }));
+        await fetch("/api/admin/taxas/order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ order_id: orderId, fees }),
+        });
     }
 
     /** Vários `<dialog>.showModal()` empilham; só um modal “grande” pode ficar aberto por vez. */
@@ -899,6 +970,10 @@ export default function PedidosPage() {
         });
         const createJson = await createRes.json().catch(() => ({}));
         if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
+        const newId = String(createJson?.order_id ?? "");
+        if (newId) {
+            await applySelectedServiceFees(newId, selectedServiceFeeIds);
+        }
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
@@ -926,6 +1001,30 @@ export default function PedidosPage() {
         const feeVal = Number((full as any).delivery_fee ?? 0);
         setEditDeliveryFeeEnabled(feeVal > 0);
         setEditDeliveryFee(formatBRL(feeVal));
+        try {
+            const feesRes = await fetch(
+                `/api/admin/taxas/order?order_id=${encodeURIComponent(orderId)}`,
+                { credentials: "include", cache: "no-store" }
+            );
+            const feesJson = await feesRes.json().catch(() => ({}));
+            const lines = (feesJson.fees ?? []) as Array<{
+                definition_id?: string | null;
+                system_key?: string | null;
+                name?: string;
+            }>;
+            const ids = lines
+                .filter((l) => l.system_key !== "delivery")
+                .map((l) => {
+                    if (l.definition_id && serviceFeeOptions.some((o) => o.id === l.definition_id)) {
+                        return l.definition_id;
+                    }
+                    return serviceFeeOptions.find((o) => o.name === l.name)?.id;
+                })
+                .filter((x): x is string => Boolean(x));
+            setEditSelectedServiceFeeIds(ids);
+        } catch {
+            setEditSelectedServiceFeeIds([]);
+        }
         const mapped: CartItem[] = ((full as any).items ?? []).map((it: any) => {
             const emb = it._emb;
             const pName   = emb?.product_name ?? it.product_name ?? null;
@@ -992,6 +1091,7 @@ export default function PedidosPage() {
         });
         const itemsJson = await itemsRes.json().catch(() => ({}));
         if (!itemsRes.ok) { setMsg(`Erro ao inserir itens: ${itemsJson?.error ?? "falha desconhecida"}`); setEditSaving(false); return; }
+        await applySelectedServiceFees(editOrder.id, editSelectedServiceFeeIds);
         setMsg("✅ Pedido editado com sucesso."); setEditSaving(false); setOpenEdit(false);
         await loadOrders();
         if (viewOrder?.id === editOrder.id) setViewOrder(await fetchOrderFull(editOrder.id));
@@ -1095,9 +1195,14 @@ export default function PedidosPage() {
         const createJson = await createRes.json().catch(() => ({}));
         if (!createRes.ok) { setMsg(`Erro ao criar pedido: ${createJson?.error ?? "falha desconhecida"}`); setSaving(false); return; }
 
+        const newId = String(createJson?.order_id ?? "");
+        if (newId) {
+            await applySelectedServiceFees(newId, selectedServiceFeeIds);
+        }
+
         // Usa reprint explícito (source='reprint') — não depende do trigger de confirmation_status
         // para evitar dupla impressão quando trigger antigo (status='new') ainda coexiste
-        await callReprint(String(createJson?.order_id ?? ""));
+        await callReprint(newId);
         setSaving(false); setOpenNew(false); resetNewOrder(); await loadOrders();
     }
 
@@ -1290,10 +1395,30 @@ export default function PedidosPage() {
     // Reset para página 1 sempre que filtro ou busca mudar
     useEffect(() => { setPage(1); }, [statusFilter, searchText]);
 
-    const newTotalNow      = useMemo(() => cartTotalPreview(cart, deliveryFeeEnabled, deliveryFee), [cart, deliveryFeeEnabled, deliveryFee]);
+    const newTotalNow      = useMemo(
+        () =>
+            cartTotalPreview(
+                cart,
+                deliveryFeeEnabled,
+                deliveryFee,
+                serviceFeesAmount(cart, selectedServiceFeeIds)
+            ),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [cart, deliveryFeeEnabled, deliveryFee, selectedServiceFeeIds, serviceFeeOptions]
+    );
     const newCustomerPays  = useMemo(() => brlToNumber(changeFor), [changeFor]);
     const newTroco         = useMemo(() => calcTroco(newTotalNow, newCustomerPays), [newTotalNow, newCustomerPays]);
-    const editTotalNow     = useMemo(() => cartTotalPreview(editCart, editDeliveryFeeEnabled, editDeliveryFee), [editCart, editDeliveryFeeEnabled, editDeliveryFee]);
+    const editTotalNow     = useMemo(
+        () =>
+            cartTotalPreview(
+                editCart,
+                editDeliveryFeeEnabled,
+                editDeliveryFee,
+                serviceFeesAmount(editCart, editSelectedServiceFeeIds)
+            ),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [editCart, editDeliveryFeeEnabled, editDeliveryFee, editSelectedServiceFeeIds, serviceFeeOptions]
+    );
     const editCustomerPays = useMemo(() => brlToNumber(editChangeFor), [editChangeFor]);
     const editTroco        = useMemo(() => calcTroco(editTotalNow, editCustomerPays), [editTotalNow, editCustomerPays]);
 
@@ -1765,6 +1890,9 @@ export default function PedidosPage() {
                 changeFor={changeFor}                  setChangeFor={setChangeFor}
                 deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
                 deliveryFee={deliveryFee}              setDeliveryFee={setDeliveryFee}
+                serviceFeeOptions={serviceFeeOptions}
+                selectedServiceFeeIds={selectedServiceFeeIds}
+                onToggleServiceFee={(id) => toggleServiceFeeId(id, setSelectedServiceFeeIds)}
                 drivers={drivers}
                 driverId={driverId}                    setDriverId={setDriverId}
                 q={q}
@@ -1854,6 +1982,9 @@ export default function PedidosPage() {
                 changeFor={editChangeFor}                  setChangeFor={setEditChangeFor}
                 deliveryFeeEnabled={editDeliveryFeeEnabled} setDeliveryFeeEnabled={setEditDeliveryFeeEnabled}
                 deliveryFee={editDeliveryFee}              setDeliveryFee={setEditDeliveryFee}
+                serviceFeeOptions={serviceFeeOptions}
+                selectedServiceFeeIds={editSelectedServiceFeeIds}
+                onToggleServiceFee={(id) => toggleServiceFeeId(id, setEditSelectedServiceFeeIds)}
                 drivers={drivers}
                 driverId={editDriverId}                    setDriverId={setEditDriverId}
                 q={editQ}

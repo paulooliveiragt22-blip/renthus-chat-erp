@@ -29,6 +29,10 @@ export default function EditOrderModal({
     deliveryFeeEnabled, setDeliveryFeeEnabled,
     deliveryFee,        setDeliveryFee,
 
+    serviceFeeOptions = [],
+    selectedServiceFeeIds = [],
+    onToggleServiceFee,
+
     drivers,
     driverId,           setDriverId,
 
@@ -60,6 +64,15 @@ export default function EditOrderModal({
 
     deliveryFeeEnabled: boolean; setDeliveryFeeEnabled: (v: boolean) => void;
     deliveryFee: string;        setDeliveryFee: (v: string) => void;
+
+    serviceFeeOptions?: Array<{
+        id: string;
+        name: string;
+        calc_mode: "fixed" | "percent";
+        value: number;
+    }>;
+    selectedServiceFeeIds?: string[];
+    onToggleServiceFee?: (id: string) => void;
 
     drivers: Driver[];
     driverId: string | null;    setDriverId: (v: string | null) => void;
@@ -110,6 +123,9 @@ export default function EditOrderModal({
                         changeFor={changeFor}               setChangeFor={setChangeFor}
                         deliveryFeeEnabled={deliveryFeeEnabled} setDeliveryFeeEnabled={setDeliveryFeeEnabled}
                         deliveryFee={deliveryFee}           setDeliveryFee={setDeliveryFee}
+                        serviceFeeOptions={serviceFeeOptions}
+                        selectedServiceFeeIds={selectedServiceFeeIds}
+                        onToggleServiceFee={onToggleServiceFee}
                         drivers={drivers}
                         driverId={driverId}                 setDriverId={setDriverId}
                         q={q}                               onSearchChange={onSearchChange}
