@@ -12,18 +12,32 @@ import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 import { nextMenuCheckoutStep } from "@/lib/delivery/fulfillment";
 import type { FulfillmentType } from "@/lib/delivery/fulfillment";
+import {
+    deliveryMinOrderCardLine,
+    deliveryMinOrderHint,
+    soleFulfillmentNotice,
+} from "@/lib/delivery/fulfillmentCopy";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-type Step = "cart" | "identify" | "fulfillment" | "address" | "payment" | "done";
+type Step =
+    | "cart"
+    | "identify"
+    | "fulfillment"
+    | "mode_notice"
+    | "address"
+    | "payment"
+    | "done";
 
 type Props = {
     slug: string;
     storeName: string;
     deliveriesEnabled: boolean;
     pickupEnabled: boolean;
+    /** Pedido mínimo base da loja (pode ser refinado pelo delivery-quote). */
+    deliveryMinOrder: number | null;
     storeIsOpen: boolean;
     storeClosedHint: string | null;
     cart: PublicMenuCartLine[];
@@ -51,6 +65,7 @@ export default function CheckoutDrawer({
     storeName,
     deliveriesEnabled,
     pickupEnabled,
+    deliveryMinOrder,
     storeIsOpen,
     storeClosedHint,
     cart,
@@ -78,6 +93,8 @@ export default function CheckoutDrawer({
     const [newAddress, setNewAddress] = useState<PublicMenuNewAddressInput>(emptyAddress);
     const [deliveryFee, setDeliveryFee] = useState<number | null>(null);
     const [deliveryMsg, setDeliveryMsg] = useState<string | null>(null);
+    /** Mínimo efetivo do quote (bairro); cai no da loja se ainda não cotou. */
+    const [quotedMinOrder, setQuotedMinOrder] = useState<number | null>(null);
 
     const [paymentMethod, setPaymentMethod] = useState<"pix" | "cash" | "card">("pix");
     const [changeFor, setChangeFor] = useState("");
@@ -116,6 +133,28 @@ export default function CheckoutDrawer({
         () => cart.reduce((s, l) => s + l.unitPrice * l.qty, 0),
         [cart]
     );
+
+    const effectiveMinOrder = quotedMinOrder ?? deliveryMinOrder;
+    const minHint = deliveryMinOrderHint(subtotal, effectiveMinOrder);
+    const deliveryCardMinLine = deliveryMinOrderCardLine(effectiveMinOrder);
+    const soleNotice =
+        fulfillmentType === "pickup" || fulfillmentType === "delivery"
+            ? soleFulfillmentNotice(fulfillmentType)
+            : null;
+
+    function choosePickup() {
+        setError(null);
+        setFulfillmentType("pickup");
+        setDeliveryFee(0);
+        setDeliveryMsg(null);
+        setStep("payment");
+    }
+
+    function chooseDelivery() {
+        setError(null);
+        setFulfillmentType("delivery");
+        setStep("address");
+    }
 
     useEffect(() => {
         const params = new URLSearchParams(globalThis.location.search);
@@ -190,13 +229,19 @@ export default function CheckoutDrawer({
             setStep("fulfillment");
             return;
         }
-        if (next === "payment") {
+        if (next === "sole_pickup") {
             setFulfillmentType("pickup");
             setDeliveryFee(0);
             setDeliveryMsg(null);
-            setStep("payment");
+            setStep("mode_notice");
             return;
         }
+        if (next === "sole_delivery") {
+            setFulfillmentType("delivery");
+            setStep("mode_notice");
+            return;
+        }
+        // Fallback legado (não deve ocorrer com nextMenuCheckoutStep atual)
         setFulfillmentType("delivery");
         setStep("address");
     }
@@ -261,7 +306,13 @@ export default function CheckoutDrawer({
         savedAddressId?: string | null;
         neighborhood?: string;
         cep?: string;
-    }): Promise<{ ok: boolean; served: boolean; fee: number | null; message: string | null }> {
+    }): Promise<{
+        ok: boolean;
+        served: boolean;
+        fee: number | null;
+        minOrder: number | null;
+        message: string | null;
+    }> {
         setDeliveryMsg(null);
         try {
             const res = await fetch(
@@ -276,6 +327,7 @@ export default function CheckoutDrawer({
                 ok: boolean;
                 served?: boolean;
                 fee?: number;
+                minOrder?: number | null;
                 reason?: string | null;
                 cepLookup?: {
                     logradouro: string;
@@ -288,8 +340,21 @@ export default function CheckoutDrawer({
             if (!json.ok) {
                 setDeliveryFee(null);
                 setDeliveryMsg("Não foi possível calcular a entrega.");
-                return { ok: false, served: false, fee: null, message: "quote_failed" };
+                return {
+                    ok: false,
+                    served: false,
+                    fee: null,
+                    minOrder: null,
+                    message: "quote_failed",
+                };
             }
+            const quoted =
+                json.minOrder != null &&
+                Number.isFinite(Number(json.minOrder)) &&
+                Number(json.minOrder) > 0
+                    ? Number(json.minOrder)
+                    : null;
+            if (quoted != null) setQuotedMinOrder(quoted);
             if (json.cepLookup) {
                 setNewAddress((prev) => ({
                     ...prev,
@@ -304,16 +369,16 @@ export default function CheckoutDrawer({
                 const msg = json.reason || "Não entregamos neste bairro.";
                 setDeliveryFee(null);
                 setDeliveryMsg(msg);
-                return { ok: true, served: false, fee: null, message: msg };
+                return { ok: true, served: false, fee: null, minOrder: quoted, message: msg };
             }
             const fee = Number(json.fee ?? 0);
             setDeliveryFee(fee);
             setDeliveryMsg(null);
-            return { ok: true, served: true, fee, message: null };
+            return { ok: true, served: true, fee, minOrder: quoted, message: null };
         } catch {
             setDeliveryFee(null);
             setDeliveryMsg("Falha ao calcular entrega.");
-            return { ok: false, served: false, fee: null, message: "network" };
+            return { ok: false, served: false, fee: null, minOrder: null, message: "network" };
         }
     }
 
@@ -335,6 +400,9 @@ export default function CheckoutDrawer({
             setStep("identify");
             return;
         }
+        if (minHint.kind === "below") {
+            return;
+        }
         if (addressMode === "saved") {
             if (!savedAddressId) {
                 setError("Selecione um endereço.");
@@ -344,6 +412,9 @@ export default function CheckoutDrawer({
             const q = await quoteDelivery({ sessionToken, savedAddressId });
             setBusy(false);
             if (!q.served) return;
+            if (deliveryMinOrderHint(subtotal, q.minOrder ?? deliveryMinOrder).kind === "below") {
+                return;
+            }
             setFulfillmentType((prev) => prev ?? "delivery");
             setStep("payment");
             return;
@@ -367,6 +438,9 @@ export default function CheckoutDrawer({
         });
         setBusy(false);
         if (!q.served) return;
+        if (deliveryMinOrderHint(subtotal, q.minOrder ?? deliveryMinOrder).kind === "below") {
+            return;
+        }
         setFulfillmentType((prev) => prev ?? "delivery");
         setStep("payment");
     }
@@ -450,11 +524,55 @@ export default function CheckoutDrawer({
               ? "Seus dados"
               : step === "fulfillment"
                 ? "Como receber"
-                : step === "address"
-                  ? "Entrega"
-                  : step === "payment"
-                    ? "Pagamento"
-                    : "Pronto";
+                : step === "mode_notice"
+                  ? soleNotice?.title ?? "Como receber"
+                  : step === "address"
+                    ? "Entrega"
+                    : step === "payment"
+                      ? "Pagamento"
+                      : "Pronto";
+
+    function MinOrderSoftCallout() {
+        if (minHint.kind === "none") return null;
+        const below = minHint.kind === "below";
+        const tone = below
+            ? "bg-amber-50 text-amber-950 ring-amber-200"
+            : "bg-teal-50 text-teal-950 ring-teal-200";
+        return (
+            <div className={`space-y-3 rounded-xl px-3 py-3 text-sm ring-1 ${tone}`}>
+                <div>
+                    <p className="font-semibold">{minHint.title}</p>
+                    <p className="mt-1 text-[13px] leading-snug opacity-90">{minHint.body}</p>
+                </div>
+                {below && pickupEnabled ? (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <button
+                            type="button"
+                            onClick={onAddMore}
+                            className="flex-1 rounded-lg bg-white/80 py-2.5 text-xs font-semibold ring-1 ring-amber-300"
+                        >
+                            Adicionar mais itens
+                        </button>
+                        <button
+                            type="button"
+                            onClick={choosePickup}
+                            className="flex-1 rounded-lg bg-amber-900/90 py-2.5 text-xs font-semibold text-white"
+                        >
+                            Prefiro retirar
+                        </button>
+                    </div>
+                ) : below ? (
+                    <button
+                        type="button"
+                        onClick={onAddMore}
+                        className="w-full rounded-lg bg-white/80 py-2.5 text-xs font-semibold ring-1 ring-amber-300"
+                    >
+                        Adicionar mais itens
+                    </button>
+                ) : null}
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#f6f3ee]">
@@ -618,29 +736,25 @@ export default function CheckoutDrawer({
                 {step === "fulfillment" && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold text-zinc-900">Como prefere receber?</h2>
+                        <MinOrderSoftCallout />
                         <button
                             type="button"
-                            onClick={() => {
-                                setFulfillmentType("delivery");
-                                setStep("address");
-                            }}
+                            onClick={chooseDelivery}
                             className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
                         >
                             <p className="text-sm font-semibold text-zinc-900">Entrega</p>
-                            <p className="text-xs text-zinc-500">Receba no endereço que você informar</p>
+                            <p className="text-xs text-zinc-500">
+                                Receba no endereço que você informar
+                                {deliveryCardMinLine ? ` · ${deliveryCardMinLine}` : ""}
+                            </p>
                         </button>
                         <button
                             type="button"
-                            onClick={() => {
-                                setFulfillmentType("pickup");
-                                setDeliveryFee(0);
-                                setDeliveryMsg(null);
-                                setStep("payment");
-                            }}
+                            onClick={choosePickup}
                             className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
                         >
                             <p className="text-sm font-semibold text-zinc-900">Retirar no local</p>
-                            <p className="text-xs text-zinc-500">Sem taxa de entrega</p>
+                            <p className="text-xs text-zinc-500">Sem taxa de entrega · sem pedido mínimo</p>
                         </button>
                         <button
                             type="button"
@@ -652,9 +766,44 @@ export default function CheckoutDrawer({
                     </section>
                 )}
 
+                {step === "mode_notice" && soleNotice && (
+                    <section className="space-y-4">
+                        <div className="rounded-xl bg-teal-50 px-4 py-4 text-teal-950 ring-1 ring-teal-200">
+                            <h2 className="text-lg font-semibold">{soleNotice.title}</h2>
+                            <p className="mt-2 text-sm leading-relaxed opacity-90">{soleNotice.body}</p>
+                        </div>
+                        {soleNotice.type === "delivery" ? <MinOrderSoftCallout /> : null}
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setStep(sessionToken ? "cart" : "identify")}
+                                className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
+                            >
+                                Voltar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (soleNotice.type === "pickup") {
+                                        setDeliveryFee(0);
+                                        setDeliveryMsg(null);
+                                        setStep("payment");
+                                        return;
+                                    }
+                                    setStep("address");
+                                }}
+                                className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white"
+                            >
+                                {soleNotice.cta}
+                            </button>
+                        </div>
+                    </section>
+                )}
+
                 {step === "address" && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold text-zinc-900">Entrega</h2>
+                        <MinOrderSoftCallout />
                         {addresses.length > 0 && (
                             <div className="flex gap-2">
                                 <button
@@ -793,22 +942,20 @@ export default function CheckoutDrawer({
                         <div className="flex gap-2">
                             <button
                                 type="button"
-                                onClick={() =>
-                                    setStep(
-                                        deliveriesEnabled && pickupEnabled
-                                            ? "fulfillment"
-                                            : sessionToken
-                                              ? "cart"
-                                              : "identify"
-                                    )
-                                }
+                                onClick={() => {
+                                    if (deliveriesEnabled && pickupEnabled) {
+                                        setStep("fulfillment");
+                                        return;
+                                    }
+                                    setStep("mode_notice");
+                                }}
                                 className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
                             >
                                 Voltar
                             </button>
                             <button
                                 type="button"
-                                disabled={busy || Boolean(deliveryMsg)}
+                                disabled={busy || Boolean(deliveryMsg) || minHint.kind === "below"}
                                 onClick={() => void goPayment()}
                                 className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
                             >
@@ -900,9 +1047,7 @@ export default function CheckoutDrawer({
                                         setStep(
                                             deliveriesEnabled && pickupEnabled
                                                 ? "fulfillment"
-                                                : sessionToken
-                                                  ? "cart"
-                                                  : "identify"
+                                                : "mode_notice"
                                         );
                                         return;
                                     }

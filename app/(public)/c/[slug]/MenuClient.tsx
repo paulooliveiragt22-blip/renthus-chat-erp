@@ -502,6 +502,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     storeName={store.displayName}
                     deliveriesEnabled={store.deliveriesEnabled}
                     pickupEnabled={store.pickupEnabled}
+                    deliveryMinOrder={store.deliveryMinOrder}
                     storeIsOpen={store.isOpen}
                     storeClosedHint={
                         store.closedMessage || "Não estamos atendendo no momento."

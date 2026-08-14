@@ -65,6 +65,7 @@ function parseStoreRow(raw: unknown): PublicMenuStore | null {
         closeTime: null,
         timeZone: "America/Cuiaba",
         deliveryDescription: null,
+        deliveryMinOrder: null,
         isOpen: true,
         periods: [],
         hoursLabel: "",

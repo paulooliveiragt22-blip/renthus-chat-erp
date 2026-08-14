@@ -88,11 +88,11 @@ describe("fulfillment domain", () => {
         );
         assert.equal(
             nextMenuCheckoutStep({ deliveriesEnabled: false, pickupEnabled: true }),
-            "payment"
+            "sole_pickup"
         );
         assert.equal(
             nextMenuCheckoutStep({ deliveriesEnabled: true, pickupEnabled: false }),
-            "address"
+            "sole_delivery"
         );
         assert.equal(
             nextMenuCheckoutStep({ deliveriesEnabled: false, pickupEnabled: false }),

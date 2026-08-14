@@ -123,13 +123,19 @@ export function isFulfillmentUnavailable(policy: FulfillmentPolicy): boolean {
 }
 
 /** Passo seguinte no cardápio após carrinho/identificação. */
-export type MenuCheckoutFulfillmentStep = "fulfillment" | "address" | "payment" | "unavailable";
+export type MenuCheckoutFulfillmentStep =
+    | "fulfillment"
+    | "sole_pickup"
+    | "sole_delivery"
+    | "address"
+    | "payment"
+    | "unavailable";
 
 export function nextMenuCheckoutStep(policy: FulfillmentPolicy): MenuCheckoutFulfillmentStep {
     if (isFulfillmentUnavailable(policy)) return "unavailable";
     if (policy.deliveriesEnabled && policy.pickupEnabled) return "fulfillment";
-    if (policy.pickupEnabled && !policy.deliveriesEnabled) return "payment";
-    return "address";
+    if (policy.pickupEnabled && !policy.deliveriesEnabled) return "sole_pickup";
+    return "sole_delivery";
 }
 
 /**

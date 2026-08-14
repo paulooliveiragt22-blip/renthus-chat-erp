@@ -7,6 +7,14 @@ import { parseMenuSlug } from "./slug";
 import { loadFulfillmentPolicy } from "@/lib/delivery/fulfillment";
 import { loadStoreHours, toStoreHoursPublic } from "@/lib/delivery/hours";
 
+function parseDeliveryMinOrder(settings: unknown): number | null {
+    if (typeof settings !== "object" || settings == null || Array.isArray(settings)) return null;
+    const raw = (settings as Record<string, unknown>).delivery_min_order;
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export async function loadPublicMenuBySlug(
     admin: SupabaseClient,
     slugRaw: string
@@ -29,11 +37,13 @@ export async function loadPublicMenuBySlug(
     if (!parsed.ok) return parsed;
 
     const companyId = parsed.menu.store.companyId;
-    const [policy, hours] = await Promise.all([
+    const [policy, hours, companyRow] = await Promise.all([
         loadFulfillmentPolicy(admin, companyId),
         loadStoreHours(admin, companyId),
+        admin.from("companies").select("settings").eq("id", companyId).maybeSingle(),
     ]);
     const publicHours = toStoreHoursPublic(hours);
+    const deliveryMinOrder = parseDeliveryMinOrder(companyRow.data?.settings);
     return {
         ok: true,
         menu: {
@@ -46,6 +56,7 @@ export async function loadPublicMenuBySlug(
                 closeTime: publicHours.closeTime,
                 timeZone: publicHours.timeZone,
                 deliveryDescription: publicHours.deliveryDescription,
+                deliveryMinOrder,
                 isOpen: publicHours.isOpen,
                 periods: publicHours.periods,
                 hoursLabel: publicHours.hoursLabel,

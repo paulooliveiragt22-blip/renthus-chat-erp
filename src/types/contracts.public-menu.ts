@@ -30,6 +30,8 @@ export interface PublicMenuStore {
     timeZone: string;
     /** Texto curto de delivery (ex.: área / raio). */
     deliveryDescription: string | null;
+    /** Pedido mínimo base para entrega (`companies.settings.delivery_min_order`). */
+    deliveryMinOrder: number | null;
     /** Calculado no servidor no momento do load. */
     isOpen: boolean;
     /** Turnos HH:MM (almoço + jantar). */

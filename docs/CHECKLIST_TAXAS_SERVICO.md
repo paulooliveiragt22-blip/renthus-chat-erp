@@ -13,7 +13,7 @@ Data: 2026-08-14. Contrato: `docs/FINANCEIRO.md`.
 - [x] RPCs `rpc_upsert_service_fee_definition`, `rpc_apply_order_fees`
 - [x] Hex `src/taxas/` + APIs `/api/admin/taxas`, `/api/admin/taxas/order`
 - [x] Config aba **Taxas** (canônico) + Pedidos (checkboxes outras taxas)
-- [x] Canônico sem dual-path: drop `companies.default_delivery_fee` / `delivery_fee_enabled`; leitores em `service_fee_definitions`
+## Canônico sem dual-path: drop `companies.default_delivery_fee` / `delivery_fee_enabled`; leitores em `service_fee_definitions`
 
 ## Migrations
 
@@ -21,6 +21,17 @@ Data: 2026-08-14. Contrato: `docs/FINANCEIRO.md`.
 - `20260814180100_service_fees_total_amount.sql` (aplicada remoto)
 - `20260814180200_service_fees_apply_definition_id.sql` (aplicada remoto)
 - `20260814200000_delivery_fee_canonical_definitions.sql` (aplicada remoto)
+
+## Dívida de UX / cascata (aberta 2026-08-14)
+
+A unificação canônica no **dado** está ok (`service_fee_definitions` delivery). A **ativação** e o **default em Pedidos** ficaram opacos:
+
+1. Toggle “Cobrar taxa de entrega” saiu da aba Delivery e só existe em Taxas (`is_active` da definição) — usuário espera isso em Delivery.
+2. Migration de sync usou `companies.delivery_fee_enabled` (default histórico `false`) → a maioria das empresas ficou com delivery `is_active=false` e `value=0`.
+3. Pedidos lê a definição: se inativa ou valor 0 → campo “Taxa de entrega” vem `0,00`; “outras taxas” ativas aparecem como checkboxes (caminho diferente).
+4. Cotação por bairro / chatbot ainda usam base fee da definição — mesma regra.
+
+**Correção proposta (discutir antes de código):** manter valor/cálculo canônico em Taxas; **reativar o toggle “Cobrar taxa” na aba Delivery** como UI que grava o mesmo `is_active` (um write path, dois pontos de leitura); ao abrir Pedidos novo, pré-preencher valor da definição quando ativa+fixed. Não recriar coluna em `companies`.
 
 ## Fora de escopo (v1)
 
