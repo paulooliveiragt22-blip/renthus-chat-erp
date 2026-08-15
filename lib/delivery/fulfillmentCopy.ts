@@ -46,11 +46,12 @@ export type DeliveryMinOrderHint =
 
 /**
  * Tip de pedido mínimo para entrega — só quando ainda falta valor.
- * Sem CTA embutido: as ações ficam nos controles do step (Entrega / Retirar / Voltar).
+ * CTAs ficam na UI; o texto pode mencionar retirada se a loja oferece.
  */
 export function deliveryMinOrderHint(
     subtotal: number,
-    minOrder: number | null | undefined
+    minOrder: number | null | undefined,
+    opts?: { offerPickup?: boolean }
 ): DeliveryMinOrderHint {
     if (minOrder == null || !Number.isFinite(minOrder) || minOrder <= 0) {
         return { kind: "none" };
@@ -61,10 +62,13 @@ export function deliveryMinOrderHint(
     if (sub + 1e-9 >= min) return { kind: "none" };
 
     const missing = Math.round((min - sub) * 100) / 100;
+    const pickupHint = opts?.offerPickup
+        ? " — ou você pode retirar no local sem mínimo."
+        : ".";
     return {
         kind: "below",
         title: "Quase lá para a entrega",
-        body: `O pedido mínimo para entrega é ${formatMenuMoneyBRL(min)}. Faltam ${formatMenuMoneyBRL(missing)}.`,
+        body: `O pedido mínimo para entrega é ${formatMenuMoneyBRL(min)}. Faltam ${formatMenuMoneyBRL(missing)}${pickupHint}`,
         minOrder: min,
         missing,
     };

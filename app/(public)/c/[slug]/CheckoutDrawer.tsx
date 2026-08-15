@@ -135,7 +135,9 @@ export default function CheckoutDrawer({
     );
 
     const effectiveMinOrder = quotedMinOrder ?? deliveryMinOrder;
-    const minHint = deliveryMinOrderHint(subtotal, effectiveMinOrder);
+    const minHint = deliveryMinOrderHint(subtotal, effectiveMinOrder, {
+        offerPickup: pickupEnabled,
+    });
     const deliveryCardMinLine = deliveryMinOrderCardLine(effectiveMinOrder);
     const soleNotice =
         fulfillmentType === "pickup" || fulfillmentType === "delivery"
@@ -532,12 +534,34 @@ export default function CheckoutDrawer({
                       ? "Pagamento"
                       : "Pronto";
 
-    function MinOrderSoftCallout() {
+    function MinOrderSoftCallout({ withActions }: { withActions: boolean }) {
         if (minHint.kind !== "below") return null;
         return (
-            <div className="rounded-xl bg-amber-50 px-3 py-3 text-sm text-amber-950 ring-1 ring-amber-200">
-                <p className="font-semibold">{minHint.title}</p>
-                <p className="mt-1 text-[13px] leading-snug opacity-90">{minHint.body}</p>
+            <div className="space-y-3 rounded-xl bg-amber-50 px-3 py-3 text-sm text-amber-950 ring-1 ring-amber-200">
+                <div>
+                    <p className="font-semibold">{minHint.title}</p>
+                    <p className="mt-1 text-[13px] leading-snug opacity-90">{minHint.body}</p>
+                </div>
+                {withActions ? (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <button
+                            type="button"
+                            onClick={onAddMore}
+                            className="flex-1 rounded-lg bg-[#FF6600] py-2.5 text-xs font-semibold text-white hover:bg-[#e65c00]"
+                        >
+                            Adicionar mais itens
+                        </button>
+                        {pickupEnabled ? (
+                            <button
+                                type="button"
+                                onClick={choosePickup}
+                                className="flex-1 rounded-lg bg-amber-900/90 py-2.5 text-xs font-semibold text-white"
+                            >
+                                Prefiro retirar
+                            </button>
+                        ) : null}
+                    </div>
+                ) : null}
             </div>
         );
     }
@@ -704,37 +728,49 @@ export default function CheckoutDrawer({
                 {step === "fulfillment" && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold text-zinc-900">Como prefere receber?</h2>
-                        <MinOrderSoftCallout />
-                        <button
-                            type="button"
-                            disabled={minHint.kind === "below"}
-                            onClick={chooseDelivery}
-                            className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            <p className="text-sm font-semibold text-zinc-900">Entrega</p>
-                            <p className="text-xs text-zinc-500">
-                                {minHint.kind === "below"
-                                    ? `Disponível a partir de ${formatBRL(minHint.minOrder)} · faltam ${formatBRL(minHint.missing)}`
-                                    : `Receba no endereço que você informar${
-                                          deliveryCardMinLine ? ` · ${deliveryCardMinLine}` : ""
-                                      }`}
-                            </p>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={choosePickup}
-                            className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
-                        >
-                            <p className="text-sm font-semibold text-zinc-900">Retirar no local</p>
-                            <p className="text-xs text-zinc-500">Sem taxa de entrega · sem pedido mínimo</p>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setStep(sessionToken ? "cart" : "identify")}
-                            className="w-full rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
-                        >
-                            Voltar
-                        </button>
+                        {minHint.kind === "below" ? (
+                            <>
+                                <MinOrderSoftCallout withActions />
+                                <button
+                                    type="button"
+                                    onClick={() => setStep(sessionToken ? "cart" : "identify")}
+                                    className="w-full rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
+                                >
+                                    Voltar
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={chooseDelivery}
+                                    className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
+                                >
+                                    <p className="text-sm font-semibold text-zinc-900">Entrega</p>
+                                    <p className="text-xs text-zinc-500">
+                                        Receba no endereço que você informar
+                                        {deliveryCardMinLine ? ` · ${deliveryCardMinLine}` : ""}
+                                    </p>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={choosePickup}
+                                    className="w-full rounded-xl bg-white px-4 py-4 text-left ring-1 ring-zinc-200"
+                                >
+                                    <p className="text-sm font-semibold text-zinc-900">Retirar no local</p>
+                                    <p className="text-xs text-zinc-500">
+                                        Sem taxa de entrega · sem pedido mínimo
+                                    </p>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setStep(sessionToken ? "cart" : "identify")}
+                                    className="w-full rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
+                                >
+                                    Voltar
+                                </button>
+                            </>
+                        )}
                     </section>
                 )}
 
@@ -744,7 +780,9 @@ export default function CheckoutDrawer({
                             <h2 className="text-lg font-semibold">{soleNotice.title}</h2>
                             <p className="mt-2 text-sm leading-relaxed opacity-90">{soleNotice.body}</p>
                         </div>
-                        {soleNotice.type === "delivery" ? <MinOrderSoftCallout /> : null}
+                        {soleNotice.type === "delivery" && minHint.kind === "below" ? (
+                            <MinOrderSoftCallout withActions />
+                        ) : null}
                         <div className="flex gap-2">
                             <button
                                 type="button"
@@ -778,7 +816,7 @@ export default function CheckoutDrawer({
                 {step === "address" && (
                     <section className="space-y-4">
                         <h2 className="text-lg font-semibold text-zinc-900">Entrega</h2>
-                        <MinOrderSoftCallout />
+                        <MinOrderSoftCallout withActions />
                         {addresses.length > 0 && (
                             <div className="flex gap-2">
                                 <button

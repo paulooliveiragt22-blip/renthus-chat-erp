@@ -30,7 +30,13 @@ describe("fulfillmentCopy", () => {
         if (below.kind === "below") {
             assert.equal(below.missing, 15);
             assert.match(below.body, /Faltam/);
-            assert.doesNotMatch(below.body, /retirar|adicionar/i);
+            assert.doesNotMatch(below.body, /retirar/i);
+        }
+
+        const withPickup = deliveryMinOrderHint(25, 40, { offerPickup: true });
+        assert.equal(withPickup.kind, "below");
+        if (withPickup.kind === "below") {
+            assert.match(withPickup.body, /retirar no local/i);
         }
     });
 
