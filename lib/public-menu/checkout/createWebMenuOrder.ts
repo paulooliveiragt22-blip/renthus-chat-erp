@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { PaymentMethod } from "@/src/types/contracts";
 import type {
     PublicMenuCheckoutInput,
     PublicMenuCheckoutResult,
@@ -26,10 +25,8 @@ import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
 import { verifyWebMenuCheckoutSession } from "../sessionToken";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
-
-function isPaymentMethod(v: string): v is PaymentMethod {
-    return v === "pix" || v === "cash" || v === "card";
-}
+import { loadAcceptedCustomerPayments } from "@/lib/payments/loadAcceptedCustomerPayments";
+import { assertCustomerPaymentAllowed } from "@/src/financeiro/domain/acceptedCustomerPayments";
 
 export async function createWebMenuOrder(
     admin: SupabaseClient,
@@ -48,6 +45,13 @@ export async function createWebMenuOrder(
         return { ok: false, error: "session_invalid" };
     }
 
+    const paymentRaw = String(params.input.paymentMethod ?? "").trim().toLowerCase();
+    const accepted = await loadAcceptedCustomerPayments(admin, params.companyId);
+    const payCheck = assertCustomerPaymentAllowed(accepted, paymentRaw);
+    if (!payCheck.ok) {
+        return { ok: false, error: payCheck.error };
+    }
+    const paymentMethod = payCheck.method;
     const storeHours = await loadStoreHours(admin, params.companyId);
     if (!isStoreOpen(Date.now(), storeHours)) {
         return {
@@ -63,11 +67,6 @@ export async function createWebMenuOrder(
     }
     if (itemsIn.length > 40) {
         return { ok: false, error: "cart_too_large" };
-    }
-
-    const paymentMethod = String(params.input.paymentMethod ?? "").trim().toLowerCase();
-    if (!isPaymentMethod(paymentMethod)) {
-        return { ok: false, error: "payment_invalid" };
     }
 
     let changeFor: number | null = null;

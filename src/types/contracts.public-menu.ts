@@ -32,6 +32,11 @@ export interface PublicMenuStore {
     deliveryDescription: string | null;
     /** Pedido mínimo base para entrega (`companies.settings.delivery_min_order`). */
     deliveryMinOrder: number | null;
+    /**
+     * Meios aceitos no cardápio (canônico: `companies.settings.accepted_customer_payments`).
+     * Subconjunto de cash|pix|debit|card.
+     */
+    acceptedPayments: Array<"cash" | "pix" | "debit" | "card">;
     /** Calculado no servidor no momento do load. */
     isOpen: boolean;
     /** Turnos HH:MM (almoço + jantar). */
@@ -212,7 +217,7 @@ export type PublicMenuSessionResult = PublicMenuSessionOk | PublicMenuSessionErr
 
 export interface PublicMenuCheckoutInput {
     items: Array<{ embalagemId: string; qty: number }>;
-    paymentMethod: "pix" | "cash" | "card";
+    paymentMethod: "pix" | "cash" | "card" | "debit";
     changeFor?: number | string | null;
     fulfillmentType?: "delivery" | "pickup" | null;
     savedAddressId?: string | null;

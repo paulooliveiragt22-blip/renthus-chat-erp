@@ -1,57 +1,27 @@
 # Proposta — Formas de pagamento aceitas (cardápio + chatbot)
 
-Status: **adiada** — gravada para discussão posterior (2026-08-14).  
-Não implementar até validação explícita.
+Status: **implementada** (2026-08-14).
 
-## Problema
+## Decisões fechadas
 
-Aba Configurações → Formas de pagamentos grava `companies.settings.enabled_payments` com chaves legadas (`credit_card`, `debit_card`, `voucher`). Nenhum canal lê esse JSON. Cardápio e chatbot usam lista hard-coded `pix | cash | card`.
+- Uma policy global para canais do cliente (cardápio + chatbot + Flow + mesa).
+- Enum à vista: `cash | pix | debit | card`. Prazo fora desses canais.
+- Default seed = hard-code histórico (`pix/cash/card` on, `debit` off) — **não** confiar em `enabled_payments` legado.
+- Persistência: `companies.settings.accepted_customer_payments`
+- API única: `GET/PATCH /api/admin/accepted-payments`
+- Validação server-side nos creates (web, PRO prepare, Flow, mesa close)
+- WhatsApp: máx. 3 botões (preferência pix → cash → card → debit)
+- Aba Config: “Pagamentos no cardápio e chatbot”
 
-## Decisões travadas (quando for implementar)
+## Arquivos-chave
 
-- Não cadastrar métodos novos no ledger — enum de `docs/FINANCEIRO.md` permanece canônico.
-- Configurações só liga/desliga métodos já existentes.
-- Escopo: canais do cliente = cardápio web + chatbot (+ Flow se compartilhar botões).
-- Subconjunto oferecível: à vista `cash | pix | debit | card`.
-- Prazo continua PDV / Pedidos admin (recognize já bloqueia prazo em chatbot/web).
-- Mínimo: ≥ 1 método ativo por empresa.
+- `src/financeiro/domain/acceptedCustomerPayments.ts`
+- `app/api/admin/accepted-payments/route.ts`
+- `supabase/migrations/20260814210000_accepted_customer_payments.sql`
+- Wire: `loadPublicMenu`, `CheckoutDrawer`, `createWebMenuOrder`, `checkoutPostProcess` / `runProPipeline`, `prepareOrderDraft`, `flows/route`, mesa close
 
-## Estrutura proposta (FASE 1)
+## Fora de escopo (ainda)
 
-### Domain
-- Estender `src/financeiro/domain/paymentMethod.ts`
-- `CUSTOMER_FACING_PAYMENT_METHODS = ['cash','pix','debit','card']`
-- `AcceptedPaymentsPolicy` + helpers `normalizeAcceptedPayments` / `listEnabledCustomerPayments`
-- Default sugerido: espelhar hard-code atual (`pix/cash/card` on, `debit` off) — confirmar na implementação
-
-### Persistence (radical, um caminho)
-- Substituir `settings.enabled_payments` por:
-  - `companies.settings.accepted_customer_payments: { cash, pix, debit, card }`
-- Migration: backfill (`credit_card`→`card`, `debit_card`→`debit`, dropar `voucher`) e apagar `enabled_payments`
-- Sem tabela nova — policy por empresa, não CRUD de meio de pagamento
-
-### Application / API
-- `getAcceptedCustomerPayments` / `upsertAcceptedCustomerPayments`
-- `GET/PATCH /api/admin/accepted-payments` (ou companies update só com chave nova + validação de enum)
-
-### Presentation
-- Config → Formas: toggles canônicos + copy correta (“cardápio web e chatbot”)
-- Cardápio: `CheckoutDrawer` monta botões a partir da policy
-- Chatbot PRO: `checkoutPostProcess` filtra `pro_pay_*`
-- Validação server-side no checkout/create order (rejeitar método fora da policy)
-
-### Elite
-Tratar como **Payment Acceptance Policy** (feature flag por método × canal cliente), não como cadastro contábil. Conta continua 1.1 vs 1.2.
-
-### Fora de escopo desta proposta
-- Métodos custom / MDR / split por bandeira
-- Filtrar PDV/Pedidos admin pela mesma lista
-- Aba Plano (Pagar.me SaaS)
-
-## Referências
-
-- `docs/FINANCEIRO.md` — enum `payment_method`
-- `src/financeiro/domain/paymentMethod.ts`
-- `app/(admin)/configuracoes/page.tsx` — aba `formas_pagamento` (settings morto hoje)
-- `app/(public)/c/[slug]/CheckoutDrawer.tsx`
-- `src/pro/pipeline/stages/checkoutPostProcess.ts`
+- Policy distinta por canal (web vs chatbot)
+- Filtrar PDV / Pedidos admin
+- Regenerar JSON estático do Flow Meta (botões fixos; rejeição no servidor se desabilitado)

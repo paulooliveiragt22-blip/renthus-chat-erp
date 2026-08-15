@@ -38,6 +38,7 @@ type Props = {
     pickupEnabled: boolean;
     /** Pedido mínimo base da loja (pode ser refinado pelo delivery-quote). */
     deliveryMinOrder: number | null;
+    acceptedPayments: Array<"cash" | "pix" | "debit" | "card">;
     storeIsOpen: boolean;
     storeClosedHint: string | null;
     cart: PublicMenuCartLine[];
@@ -66,6 +67,7 @@ export default function CheckoutDrawer({
     deliveriesEnabled,
     pickupEnabled,
     deliveryMinOrder,
+    acceptedPayments,
     storeIsOpen,
     storeClosedHint,
     cart,
@@ -96,7 +98,29 @@ export default function CheckoutDrawer({
     /** Mínimo efetivo do quote (bairro); cai no da loja se ainda não cotou. */
     const [quotedMinOrder, setQuotedMinOrder] = useState<number | null>(null);
 
-    const [paymentMethod, setPaymentMethod] = useState<"pix" | "cash" | "card">("pix");
+    const paymentOptions = useMemo(() => {
+        const labels: Record<string, string> = {
+            pix: "PIX",
+            cash: "Dinheiro",
+            card: "Crédito",
+            debit: "Débito",
+        };
+        const list = (acceptedPayments?.length ? acceptedPayments : ["pix", "cash", "card"]).filter(
+            (id) => id in labels
+        );
+        return list.map((id) => [id, labels[id]!] as const);
+    }, [acceptedPayments]);
+
+    const [paymentMethod, setPaymentMethod] = useState<string>("pix");
+
+    useEffect(() => {
+        const first = paymentOptions[0]?.[0];
+        if (!first) return;
+        if (!paymentOptions.some(([id]) => id === paymentMethod)) {
+            setPaymentMethod(first);
+        }
+    }, [paymentOptions, paymentMethod]);
+
     const [changeFor, setChangeFor] = useState("");
     const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType | null>(() => {
         if (deliveriesEnabled && !pickupEnabled) return "delivery";
@@ -1017,19 +1041,13 @@ export default function CheckoutDrawer({
                             </div>
                         </div>
 
-                        <div className="flex gap-2">
-                            {(
-                                [
-                                    ["pix", "PIX"],
-                                    ["cash", "Dinheiro"],
-                                    ["card", "Cartão"],
-                                ] as const
-                            ).map(([id, label]) => (
+                        <div className="flex flex-wrap gap-2">
+                            {paymentOptions.map(([id, label]) => (
                                 <button
                                     key={id}
                                     type="button"
                                     onClick={() => setPaymentMethod(id)}
-                                    className={`flex-1 rounded-lg py-2.5 text-xs font-semibold ${
+                                    className={`min-w-[4.5rem] flex-1 rounded-lg py-2.5 text-xs font-semibold ${
                                         paymentMethod === id
                                             ? "bg-zinc-900 text-white"
                                             : "bg-white ring-1 ring-zinc-200"

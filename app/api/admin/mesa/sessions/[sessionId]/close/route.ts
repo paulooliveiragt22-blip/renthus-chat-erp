@@ -58,7 +58,21 @@ export async function POST(
     }
 
     const total = Number(session.total ?? 0);
-    const method = String(body.payment_method ?? "pix").trim().toLowerCase() || "pix";
+    const { loadAcceptedCustomerPayments } = await import(
+        "@/lib/payments/loadAcceptedCustomerPayments"
+    );
+    const { assertCustomerPaymentAllowed } = await import(
+        "@/src/financeiro/domain/acceptedCustomerPayments"
+    );
+    const accepted = await loadAcceptedCustomerPayments(admin, companyId);
+    const pay = assertCustomerPaymentAllowed(
+        accepted,
+        String(body.payment_method ?? "pix").trim().toLowerCase() || "pix"
+    );
+    if (!pay.ok) {
+        return NextResponse.json({ error: pay.error }, { status: 400 });
+    }
+    const method = pay.method;
     const tableCode = session.table?.code ?? "";
 
     const { data: finalized, error: finErr } = await admin.rpc("rpc_finalize_pdv_order", {

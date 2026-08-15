@@ -330,12 +330,11 @@ function validateRenthusCardCheckout(
     return { exp, num, cvv, holder, addrCep };
 }
 
-const ALL_PAYMENTS = [
-    { key: "pix",          label: "Pix",          desc: "Transferência instantânea" },
-    { key: "credit_card",  label: "Cartão de Crédito", desc: "Visa, Master, Elo, etc." },
-    { key: "debit_card",   label: "Cartão de Débito",  desc: "Débito na maquininha" },
-    { key: "cash",         label: "Dinheiro",     desc: "Pagamento em espécie" },
-    { key: "voucher",      label: "Vale Refeição", desc: "Ticket, Sodexo, Alelo" },
+const ALL_CUSTOMER_PAYMENTS = [
+    { key: "pix" as const,   label: "PIX",              desc: "Transferência instantânea" },
+    { key: "cash" as const,  label: "Dinheiro",         desc: "Pagamento em espécie" },
+    { key: "card" as const,  label: "Cartão (crédito)", desc: "Crédito na maquininha / à vista" },
+    { key: "debit" as const, label: "Cartão (débito)",  desc: "Débito na maquininha" },
 ];
 
 // ─── main component ───────────────────────────────────────────────────────────
@@ -415,10 +414,15 @@ function ConfiguracoesPageContent() {
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [pendingDeleteNeighborhood, setPendingDeleteNeighborhood] = useState<string | null>(null);
 
-    // pagamentos
-    const [enabledPayments,  setEnabledPayments]  = useState<Record<string, boolean>>({
-        pix: true, credit_card: true, debit_card: true, cash: true, voucher: false,
+    // pagamentos aceitos no cardápio / chatbot (canônico)
+    const [acceptedPayments, setAcceptedPayments] = useState({
+        pix: true,
+        cash: true,
+        card: true,
+        debit: false,
     });
+    const [paymentsSaving, setPaymentsSaving] = useState(false);
+    const [paymentsMsg, setPaymentsMsg] = useState<string | null>(null);
 
     // segurança (informativo — não salva senha aqui)
     const [saving, setSaving] = useState(false);
@@ -529,14 +533,63 @@ function ConfiguracoesPageContent() {
             setMinOrder(String(s.delivery_min_order ?? ""));
             setDeliveryRadius(String(s.delivery_radius_km ?? ""));
             setEstTime(String(s.delivery_est_minutes ?? ""));
-            if (s.enabled_payments && typeof s.enabled_payments === "object") {
-                setEnabledPayments((prev) => ({ ...prev, ...(s.enabled_payments as Record<string, boolean>) }));
-            }
         }
         setLoading(false);
     }, [companyId]);
 
     useEffect(() => { loadCompany(); }, [loadCompany]);
+
+    const loadAcceptedPayments = useCallback(async () => {
+        if (!companyId) return;
+        try {
+            const res = await fetch("/api/admin/accepted-payments", {
+                cache: "no-store",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) return;
+            const a = json.accepted ?? {};
+            setAcceptedPayments({
+                pix: a.pix !== false,
+                cash: a.cash !== false,
+                card: a.card !== false,
+                debit: Boolean(a.debit),
+            });
+        } catch {
+            /* keep defaults */
+        }
+    }, [companyId]);
+
+    useEffect(() => {
+        void loadAcceptedPayments();
+    }, [loadAcceptedPayments]);
+
+    async function saveAcceptedPayments() {
+        setPaymentsSaving(true);
+        setPaymentsMsg(null);
+        const res = await fetch("/api/admin/accepted-payments", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accepted: acceptedPayments }),
+        });
+        const json = await res.json().catch(() => ({}));
+        setPaymentsSaving(false);
+        if (!res.ok) {
+            setPaymentsMsg(json?.error ?? "Erro ao salvar formas de pagamento.");
+            return;
+        }
+        if (json.accepted) {
+            setAcceptedPayments({
+                pix: Boolean(json.accepted.pix),
+                cash: Boolean(json.accepted.cash),
+                card: Boolean(json.accepted.card),
+                debit: Boolean(json.accepted.debit),
+            });
+        }
+        setPaymentsMsg("✓ Formas de pagamento salvas.");
+        setTimeout(() => setPaymentsMsg(null), 4000);
+    }
 
     const loadDeliveryPolicy = useCallback(async () => {
         if (!companyId) return;
@@ -1121,8 +1174,8 @@ function ConfiguracoesPageContent() {
             delivery_min_order:   minOrder     ? Number(minOrder)       : null,
             delivery_radius_km:   deliveryRadius ? Number(deliveryRadius) : null,
             delivery_est_minutes: estTime      ? Number(estTime)        : null,
-            enabled_payments: enabledPayments,
         };
+        delete (settingsPatch as Record<string, unknown>).enabled_payments;
 
         const res = await fetch("/api/companies/update", {
             method: "PATCH",
@@ -1150,7 +1203,7 @@ function ConfiguracoesPageContent() {
         { id: "taxas",              label: "Taxas",                 icon: Receipt },
         { id: "cardapio",           label: "Cardápio web",          icon: BookOpen },
         { id: "plano",              label: "Plano e pagamentos",    icon: CircleDollarSign },
-        { id: "formas_pagamento",   label: "Formas de pagamentos",  icon: Wallet },
+        { id: "formas_pagamento",   label: "Pagamentos cliente",  icon: Wallet },
         { id: "seguranca",          label: "Segurança",             icon: Shield },
         { id: "chatbot",            label: "Chatbot",               icon: Bot },
         { id: "pedidos",            label: "Pedidos",               icon: Package },
@@ -2271,34 +2324,40 @@ function ConfiguracoesPageContent() {
                     {/* ── ABA: FORMAS DE PAGAMENTO (CLIENTE / PDV) ──────── */}
                     {activeTab === "formas_pagamento" && (
                         <div className="flex flex-col gap-6">
-                            <SectionTitle icon={CreditCard} title="Métodos de Pagamento" desc="Escolha quais formas de pagamento seu estabelecimento aceita" />
+                            <SectionTitle
+                                icon={CreditCard}
+                                title="Pagamentos no cardápio e chatbot"
+                                desc="Quais formas o cliente pode escolher no cardápio web e no WhatsApp"
+                            />
 
                             <div className="flex flex-col gap-3">
-                                {ALL_PAYMENTS.map(({ key, label, desc }) => (
+                                {ALL_CUSTOMER_PAYMENTS.map(({ key, label, desc }) => (
                                     <div
                                         key={key}
                                         className={`flex items-center justify-between rounded-xl border px-4 py-3 transition-colors ${
-                                            enabledPayments[key]
+                                            acceptedPayments[key]
                                                 ? "border-violet-200 bg-violet-50 dark:border-violet-700/40 dark:bg-violet-900/10"
                                                 : "border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/50"
                                         }`}
                                     >
                                         <div className="flex items-center gap-3">
                                             <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                                                enabledPayments[key]
+                                                acceptedPayments[key]
                                                     ? "bg-violet-100 dark:bg-violet-800/40"
                                                     : "bg-zinc-100 dark:bg-zinc-700"
                                             }`}>
-                                                <Wallet className={`h-4 w-4 ${enabledPayments[key] ? "text-violet-600" : "text-zinc-400"}`} />
+                                                <Wallet className={`h-4 w-4 ${acceptedPayments[key] ? "text-violet-600" : "text-zinc-400"}`} />
                                             </div>
                                             <div>
-                                                <p className={`text-sm font-semibold ${enabledPayments[key] ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500"}`}>{label}</p>
+                                                <p className={`text-sm font-semibold ${acceptedPayments[key] ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500"}`}>{label}</p>
                                                 <p className="text-xs text-zinc-400">{desc}</p>
                                             </div>
                                         </div>
                                         <Toggle
-                                            checked={!!enabledPayments[key]}
-                                            onChange={(v) => setEnabledPayments((prev) => ({ ...prev, [key]: v }))}
+                                            checked={!!acceptedPayments[key]}
+                                            onChange={(v) =>
+                                                setAcceptedPayments((prev) => ({ ...prev, [key]: v }))
+                                            }
                                         />
                                     </div>
                                 ))}
@@ -2307,11 +2366,17 @@ function ConfiguracoesPageContent() {
                             <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-700/40 dark:bg-blue-900/20">
                                 <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
                                 <p className="text-xs text-blue-700 dark:text-blue-400">
-                                    Os métodos habilitados serão exibidos no chatbot como opções ao cliente e na criação manual de pedidos.
+                                    Vale para cardápio web, chatbot e Flow. PDV e Pedidos admin continuam
+                                    com as opções próprias (inclui a prazo). Pelo menos uma forma deve
+                                    ficar ligada. WhatsApp mostra no máximo 3 botões.
                                 </p>
                             </div>
 
-                            <SaveBar saving={saving} msg={msg} onSave={save} />
+                            <SaveBar
+                                saving={paymentsSaving}
+                                msg={paymentsMsg}
+                                onSave={() => void saveAcceptedPayments()}
+                            />
                         </div>
                     )}
 

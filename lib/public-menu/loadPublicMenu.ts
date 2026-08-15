@@ -6,6 +6,10 @@ import { parsePublicMenuRpcPayload } from "./parsePublicMenu";
 import { parseMenuSlug } from "./slug";
 import { loadFulfillmentPolicy } from "@/lib/delivery/fulfillment";
 import { loadStoreHours, toStoreHoursPublic } from "@/lib/delivery/hours";
+import {
+    acceptedCustomerPaymentsFromCompanySettings,
+    listEnabledCustomerPayments,
+} from "@/src/financeiro/domain/acceptedCustomerPayments";
 
 function parseDeliveryMinOrder(settings: unknown): number | null {
     if (typeof settings !== "object" || settings == null || Array.isArray(settings)) return null;
@@ -43,7 +47,11 @@ export async function loadPublicMenuBySlug(
         admin.from("companies").select("settings").eq("id", companyId).maybeSingle(),
     ]);
     const publicHours = toStoreHoursPublic(hours);
-    const deliveryMinOrder = parseDeliveryMinOrder(companyRow.data?.settings);
+    const settings = companyRow.data?.settings;
+    const deliveryMinOrder = parseDeliveryMinOrder(settings);
+    const acceptedPayments = listEnabledCustomerPayments(
+        acceptedCustomerPaymentsFromCompanySettings(settings)
+    );
     return {
         ok: true,
         menu: {
@@ -57,6 +65,7 @@ export async function loadPublicMenuBySlug(
                 timeZone: publicHours.timeZone,
                 deliveryDescription: publicHours.deliveryDescription,
                 deliveryMinOrder,
+                acceptedPayments,
                 isOpen: publicHours.isOpen,
                 periods: publicHours.periods,
                 hoursLabel: publicHours.hoursLabel,

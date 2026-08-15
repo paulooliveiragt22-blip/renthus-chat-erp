@@ -6,7 +6,7 @@
 export type Locale = "pt-BR";
 /** @deprecated Starter removido — motor único PRO. Mantido para tipagem legada de testes. */
 export type ChatbotTier = "pro";
-export type PaymentMethod = "pix" | "cash" | "card";
+export type PaymentMethod = "pix" | "cash" | "card" | "debit";
 /** Como o cliente recebe o pedido. `null` = ainda não escolheu. */
 export type FulfillmentType = "delivery" | "pickup";
 

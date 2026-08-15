@@ -30,6 +30,13 @@ import {
     parseFulfillmentType,
     type FulfillmentPolicy,
 } from "@/lib/delivery/fulfillment";
+import {
+    CUSTOMER_PAYMENT_LABELS,
+    DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS,
+    listEnabledCustomerPayments,
+    type AcceptedCustomerPayments,
+    type CustomerFacingPaymentMethod,
+} from "@/src/financeiro/domain/acceptedCustomerPayments";
 
 export interface QuickActionResult {
     handled: boolean;
@@ -46,7 +53,48 @@ export type CheckoutHandoffQuickOpts = {
 export type CheckoutQuickActionOpts = {
     checkoutHandoffUrl?: string | null;
     fulfillmentPolicy?: FulfillmentPolicy;
+    acceptedPayments?: AcceptedCustomerPayments;
 };
+
+const PAY_BTN: Record<
+    CustomerFacingPaymentMethod,
+    { id: string; title: string }
+> = {
+    pix: { id: "pro_pay_pix", title: "PIX" },
+    card: { id: "pro_pay_card", title: "Crédito" },
+    debit: { id: "pro_pay_debit", title: "Débito" },
+    cash: { id: "pro_pay_cash", title: "Dinheiro" },
+};
+
+/** WhatsApp reply buttons: máx. 3. Preferência pix → cash → card → debit. */
+function buildPaymentButtons(
+    accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
+): OutboundMessage {
+    const order: CustomerFacingPaymentMethod[] = ["pix", "cash", "card", "debit"];
+    const buttons = order
+        .filter((m) => accepted[m])
+        .slice(0, 3)
+        .map((m) => PAY_BTN[m]);
+    if (buttons.length === 0) {
+        return {
+            kind: "text",
+            text: "Esta loja não tem forma de pagamento habilitada no momento. Avise um atendente.",
+        };
+    }
+    return {
+        kind: "buttons",
+        text: "Escolha a forma de pagamento:",
+        buttons,
+    };
+}
+
+function paymentMethodFromPayAction(action: string): CustomerFacingPaymentMethod | null {
+    if (action === "pro_pay_pix") return "pix";
+    if (action === "pro_pay_card") return "card";
+    if (action === "pro_pay_debit") return "debit";
+    if (action === "pro_pay_cash") return "cash";
+    return null;
+}
 
 function normalizeInboundAction(text: string): string {
     return text
@@ -54,18 +102,6 @@ function normalizeInboundAction(text: string): string {
         .toLowerCase()
         .normalize("NFD")
         .replaceAll(/\p{Diacritic}/gu, "");
-}
-
-function buildPaymentButtons(): OutboundMessage {
-    return {
-        kind: "buttons",
-        text: "Escolha a forma de pagamento:",
-        buttons: [
-            { id: "pro_pay_pix", title: "PIX" },
-            { id: "pro_pay_card", title: "Cartão" },
-            { id: "pro_pay_cash", title: "Dinheiro" },
-        ],
-    };
 }
 
 function brl(value: number): string {
@@ -190,7 +226,8 @@ function checkoutAddressReady(draft: OrderDraft): boolean {
 
 function checkoutButtonsForState(
     state: ProSessionState,
-    policy: FulfillmentPolicy = DEFAULT_FULFILLMENT_POLICY
+    policy: FulfillmentPolicy = DEFAULT_FULFILLMENT_POLICY,
+    accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
 ): OutboundMessage[] {
     if (!state.draft) return [];
     if ((state.pendingAskRepeatTerms?.length ?? 0) > 0) return [];
@@ -212,7 +249,7 @@ function checkoutButtonsForState(
             checkoutAddressReady(state.draft) &&
             !isDraftBelowMinimumOrder(state.draft)
         ) {
-            return [buildPaymentButtons()];
+            return [buildPaymentButtons(accepted)];
         }
         return [];
     }
@@ -222,36 +259,44 @@ function checkoutButtonsForState(
     return [];
 }
 
-function resolvePaymentQuickAction(action: string, state: ProSessionState): QuickActionResult | null {
+function resolvePaymentQuickAction(
+    action: string,
+    state: ProSessionState,
+    accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
+): QuickActionResult | null {
     if (!state.draft) return null;
-    if (action === "pro_pay_pix" || action === "pro_pay_card") {
-        const paymentMethod = action === "pro_pay_pix" ? "pix" : "card";
-        const nextDraft: OrderDraft = { ...state.draft, paymentMethod, changeFor: null };
-        if (isDraftBelowMinimumOrder(nextDraft)) {
-            return {
-                handled: true,
-                actionTag: action,
-                state: { ...state, step: "pro_collecting_order", draft: nextDraft },
-                outbound: [buildMinimumOrderShortfallMessage(nextDraft)],
-            };
-        }
+    const paymentMethod = paymentMethodFromPayAction(action);
+    if (!paymentMethod) return null;
+    if (!accepted[paymentMethod]) {
+        return {
+            handled: true,
+            actionTag: action,
+            state,
+            outbound: [
+                {
+                    kind: "text",
+                    text: `Essa forma de pagamento não está disponível. ${listEnabledCustomerPayments(accepted)
+                        .map((m) => CUSTOMER_PAYMENT_LABELS[m])
+                        .join(", ")}.`,
+                },
+                buildPaymentButtons(accepted),
+            ],
+        };
+    }
+    const nextDraft: OrderDraft = {
+        ...state.draft,
+        paymentMethod,
+        changeFor: paymentMethod === "cash" ? state.draft.changeFor : null,
+    };
+    if (isDraftBelowMinimumOrder(nextDraft)) {
         return {
             handled: true,
             actionTag: action,
             state: { ...state, step: "pro_collecting_order", draft: nextDraft },
-            outbound: [],
+            outbound: [buildMinimumOrderShortfallMessage(nextDraft)],
         };
     }
-    if (action === "pro_pay_cash") {
-        const nextDraft: OrderDraft = { ...state.draft, paymentMethod: "cash" };
-        if (isDraftBelowMinimumOrder(nextDraft)) {
-            return {
-                handled: true,
-                actionTag: action,
-                state: { ...state, step: "pro_collecting_order", draft: nextDraft },
-                outbound: [buildMinimumOrderShortfallMessage(nextDraft)],
-            };
-        }
+    if (paymentMethod === "cash") {
         return {
             handled: true,
             actionTag: action,
@@ -259,7 +304,12 @@ function resolvePaymentQuickAction(action: string, state: ProSessionState): Quic
             outbound: [{ kind: "text", text: "Pagamento em dinheiro. Troco pra quanto?" }],
         };
     }
-    return null;
+    return {
+        handled: true,
+        actionTag: action,
+        state: { ...state, step: "pro_collecting_order", draft: nextDraft },
+        outbound: [],
+    };
 }
 
 const CANCEL_TEXT_ACTIONS = new Set(["cancelar", "cancela", "desistir", "desisto"]);
@@ -270,7 +320,12 @@ function isCancelOrderPlainText(text: string): boolean {
     return /^(?:cancelar|cancela|desistir|desisto)\b/u.test(action);
 }
 
-const PAYMENT_BUTTON_IDS = new Set(["pro_pay_pix", "pro_pay_card", "pro_pay_cash"]);
+const PAYMENT_BUTTON_IDS = new Set([
+    "pro_pay_pix",
+    "pro_pay_card",
+    "pro_pay_debit",
+    "pro_pay_cash",
+]);
 
 const PAYMENT_WORD_ONLY_RE = /^(pix|cartao|dinheiro|especie|card|cash|credito|debito)$/u;
 
@@ -298,7 +353,11 @@ function looksLikePendingProductPick(text: string, state: ProSessionState): bool
  * Checkout estruturado: (1) em pagamento só botões; (2) antes disso, pagamento por texto/botão
  * só depois de confirmar endereço no servidor.
  */
-export function strictCheckoutStructuredGate(text: string, state: ProSessionState): QuickActionResult | null {
+export function strictCheckoutStructuredGate(
+    text: string,
+    state: ProSessionState,
+    accepted: AcceptedCustomerPayments = DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
+): QuickActionResult | null {
     const action = normalizeInboundAction(text);
     const d = state.draft;
 
@@ -316,7 +375,7 @@ export function strictCheckoutStructuredGate(text: string, state: ProSessionStat
             actionTag: "strict_payment_inbound_gate",
             state,
             /** Só reenvia os botões — sem texto extra. */
-            outbound: [buildPaymentButtons()],
+            outbound: [buildPaymentButtons(accepted)],
         };
     }
 
@@ -537,7 +596,11 @@ export function applyQuickAction(
         };
     }
 
-    const paymentAction = resolvePaymentQuickAction(action, state);
+    const paymentAction = resolvePaymentQuickAction(
+        action,
+        state,
+        opts?.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS
+    );
     if (paymentAction) return paymentAction;
 
     const fulfillmentChoice = parseFulfillmentType(text);
@@ -715,8 +778,10 @@ export function checkoutPostProcess(params: {
      */
     addressFreeTextSignaled?: boolean;
     fulfillmentPolicy?: FulfillmentPolicy;
+    acceptedPayments?: AcceptedCustomerPayments;
 }): { state: ProSessionState; outbound: OutboundMessage[] } {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
+    const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
     let nextState = params.state;
     if (nextState.draft) {
         const draft = applyFulfillmentPolicyToDraft(nextState.draft, policy);
@@ -829,7 +894,7 @@ export function checkoutPostProcess(params: {
         }),
     });
 
-    const checkoutCards = checkoutButtonsForState(nextState, policy);
+    const checkoutCards = checkoutButtonsForState(nextState, policy, accepted);
     if (nextState.step === "pro_awaiting_confirmation" && nextState.draft) {
         const composed = keepOnlyFinalConfirmationCard(
             [...outbound, ...checkoutCards],
@@ -860,14 +925,16 @@ export function checkoutPostProcessForQuickAction(params: {
     state: ProSessionState;
     outbound: OutboundMessage[];
     fulfillmentPolicy?: FulfillmentPolicy;
+    acceptedPayments?: AcceptedCustomerPayments;
 }): OutboundMessage[] {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
+    const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
     const state = withResolvedSlotStep(params.state);
     if (state.checkoutEditHold) {
         // Corrigir / Adicionar: não reenviar resumo de confirmação nesta volta.
         return prioritizeInteractiveFirst([...params.outbound]);
     }
-    const cards = checkoutButtonsForState(state, policy);
+    const cards = checkoutButtonsForState(state, policy, accepted);
     if (state.step === "pro_awaiting_confirmation" && state.draft) {
         return keepOnlyFinalConfirmationCard([...params.outbound, ...cards], state.draft);
     }

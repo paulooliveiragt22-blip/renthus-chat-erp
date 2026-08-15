@@ -21,6 +21,11 @@ import type {
     PrepareOrderDraftResult,
 } from "@/src/pro/ports/orderDraft.port";
 import { presentBlockedReasonForModel } from "@/src/pro/adapters/ai/blockedReasonPresenter";
+import { loadAcceptedCustomerPayments } from "@/lib/payments/loadAcceptedCustomerPayments";
+import {
+    CUSTOMER_PAYMENT_LABELS,
+    listEnabledCustomerPayments,
+} from "@/src/financeiro/domain/acceptedCustomerPayments";
 
 export type { PrepareDraftToolInput };
 
@@ -39,13 +44,15 @@ export type PrepareOrderDraftCatalogPolicy =
     | { kind: "unrestricted" }
     | { kind: "search_allowlist"; allowedEmbalagemIds: readonly string[] };
 
-function normPm(raw: string | null | undefined): "pix" | "cash" | "card" | null {
+function normPm(raw: string | null | undefined): "pix" | "cash" | "card" | "debit" | null {
     if (!raw) return null;
     const s = raw.trim().toLowerCase();
     if (s === "pix" || s.includes("pix")) return "pix";
     if (s === "cash" || s === "dinheiro" || s.includes("dinheiro")) return "cash";
-    if (s === "card" || s.includes("cartao") || s.includes("cartão")) return "card";
-    if (s.includes("debito") || s.includes("débito") || s.includes("credito") || s.includes("crédito")) return "card";
+    if (s === "debit" || s.includes("debito") || s.includes("débito")) return "debit";
+    if (s === "card" || s.includes("cartao") || s.includes("cartão") || s.includes("credito") || s.includes("crédito")) {
+        return "card";
+    }
     if (s.includes("transfer") || s.includes("ted")) return "pix";
     return null;
 }
@@ -262,7 +269,21 @@ export async function prepareOrderDraftFromTool(
     }
 
     const pm = normPm(body.paymentMethod ?? null);
-    if (!pm) errors.push("Informe payment_method: pix, cash ou card.");
+    const acceptedPay = await loadAcceptedCustomerPayments(admin, companyId);
+    if (!pm) {
+        const opts = listEnabledCustomerPayments(acceptedPay)
+            .map((m) => CUSTOMER_PAYMENT_LABELS[m])
+            .join(", ");
+        errors.push(
+            opts
+                ? `Informe payment_method entre: ${opts} (pix|cash|card|debit conforme habilitado).`
+                : "Loja sem forma de pagamento habilitada."
+        );
+    } else if (!acceptedPay[pm]) {
+        errors.push(
+            `Forma de pagamento "${pm}" não aceita. Use: ${listEnabledCustomerPayments(acceptedPay).join("|")}.`
+        );
+    }
 
     const allowSet =
         catalogPolicy.kind === "search_allowlist" ? new Set(catalogPolicy.allowedEmbalagemIds) : null;

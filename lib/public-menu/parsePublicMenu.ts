@@ -66,6 +66,7 @@ function parseStoreRow(raw: unknown): PublicMenuStore | null {
         timeZone: "America/Cuiaba",
         deliveryDescription: null,
         deliveryMinOrder: null,
+        acceptedPayments: ["pix", "cash", "card"],
         isOpen: true,
         periods: [],
         hoursLabel: "",

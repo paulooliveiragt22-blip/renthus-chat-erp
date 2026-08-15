@@ -71,6 +71,8 @@ import {
     loadStoreHours,
     type StoreHours,
 } from "@/lib/delivery/hours";
+import { loadAcceptedCustomerPayments } from "@/lib/payments/loadAcceptedCustomerPayments";
+import { DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS } from "@/src/financeiro/domain/acceptedCustomerPayments";
 
 function resolvePipelineAiPolicy(input: ProPipelineInput): AiOrderModePolicy {
     if (input.aiOrderModePolicy) {
@@ -235,6 +237,9 @@ export async function runProPipeline(
     const fulfillmentPolicy: FulfillmentPolicy = deps.admin
         ? await loadFulfillmentPolicy(deps.admin, input.tenant.companyId)
         : DEFAULT_FULFILLMENT_POLICY;
+    const acceptedPayments = deps.admin
+        ? await loadAcceptedCustomerPayments(deps.admin, input.tenant.companyId)
+        : DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
     const storeHours: StoreHours = deps.admin
         ? await loadStoreHours(deps.admin, input.tenant.companyId)
         : EMPTY_STORE_HOURS;
@@ -358,13 +363,18 @@ export async function runProPipeline(
         }
     }
 
-    const strictGate = strictCheckoutStructuredGate(input.inboundText, gateState);
+    const strictGate = strictCheckoutStructuredGate(
+        input.inboundText,
+        gateState,
+        acceptedPayments
+    );
     if (strictGate) {
         const syncedQuick = withResolvedSlotStep(strictGate.state);
         const quickOutbound = checkoutPostProcessForQuickAction({
             state: syncedQuick,
             outbound: strictGate.outbound,
             fulfillmentPolicy,
+            acceptedPayments,
         });
         await emitTurn({
             state: syncedQuick,
@@ -418,6 +428,7 @@ export async function runProPipeline(
                       state: synced,
                       outbound: [],
                       fulfillmentPolicy,
+            acceptedPayments,
                   })
                 : addrPrep.outbound;
             await emitTurn({ state: synced, outbound: finalOutbound });
@@ -534,6 +545,7 @@ export async function runProPipeline(
                         state: finalState,
                         outbound: [],
                         fulfillmentPolicy,
+            acceptedPayments,
                     });
                     await emitTurn({
                 state: finalState,
@@ -574,6 +586,7 @@ export async function runProPipeline(
     const quick = applyQuickAction(inboundTextForPipeline, stateAfterPick, {
         checkoutHandoffUrl: handoffUrl,
         fulfillmentPolicy,
+        acceptedPayments,
     });
     /** Sempre aplica estado do quick (ex.: sair de awaiting_change sem engolir a mensagem). */
     stateAfterPick = quick.state;
@@ -583,6 +596,7 @@ export async function runProPipeline(
             state: syncedQuick,
             outbound: quick.outbound,
             fulfillmentPolicy,
+            acceptedPayments,
         });
         await emitTurn({
                 state: syncedQuick,
@@ -781,6 +795,7 @@ export async function runProPipeline(
                 state: syncedPre,
                 outbound: [],
                 fulfillmentPolicy,
+            acceptedPayments,
             }),
         ];
         await emitTurn({
@@ -1009,6 +1024,7 @@ export async function runProPipeline(
               orderHints: checkoutOrderHints,
               addressFreeTextSignaled,
               fulfillmentPolicy,
+            acceptedPayments,
           });
     nextState = checkout.state;
     const finalOutbound = checkout.outbound;

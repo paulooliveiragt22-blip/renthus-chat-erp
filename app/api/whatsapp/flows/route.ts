@@ -41,6 +41,8 @@ import { lookupCep } from "@/lib/address/cepLookup";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
 import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
+import { loadAcceptedCustomerPayments } from "@/lib/payments/loadAcceptedCustomerPayments";
+import { assertCustomerPaymentAllowed } from "@/src/financeiro/domain/acceptedCustomerPayments";
 
 export const runtime = "nodejs";
 
@@ -1207,6 +1209,13 @@ export async function POST(req: NextRequest) {
                     return encryptedOk({ version: "3.0", screen: "PAYMENT", data: {} } as Record<string, unknown>, aesKey, iv);
                 }
 
+                const acceptedCatalog = await loadAcceptedCustomerPayments(admin, companyId);
+                const payCatalog = assertCustomerPaymentAllowed(acceptedCatalog, paymentMethod);
+                if (!payCatalog.ok) {
+                    console.error("[flows/catalog]", payCatalog.error, "| threadId:", threadId);
+                    return encryptedError(payCatalog.error, aesKey, iv);
+                }
+
                 const { data: sessionRow } = await admin
                     .from("chatbot_sessions")
                     .select("id, cart, context, customer_id")
@@ -1589,6 +1598,12 @@ export async function POST(req: NextRequest) {
             const changeFor     = trocoStr ? Number.parseFloat(trocoStr.replaceAll(",", ".")) || null : null;
 
             if (!paymentMethod) return encryptedError("missing_payment_method", aesKey, iv);
+
+            const acceptedFlow = await loadAcceptedCustomerPayments(admin, companyId);
+            const payOk = assertCustomerPaymentAllowed(acceptedFlow, paymentMethod);
+            if (!payOk.ok) {
+                return encryptedError(payOk.error, aesKey, iv);
+            }
 
             // Carrega sessão (com endereço já salvo pelo handler ADDRESS)
             const { data: sessionRow } = await admin
