@@ -112,13 +112,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     const [addresses, setAddresses] = useState<PublicMenuSavedAddress[]>([]);
     const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
     const [addressPickerOpen, setAddressPickerOpen] = useState(false);
-    const [checkoutStartStep, setCheckoutStartStep] = useState<"address" | undefined>();
     const store = menu.store;
-
-    function openAddressInCheckout() {
-        setCheckoutStartStep("address");
-        setCheckoutOpen(true);
-    }
 
     useEffect(() => {
         const params = new URLSearchParams(globalThis.location.search);
@@ -292,40 +286,39 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     )}
                 </div>
 
-                <div className={`${shell} relative z-10 pb-4`}>
-                    <div className="-mt-11 sm:-mt-12 md:-mt-14">
+                <div className={`${shell} relative z-10 pb-4 pt-3 sm:pt-4`}>
+                    <div className="flex min-w-0 items-end gap-3 sm:gap-4">
                         {store.logoUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
                                 src={store.logoUrl}
                                 alt=""
-                                className="h-20 w-20 rounded-full object-cover ring-4 ring-white shadow-md sm:h-24 sm:w-24 md:h-28 md:w-28"
+                                className="relative z-10 -mt-10 h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 md:-mt-14 md:h-28 md:w-28"
                             />
                         ) : (
                             <div
                                 aria-hidden
-                                className="flex h-20 w-20 items-center justify-center rounded-full bg-zinc-200 text-xl font-bold text-zinc-600 ring-4 ring-white shadow-md sm:h-24 sm:w-24 sm:text-2xl md:h-28 md:w-28"
+                                className="relative z-10 -mt-10 flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xl font-bold text-zinc-600 ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 sm:text-2xl md:-mt-14 md:h-28 md:w-28"
                             >
                                 {store.displayName.trim().charAt(0).toUpperCase() || "?"}
                             </div>
                         )}
-                    </div>
-
-                    <div className="mt-3 space-y-2">
-                        <div>
+                        <div className="min-w-0 flex-1 pb-0.5">
                             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-[11px]">
                                 Cardápio
                             </p>
-                            <h1 className="mt-0.5 text-xl font-bold leading-snug text-zinc-900 sm:text-2xl md:text-3xl">
+                            <h1 className="mt-0.5 break-words text-xl font-bold leading-snug text-zinc-900 sm:text-2xl md:text-3xl">
                                 {store.displayName}
                             </h1>
                             {store.tagline ? (
-                                <p className="mt-1 text-sm leading-snug text-zinc-600 sm:text-[15px]">
+                                <p className="mt-0.5 break-words text-sm leading-snug text-zinc-600 sm:text-[15px]">
                                     {store.tagline}
                                 </p>
                             ) : null}
                         </div>
+                    </div>
 
+                    <div className="mt-3 space-y-1.5">
                         <p className="text-sm text-zinc-600">
                             {store.isOpen ? (
                                 <span className="font-semibold text-emerald-700">Aberto</span>
@@ -339,61 +332,36 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                         {!store.isOpen && store.closedMessage ? (
                             <p className="text-xs text-amber-800 sm:text-sm">{store.closedMessage}</p>
                         ) : null}
-
                         {selectedAddress ? (
-                            <div className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex min-w-0 flex-1 items-start gap-2">
-                                        <MapPin
-                                            aria-hidden
-                                            className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500"
-                                        />
-                                        <div className="min-w-0">
-                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                                                Entregar em
-                                                {selectedAddress.isPrincipal ? (
-                                                    <span className="ml-1.5 normal-case tracking-normal text-zinc-400">
-                                                        · principal
-                                                    </span>
-                                                ) : null}
-                                            </p>
-                                            <p className="mt-1 text-sm leading-snug text-zinc-800">
-                                                {formatMenuCustomerAddressLine(selectedAddress)}
-                                            </p>
-                                            {selectedAddress.title &&
-                                            selectedAddress.title !== "Endereço" ? (
-                                                <p className="mt-0.5 text-xs text-zinc-500">
-                                                    {selectedAddress.title}
-                                                </p>
-                                            ) : null}
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        aria-expanded={
-                                            addresses.length > 1 ? addressPickerOpen : undefined
-                                        }
-                                        onClick={() => {
-                                            if (addresses.length > 1) {
-                                                setAddressPickerOpen((v) => !v);
-                                                return;
-                                            }
-                                            openAddressInCheckout();
-                                        }}
-                                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 transition hover:bg-zinc-100"
-                                    >
-                                        Alterar
+                            <div>
+                                <div className="flex items-start gap-2 text-sm text-zinc-700">
+                                    <MapPin
+                                        aria-hidden
+                                        className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="break-words leading-snug">
+                                            {formatMenuCustomerAddressLine(selectedAddress)}
+                                        </p>
                                         {addresses.length > 1 ? (
-                                            <ChevronDown
-                                                className={`h-3.5 w-3.5 transition ${
-                                                    addressPickerOpen ? "rotate-180" : ""
-                                                }`}
-                                            />
+                                            <button
+                                                type="button"
+                                                aria-expanded={addressPickerOpen}
+                                                onClick={() => setAddressPickerOpen((v) => !v)}
+                                                className="mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900"
+                                            >
+                                                Alterar endereço
+                                                <ChevronDown
+                                                    className={`h-3.5 w-3.5 transition ${
+                                                        addressPickerOpen ? "rotate-180" : ""
+                                                    }`}
+                                                />
+                                            </button>
                                         ) : null}
-                                    </button>
+                                    </div>
                                 </div>
                                 {addressPickerOpen && addresses.length > 1 ? (
-                                    <ul className="mt-3 space-y-2 border-t border-zinc-200 pt-3">
+                                    <ul className="mt-2 space-y-1.5">
                                         {addresses.map((a) => (
                                             <li key={a.id}>
                                                 <button
@@ -417,7 +385,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                             </span>
                                                         ) : null}
                                                     </p>
-                                                    <p className="mt-0.5 text-xs leading-snug text-zinc-500">
+                                                    <p className="mt-0.5 break-words text-xs leading-snug text-zinc-500">
                                                         {formatMenuCustomerAddressLine(a)}
                                                     </p>
                                                 </button>
@@ -427,9 +395,8 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                 ) : null}
                             </div>
                         ) : null}
-
                         {store.deliveryDescription ? (
-                            <p className="text-xs leading-snug text-zinc-500 sm:text-sm">
+                            <p className="line-clamp-2 text-xs text-zinc-500 sm:text-sm">
                                 {store.deliveryDescription}
                             </p>
                         ) : null}
@@ -652,17 +619,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                         setSelectedAddressId(id);
                         savePickedAddressId(store.slug, id);
                     }}
-                    startStep={checkoutStartStep}
-                    onClose={() => {
-                        setCheckoutOpen(false);
-                        setCheckoutStartStep(undefined);
-                        void getMenuSession(store.slug).then((json) => {
-                            if (!json.ok) return;
-                            const applied = applySessionAddresses(json, store.slug);
-                            setAddresses(applied.addresses);
-                            setSelectedAddressId(applied.selectedId);
-                        });
-                    }}
+                    onClose={() => setCheckoutOpen(false)}
                     onClearCart={() => setCart([])}
                     onInc={incCartLine}
                     onDec={decItem}
