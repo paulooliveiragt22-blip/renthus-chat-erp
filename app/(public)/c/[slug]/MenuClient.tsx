@@ -8,12 +8,11 @@ import type {
     PublicMenuItem,
     PublicMenuResponse,
 } from "@/src/types/contracts.public-menu";
-import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
 import {
     trackMenuEvent,
     trackMenuProductViewOnce,
 } from "@/lib/public-menu/menuEvents";
-import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
+import { postMenuSession } from "@/lib/public-menu/clientMenuSession";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 import { filterPublicMenuCategories } from "@/lib/public-menu/searchMenuItems";
 import CheckoutDrawer from "./CheckoutDrawer";
@@ -132,24 +131,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
         const params = new URLSearchParams(globalThis.location.search);
         const wm = params.get("wm");
         if (!wm) return;
-        void fetch(`/api/public/menu/${encodeURIComponent(store.slug)}/session`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ wmToken: wm }),
-        })
-            .then(async (res) => {
-                const json = (await res.json()) as PublicMenuSessionOk | { ok: false };
-                if (!json.ok) return;
-                if (json.needsPhone || json.customer.needsPhone || !json.customer.phoneE164) {
-                    return;
-                }
-                saveStoredMenuSession(store.slug, {
-                    sessionToken: json.sessionToken,
-                    customerName: json.customer.name,
-                    phoneE164: json.customer.phoneE164,
-                });
-            })
-            .catch(() => {});
+        void postMenuSession(store.slug, { wmToken: wm }).catch(() => {});
     }, [store.slug]);
 
     const cartQty = cart.reduce((s, l) => s + l.qty, 0);
@@ -500,6 +482,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 <CheckoutDrawer
                     slug={store.slug}
                     storeName={store.displayName}
+                    whatsappPhone={store.whatsappPhone}
                     deliveriesEnabled={store.deliveriesEnabled}
                     pickupEnabled={store.pickupEnabled}
                     deliveryMinOrder={store.deliveryMinOrder}
@@ -522,6 +505,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 <MyOrdersDrawer
                     slug={store.slug}
                     storeName={store.displayName}
+                    whatsappPhone={store.whatsappPhone}
                     onClose={() => setOrdersOpen(false)}
                 />
             )}

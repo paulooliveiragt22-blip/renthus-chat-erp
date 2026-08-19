@@ -27,7 +27,9 @@ function decision(intent: IntentDecision["intent"]): IntentDecision {
 }
 
 describe("routeStage F5 web menu", () => {
-    const webMenuUrl = "https://app.renthus.com.br/c/loja?utm_source=whatsapp";
+    const webMenuUrl = "https://app.renthus.com.br/c/loja?utm_source=whatsapp&wm=long";
+    const webMenuOrdersUrl =
+        "https://app.renthus.com.br/c/loja?utm_source=whatsapp&wm=short&orders=1";
 
     it("status (btn_status) envia CTA Meus pedidos com ?orders=1", () => {
         const out = routeStage({
@@ -36,17 +38,31 @@ describe("routeStage F5 web menu", () => {
             inboundText: "btn_status",
             tenant,
             webMenuUrl,
+            webMenuOrdersUrl,
         });
         assert.equal(out.mode, "direct_reply");
         const cta = out.outbound.find((m) => m.kind === "cta_url");
         assert.ok(cta);
         assert.equal(cta?.ctaUrl?.displayText, "Meus pedidos");
         assert.ok(cta?.ctaUrl?.url.includes("orders=1"));
-        assert.ok(cta?.ctaUrl?.url.includes("utm_source=whatsapp"));
-        assert.ok(out.outbound.every((m) => m.kind !== "flow"));
+        assert.equal(cta?.ctaUrl?.url, webMenuOrdersUrl);
     });
 
-    it("catálogo (btn_catalog) envia CTA do cardápio sem Flow", () => {
+    it("prefill wa.me (Ver meus pedidos) envia CTA com link curto", () => {
+        const out = routeStage({
+            state: idle(),
+            decision: decision("unknown"),
+            inboundText: "Ver meus pedidos",
+            tenant,
+            webMenuUrl,
+            webMenuOrdersUrl,
+        });
+        const cta = out.outbound.find((m) => m.kind === "cta_url");
+        assert.ok(cta);
+        assert.equal(cta?.ctaUrl?.url, webMenuOrdersUrl);
+    });
+
+    it("catálogo (btn_catalog) envia CTA do cardápio", () => {
         const out = routeStage({
             state: idle(),
             decision: decision("order_intent"),
@@ -58,6 +74,5 @@ describe("routeStage F5 web menu", () => {
         assert.ok(cta);
         assert.equal(cta?.ctaUrl?.displayText, "Abrir cardápio");
         assert.equal(cta?.ctaUrl?.url, webMenuUrl);
-        assert.ok(out.outbound.every((m) => m.kind !== "flow"));
     });
 });

@@ -267,15 +267,9 @@ export interface IntentDecision {
 }
 
 export interface OutboundMessage {
-    kind: "text" | "buttons" | "flow" | "cta_url";
+    kind: "text" | "buttons" | "cta_url";
     text?: string;
     buttons?: Array<{ id: string; title: string }>;
-    flow?: {
-        flowId: string;
-        flowToken: string;
-        ctaLabel: string;
-        bodyText: string;
-    };
     /** Botão Meta `cta_url` — URL fica atrás do botão (não no corpo). */
     ctaUrl?: {
         bodyText: string;
@@ -295,17 +289,12 @@ export interface ProPipelineInput {
     tier: ChatbotTier;
     inboundText: string;
     nowIso: string;
-    /** WhatsApp Flow do catálogo (por canal em `provider_metadata.catalog_flow_id` ou env). */
-    flowCatalogId?: string | null;
-    /** WhatsApp Flow de status de pedido (por canal em `provider_metadata.status_flow_id` ou env). */
-    flowStatusId?: string | null;
-    /** Flow Meta para cadastro obrigatório de endereço (cidade/UF); `provider_metadata.address_register_flow_id`. */
-    flowAddressRegisterId?: string | null;
     /**
      * URL absoluta do cardápio web (`/c/{slug}`) quando `company_menu_profile.is_active`.
-     * Preferido ao Flow no botão Cardápio.
      */
     webMenuUrl?: string | null;
+    /** URL meus pedidos (wm TTL curto + `?orders=1`). */
+    webMenuOrdersUrl?: string | null;
     /** Saudação / entrega / agradecimento (Configurações → Chatbot). */
     messageTemplates?: {
         msg_welcome_returning: string;
@@ -396,10 +385,8 @@ export interface PipelineContext {
     session: ProSessionState;
     policies: PipelinePolicies;
     nowIso: string;
-    flowCatalogId?: string | null;
-    flowStatusId?: string | null;
-    flowAddressRegisterId?: string | null;
     webMenuUrl?: string | null;
+    webMenuOrdersUrl?: string | null;
     /** close_orders (default) fecha pedido; info_only só tira dúvidas. */
     aiOrderMode?: "close_orders" | "info_only";
     /**

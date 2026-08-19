@@ -200,6 +200,8 @@ export interface PublicMenuSessionOk {
     sessionToken: string;
     /** True no 1º checkout IG/Messenger até vincular telefone. */
     needsPhone?: boolean;
+    /** Canal que originou o link `wm` (quando conhecido). */
+    channel?: "whatsapp" | "instagram" | "messenger" | "web";
     customer: {
         id: string;
         name: string | null;
@@ -211,7 +213,19 @@ export interface PublicMenuSessionOk {
 }
 
 export type PublicMenuSessionError =
-    | { ok: false; error: "menu_not_found" | "menu_inactive" | "phone_invalid" | "token_invalid" | "customer_failed" | "rate_limit_exceeded" | "name_required" };
+    | {
+          ok: false;
+          error:
+              | "menu_not_found"
+              | "menu_inactive"
+              | "phone_invalid"
+              | "token_invalid"
+              | "token_required"
+              | "session_invalid"
+              | "customer_failed"
+              | "rate_limit_exceeded"
+              | "name_required";
+      };
 
 export type PublicMenuSessionResult = PublicMenuSessionOk | PublicMenuSessionError;
 

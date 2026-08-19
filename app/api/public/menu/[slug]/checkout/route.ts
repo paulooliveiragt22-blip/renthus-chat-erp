@@ -4,6 +4,7 @@ import { loadPublicMenuBySlug } from "@/lib/public-menu/loadPublicMenu";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
 import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import { createWebMenuOrder } from "@/lib/public-menu/checkout/createWebMenuOrder";
+import { resolveMenuSessionTokenFromRequest } from "@/lib/public-menu/menuSessionFromRequest";
 import type { PublicMenuCheckoutInput } from "@/src/types/contracts.public-menu";
 
 export const runtime = "nodejs";
@@ -34,7 +35,11 @@ export async function POST(
         sessionToken?: string;
     };
 
-    const sessionToken = String(body.sessionToken ?? "").trim();
+    const sessionToken = resolveMenuSessionTokenFromRequest(
+        req,
+        slugParsed.slug,
+        body.sessionToken
+    );
     if (!sessionToken) {
         return NextResponse.json({ ok: false, error: "session_invalid" }, { status: 401 });
     }

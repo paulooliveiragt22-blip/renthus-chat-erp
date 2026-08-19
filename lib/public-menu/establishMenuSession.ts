@@ -1,0 +1,179 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { MessagingChannel } from "@/src/domain/contracts/identity";
+import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
+import { normalizeBrPhone } from "./phone";
+import {
+    linkWebMenuCustomerPhone,
+    resolveWebMenuCustomer,
+    resolveWebMenuCustomerByChannelIdentity,
+} from "./resolveWebCustomer";
+import { listCustomerAddressesForMenu } from "./checkout/addresses";
+import {
+    signWebMenuCheckoutSession,
+    verifyWebMenuLinkToken,
+    type WebMenuLinkPayloadV2,
+} from "./sessionToken";
+
+export type EstablishMenuSessionInput = {
+    companyId: string;
+    slug: string;
+    wmToken: string;
+    phone?: string;
+    name?: string | null;
+};
+
+export type EstablishMenuSessionResult =
+    | { ok: true; data: PublicMenuSessionOk }
+    | { ok: false; error: string; status: number };
+
+/**
+ * Troca link assinado `wm` (v1/v2) por sessão de checkout.
+ * Telefone só é aceito junto com `wmToken` quando o canal exige (`needsPhone` IG/Messenger).
+ */
+export async function establishMenuSessionFromWmToken(
+    admin: SupabaseClient,
+    input: EstablishMenuSessionInput
+): Promise<EstablishMenuSessionResult> {
+    const wmToken = input.wmToken.trim();
+    if (!wmToken) {
+        return { ok: false, error: "token_required", status: 400 };
+    }
+
+    const link = verifyWebMenuLinkToken(wmToken);
+    if (!link || link.companyId !== input.companyId || link.slug !== input.slug) {
+        return { ok: false, error: "token_invalid", status: 401 };
+    }
+
+    const name: string | null = typeof input.name === "string" ? input.name.trim() : null;
+    const phoneBody = typeof input.phone === "string" ? input.phone : "";
+
+    let customer: Awaited<ReturnType<typeof resolveWebMenuCustomer>> = null;
+    let channel: WebMenuLinkPayloadV2["channel"] | undefined;
+    let externalId: string | undefined;
+
+    if (link.v === 1) {
+        customer = await resolveWebMenuCustomer(admin, input.companyId, link.phoneE164, name);
+        channel = "whatsapp";
+        externalId = link.phoneE164;
+    } else {
+        channel = link.channel;
+        externalId = link.externalId;
+        customer = await resolveWebMenuCustomerByChannelIdentity(
+            admin,
+            input.companyId,
+            { channel: link.channel, externalId: link.externalId },
+            name
+        );
+
+        if (customer?.needsPhone && phoneBody.trim()) {
+            const phoneNorm = normalizeBrPhone(phoneBody);
+            if (!phoneNorm.ok) {
+                return { ok: false, error: "phone_invalid", status: 400 };
+            }
+            if (!name && customer.isNew) {
+                return { ok: false, error: "name_required", status: 400 };
+            }
+            customer = await linkWebMenuCustomerPhone(
+                admin,
+                input.companyId,
+                customer.id,
+                phoneBody
+            );
+            if (customer && name) {
+                await admin
+                    .from("customers")
+                    .update({ name: name.slice(0, 120) })
+                    .eq("id", customer.id)
+                    .eq("company_id", input.companyId);
+                customer = { ...customer, name };
+            }
+        }
+    }
+
+    if (!customer) {
+        return { ok: false, error: "customer_failed", status: 500 };
+    }
+
+    const needsPhone = Boolean(customer.needsPhone);
+    const addresses =
+        needsPhone || !customer.phoneE164
+            ? []
+            : await listCustomerAddressesForMenu(admin, input.companyId, customer.id);
+
+    const sessionToken = signWebMenuCheckoutSession({
+        companyId: input.companyId,
+        customerId: customer.id,
+        phoneE164: customer.phoneE164 || "",
+        slug: input.slug,
+        name: customer.name,
+        channel,
+        externalId,
+        needsPhone,
+    });
+
+    return {
+        ok: true,
+        data: {
+            ok: true,
+            sessionToken,
+            needsPhone,
+            customer: {
+                id: customer.id,
+                name: customer.name,
+                phoneE164: customer.phoneE164 || "",
+                isNew: customer.isNew,
+                needsPhone,
+            },
+            addresses,
+            channel: channel ?? "whatsapp",
+        },
+    };
+}
+
+export async function readMenuSessionFromToken(
+    admin: SupabaseClient,
+    params: {
+        companyId: string;
+        slug: string;
+        sessionToken: string;
+    }
+): Promise<PublicMenuSessionOk | null> {
+    const { verifyWebMenuCheckoutSession } = await import("./sessionToken");
+    const session = verifyWebMenuCheckoutSession(params.sessionToken);
+    if (!session || session.companyId !== params.companyId || session.slug !== params.slug) {
+        return null;
+    }
+
+    const { data: customerRow } = await admin
+        .from("customers")
+        .select("id, name, phone_e164")
+        .eq("id", session.customerId)
+        .eq("company_id", params.companyId)
+        .maybeSingle();
+
+    if (!customerRow?.id) return null;
+
+    const needsPhone = Boolean(session.needsPhone);
+    const phoneE164 = session.phoneE164 || customerRow.phone_e164 || "";
+    const addresses =
+        needsPhone || !phoneE164
+            ? []
+            : await listCustomerAddressesForMenu(admin, params.companyId, session.customerId);
+
+    return {
+        ok: true,
+        sessionToken: params.sessionToken,
+        needsPhone,
+        customer: {
+            id: customerRow.id,
+            name: customerRow.name ?? session.name,
+            phoneE164,
+            isNew: false,
+            needsPhone,
+        },
+        addresses,
+        channel: session.channel ?? "whatsapp",
+    };
+}

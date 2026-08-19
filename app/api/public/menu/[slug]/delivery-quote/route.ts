@@ -6,6 +6,7 @@ import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import { resolveDeliveryForNeighborhood } from "@/lib/delivery/policy";
 import { lookupCep, sanitizeCep } from "@/lib/address/cepLookup";
 import { verifyWebMenuCheckoutSession } from "@/lib/public-menu/sessionToken";
+import { resolveMenuSessionTokenFromRequest } from "@/lib/public-menu/menuSessionFromRequest";
 import { listCustomerAddressesForMenu } from "@/lib/public-menu/checkout/addresses";
 
 export const runtime = "nodejs";
@@ -39,7 +40,12 @@ export async function POST(
         cep?: string;
     };
 
-    const session = verifyWebMenuCheckoutSession(String(body.sessionToken ?? ""));
+    const sessionToken = resolveMenuSessionTokenFromRequest(
+        req,
+        slugParsed.slug,
+        body.sessionToken
+    );
+    const session = verifyWebMenuCheckoutSession(sessionToken);
     if (
         !session ||
         session.slug !== slugParsed.slug ||

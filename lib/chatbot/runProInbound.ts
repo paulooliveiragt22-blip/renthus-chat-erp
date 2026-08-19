@@ -36,14 +36,21 @@ export async function runProInbound(params: ProcessMessageParams): Promise<void>
     const channelUserId = (params.channelUserId || params.phoneE164 || "").trim();
 
     try {
-        const webMenu = await resolveActivePublicMenuLink(params.admin, params.companyId, {
+        const identityOpts = {
             phoneE164: params.phoneE164 || null,
             identity:
                 channelUserId
                     ? { channel: messagingChannel, externalId: channelUserId }
                     : null,
             utmSource: messagingChannel === "whatsapp" ? "whatsapp" : messagingChannel,
-        });
+        };
+        const [webMenu, webMenuOrders] = await Promise.all([
+            resolveActivePublicMenuLink(params.admin, params.companyId, identityOpts),
+            resolveActivePublicMenuLink(params.admin, params.companyId, {
+                ...identityOpts,
+                purpose: "orders",
+            }),
+        ]);
         const [{ data: botRow }, { data: companySettingsRow }] = await Promise.all([
             params.admin
                 .from("chatbots")
@@ -94,10 +101,8 @@ export async function runProInbound(params: ProcessMessageParams): Promise<void>
                 tier: "pro",
                 inboundText: params.text,
                 nowIso: new Date().toISOString(),
-                flowCatalogId: params.catalogFlowId ?? null,
-                flowStatusId: params.statusFlowId ?? null,
-                flowAddressRegisterId: params.addressRegisterFlowId ?? null,
                 webMenuUrl: webMenu?.url ?? null,
+                webMenuOrdersUrl: webMenuOrders?.url ?? null,
                 messageTemplates,
                 aiOrderModePolicy,
                 aiCapability: {

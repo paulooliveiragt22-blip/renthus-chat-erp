@@ -19,9 +19,6 @@ Gerado para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`. Rever em cada rota
 | `app/api/billing/signup/route.ts` | Fluxo signup |
 | `app/api/billing/status/route.ts` | Sessão; atenção ao `?company_id=` — validar membership dessa empresa |
 | `app/api/billing/webhook/route.ts` | HMAC Pagar.me + rate limit |
-| `app/api/catalog/categories/route.ts` | `requireCompanyAccess` |
-| `app/api/catalog/products/route.ts` | `requireCompanyAccess` |
-| `app/api/catalog/search/route.ts` | `requireCompanyAccess` |
 | `app/api/chatbot/process-queue/route.ts` | `CRON_SECRET` / Bearer |
 | `app/api/marketplace/sync-catalog/route.ts` | `CRON_SECRET` / Bearer |
 | `app/api/admin/menu-analytics/route.ts` | `requireCompanyAccess` + RPC `rpc_get_menu_analytics` |
@@ -32,13 +29,12 @@ Gerado para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`. Rever em cada rota
 | `app/api/debug/whoami/route.ts` | Sessão; desativado em prod salvo `DEBUG_WHOAMI_ENABLED=true` |
 | `app/api/onboarding/route.ts` | Fluxo onboarding |
 | `app/api/orders/[id]/route.ts` | `requireCompanyAccess` |
-| `app/api/orders/by-phone/route.ts` | `requireCompanyAccess` |
+| `app/api/orders/by-phone/route.ts` | **410 Gone** — removido (LGPD); usar sessão `wm`/cookie |
 | `app/api/orders/stats/route.ts` | `requireCompanyAccess` |
 | `app/api/orders/status/route.ts` | `requireCompanyAccess` |
 | `app/api/products/upload-image/route.ts` | `requireCompanyAccess` + validação upload |
 | `app/api/signup/complete/route.ts` | Token signup |
 | `app/api/support/create-ticket/route.ts` | `requireCompanyAccess` |
-| `app/api/whatsapp/flows/route.ts` | Payload Meta (sem sessão) — crypto/flow_token |
 | `app/api/whatsapp/incoming/route.ts` | HMAC Meta + rate limit |
 | `app/api/whatsapp/send/route.ts` | `requireCompanyAccess` |
 | `app/api/whatsapp/upload/route.ts` | `requireCompanyAccess` + validação upload |

@@ -77,10 +77,8 @@ export function buildPipelineContext(params: {
         session,
         policies: policies ?? policiesFromAiCapability(input.aiCapability) ?? DEFAULT_PRO_POLICIES,
         nowIso: input.nowIso,
-        flowCatalogId: input.flowCatalogId ?? null,
-        flowStatusId: input.flowStatusId ?? null,
-        flowAddressRegisterId: input.flowAddressRegisterId ?? null,
         webMenuUrl: input.webMenuUrl ?? null,
+        webMenuOrdersUrl: input.webMenuOrdersUrl ?? null,
         aiOrderMode:
             input.aiCapability?.tier === "degradado" ||
             input.aiCapability?.llmEnabled === false ||

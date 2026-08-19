@@ -4,7 +4,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MessagingChannel } from "@/src/domain/contracts/identity";
 import { buildPublicMenuAbsoluteUrl } from "./appBaseUrl";
 import { parseMenuSlug } from "./slug";
-import { signWebMenuChannelLinkToken, signWebMenuLinkToken } from "./sessionToken";
+import {
+    signWebMenuChannelLinkToken,
+    signWebMenuLinkToken,
+    WEB_MENU_ORDERS_LINK_TTL_SEC,
+} from "./sessionToken";
+import { withMenuSearchParams } from "./menuUrlQuery";
 import { normalizeBrPhone } from "./phone";
 
 export type ActivePublicMenuLink = {
@@ -23,6 +28,8 @@ export async function resolveActivePublicMenuLink(
         phoneE164?: string | null;
         identity?: { channel: MessagingChannel; externalId: string } | null;
         utmSource?: string | null;
+        /** `orders` = TTL curto + `?orders=1` (meus pedidos). */
+        purpose?: "browse" | "orders";
     }
 ): Promise<ActivePublicMenuLink | null> {
     const { data, error } = await admin
@@ -42,6 +49,8 @@ export async function resolveActivePublicMenuLink(
 
     let wmToken: string | undefined;
     let utmSource = opts?.utmSource?.trim() || "whatsapp";
+    const linkTtlSec =
+        opts?.purpose === "orders" ? WEB_MENU_ORDERS_LINK_TTL_SEC : undefined;
 
     const identity = opts?.identity;
     if (identity?.channel && identity.externalId?.trim()) {
@@ -51,6 +60,7 @@ export async function resolveActivePublicMenuLink(
                 slug: slugParsed.slug,
                 channel: identity.channel,
                 externalId: identity.externalId.trim(),
+                ttlSec: linkTtlSec,
             });
             utmSource =
                 opts?.utmSource?.trim() ||
@@ -69,6 +79,7 @@ export async function resolveActivePublicMenuLink(
                         slug: slugParsed.slug,
                         channel: "whatsapp",
                         externalId: phone.phoneE164,
+                        ttlSec: linkTtlSec,
                     });
                 } catch {
                     try {
@@ -76,6 +87,7 @@ export async function resolveActivePublicMenuLink(
                             companyId,
                             phoneE164: phone.phoneE164,
                             slug: slugParsed.slug,
+                            ttlSec: linkTtlSec,
                         });
                     } catch (err) {
                         console.warn(
@@ -88,14 +100,19 @@ export async function resolveActivePublicMenuLink(
         }
     }
 
+    let url = buildPublicMenuAbsoluteUrl(slugParsed.slug, {
+        utmSource,
+        wmToken,
+        customDomain: data.custom_domain == null ? null : String(data.custom_domain),
+        customDomainVerified: Boolean(data.custom_domain_verified),
+    });
+    if (opts?.purpose === "orders") {
+        url = withMenuSearchParams(url, { orders: "1" });
+    }
+
     return {
         slug: slugParsed.slug,
-        url: buildPublicMenuAbsoluteUrl(slugParsed.slug, {
-            utmSource,
-            wmToken,
-            customDomain: data.custom_domain == null ? null : String(data.custom_domain),
-            customDomainVerified: Boolean(data.custom_domain_verified),
-        }),
+        url,
     };
 }
 

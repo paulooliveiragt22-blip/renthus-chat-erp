@@ -8,7 +8,6 @@ import type {
     PublicMenuSavedAddress,
     PublicMenuSessionOk,
 } from "@/src/types/contracts.public-menu";
-import { saveStoredMenuSession } from "@/lib/public-menu/sessionStorage";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 import { nextMenuCheckoutStep } from "@/lib/delivery/fulfillment";
 import type { FulfillmentType } from "@/lib/delivery/fulfillment";
@@ -17,6 +16,8 @@ import {
     deliveryMinOrderHint,
     soleFulfillmentNotice,
 } from "@/lib/delivery/fulfillmentCopy";
+import { getMenuSession, postMenuSession } from "@/lib/public-menu/clientMenuSession";
+import MenuIdentityFallback from "./MenuIdentityFallback";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -34,6 +35,7 @@ type Step =
 type Props = {
     slug: string;
     storeName: string;
+    whatsappPhone: string | null;
     deliveriesEnabled: boolean;
     pickupEnabled: boolean;
     /** Pedido mínimo base da loja (pode ser refinado pelo delivery-quote). */
@@ -64,6 +66,7 @@ const emptyAddress: PublicMenuNewAddressInput = {
 export default function CheckoutDrawer({
     slug,
     storeName,
+    whatsappPhone,
     deliveriesEnabled,
     pickupEnabled,
     deliveryMinOrder,
@@ -183,33 +186,34 @@ export default function CheckoutDrawer({
     }
 
     useEffect(() => {
-        const params = new URLSearchParams(globalThis.location.search);
-        const wm = params.get("wm");
-        if (!wm) return;
-        setWmTokenFromUrl(wm);
         let cancelled = false;
-        setBusy(true);
-        void fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ wmToken: wm }),
-        })
-            .then(async (res) => {
-                const json = (await res.json()) as PublicMenuSessionOk | { ok: false; error: string };
-                if (cancelled) return;
-                if (!json.ok) {
-                    setError("Não foi possível identificar seu cadastro. Informe telefone e nome.");
-                    return;
+
+        async function bootstrap() {
+            setBusy(true);
+            const params = new URLSearchParams(globalThis.location.search);
+            const wm = params.get("wm")?.trim();
+            if (wm) {
+                setWmTokenFromUrl(wm);
+                const json = await postMenuSession(slug, { wmToken: wm });
+                if (!cancelled) {
+                    if (json.ok) {
+                        applySession(json);
+                    } else {
+                        setError("Não foi possível identificar seu cadastro.");
+                    }
+                    setBusy(false);
                 }
-                applySession(json);
-                // Mantém no carrinho — não pula para endereço
-            })
-            .catch(() => {
-                if (!cancelled) setError("Falha ao carregar seus dados.");
-            })
-            .finally(() => {
-                if (!cancelled) setBusy(false);
-            });
+                return;
+            }
+
+            const json = await getMenuSession(slug);
+            if (!cancelled) {
+                if (json.ok) applySession(json);
+                setBusy(false);
+            }
+        }
+
+        void bootstrap();
         return () => {
             cancelled = true;
         };
@@ -224,13 +228,6 @@ export default function CheckoutDrawer({
         setCustomerPhone(json.customer.phoneE164 || "");
         setIsNewCustomer(json.customer.isNew || phonePending);
         setAddresses(phonePending ? [] : json.addresses);
-        if (!phonePending) {
-            saveStoredMenuSession(slug, {
-                sessionToken: json.sessionToken,
-                customerName: json.customer.name,
-                phoneE164: json.customer.phoneE164,
-            });
-        }
         if (!phonePending && json.addresses.length > 0) {
             setAddressMode("saved");
             const principal =
@@ -289,20 +286,19 @@ export default function CheckoutDrawer({
         setStep("identify");
     }
 
-    async function identifyManual() {
+    async function completeChannelPhone() {
+        if (!wmTokenFromUrl) {
+            setError("Abra o cardápio pelo link do chat da loja para informar seu telefone.");
+            return;
+        }
         setError(null);
         setBusy(true);
         try {
-            const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    ...(wmTokenFromUrl ? { wmToken: wmTokenFromUrl } : {}),
-                    phone: customerPhone,
-                    name: customerName || undefined,
-                }),
+            const json = await postMenuSession(slug, {
+                wmToken: wmTokenFromUrl,
+                phone: customerPhone,
+                name: customerName || undefined,
             });
-            const json = (await res.json()) as PublicMenuSessionOk | { ok: false; error: string };
             if (!json.ok) {
                 if (json.error === "name_required") {
                     setIsNewCustomer(true);
@@ -346,6 +342,7 @@ export default function CheckoutDrawer({
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
+                    credentials: "include",
                     body: JSON.stringify(opts),
                 }
             );
@@ -485,6 +482,7 @@ export default function CheckoutDrawer({
             const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/checkout`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "include",
                 body: JSON.stringify({
                     sessionToken,
                     idempotencyKey: attemptKey,
@@ -704,48 +702,70 @@ export default function CheckoutDrawer({
 
                 {step === "identify" && (
                     <section className="space-y-4">
-                        <h2 className="text-lg font-semibold text-zinc-900">Seus dados</h2>
-                        <p className="text-sm text-zinc-500">
-                            Informe telefone com DDD. Se já for cliente, buscamos seus endereços.
-                        </p>
-                        <label className="block text-sm">
-                            <span className="text-zinc-600">Telefone (WhatsApp)</span>
-                            <input
-                                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
-                                value={customerPhone}
-                                onChange={(e) => setCustomerPhone(e.target.value)}
-                                inputMode="tel"
-                                placeholder="(11) 99999-9999"
-                            />
-                        </label>
-                        {(isNewCustomer || !sessionToken) && (
-                            <label className="block text-sm">
-                                <span className="text-zinc-600">Nome</span>
-                                <input
-                                    className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
-                                    value={customerName}
-                                    onChange={(e) => setCustomerName(e.target.value)}
-                                    placeholder="Seu nome"
+                        {needsPhone && wmTokenFromUrl ? (
+                            <>
+                                <h2 className="text-lg font-semibold text-zinc-900">
+                                    Telefone para entrega
+                                </h2>
+                                <p className="text-sm text-zinc-500">
+                                    Você veio pelo Instagram/Messenger. Informe seu WhatsApp para
+                                    entrega e confirmação do pedido.
+                                </p>
+                                <label className="block text-sm">
+                                    <span className="text-zinc-600">Telefone (WhatsApp)</span>
+                                    <input
+                                        className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
+                                        value={customerPhone}
+                                        onChange={(e) => setCustomerPhone(e.target.value)}
+                                        inputMode="tel"
+                                        placeholder="(11) 99999-9999"
+                                    />
+                                </label>
+                                {(isNewCustomer || !sessionToken) && (
+                                    <label className="block text-sm">
+                                        <span className="text-zinc-600">Nome</span>
+                                        <input
+                                            className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
+                                            value={customerName}
+                                            onChange={(e) => setCustomerName(e.target.value)}
+                                            placeholder="Seu nome"
+                                        />
+                                    </label>
+                                )}
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setStep("cart")}
+                                        className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
+                                    >
+                                        Voltar
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={busy || !customerPhone.trim()}
+                                        onClick={() => void completeChannelPhone()}
+                                        className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                                    >
+                                        {busy ? "Carregando…" : "Continuar"}
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <MenuIdentityFallback
+                                    whatsappPhone={whatsappPhone}
+                                    title="Finalize pelo chat"
+                                    hint="Para continuar o pedido, abra o cardápio pelo link que a loja envia no WhatsApp ou Instagram."
                                 />
-                            </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setStep("cart")}
+                                    className="w-full rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
+                                >
+                                    Voltar ao carrinho
+                                </button>
+                            </>
                         )}
-                        <div className="flex gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setStep("cart")}
-                                className="flex-1 rounded-lg bg-white py-3 text-sm font-semibold ring-1 ring-zinc-200"
-                            >
-                                Voltar
-                            </button>
-                            <button
-                                type="button"
-                                disabled={busy || !customerPhone.trim()}
-                                onClick={() => void identifyManual()}
-                                className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                            >
-                                {busy ? "Carregando…" : "Continuar"}
-                            </button>
-                        </div>
                     </section>
                 )}
 

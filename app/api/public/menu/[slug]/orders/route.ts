@@ -4,6 +4,7 @@ import { loadPublicMenuBySlug } from "@/lib/public-menu/loadPublicMenu";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
 import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import { verifyWebMenuCheckoutSession } from "@/lib/public-menu/sessionToken";
+import { resolveMenuSessionTokenFromRequest } from "@/lib/public-menu/menuSessionFromRequest";
 import {
     getCustomerOrderDetailForMenu,
     listCustomerOrdersForMenu,
@@ -38,7 +39,12 @@ export async function POST(
         orderId?: string;
     };
 
-    const session = verifyWebMenuCheckoutSession(String(body.sessionToken ?? ""));
+    const sessionToken = resolveMenuSessionTokenFromRequest(
+        req,
+        slugParsed.slug,
+        body.sessionToken
+    );
+    const session = verifyWebMenuCheckoutSession(sessionToken);
     if (!session || session.slug !== slugParsed.slug) {
         return NextResponse.json({ ok: false, error: "session_invalid" }, { status: 401 });
     }

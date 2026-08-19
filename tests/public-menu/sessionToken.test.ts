@@ -93,4 +93,19 @@ describe("web menu sessionToken v1/v2", () => {
         assert.equal(parsed.slug, "loja-demo");
         assert.equal(parsed.handoffId, "33333333-3333-3333-3333-333333333333");
     });
+
+    it("link orders usa TTL exportado", async () => {
+        const { WEB_MENU_ORDERS_LINK_TTL_SEC, signWebMenuChannelLinkToken, verifyWebMenuLinkToken } =
+            await import("@/lib/public-menu/sessionToken");
+        assert.equal(WEB_MENU_ORDERS_LINK_TTL_SEC, 15 * 60);
+        const token = signWebMenuChannelLinkToken({
+            companyId: "11111111-1111-1111-1111-111111111111",
+            slug: "loja-demo",
+            channel: "whatsapp",
+            externalId: "+5511999999999",
+            ttlSec: WEB_MENU_ORDERS_LINK_TTL_SEC,
+        });
+        const parsed = verifyWebMenuLinkToken(token);
+        assert.ok(parsed);
+    });
 });

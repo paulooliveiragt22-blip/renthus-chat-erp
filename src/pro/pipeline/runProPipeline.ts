@@ -848,6 +848,7 @@ export async function runProPipeline(
         inboundText: inboundTextForPipeline,
         tenant: input.tenant,
         webMenuUrl: input.webMenuUrl ?? null,
+        webMenuOrdersUrl: input.webMenuOrdersUrl ?? null,
         messageTemplates: input.messageTemplates ?? null,
         llmEnabled,
     });

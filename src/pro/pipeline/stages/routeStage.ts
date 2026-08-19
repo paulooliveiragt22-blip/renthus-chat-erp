@@ -4,6 +4,7 @@ import {
     type ChatbotMessageTemplates,
 } from "@/lib/chatbot/messageTemplates";
 import { withMenuSearchParams } from "@/lib/public-menu/menuUrlQuery";
+import { isWaMeOrdersPrefill } from "@/lib/public-menu/waMeIdentity";
 import { isOrderSessionContinuityNeeded } from "../sessionOrderContext";
 import { canTransition } from "../proStepTransitions";
 
@@ -79,6 +80,8 @@ export function routeStage(params: {
     inboundText: string;
     tenant: TenantRef;
     webMenuUrl?: string | null;
+    /** Link curto `?orders=1` + wm TTL 15min — meus pedidos / refresh wa.me */
+    webMenuOrdersUrl?: string | null;
     messageTemplates?: ChatbotMessageTemplates | null;
     /**
      * true = IA com crédito (faq/unknown vão ao LLM).
@@ -91,10 +94,25 @@ export function routeStage(params: {
         decision,
         inboundText,
         webMenuUrl,
+        webMenuOrdersUrl,
         messageTemplates,
         llmEnabled = true,
     } = params;
     const norm = normalizeInboundId(inboundText);
+
+    const ordersMenuUrl =
+        webMenuOrdersUrl?.trim() ||
+        (webMenuUrl ? withMenuSearchParams(webMenuUrl, { orders: "1" }) : null);
+
+    function ordersCtaOutbound(): OutboundMessage[] {
+        if (!ordersMenuUrl) return [];
+        return [
+            buildWebMenuCtaOutbound(ordersMenuUrl, {
+                bodyText: "Toque para ver seus pedidos:",
+                displayText: "Meus pedidos",
+            }),
+        ];
+    }
 
     if (decision.intent === "human_intent") {
         const tr = canTransition(state.step, { type: "intent_human_handover" });
@@ -137,16 +155,24 @@ export function routeStage(params: {
         };
     }
 
-    if ((norm === "btn_status" || decision.intent === "status_intent") && webMenuUrl) {
+    if (isWaMeOrdersPrefill(inboundText) && ordersMenuUrl) {
         return {
             mode: "direct_reply",
             state,
             outbound: [
-                buildWebMenuCtaOutbound(withMenuSearchParams(webMenuUrl, { orders: "1" }), {
-                    bodyText: "Toque para ver seus pedidos:",
+                buildWebMenuCtaOutbound(ordersMenuUrl, {
+                    bodyText: "Abra este link para ver seus pedidos (válido por alguns minutos):",
                     displayText: "Meus pedidos",
                 }),
             ],
+        };
+    }
+
+    if ((norm === "btn_status" || decision.intent === "status_intent") && ordersMenuUrl) {
+        return {
+            mode: "direct_reply",
+            state,
+            outbound: ordersCtaOutbound(),
         };
     }
 

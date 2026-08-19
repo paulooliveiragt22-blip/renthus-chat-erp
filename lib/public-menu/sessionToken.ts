@@ -96,7 +96,11 @@ function decodeToken<T extends { exp: number }>(token: string): T | null {
     }
 }
 
-const LINK_TTL_SEC = 7 * 24 * 60 * 60;
+/** Cardápio / checkout — link reutilizável por alguns dias. */
+export const WEB_MENU_LINK_TTL_SEC = 7 * 24 * 60 * 60;
+/** Meus pedidos — link curto (one-shot / bearer). */
+export const WEB_MENU_ORDERS_LINK_TTL_SEC = 15 * 60;
+const LINK_TTL_SEC = WEB_MENU_LINK_TTL_SEC;
 const SESSION_TTL_SEC = 24 * 60 * 60;
 const HANDOFF_TTL_SEC = 2 * 60 * 60;
 

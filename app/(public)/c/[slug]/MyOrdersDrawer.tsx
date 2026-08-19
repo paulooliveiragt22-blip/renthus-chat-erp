@@ -6,10 +6,8 @@ import type {
     PublicMenuOrderSummary,
     PublicMenuSessionOk,
 } from "@/src/types/contracts.public-menu";
-import {
-    loadStoredMenuSession,
-    saveStoredMenuSession,
-} from "@/lib/public-menu/sessionStorage";
+import { getMenuSession, postMenuSession } from "@/lib/public-menu/clientMenuSession";
+import MenuIdentityFallback from "./MenuIdentityFallback";
 
 function formatBRL(n: number): string {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -32,27 +30,27 @@ function formatDate(iso: string): string {
 type Props = {
     slug: string;
     storeName: string;
+    whatsappPhone: string | null;
     onClose: () => void;
 };
 
-export default function MyOrdersDrawer({ slug, storeName, onClose }: Props) {
-    const [busy, setBusy] = useState(false);
+export default function MyOrdersDrawer({ slug, storeName, whatsappPhone, onClose }: Props) {
+    const [busy, setBusy] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [sessionToken, setSessionToken] = useState<string | null>(null);
-    const [phone, setPhone] = useState("");
-    const [name, setName] = useState("");
+    const [session, setSession] = useState<PublicMenuSessionOk | null>(null);
     const [orders, setOrders] = useState<PublicMenuOrderSummary[]>([]);
     const [detail, setDetail] = useState<PublicMenuOrderDetail | null>(null);
 
     const loadOrders = useCallback(
-        async (token: string) => {
+        async (token?: string) => {
             setBusy(true);
             setError(null);
             try {
                 const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/orders`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ sessionToken: token }),
+                    credentials: "include",
+                    body: JSON.stringify(token ? { sessionToken: token } : {}),
                 });
                 const json = (await res.json()) as
                     | { ok: true; orders: PublicMenuOrderSummary[] }
@@ -60,10 +58,10 @@ export default function MyOrdersDrawer({ slug, storeName, onClose }: Props) {
                 if (!json.ok) {
                     setError(
                         json.error === "session_invalid"
-                            ? "Sessão expirada. Informe seu telefone novamente."
+                            ? "Sessão expirada. Identifique-se pelo WhatsApp da loja."
                             : "Não foi possível carregar os pedidos."
                     );
-                    setSessionToken(null);
+                    setSession(null);
                     return;
                 }
                 setOrders(json.orders);
@@ -76,58 +74,46 @@ export default function MyOrdersDrawer({ slug, storeName, onClose }: Props) {
         [slug]
     );
 
-    useEffect(() => {
-        const stored = loadStoredMenuSession(slug);
-        if (!stored) return;
-        setSessionToken(stored.sessionToken);
-        setPhone(stored.phoneE164);
-        setName(stored.customerName ?? "");
-        void loadOrders(stored.sessionToken);
-    }, [slug, loadOrders]);
-
-    async function identify() {
+    const bootstrapSession = useCallback(async () => {
         setBusy(true);
         setError(null);
-        try {
-            const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ phone, name: name || undefined }),
-            });
-            const json = (await res.json()) as PublicMenuSessionOk | { ok: false; error: string };
-            if (!json.ok) {
-                if (json.error === "name_required") {
-                    setError("Informe seu nome (primeiro acesso).");
-                } else if (json.error === "phone_invalid") {
-                    setError("Telefone inválido.");
-                } else {
-                    setError("Não foi possível identificar.");
-                }
+
+        const params = new URLSearchParams(globalThis.location.search);
+        const wm = params.get("wm")?.trim();
+        if (wm) {
+            const exchanged = await postMenuSession(slug, { wmToken: wm });
+            if (exchanged.ok) {
+                setSession(exchanged);
+                await loadOrders(exchanged.sessionToken);
                 return;
             }
-            setSessionToken(json.sessionToken);
-            saveStoredMenuSession(slug, {
-                sessionToken: json.sessionToken,
-                customerName: json.customer.name,
-                phoneE164: json.customer.phoneE164,
-            });
-            await loadOrders(json.sessionToken);
-        } catch {
-            setError("Falha de conexão.");
-        } finally {
-            setBusy(false);
         }
-    }
+
+        const stored = await getMenuSession(slug);
+        if (stored.ok) {
+            setSession(stored);
+            await loadOrders(stored.sessionToken);
+            return;
+        }
+
+        setSession(null);
+        setBusy(false);
+    }, [slug, loadOrders]);
+
+    useEffect(() => {
+        void bootstrapSession();
+    }, [bootstrapSession]);
 
     async function openDetail(orderId: string) {
-        if (!sessionToken) return;
+        if (!session) return;
         setBusy(true);
         setError(null);
         try {
             const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/orders`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sessionToken, orderId }),
+                credentials: "include",
+                body: JSON.stringify({ sessionToken: session.sessionToken, orderId }),
             });
             const json = (await res.json()) as
                 | { ok: true; order: PublicMenuOrderDetail }
@@ -143,6 +129,8 @@ export default function MyOrdersDrawer({ slug, storeName, onClose }: Props) {
             setBusy(false);
         }
     }
+
+    const identified = Boolean(session?.sessionToken && !session.needsPhone);
 
     return (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#f6f3ee]">
@@ -171,42 +159,19 @@ export default function MyOrdersDrawer({ slug, storeName, onClose }: Props) {
                     </p>
                 ) : null}
 
-                {!sessionToken && (
-                    <section className="space-y-4">
-                        <h2 className="text-lg font-semibold text-zinc-900">Identifique-se</h2>
-                        <p className="text-sm text-zinc-500">
-                            Use o mesmo WhatsApp do pedido para ver o histórico.
-                        </p>
-                        <label className="block text-sm">
-                            <span className="text-zinc-600">Telefone</span>
-                            <input
-                                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
-                                value={phone}
-                                onChange={(e) => setPhone(e.target.value)}
-                                inputMode="tel"
-                                placeholder="(11) 99999-9999"
-                            />
-                        </label>
-                        <label className="block text-sm">
-                            <span className="text-zinc-600">Nome (se for a 1ª vez)</span>
-                            <input
-                                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                            />
-                        </label>
-                        <button
-                            type="button"
-                            disabled={busy || !phone.trim()}
-                            onClick={() => void identify()}
-                            className="w-full rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                        >
-                            {busy ? "Carregando…" : "Ver meus pedidos"}
-                        </button>
-                    </section>
+                {!identified && !busy && (
+                    <MenuIdentityFallback
+                        whatsappPhone={whatsappPhone}
+                        title="Meus pedidos"
+                        hint="Abra pelo link que a loja envia no WhatsApp ou Instagram, ou peça um link novo pelo chat."
+                    />
                 )}
 
-                {sessionToken && !detail && (
+                {busy && !identified ? (
+                    <p className="text-sm text-zinc-500">Carregando…</p>
+                ) : null}
+
+                {identified && !detail && (
                     <section className="space-y-3">
                         <h2 className="text-lg font-semibold text-zinc-900">Últimos pedidos</h2>
                         {busy && orders.length === 0 ? (
