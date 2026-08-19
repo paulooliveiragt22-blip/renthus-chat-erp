@@ -333,14 +333,14 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                             <p className="text-xs text-amber-800 sm:text-sm">{store.closedMessage}</p>
                         ) : null}
                         {selectedAddress ? (
-                            <div>
-                                <div className="flex items-start gap-2 text-sm text-zinc-700">
+                            <div className="min-w-0 w-full">
+                                <div className="flex w-full min-w-0 items-start gap-2 text-sm text-zinc-700">
                                     <MapPin
                                         aria-hidden
                                         className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500"
                                     />
-                                    <div className="min-w-0 flex-1">
-                                        <p className="break-words leading-snug">
+                                    <div className="min-w-0 flex-1 basis-0">
+                                        <p className="whitespace-normal break-words [overflow-wrap:anywhere] leading-snug">
                                             {formatMenuCustomerAddressLine(selectedAddress)}
                                         </p>
                                         {addresses.length > 1 ? (
@@ -348,7 +348,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                 type="button"
                                                 aria-expanded={addressPickerOpen}
                                                 onClick={() => setAddressPickerOpen((v) => !v)}
-                                                className="mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900"
+                                                className="mt-1.5 flex items-center gap-0.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900"
                                             >
                                                 Alterar endereço
                                                 <ChevronDown
