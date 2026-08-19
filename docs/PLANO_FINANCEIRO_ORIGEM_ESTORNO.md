@@ -119,7 +119,14 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 | `/api/admin/financeiro/reverse-order` | C | POST — cancel full + motivo [x] |
 | `/api/admin/accepted-store-payments` | B | GET/PATCH [x] |
 | `/api/admin/financeiro/journals/[id]` | D | GET detalhe + linhas [x] |
-| `/api/admin/financeiro/journals/[id]/reverse` | D | POST full/partial [x] |
+| `/api/admin/financeiro/journals/[id]/reverse` | D | POST partial por linhas ledger [x] |
+
+### Migration `20260819040000_finance_reversal_reason_optional.sql` (UX D+)
+
+| Item | Tipo |
+|------|------|
+| `rpc_fin_journal_detail` | `entry_seq`, `reason` no JSON |
+| `rpc_reverse_journal` / `rpc_reverse_journal_partial` | motivo opcional (default `Estorno`) |
 
 ---
 
@@ -131,7 +138,7 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 | PDV | B | filtrar métodos pela policy |
 | Mesa | A+B | `order_source` + idempotency |
 | Pedidos | C | cancel já chama RPC — confirmar estoque volta |
-| Financeiro extrato | A | badge origem via `v_fin_journal_trace` [x] |
+| Financeiro extrato | A+D | badge origem; modal `JournalEntryModal` — estorno por conta 3.1/3.2/3.3, confirmação vermelha, motivo opcional, link `/pedidos?open=` [x] |
 
 ---
 
@@ -169,7 +176,7 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 - [x] `rpc_reverse_journal_partial` + `fn_fin_journal_line_remaining`
 - [x] `rpc_reverse_journal` atualizado (remaining após parciais)
 - [x] APIs journal detail + reverse
-- [x] UI Extrato — estorno total/parcial por linha do ledger
+- [x] UI Extrato — `JournalEntryModal`: seleção por conta ledger, confirmação, motivo opcional
 - [x] Testes `reverseJournal.test.ts`
 - [ ] Estorno parcial com crédito de estoque (opcional futuro)
 

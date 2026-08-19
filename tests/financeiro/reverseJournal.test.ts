@@ -11,6 +11,7 @@ describe("reverseJournal helpers", () => {
                 direction: "credit",
                 amount: 100,
                 remaining: 50,
+                label: "Itens (receita de produtos)",
             }),
             true
         );
@@ -21,6 +22,7 @@ describe("reverseJournal helpers", () => {
                 direction: "debit",
                 amount: 100,
                 remaining: 100,
+                label: "Caixa",
             }),
             false
         );
@@ -31,6 +33,7 @@ describe("reverseJournal helpers", () => {
                 direction: "credit",
                 amount: 10,
                 remaining: 0,
+                label: "Taxa de entrega",
             }),
             false
         );

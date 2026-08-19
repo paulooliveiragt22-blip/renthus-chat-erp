@@ -37,7 +37,7 @@ export type ReverseJournalLineInput = {
 export type ReverseJournalPartialInput = {
     companyId: string;
     journalId: string;
-    reason: string;
+    reason?: string | null;
     lines: ReverseJournalLineInput[];
     idempotencyKey?: string | null;
 };

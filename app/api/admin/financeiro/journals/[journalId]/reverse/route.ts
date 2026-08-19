@@ -4,14 +4,13 @@ import {
     enforceFinanceWriteRateLimit,
     financeRpcFailure,
 } from "@/src/financeiro/application/http";
-import { reverseJournal, reverseJournalPartial } from "@/src/financeiro/application/reverseJournal";
+import { reverseJournalPartial } from "@/src/financeiro/application/reverseJournal";
 import type { ReverseJournalLineInput } from "@/src/financeiro/ports/financeCommand.port";
 
 export const runtime = "nodejs";
 
 type ReverseBody = {
-    reason?: string;
-    mode?: "full" | "partial";
+    reason?: string | null;
     lines?: ReverseJournalLineInput[];
     idempotency_key?: string;
 };
@@ -36,44 +35,34 @@ export async function POST(
     if (!journalId) return NextResponse.json({ error: "journal_id_required" }, { status: 400 });
 
     const body = (await req.json().catch(() => ({}))) as ReverseBody;
-    const reason = String(body.reason ?? "").trim();
-    if (!reason) return NextResponse.json({ error: "reason_required" }, { status: 400 });
-
-    const mode = body.mode === "partial" ? "partial" : "full";
+    const reason = body.reason != null ? String(body.reason).trim() : "";
     const idempotencyKey = body.idempotency_key?.trim() || null;
 
+    const lines = Array.isArray(body.lines) ? body.lines : [];
+    if (lines.length === 0) {
+        return NextResponse.json({ error: "journal_lines_required" }, { status: 400 });
+    }
+
+    const normalized = lines.map((l) => ({
+        code: String(l.code ?? "").trim(),
+        dir: l.dir === "credit" ? ("credit" as const) : ("debit" as const),
+        amt: Number(l.amt),
+    }));
+
     try {
-        if (mode === "partial") {
-            const lines = Array.isArray(body.lines) ? body.lines : [];
-            if (lines.length === 0) {
-                return NextResponse.json({ error: "journal_lines_required" }, { status: 400 });
-            }
-            const normalized = lines.map((l) => ({
-                code: String(l.code ?? "").trim(),
-                dir: l.dir === "credit" ? "credit" as const : "debit" as const,
-                amt: Number(l.amt),
-            }));
-            await reverseJournalPartial(admin, {
-                companyId,
-                journalId,
-                reason,
-                lines: normalized,
-                idempotencyKey:
-                    idempotencyKey ??
-                    `reversal:partial:${journalId}:${normalized.map((x) => `${x.code}:${x.amt}`).join(",")}`,
-            });
-        } else {
-            await reverseJournal(admin, {
-                companyId,
-                journalId,
-                reason,
-                idempotencyKey: idempotencyKey ?? `reversal:${journalId}`,
-            });
-        }
+        await reverseJournalPartial(admin, {
+            companyId,
+            journalId,
+            reason: reason || null,
+            lines: normalized,
+            idempotencyKey:
+                idempotencyKey ??
+                `reversal:partial:${journalId}:${normalized.map((x) => `${x.code}:${x.amt}`).join(",")}`,
+        });
     } catch (err) {
         const msg = err instanceof Error ? err.message : "reverse_failed";
         return financeRpcFailure(msg);
     }
 
-    return NextResponse.json({ ok: true, journal_id: journalId, mode });
+    return NextResponse.json({ ok: true, journal_id: journalId });
 }

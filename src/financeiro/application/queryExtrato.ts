@@ -131,9 +131,25 @@ export async function buildExtratoLines(
         const channelDetail = trace?.orderChannelSnapshot
             ? `${channelLabel} · ${trace.orderChannelSnapshot}`
             : channelLabel;
-        const isExpense = row.line_type === "expense";
+        const isReversal = row.source_type === "reversal";
+        const isExpense = row.line_type === "expense" || isReversal;
         const cash = asMoney(row.cash_amount);
-        const amount = isExpense ? asMoney(row.debit_total) : cash !== 0 ? cash : asMoney(row.debit_total);
+        const rawAmount = isExpense
+            ? asMoney(row.debit_total)
+            : cash !== 0
+              ? cash
+              : asMoney(row.debit_total);
+        const amount = isReversal ? Math.abs(rawAmount) : rawAmount;
+        const statusLabel =
+            isReversal
+                ? "estornado"
+                : row.status === "posted"
+                  ? isExpense
+                      ? "pago"
+                      : "recebido"
+                  : row.status === "reversed"
+                    ? "estornado (total)"
+                    : row.status;
         lines.push({
             id: `j-${row.id}`,
             date: String(row.posted_at),
@@ -148,7 +164,7 @@ export async function buildExtratoLines(
             channel: channelDetail,
             payment_method: String(row.payment_method ?? "—"),
             amount,
-            status: row.status === "posted" ? (isExpense ? "pago" : "recebido") : row.status,
+            status: statusLabel,
             orderId: row.order_id,
             saleId: row.sale_id,
             customerId: meta?.customerId ?? null,

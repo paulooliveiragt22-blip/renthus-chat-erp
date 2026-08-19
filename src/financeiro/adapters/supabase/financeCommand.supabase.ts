@@ -61,7 +61,7 @@ export const financeCommandSupabase: FinanceCommandPort = {
         return rpcOrThrow(admin, "rpc_reverse_journal_partial", {
             p_company_id: input.companyId,
             p_journal_id: input.journalId,
-            p_reason: input.reason,
+            p_reason: input.reason ?? "",
             p_lines: input.lines,
             p_idempotency_key: input.idempotencyKey ?? null,
         });

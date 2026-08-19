@@ -47,7 +47,7 @@ describe("F4 UI Financeiro", () => {
         assert.match(read("app/(admin)/financeiro/components/CaixaTab.tsx"), /expected_balance|Total esperado/);
         assert.match(read("app/api/admin/financeiro/extrato/route.ts"), /cursor/);
         assert.match(read("app/(admin)/financeiro/components/ExtratoTab.tsx"), /cursor/);
-        assert.match(read("app/(admin)/financeiro/components/ExtratoTab.tsx"), /\/pedidos\?id=/);
+        assert.match(read("app/(admin)/financeiro/components/JournalEntryModal.tsx"), /\/pedidos\?open=/);
     });
 
     it("ai_chat não mapeia para PDV", () => {
