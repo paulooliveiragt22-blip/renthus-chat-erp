@@ -270,7 +270,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     return (
         <div className="min-h-dvh bg-[#f0f2f5] text-zinc-900 pb-28">
             <header className="bg-white shadow-sm">
-                <div className="relative h-40 overflow-hidden bg-gradient-to-br from-zinc-400 to-zinc-600 sm:h-52 md:h-64 lg:h-72">
+                <div className="h-40 overflow-hidden bg-gradient-to-br from-zinc-400 to-zinc-600 sm:h-52 md:h-64 lg:h-72">
                     {store.coverUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -287,44 +287,35 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                 </div>
 
                 <div className={`${shell} pb-4 pt-3 sm:pt-4`}>
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
-                            {store.logoUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                    src={store.logoUrl}
-                                    alt=""
-                                    className="-mt-10 h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 md:-mt-14 md:h-28 md:w-28"
-                                />
-                            ) : (
-                                <div
-                                    aria-hidden
-                                    className="-mt-10 flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xl font-bold text-zinc-600 ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 sm:text-2xl md:-mt-14 md:h-28 md:w-28"
-                                >
-                                    {store.displayName.trim().charAt(0).toUpperCase() || "?"}
-                                </div>
-                            )}
-                            <div className="min-w-0 flex-1 pt-0.5">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-[11px]">
-                                    Cardápio
-                                </p>
-                                <h1 className="mt-0.5 text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl md:text-3xl">
-                                    {store.displayName}
-                                </h1>
-                                {store.tagline ? (
-                                    <p className="mt-0.5 line-clamp-2 text-sm text-zinc-600 sm:text-[15px]">
-                                        {store.tagline}
-                                    </p>
-                                ) : null}
+                    <div className="flex min-w-0 items-end gap-3 sm:gap-4">
+                        {store.logoUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={store.logoUrl}
+                                alt=""
+                                className="relative z-10 -mt-10 h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 md:-mt-14 md:h-28 md:w-28"
+                            />
+                        ) : (
+                            <div
+                                aria-hidden
+                                className="relative z-10 -mt-10 flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xl font-bold text-zinc-600 ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 sm:text-2xl md:-mt-14 md:h-28 md:w-28"
+                            >
+                                {store.displayName.trim().charAt(0).toUpperCase() || "?"}
                             </div>
+                        )}
+                        <div className="min-w-0 flex-1 pb-0.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-[11px]">
+                                Cardápio
+                            </p>
+                            <h1 className="mt-0.5 truncate whitespace-nowrap text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl md:text-3xl">
+                                {store.displayName}
+                            </h1>
+                            {store.tagline ? (
+                                <p className="mt-0.5 truncate text-sm text-zinc-600 sm:text-[15px]">
+                                    {store.tagline}
+                                </p>
+                            ) : null}
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setOrdersOpen(true)}
-                            className="shrink-0 rounded-lg bg-zinc-100 px-3.5 py-2 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 transition hover:bg-zinc-200 sm:text-sm"
-                        >
-                            Meus pedidos
-                        </button>
                     </div>
 
                     <div className="mt-3 space-y-1.5">
@@ -409,6 +400,14 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                             </p>
                         ) : null}
                     </div>
+
+                    <button
+                        type="button"
+                        onClick={() => setOrdersOpen(true)}
+                        className="mt-3 w-full rounded-lg bg-zinc-100 px-3.5 py-2.5 text-sm font-semibold text-zinc-800 ring-1 ring-zinc-200 transition hover:bg-zinc-200"
+                    >
+                        Meus pedidos
+                    </button>
                 </div>
             </header>
 
