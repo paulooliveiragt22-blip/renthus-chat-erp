@@ -82,12 +82,14 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 | seed `companies.settings.accepted_store_payments` | data | pix/cash/card/debit default on |
 | seed `accepted_store_prazo` | data | credit/boleto/cheque/promissoria default on |
 
-### Migration futura `..._finance_partial_refund.sql` (Fase D)
+### Migration futura `20260819030000_finance_journal_partial_reversal.sql` (Fase D) [concluída]
 
 | Item | Tipo |
 |------|------|
-| `rpc_reverse_order_sale(p_mode, p_lines, …)` | function |
-| `order_reversal_lines` | table opcional — auditoria de linhas estornadas |
+| `fn_fin_journal_line_remaining` | function — saldo estornável por linha |
+| `rpc_fin_journal_detail` | function — linhas + remaining |
+| `rpc_reverse_journal_partial` | function — estorno parcial por conta (3.1/3.2/3.3/4.2…) |
+| `rpc_reverse_journal` | function — estorno total do **remaining** (compatível com parciais anteriores) |
 
 ### RPCs (catálogo)
 
@@ -95,9 +97,10 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 |-----|------|------------------|
 | `rpc_finalize_pdv_order` | A | venda PDV/mesa + journals origem correta |
 | `rpc_recognize_order_sale` | existente | liquidar pedido remoto |
-| `rpc_reverse_journal` | existente | estorno genérico |
+| `rpc_reverse_journal` | D | estorno total do saldo restante |
+| `rpc_reverse_journal_partial` | D | estorno parcial por linhas do ledger |
+| `rpc_fin_journal_detail` | D | detalhe + remaining para UI |
 | `rpc_admin_cancel_order` | C | estorno full + estoque + bills |
-| `rpc_reverse_order_sale` | D | full + partial |
 
 ### Views
 
@@ -115,7 +118,8 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 |------|------|--------|
 | `/api/admin/financeiro/reverse-order` | C | POST — cancel full + motivo [x] |
 | `/api/admin/accepted-store-payments` | B | GET/PATCH [x] |
-| `/api/admin/financeiro/journals` | A | GET — filtro `origin` |
+| `/api/admin/financeiro/journals/[id]` | D | GET detalhe + linhas [x] |
+| `/api/admin/financeiro/journals/[id]/reverse` | D | POST full/partial [x] |
 
 ---
 
@@ -160,11 +164,14 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 - [x] `reverseOrderSale` application + testes (`tests/financeiro/reverseOrderSale.test.ts`)
 - [ ] Testes integração cancel + stock (DB smoke manual)
 
-### Fase D — Estorno parcial
+### Fase D — Estorno parcial (journal-first) [concluída]
 
-- [ ] `rpc_reverse_order_sale` partial
-- [ ] UI modal linhas + valor
-- [ ] Idempotency refund
+- [x] `rpc_reverse_journal_partial` + `fn_fin_journal_line_remaining`
+- [x] `rpc_reverse_journal` atualizado (remaining após parciais)
+- [x] APIs journal detail + reverse
+- [x] UI Extrato — estorno total/parcial por linha do ledger
+- [x] Testes `reverseJournal.test.ts`
+- [ ] Estorno parcial com crédito de estoque (opcional futuro)
 
 ### Fase E — Documentação e gates [parcial]
 

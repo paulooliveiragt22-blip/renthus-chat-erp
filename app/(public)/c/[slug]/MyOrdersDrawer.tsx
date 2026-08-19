@@ -61,7 +61,7 @@ export default function MyOrdersDrawer({ slug, storeName, whatsappPhone, onClose
                             ? "Sessão expirada. Identifique-se pelo WhatsApp da loja."
                             : "Não foi possível carregar os pedidos."
                     );
-                    setSession(null);
+                    if (json.error === "session_invalid") setSession(null);
                     return;
                 }
                 setOrders(json.orders);
@@ -78,26 +78,36 @@ export default function MyOrdersDrawer({ slug, storeName, whatsappPhone, onClose
         setBusy(true);
         setError(null);
 
-        const params = new URLSearchParams(globalThis.location.search);
-        const wm = params.get("wm")?.trim();
-        if (wm) {
-            const exchanged = await postMenuSession(slug, { wmToken: wm });
-            if (exchanged.ok) {
-                setSession(exchanged);
-                await loadOrders(exchanged.sessionToken);
+        try {
+            const params = new URLSearchParams(globalThis.location.search);
+            const wm = params.get("wm")?.trim();
+            if (wm) {
+                const exchanged = await postMenuSession(slug, { wmToken: wm });
+                if (exchanged.ok) {
+                    setSession(exchanged);
+                    await loadOrders(exchanged.sessionToken);
+                    return;
+                }
+            }
+
+            let stored = await getMenuSession(slug);
+            if (!stored.ok && wm) {
+                await new Promise((r) => setTimeout(r, 400));
+                stored = await getMenuSession(slug);
+            }
+            if (stored.ok) {
+                setSession(stored);
+                await loadOrders(stored.sessionToken);
                 return;
             }
-        }
 
-        const stored = await getMenuSession(slug);
-        if (stored.ok) {
-            setSession(stored);
-            await loadOrders(stored.sessionToken);
-            return;
+            setSession(null);
+        } catch {
+            setError("Falha de conexão.");
+            setSession(null);
+        } finally {
+            setBusy(false);
         }
-
-        setSession(null);
-        setBusy(false);
     }, [slug, loadOrders]);
 
     useEffect(() => {

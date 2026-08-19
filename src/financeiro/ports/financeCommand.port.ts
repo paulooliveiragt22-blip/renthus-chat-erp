@@ -28,6 +28,20 @@ export type ReverseJournalInput = {
     idempotencyKey?: string | null;
 };
 
+export type ReverseJournalLineInput = {
+    code: string;
+    dir: "debit" | "credit";
+    amt: number;
+};
+
+export type ReverseJournalPartialInput = {
+    companyId: string;
+    journalId: string;
+    reason: string;
+    lines: ReverseJournalLineInput[];
+    idempotencyKey?: string | null;
+};
+
 export type PostCashMovementInput = {
     companyId: string;
     registerId: string;
@@ -50,6 +64,7 @@ export type FinanceCommandPort = {
     settleBill(admin: SupabaseClient, input: SettleBillInput): Promise<unknown>;
     postOpex(admin: SupabaseClient, input: PostOpexInput): Promise<unknown>;
     reverseJournal(admin: SupabaseClient, input: ReverseJournalInput): Promise<unknown>;
+    reverseJournalPartial(admin: SupabaseClient, input: ReverseJournalPartialInput): Promise<unknown>;
     postCashMovement(admin: SupabaseClient, input: PostCashMovementInput): Promise<unknown>;
     reverseOrderSale(admin: SupabaseClient, input: ReverseOrderSaleInput): Promise<unknown>;
 };

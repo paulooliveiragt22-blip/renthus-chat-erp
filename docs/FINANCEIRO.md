@@ -76,6 +76,16 @@ Idempotency de liquidação **não muda** (`order:{id}:recognize`, `sale:{id}:pa
 
 KPI **Recebido** (home) = só caixa **1.1** de liquidações (`sale_payment` / `recognize` / `bill_settlement`). Taxas **entram** nesse KPI quando pagas à vista (fazem parte do débito 1.1); no extrato/DRE a parcela fica em **3.2** ou **3.3**.
 
+## Estorno (ledger)
+
+| Ação | RPC / API | Estoque |
+|------|-----------|---------|
+| Cancelar pedido (full) | `rpc_admin_cancel_order` / `POST /api/admin/financeiro/reverse-order` | Sim (`DELETE order_items`) |
+| Estornar lançamento (total) | `rpc_reverse_journal` / `POST …/journals/{id}/reverse` mode=full | Não |
+| Estornar lançamento (parcial) | `rpc_reverse_journal_partial` — linhas 3.1/3.2/3.3/4.2… | Não |
+
+Parcial: UI no **Extrato** escolhe conta e valor (resta calculado por `fn_fin_journal_line_remaining`). Caixa (1.1/1.2) é ajustado automaticamente para balancear. Estorno de estorno não é permitido. Caixa fechado → `settlement_conflict`.
+
 ---
 
 ## Resultado gerencial

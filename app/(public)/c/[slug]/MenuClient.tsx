@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { ChevronDown, MapPin, Search, X } from "lucide-react";
 import type {
     PublicMenuCartLine,
     PublicMenuCategory,
     PublicMenuItem,
     PublicMenuResponse,
+    PublicMenuSavedAddress,
+    PublicMenuSessionOk,
 } from "@/src/types/contracts.public-menu";
 import {
     trackMenuEvent,
     trackMenuProductViewOnce,
 } from "@/lib/public-menu/menuEvents";
-import { postMenuSession } from "@/lib/public-menu/clientMenuSession";
+import { getMenuSession, postMenuSession } from "@/lib/public-menu/clientMenuSession";
+import { formatMenuCustomerAddressLine } from "@/lib/public-menu/formatMenuAddress";
 import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 import { filterPublicMenuCategories } from "@/lib/public-menu/searchMenuItems";
 import CheckoutDrawer from "./CheckoutDrawer";
@@ -48,6 +51,46 @@ function cartKey(slug: string): string {
     return `renthus_menu_cart_${slug}`;
 }
 
+function addrPickKey(slug: string): string {
+    return `renthus_menu_addr_${slug}`;
+}
+
+function loadPickedAddressId(slug: string): string | null {
+    try {
+        return globalThis.sessionStorage?.getItem(addrPickKey(slug)) || null;
+    } catch {
+        return null;
+    }
+}
+
+function savePickedAddressId(slug: string, id: string): void {
+    try {
+        globalThis.sessionStorage?.setItem(addrPickKey(slug), id);
+    } catch {
+        /* ignore */
+    }
+}
+
+function pickDefaultAddressId(
+    list: PublicMenuSavedAddress[],
+    slug: string
+): string | null {
+    if (list.length === 0) return null;
+    const stored = loadPickedAddressId(slug);
+    if (stored && list.some((a) => a.id === stored)) return stored;
+    return (list.find((a) => a.isPrincipal) ?? list[0]!).id;
+}
+
+function applySessionAddresses(
+    json: PublicMenuSessionOk,
+    slug: string
+): { addresses: PublicMenuSavedAddress[]; selectedId: string | null } {
+    const phonePending = Boolean(json.needsPhone || json.customer.needsPhone);
+    if (phonePending) return { addresses: [], selectedId: null };
+    const addresses = json.addresses ?? [];
+    return { addresses, selectedId: pickDefaultAddressId(addresses, slug) };
+}
+
 function loadCart(slug: string): PublicMenuCartLine[] {
     try {
         const raw = globalThis.localStorage?.getItem(cartKey(slug));
@@ -66,25 +109,46 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     const [cartReady, setCartReady] = useState(false);
     const [checkoutOpen, setCheckoutOpen] = useState(false);
     const [ordersOpen, setOrdersOpen] = useState(false);
+    const [addresses, setAddresses] = useState<PublicMenuSavedAddress[]>([]);
+    const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+    const [addressPickerOpen, setAddressPickerOpen] = useState(false);
     const store = menu.store;
 
     useEffect(() => {
         const params = new URLSearchParams(globalThis.location.search);
-        if (params.get("orders") === "1") setOrdersOpen(true);
+        const wm = params.get("wm")?.trim() ?? "";
+        const wantOrders = params.get("orders") === "1";
         const wantCheckout = params.get("checkout") === "1";
         const hc = params.get("hc")?.trim() ?? "";
 
-        if (!hc) {
-            setCart(loadCart(store.slug));
-            if (wantCheckout) setCheckoutOpen(true);
-            setCartReady(true);
-            return;
-        }
+        void (async () => {
+            // Identidade antes de abrir Meus pedidos — senão o drawer mostra fallback
+            // com cookie ainda vazio (WebView do WhatsApp).
+            let session: PublicMenuSessionOk | { ok: false; error: string } | null = null;
+            if (wm) {
+                session = await postMenuSession(store.slug, { wmToken: wm }).catch(() => null);
+            }
+            if (!session || !session.ok) {
+                session = await getMenuSession(store.slug).catch(() => null);
+            }
+            if (session?.ok) {
+                const applied = applySessionAddresses(session, store.slug);
+                setAddresses(applied.addresses);
+                setSelectedAddressId(applied.selectedId);
+            }
+            if (wantOrders) setOrdersOpen(true);
 
-        void fetch(
-            `/api/public/menu/${encodeURIComponent(store.slug)}/handoff?hc=${encodeURIComponent(hc)}`
-        )
-            .then(async (res) => {
+            if (!hc) {
+                setCart(loadCart(store.slug));
+                if (wantCheckout) setCheckoutOpen(true);
+                setCartReady(true);
+                return;
+            }
+
+            try {
+                const res = await fetch(
+                    `/api/public/menu/${encodeURIComponent(store.slug)}/handoff?hc=${encodeURIComponent(hc)}`
+                );
                 const json = (await res.json()) as {
                     ok?: boolean;
                     purpose?: string;
@@ -97,12 +161,13 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     setCart(loadCart(store.slug));
                     if (wantCheckout) setCheckoutOpen(true);
                 }
-            })
-            .catch(() => {
+            } catch {
                 setCart(loadCart(store.slug));
                 if (wantCheckout) setCheckoutOpen(true);
-            })
-            .finally(() => setCartReady(true));
+            } finally {
+                setCartReady(true);
+            }
+        })();
     }, [store.slug]);
 
     useEffect(() => {
@@ -127,15 +192,15 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
 
     useEffect(() => {
         trackMenuEvent({ slug: store.slug, eventType: "page_view" });
-
-        const params = new URLSearchParams(globalThis.location.search);
-        const wm = params.get("wm");
-        if (!wm) return;
-        void postMenuSession(store.slug, { wmToken: wm }).catch(() => {});
     }, [store.slug]);
 
     const cartQty = cart.reduce((s, l) => s + l.qty, 0);
     const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.qty, 0);
+    const selectedAddress =
+        addresses.find((a) => a.id === selectedAddressId) ??
+        addresses.find((a) => a.isPrincipal) ??
+        addresses[0] ??
+        null;
 
     function qtyOf(embalagemId: string): number {
         return cart.find((l) => l.embalagemId === embalagemId)?.qty ?? 0;
@@ -205,87 +270,144 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     return (
         <div className="min-h-dvh bg-[#f0f2f5] text-zinc-900 pb-28">
             <header className="bg-white shadow-sm">
-                <div className="relative">
-                    <div className="relative h-40 overflow-hidden bg-gradient-to-br from-zinc-400 to-zinc-600 sm:h-52 md:h-64 lg:h-72">
-                        {store.coverUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                                src={store.coverUrl}
-                                alt=""
-                                className="h-full w-full object-cover"
-                            />
-                        ) : (
-                            <div
-                                aria-hidden
-                                className="h-full w-full bg-[linear-gradient(135deg,#78716c_0%,#44403c_55%,#292524_100%)]"
-                            />
-                        )}
-                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/35 to-transparent" />
+                <div className="relative h-40 overflow-hidden bg-gradient-to-br from-zinc-400 to-zinc-600 sm:h-52 md:h-64 lg:h-72">
+                    {store.coverUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={store.coverUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                        />
+                    ) : (
+                        <div
+                            aria-hidden
+                            className="h-full w-full bg-[linear-gradient(135deg,#78716c_0%,#44403c_55%,#292524_100%)]"
+                        />
+                    )}
+                </div>
+
+                <div className={`${shell} pb-4 pt-3 sm:pt-4`}>
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+                            {store.logoUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                    src={store.logoUrl}
+                                    alt=""
+                                    className="-mt-10 h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 md:-mt-14 md:h-28 md:w-28"
+                                />
+                            ) : (
+                                <div
+                                    aria-hidden
+                                    className="-mt-10 flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xl font-bold text-zinc-600 ring-4 ring-white shadow-md sm:-mt-12 sm:h-24 sm:w-24 sm:text-2xl md:-mt-14 md:h-28 md:w-28"
+                                >
+                                    {store.displayName.trim().charAt(0).toUpperCase() || "?"}
+                                </div>
+                            )}
+                            <div className="min-w-0 flex-1 pt-0.5">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-[11px]">
+                                    Cardápio
+                                </p>
+                                <h1 className="mt-0.5 text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl md:text-3xl">
+                                    {store.displayName}
+                                </h1>
+                                {store.tagline ? (
+                                    <p className="mt-0.5 line-clamp-2 text-sm text-zinc-600 sm:text-[15px]">
+                                        {store.tagline}
+                                    </p>
+                                ) : null}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setOrdersOpen(true)}
+                            className="shrink-0 rounded-lg bg-zinc-100 px-3.5 py-2 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 transition hover:bg-zinc-200 sm:text-sm"
+                        >
+                            Meus pedidos
+                        </button>
                     </div>
 
-                    <div className={`${shell} relative pb-4 pt-0`}>
-                        <div className="-mt-12 flex flex-col gap-3 sm:-mt-14 sm:flex-row sm:items-end sm:justify-between sm:gap-4 md:-mt-16">
-                            <div className="flex min-w-0 items-end gap-3 sm:gap-4">
-                                {store.logoUrl ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                        src={store.logoUrl}
-                                        alt=""
-                                        className="h-24 w-24 shrink-0 rounded-full object-cover ring-4 ring-white shadow-md sm:h-28 sm:w-28 md:h-32 md:w-32"
-                                    />
-                                ) : (
-                                    <div
+                    <div className="mt-3 space-y-1.5">
+                        <p className="text-sm text-zinc-600">
+                            {store.isOpen ? (
+                                <span className="font-semibold text-emerald-700">Aberto</span>
+                            ) : (
+                                <span className="font-semibold text-amber-700">Fechado</span>
+                            )}
+                            {store.hoursLabel ? (
+                                <span className="text-zinc-500">{` · ${store.hoursLabel}`}</span>
+                            ) : null}
+                        </p>
+                        {!store.isOpen && store.closedMessage ? (
+                            <p className="text-xs text-amber-800 sm:text-sm">{store.closedMessage}</p>
+                        ) : null}
+                        {selectedAddress ? (
+                            <div>
+                                <div className="flex items-start gap-2 text-sm text-zinc-700">
+                                    <MapPin
                                         aria-hidden
-                                        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-2xl font-bold text-zinc-600 ring-4 ring-white shadow-md sm:h-28 sm:w-28 sm:text-3xl md:h-32 md:w-32"
-                                    >
-                                        {store.displayName.trim().charAt(0).toUpperCase() || "?"}
+                                        className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="leading-snug">
+                                            {formatMenuCustomerAddressLine(selectedAddress)}
+                                        </p>
+                                        {addresses.length > 1 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setAddressPickerOpen((v) => !v)}
+                                                className="mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900"
+                                            >
+                                                Alterar endereço
+                                                <ChevronDown
+                                                    className={`h-3.5 w-3.5 transition ${
+                                                        addressPickerOpen ? "rotate-180" : ""
+                                                    }`}
+                                                />
+                                            </button>
+                                        ) : null}
                                     </div>
-                                )}
-                                <div className="min-w-0 pb-1 sm:pb-2">
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-[11px]">
-                                        Cardápio
-                                    </p>
-                                    <h1 className="mt-0.5 truncate text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl md:text-3xl">
-                                        {store.displayName}
-                                    </h1>
-                                    {store.tagline ? (
-                                        <p className="mt-0.5 line-clamp-2 text-sm text-zinc-600 sm:text-[15px]">
-                                            {store.tagline}
-                                        </p>
-                                    ) : null}
-                                    {(store.city || store.state) && (
-                                        <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
-                                            {[store.city, store.state].filter(Boolean).join(" · ")}
-                                        </p>
-                                    )}
-                                    <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
-                                        {store.isOpen ? (
-                                            <span className="font-medium text-emerald-700">Aberto</span>
-                                        ) : (
-                                            <span className="font-medium text-amber-700">Fechado</span>
-                                        )}
-                                        {store.hoursLabel ? ` · ${store.hoursLabel}` : null}
-                                    </p>
-                                    {!store.isOpen && store.closedMessage ? (
-                                        <p className="mt-1 text-xs text-amber-800 sm:text-sm">
-                                            {store.closedMessage}
-                                        </p>
-                                    ) : null}
-                                    {store.deliveryDescription ? (
-                                        <p className="mt-1 line-clamp-2 text-xs text-zinc-600 sm:text-sm">
-                                            {store.deliveryDescription}
-                                        </p>
-                                    ) : null}
                                 </div>
+                                {addressPickerOpen && addresses.length > 1 ? (
+                                    <ul className="mt-2 space-y-1.5">
+                                        {addresses.map((a) => (
+                                            <li key={a.id}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedAddressId(a.id);
+                                                        savePickedAddressId(store.slug, a.id);
+                                                        setAddressPickerOpen(false);
+                                                    }}
+                                                    className={`w-full rounded-xl px-3 py-2.5 text-left text-sm ring-1 ${
+                                                        a.id === selectedAddressId
+                                                            ? "bg-amber-50 ring-amber-400"
+                                                            : "bg-white ring-zinc-200"
+                                                    }`}
+                                                >
+                                                    <p className="font-semibold text-zinc-900">
+                                                        {a.title}
+                                                        {a.isPrincipal ? (
+                                                            <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                                                                principal
+                                                            </span>
+                                                        ) : null}
+                                                    </p>
+                                                    <p className="mt-0.5 text-xs text-zinc-500">
+                                                        {formatMenuCustomerAddressLine(a)}
+                                                    </p>
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : null}
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setOrdersOpen(true)}
-                                className="shrink-0 self-start rounded-lg bg-zinc-100 px-3.5 py-2 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 transition hover:bg-zinc-200 sm:self-auto sm:text-sm"
-                            >
-                                Meus pedidos
-                            </button>
-                        </div>
+                        ) : null}
+                        {store.deliveryDescription ? (
+                            <p className="line-clamp-2 text-xs text-zinc-500 sm:text-sm">
+                                {store.deliveryDescription}
+                            </p>
+                        ) : null}
                     </div>
                 </div>
             </header>
@@ -492,6 +614,11 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                         store.closedMessage || "Não estamos atendendo no momento."
                     }
                     cart={cart}
+                    preferredSavedAddressId={selectedAddressId}
+                    onPreferredAddressChange={(id) => {
+                        setSelectedAddressId(id);
+                        savePickedAddressId(store.slug, id);
+                    }}
                     onClose={() => setCheckoutOpen(false)}
                     onClearCart={() => setCart([])}
                     onInc={incCartLine}

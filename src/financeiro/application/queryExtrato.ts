@@ -19,6 +19,9 @@ export type ExtratoLine = {
     saleId?: string | null;
     customerId?: string | null;
     orderStatus?: string | null;
+    journalId?: string | null;
+    journalSourceType?: string | null;
+    journalStatus?: string | null;
 };
 
 type ExtratoViewRow = {
@@ -150,6 +153,9 @@ export async function buildExtratoLines(
             saleId: row.sale_id,
             customerId: meta?.customerId ?? null,
             orderStatus: meta?.status ?? null,
+            journalId: row.id,
+            journalSourceType: row.source_type,
+            journalStatus: row.status,
         });
     }
 

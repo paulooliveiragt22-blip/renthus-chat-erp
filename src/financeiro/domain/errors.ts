@@ -25,6 +25,18 @@ export function mapFinanceRpcError(message: string): { status: number; error: st
     if (/settlement_conflict/i.test(msg)) {
         return { status: 409, error: "settlement_conflict" };
     }
+    if (/journal_already_reversed|journal_nothing_to_reverse/i.test(msg)) {
+        return { status: 409, error: "journal_already_reversed" };
+    }
+    if (/cannot_reverse_reversal/i.test(msg)) {
+        return { status: 409, error: "cannot_reverse_reversal" };
+    }
+    if (/journal_line_exceeds_remaining|journal_exceeds_liquid_remaining/i.test(msg)) {
+        return { status: 422, error: "journal_line_exceeds_remaining" };
+    }
+    if (/liquid_line_not_selectable/i.test(msg)) {
+        return { status: 422, error: "liquid_line_not_selectable" };
+    }
     if (/idempotency_key_required/i.test(msg)) {
         return { status: 400, error: "idempotency_key_required" };
     }

@@ -8,22 +8,44 @@ export async function postMenuSession(
     slug: string,
     body: { wmToken?: string; phone?: string; name?: string }
 ): Promise<PublicMenuSessionOk | { ok: false; error: string }> {
-    const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
-        method: "POST",
-        headers: jsonHeaders,
-        credentials: "include",
-        body: JSON.stringify(body),
-    });
-    return (await res.json()) as PublicMenuSessionOk | { ok: false; error: string };
+    try {
+        const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
+            method: "POST",
+            headers: jsonHeaders,
+            credentials: "include",
+            body: JSON.stringify(body),
+        });
+        const json = (await res.json().catch(() => null)) as
+            | PublicMenuSessionOk
+            | { ok: false; error: string }
+            | null;
+        if (!json || typeof json !== "object") {
+            return { ok: false, error: "session_invalid" };
+        }
+        return json;
+    } catch {
+        return { ok: false, error: "session_invalid" };
+    }
 }
 
 export async function getMenuSession(
     slug: string
 ): Promise<PublicMenuSessionOk | { ok: false; error: string }> {
-    const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
-        credentials: "include",
-    });
-    return (await res.json()) as PublicMenuSessionOk | { ok: false; error: string };
+    try {
+        const res = await fetch(`/api/public/menu/${encodeURIComponent(slug)}/session`, {
+            credentials: "include",
+        });
+        const json = (await res.json().catch(() => null)) as
+            | PublicMenuSessionOk
+            | { ok: false; error: string }
+            | null;
+        if (!json || typeof json !== "object") {
+            return { ok: false, error: "session_invalid" };
+        }
+        return json;
+    } catch {
+        return { ok: false, error: "session_invalid" };
+    }
 }
 
 /** UTM ou origem conhecida — orienta fallback (wa.me vs Direct). */

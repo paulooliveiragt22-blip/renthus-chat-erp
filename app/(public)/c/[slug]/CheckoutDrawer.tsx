@@ -50,6 +50,9 @@ type Props = {
     onDec: (embalagemId: string) => void;
     onRemove: (embalagemId: string) => void;
     onAddMore: () => void;
+    /** Endereço escolhido no header do cardápio (se houver). */
+    preferredSavedAddressId?: string | null;
+    onPreferredAddressChange?: (id: string) => void;
 };
 
 const emptyAddress: PublicMenuNewAddressInput = {
@@ -80,6 +83,8 @@ export default function CheckoutDrawer({
     onDec,
     onRemove,
     onAddMore,
+    preferredSavedAddressId,
+    onPreferredAddressChange,
 }: Props) {
     const [step, setStep] = useState<Step>("cart");
     const [busy, setBusy] = useState(false);
@@ -114,13 +119,12 @@ export default function CheckoutDrawer({
         return list.map((id) => [id, labels[id]!] as const);
     }, [acceptedPayments]);
 
-    const [paymentMethod, setPaymentMethod] = useState<string>("pix");
+    const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
 
     useEffect(() => {
-        const first = paymentOptions[0]?.[0];
-        if (!first) return;
+        if (!paymentMethod) return;
         if (!paymentOptions.some(([id]) => id === paymentMethod)) {
-            setPaymentMethod(first);
+            setPaymentMethod(null);
         }
     }, [paymentOptions, paymentMethod]);
 
@@ -231,8 +235,11 @@ export default function CheckoutDrawer({
         setAddresses(phonePending ? [] : json.addresses);
         if (!phonePending && json.addresses.length > 0) {
             setAddressMode("saved");
+            const preferred = preferredSavedAddressId
+                ? json.addresses.find((a) => a.id === preferredSavedAddressId)
+                : undefined;
             const principal =
-                json.addresses.find((a) => a.isPrincipal) ?? json.addresses[0]!;
+                preferred ?? json.addresses.find((a) => a.isPrincipal) ?? json.addresses[0]!;
             setSavedAddressId(principal.id);
             void quoteDelivery({ sessionToken: json.sessionToken, savedAddressId: principal.id });
         } else {
@@ -475,6 +482,10 @@ export default function CheckoutDrawer({
         if (!fulfillmentType) {
             setError("Escolha entrega ou retirada no local.");
             setStep("fulfillment");
+            return;
+        }
+        if (!paymentMethod) {
+            setError("Escolha a forma de pagamento.");
             return;
         }
         setBusy(true);
@@ -902,6 +913,7 @@ export default function CheckoutDrawer({
                                             type="button"
                                             onClick={() => {
                                                 setSavedAddressId(a.id);
+                                                onPreferredAddressChange?.(a.id);
                                                 if (sessionToken) {
                                                     void quoteDelivery({
                                                         sessionToken,
@@ -1063,21 +1075,31 @@ export default function CheckoutDrawer({
                             </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
-                            {paymentOptions.map(([id, label]) => (
-                                <button
-                                    key={id}
-                                    type="button"
-                                    onClick={() => setPaymentMethod(id)}
-                                    className={`min-w-[4.5rem] flex-1 rounded-lg py-2.5 text-xs font-semibold ${
-                                        paymentMethod === id
-                                            ? "bg-zinc-900 text-white"
-                                            : "bg-white ring-1 ring-zinc-200"
-                                    }`}
-                                >
-                                    {label}
-                                </button>
-                            ))}
+                        <div>
+                            <p className="mb-2 text-sm font-medium text-zinc-700">
+                                Forma de pagamento
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                {paymentOptions.map(([id, label]) => (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        onClick={() => setPaymentMethod(id)}
+                                        className={`min-w-[4.5rem] flex-1 rounded-lg py-2.5 text-xs font-semibold ${
+                                            paymentMethod === id
+                                                ? "bg-zinc-900 text-white"
+                                                : "bg-white ring-1 ring-zinc-200"
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            {!paymentMethod ? (
+                                <p className="mt-1.5 text-xs text-zinc-500">
+                                    Escolha como vai pagar
+                                </p>
+                            ) : null}
                         </div>
                         {paymentMethod === "cash" && (
                             <label className="block text-sm">
@@ -1124,7 +1146,7 @@ export default function CheckoutDrawer({
                             </button>
                             <button
                                 type="button"
-                                disabled={busy}
+                                disabled={busy || !paymentMethod}
                                 onClick={() => void placeOrder()}
                                 className="flex-[2] rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
                             >

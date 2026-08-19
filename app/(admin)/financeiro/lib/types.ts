@@ -31,6 +31,9 @@ export type ExtratoLine = {
     saleId?: string | null;
     customerId?: string | null;
     orderStatus?: string | null;
+    journalId?: string | null;
+    journalSourceType?: string | null;
+    journalStatus?: string | null;
 };
 
 export type DaySummary = {
