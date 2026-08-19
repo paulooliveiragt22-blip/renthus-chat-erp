@@ -53,6 +53,8 @@ type Props = {
     /** Endereço escolhido no header do cardápio (se houver). */
     preferredSavedAddressId?: string | null;
     onPreferredAddressChange?: (id: string) => void;
+    /** Abre direto na etapa de endereço (ex.: alterar com um único endereço salvo). */
+    startStep?: "address";
 };
 
 const emptyAddress: PublicMenuNewAddressInput = {
@@ -85,6 +87,7 @@ export default function CheckoutDrawer({
     onAddMore,
     preferredSavedAddressId,
     onPreferredAddressChange,
+    startStep,
 }: Props) {
     const [step, setStep] = useState<Step>("cart");
     const [busy, setBusy] = useState(false);
@@ -142,6 +145,15 @@ export default function CheckoutDrawer({
 
     /** Uma chave por tentativa — retry/double-click reusa; pós-sucesso gera outra. */
     const checkoutAttemptKeyRef = useRef<string | null>(null);
+    const startStepAppliedRef = useRef(false);
+
+    useEffect(() => {
+        if (startStepAppliedRef.current || startStep !== "address") return;
+        if (!sessionToken || needsPhone || !deliveriesEnabled) return;
+        startStepAppliedRef.current = true;
+        setFulfillmentType("delivery");
+        setStep("address");
+    }, [startStep, sessionToken, needsPhone, deliveriesEnabled]);
 
     function ensureCheckoutAttemptKey(): string {
         if (!checkoutAttemptKeyRef.current) {

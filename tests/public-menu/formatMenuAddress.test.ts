@@ -26,4 +26,16 @@ describe("formatMenuCustomerAddressLine", () => {
             "Av. Brasil · Sorriso"
         );
     });
+
+    it("ignora placeholders como S/N e (completar)", () => {
+        assert.equal(
+            formatMenuCustomerAddressLine({
+                logradouro: "Rua turmalina 34 São Mateus",
+                numero: "S/N",
+                bairro: "(completar)",
+                cidade: "",
+            }),
+            "Rua turmalina 34 São Mateus"
+        );
+    });
 });
