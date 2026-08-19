@@ -1,6 +1,8 @@
 # Especificação — Pedido com IA primeiro, Flow após falhas (estrutura)
 
-> **ARQUIVO HISTÓRICO.** O motor PRO canónico é `src/pro/pipeline/runProPipeline.ts` (`p_source`: `ai_chat_pro_v2`, estado `__pro_v2_state`). `handleProOrderIntent` / `ai_order_canonical` foram removidos. Ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) e [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md).
+> **ARQUIVO HISTÓRICO.** O motor PRO canónico é `src/pro/pipeline/runProPipeline.ts`. WhatsApp Flow
+> foi retirado (2026-08-17); fallback de catálogo é o cardápio web (`cta_url` → `/c/[slug]`).
+> Ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) e [`CHECKLIST_CARDAPIO_WEB_MARKETPLACE.md`](./CHECKLIST_CARDAPIO_WEB_MARKETPLACE.md) F5d.
 
 Documento de desenho original (fases). As secções abaixo **não** descrevem o código atual.
 
@@ -10,7 +12,7 @@ Documento de desenho original (fases). As secções abaixo **não** descrevem o 
 
 1. O cliente fala em **linguagem natural** (ex.: pedido + endereço na mesma frase).
 2. A **IA (Claude Haiku / Anthropic)** tenta **montar e fechar o pedido** com dados da base (produto/embalagem, estoque, endereço).
-3. Só **depois de esgotar tentativas válidas** é enviado o **WhatsApp Flow** de catálogo, com mensagem amigável.
+3. Só **depois de esgotar tentativas válidas** é enviado o **cardápio web** (`cta_url`), com mensagem amigável.
 4. **Primeiro contacto** pode ser **já com IA** (não é obrigatório forçar Flow na primeira vez).
 
 ---
@@ -80,7 +82,7 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 
 ## 5. Fluxo após 4 tentativas válidas falhadas
 
-- Enviar `sendFlowMessage` (mesmo `flowId` / `flowToken` de catálogo já usados hoje).
+- Enviar CTA do cardápio web (`cta_url` / `webMenuUrl`).
 - Mensagem **amigável** (ex.: não conseguimos fechar pelo chat automático; usar o formulário garante stock e opções certas).
 - Resetar contador / estado `ai_order_*` para não loop infinito; opcionalmente marcar `flow_offered` para não spammar.
 
@@ -93,8 +95,8 @@ Resumo: o contador mede **falhas de interpretação / impasse**, não **turnos d
 | **Sessão** (`chatbot_sessions.context`) | `ai_order_attempts`, `ai_order_draft`, `flow_offered`, etc. |
 | **Handler novo** | Ex.: `handleAiFirstOrder` chamado a partir de `order_intent` (e eventualmente heurísticas em texto livre). |
 | **Ferramentas / passos servidor** | Busca produto/embalagem, stock, último endereço, top pedidos; **create order** só após validação + confirmação OK. |
-| **RPC / serviço único** | Reutilizar lógica alinhada a `create_order_with_items` (paridade com Flow). |
-| **Transição Flow** | Após limite de tentativas **válidas** (secção 2). |
+| **RPC / serviço único** | Reutilizar lógica alinhada a `create_order_with_items`. |
+| **Transição cardápio** | Após limite de tentativas **válidas** (secção 2): CTA URL. |
 
 ---
 

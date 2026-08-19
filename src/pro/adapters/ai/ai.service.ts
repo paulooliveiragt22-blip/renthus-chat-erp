@@ -197,7 +197,8 @@ const SYSTEM_PROMPT = `${buildDeliverySpecialistSystemPreamble()}
 - Após prepare_order_draft ok: NÃO diga "pedido montado" nem "aguarde o resumo" — o servidor envia botões de pagamento/confirmação. Só confirme o que falta se a tool indicar.
 - NUNCA invente payment_method nem change_for: só se o cliente disse pix/dinheiro/cartão ou troco. Sem pagamento no draft: o servidor manda botões — não invente na prosa.
 - Se o cliente quer TROCAR/SUBSTITUIR um item: search_produtos do produto NOVO, depois prepare_order_draft com o UUID permitido. Não use bootstrap/extract paralelo — só tools.
-- Se o cliente quer acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
+- Se o cliente quiser acrescentar itens, chame prepare_order_draft com a quantidade. Não afirme "pedido confirmado" — só o botão Confirmar + RPC fecham.
+- Se o cliente pedir observação no pedido (ex.: "sem alface", "tocar campainha", "sem gelo"): passe order_notes no prepare_order_draft com o texto do pedido inteiro. Não invente item nem observação. Não use observação por produto.
 - Se o cliente citar MAIS DE UM produto na mesma mensagem (ex.: "quero skol e original"): toda chamada de search_produtos exige o campo outros_produtos_pendentes com os demais produtos citados e ainda não buscados (array vazio se não sobrar nenhum). Não avance para endereço/pagamento com produto citado e ainda não buscado.
 - Se o cliente citar um produto SEM dizer a quantidade (ex.: "quero original", sem número): não assuma quantity=1 — pergunte quantas unidades ele quer antes de chamar prepare_order_draft para esse item (exceção: contexto deixa claro que é 1, ex.: "me manda uma coca").
 - Se search_produtos retornar items vazio ou did_you_mean, use isso — não invente produto.
@@ -229,6 +230,7 @@ function buildDraftSnapshotForModel(draft: OrderDraft | null): string {
         "\n\n--- Rascunho atual no servidor (não apague itens sem o cliente pedir) ---\n" +
         lines.join("\n") +
         `\npagamento=${draft.paymentMethod ?? "null"} | endereco=${draft.address ? "sim" : "nao"}` +
+        (draft.orderNotes ? `\nobs=${draft.orderNotes}` : "") +
         "\nEm troca/substituição: search_produtos do produto NOVO (não só 'caixa'); prepare com UUID permitido; use removeDraftItemsMatchingName no servidor só via fluxo de tools — não invente IDs." +
         "\n--- Fim rascunho ---\n"
     );

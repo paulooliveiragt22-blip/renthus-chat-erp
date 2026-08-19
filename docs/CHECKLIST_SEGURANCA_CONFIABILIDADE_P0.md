@@ -30,7 +30,7 @@ existente).
 | 5 | Runbook de backup/DR do Postgres | Crítico | [x] 2026-08-11 |
 | 6 | CI: lint + typecheck/build + `npm audit` como gate | Alto | [x] 2026-08-11 |
 | 7 | Envelope de erro único na API | Alto | [x] |
-| 8 | Extrair `whatsapp/flows` e `process-queue` para use cases | Alto | [x] `process-queue` extraído; `whatsapp/flows` cancelado (descontinuado, ver F5) |
+| 8 | Extrair `whatsapp/flows` e `process-queue` para use cases | Alto | [x] `process-queue` extraído; Flow Meta retirado (F5d) |
 | 9 | Rate limit + idempotência em PDV/checkout | Alto | [x] 2026-08-11 |
 
 ---
@@ -167,8 +167,6 @@ atualizados no mesmo commit — sem parâmetro "opcional só por precaução" de
   `resolvePendingOrderConfirmation.ts` e `orderStage.ts` — só não era usado).
 - `lib/public-menu/checkout/createWebMenuOrder.ts`: gera chave via `buildOrderIdempotencyKey`
   (`scopeId = session.customerId`).
-- `app/api/whatsapp/flows/route.ts` (2 call sites — PAYMENT e CAMINHO CATÁLOGO): gera chave via
-  `buildOrderIdempotencyKey` (`scopeId = threadId`).
 - `src/marketplaces/services/importMarketplaceOrder.ts`: passa
   `marketplace_${provider}:${external.externalOrderId}` como chave — defesa em camadas além do
   dedup próprio já existente por `marketplace_external_orders.external_order_id`.
@@ -448,13 +446,10 @@ nenhuma mensagem crua do Postgres (`err.message`) vazando pro client em rota pil
 **Objetivo:** os 2 maiores concentradores de complexidade fora de `src/pro` — Route Handler
 fazendo auth + query + regra de negócio + I/O externo tudo junto.
 
-**Decisão de escopo (2026-08-11, aprovada):** o WhatsApp Flow inteiro (os 4 flow types de
-`app/api/whatsapp/flows/route.ts` — `status`, `address_register`, `catalog`, `checkout` legado)
-**vai ser descontinuado**, substituído pelo cardápio web (ver
-`docs/CHECKLIST_CARDAPIO_WEB_MARKETPLACE.md` F5). Não faz sentido investir em extração/testes
-extensos num arquivo com prazo de validade conhecido — **cancelado**, nenhuma mudança de código
-nele por causa deste item. `process-queue/route.ts` não é afetado por essa descontinuação
-(processa a fila do chatbot em geral, não só Flow) e seguiu como único alvo real desta frente.
+**Decisão de escopo (2026-08-11, aprovada; inbound removido 2026-08-17):** o WhatsApp Flow inteiro
+foi descontinuado e **retirado do runtime** (webhook, send, tipos, JSON) — ver
+`docs/CHECKLIST_CARDAPIO_WEB_MARKETPLACE.md` F5d. Extração do Route Handler deixou de fazer
+sentido. `process-queue` não era específico de Flow e segue como único alvo real desta frente.
 
 **Arquivos alterados:**
 - `app/api/chatbot/process-queue/route.ts` (784 → ~200 linhas): reduzido a auth (`validateCronAuthorization`)
@@ -565,7 +560,7 @@ pedido.
 - Item 6 (CI gate) pode expor uma quantidade grande de erros de lint/tipo pré-existentes — decidir
   na implementação se o gate entra bloqueante de imediato ou com período de tolerância.
 - Itens 3 e 9 usaram chave de idempotência **derivada no servidor** (hash do conteúdo do carrinho)
-  nas rotas sem chave natural do cliente (web menu, WhatsApp Flow, PDV) — não exigiu mudança de
+  nas rotas sem chave natural do cliente (web menu, PDV) — não exigiu mudança de
   contrato de frontend. Trade-off aceito: pedido genuinamente novo com carrinho **byte-idêntico** ao
   anterior no mesmo escopo dentro da mesma "sessão" colide (mesma chave) — aceitável pré-produção;
   se algum dia isso incomodar de verdade, a evolução natural é o frontend gerar um UUID por

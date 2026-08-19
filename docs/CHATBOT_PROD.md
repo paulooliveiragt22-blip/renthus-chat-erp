@@ -262,7 +262,7 @@ Decisão de UX/estado para PRO V2: o orquestrador deve resolver os passos de che
 - **Saudação contextual:** no início da conversa, distinguir primeiro acesso vs cliente recorrente e mostrar botões (`Cardápio`, `Meu pedido`, `Falar com atendente`).
 - **Mensagem inicial já completa (itens + endereço + pagamento):** devolver resumo entendido e botões `Confirmar`, `Corrigir`, `Adicionar produtos`.
 - **Pagamento:** botões interativos (`PIX`, `Cartão`, `Dinheiro`). Se `Dinheiro`, pedir `Troco pra quanto?` e persistir no draft.
-- **Endereço:** se o servidor resolver rua+número+bairro+cidade+UF (salvo ou digitado), **não** pede “Confirma este endereço?” — avança para pagamento ou resumo. Corrigir endereço continua via `Corrigir` / flow.
+- **Endereço:** se o servidor resolver rua+número+bairro+cidade+UF (salvo ou digitado), **não** pede “Confirma este endereço?” — avança para pagamento ou resumo. Corrigir endereço continua via `Corrigir`.
 - **Resumo final:** card único do servidor com itens, **taxa**, total e botões `Confirmar` / `Corrigir` / `Adicionar produtos` (não depender da IA para R$). Clarificação de produto: só botões/lista do servidor; “Opção 2” mapeia para a embalagem.
 - **Proibição de UX enganosa:** não emitir “pedido confirmado” antes de retorno `ok` do RPC de criação.
 
@@ -278,7 +278,7 @@ Implementação actual no PRO (`runProPipeline` — único motor para plano PRO)
 
 | Peça | Onde | O que faz |
 |------|------|-------------|
-| Saudação + menu | `src/pro/pipeline/stages/routeStage.ts` | `greeting`, `faq` e **`unknown`**: uma mensagem `buttons` + flows `btn_catalog` / `btn_status` quando há `flowCatalogId` / `flowStatusId` (por canal). |
+| Saudação + menu | `src/pro/pipeline/stages/routeStage.ts` | `greeting`, `faq` e **`unknown`**: uma mensagem `buttons` + CTA `cta_url` do cardápio (`webMenuUrl`) para `btn_catalog` / `btn_status`. |
 | Quick actions (checkout) | `runProPipeline.ts` + `stages/checkoutPostProcess.ts` (`applyQuickAction`) | IDs `pro_edit_order`, `pro_add_items`, `pro_cancel_order`, `pro_pay_*`, `pro_confirm_saved_address`, `pro_confirm_typed_address`; troco em `pro_awaiting_change_amount`; texto `cancelar` / `desistir` cancela o rascunho. Após cada quick action, `withResolvedSlotStep` alinha `ProStep` ao draft. |
 | Slots de checkout (passo explícito) | `src/pro/pipeline/orderSlotStep.ts` (`resolveProStepFromDraft`, `withResolvedSlotStep`) | Sincroniza `ProStep` com o draft: endereço estruturalmente completo sem pagamento → `pro_awaiting_address_confirmation` (salvo ou digitado); após confirmar endereço → `pro_awaiting_payment_method`; dinheiro sem troco → `pro_awaiting_change_amount`; draft completo → `pro_awaiting_confirmation`. |
 | Pós-processamento UI | `stages/checkoutPostProcess.ts` | `buildAddressConfirmationMessage` com morada completa e sem pagamento (com ou sem `enderecoClienteId`); botões de pagamento só após confirmação de endereço; confirmação final em `pro_awaiting_confirmation`. Mensagens interactivas primeiro (`prioritizeInteractiveFirst`). |

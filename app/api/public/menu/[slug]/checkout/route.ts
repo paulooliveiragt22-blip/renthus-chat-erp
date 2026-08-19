@@ -63,6 +63,7 @@ export async function POST(
             savedAddressId: body.savedAddressId,
             newAddress: body.newAddress,
             idempotencyKey: body.idempotencyKey,
+            notes: body.notes,
         },
     });
 

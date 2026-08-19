@@ -76,7 +76,9 @@ import {
 
 // ─── helpers puros ───────────────────────────────────────────────────────────
 
-function canCancel(s: string) { return s !== "canceled" && s !== "finalized" && s !== "delivered"; }
+function canCancel(s: string) {
+    return s !== "canceled" && s !== "delivered";
+}
 function canPrepare(s: string) { return s === "new"; }
 function canDeliver(s: string, fulfillmentType?: string | null) {
     if (String(fulfillmentType ?? "delivery") === "pickup") return false;
@@ -890,7 +892,9 @@ export default function PedidosPage() {
         if (!res.ok) {
             const code = String(json?.error ?? "");
             const label =
-                code === "chatbot_prazo_forbidden"
+                code === "reason_required"
+                    ? "Informe uma observação para cancelar o pedido."
+                    : code === "chatbot_prazo_forbidden"
                     ? "A prazo não é permitido neste canal (WhatsApp/cardápio)."
                     : code === "customer_required_for_prazo"
                       ? "Selecione um cliente para vender a prazo."
@@ -971,7 +975,9 @@ export default function PedidosPage() {
         setMsg(
             actionKind === "finalize"
                 ? "✅ Pedido finalizado. Agradecimento enviado ao cliente (se houver WhatsApp)."
-                : "✅ Pedido atualizado."
+                : actionKind === "cancel"
+                  ? "✅ Pedido cancelado. Lançamentos estornados e estoque restaurado."
+                  : "✅ Pedido atualizado."
         );
         setOpenAction(false); setActionSaving(false);
         await loadOrders();
@@ -1464,7 +1470,7 @@ export default function PedidosPage() {
             ? `<div style="margin-top:4px"><b>Entregador:</b> <b>${escapeHtml(driver.name)}</b>${driver.vehicle ? ` • ${escapeHtml(driver.vehicle)}` : ""}${driver.plate ? ` (${escapeHtml(driver.plate)})` : ""}</div>`
             : "";
 
-        w.document.write(`<html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:10px;max-width:460px}h1{font-size:16px;font-weight:700;margin:5px 0 3px}table{width:100%;border-collapse:collapse;margin-top:6px}.obs{border:1px solid #ddd;border-radius:5px;padding:5px;margin-top:6px;font-size:10px;font-weight:700;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:3px 8px;border:1px solid #999;border-radius:5px;cursor:pointer;font-size:10px;margin-bottom:5px">Imprimir</button><h1>Pedido #${String(full.id).slice(0,8).toUpperCase()} &bull; ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div style="font-size:10px;margin:1px 0"><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div style="font-size:10px;margin:1px 0"><b>Modo:</b> ${escapeHtml(fulfillLabel.toUpperCase())}</div><div style="font-size:10px;margin:1px 0"><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} &bull; ${escapeHtml(cust?.phone ?? "")}</div><div style="font-size:10px;margin:1px 0"><b>${isPickupFulfillment(fulfillType) ? "Retirada" : "End"}:</b> ${escapeHtml(addrLine)}</div>${driverLine}<div style="font-size:10px;margin-top:3px"><b>Pagamento:</b> ${escapeHtml(pmLabel)}${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${(full as any).details ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><tbody>${itemsHtml}</tbody></table><div style="margin-top:8px">${isPickupFulfillment(fulfillType) ? "" : `<div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div>`}<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:2px solid #222;padding-top:3px;margin-top:3px"><span>TOTAL</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+        w.document.write(`<html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:10px;max-width:460px}h1{font-size:16px;font-weight:700;margin:5px 0 3px}table{width:100%;border-collapse:collapse;margin-top:6px}.obs{border:1px solid #ddd;border-radius:5px;padding:5px;margin-top:6px;font-size:10px;font-weight:700;color:${ORANGE}}@media print{button{display:none}}</style></head><body><button onclick="window.print()" style="padding:3px 8px;border:1px solid #999;border-radius:5px;cursor:pointer;font-size:10px;margin-bottom:5px">Imprimir</button><h1>Pedido #${String(full.id).slice(0,8).toUpperCase()} &bull; ${new Date(full.created_at).toLocaleString("pt-BR")}</h1><div style="font-size:10px;margin:1px 0"><b>Status:</b> ${escapeHtml(prettyStatus(String((full as any).status)))}</div><div style="font-size:10px;margin:1px 0"><b>Modo:</b> ${escapeHtml(fulfillLabel.toUpperCase())}</div><div style="font-size:10px;margin:1px 0"><b>Cliente:</b> ${escapeHtml(cust?.name ?? "-")} &bull; ${escapeHtml(cust?.phone ?? "")}</div><div style="font-size:10px;margin:1px 0"><b>${isPickupFulfillment(fulfillType) ? "Retirada" : "End"}:</b> ${escapeHtml(addrLine)}</div>${driverLine}<div style="font-size:10px;margin-top:3px"><b>Pagamento:</b> ${escapeHtml(pmLabel)}${paidFlag ? " <b>(pago)</b>" : ""}${payExtra}</div>${String((full as any).notes ?? "").trim() ? `<div class="obs">OBS: ${escapeHtml(String((full as any).notes))}</div>` : ""}${(full as any).details && !String((full as any).notes ?? "").trim() ? `<div class="obs">OBS: ${escapeHtml(String((full as any).details))}</div>` : ""}<table><tbody>${itemsHtml}</tbody></table><div style="margin-top:8px">${isPickupFulfillment(fulfillType) ? "" : `<div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span>Taxa entrega</span><span>R$ ${formatBRL((full as any).delivery_fee ?? 0)}</span></div>`}<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:2px solid #222;padding-top:3px;margin-top:3px"><span>TOTAL</span><span>R$ ${formatBRL((full as any).total_amount ?? 0)}</span></div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
         w.document.close();
     }
 
@@ -1747,7 +1753,7 @@ export default function PedidosPage() {
                         const showAddr   = isPickupFulfillment(fulfill) || Boolean(addr && addr !== "Não informado");
                         const pmKey      = String((o as any).payment_method ?? "");
                         const pmStr      = paymentLabel(pmKey);
-                        const obs        = ((o as any).details ?? "").trim();
+                        const obs        = (String((o as any).notes ?? "").trim() || String((o as any).details ?? "").trim());
                         const recentTs   = recentOrders[o.id];
                         const isRecent   = !!recentTs && Date.now() - recentTs < 60000;
                         const isFlashing = flashOrders.has(o.id);
@@ -2119,6 +2125,14 @@ export default function PedidosPage() {
                 setNote={setActionNote}
                 saving={actionSaving}
                 onConfirm={runAction}
+                orderStatus={
+                    actionOrderId
+                        ? String(
+                              (orders.find((o) => o.id === actionOrderId) as { status?: string } | undefined)
+                                  ?.status ?? ""
+                          )
+                        : undefined
+                }
                 orderPaymentMethod={(orders.find(o => o.id === actionOrderId) as any)?.payment_method}
                 paymentMethod={actionPayMethod}
                 setPaymentMethod={setActionPayMethod}

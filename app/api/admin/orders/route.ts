@@ -4,6 +4,7 @@ import { orderItemsForAdminRpc } from "@/lib/server/orders/rpcAdminOrderItems";
 import { enqueuePreparingNotify } from "@/lib/orders/enqueuePreparingNotify";
 import { scheduleOutboundWorkerWake } from "@/lib/chatbot/outbound/outboundWorkerWake";
 import { recognizeOrderSale } from "@/src/financeiro/application/recognizeOrderSale";
+import { reverseOrderSale } from "@/src/financeiro/application/reverseOrderSale";
 import { financeRpcFailure } from "@/src/financeiro/application/http";
 import {
     assertFulfillmentAllowed,
@@ -34,7 +35,7 @@ export async function GET() {
     const { data, error } = await admin
         .from("orders")
         .select(
-            `id, status, channel, source, driver_id, total_amount, delivery_fee, delivery_address, payment_method, paid, change_for, created_at, details, fulfillment_type, customers ( name, phone, address ), order_items ( product_name, quantity, unit_price, line_total )`
+            `id, status, channel, source, driver_id, total_amount, delivery_fee, delivery_address, payment_method, paid, change_for, created_at, details, notes, fulfillment_type, customers ( name, phone, address ), order_items ( product_name, quantity, unit_price, line_total )`
         )
         .eq("company_id", companyId)
         .neq("confirmation_status", "pending_confirmation")
@@ -74,17 +75,20 @@ export async function PATCH(req: Request) {
         const nextStatus = String(body.status).trim().toLowerCase();
 
         if (nextStatus === "canceled") {
-            const { error: cErr } = await admin.rpc("rpc_admin_cancel_order", {
-                p_company_id: companyId,
-                p_order_id: id,
-                p_reject_confirmation: false,
-            });
-            if (cErr) {
-                const msg = cErr.message ?? "cancel_failed";
-                if (/settlement_conflict/i.test(msg)) {
-                    return NextResponse.json({ error: "settlement_conflict" }, { status: 409 });
-                }
-                return NextResponse.json({ error: msg }, { status: 500 });
+            const note = body.details != null ? String(body.details).trim() : "";
+            if (!note) {
+                return NextResponse.json({ error: "reason_required" }, { status: 400 });
+            }
+            try {
+                await reverseOrderSale(admin, {
+                    companyId,
+                    orderId: id,
+                    reason: note,
+                    rejectConfirmation: false,
+                });
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : "cancel_failed";
+                return financeRpcFailure(msg);
             }
             statusChangedTo = "canceled";
         } else {

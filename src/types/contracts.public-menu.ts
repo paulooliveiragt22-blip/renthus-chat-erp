@@ -241,6 +241,8 @@ export interface PublicMenuCheckoutInput {
      * chave nova = novo pedido mesmo com carrinho idêntico.
      */
     idempotencyKey?: string | null;
+    /** Observação do cliente no resumo (opcional, máx. 500). */
+    notes?: string | null;
 }
 
 export type PublicMenuCheckoutResult =
@@ -312,6 +314,7 @@ export interface PublicMenuOrderDetail extends PublicMenuOrderSummary {
     items: PublicMenuOrderItem[];
     source: string | null;
     channel: string | null;
+    notes: string | null;
 }
 
 export type PublicMenuOrdersListResult =

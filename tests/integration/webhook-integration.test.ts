@@ -119,10 +119,6 @@ before(async () => {
                 sentMessages.push(body);
                 return { ok: true };
             },
-            sendFlowMessage: async (_phone: string, payload: { bodyText?: string }) => {
-                if (payload?.bodyText) sentMessages.push(payload.bodyText);
-                return { ok: true };
-            },
         },
     };
 

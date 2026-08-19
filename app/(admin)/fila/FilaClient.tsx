@@ -116,6 +116,7 @@ interface PendingOrder {
   delivery_fee: number;
   change_for: number | null;
   created_at: string;
+  notes?: string | null;
   customers: { name: string | null; phone: string | null } | null;
   order_items: OrderItem[];
 }
@@ -540,6 +541,15 @@ export default function FilaClient() {
                     </p>
                   </div>
                 )}
+
+                {order.notes?.trim() ? (
+                  <div>
+                    <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">
+                      Observações
+                    </p>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300">{order.notes}</p>
+                  </div>
+                ) : null}
 
                 {/* Pagamento */}
                 <div className="flex gap-4">

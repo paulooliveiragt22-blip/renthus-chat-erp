@@ -38,10 +38,18 @@ export type PostCashMovementInput = {
     idempotencyKey: string;
 };
 
+export type ReverseOrderSaleInput = {
+    companyId: string;
+    orderId: string;
+    reason?: string | null;
+    rejectConfirmation?: boolean;
+};
+
 export type FinanceCommandPort = {
     recognizeOrderSale(admin: SupabaseClient, input: RecognizeOrderSaleInput): Promise<unknown>;
     settleBill(admin: SupabaseClient, input: SettleBillInput): Promise<unknown>;
     postOpex(admin: SupabaseClient, input: PostOpexInput): Promise<unknown>;
     reverseJournal(admin: SupabaseClient, input: ReverseJournalInput): Promise<unknown>;
     postCashMovement(admin: SupabaseClient, input: PostCashMovementInput): Promise<unknown>;
+    reverseOrderSale(admin: SupabaseClient, input: ReverseOrderSaleInput): Promise<unknown>;
 };

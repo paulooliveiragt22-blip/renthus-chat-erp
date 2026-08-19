@@ -46,6 +46,44 @@ describe("orderDraftPresenter", () => {
         assert.match(s, /PIX/);
     });
 
+    it("inclui observação do pedido no resumo", () => {
+        const draft: OrderDraft = {
+            items: [
+                {
+                    produtoEmbalagemId: "a",
+                    productName: "Hambúrguer",
+                    quantity: 1,
+                    unitPrice: 25,
+                    fatorConversao: 1,
+                    productVolumeId: null,
+                    estoqueUnidades: 10,
+                },
+            ],
+            address: {
+                logradouro: "Rua A",
+                numero: "1",
+                bairro: "Centro",
+                cidade: "Sorriso",
+                estado: "MT",
+                complemento: null,
+            },
+            paymentMethod: "pix",
+            changeFor: null,
+            deliveryFee: 0,
+            deliveryZoneId: null,
+            deliveryAddressText: "Rua A, 1",
+            deliveryMinOrder: null,
+            deliveryEtaMin: null,
+            totalItems: 25,
+            grandTotal: 25,
+            pendingConfirmation: true,
+            orderNotes: "sem alface",
+            version: 1,
+        };
+        const s = formatCanonicalDraftSummary(draft);
+        assert.match(s, /Obs\.: sem alface/);
+    });
+
     it("clarificação lista preços e pede número", () => {
         const body = formatSearchPicksClarificationBody([
             { embalagemId: "a", label: "UN", price: 10 },

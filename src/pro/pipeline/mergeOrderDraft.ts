@@ -185,6 +185,8 @@ export function mergePreparedDraftIntoCurrent(
         pendingConfirmation,
         addressResolutionNote:
             prepared.addressResolutionNote ?? current.addressResolutionNote ?? null,
+        orderNotes:
+            prepared.orderNotes !== undefined ? prepared.orderNotes : (current.orderNotes ?? null),
         version: 1,
     };
     return fulfillmentType === "pickup" ? applyPickupTotals(merged) : merged;

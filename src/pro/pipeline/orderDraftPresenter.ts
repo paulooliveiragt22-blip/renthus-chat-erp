@@ -11,6 +11,7 @@ function brl(n: number): string {
 function paymentLabel(pm: OrderDraft["paymentMethod"]): string {
     if (pm === "pix") return "PIX";
     if (pm === "card") return "Cartão";
+    if (pm === "debit") return "Débito";
     if (pm === "cash") {
         return "Dinheiro";
     }
@@ -61,6 +62,10 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
         lines.push(`Troco para: R$ ${brl(Number(draft.changeFor))}`);
     }
     lines.push(`Endereço: ${addressLine(draft)}`);
+    const obs = String(draft.orderNotes ?? "").trim();
+    if (obs) {
+        lines.push(`Obs.: ${obs}`);
+    }
     lines.push("");
     lines.push("Revise e escolha uma opção:");
 

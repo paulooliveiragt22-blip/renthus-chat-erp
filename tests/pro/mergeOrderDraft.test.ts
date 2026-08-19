@@ -70,6 +70,20 @@ describe("mergePreparedDraftIntoCurrent", () => {
         const prepared = draft([item("x", "X")]);
         assert.equal(mergePreparedDraftIntoCurrent(null, prepared), prepared);
     });
+
+    it("preserva orderNotes do draft atual se o prepare não enviou", () => {
+        const current = draft([item("a", "A")], { orderNotes: "sem alface" });
+        const prepared = draft([item("b", "B")]);
+        const merged = mergePreparedDraftIntoCurrent(current, prepared);
+        assert.equal(merged!.orderNotes, "sem alface");
+    });
+
+    it("atualiza orderNotes quando o prepare envia", () => {
+        const current = draft([item("a", "A")], { orderNotes: "antiga" });
+        const prepared = draft([item("a", "A")], { orderNotes: "tocar campainha" });
+        const merged = mergePreparedDraftIntoCurrent(current, prepared);
+        assert.equal(merged!.orderNotes, "tocar campainha");
+    });
 });
 
 describe("unionAllowlistWithDraftIds", () => {

@@ -97,13 +97,13 @@ function buildDeps(params: {
             savedState = state;
         },
     };
-    const sent: Array<{ kind?: string; text?: string; flow?: { flowId: string } }> = [];
+    const sent: Array<{ kind?: string; text?: string; ctaUrl?: { url: string } }> = [];
     const messageGateway: MessageGateway = {
         send: async (_tenant, message) => {
             sent.push({
                 kind: message.kind,
                 text: message.text,
-                flow: message.flow,
+                ctaUrl: message.ctaUrl,
             });
         },
     };
@@ -286,7 +286,6 @@ describe("novo pipeline PRO - falhas reais", () => {
             },
             deps
         );
-        assert.ok(out.outbound.every((m) => m.kind !== "flow"));
         assert.ok(
             out.outbound.some(
                 (m) =>
@@ -310,7 +309,6 @@ describe("novo pipeline PRO - falhas reais", () => {
             },
             deps
         );
-        assert.ok(out.outbound.every((m) => m.kind !== "flow"));
         assert.ok(
             out.outbound.some(
                 (m) => m.kind === "cta_url" && m.ctaUrl?.url === menuUrl

@@ -3,9 +3,68 @@ import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { prepareOrderDraftFromTool } from "../../src/pro/tools/prepareOrderDraft";
 
+function stubAdminForAllowlistTests(
+    viewChatProdutosMaybeSingle: () => Promise<{ data: unknown }> = async () => ({ data: null })
+): SupabaseClient {
+    return {
+        from(table: string) {
+            if (table === "companies") {
+                return {
+                    select() {
+                        return {
+                            eq() {
+                                return {
+                                    maybeSingle: async () => ({
+                                        data: {
+                                            settings: {
+                                                accepted_customer_payments: {
+                                                    pix: true,
+                                                    cash: true,
+                                                    card: true,
+                                                    debit: false,
+                                                },
+                                            },
+                                        },
+                                    }),
+                                };
+                            },
+                        };
+                    },
+                };
+            }
+            if (table === "view_chat_produtos") {
+                return {
+                    select() {
+                        return {
+                            eq() {
+                                return {
+                                    maybeSingle: viewChatProdutosMaybeSingle,
+                                };
+                            },
+                        };
+                    },
+                };
+            }
+            return {
+                select() {
+                    return {
+                        eq() {
+                            return {
+                                eq() {
+                                    return { maybeSingle: async () => ({ data: null }) };
+                                },
+                            };
+                        },
+                    };
+                },
+            };
+        },
+    } as unknown as SupabaseClient;
+}
+
 describe("prepareOrderDraftFromTool / search_allowlist", () => {
     it("rejeita produto_embalagem_id fora da allowlist antes de tocar no catálogo", async () => {
-        const admin = null as unknown as SupabaseClient;
+        const admin = stubAdminForAllowlistTests();
         const res = await prepareOrderDraftFromTool(
             admin,
             "00000000-0000-0000-0000-000000000001",
@@ -34,7 +93,7 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
     });
 
     it("rejeita slug textual (não UUID) com mensagem específica em search_allowlist", async () => {
-        const admin = null as unknown as SupabaseClient;
+        const admin = stubAdminForAllowlistTests();
         const res = await prepareOrderDraftFromTool(
             admin,
             "00000000-0000-0000-0000-000000000001",
@@ -57,7 +116,7 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
     });
 
     it("com allowlist vazia e itens, exige search_produtos primeiro", async () => {
-        const admin = null as unknown as SupabaseClient;
+        const admin = stubAdminForAllowlistTests();
         const res = await prepareOrderDraftFromTool(
             admin,
             "00000000-0000-0000-0000-000000000001",
@@ -80,36 +139,7 @@ describe("prepareOrderDraftFromTool / search_allowlist", () => {
 
     it("com única embalagem na allowlist e UUID inventado, substitui pelo id permitido antes de carregar o catálogo", async () => {
         const sole = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
-        const admin = {
-            from(table: string) {
-                if (table === "view_chat_produtos") {
-                    return {
-                        select() {
-                            return {
-                                eq() {
-                                    return {
-                                        maybeSingle: async () => ({ data: null }),
-                                    };
-                                },
-                            };
-                        },
-                    };
-                }
-                return {
-                    select() {
-                        return {
-                            eq() {
-                                return {
-                                    eq() {
-                                        return { maybeSingle: async () => ({ data: null }) };
-                                    },
-                                };
-                            },
-                        };
-                    },
-                };
-            },
-        } as unknown as SupabaseClient;
+        const admin = stubAdminForAllowlistTests(async () => ({ data: null }));
         const res = await prepareOrderDraftFromTool(
             admin,
             "00000000-0000-0000-0000-000000000001",

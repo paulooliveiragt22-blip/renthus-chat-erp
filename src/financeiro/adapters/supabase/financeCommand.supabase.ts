@@ -5,6 +5,7 @@ import type {
     PostOpexInput,
     RecognizeOrderSaleInput,
     ReverseJournalInput,
+    ReverseOrderSaleInput,
     SettleBillInput,
 } from "@/src/financeiro/ports/financeCommand.port";
 
@@ -64,6 +65,14 @@ export const financeCommandSupabase: FinanceCommandPort = {
             p_reason: input.reason,
             p_operator_name: input.operatorName ?? null,
             p_idempotency_key: input.idempotencyKey,
+        });
+    },
+
+    reverseOrderSale(admin, input: ReverseOrderSaleInput) {
+        return rpcOrThrow(admin, "rpc_admin_cancel_order", {
+            p_company_id: input.companyId,
+            p_order_id: input.orderId,
+            p_reject_confirmation: input.rejectConfirmation ?? false,
         });
     },
 };

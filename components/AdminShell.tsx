@@ -87,6 +87,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                 .select(`
                     id, status, channel, total_amount, delivery_fee, payment_method, paid, change_for, created_at,
                     details,
+                    notes,
                     customers ( name, phone, address )
                 `)
                 .eq("id", orderId)
@@ -199,9 +200,9 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                                                 <div className="text-[11px] text-zinc-500">{order.customers?.address ?? "-"}</div>
                                             </div>
                                         </div>
-                                        {order.details && (
+                                        {(order.notes || order.details) && (
                                             <div className="mt-2 text-[11px] font-semibold text-zinc-700">
-                                                OBS: <span>{order.details}</span>
+                                                OBS: <span>{order.notes || order.details}</span>
                                             </div>
                                         )}
                                     </div>

@@ -125,6 +125,7 @@ export default function CheckoutDrawer({
     }, [paymentOptions, paymentMethod]);
 
     const [changeFor, setChangeFor] = useState("");
+    const [orderNotes, setOrderNotes] = useState("");
     const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType | null>(() => {
         if (deliveriesEnabled && !pickupEnabled) return "delivery";
         if (!deliveriesEnabled && pickupEnabled) return "pickup";
@@ -505,6 +506,7 @@ export default function CheckoutDrawer({
                             : addressMode === "new"
                               ? newAddress
                               : null,
+                    notes: orderNotes.trim() || null,
                 }),
             });
             const json = (await res.json()) as PublicMenuCheckoutResult;
@@ -1089,6 +1091,18 @@ export default function CheckoutDrawer({
                                 />
                             </label>
                         )}
+
+                        <label className="block text-sm">
+                            <span className="text-zinc-600">Observações (opcional)</span>
+                            <textarea
+                                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                                rows={2}
+                                maxLength={500}
+                                value={orderNotes}
+                                onChange={(e) => setOrderNotes(e.target.value)}
+                                placeholder="Ex.: hambúrguer sem alface, tocar campainha"
+                            />
+                        </label>
 
                         <div className="flex gap-2">
                             <button

@@ -7,12 +7,11 @@
  * baixa de estoque é irreversível — não delegamos esse gatilho a NLU/regex).
  * Contexto: só é chamado quando `step === pro_awaiting_confirmation`.
  *
- * `confirmar` / `confirmar_pedido` / `confirm_order` eram aliases legados do
- * WhatsApp Flow antigo (`app/api/whatsapp/flows/route.ts`, tela pré-motor-PRO)
- * — removidos daqui porque também casavam com texto puro digitado pelo
- * cliente. Único ID real que os botões do PRO enviam hoje: `pro_confirm_order`
- * (`checkoutPostProcess.ts`); `btn_confirm_order`/`btn_confirmar` seguem como
- * aliases de compatibilidade.
+ * `confirmar` / `confirmar_pedido` / `confirm_order` eram aliases de tela nativa
+ * antiga do WhatsApp — removidos daqui porque também casavam com texto puro
+ * digitado pelo cliente. Único ID real que os botões do PRO enviam hoje:
+ * `pro_confirm_order` (`checkoutPostProcess.ts`); `btn_confirm_order`/`btn_confirmar`
+ * seguem como aliases de compatibilidade.
  */
 
 const CONFIRMATION_BUTTON_IDS = new Set([

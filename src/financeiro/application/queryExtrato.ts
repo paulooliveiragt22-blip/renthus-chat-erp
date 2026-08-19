@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseRow } from "@/src/financeiro/application/queryDashboard";
 import { civilRangeToUtcBounds, loadCompanyTimezone } from "@/src/financeiro/application/cashRevenue";
 import { asMoney } from "@/src/financeiro/domain/money";
+import { ORIGIN_LABELS, normalizeFinanceOrigin } from "@/src/financeiro/domain/origin";
 
 export type ExtratoLine = {
     id: string;
@@ -81,6 +82,24 @@ export async function buildExtratoLines(
                 .filter((id): id is string => Boolean(id))
         ),
     ];
+    const journalIds = pageRows.map((r) => r.id);
+    const traceMeta: Record<
+        string,
+        { orderSourceSnapshot: string | null; orderChannelSnapshot: string | null }
+    > = {};
+    if (journalIds.length > 0) {
+        const { data: traces } = await admin
+            .from("v_fin_journal_trace")
+            .select("id, order_source_snapshot, order_channel_snapshot")
+            .eq("company_id", companyId)
+            .in("id", journalIds);
+        for (const t of traces ?? []) {
+            traceMeta[String(t.id)] = {
+                orderSourceSnapshot: (t.order_source_snapshot as string | null) ?? null,
+                orderChannelSnapshot: (t.order_channel_snapshot as string | null) ?? null,
+            };
+        }
+    }
     const orderMeta: Record<string, { customer: string; customerId: string | null; status: string | null }> =
         {};
     if (orderIds.length > 0) {
@@ -101,6 +120,14 @@ export async function buildExtratoLines(
 
     for (const row of pageRows) {
         const meta = row.order_id ? orderMeta[row.order_id] : undefined;
+        const trace = traceMeta[row.id];
+        const originKey = normalizeFinanceOrigin(
+            trace?.orderSourceSnapshot ?? row.origin ?? "manual"
+        );
+        const channelLabel = ORIGIN_LABELS[originKey];
+        const channelDetail = trace?.orderChannelSnapshot
+            ? `${channelLabel} · ${trace.orderChannelSnapshot}`
+            : channelLabel;
         const isExpense = row.line_type === "expense";
         const cash = asMoney(row.cash_amount);
         const amount = isExpense ? asMoney(row.debit_total) : cash !== 0 ? cash : asMoney(row.debit_total);
@@ -115,7 +142,7 @@ export async function buildExtratoLines(
                     ? `Pedido #${String(row.order_id).slice(-6).toUpperCase()}`
                     : row.source_type),
             customer: meta?.customer ?? "—",
-            channel: String(row.origin ?? "—"),
+            channel: channelDetail,
             payment_method: String(row.payment_method ?? "—"),
             amount,
             status: row.status === "posted" ? (isExpense ? "pago" : "recebido") : row.status,

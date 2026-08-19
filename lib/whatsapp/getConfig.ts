@@ -9,10 +9,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface WhatsAppConfig {
-    token:           string;
-    phoneNumberId:   string;
-    flowId:          string | null;
-    flowsPrivateKey: string | null;
+    token:         string;
+    phoneNumberId: string;
 }
 
 export async function getWhatsAppConfig(
@@ -30,9 +28,7 @@ export async function getWhatsAppConfig(
     const cfg = (data?.config ?? {}) as Record<string, string>;
 
     return {
-        token:           cfg.token           ?? process.env.WHATSAPP_TOKEN           ?? "",
-        phoneNumberId:   cfg.phone_number_id  ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-        flowId:          cfg.flow_id          ?? process.env.WHATSAPP_FLOW_ID         ?? null,
-        flowsPrivateKey: cfg.flows_private_key ?? process.env.WHATSAPP_FLOWS_PRIVATE_KEY ?? null,
+        token:         cfg.token            ?? process.env.WHATSAPP_TOKEN           ?? "",
+        phoneNumberId: cfg.phone_number_id  ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
     };
 }

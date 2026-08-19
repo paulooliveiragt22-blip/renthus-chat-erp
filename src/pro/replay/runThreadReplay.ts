@@ -200,8 +200,8 @@ export async function runThreadReplay(params: {
             text:
                 m.kind === "text"
                     ? m.text
-                    : m.kind === "flow"
-                      ? m.flow?.bodyText
+                    : m.kind === "cta_url"
+                      ? m.ctaUrl?.bodyText
                       : m.text || (m.buttons ?? []).map((b) => b.title).join(" | "),
         }));
 

@@ -1,11 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderService } from "../../services/order/order.types";
-import type { DraftAddress, OrderDraft, OrderServiceResult } from "@/src/types/contracts";
+import type { DraftAddress, OrderDraft, OrderServiceResult, PaymentMethod } from "@/src/types/contracts";
 import { isPickupDraft } from "@/lib/delivery/fulfillment";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { resolveOrCreateCustomerByIdentity } from "@/lib/chatbot/db/channelIdentity";
 import { loadPackRowForValidation } from "@/src/pro/tools/prepareOrderDraft";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
+import { sanitizeOrderNotes } from "@/lib/orders/sanitizeOrderNotes";
 
 type OrderFailCode = Extract<OrderServiceResult, { ok: false }>["errorCode"];
 
@@ -61,9 +62,10 @@ function buildAddressText(address: DraftAddress): string {
     ].filter(Boolean).join(", ");
 }
 
-function paymentLabel(method: "pix" | "cash" | "card"): string {
+function paymentLabel(method: PaymentMethod): string {
     if (method === "pix") return "PIX";
     if (method === "card") return "Cartão";
+    if (method === "debit") return "Débito";
     return "Dinheiro";
 }
 
@@ -367,6 +369,7 @@ export class OrderServiceV2Adapter implements OrderService {
             p_items: itemsPayload,
             p_idempotency_key: idempotencyKey,
             p_fulfillment_type: fulfillmentType,
+            p_order_notes: sanitizeOrderNotes(draft.orderNotes),
         });
 
         if (orderErr || !orderId) {

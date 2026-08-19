@@ -40,4 +40,19 @@ describe("normalizePrepareDraftAnthropicInput", () => {
         });
         assert.equal(out.changeFor, 50);
     });
+
+    it("mapeia order_notes quando informado", () => {
+        const out = normalizePrepareDraftAnthropicInput({
+            items: [{ id: "x", quantity: 1 }],
+            order_notes: "  sem alface  ",
+        });
+        assert.equal(out.orderNotes, "  sem alface  ");
+    });
+
+    it("omite orderNotes se o modelo não enviou o campo", () => {
+        const out = normalizePrepareDraftAnthropicInput({
+            items: [{ id: "x", quantity: 1 }],
+        });
+        assert.equal(out.orderNotes, undefined);
+    });
 });

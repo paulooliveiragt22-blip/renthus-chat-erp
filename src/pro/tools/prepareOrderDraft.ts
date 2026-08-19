@@ -22,6 +22,7 @@ import type {
 } from "@/src/pro/ports/orderDraft.port";
 import { presentBlockedReasonForModel } from "@/src/pro/adapters/ai/blockedReasonPresenter";
 import { loadAcceptedCustomerPayments } from "@/lib/payments/loadAcceptedCustomerPayments";
+import { sanitizeOrderNotes } from "@/lib/orders/sanitizeOrderNotes";
 import {
     CUSTOMER_PAYMENT_LABELS,
     listEnabledCustomerPayments,
@@ -446,6 +447,9 @@ export async function prepareOrderDraftFromTool(
                   grandTotal: addressUsable ? grandTotal : totalItems,
                   pendingConfirmation: fullOk,
                   addressResolutionNote: addressUsable ? addressNote : null,
+                  ...(body.orderNotes !== undefined
+                      ? { orderNotes: sanitizeOrderNotes(body.orderNotes) }
+                      : {}),
                   version: 1,
               }
             : null;

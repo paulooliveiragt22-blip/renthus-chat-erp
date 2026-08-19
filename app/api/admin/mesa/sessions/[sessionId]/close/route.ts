@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
+import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
 
 export const runtime = "nodejs";
 
@@ -75,6 +76,18 @@ export async function POST(
     const method = pay.method;
     const tableCode = session.table?.code ?? "";
 
+    const idempotencyKey = buildOrderIdempotencyKey({
+        source: "mesa",
+        scopeId: sessionId,
+        items: items.map((i) => ({
+            produtoEmbalagemId: i.produto_embalagem_id,
+            quantity: i.qty,
+            unitPrice: i.unit_price,
+        })),
+        grandTotal: total,
+        paymentMethod: method,
+    });
+
     const { data: finalized, error: finErr } = await admin.rpc("rpc_finalize_pdv_order", {
         p_company_id: companyId,
         p_payload: {
@@ -83,6 +96,9 @@ export async function POST(
             customer_id: session.customer_id ?? null,
             customer_name: tableCode ? `Mesa ${tableCode}` : "Mesa",
             auto_print: body.auto_print === true,
+            order_source: "table_service",
+            channel: "mesa",
+            idempotency_key: idempotencyKey,
             cart: items.map((i) => ({
                 variant_id: i.produto_embalagem_id,
                 produto_id: i.product_id ?? null,

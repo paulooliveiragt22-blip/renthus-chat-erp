@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type FlowEnderecoPayload = {
+export type EnderecoClientePayload = {
     apelido: string;
     logradouro: string;
     numero: string | null;
@@ -15,20 +15,20 @@ export type FlowEnderecoPayload = {
  * Persiste endereço do cliente só via RPC (sem INSERT direto na app).
  * Atualização por `address_id` usa upsert existente; criação usa `rpc_chatbot_pro_create_customer_address`.
  */
-export async function persistEnderecoClienteFromFlow(
+export async function persistEnderecoCliente(
     admin: SupabaseClient,
     params: {
         companyId: string;
         customerId: string;
         existingAddressId: string | null;
-    } & FlowEnderecoPayload
+    } & EnderecoClientePayload
 ): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
     const uf = params.estado.trim().toUpperCase().slice(0, 2);
     if (!params.cidade.trim() || uf.length !== 2) {
         return { ok: false, message: "cidade_estado_obrigatorios" };
     }
     const basePayload: Record<string, unknown> = {
-        apelido:       params.apelido.trim() || "WhatsApp",
+        apelido:       params.apelido.trim() || "Principal",
         logradouro:    params.logradouro.trim(),
         numero:        (params.numero ?? "").trim(),
         complemento:   (params.complemento ?? "").trim(),

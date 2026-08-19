@@ -4,6 +4,7 @@ import React from "react";
 import Modal from "./Modal";
 import { prettyStatus } from "@/lib/orders/helpers";
 import type { OrderStatus } from "@/lib/orders/types";
+import { AlertTriangle } from "lucide-react";
 
 export type ActionKind = "cancel" | "finalize";
 
@@ -14,6 +15,8 @@ const PAYMENT_OPTIONS = [
     { value: "a_prazo", label: "A Prazo / Fiado" },
 ] as const;
 
+const FINALIZED_STATUSES = new Set(["finalized", "entregue", "delivered"]);
+
 export default function ActionModal({
     open,
     onClose,
@@ -22,6 +25,7 @@ export default function ActionModal({
     setNote,
     saving,
     onConfirm,
+    orderStatus,
     orderPaymentMethod,
     paymentMethod,
     setPaymentMethod,
@@ -33,14 +37,19 @@ export default function ActionModal({
     setNote: (v: string) => void;
     saving: boolean;
     onConfirm: () => void;
+    orderStatus?: string;
     orderPaymentMethod?: string;
     paymentMethod?: string;
     setPaymentMethod?: (v: string) => void;
 }) {
     const showPayment = kind === "finalize" && !!setPaymentMethod;
+    const statusNorm = String(orderStatus ?? "").trim().toLowerCase();
+    const isFinalizedCancel = kind === "cancel" && FINALIZED_STATUSES.has(statusNorm);
 
     function actionTitle(k: ActionKind) {
-        if (k === "cancel") return "Cancelar pedido";
+        if (k === "cancel") {
+            return isFinalizedCancel ? "Estornar pedido finalizado" : "Cancelar pedido";
+        }
         return "Finalizar e registrar pagamento";
     }
     function actionStatus(k: ActionKind): OrderStatus {
@@ -51,6 +60,27 @@ export default function ActionModal({
     return (
         <Modal title={actionTitle(kind)} open={open} onClose={onClose} zClass="z-[10050]">
             <div className="grid gap-4">
+
+                {kind === "cancel" && (
+                    <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-800/50 dark:bg-amber-950/30">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <div className="text-xs text-amber-900 dark:text-amber-100">
+                            <p className="font-semibold">Estorno completo (dinheiro + estoque)</p>
+                            <p className="mt-1 text-amber-800/90 dark:text-amber-200/90">
+                                Os produtos deste pedido voltam ao estoque. Se já houve recebimento
+                                ou liquidação financeira, os lançamentos serão estornados no extrato.
+                            </p>
+                            {isFinalizedCancel && (
+                                <p className="mt-1 font-medium">
+                                    Pedido já finalizado — use só se a venda não deve contar.
+                                </p>
+                            )}
+                            <p className="mt-1 text-amber-700/80 dark:text-amber-300/80">
+                                Não é possível estornar se o caixa da venda já foi fechado.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {showPayment && (
                     <div>
@@ -124,6 +154,7 @@ export default function ActionModal({
                 <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
                     Status final: <strong>{prettyStatus(actionStatus(kind))}</strong>
                     {showPayment && " · lançamento financeiro na finalização do pedido"}
+                    {kind === "cancel" && " · itens removidos e estoque creditado"}
                 </p>
             </div>
         </Modal>

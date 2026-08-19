@@ -19,7 +19,7 @@ import {
     isStoreOpen,
     loadStoreHours,
 } from "@/lib/delivery/hours";
-import { persistEnderecoClienteFromFlow } from "@/lib/whatsapp/flows/persistEnderecoClienteRpc";
+import { persistEnderecoCliente } from "@/lib/customers/persistEnderecoCliente";
 import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addresses";
 import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
 import { verifyWebMenuCheckoutSession } from "../sessionToken";
@@ -27,6 +27,7 @@ import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
 import { loadAcceptedCustomerPayments } from "@/lib/payments/loadAcceptedCustomerPayments";
 import { assertCustomerPaymentAllowed } from "@/src/financeiro/domain/acceptedCustomerPayments";
+import { sanitizeOrderNotes } from "@/lib/orders/sanitizeOrderNotes";
 
 export async function createWebMenuOrder(
     admin: SupabaseClient,
@@ -253,7 +254,7 @@ export async function createWebMenuOrder(
             if (!logradouro || !numero || !bairro || !cidade || estado.length !== 2) {
                 return { ok: false, error: "address_incomplete" };
             }
-            const persisted = await persistEnderecoClienteFromFlow(admin, {
+            const persisted = await persistEnderecoCliente(admin, {
                 companyId: params.companyId,
                 customerId: session.customerId,
                 existingAddressId: null,
@@ -340,10 +341,11 @@ export async function createWebMenuOrder(
         p_delivery_endereco_cliente_id: deliveryEnderecoClienteId,
         p_payment_method: paymentMethod,
         p_change_for: changeFor,
-            p_paid: false,
-            p_items: orderItems,
-            p_idempotency_key: idempotencyKey,
-            p_fulfillment_type: fulfillmentType,
+        p_paid: false,
+        p_items: orderItems,
+        p_idempotency_key: idempotencyKey,
+        p_fulfillment_type: fulfillmentType,
+        p_order_notes: sanitizeOrderNotes(params.input.notes),
     });
 
     if (orderErr || !orderId) {
@@ -367,6 +369,7 @@ export async function createWebMenuOrder(
         changeFor,
         etaMin,
         fulfillmentType,
+        notes: sanitizeOrderNotes(params.input.notes),
     });
 
     return {

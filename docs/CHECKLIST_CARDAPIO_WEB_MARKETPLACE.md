@@ -108,28 +108,31 @@ Atualizar ao concluir (`[ ]` → `[x]` + data).
 | F4.2 | Painel analytics (visitas, top produtos, origem UTM) | [x] | 2026-08-04 — RPC + Configurações → Cardápio |
 | F4.3 | Subdomínio custom / domínio próprio | [x] | 2026-08-04 — host rewrite + `custom_domain`; ops: wildcard/CNAME Vercel |
 | F4.4 | Complementos/opcionais iFood → acompanhamentos | [x] | 2026-08-04 — optionGroups→produtos + link ≤2; metadata no map |
-| F4.5 | Cardápio web com fotos no Flow (só destaques) | [ ] | Opcional |
+| F4.5 | Cardápio web com fotos no Flow (só destaques) | [x] | Cancelado — Flow retirado (F5d) |
 
-### F5 — Descontinuar WhatsApp Flow (Meta) em favor do cardápio web
+### F5 — WhatsApp Flow (Meta) retirado — cardápio web é o canal
 
-**Decisão de produto (2026-08-11). Implementado 2026-08-13 (F5a–F5c).**
+**Decisão de produto (2026-08-11). Outbound 2026-08-13 (F5a–F5c). Inbound e assets removidos 2026-08-17.**
 
-WhatsApp Flow outbound (`status`, `address_register`, `catalog`, `checkout`) foi substituído pelo
-cardápio web (`/c/[slug]`). Motivo: UX melhor (fotos reais, sem limite de 3 imagens/base64, sem
-tela nativa do WhatsApp) e infraestrutura F2 já pronta (checkout, endereço, `MyOrdersDrawer`).
+WhatsApp Flow (`status`, `address_register`, `catalog`, `checkout`) foi substituído pelo cardápio
+web (`/c/[slug]`). Motivo: UX melhor (fotos reais, sem limite de 3 imagens/base64) e
+infraestrutura F2 já pronta (checkout, endereço, `MyOrdersDrawer`).
 
 | Fase | O quê | Status |
 |------|--------|--------|
 | F5a | Status/catálogo via `cta_url` (`?orders=1` para Meus pedidos) | [x] `routeStage` |
 | F5b | Snapshot `menu_handoffs` + token `hc` (carrinho **não** vai na URL) | [x] |
-| F5c | Pipeline deixa de enviar Flow; inbound `flows/route.ts` permanece até o dashboard Meta remover os flows | [x] |
+| F5c | Pipeline deixa de enviar Flow outbound | [x] |
+| F5d | Remoção completa: webhook `/api/whatsapp/flows`, `sendFlowMessage`, `kind: "flow"`, JSON/crypto, APIs `/api/catalog/*` do Flow | [x] 2026-08-17 |
 
-Direção:
+Direção (canónico):
 - **Status:** CTA “Meus pedidos” → `withMenuSearchParams(webMenuUrl, { orders: "1" })`. `MenuClient` abre `MyOrdersDrawer`.
 - **Checkout/endereço:** `createCheckoutHandoff` persiste o draft em `menu_handoffs`; URL só leva `hc` + `checkout=1`. GET `/api/public/menu/[slug]/handoff?hc=` hidrata o carrinho.
-- **Inbound Flow:** `app/api/whatsapp/flows/route.ts` e `persistEnderecoClienteFromFlow` ficam para WebView Meta ainda ativo no canal. Remoção do webhook/4 types: depois que o dashboard Meta não tiver mais Flow publicado.
+- **Endereço novo no web:** `persistEnderecoCliente` (`lib/customers/persistEnderecoCliente.ts`).
 
-**Não fazer:** serializar carrinho no token `wm` / query string.
+`p_source = flow_catalog` em pedidos antigos permanece só como rótulo histórico.
+
+**Não fazer:** serializar carrinho no token `wm` / query string; reintroduzir WhatsApp Flow.
 
 ---
 
@@ -194,3 +197,4 @@ Direção:
 | 2026-08-04 | F4.4: complementos iFood → produtos + `produto_embalagem_acompanhamentos` (≤2) |
 | 2026-08-11 | F5 registrada (não implementada): decisão de descontinuar WhatsApp Flow em favor do cardápio web (status do pedido + endereço/checkout via link com carrinho carregado) |
 | 2026-08-13 | F5a–F5c: CTA cardápio/`?orders=1`, tabela `menu_handoffs` + token `hc`, pipeline sem Flow outbound |
+| 2026-08-17 | F5d: WhatsApp Flow retirado do runtime (webhook, send, tipos, JSON, `/api/catalog/*`) |

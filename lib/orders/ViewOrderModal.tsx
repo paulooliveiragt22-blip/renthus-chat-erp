@@ -392,10 +392,20 @@ export default function ViewOrderModal({
                     </div>
 
                     {/* ── OBSERVAÇÕES ── */}
-                    {order.details ? (
+                    {order.notes ? (
                         <div className="rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 p-4">
-                            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-500 dark:text-amber-400">Observações</p>
-                            <p className="text-sm font-bold text-amber-900 dark:text-amber-300">{order.details}</p>
+                            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-500 dark:text-amber-400">
+                                Observações do cliente
+                            </p>
+                            <p className="text-sm font-bold text-amber-900 dark:text-amber-300">{order.notes}</p>
+                        </div>
+                    ) : null}
+                    {order.details ? (
+                        <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/40 p-4">
+                            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                Observações internas
+                            </p>
+                            <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">{order.details}</p>
                         </div>
                     ) : null}
 

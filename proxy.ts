@@ -109,9 +109,8 @@ function handleSuperadminBranch(request: NextRequest, pathname: string): NextRes
 
 function isTechnicalApiPublic(pathname: string): boolean {
     return (
-        /** Webhook + Flows: chamados pela Meta sem cookie de sessão. Demais /api/whatsapp/* exigem login aqui. */
+        /** Webhook Meta: chamado sem cookie de sessão. Demais /api/whatsapp/* exigem login aqui. */
         pathname.startsWith("/api/whatsapp/incoming") ||
-        pathname.startsWith("/api/whatsapp/flows") ||
         /**
          * Rotas de scheduler do chatbot: autenticação própria via Bearer CRON_SECRET
          * (`validateCronAuthorization`). Não incluir `/api/chatbot/*` por prefixo —

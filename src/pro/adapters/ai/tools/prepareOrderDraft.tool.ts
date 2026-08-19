@@ -39,6 +39,12 @@ const prepareOrderDraftInputSchema = z.object({
     payment_method: z.string().optional().describe("pix | cash | card — só se o cliente já informou."),
     change_for: z.unknown().optional().describe("Valor do troco em reais — só se o cliente pediu."),
     ready_for_confirmation: z.unknown().optional(),
+    order_notes: z
+        .string()
+        .optional()
+        .describe(
+            "Observação do pedido inteiro, texto livre do cliente (ex.: sem alface, tocar campainha). Não é por item."
+        ),
 });
 
 /**

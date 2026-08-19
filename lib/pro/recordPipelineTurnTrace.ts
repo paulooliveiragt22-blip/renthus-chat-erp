@@ -14,7 +14,7 @@ export function isPipelineTurnTraceEnabled(
 function outboundForTrace(outbound: OutboundMessage[]) {
     return outbound.map((m) => {
         if (m.kind === "text") return { kind: m.kind, text: m.text };
-        if (m.kind === "flow") return { kind: m.kind, text: m.flow?.bodyText };
+        if (m.kind === "cta_url") return { kind: m.kind, text: m.ctaUrl?.bodyText };
         if (m.kind === "buttons") {
             const titles = (m.buttons ?? []).map((b) => b.title).join(" | ");
             return { kind: m.kind, text: m.text || titles || undefined };

@@ -57,6 +57,12 @@ export function normalizePrepareDraftAnthropicInput(raw: Record<string, unknown>
     if (raw.payment_method != null) paymentMethod = String(raw.payment_method);
     else if (raw.paymentMethod != null) paymentMethod = String(raw.paymentMethod);
 
+    let orderNotes: string | null | undefined;
+    if ("order_notes" in raw || "orderNotes" in raw) {
+        const n = raw.order_notes ?? raw.orderNotes;
+        orderNotes = n == null ? null : String(n);
+    }
+
     return {
         items,
         address,
@@ -66,6 +72,7 @@ export function normalizePrepareDraftAnthropicInput(raw: Record<string, unknown>
         paymentMethod,
         changeFor,
         readyForConfirmation: Boolean(raw.ready_for_confirmation ?? raw.readyForConfirmation),
+        orderNotes,
     };
 }
 

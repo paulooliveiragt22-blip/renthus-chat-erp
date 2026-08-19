@@ -66,11 +66,6 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
         .eq("provider", "meta")
         .eq("status", "active")
         .maybeSingle();
-    const channelMeta = channelRow?.provider_metadata as {
-        catalog_flow_id?: string;
-        status_flow_id?: string;
-        address_register_flow_id?: string;
-    } | null;
     if (process.env.NODE_ENV === "production" && messagingChannel === "whatsapp") {
         if (!channelRow) {
             throw new Error("missing_active_meta_whatsapp_channel");
@@ -85,10 +80,6 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
         phoneNumberId: channelRow?.from_identifier ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
         accessToken: channelRow ? resolveChannelAccessToken(channelRow) : (process.env.WHATSAPP_TOKEN ?? ""),
     };
-    const catalogFlowId = channelMeta?.catalog_flow_id ?? process.env.WHATSAPP_CATALOG_FLOW_ID;
-    const statusFlowId = channelMeta?.status_flow_id ?? process.env.WHATSAPP_STATUS_FLOW_ID;
-    const addressRegisterFlowId =
-        channelMeta?.address_register_flow_id ?? process.env.WHATSAPP_ADDRESS_REGISTER_FLOW_ID;
 
     /**
      * Confirmação de pedido montado pelo atendente (whatsapp_order_confirmations): roda ANTES
@@ -206,8 +197,5 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
         text: body_text,
         profileName: profile_name ?? null,
         waConfig: messagingChannel === "whatsapp" ? waConfig : undefined,
-        catalogFlowId,
-        statusFlowId,
-        addressRegisterFlowId,
     });
 }

@@ -24,6 +24,7 @@ type OrderRow = {
     change_for: number | string | null;
     source: string | null;
     channel: string | null;
+    notes: string | null;
     order_items:
         | Array<{
               product_name: string | null;
@@ -83,13 +84,14 @@ function toDetail(row: OrderRow): PublicMenuOrderDetail {
         items,
         source: row.source,
         channel: row.channel,
+        notes: row.notes?.trim() ? String(row.notes).trim() : null,
     };
 }
 
 const SELECT_LIST = `
     id, created_at, status, confirmation_status,
     total_amount, total, delivery_fee, delivery_address,
-    payment_method, change_for, source, channel,
+    payment_method, change_for, source, channel, notes,
     order_items ( product_name, quantity, unit_price, line_total )
 `;
 

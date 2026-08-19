@@ -121,7 +121,7 @@ export function scrubOutboundForAddressHold(
         if (looksLikeFinalOrderConfirmAsk(t)) continue;
         kept.push(m);
     }
-    const hasInteractive = kept.some((m) => m.kind === "buttons" || m.kind === "flow");
+    const hasInteractive = kept.some((m) => m.kind === "buttons" || m.kind === "cta_url");
     const hasText = kept.some((m) => m.kind === "text");
     if (hasInteractive && !hasText) {
         kept.unshift({

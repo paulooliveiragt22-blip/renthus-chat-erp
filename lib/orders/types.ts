@@ -65,6 +65,8 @@ export type OrderRow = {
     change_for: number | null;
     created_at: string;
     details: string | null;
+    /** Observação do cliente (resumo do pedido). */
+    notes?: string | null;
     driver_id: string | null;
     fulfillment_type?: "delivery" | "pickup" | string | null;
     delivery_address?: string | null;

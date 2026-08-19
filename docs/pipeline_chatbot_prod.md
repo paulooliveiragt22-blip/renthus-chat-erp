@@ -123,7 +123,7 @@ Numeração contínua do pedido HTTP até resposta ao cliente.
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
 | 0.B.0 | Reclaim stuck | `process-queue/route.ts` | `reclaim_stuck_chatbot_queue_jobs` — `processing` antigo → `pending`. |
-| 0.B.1 | Carregar canal Meta | `process-queue/route.ts` | `waConfig`, `catalogFlowId`. Fora de produção: canal ausente pode cair em env (dev local). **`NODE_ENV=production`:** sem canal Meta **active** para a empresa → **erro** no job (sem fallback de token global — evita cross-tenant). |
+| 0.B.1 | Carregar canal Meta | `process-queue/route.ts` | `waConfig`. Fora de produção: canal ausente pode cair em env (dev local). **`NODE_ENV=production`:** sem canal Meta **active** para a empresa → **erro** no job (sem fallback de token global — evita cross-tenant). |
 | 0.B.2 | `bot_active` / handover | `process-queue/route.ts` | Handover ativo → **return** (job pode marcar-se `done` sem `processInboundMessage`); expirado → reativa + opcional mensagem + **apaga** `chatbot_sessions`. |
 | 0.B.3 | Claim RPC fail-fast + fairness | `process-queue/route.ts` | `claim_chatbot_queue_jobs(batch, max_attempts, max_per_company)`: teto por empresa + skip `thread_id` já em `processing`. Em produção: falha da RPC → **503** (sem fallback concorrente). |
 | 0.B.4 | Ordem no batch | `process-queue/route.ts` | Após claim, **`interleaveQueueJobsByCompany`** evita processar o mesmo `company_id` em sequência no lote (complementa o fair claim SQL). |
@@ -231,7 +231,7 @@ Depende de `intent` e `tier`:
 
 **Falhas:** tool loop excedido; 400 Anthropic por histórico tool quebrado; RPC falha (estoque, política entrega, validação); cliente nunca confirma.
 
-**Starter — pedido:** principalmente **WhatsApp Flow** + sessão (`awaiting_flow`); não é “IA de pedido” no mesmo sentido do PRO.  
+**Starter — pedido:** cardápio web (`cta_url`) + sessão de texto; não é “IA de pedido” no mesmo sentido do PRO.  
 **Decisão de escopo:** Starter fica congelado nesta entrega (somente correção de bug crítico).
 
 ---
@@ -241,7 +241,7 @@ Depende de `intent` e `tier`:
 | # | Etapa | Onde | Responsabilidade |
 |---|--------|------|------------------|
 | 5.1 | Texto | `botReply` → `lib/whatsapp/sendMessage.ts` | Persiste `whatsapp_messages` + envia Graph via `metaGraphFetch` (throttle + retry 429). |
-| 5.2 | Botões / listas / flows | `lib/whatsapp/send.ts` → `metaGraphFetch` | Templates Meta; requer `waConfig` válido. |
+| 5.2 | Botões / listas / CTA URL | `lib/whatsapp/send.ts` → `metaGraphFetch` | Templates Meta; requer `waConfig` válido. |
 | 5.3 | Erro de envio | `botSend.ts` / send | Log `Falha ao enviar mensagem`; **cliente pode não ver** a resposta. |
 
 **Falhas:** token revogado, número limitado, quality rating, payload inválido, timeout HTTP / 429 Meta (mitigado por `WHATSAPP_MIN_GAP_MS` / `WHATSAPP_429_MAX_RETRIES`).
@@ -270,7 +270,7 @@ Depende de `intent` e `tier`:
                 ↓
 [4] handleFAQ | doHandover | starterOrderFlow | …
                 ↓
-[5] botReply / sendInteractive / sendFlowMessage → Meta
+[5] botReply / sendInteractive / sendCtaUrl → Meta
 ```
 
 ---

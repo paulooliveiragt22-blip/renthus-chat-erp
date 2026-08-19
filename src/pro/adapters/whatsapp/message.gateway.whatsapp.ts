@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OutboundMessage, TenantRef } from "@/src/types/contracts";
 import type { MessageGateway } from "../../ports/message.gateway";
 import { botReply, botSendButtons, botSendCtaUrl } from "@/lib/chatbot/botSend";
-import { sendFlowMessage, type WaConfig } from "@/lib/whatsapp/send";
+import type { WaConfig } from "@/lib/whatsapp/send";
 
 export class WhatsAppMessageGateway implements MessageGateway {
     constructor(
@@ -27,7 +27,7 @@ export class WhatsAppMessageGateway implements MessageGateway {
     }
 
     /**
-     * `botSendButtons`/`botSendCtaUrl`/`sendFlowMessage` (lib/whatsapp/send.ts) só chamam a
+     * `botSendButtons`/`botSendCtaUrl` (lib/whatsapp/send.ts) só chamam a
      * Graph API da Meta — diferente de `botReply` (texto simples), que já persiste via
      * `sendWhatsAppMessage` (lib/whatsapp/sendMessage.ts). Sem isto, mensagens interativas
      * eram entregues de verdade ao cliente mas nunca apareciam em `whatsapp_messages`
@@ -151,30 +151,6 @@ export class WhatsAppMessageGateway implements MessageGateway {
                 rawPayload: { kind: "cta_url", displayText, url },
             });
             return;
-        }
-
-        if (message.kind === "flow" && message.flow) {
-            if (await this.isRecentDuplicateText(tenant, message.flow.bodyText)) return;
-            const result = await sendFlowMessage(
-                tenant.phoneE164,
-                {
-                    flowId: message.flow.flowId,
-                    flowToken: message.flow.flowToken,
-                    ctaLabel: message.flow.ctaLabel,
-                    bodyText: message.flow.bodyText,
-                },
-                this.waConfig
-            );
-            if (result.ok === false) {
-                console.error("[pro/whatsapp] flow failed:", result.error);
-                return;
-            }
-            await this.persistOutbound({
-                tenant,
-                body: message.flow.bodyText,
-                providerMessageId: result.messageId,
-                rawPayload: { kind: "flow", flowId: message.flow.flowId },
-            });
         }
     }
 }

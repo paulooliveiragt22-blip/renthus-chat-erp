@@ -203,7 +203,7 @@ function buildConfirmationActionButtons(draft: OrderDraft): OutboundMessage {
 /** WhatsApp: mensagens interactivas primeiro, depois texto (melhor UX e alinhado a “botão primeiro”). */
 export function prioritizeInteractiveFirst(messages: OutboundMessage[]): OutboundMessage[] {
     const interactive = messages.filter(
-        (m) => m.kind === "buttons" || m.kind === "flow" || m.kind === "cta_url"
+        (m) => m.kind === "buttons" || m.kind === "cta_url"
     );
     const plain = messages.filter((m) => m.kind === "text");
     return [...interactive, ...plain];
@@ -434,7 +434,7 @@ function keepOnlyFinalConfirmationCard(messages: OutboundMessage[], draft: Order
         (m) => !(m.kind === "buttons" && m.buttons?.some((b) => b.id === "pro_confirm_order"))
     );
     const nonCheckoutText = others.filter((m) => {
-        if (m.kind !== "text") return m.kind === "flow";
+        if (m.kind !== "text") return false;
         const flat = String(m.text ?? "")
             .toLowerCase()
             .normalize("NFD")
@@ -877,7 +877,7 @@ export function checkoutPostProcess(params: {
         params.mode === "ai" &&
         !params.addressFreeTextSignaled &&
         !skipAddressUi &&
-        !outbound.some((m) => m.kind === "buttons" || m.kind === "flow")
+        !outbound.some((m) => m.kind === "buttons" || m.kind === "cta_url")
     ) {
         const candidates = extractAddressChoiceCandidates(params.orderHints);
         if (candidates) {

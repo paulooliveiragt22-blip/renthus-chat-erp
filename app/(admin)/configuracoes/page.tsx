@@ -271,7 +271,7 @@ function AiCreditUsageMeter({
                 <span>1.0 cheio</span>
             </div>
             <p className="text-[11px] text-zinc-400">
-                Incluso do mês + packs. Sem crédito a IA cai para Flow/catálogo.
+                Incluso do mês + packs. Sem crédito a IA cai para o cardápio web.
             </p>
         </div>
     );
@@ -335,6 +335,20 @@ const ALL_CUSTOMER_PAYMENTS = [
     { key: "cash" as const,  label: "Dinheiro",         desc: "Pagamento em espécie" },
     { key: "card" as const,  label: "Cartão (crédito)", desc: "Crédito na maquininha / à vista" },
     { key: "debit" as const, label: "Cartão (débito)",  desc: "Débito na maquininha" },
+];
+
+const ALL_STORE_IMMEDIATE = [
+    { key: "pix" as const,   label: "PIX",              desc: "À vista no balcão" },
+    { key: "cash" as const,  label: "Dinheiro",         desc: "Espécie no PDV" },
+    { key: "card" as const,  label: "Cartão (crédito)", desc: "Crédito na maquininha" },
+    { key: "debit" as const, label: "Cartão (débito)",  desc: "Débito na maquininha" },
+];
+
+const ALL_STORE_PRAZO = [
+    { key: "credit_installment" as const, label: "A prazo (crediário)", desc: "Venda a prazo com cliente" },
+    { key: "boleto" as const,             label: "Boleto",              desc: "Gera cobrança em aberto" },
+    { key: "promissoria" as const,        label: "Promissória",         desc: "Nota promissória" },
+    { key: "cheque" as const,             label: "Cheque",              desc: "Cheque pré-datado" },
 ];
 
 // ─── main component ───────────────────────────────────────────────────────────
@@ -423,6 +437,21 @@ function ConfiguracoesPageContent() {
     });
     const [paymentsSaving, setPaymentsSaving] = useState(false);
     const [paymentsMsg, setPaymentsMsg] = useState<string | null>(null);
+
+    const [storeImmediate, setStoreImmediate] = useState({
+        pix: true,
+        cash: true,
+        card: true,
+        debit: true,
+    });
+    const [storePrazo, setStorePrazo] = useState({
+        credit_installment: true,
+        boleto: true,
+        promissoria: true,
+        cheque: true,
+    });
+    const [storePaymentsSaving, setStorePaymentsSaving] = useState(false);
+    const [storePaymentsMsg, setStorePaymentsMsg] = useState<string | null>(null);
 
     // segurança (informativo — não salva senha aqui)
     const [saving, setSaving] = useState(false);
@@ -564,6 +593,38 @@ function ConfiguracoesPageContent() {
         void loadAcceptedPayments();
     }, [loadAcceptedPayments]);
 
+    const loadStorePayments = useCallback(async () => {
+        if (!companyId) return;
+        try {
+            const res = await fetch("/api/admin/accepted-store-payments", {
+                cache: "no-store",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) return;
+            const imm = json.immediate ?? {};
+            const prz = json.prazo ?? {};
+            setStoreImmediate({
+                pix: imm.pix !== false,
+                cash: imm.cash !== false,
+                card: imm.card !== false,
+                debit: imm.debit !== false,
+            });
+            setStorePrazo({
+                credit_installment: prz.credit_installment !== false,
+                boleto: prz.boleto !== false,
+                promissoria: prz.promissoria !== false,
+                cheque: prz.cheque !== false,
+            });
+        } catch {
+            /* keep defaults */
+        }
+    }, [companyId]);
+
+    useEffect(() => {
+        void loadStorePayments();
+    }, [loadStorePayments]);
+
     async function saveAcceptedPayments() {
         setPaymentsSaving(true);
         setPaymentsMsg(null);
@@ -589,6 +650,41 @@ function ConfiguracoesPageContent() {
         }
         setPaymentsMsg("✓ Formas de pagamento salvas.");
         setTimeout(() => setPaymentsMsg(null), 4000);
+    }
+
+    async function saveStorePayments() {
+        setStorePaymentsSaving(true);
+        setStorePaymentsMsg(null);
+        const res = await fetch("/api/admin/accepted-store-payments", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ immediate: storeImmediate, prazo: storePrazo }),
+        });
+        const json = await res.json().catch(() => ({}));
+        setStorePaymentsSaving(false);
+        if (!res.ok) {
+            setStorePaymentsMsg(json?.error ?? "Erro ao salvar pagamentos da loja.");
+            return;
+        }
+        if (json.immediate) {
+            setStoreImmediate({
+                pix: Boolean(json.immediate.pix),
+                cash: Boolean(json.immediate.cash),
+                card: Boolean(json.immediate.card),
+                debit: Boolean(json.immediate.debit),
+            });
+        }
+        if (json.prazo) {
+            setStorePrazo({
+                credit_installment: Boolean(json.prazo.credit_installment),
+                boleto: Boolean(json.prazo.boleto),
+                promissoria: Boolean(json.prazo.promissoria),
+                cheque: Boolean(json.prazo.cheque),
+            });
+        }
+        setStorePaymentsMsg("✓ Pagamentos da loja salvos.");
+        setTimeout(() => setStorePaymentsMsg(null), 4000);
     }
 
     const loadDeliveryPolicy = useCallback(async () => {
@@ -2366,8 +2462,7 @@ function ConfiguracoesPageContent() {
                             <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-700/40 dark:bg-blue-900/20">
                                 <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
                                 <p className="text-xs text-blue-700 dark:text-blue-400">
-                                    Vale para cardápio web, chatbot e Flow. PDV e Pedidos admin continuam
-                                    com as opções próprias (inclui a prazo). Pelo menos uma forma deve
+                                    Vale para cardápio web e chatbot. Pelo menos uma forma deve
                                     ficar ligada. WhatsApp mostra no máximo 3 botões.
                                 </p>
                             </div>
@@ -2376,6 +2471,86 @@ function ConfiguracoesPageContent() {
                                 saving={paymentsSaving}
                                 msg={paymentsMsg}
                                 onSave={() => void saveAcceptedPayments()}
+                            />
+
+                            <SectionTitle
+                                icon={Store}
+                                title="Pagamentos na loja (PDV, Pedidos, Mesa)"
+                                desc="Formas aceitas no balcão, fechamento de mesa e liquidação de pedidos no admin"
+                            />
+
+                            <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">À vista</p>
+                            <div className="flex flex-col gap-3">
+                                {ALL_STORE_IMMEDIATE.map(({ key, label, desc }) => (
+                                    <div
+                                        key={key}
+                                        className={`flex items-center justify-between rounded-xl border px-4 py-3 transition-colors ${
+                                            storeImmediate[key]
+                                                ? "border-emerald-200 bg-emerald-50 dark:border-emerald-700/40 dark:bg-emerald-900/10"
+                                                : "border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/50"
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                                                storeImmediate[key]
+                                                    ? "bg-emerald-100 dark:bg-emerald-800/40"
+                                                    : "bg-zinc-100 dark:bg-zinc-700"
+                                            }`}>
+                                                <Wallet className={`h-4 w-4 ${storeImmediate[key] ? "text-emerald-600" : "text-zinc-400"}`} />
+                                            </div>
+                                            <div>
+                                                <p className={`text-sm font-semibold ${storeImmediate[key] ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500"}`}>{label}</p>
+                                                <p className="text-xs text-zinc-400">{desc}</p>
+                                            </div>
+                                        </div>
+                                        <Toggle
+                                            checked={!!storeImmediate[key]}
+                                            onChange={(v) =>
+                                                setStoreImmediate((prev) => ({ ...prev, [key]: v }))
+                                            }
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+
+                            <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">A prazo</p>
+                            <div className="flex flex-col gap-3">
+                                {ALL_STORE_PRAZO.map(({ key, label, desc }) => (
+                                    <div
+                                        key={key}
+                                        className={`flex items-center justify-between rounded-xl border px-4 py-3 transition-colors ${
+                                            storePrazo[key]
+                                                ? "border-amber-200 bg-amber-50 dark:border-amber-700/40 dark:bg-amber-900/10"
+                                                : "border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/50"
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                                                storePrazo[key]
+                                                    ? "bg-amber-100 dark:bg-amber-800/40"
+                                                    : "bg-zinc-100 dark:bg-zinc-700"
+                                            }`}>
+                                                <CalendarClock className={`h-4 w-4 ${storePrazo[key] ? "text-amber-600" : "text-zinc-400"}`} />
+                                            </div>
+                                            <div>
+                                                <p className={`text-sm font-semibold ${storePrazo[key] ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500"}`}>{label}</p>
+                                                <p className="text-xs text-zinc-400">{desc}</p>
+                                            </div>
+                                        </div>
+                                        <Toggle
+                                            checked={!!storePrazo[key]}
+                                            onChange={(v) =>
+                                                setStorePrazo((prev) => ({ ...prev, [key]: v }))
+                                            }
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+
+                            <SaveBar
+                                saving={storePaymentsSaving}
+                                msg={storePaymentsMsg}
+                                onSave={() => void saveStorePayments()}
                             />
                         </div>
                     )}
@@ -2477,7 +2652,7 @@ function ConfiguracoesPageContent() {
                                             Inteligência artificial (IA)
                                         </p>
                                         <p className="mt-0.5 text-xs text-zinc-400">
-                                            Desligada = só Flow/catálogo (não consome crédito).
+                                            Desligada = só cardápio web (não consome crédito).
                                         </p>
                                     </div>
                                     <button
@@ -2523,7 +2698,7 @@ function ConfiguracoesPageContent() {
                                     </select>
                                     <p className="text-[11px] text-zinc-400">
                                         Em “Só informações” a IA não fecha pedido pelo chat; o cliente
-                                        usa o cardápio web, Flow ou atendente.
+                                        usa o cardápio web ou atendente.
                                     </p>
                                 </div>
 
@@ -2584,7 +2759,7 @@ function ConfiguracoesPageContent() {
                                                 />
                                                 <p className="text-[11px] text-zinc-400">
                                                     Ao estourar, a IA para e o bot oferece cardápio /
-                                                    atendente / Flow (sem chamar Anthropic).
+                                                    atendente (sem chamar Anthropic).
                                                 </p>
                                             </div>
                                         </>
@@ -3059,14 +3234,14 @@ function ConfiguracoesPageContent() {
 
                             {/* Resumo do fluxo */}
                             <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/50 space-y-2">
-                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Fluxo de pedido (catálogo WhatsApp)</p>
+                                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Fluxo de pedido (cardápio WhatsApp)</p>
                                 <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 flex-wrap">
                                     <span className="rounded-full bg-violet-100 px-2.5 py-0.5 font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
-                                        Flow Catálogo
+                                        Cardápio web
                                     </span>
                                     <span>→</span>
                                     <span className="rounded-full bg-blue-100 px-2.5 py-0.5 font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
-                                        Flow Checkout
+                                        Checkout
                                     </span>
                                     <span>→</span>
                                     <span className={`rounded-full px-2.5 py-0.5 font-semibold ${

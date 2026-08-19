@@ -91,6 +91,8 @@ export interface OrderDraft {
     grandTotal: number;
     pendingConfirmation: boolean;
     addressResolutionNote?: string | null;
+    /** Observação do cliente no pedido (resumo). Não por item. */
+    orderNotes?: string | null;
     version: number;
 }
 
@@ -116,6 +118,8 @@ export interface PrepareDraftToolInput {
     paymentMethod?: string | null;
     changeFor?: number | null;
     readyForConfirmation?: boolean;
+    /** Observação do pedido (texto livre do cliente). Ausente = não alterar. */
+    orderNotes?: string | null;
 }
 
 export interface AiTurn {

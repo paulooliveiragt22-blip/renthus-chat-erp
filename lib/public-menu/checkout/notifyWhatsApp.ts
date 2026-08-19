@@ -27,6 +27,7 @@ export async function notifyWebMenuOrderWhatsApp(params: {
     changeFor: number | null;
     etaMin: number | null;
     fulfillmentType?: "delivery" | "pickup";
+    notes?: string | null;
 }): Promise<void> {
     const {
         admin,
@@ -42,6 +43,7 @@ export async function notifyWebMenuOrderWhatsApp(params: {
         changeFor,
         etaMin,
         fulfillmentType,
+        notes,
     } = params;
 
     const itemsBlock = items
@@ -57,10 +59,11 @@ export async function notifyWebMenuOrderWhatsApp(params: {
             : "";
     const etaLine = isPickup ? "" : formatDeliveryEtaConfirmLine(etaMin);
     const etaBlock = etaLine ? `\n\n${etaLine}` : "";
+    const notesLine = notes?.trim() ? `\n📝 Obs.: ${notes.trim()}` : "";
 
     const msg = requireApproval
-        ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${moneyBr(grandTotal)}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
-        : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${itemsBlock}${feeText}\n${placeLine}\n💳 ${paymentLabel(paymentMethod)}${chgText}${etaBlock}\n\nObrigado pela preferência! 🍺`;
+        ? `✅ *Pedido Recebido!*\n\nPedido ${orderCode}\nTotal: ${moneyBr(grandTotal)}${notesLine}\n\nEstamos confirmando seu pedido. Você receberá retorno em instantes! 🍺`
+        : `✅ *Pedido Confirmado!*\n\nPedido ${orderCode}\n\n${itemsBlock}${feeText}\n${placeLine}\n💳 ${paymentLabel(paymentMethod)}${chgText}${etaBlock}${notesLine}\n\nObrigado pela preferência! 🍺`;
 
     try {
         const result = await sendWhatsAppMessage({

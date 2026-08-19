@@ -291,6 +291,12 @@ export default function MyOrdersDrawer({ slug, storeName, whatsappPhone, onClose
                                     <span className="font-medium">{detail.deliveryAddress}</span>
                                 </p>
                             ) : null}
+                            {detail.notes ? (
+                                <p>
+                                    <span className="text-zinc-500">Obs.: </span>
+                                    <span className="font-medium">{detail.notes}</span>
+                                </p>
+                            ) : null}
                             {detail.channel || detail.source ? (
                                 <p className="text-xs text-zinc-400">
                                     Origem:{" "}

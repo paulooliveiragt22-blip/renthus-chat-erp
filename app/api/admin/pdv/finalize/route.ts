@@ -87,6 +87,21 @@ export async function POST(req: Request) {
     if (crErr) return NextResponse.json({ error: crErr.message }, { status: 500 });
     if (!cr) return NextResponse.json({ error: "cash_register_invalid" }, { status: 400 });
 
+    const { loadStorePaymentPolicy } = await import("@/lib/payments/loadStorePaymentPolicy");
+    const { assertStorePaymentAllowed } = await import("@/src/financeiro/domain/storePaymentPolicy");
+    const storePolicy = await loadStorePaymentPolicy(admin, companyId);
+
+    for (const p of payments) {
+        const allowed = assertStorePaymentAllowed(
+            storePolicy.immediate,
+            storePolicy.prazo,
+            p.method
+        );
+        if (!allowed.ok) {
+            return NextResponse.json({ error: allowed.error }, { status: 400 });
+        }
+    }
+
     // Chave determinística: retry de rede ou double-click no botão "Finalizar"
     // com o mesmo caixa/carrinho/pagamentos não duplica venda (a RPC trata
     // via `sales.idempotency_key`, ver 20260811110000_pdv_finalize_idempotency_key.sql).

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /** Contrato Fase 1 — trace por turno (replay). kinds alinhados a OutboundMessage live. */
 export const PipelineTurnTraceOutbound = z.object({
-    kind: z.enum(["text", "buttons", "flow"]),
+    kind: z.enum(["text", "buttons", "cta_url"]),
     text: z.string().optional(),
 });
 
