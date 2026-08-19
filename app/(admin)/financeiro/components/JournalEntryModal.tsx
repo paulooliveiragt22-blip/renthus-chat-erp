@@ -8,6 +8,7 @@ import {
     isReversibleJournalLine,
     journalLineKey,
     type JournalDetail,
+    type JournalDetailLine,
 } from "@/src/financeiro/application/reverseJournal";
 import { brl, isoDate, originLabel, PAY_META } from "../lib/format";
 import type { ExtratoLine } from "../lib/types";
