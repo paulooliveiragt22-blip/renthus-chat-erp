@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/security/rateLimit";
+import {
+    enforceIpRateLimitAsync,
+    RATE_LIMIT_WINDOW_15M_MS,
+} from "@/lib/security/rateLimit";
 
 export async function POST(req: NextRequest) {
-    const ip =
-        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-        ?? req.headers.get("x-real-ip")
-        ?? "unknown";
-    const rl = checkRateLimit(`superadmin_login:${ip}`, 30, 15 * 60_000);
-    if (!rl.allowed) {
-        return NextResponse.json(
-            { error: "too_many_requests" },
-            {
-                status:      429,
-                headers:     { "Retry-After": String(rl.retryAfterSeconds) },
-            }
-        );
-    }
+    const limited = await enforceIpRateLimitAsync(
+        req,
+        "superadmin_login",
+        30,
+        RATE_LIMIT_WINDOW_15M_MS,
+        { error: "too_many_requests" }
+    );
+    if (limited) return limited;
 
     const { password } = await req.json().catch(() => ({}));
     const secret = process.env.SUPERADMIN_SECRET;

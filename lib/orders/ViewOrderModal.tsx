@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Modal from "./Modal";
 import {
     formatBRL,
@@ -33,7 +33,22 @@ import {
     CheckCircle2,
     ChefHat,
     Bike,
+    History,
 } from "lucide-react";
+
+type OrderEventRow = {
+    id: string;
+    event_type: string;
+    payload: Record<string, unknown>;
+    created_at: string;
+};
+
+function eventTypeLabel(t: string): string {
+    if (t === "reverse_full") return "Estorno completo / cancelamento";
+    if (t === "reverse_partial") return "Estorno parcial";
+    if (t === "restate") return "Reemissão financeira";
+    return t;
+}
 
 // ── paletas de status ─────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
@@ -181,6 +196,39 @@ export default function ViewOrderModal({
         [fulfill]
     );
     const [reprintCopies, setReprintCopies] = useState<PrintCopyType[]>(["kitchen", "cashier"]);
+    const [events, setEvents] = useState<OrderEventRow[]>([]);
+    const [eventsLoading, setEventsLoading] = useState(false);
+
+    useEffect(() => {
+        if (!open || !order?.id) {
+            setEvents([]);
+            return;
+        }
+        let cancelled = false;
+        setEventsLoading(true);
+        void fetch(`/api/admin/orders/${order.id}/events`, {
+            credentials: "include",
+            cache: "no-store",
+        })
+            .then(async (res) => {
+                const json = await res.json().catch(() => ({}));
+                if (cancelled) return;
+                if (!res.ok) {
+                    setEvents([]);
+                    return;
+                }
+                setEvents(Array.isArray(json.events) ? (json.events as OrderEventRow[]) : []);
+            })
+            .catch(() => {
+                if (!cancelled) setEvents([]);
+            })
+            .finally(() => {
+                if (!cancelled) setEventsLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, order?.id]);
 
     const activeReprintCopies = useMemo(
         () => normalizePrintCopyTypes(reprintCopies).filter((c) => availableCopies.includes(c)),
@@ -408,6 +456,64 @@ export default function ViewOrderModal({
                             <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">{order.details}</p>
                         </div>
                     ) : null}
+
+                    {/* ── HISTÓRICO FINANCEIRO / ESTORNOS ── */}
+                    {(eventsLoading || events.length > 0) && (
+                        <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+                            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                                <History className="h-3.5 w-3.5" />
+                                Histórico de estornos
+                            </p>
+                            {eventsLoading ? (
+                                <p className="text-xs text-zinc-400">Carregando…</p>
+                            ) : (
+                                <ul className="space-y-2">
+                                    {events.map((ev) => {
+                                        const reason =
+                                            typeof ev.payload?.reason === "string"
+                                                ? ev.payload.reason
+                                                : null;
+                                        const status =
+                                            typeof ev.payload?.order_status === "string"
+                                                ? ev.payload.order_status
+                                                : null;
+                                        const total =
+                                            typeof ev.payload?.total_amount === "number"
+                                                ? ev.payload.total_amount
+                                                : null;
+                                        return (
+                                            <li
+                                                key={ev.id}
+                                                className="rounded-lg border border-zinc-100 px-3 py-2 text-xs dark:border-zinc-800"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <span className="font-semibold text-zinc-800 dark:text-zinc-100">
+                                                        {eventTypeLabel(ev.event_type)}
+                                                    </span>
+                                                    <span className="shrink-0 text-zinc-400">
+                                                        {formatDT(ev.created_at)}
+                                                    </span>
+                                                </div>
+                                                {(reason || status || total != null) && (
+                                                    <p className="mt-1 text-zinc-500 dark:text-zinc-400">
+                                                        {[
+                                                            reason,
+                                                            status ? `status: ${status}` : null,
+                                                            total != null
+                                                                ? `total pós: R$ ${formatBRL(total)}`
+                                                                : null,
+                                                        ]
+                                                            .filter(Boolean)
+                                                            .join(" · ")}
+                                                    </p>
+                                                )}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </div>
+                    )}
 
                     {/* ── ITENS ── */}
                     <div className="overflow-hidden rounded-xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">

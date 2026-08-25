@@ -7,13 +7,31 @@
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+    enforceIpRateLimitAsync,
+    RATE_LIMIT_WINDOW_15M_MS,
+} from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
+
+const SIGNUP_COMPLETE_RATE_LIMIT = 10;
+
+async function enforceSignupCompleteRateLimit(req: Request): Promise<NextResponse | null> {
+    return enforceIpRateLimitAsync(
+        req,
+        "signup_complete",
+        SIGNUP_COMPLETE_RATE_LIMIT,
+        RATE_LIMIT_WINDOW_15M_MS
+    );
+}
 
 // ---------------------------------------------------------------------------
 // GET — carrega dados pelo token
 // ---------------------------------------------------------------------------
 export async function GET(req: Request) {
+    const limited = await enforceSignupCompleteRateLimit(req);
+    if (limited) return limited;
+
     const { searchParams } = new URL(req.url);
     const token = searchParams.get("token");
 
@@ -57,6 +75,9 @@ export async function GET(req: Request) {
 // ---------------------------------------------------------------------------
 export async function POST(req: Request) {
     try {
+        const limited = await enforceSignupCompleteRateLimit(req);
+        if (limited) return limited;
+
         const body = (await req.json()) as {
             token:         string;
             razao_social?: string;

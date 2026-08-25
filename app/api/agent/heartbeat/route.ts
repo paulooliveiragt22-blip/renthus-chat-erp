@@ -4,6 +4,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPrintAgentApiKey } from "@/lib/agent/verifyPrintAgentApiKey";
+import {
+    AGENT_HEARTBEAT_LIMIT,
+    enforceAgentRateLimit,
+} from "@/lib/agent/enforceAgentRateLimit";
 
 export const runtime = "nodejs";
 
@@ -28,6 +32,9 @@ export async function POST(req: Request) {
         if (agentId !== v.agent.id) {
             return NextResponse.json({ error: "agent_id não corresponde à api_key" }, { status: 403 });
         }
+
+        const limited = enforceAgentRateLimit(v.agent.id, "heartbeat", AGENT_HEARTBEAT_LIMIT);
+        if (limited) return limited;
 
         const admin = createAdminClient();
         const { error } = await admin

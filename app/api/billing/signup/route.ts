@@ -17,13 +17,26 @@ import { startTrialAfterSignup } from "@/lib/billing/startFreeTrial";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
+import {
+    enforceIpRateLimitAsync,
+    RATE_LIMIT_WINDOW_15M_MS,
+} from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
 const RENTHUS_PHONE = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";
+const BILLING_SIGNUP_RATE_LIMIT = 10;
 
 export async function POST(req: Request) {
     try {
+        const limited = await enforceIpRateLimitAsync(
+            req,
+            "billing_signup",
+            BILLING_SIGNUP_RATE_LIMIT,
+            RATE_LIMIT_WINDOW_15M_MS
+        );
+        if (limited) return limited;
+
         const body = (await req.json()) as {
             company_name?:     string;
             cnpj?:             string;

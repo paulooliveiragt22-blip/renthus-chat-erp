@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 import { reverseOrderOperation } from "@/src/financeiro/application/reverseOrderOperation";
-import { financeRpcFailure } from "@/src/financeiro/application/http";
+import { enforceFinanceWriteRateLimit, financeRpcFailure } from "@/src/financeiro/application/http";
 
 export const runtime = "nodejs";
 
@@ -29,6 +29,9 @@ export async function POST(req: Request) {
     );
     if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
+
+    const limited = enforceFinanceWriteRateLimit(companyId, "reverse_order");
+    if (limited) return limited;
 
     const body = (await req.json().catch(() => ({}))) as ReverseOrderBody;
 

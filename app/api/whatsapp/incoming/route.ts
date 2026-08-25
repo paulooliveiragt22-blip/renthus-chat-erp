@@ -20,7 +20,8 @@ import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { checkRateLimit } from "@/lib/security/rateLimit";
+import { checkRateLimitAsync } from "@/lib/security/rateLimitDistributed";
+import { requesterIp } from "@/lib/security/rateLimit";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 import { maybeSendBacklogNotice } from "@/lib/chatbot/backlogNotice";
@@ -47,12 +48,6 @@ function isValidMetaSignature(rawBody: string, signatureHeader: string | null): 
     const expectedBuf = Buffer.from(expectedHex, "hex");
     if (receivedBuf.length !== expectedBuf.length) return false;
     return timingSafeEqual(receivedBuf, expectedBuf);
-}
-
-function getRequesterIp(req: NextRequest): string {
-    const xff = req.headers.get("x-forwarded-for");
-    if (xff) return xff.split(",")[0].trim();
-    return req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 function maskIdentifier(value: string): string {
@@ -184,9 +179,8 @@ export async function POST(req: NextRequest) {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function validateIncomingPreflight(req: NextRequest): Promise<NextResponse | null> {
-    const requesterIp = getRequesterIp(req);
-    const rl = checkRateLimit(
-        `wa_incoming:${requesterIp}`,
+    const rl = await checkRateLimitAsync(
+        `wa_incoming:${requesterIp(req)}`,
         INCOMING_RATE_LIMIT,
         INCOMING_RATE_WINDOW_MS
     );

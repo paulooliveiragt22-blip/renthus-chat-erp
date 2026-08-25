@@ -20,29 +20,25 @@ import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
 import { creditAiPack } from "@/lib/billing/aiWallet";
 import { billingLog } from "@/lib/billing/billingLog";
 import { tryConsumePagarmeWebhookEvent } from "@/lib/billing/tryConsumePagarmeWebhookEvent";
-import { checkRateLimit } from "@/lib/security/rateLimit";
+import {
+    enforceIpRateLimitAsync,
+    RATE_LIMIT_WINDOW_MS,
+} from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
-const BILLING_WEBHOOK_RL_LIMIT  = 120;
-const BILLING_WEBHOOK_RL_WINDOW = 60_000;
-
-function clientIp(req: Request): string {
-    const xff = req.headers.get("x-forwarded-for");
-    if (xff) return xff.split(",")[0]?.trim() || "unknown";
-    return req.headers.get("x-real-ip")?.trim() || "unknown";
-}
+const BILLING_WEBHOOK_RL_LIMIT = 120;
 
 // Pagar.me não envia autenticação de rota — usa assinatura HMAC no body
 export async function POST(req: Request) {
-    const rl = checkRateLimit(
-        `billing_webhook:${clientIp(req)}`,
+    const limited = await enforceIpRateLimitAsync(
+        req,
+        "billing_webhook",
         BILLING_WEBHOOK_RL_LIMIT,
-        BILLING_WEBHOOK_RL_WINDOW
+        RATE_LIMIT_WINDOW_MS,
+        { error: "rate_limited" }
     );
-    if (!rl.allowed) {
-        return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-    }
+    if (limited) return limited;
 
     const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
     if (isProd && !process.env.PAGARME_WEBHOOK_SECRET?.trim()) {

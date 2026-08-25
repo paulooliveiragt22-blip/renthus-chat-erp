@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { enforceIpRateLimitAsync, RATE_LIMIT_WINDOW_MS } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
+
+const AUTH_SYNC_RATE_LIMIT = 30;
 
 /**
  * Grava sessão nos cookies a partir de access/refresh token.
@@ -11,6 +14,14 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
     try {
+        const limited = await enforceIpRateLimitAsync(
+            req,
+            "auth_sync",
+            AUTH_SYNC_RATE_LIMIT,
+            RATE_LIMIT_WINDOW_MS
+        );
+        if (limited) return limited;
+
         const body = await req.json().catch(() => null);
         const { access_token, refresh_token } = body ?? {};
 

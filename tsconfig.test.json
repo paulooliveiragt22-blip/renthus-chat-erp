@@ -35,6 +35,8 @@
     "scripts/replay-thread.ts",
     "lib/products/**/*.ts",
     "lib/public-menu/**/*.ts",
+    "lib/security/**/*.ts",
+    "lib/agent/**/*.ts",
     "lib/delivery/**/*.ts",
     "lib/print/**/*.ts",
     "lib/workspace/staffRoles.ts",

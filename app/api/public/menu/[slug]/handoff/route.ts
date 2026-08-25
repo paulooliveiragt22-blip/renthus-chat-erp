@@ -29,7 +29,7 @@ export async function GET(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = publicMenuRateLimit(req, "public_menu_handoff", 40);
+    const rl = await publicMenuRateLimit(req, "public_menu_handoff", 40);
     if (!rl.allowed) {
         return NextResponse.json(
             { ok: false, error: "rate_limit_exceeded" },

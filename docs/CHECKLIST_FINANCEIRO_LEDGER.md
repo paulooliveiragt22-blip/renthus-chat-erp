@@ -433,7 +433,7 @@ Remoto de referência (2026-08-14): 32 FE, 1 bill pago R$ 58, 1 promissória pen
 - [ ] Rotas de mutação: `requireCapability("financeiro.write")` (PDV finalize continua `pdv.access`).
 - [ ] Caixa (`financeiro.write` false) **pode** finalizar PDV; **não** lança opex nem baixa título.
 - [ ] Erros: `409 settlement_conflict` (retry devolve 200 + mesmo id, não 409), `422 chatbot_prazo_forbidden`.
-- [ ] Rate limit em settle/opex/reverse (além de PDV).
+- [ ] Rate limit em settle/opex/reverse (além de PDV). → [x] 2026-08-25: `reverse_order` + settle/opex já via `enforceFinanceWriteRateLimit`.
 
 Arquivos: application command + `PedidosClient` + rotas write + `rbacPermissions.test.ts`.
 
@@ -536,11 +536,11 @@ F3 pode começar em paralelo depois da F1 (o card R$ já está certo). F4 não c
 | F.1 | DB: `order_events`, helpers, RPC canônica, extrato sem `reversed` | [x] |
 | F.2 | TS: `reverseOrderOperation`, ports, `queryExtrato` | [x] |
 | F.3 | APIs: `reverse-order` extended; journal reverse bloqueado com `order_id` | [x] |
-| F.4 | UI: `JournalEntryModal` item a item + **Estornar pedido completo** | [x] |
+| F.4 | UI: `JournalEntryModal` item a item + **Estornar pedido completo** + timeline | [x] |
 | F.5 | Idempotência `order:{id}:reverse:{nonce}` | [x] |
 | F.6 | Gargalos G1–G4 | [x] |
-| F.7 | Testes + smoke full/partial | [ ] |
-| F.8 | `FINANCEIRO.md` atualizado | [ ] |
+| F.7 | Testes + smoke full/partial | [~] testes ok; smoke manual pendente |
+| F.8 | `FINANCEIRO.md` atualizado | [x] |
 
 ---
 

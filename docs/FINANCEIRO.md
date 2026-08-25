@@ -76,15 +76,25 @@ Idempotency de liquidação **não muda** (`order:{id}:recognize`, `sale:{id}:pa
 
 KPI **Recebido** (home) = só caixa **1.1** de liquidações (`sale_payment` / `recognize` / `bill_settlement`). Taxas **entram** nesse KPI quando pagas à vista (fazem parte do débito 1.1); no extrato/DRE a parcela fica em **3.2** ou **3.3**.
 
-## Estorno (ledger)
+## Estorno (operacional unificado — Fase F)
 
-| Ação | RPC / API | Estoque |
-|------|-----------|---------|
-| Cancelar pedido (full) | `rpc_admin_cancel_order` / `POST /api/admin/financeiro/reverse-order` | Sim (`DELETE order_items`) |
-| Estornar lançamento (total) | `rpc_reverse_journal` / `POST …/journals/{id}/reverse` mode=full | Não |
-| Estornar lançamento (parcial) | `rpc_reverse_journal_partial` — linhas 3.1/3.2/3.3/4.2… | Não |
+**Modelo:** para pedidos/PDV/mesa, estorno = **storno integral** do(s) journal(s) `posted` do pedido + **reemissão** do que sobrou (parcial) **ou** cancelamento sem reemissão (full). Estoque via `DELETE`/`UPDATE` em `order_items` (trigger).
 
-Parcial: UI no **Extrato** escolhe conta e valor (resta calculado por `fn_fin_journal_line_remaining`). Caixa (1.1/1.2) é ajustado automaticamente para balancear. Estorno de estorno não é permitido. Caixa fechado → `settlement_conflict`.
+| Ação | RPC / API | Estoque | Reemissão |
+|------|-----------|---------|-----------|
+| Cancelar pedido / estorno completo | `rpc_admin_reverse_order_operation` `mode=full` · `POST /api/admin/financeiro/reverse-order` · cancel em Pedidos | Sim | Não |
+| Estorno parcial (itens ± taxas) | mesma RPC `mode=partial` · Extrato `JournalEntryModal` | Sim | Sim (novo journal) |
+| Opex / sangria **sem** pedido | `rpc_reverse_journal` / `rpc_reverse_journal_partial` · `POST …/journals/{id}/reverse` | Não | Não |
+
+**UI Extrato (com `order_id`):** checkbox por item + taxa entrega/serviço; botões “Estornar seleção” e “Estornar pedido completo”. Journal reverse com `order_id` → **409** `use_order_reverse`.
+
+**Extrato:** journals com `status=reversed` **não** aparecem (só o filho `reversal` e, se parcial, o journal reemitido).
+
+**Idempotência:** `order:{order_id}:reverse:{nonce}` · journals `reversal:op:{nonce}:{journal_id}` · reemissão `…:restate`.
+
+**Restrições v1:** partial a prazo → `prazo_partial_blocked`; caixa fechado → `settlement_conflict`. Auditoria: `order_events`.
+
+Detalhe: `docs/PLANO_FINANCEIRO_ORIGEM_ESTORNO.md` §9.
 
 ---
 

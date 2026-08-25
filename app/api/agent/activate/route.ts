@@ -7,31 +7,30 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activatePairingCode } from "@/lib/print/pairing";
-import { pruneRateLimitBuckets, simpleRateLimit } from "@/lib/http/simpleRateLimit";
+import {
+    pruneRateLimitBuckets,
+    rateLimitExceededResponse,
+    RATE_LIMIT_WINDOW_MS,
+} from "@/lib/security/rateLimit";
+import { checkRateLimitByIpAsync } from "@/lib/security/rateLimitDistributed";
 
 export const runtime = "nodejs";
 
-function clientIp(req: Request): string {
-    const xf = req.headers.get("x-forwarded-for");
-    if (xf) return xf.split(",")[0]?.trim() || "unknown";
-    return req.headers.get("x-real-ip")?.trim() || "unknown";
-}
+const AGENT_ACTIVATE_RATE_LIMIT = 20;
 
 async function handleActivate(req: Request, code: string) {
     pruneRateLimitBuckets();
-    const rl = simpleRateLimit({
-        key: `agent-activate:${clientIp(req)}`,
-        limit: 20,
-        windowMs: 60_000,
-    });
-    if (!rl.ok) {
-        return NextResponse.json(
-            { error: "rate_limited", retry_after_sec: rl.retryAfterSec },
-            {
-                status: 429,
-                headers: { "Retry-After": String(rl.retryAfterSec) },
-            }
-        );
+    const rl = await checkRateLimitByIpAsync(
+        "agent-activate",
+        req,
+        AGENT_ACTIVATE_RATE_LIMIT,
+        RATE_LIMIT_WINDOW_MS
+    );
+    if (!rl.allowed) {
+        return rateLimitExceededResponse(rl, {
+            error: "rate_limited",
+            retry_after_sec: rl.retryAfterSeconds,
+        });
     }
 
     const admin = createAdminClient();

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPrintAgentApiKey } from "@/lib/agent/verifyPrintAgentApiKey";
+import {
+    AGENT_POLL_LIMIT,
+    enforceAgentRateLimit,
+} from "@/lib/agent/enforceAgentRateLimit";
 
 export const runtime = "nodejs";
 
@@ -13,6 +17,9 @@ export async function POST(req: Request) {
         if (!v.ok) {
             return NextResponse.json({ error: v.error }, { status: v.status });
         }
+
+        const limited = enforceAgentRateLimit(v.agent.id, "poll", AGENT_POLL_LIMIT);
+        if (limited) return limited;
 
         const admin = createAdminClient();
         const { data, error } = await admin

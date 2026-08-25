@@ -20,10 +20,15 @@ import {
     type MetaMessagingChannelRow,
 } from "@/lib/meta/messagingChannels";
 import type { MessagingChannel } from "@/src/domain/contracts/identity";
+import {
+    enforceIpRateLimitAsync,
+    RATE_LIMIT_WINDOW_MS,
+} from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
 const CHATBOT_QUEUE_WAKE_ENABLED = process.env.CHATBOT_QUEUE_WAKE_ENABLED !== "0";
+const META_INCOMING_RATE_LIMIT = 180;
 
 const BOT_DISCLOSURE_PT_BR =
     "Olá! Sou o *assistente virtual* desta loja. Posso ajudar com cardápio e pedidos. " +
@@ -90,6 +95,14 @@ type MessagingEvent = {
 };
 
 export async function POST(req: NextRequest) {
+    const limited = await enforceIpRateLimitAsync(
+        req,
+        "meta_incoming",
+        META_INCOMING_RATE_LIMIT,
+        RATE_LIMIT_WINDOW_MS
+    );
+    if (limited) return limited;
+
     const rawBody = await req.text();
     const signature = req.headers.get("x-hub-signature-256");
     if (!isValidMetaSignature(rawBody, signature)) {

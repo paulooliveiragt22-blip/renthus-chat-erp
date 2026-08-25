@@ -5,11 +5,27 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPrintAgentApiKey } from "@/lib/agent/verifyPrintAgentApiKey";
+import {
+    enforceIpRateLimitAsync,
+    RATE_LIMIT_WINDOW_MS,
+} from "@/lib/security/rateLimit";
+import { enforceAgentRateLimit } from "@/lib/agent/enforceAgentRateLimit";
 
 export const runtime = "nodejs";
 
+const AGENT_AUTH_IP_LIMIT = 30;
+const AGENT_AUTH_AGENT_LIMIT = 30;
+
 export async function POST(req: Request) {
     try {
+        const limitedIp = await enforceIpRateLimitAsync(
+            req,
+            "agent_auth",
+            AGENT_AUTH_IP_LIMIT,
+            RATE_LIMIT_WINDOW_MS
+        );
+        if (limitedIp) return limitedIp;
+
         const body = await req.json().catch(() => null);
         const rawKey: string = body?.api_key ?? "";
 
@@ -17,6 +33,9 @@ export async function POST(req: Request) {
         if (!v.ok) {
             return NextResponse.json({ error: v.error }, { status: v.status });
         }
+
+        const limitedAgent = enforceAgentRateLimit(v.agent.id, "auth", AGENT_AUTH_AGENT_LIMIT);
+        if (limitedAgent) return limitedAgent;
 
         const admin = createAdminClient();
 

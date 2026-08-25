@@ -184,8 +184,8 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 
 ### Fase E — Documentação e gates [parcial]
 
-- [ ] Atualizar `FINANCEIRO.md` (estorno + origem)
-- [x] `npm test` verde (956 testes)
+- [x] Atualizar `FINANCEIRO.md` (estorno + origem) — feito na Fase F.8
+- [x] `npm test` verde
 - [ ] Smoke: mesa → extrato `table_service`; cancel → estoque restaurado
 
 ### Fase F — Estorno operacional unificado (storno + reemissão) [em execução 2026-08-25]
@@ -222,13 +222,13 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 
 - [x] `POST reverse-order` — mode, items, taxas, idempotency
 - [x] `POST journals/reverse` — 409 se `order_id`
-- [ ] `GET orders/[id]/events`
+- [x] `GET orders/[id]/events`
 
 #### F.4 — UI
 
 - [x] `JournalEntryModal` — itens + taxas + **Estornar pedido completo**
 - [x] `ExtratoTab` — via queryExtrato
-- [ ] Timeline pedido (`order_events`)
+- [x] Timeline pedido (`order_events` em `ViewOrderModal`)
 
 #### F.5 — Idempotência
 
@@ -242,12 +242,12 @@ Documento de execução complementa `docs/FINANCEIRO.md` e `docs/CHECKLIST_FINAN
 #### F.7 — Testes
 
 - [x] `reverseOrderSale.test.ts` atualizado
-- [ ] `reverseOrderOperation.test.ts`
+- [x] `reverseOrderOperation.test.ts`
 - [ ] Smoke manual full/partial
 
 #### F.8 — Docs
 
-- [ ] `FINANCEIRO.md`
+- [x] `FINANCEIRO.md`
 
 ---
 

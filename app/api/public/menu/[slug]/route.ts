@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { checkRateLimit } from "@/lib/security/rateLimit";
 import { loadPublicMenuBySlug } from "@/lib/public-menu/loadPublicMenu";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
+import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 
 export const runtime = "nodejs";
 
 const RL_LIMIT = 90;
-const RL_WINDOW_MS = 60_000;
-
-function requesterIp(req: NextRequest): string {
-    const xff = req.headers.get("x-forwarded-for");
-    if (xff) return xff.split(",")[0]!.trim();
-    return req.headers.get("x-real-ip")?.trim() || "unknown";
-}
 
 /**
  * GET /api/public/menu/[slug]
@@ -23,7 +16,7 @@ export async function GET(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = checkRateLimit(`public_menu:${requesterIp(req)}`, RL_LIMIT, RL_WINDOW_MS);
+    const rl = await publicMenuRateLimit(req, "public_menu", RL_LIMIT);
     if (!rl.allowed) {
         return NextResponse.json(
             { ok: false, error: "rate_limit_exceeded" },

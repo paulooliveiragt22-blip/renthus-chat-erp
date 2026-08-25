@@ -17,7 +17,7 @@ export async function POST(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = publicMenuRateLimit(req, "public_menu_checkout", 12);
+    const rl = await publicMenuRateLimit(req, "public_menu_checkout", 12);
     if (!rl.allowed) {
         return NextResponse.json(
             { ok: false, error: "rate_limit_exceeded" },

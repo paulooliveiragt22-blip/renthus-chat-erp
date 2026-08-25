@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { checkRateLimit } from "@/lib/security/rateLimit";
 import { parseMenuSlug } from "@/lib/public-menu/slug";
+import { publicMenuRateLimit } from "@/lib/public-menu/publicApiHelpers";
 import type { PublicMenuEventType } from "@/src/types/contracts.public-menu";
 
 export const runtime = "nodejs";
 
 const RL_LIMIT = 120;
-const RL_WINDOW_MS = 60_000;
 const EVENT_TYPES = new Set<PublicMenuEventType>(["page_view", "product_view", "category_view"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function requesterIp(req: NextRequest): string {
-    const xff = req.headers.get("x-forwarded-for");
-    if (xff) return xff.split(",")[0]!.trim();
-    return req.headers.get("x-real-ip")?.trim() || "unknown";
-}
 
 function asOptionalUuid(v: unknown): string | null {
     if (typeof v !== "string" || !v.trim()) return null;
@@ -30,7 +23,7 @@ export async function POST(
     req: NextRequest,
     ctx: { params: Promise<{ slug: string }> }
 ) {
-    const rl = checkRateLimit(`public_menu_events:${requesterIp(req)}`, RL_LIMIT, RL_WINDOW_MS);
+    const rl = await publicMenuRateLimit(req, "public_menu_events", RL_LIMIT);
     if (!rl.allowed) {
         return NextResponse.json(
             { ok: false, error: "rate_limit_exceeded" },
