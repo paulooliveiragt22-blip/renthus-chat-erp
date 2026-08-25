@@ -267,7 +267,9 @@ export interface IntentDecision {
         | "llm_classification"
         | "confirmation_shortcut"
         | "fallback_unknown"
-        | "active_order_session";
+        | "active_order_session"
+        /** Ambíguo: pula Haiku do classificador; agent loop resolve. */
+        | "defer_to_agent";
 }
 
 export interface OutboundMessage {

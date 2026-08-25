@@ -7,8 +7,8 @@ import { buildPackDisplayName } from "@/lib/products/packDisplayName";
 import { expandSearchVariants, scoreDidYouMean } from "./searchNormalize";
 import {
     catalogSearchCacheKey,
-    getCachedCatalogSearch,
-    setCachedCatalogSearch,
+    getCachedCatalogSearchAsync,
+    setCachedCatalogSearchAsync,
 } from "./catalogSearchCache";
 import { applySearchRelevanceRerank } from "./searchRelevance";
 
@@ -228,7 +228,7 @@ export async function runSearchProdutosDetailed(
         categoryHint: opts?.categoryHint,
         limit,
     });
-    const cached = getCachedCatalogSearch(cacheKey);
+    const cached = await getCachedCatalogSearchAsync(cacheKey);
     if (cached) {
         return {
             ...cached,
@@ -270,7 +270,7 @@ export async function runSearchProdutosDetailed(
                     empty: items.length === 0,
                     queryNormalized: hint,
                 };
-                setCachedCatalogSearch(cacheKey, result);
+                await setCachedCatalogSearchAsync(cacheKey, result);
                 return result;
             }
         }
@@ -296,7 +296,7 @@ export async function runSearchProdutosDetailed(
         empty: items.length === 0,
         queryNormalized,
     };
-    setCachedCatalogSearch(cacheKey, result);
+    await setCachedCatalogSearchAsync(cacheKey, result);
     return result;
 }
 

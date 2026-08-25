@@ -113,17 +113,44 @@ describe("ProIntentClassifierService", () => {
         assert.equal(out.reasonCode, "regex_match");
     });
 
-    it("cai em unknown quando ambíguo, sem pedido activo e sem chave de IA", async () => {
-        const prev = process.env.ANTHROPIC_API_KEY;
-        delete process.env.ANTHROPIC_API_KEY;
+    it("ambíguo com IA ligada: defer_to_agent (sem Haiku no classificador)", async () => {
         const svc = new ProIntentClassifierService();
         const out = await svc.classify({
-            context: baseContext("pro_idle"),
+            context: baseContext("pro_idle", { llmEnabled: true }),
             userText: "hmm",
         });
-        if (prev) process.env.ANTHROPIC_API_KEY = prev;
+        assert.equal(out.intent, "unknown");
+        assert.equal(out.reasonCode, "defer_to_agent");
+    });
+
+    it("cai em unknown quando ambíguo, sem pedido activo e IA off", async () => {
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext("pro_idle", { llmEnabled: false }),
+            userText: "hmm",
+        });
         assert.equal(out.intent, "unknown");
         assert.equal(out.reasonCode, "fallback_unknown");
+    });
+
+    it("com IA ligada: 'quero uma coca' usa regex order_intent (sem classificador LLM)", async () => {
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext("pro_idle", { llmEnabled: true }),
+            userText: "quero uma coca",
+        });
+        assert.equal(out.intent, "order_intent");
+        assert.equal(out.reasonCode, "regex_match");
+    });
+
+    it("com IA ligada: FAQ 'quanto custa' defer_to_agent", async () => {
+        const svc = new ProIntentClassifierService();
+        const out = await svc.classify({
+            context: baseContext("pro_idle", { llmEnabled: true }),
+            userText: "quanto custa a entrega?",
+        });
+        assert.equal(out.intent, "faq");
+        assert.equal(out.reasonCode, "defer_to_agent");
     });
 
     it("degradado (llm off): saudação via regex", async () => {

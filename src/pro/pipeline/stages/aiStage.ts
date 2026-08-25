@@ -140,6 +140,9 @@ export async function aiStage(params: {
     const sideEffects: SideEffect[] = [];
 
     // Streak/escalate da IA, depois slots do draft (fonte de verdade do checkout).
+    // Duas camadas de propósito distinto — NÃO fundir em um god-switch:
+    // 1) `applyAiStateTransition` — só escalate / misunderstanding streak
+    // 2) `withResolvedSlotStep` — draft → passo de checkout (pagamento/confirmação)
     const nextState = withResolvedSlotStep(
         applyAiStateTransition({
             state: nextStateBase,

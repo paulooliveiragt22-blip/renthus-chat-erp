@@ -36,7 +36,7 @@ Atualizar este ficheiro ao concluir cada item (`[ ]` → `[x]` + data).
 | P2p.1 | Claim justo SQL + skip thread busy | [x] | `claim_chatbot_queue_jobs(..., max_per_company)` |
 | P2p.2 | Aviso WhatsApp de backlog | [x] | `lib/chatbot/backlogNotice.ts` + `incoming` |
 | P2p.3 | Cache TTL busca catálogo | [x] | `catalogSearchCache.ts` |
-| P2p.4 | Redis concurrency global Anthropic | [ ] | Só se 429 multi-réplica persistir |
+| P2p.4 | Redis concurrency global Anthropic | [x] 2026-08-25 | `llmDistributedCap.ts` + env `LLM_GLOBAL_MAX_IN_FLIGHT` / `COMPANY_LLM_MAX_IN_FLIGHT` (Upstash; fail-open) |
 | P2p.5 | Sync docs structure/pipeline/REFACTOR/smoke com P0–P2peak | [x] | 2026-08-05 |
 
 ## P3 — Infra Supabase / paralelismo para picos

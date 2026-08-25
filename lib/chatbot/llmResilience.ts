@@ -4,11 +4,13 @@
  * (ver docs/PLANO_MULTI_PROVIDER_IA.md, Fase 7; substitui `anthropicResilience.ts`, que tinha um
  * único estado global e ficou como código morto após a migração pro Vercel AI SDK).
  *
- * Usa o gate in-flight por instância e por provider (`anthropicInFlightGate.ts`); sem Redis
- * ainda não há teto global entre réplicas.
+ * Usa o gate in-flight por instância e por provider (`anthropicInFlightGate.ts`).
+ * Com Upstash: teto opcional global (`LLM_GLOBAL_MAX_IN_FLIGHT`) e por empresa
+ * (`COMPANY_LLM_MAX_IN_FLIGHT`) via `llmDistributedCap.ts`.
  */
 
 import { runWithAnthropicInFlightSlot, runWithOpenAiInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
+import { runWithDistributedLlmCap } from "@/lib/chatbot/llmDistributedCap";
 import type { LlmProviderName } from "@/src/pro/adapters/ai/modelProvider";
 
 function sleep(ms: number): Promise<void> {
@@ -112,7 +114,12 @@ function noteRecoveryIfNeeded(provider: LlmProviderName, onCircuitStateChange?: 
 export async function runLlmWithResilience<T>(
     provider: LlmProviderName,
     fn: () => Promise<T>,
-    opts?: { maxRetries?: number; onCircuitStateChange?: (e: CircuitStateChangeEvent) => void }
+    opts?: {
+        maxRetries?: number;
+        onCircuitStateChange?: (e: CircuitStateChangeEvent) => void;
+        /** Quando setado, aplica teto Redis por company (noisy neighbor). */
+        companyId?: string | null;
+    }
 ): Promise<T> {
     const circuit = circuits[provider];
     const runWithGate = IN_FLIGHT_GATE[provider];
@@ -128,6 +135,13 @@ export async function runLlmWithResilience<T>(
     const maxRetries = Math.min(5, Math.max(0, opts?.maxRetries ?? 3));
     let lastError: unknown;
 
+    const runOnce = () =>
+        runWithDistributedLlmCap({
+            provider,
+            companyId: opts?.companyId,
+            fn: () => runWithGate(fn),
+        });
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const openMs = getCircuitOpenRemainingMs(provider);
         if (openMs > 0 && attempt > 0) {
@@ -136,7 +150,7 @@ export async function runLlmWithResilience<T>(
             throw err;
         }
         try {
-            const result = await runWithGate(fn);
+            const result = await runOnce();
             circuit.consecutive429 = 0;
             noteRecoveryIfNeeded(provider, onCircuitStateChange);
             return result;

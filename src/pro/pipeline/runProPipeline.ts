@@ -43,11 +43,19 @@ import {
 } from "./orderSlotStep";
 import { enrichProSessionCustomerFromPhone } from "./enrichCustomerFromPhone";
 import { handleAwaitingPhoneTurn } from "./handleAwaitingPhone";
-import { clearStaleClarifyUiIfNoDraft } from "./sessionOrderContext";
+import { clearStaleClarifyUiIfNoDraft, isOrderSessionContinuityNeeded } from "./sessionOrderContext";
 import {
     looksLikeDeliveryCoverageQuestion,
     tryAnswerDeliveryCoverageFaq,
 } from "./deliveryCoverageFaq";
+import {
+    buildStoreHoursFaqReply,
+    looksLikeStoreHoursQuestion,
+} from "./storeHoursFaq";
+import {
+    looksLikeOrderStatusQuestion,
+    tryBuildOrderStatusReply,
+} from "./orderStatusFaq";
 import {
     resolvePickedEmbalagemId,
     serverPrepareAfterProductPick,
@@ -675,29 +683,32 @@ export async function runProPipeline(
     let pipelineState = stateAfterPick;
     const contextForStages: PipelineContext = { ...context, session: pipelineState };
 
-    const decision = await intentStage({
-        intentService: deps.intentService,
-        context: contextForStages,
-        userText: inboundTextForPipeline,
-    });
-
     /**
-     * S1 / abandono: greeting|faq|unknown sem itens no draft não deve reemitir
-     * botões de pick residual (lastSearchPicks) junto com boas-vindas.
+     * Fast paths determinísticos ANTES do intent LLM (economia de 1 round Haiku).
      */
-    if (
-        (decision.intent === "greeting" ||
-            decision.intent === "faq" ||
-            decision.intent === "unknown") &&
-        !(pipelineState.draft?.items?.length)
-    ) {
-        pipelineState = clearStaleClarifyUiIfNoDraft(pipelineState);
+    if (looksLikeStoreHoursQuestion(inboundTextForPipeline)) {
+        const hoursReply = buildStoreHoursFaqReply(storeHours, nowMs);
+        const synced = withResolvedSlotStep(pipelineState);
+        const outbound: OutboundMessage[] = [{ kind: "text", text: hoursReply }];
+        await emitTurn({ state: synced, outbound });
+        const metrics: PipelineMetric[] = [
+            { name: "pro_pipeline.store_hours_faq", value: 1 },
+            { name: "pro_pipeline.outbound_count", value: outbound.length },
+        ];
+        flushPipelineRunMetrics(
+            deps.metrics,
+            input.tenant,
+            metrics,
+            new Set(["pro_pipeline.outbound_count"])
+        );
+        return {
+            nextState: synced,
+            outbound,
+            sideEffects: [],
+            metrics,
+        };
     }
 
-    /**
-     * FAQ cobertura ("entregam no Centro?"): resposta pelo policy de entrega,
-     * sem LLM (evita puxar endereço salvo no get_order_hints).
-     */
     if (deps.admin && looksLikeDeliveryCoverageQuestion(inboundTextForPipeline)) {
         try {
             const coverageReply = await tryAnswerDeliveryCoverageFaq({
@@ -710,11 +721,7 @@ export async function runProPipeline(
                 const outbound: OutboundMessage[] = [{ kind: "text", text: coverageReply }];
                 await emitTurn({ state: synced, outbound });
                 const metrics: PipelineMetric[] = [
-                    {
-                        name: "pro_pipeline.delivery_coverage_faq",
-                        value: 1,
-                        tags: { intent: decision.intent },
-                    },
+                    { name: "pro_pipeline.delivery_coverage_faq", value: 1 },
                     { name: "pro_pipeline.outbound_count", value: outbound.length },
                 ];
                 flushPipelineRunMetrics(
@@ -737,6 +744,66 @@ export async function runProPipeline(
                 message: err instanceof Error ? err.message : String(err),
             });
         }
+    }
+
+    if (
+        deps.admin &&
+        looksLikeOrderStatusQuestion(inboundTextForPipeline) &&
+        pipelineState.customerId
+    ) {
+        try {
+            const statusReply = await tryBuildOrderStatusReply({
+                admin: deps.admin,
+                companyId: input.tenant.companyId,
+                customerId: pipelineState.customerId,
+            });
+            if (statusReply) {
+                const synced = withResolvedSlotStep(pipelineState);
+                const outbound: OutboundMessage[] = [{ kind: "text", text: statusReply }];
+                await emitTurn({ state: synced, outbound });
+                const metrics: PipelineMetric[] = [
+                    { name: "pro_pipeline.order_status_faq", value: 1 },
+                    { name: "pro_pipeline.outbound_count", value: outbound.length },
+                ];
+                flushPipelineRunMetrics(
+                    deps.metrics,
+                    input.tenant,
+                    metrics,
+                    new Set(["pro_pipeline.outbound_count"])
+                );
+                return {
+                    nextState: synced,
+                    outbound,
+                    sideEffects: [],
+                    metrics,
+                };
+            }
+        } catch (err) {
+            deps.logger?.warn("pro_pipeline.order_status_faq_failed", {
+                companyId: input.tenant.companyId,
+                threadId: input.tenant.threadId,
+                message: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+
+    const decision = await intentStage({
+        intentService: deps.intentService,
+        context: contextForStages,
+        userText: inboundTextForPipeline,
+    });
+
+    /**
+     * S1 / abandono: greeting|faq|unknown sem itens no draft não deve reemitir
+     * botões de pick residual (lastSearchPicks) junto com boas-vindas.
+     */
+    if (
+        (decision.intent === "greeting" ||
+            decision.intent === "faq" ||
+            decision.intent === "unknown") &&
+        !(pipelineState.draft?.items?.length)
+    ) {
+        pipelineState = clearStaleClarifyUiIfNoDraft(pipelineState);
     }
 
     // Prioridade: se está aguardando confirmação, resolve fechamento/erro de draft
@@ -858,6 +925,7 @@ export async function runProPipeline(
 
     let invalidAiSanitized = false;
     let aiServiceErrorCode: string | undefined;
+    let aiToolRoundsUsed = 0;
     let checkoutOrderHints: Record<string, unknown> | null = null;
     let aiLimitExceeded = false;
     let addressFreeTextSignaled = false;
@@ -909,11 +977,12 @@ export async function runProPipeline(
             }
             let aiContext: PipelineContext = { ...context, session: nextState };
             let prefetchedOrderHints: Record<string, unknown> | null = null;
-            if (
+            const shouldPrefetchHints =
                 !infoOnly &&
-                decision.intent === "order_intent" &&
-                nextState.customerId
-            ) {
+                Boolean(nextState.customerId) &&
+                (decision.intent === "order_intent" ||
+                    isOrderSessionContinuityNeeded(nextState));
+            if (shouldPrefetchHints) {
                 try {
                     if (deps.orderHints) {
                         prefetchedOrderHints = await deps.orderHints.buildHints({
@@ -967,6 +1036,7 @@ export async function runProPipeline(
             });
             invalidAiSanitized = ai.invalidAiSanitized;
             aiServiceErrorCode = ai.aiResult.errorCode;
+            aiToolRoundsUsed = Number(ai.aiResult.signals.toolRoundsUsed ?? 0) || 0;
             addressFreeTextSignaled = ai.aiResult.signals.addressFreeText === true;
             nextState = bumpAiTurnCount(ai.state, aiPolicy, nowMs);
             outbound.push(...ai.outbound);
@@ -1106,6 +1176,20 @@ export async function runProPipeline(
             tags: { intent: decision.intent, step: nextState.step },
         },
     ];
+    if (decision.reasonCode === "defer_to_agent") {
+        runMetrics.push({
+            name: "pro_pipeline.intent_llm_skipped",
+            value: 1,
+            tags: { intent: decision.intent },
+        });
+    }
+    if (aiToolRoundsUsed > 0) {
+        runMetrics.push({
+            name: "pro_pipeline.tool_rounds_used",
+            value: aiToolRoundsUsed,
+            tags: { intent: decision.intent },
+        });
+    }
     if (aiLimitExceeded) {
         runMetrics.push({
             name: "pro_pipeline.ai_turn_limit_exceeded",

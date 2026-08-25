@@ -59,7 +59,8 @@ Use como guia de implementação e revisão periódica. Itens derivados da anál
 
 ## 8. Rate limiting distribuído
 
-- [x] Substituir ou complementar o rate limit em memória (`lib/security/rateLimit.ts`) para rotas críticas em ambiente multi-instância (Redis/Upstash ou WAF). → `lib/security/rateLimitDistributed.ts` + `@upstash/ratelimit`; ativo com `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`. Sem env → fallback in-memory. Rotas públicas/webhooks usam `*Async`.
+- [x] Código: adapter Upstash + fallback in-memory (`lib/security/rateLimitDistributed.ts`; rotas públicas/webhooks usam `*Async`).
+- [ ] **Antes do MVP:** criar Redis database no Upstash e configurar na Vercel `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (senão o limite dilui entre réplicas). Ver `docs/CHECKLIST_MVP_LANCAMENTO.md` → infra.
 
 ---
 

@@ -246,13 +246,29 @@ export class ProIntentClassifierService implements IntentService {
             return { intent: "greeting", confidence: "high", reasonCode: "regex_match" };
         }
 
-        // Degradado: regex de linguagem. Com crédito/IA: sempre LLM desde a 1ª mensagem.
-        if (!useLlm) {
-            const byRegex = classifyWithLanguageRegex(raw);
-            if (byRegex) return byRegex;
-            return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
+        /**
+         * Com IA ligada: regex de alta/média confiança evita 2ª chamada LLM (classificador).
+         * Ambíguo → defer_to_agent (order_intent/unknown) e o agent loop resolve numa ida só.
+         */
+        if (useLlm) {
+            if (HUMAN_RE.test(raw)) {
+                return { intent: "human_intent", confidence: "high", reasonCode: "regex_match" };
+            }
+            if (STATUS_RE.test(raw)) {
+                return { intent: "status_intent", confidence: "high", reasonCode: "regex_match" };
+            }
+            if (ORDER_RE.test(raw)) {
+                return { intent: "order_intent", confidence: "medium", reasonCode: "regex_match" };
+            }
+            // FAQ / ambíguo: não gasta Haiku no classificador — agent loop trata.
+            if (FAQ_RE.test(raw)) {
+                return { intent: "faq", confidence: "medium", reasonCode: "defer_to_agent" };
+            }
+            return { intent: "unknown", confidence: "low", reasonCode: "defer_to_agent" };
         }
 
-        return llmClassify(context, userText, this.admin);
+        const byRegex = classifyWithLanguageRegex(raw);
+        if (byRegex) return byRegex;
+        return { intent: "unknown", confidence: "low", reasonCode: "fallback_unknown" };
     }
 }

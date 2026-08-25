@@ -24,6 +24,7 @@ pré-produção radical (`.cursor/rules/projeto-pre-producao-radical.mdc`).
 | M6 | Limpar fila de impressão | Pro + Market (`printing_auto`) | [x] |
 | M7 | Integridade financeira (receita real) | todos (não é feature flag) | [x] |
 | M0 | Seed de keys novas no commit do item | `staff_users` em M3 | [x] |
+| INFRA-1 | Upstash Redis (rate limit distribuído) | todos | [ ] **antes do lançamento** |
 
 ---
 
@@ -166,6 +167,28 @@ dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 
 ---
 
+## Infra — antes do lançamento MVP
+
+### INFRA-1 — Upstash Redis (rate limit distribuído)
+
+**Estado:** [ ] pendente — criar **antes** de lançar o MVP.
+
+Código já pronto (`lib/security/rateLimitDistributed.ts`). Sem Redis, o limite fica
+só in-memory por réplica Vercel (dilui em pico).
+
+Checklist operacional:
+
+1. [ ] Criar database Redis no [Upstash Console](https://console.upstash.com/) (região próxima ao deploy Vercel, ex. `sa-east-1` / São Paulo se disponível).
+2. [ ] Copiar `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`.
+3. [ ] Colar as duas vars no projeto Vercel (Production + Preview se quiser testar).
+4. [ ] (Opcional agente) `COMPANY_LLM_MAX_IN_FLIGHT` (default 4) e/ou `LLM_GLOBAL_MAX_IN_FLIGHT` (default 0=off) — teto Redis por empresa / global.
+5. [ ] Redeploy; confirmar com `npm run check:prod-env --strict` (deve logar Upstash configurado, sem aviso).
+6. [ ] Smoke: forçar 429 numa rota pública (ex. cardápio) e ver `Retry-After`.
+
+Não confundir com “virtual threads” (Java/Loom) — este monorepo é **Node/Next.js**; não precisa.
+
+---
+
 ## Registro
 
 | Data | Nota |
@@ -183,3 +206,4 @@ dashboard/extrato no fuso da loja; removido POST duplicado do PedidosClient.
 | 2026-08-14 | Playwright smokes MVP (`e2e/mvp.smokes.spec.ts`): `npm run test:e2e` com `E2E_EMAIL`/`E2E_PASSWORD` |
 | 2026-08-14 | M2 ajuste: 2 turnos (`opening_periods`), mensagem fechado, bot/cardápio no mesmo gate |
 | 2026-08-14 | M1: clique Entrega/Retirar (id+título); sem inferir entrega por endereço; slot espera o modo |
+| 2026-08-25 | INFRA-1: Upstash Redis marcado como pendente pré-MVP (código de rate limit distribuído já no repo) |

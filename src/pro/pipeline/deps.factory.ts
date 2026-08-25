@@ -93,6 +93,7 @@ export function makeProPipelineDependencies(
             providerOverride: aiCapability?.provider,
             modelNameOverride: aiCapability?.model,
             onCircuitStateChange,
+            metrics,
         }),
         orderService: new OrderServiceV2Adapter(params.admin),
         companyPolicy: new SupabaseCompanyPolicyAdapter(params.admin),

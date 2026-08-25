@@ -20,6 +20,7 @@ import type { AiService } from "../../services/ai/ai.types";
 import type { CatalogPort } from "@/src/pro/ports/catalog.port";
 import type { OrderDraftPort } from "@/src/pro/ports/orderDraft.port";
 import type { SessionMemoryPort } from "@/src/pro/ports/sessionMemory.port";
+import type { MetricsPort } from "@/src/pro/ports/metrics.port";
 import { SupabaseCatalogAdapter } from "@/src/pro/adapters/supabase/catalog.supabase";
 import { SupabaseOrderDraftAdapter } from "@/src/pro/adapters/supabase/orderDraft.supabase";
 import { NoopSessionMemoryAdapter } from "@/src/pro/adapters/ai/sessionMemory.llm";
@@ -75,8 +76,12 @@ export type AiServiceOptions = {
      */
     providerOverride?: LlmProviderName;
     modelNameOverride?: string;
-    /** Observabilidade do circuit breaker (Fase 9) — ver `deps.factory.ts` pra quem conecta ao `MetricsPort`. */
+    /**
+     * Observabilidade do circuit breaker (Fase 9) — ver `deps.factory.ts` pra quem conecta ao `MetricsPort`.
+     */
     onCircuitStateChange?: (e: CircuitStateChangeEvent) => void;
+    /** Emite `pro_pipeline.ai_tokens_*` por step (opcional). */
+    metrics?: MetricsPort;
 };
 
 type IntentMarker = "ok" | "unknown";
@@ -474,6 +479,7 @@ export class AiServiceAdapter implements AiService {
     private readonly providerOverride?: LlmProviderName;
     private readonly modelNameOverride?: string;
     private readonly onCircuitStateChange?: (e: CircuitStateChangeEvent) => void;
+    private readonly metrics?: MetricsPort;
 
     constructor(private readonly admin: SupabaseClient, opts?: AiServiceOptions) {
         this.catalog = opts?.catalog ?? new SupabaseCatalogAdapter(admin);
@@ -483,6 +489,7 @@ export class AiServiceAdapter implements AiService {
         this.providerOverride = opts?.providerOverride;
         this.modelNameOverride = opts?.modelNameOverride;
         this.onCircuitStateChange = opts?.onCircuitStateChange;
+        this.metrics = opts?.metrics;
     }
 
     private buildProviderError(input: AiServiceInput, toolRoundsUsed: number, allowlistIds: string[]): AiServiceResult {
@@ -704,7 +711,9 @@ export class AiServiceAdapter implements AiService {
                     : undefined;
             const maxSteps = Math.max(2, input.limits.maxToolRounds + 5);
 
-            const result = await runLlmWithResilience(provider, () =>
+            const result = await runLlmWithResilience(
+                provider,
+                () =>
                 generateText({
                     model,
                     system,
@@ -792,18 +801,29 @@ export class AiServiceAdapter implements AiService {
                     },
                     onStepFinish: async (step) => {
                         const modelId = step.response.modelId?.trim() || "unknown";
+                        const inputTokens = step.usage.inputTokens ?? 0;
+                        const outputTokens = step.usage.outputTokens ?? 0;
                         await debitFromAnthropicUsage(
                             this.admin,
                             companyId,
                             {
-                                input_tokens: step.usage.inputTokens ?? 0,
-                                output_tokens: step.usage.outputTokens ?? 0,
+                                input_tokens: inputTokens,
+                                output_tokens: outputTokens,
                             },
                             { source: "pro_ai_service", provider, model: modelId }
                         );
+                        if (this.metrics) {
+                            const tags = { companyId, provider, model: modelId };
+                            if (inputTokens > 0) {
+                                this.metrics.increment("pro_pipeline.ai_tokens_in", inputTokens, tags);
+                            }
+                            if (outputTokens > 0) {
+                                this.metrics.increment("pro_pipeline.ai_tokens_out", outputTokens, tags);
+                            }
+                        }
                     },
                 }),
-                { onCircuitStateChange: this.onCircuitStateChange }
+                { onCircuitStateChange: this.onCircuitStateChange, companyId }
             );
 
             const finalRespondCall = result.toolCalls.find((c) => c.toolName === "respond_to_customer");

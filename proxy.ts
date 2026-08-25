@@ -161,7 +161,16 @@ function isPublicAppRoute(pathname: string): boolean {
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
         pathname.startsWith("/_next") ||
-        pathname === "/favicon.ico"
+        pathname === "/favicon.ico" ||
+        /** PWA: Chrome/Safari/Android validam estes assets sem cookie de sessão. */
+        pathname === "/manifest.webmanifest" ||
+        pathname === "/sw.js" ||
+        pathname.startsWith("/sw.js") ||
+        pathname.startsWith("/workbox-") ||
+        pathname.startsWith("/fallback-") ||
+        pathname.startsWith("/icons/") ||
+        pathname === "/offline" ||
+        pathname.startsWith("/offline/")
     );
 }
 

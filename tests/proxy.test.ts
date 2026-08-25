@@ -100,6 +100,23 @@ describe("proxy auth routing", () => {
         assert.strictEqual(factory.mock.calls.length, 0);
     });
 
+    it("exempts PWA assets without auth (manifest, SW, icons, offline)", async () => {
+        const paths = [
+            "/manifest.webmanifest",
+            "/sw.js",
+            "/workbox-c18c662b.js",
+            "/icons/icon-192.png",
+            "/offline",
+        ];
+        for (const path of paths) {
+            const response = await proxy(createRequest(path), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.headers.get("location"), null, path);
+        }
+        assert.strictEqual(factory.mock.calls.length, 0);
+    });
+
     it("keeps session-backed chatbot routes behind auth", async () => {
         for (const path of ["/api/chatbot/config", "/api/chatbot/resolve"]) {
             const { factory: protectedFactory } = createMockClient(null);

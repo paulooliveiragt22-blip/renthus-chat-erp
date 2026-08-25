@@ -27,9 +27,12 @@ export async function reclaimStuckJobs(admin: AdminClient, staleMinutes: number)
     }
 }
 
-/** Remove jobs terminais (`done`/`failed`) com mais de 24h — mantém a tabela enxuta. */
+/** Remove jobs terminais (`done`/`failed`) antigos — default 24h; override via env. */
 export async function cleanupOldJobs(admin: AdminClient): Promise<void> {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const hoursRaw = Number(process.env.CHATBOT_QUEUE_RETENTION_HOURS ?? "24");
+    const hours =
+        Number.isFinite(hoursRaw) && hoursRaw >= 1 ? Math.min(168, Math.floor(hoursRaw)) : 24;
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
     await admin
         .from("chatbot_queue")
         .delete()
