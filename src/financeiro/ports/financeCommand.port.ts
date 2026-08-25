@@ -56,6 +56,24 @@ export type ReverseOrderSaleInput = {
     companyId: string;
     orderId: string;
     reason?: string | null;
+    idempotencyKey?: string;
+    rejectConfirmation?: boolean;
+};
+
+export type ReverseOrderItemInput = {
+    orderItemId: string;
+    qty: number;
+};
+
+export type ReverseOrderOperationInput = {
+    companyId: string;
+    orderId: string;
+    mode: "full" | "partial";
+    items?: ReverseOrderItemInput[];
+    includeDeliveryFee?: boolean;
+    includeServiceFees?: boolean;
+    reason?: string | null;
+    idempotencyKey: string;
     rejectConfirmation?: boolean;
 };
 
@@ -67,4 +85,5 @@ export type FinanceCommandPort = {
     reverseJournalPartial(admin: SupabaseClient, input: ReverseJournalPartialInput): Promise<unknown>;
     postCashMovement(admin: SupabaseClient, input: PostCashMovementInput): Promise<unknown>;
     reverseOrderSale(admin: SupabaseClient, input: ReverseOrderSaleInput): Promise<unknown>;
+    reverseOrderOperation(admin: SupabaseClient, input: ReverseOrderOperationInput): Promise<unknown>;
 };

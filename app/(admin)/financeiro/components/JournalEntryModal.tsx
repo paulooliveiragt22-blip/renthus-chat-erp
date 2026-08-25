@@ -8,14 +8,16 @@ import {
     isReversibleJournalLine,
     journalLineKey,
     type JournalDetail,
-    type JournalDetailLine,
 } from "@/src/financeiro/application/reverseJournal";
 import { brl, isoDate, originLabel, PAY_META } from "../lib/format";
 import type { ExtratoLine } from "../lib/types";
 
+type ConfirmMode = "partial" | "full" | null;
+
 function canReverseJournal(line: ExtratoLine, detail: JournalDetail | null): boolean {
     if (line.journalStatus !== "posted" || line.journalSourceType === "reversal") return false;
     if (!detail) return false;
+    if (line.orderId || detail.orderId) return true;
     return detail.lines.some(isReversibleJournalLine);
 }
 
@@ -23,12 +25,11 @@ function reverseErrorLabel(code: string): string {
     if (code === "settlement_conflict") return "Caixa da venda já foi fechado — não é possível estornar.";
     if (code === "journal_already_reversed") return "Este lançamento já foi estornado por completo.";
     if (code === "cannot_reverse_reversal") return "Não é possível estornar um estorno.";
-    if (code === "journal_line_exceeds_remaining") return "Valor maior que o restante disponível.";
-    if (code === "journal_lines_required") return "Selecione pelo menos uma linha para estornar.";
+    if (code === "partial_requires_items") return "Selecione itens, taxa de entrega ou taxas de serviço.";
+    if (code === "prazo_partial_blocked") return "Estorno parcial não disponível para venda a prazo.";
+    if (code === "order_item_invalid") return "Quantidade de item inválida.";
     return code || "Falha ao estornar";
 }
-
-type LineSelection = { checked: boolean; amount: string };
 
 type Props = {
     line: ExtratoLine | null;
@@ -60,13 +61,17 @@ export default function JournalEntryModal({
     const dialogRef = useRef<HTMLDialogElement>(null);
     const [detail, setDetail] = useState<JournalDetail | null>(null);
     const [loading, setLoading] = useState(false);
-    const [selection, setSelection] = useState<Record<string, LineSelection>>({});
+    const [itemSelection, setItemSelection] = useState<Record<string, boolean>>({});
+    const [includeDelivery, setIncludeDelivery] = useState(false);
+    const [includeServiceFees, setIncludeServiceFees] = useState(false);
     const [note, setNote] = useState("");
     const [error, setError] = useState<string | null>(null);
-    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmMode, setConfirmMode] = useState<ConfirmMode>(null);
     const [reversing, setReversing] = useState(false);
 
     const journalId = line?.journalId ?? null;
+    const orderId = line?.orderId ?? detail?.orderId ?? null;
+    const useOrderReverse = Boolean(orderId);
 
     const loadDetail = useCallback(async () => {
         if (!journalId) return;
@@ -85,12 +90,13 @@ export default function JournalEntryModal({
             }
             const j = json.journal as JournalDetail;
             setDetail(j);
-            const sel: Record<string, LineSelection> = {};
-            for (const ln of j.lines.filter(isReversibleJournalLine)) {
-                const key = journalLineKey(ln);
-                sel[key] = { checked: false, amount: "" };
+            const items: Record<string, boolean> = {};
+            for (const it of j.order?.items ?? []) {
+                items[it.id] = false;
             }
-            setSelection(sel);
+            setItemSelection(items);
+            setIncludeDelivery(false);
+            setIncludeServiceFees(false);
             setNote("");
         } finally {
             setLoading(false);
@@ -105,111 +111,89 @@ export default function JournalEntryModal({
             void loadDetail();
         } else if (el.open) {
             el.close();
-            setConfirmOpen(false);
+            setConfirmMode(null);
             setDetail(null);
         }
     }, [line, loadDetail]);
 
-    const reversibleLines = detail?.lines.filter(isReversibleJournalLine) ?? [];
-
-    function toggleLine(line: JournalDetailLine, checked: boolean) {
-        const key = journalLineKey(line);
-        setSelection((prev) => ({
-            ...prev,
-            [key]: {
-                checked,
-                amount: checked
-                    ? String(line.remaining.toFixed(2)).replace(".", ",")
-                    : prev[key]?.amount ?? "",
-            },
-        }));
-    }
-
-    function markAllLines() {
-        const next: Record<string, LineSelection> = { ...selection };
-        for (const ln of reversibleLines) {
-            const key = journalLineKey(ln);
-            next[key] = {
-                checked: true,
-                amount: String(ln.remaining.toFixed(2)).replace(".", ","),
-            };
+    function markAllItems() {
+        if (!detail?.order) return;
+        const next: Record<string, boolean> = {};
+        for (const it of detail.order.items) {
+            next[it.id] = true;
         }
-        setSelection(next);
+        setItemSelection(next);
     }
 
-    function buildPartialLines(): Array<{ code: string; dir: "debit" | "credit"; amt: number }> {
-        const out: Array<{ code: string; dir: "debit" | "credit"; amt: number }> = [];
-        for (const ln of reversibleLines) {
-            const key = journalLineKey(ln);
-            const sel = selection[key];
-            if (!sel?.checked) continue;
-            const raw = sel.amount.trim().replace(",", ".");
-            const amt = Number.parseFloat(raw);
-            if (!Number.isFinite(amt) || amt <= 0) continue;
-            if (amt > ln.remaining) throw new Error("journal_line_exceeds_remaining");
-            out.push({ code: ln.code, dir: ln.direction, amt: Math.round(amt * 100) / 100 });
+    function buildPartialItems(): Array<{ order_item_id: string; qty: number }> {
+        if (!detail?.order) return [];
+        return detail.order.items
+            .filter((it) => itemSelection[it.id])
+            .map((it) => ({
+                order_item_id: it.id,
+                qty: it.quantity,
+            }));
+    }
+
+    function partialSelectionSummary(): string {
+        const parts: string[] = [];
+        for (const it of detail?.order?.items ?? []) {
+            if (itemSelection[it.id]) {
+                parts.push(`${it.quantity}× ${it.productName}`);
+            }
         }
-        return out;
-    }
-
-    function selectedTotal(): number {
-        let t = 0;
-        for (const ln of reversibleLines) {
-            const key = journalLineKey(ln);
-            const sel = selection[key];
-            if (!sel?.checked) continue;
-            const raw = sel.amount.trim().replace(",", ".");
-            const amt = Number.parseFloat(raw);
-            if (Number.isFinite(amt) && amt > 0) t += amt;
+        if (includeDelivery && detail?.order && detail.order.deliveryFee > 0) {
+            parts.push("Taxa de entrega");
         }
-        return Math.round(t * 100) / 100;
-    }
-
-    function selectedLabels(): string[] {
-        const labels: string[] = [];
-        for (const ln of reversibleLines) {
-            const key = journalLineKey(ln);
-            if (selection[key]?.checked) labels.push(ln.label);
+        if (includeServiceFees && detail?.order?.fees.some((f) => f.systemKey !== "delivery")) {
+            parts.push("Taxas de serviço");
         }
-        return labels;
+        return parts.join(", ");
     }
 
-    function openConfirm() {
+    function openConfirm(mode: ConfirmMode) {
         setError(null);
-        try {
-            const lines = buildPartialLines();
-            if (lines.length === 0) {
-                setError("Selecione pelo menos uma linha para estornar.");
+        if (mode === "partial") {
+            const items = buildPartialItems();
+            const hasFees =
+                (includeDelivery && (detail?.order?.deliveryFee ?? 0) > 0) ||
+                (includeServiceFees &&
+                    (detail?.order?.fees.some((f) => f.systemKey !== "delivery") ?? false));
+            if (items.length === 0 && !hasFees) {
+                setError("Selecione itens ou taxas para estornar.");
                 return;
             }
-            setConfirmOpen(true);
-        } catch (e) {
-            setError(reverseErrorLabel(e instanceof Error ? e.message : ""));
         }
+        setConfirmMode(mode);
     }
 
-    async function executeReverse() {
-        if (!journalId) return;
+    async function executeOrderReverse(mode: "full" | "partial") {
+        if (!orderId) return;
         setReversing(true);
         setError(null);
         try {
-            const lines = buildPartialLines();
-            const res = await fetch(`/api/admin/financeiro/journals/${journalId}/reverse`, {
+            const idempotencyKey = `order:${orderId}:reverse:${mode}:${Date.now()}`;
+            const res = await fetch("/api/admin/financeiro/reverse-order", {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    order_id: orderId,
+                    mode,
+                    items: mode === "partial" ? buildPartialItems() : undefined,
+                    include_delivery_fee: mode === "partial" ? includeDelivery : false,
+                    include_service_fees: mode === "partial" ? includeServiceFees : false,
                     reason: note.trim() || null,
-                    lines,
+                    idempotency_key: idempotencyKey,
                 }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
                 setError(reverseErrorLabel(String(json?.error ?? "")));
-                setConfirmOpen(false);
+                setConfirmMode(null);
                 return;
             }
-            setConfirmOpen(false);
+            setConfirmMode(null);
             onClose();
             onReversed();
         } finally {
@@ -222,6 +206,7 @@ export default function JournalEntryModal({
     const showFinalize =
         line.orderId && !["finalized", "delivered"].includes(line.orderStatus ?? "");
     const canReverse = canReverseJournal(line, detail);
+    const hasServiceFees = detail?.order?.fees.some((f) => f.systemKey !== "delivery") ?? false;
 
     return (
         <>
@@ -250,7 +235,7 @@ export default function JournalEntryModal({
 
                 <div className="space-y-4 px-5 py-4">
                     {loading && <p className="text-sm text-zinc-500">Carregando lançamento…</p>}
-                    {error && !confirmOpen && (
+                    {error && !confirmMode && (
                         <p className="flex items-start gap-1 text-xs font-semibold text-red-600">
                             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                             {error}
@@ -388,64 +373,76 @@ export default function JournalEntryModal({
                                 </Link>
                             )}
 
-                            {canReverse && (
+                            {canReverse && useOrderReverse && detail.order && (
                                 <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
                                     <div className="mb-3 flex items-center justify-between">
                                         <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-                                            Estornar linhas do lançamento
+                                            Estornar pedido (financeiro + estoque)
                                         </p>
                                         <button
                                             type="button"
-                                            onClick={markAllLines}
+                                            onClick={markAllItems}
                                             className="text-[11px] font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                                         >
-                                            Marcar todas
+                                            Marcar todos itens
                                         </button>
                                     </div>
                                     <p className="mb-3 text-[11px] text-zinc-500">
-                                        Não devolve produtos ao estoque. Para cancelar o pedido completo, use Pedidos.
+                                        Estorna o lançamento vigente e reemite o pedido com o que sobrou (parcial).
                                     </p>
                                     <div className="space-y-2">
-                                        {reversibleLines.map((ln) => {
-                                            const key = journalLineKey(ln);
-                                            const sel = selection[key];
-                                            return (
-                                                <label
-                                                    key={key}
-                                                    className="flex items-center gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={sel?.checked ?? false}
-                                                        onChange={(e) => toggleLine(ln, e.target.checked)}
-                                                        className="rounded border-zinc-300"
-                                                    />
-                                                    <span className="min-w-0 flex-1 text-xs">
-                                                        <span className="font-medium">{ln.label}</span>
-                                                        <span className="text-zinc-400">
-                                                            {" "}
-                                                            (resta {brl(ln.remaining)})
-                                                        </span>
+                                        {detail.order.items.map((it) => (
+                                            <label
+                                                key={it.id}
+                                                className="flex items-center gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={itemSelection[it.id] ?? false}
+                                                    onChange={(e) =>
+                                                        setItemSelection((prev) => ({
+                                                            ...prev,
+                                                            [it.id]: e.target.checked,
+                                                        }))
+                                                    }
+                                                    className="rounded border-zinc-300"
+                                                />
+                                                <span className="min-w-0 flex-1 text-xs">
+                                                    <span className="font-medium">
+                                                        {it.quantity}× {it.productName}
                                                     </span>
-                                                    <input
-                                                        type="text"
-                                                        inputMode="decimal"
-                                                        disabled={!sel?.checked}
-                                                        value={sel?.amount ?? ""}
-                                                        onChange={(e) =>
-                                                            setSelection((prev) => ({
-                                                                ...prev,
-                                                                [key]: {
-                                                                    checked: prev[key]?.checked ?? false,
-                                                                    amount: e.target.value,
-                                                                },
-                                                            }))
-                                                        }
-                                                        className="w-24 rounded border border-zinc-200 px-2 py-1 text-right text-xs disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800"
-                                                    />
-                                                </label>
-                                            );
-                                        })}
+                                                    <span className="text-zinc-400"> ({brl(it.lineTotal)})</span>
+                                                </span>
+                                            </label>
+                                        ))}
+                                        {detail.order.deliveryFee > 0 && (
+                                            <label
+                                                className="flex items-center gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={includeDelivery}
+                                                    onChange={(e) => setIncludeDelivery(e.target.checked)}
+                                                    className="rounded border-zinc-300"
+                                                />
+                                                <span className="text-xs font-medium">
+                                                    Taxa de entrega ({brl(detail.order.deliveryFee)})
+                                                </span>
+                                            </label>
+                                        )}
+                                        {hasServiceFees && (
+                                            <label
+                                                className="flex items-center gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={includeServiceFees}
+                                                    onChange={(e) => setIncludeServiceFees(e.target.checked)}
+                                                    className="rounded border-zinc-300"
+                                                />
+                                                <span className="text-xs font-medium">Taxas de serviço</span>
+                                            </label>
+                                        )}
                                     </div>
                                     <textarea
                                         value={note}
@@ -454,13 +451,20 @@ export default function JournalEntryModal({
                                         rows={2}
                                         className="mt-3 w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                                     />
-                                    <div className="mt-3 flex justify-end">
+                                    <div className="mt-3 flex flex-wrap justify-end gap-2">
                                         <button
                                             type="button"
-                                            onClick={openConfirm}
+                                            onClick={() => openConfirm("partial")}
                                             className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                                         >
                                             Estornar seleção…
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => openConfirm("full")}
+                                            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+                                        >
+                                            Estornar pedido completo…
                                         </button>
                                     </div>
                                 </div>
@@ -519,38 +523,45 @@ export default function JournalEntryModal({
                 </div>
             </dialog>
 
-            {confirmOpen && (
+            {confirmMode && (
                 <dialog
                     open
                     className="fixed left-1/2 top-1/2 z-[60] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
                 >
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Confirmar estorno</h3>
-                    <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
-                        Estornar <strong>{brl(selectedTotal())}</strong> em:{" "}
-                        {selectedLabels().join(", ")}.
-                    </p>
-                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                        Isso altera o extrato e o caixa. Não devolve produtos ao estoque.
-                    </p>
-                    {error && (
-                        <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                        {confirmMode === "full" ? "Cancelar pedido completo" : "Confirmar estorno parcial"}
+                    </h3>
+                    {confirmMode === "full" ? (
+                        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
+                            Estorna todo o lançamento, devolve todos os produtos ao estoque e cancela o pedido.
+                            Não haverá reemissão financeira.
+                        </p>
+                    ) : (
+                        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
+                            Estornar: <strong>{partialSelectionSummary() || "seleção"}</strong>. O lançamento atual
+                            será estornado e um novo será criado com o que sobrou.
+                        </p>
                     )}
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                        Altera extrato, caixa e estoque. Esta ação não pode ser desfeita pelo extrato.
+                    </p>
+                    {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
                     <div className="mt-4 flex gap-2">
                         <button
                             type="button"
                             disabled={reversing}
-                            onClick={() => setConfirmOpen(false)}
+                            onClick={() => setConfirmMode(null)}
                             className="flex-1 rounded-lg border border-zinc-200 py-2 text-xs font-medium dark:border-zinc-700"
                         >
-                            Cancelar
+                            Voltar
                         </button>
                         <button
                             type="button"
                             disabled={reversing}
-                            onClick={() => void executeReverse()}
+                            onClick={() => void executeOrderReverse(confirmMode)}
                             className="flex-1 rounded-lg bg-red-600 py-2 text-xs font-bold text-white disabled:opacity-50"
                         >
-                            {reversing ? "Estornando…" : "Confirmar estorno"}
+                            {reversing ? "Processando…" : "Confirmar"}
                         </button>
                     </div>
                 </dialog>

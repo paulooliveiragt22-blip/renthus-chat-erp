@@ -525,6 +525,25 @@ F3 pode começar em paralelo depois da F1 (o card R$ já está certo). F4 não c
 
 ---
 
+## Fase F — Estorno operacional unificado (2026-08-25, aprovada)
+
+**Plano detalhado:** `docs/PLANO_FINANCEIRO_ORIGEM_ESTORNO.md` §6 (checklist F.0–F.8) e §9 (contrato RPC).
+
+**Resumo:** estorno com pedido = **storno integral do journal vigente** + **reemissão** (parcial) ou **cancelamento total** (full, sem reemissão). UI: **estorno completo do pedido** + **parcial por item** (+ taxas). Uma RPC: `rpc_admin_reverse_order_operation`.
+
+| Sub | Entrega | Estado |
+|-----|---------|--------|
+| F.1 | DB: `order_events`, helpers, RPC canônica, extrato sem `reversed` | [x] |
+| F.2 | TS: `reverseOrderOperation`, ports, `queryExtrato` | [x] |
+| F.3 | APIs: `reverse-order` extended; journal reverse bloqueado com `order_id` | [x] |
+| F.4 | UI: `JournalEntryModal` item a item + **Estornar pedido completo** | [x] |
+| F.5 | Idempotência `order:{id}:reverse:{nonce}` | [x] |
+| F.6 | Gargalos G1–G4 | [x] |
+| F.7 | Testes + smoke full/partial | [ ] |
+| F.8 | `FINANCEIRO.md` atualizado | [ ] |
+
+---
+
 ## Registro
 
 | Data | Nota |
@@ -536,3 +555,4 @@ F3 pode começar em paralelo depois da F1 (o card R$ já está certo). F4 não c
 | 2026-08-14 | F3: home M7 — Recebido/A receber/Ativos/Ticket; gráfico caixa 1.1; top de `sale_items`; drill Pro `?from&to`; `queryHomeStats`. |
 | 2026-08-14 | F4: Financeiro em 6 tabs; opex via `POST /opex`; aging em A Receber; esperado no Caixa; origens F0; extrato com cursor. |
 | 2026-08-14 | F5: moveu helpers para `src/financeiro`; drop `expenses` API + `v_daily_sales`; PDV passa a CR 3.2 na taxa de entrega. |
+| 2026-08-25 | **Fase F aprovada:** estorno operacional unificado (storno + reemissão parcial; full = cancel pedido completo). Checklist F.0–F.8 em `PLANO_FINANCEIRO_ORIGEM_ESTORNO.md`. |

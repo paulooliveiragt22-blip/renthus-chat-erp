@@ -1,56 +1,87 @@
 import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
-import { reverseOrderSale } from "@/src/financeiro/application/reverseOrderSale";
+import { reverseOrderOperation } from "@/src/financeiro/application/reverseOrderOperation";
 import { financeRpcFailure } from "@/src/financeiro/application/http";
 
 export const runtime = "nodejs";
 
+type ReverseOrderBody = {
+    order_id?: string;
+    mode?: "full" | "partial";
+    items?: Array<{ order_item_id?: string; qty?: number }>;
+    include_delivery_fee?: boolean;
+    include_service_fees?: boolean;
+    reason?: string | null;
+    idempotency_key?: string;
+    reject_confirmation?: boolean;
+};
+
 /**
  * POST /api/admin/financeiro/reverse-order
- * Estorno full: financeiro + estoque (rpc_admin_cancel_order).
+ * Estorno operacional unificado: storno integral do journal + reemissão (partial) ou cancel (full).
  */
 export async function POST(req: Request) {
     const ctx = await requireCapability("orders.status");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 
-    const body = (await req.json().catch(() => ({}))) as {
-        order_id?: string;
-        reason?: string | null;
-        reject_confirmation?: boolean;
-    };
+    const body = (await req.json().catch(() => ({}))) as ReverseOrderBody;
 
     const orderId = String(body.order_id ?? "").trim();
     if (!orderId) return NextResponse.json({ error: "order_id_required" }, { status: 400 });
 
+    const mode = body.mode === "partial" ? "partial" : "full";
     const reason = body.reason != null ? String(body.reason).trim() : "";
-    if (!reason) {
-        return NextResponse.json({ error: "reason_required" }, { status: 400 });
-    }
+    const idempotencyKey =
+        body.idempotency_key?.trim() || `order:${orderId}:reverse:${mode}:${Date.now()}`;
+
+    const items = Array.isArray(body.items)
+        ? body.items
+              .map((it) => ({
+                  orderItemId: String(it.order_item_id ?? "").trim(),
+                  qty: Number(it.qty),
+              }))
+              .filter((it) => it.orderItemId && Number.isFinite(it.qty) && it.qty > 0)
+        : undefined;
 
     try {
-        await reverseOrderSale(admin, {
+        const result = await reverseOrderOperation(admin, {
             companyId,
             orderId,
-            reason,
+            mode,
+            items,
+            includeDeliveryFee: body.include_delivery_fee === true,
+            includeServiceFees: body.include_service_fees === true,
+            reason: reason || null,
+            idempotencyKey,
             rejectConfirmation: body.reject_confirmation === true,
         });
+
+        if (reason) {
+            await admin
+                .from("orders")
+                .update({ details: reason })
+                .eq("id", orderId)
+                .eq("company_id", companyId);
+        }
+
+        if (mode === "full") {
+            try {
+                const { pushMarketplaceOrderStatus } = await import(
+                    "@/src/marketplaces/services/pushMarketplaceOrderStatus"
+                );
+                await pushMarketplaceOrderStatus(admin, companyId, orderId, "canceled");
+            } catch (err) {
+                console.warn(
+                    "[financeiro/reverse-order] marketplace status push:",
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+
+        return NextResponse.json(result);
     } catch (err) {
         const msg = err instanceof Error ? err.message : "reverse_failed";
         return financeRpcFailure(msg);
     }
-
-    try {
-        const { pushMarketplaceOrderStatus } = await import(
-            "@/src/marketplaces/services/pushMarketplaceOrderStatus"
-        );
-        await pushMarketplaceOrderStatus(admin, companyId, orderId, "canceled");
-    } catch (err) {
-        console.warn(
-            "[financeiro/reverse-order] marketplace status push:",
-            err instanceof Error ? err.message : err
-        );
-    }
-
-    return NextResponse.json({ ok: true, order_id: orderId, status: "canceled" });
 }

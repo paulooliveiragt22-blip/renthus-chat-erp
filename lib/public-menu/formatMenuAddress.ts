@@ -3,6 +3,7 @@
 function isPlaceholderPart(value: string | null | undefined): boolean {
     const t = String(value ?? "").trim().toLowerCase();
     if (!t) return true;
+    if (t === "-" || t === "—" || t === "--") return true;
     if (t === "s/n" || t === "sn") return true;
     if (t === "(completar)" || t === "completar") return true;
     return false;

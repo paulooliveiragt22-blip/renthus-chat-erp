@@ -6,6 +6,7 @@ import type {
     RecognizeOrderSaleInput,
     ReverseJournalInput,
     ReverseJournalPartialInput,
+    ReverseOrderOperationInput,
     ReverseOrderSaleInput,
     SettleBillInput,
 } from "@/src/financeiro/ports/financeCommand.port";
@@ -80,9 +81,38 @@ export const financeCommandSupabase: FinanceCommandPort = {
     },
 
     reverseOrderSale(admin, input: ReverseOrderSaleInput) {
-        return rpcOrThrow(admin, "rpc_admin_cancel_order", {
+        const orderId = input.orderId;
+        const idempotencyKey =
+            input.idempotencyKey?.trim() ||
+            `order:${orderId}:reverse:cancel`;
+        return rpcOrThrow(admin, "rpc_admin_reverse_order_operation", {
+            p_company_id: input.companyId,
+            p_order_id: orderId,
+            p_mode: "full",
+            p_items: null,
+            p_include_delivery_fee: false,
+            p_include_service_fees: false,
+            p_reason: input.reason ?? "",
+            p_idempotency_key: idempotencyKey,
+            p_reject_confirmation: input.rejectConfirmation ?? false,
+        });
+    },
+
+    reverseOrderOperation(admin, input: ReverseOrderOperationInput) {
+        const items =
+            input.items?.map((it) => ({
+                order_item_id: it.orderItemId,
+                qty: it.qty,
+            })) ?? null;
+        return rpcOrThrow(admin, "rpc_admin_reverse_order_operation", {
             p_company_id: input.companyId,
             p_order_id: input.orderId,
+            p_mode: input.mode,
+            p_items: items,
+            p_include_delivery_fee: input.includeDeliveryFee ?? false,
+            p_include_service_fees: input.includeServiceFees ?? false,
+            p_reason: input.reason ?? "",
+            p_idempotency_key: input.idempotencyKey,
             p_reject_confirmation: input.rejectConfirmation ?? false,
         });
     },

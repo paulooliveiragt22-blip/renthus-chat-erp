@@ -122,6 +122,7 @@ export async function buildExtratoLines(
     }
 
     for (const row of pageRows) {
+        if (row.status === "reversed") continue;
         const meta = row.order_id ? orderMeta[row.order_id] : undefined;
         const trace = traceMeta[row.id];
         const originKey = normalizeFinanceOrigin(
@@ -147,9 +148,7 @@ export async function buildExtratoLines(
                   ? isExpense
                       ? "pago"
                       : "recebido"
-                  : row.status === "reversed"
-                    ? "estornado (total)"
-                    : row.status;
+                  : row.status;
         lines.push({
             id: `j-${row.id}`,
             date: String(row.posted_at),

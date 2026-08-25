@@ -37,8 +37,14 @@ export function mapFinanceRpcError(message: string): { status: number; error: st
     if (/liquid_line_not_selectable/i.test(msg)) {
         return { status: 422, error: "liquid_line_not_selectable" };
     }
-    if (/idempotency_key_required/i.test(msg)) {
-        return { status: 400, error: "idempotency_key_required" };
+    if (/partial_requires_items/i.test(msg)) {
+        return { status: 400, error: "partial_requires_items" };
+    }
+    if (/prazo_partial_blocked/i.test(msg)) {
+        return { status: 422, error: "prazo_partial_blocked" };
+    }
+    if (/order_item_not_found|order_item_qty_exceeds/i.test(msg)) {
+        return { status: 422, error: "order_item_invalid" };
     }
     if (/rate_limit/i.test(msg)) {
         return { status: 429, error: "rate_limit_exceeded" };

@@ -85,6 +85,7 @@ export async function PATCH(req: Request) {
                     orderId: id,
                     reason: note,
                     rejectConfirmation: false,
+                    idempotencyKey: body.idempotency_key?.trim() || `order:${id}:reverse:cancel`,
                 });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "cancel_failed";

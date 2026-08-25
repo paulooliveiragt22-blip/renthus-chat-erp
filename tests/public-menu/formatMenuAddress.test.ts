@@ -38,4 +38,16 @@ describe("formatMenuCustomerAddressLine", () => {
             "Rua turmalina 34 São Mateus"
         );
     });
+
+    it("ignora cidade placeholder com hífen", () => {
+        assert.equal(
+            formatMenuCustomerAddressLine({
+                logradouro: "Rua turmalina 34",
+                numero: null,
+                bairro: "Centro",
+                cidade: "-",
+            }),
+            "Rua turmalina 34 · Centro"
+        );
+    });
 });

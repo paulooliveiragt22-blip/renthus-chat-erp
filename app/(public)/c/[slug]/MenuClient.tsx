@@ -317,7 +317,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                 ) : null}
                             </p>
                         </div>
-                        <div className="min-w-0 flex-1 pb-0.5">
+                        <div className="min-w-0 w-0 flex-1 basis-0 sm:w-auto sm:basis-auto">
                             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 sm:text-[11px]">
                                 Cardápio
                             </p>
@@ -335,35 +335,29 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                 </p>
                             ) : null}
                             {selectedAddress ? (
-                                <div className="mt-2 min-w-0 w-full">
-                                    <div className="flex w-full min-w-0 items-start gap-2 text-sm text-zinc-700">
+                                <div className="mt-2 w-full max-w-full">
+                                    <p className="text-sm leading-snug text-zinc-700 [overflow-wrap:anywhere] [word-break:break-word]">
                                         <MapPin
                                             aria-hidden
-                                            className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500"
+                                            className="mr-1 inline-block h-4 w-4 shrink-0 align-text-top text-zinc-500"
                                         />
-                                        <div className="min-w-0 flex-1 basis-0">
-                                            <p className="whitespace-normal break-words [overflow-wrap:anywhere] leading-snug">
-                                                {formatMenuCustomerAddressLine(selectedAddress)}
-                                            </p>
-                                            {addresses.length > 1 ? (
-                                                <button
-                                                    type="button"
-                                                    aria-expanded={addressPickerOpen}
-                                                    onClick={() =>
-                                                        setAddressPickerOpen((v) => !v)
-                                                    }
-                                                    className="mt-1.5 flex items-center gap-0.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900"
-                                                >
-                                                    Alterar endereço
-                                                    <ChevronDown
-                                                        className={`h-3.5 w-3.5 transition ${
-                                                            addressPickerOpen ? "rotate-180" : ""
-                                                        }`}
-                                                    />
-                                                </button>
-                                            ) : null}
-                                        </div>
-                                    </div>
+                                        {formatMenuCustomerAddressLine(selectedAddress)}
+                                    </p>
+                                    {addresses.length > 1 ? (
+                                        <button
+                                            type="button"
+                                            aria-expanded={addressPickerOpen}
+                                            onClick={() => setAddressPickerOpen((v) => !v)}
+                                            className="mt-1.5 inline-flex items-center gap-0.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900"
+                                        >
+                                            Alterar endereço
+                                            <ChevronDown
+                                                className={`h-3.5 w-3.5 shrink-0 transition ${
+                                                    addressPickerOpen ? "rotate-180" : ""
+                                                }`}
+                                            />
+                                        </button>
+                                    ) : null}
                                     {addressPickerOpen && addresses.length > 1 ? (
                                         <ul className="mt-2 space-y-1.5">
                                             {addresses.map((a) => (
@@ -392,7 +386,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                                                                 </span>
                                                             ) : null}
                                                         </p>
-                                                        <p className="mt-0.5 break-words text-xs leading-snug text-zinc-500">
+                                                        <p className="mt-0.5 text-xs leading-snug text-zinc-500 [overflow-wrap:anywhere] [word-break:break-word]">
                                                             {formatMenuCustomerAddressLine(a)}
                                                         </p>
                                                     </button>

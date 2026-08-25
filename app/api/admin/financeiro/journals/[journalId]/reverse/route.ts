@@ -34,6 +34,20 @@ export async function POST(
     const journalId = String(rawId ?? "").trim();
     if (!journalId) return NextResponse.json({ error: "journal_id_required" }, { status: 400 });
 
+    const { data: journalRow } = await admin
+        .from("finance_journals")
+        .select("order_id")
+        .eq("id", journalId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+
+    if (journalRow?.order_id) {
+        return NextResponse.json(
+            { error: "use_order_reverse", order_id: journalRow.order_id },
+            { status: 409 }
+        );
+    }
+
     const body = (await req.json().catch(() => ({}))) as ReverseBody;
     const reason = body.reason != null ? String(body.reason).trim() : "";
     const idempotencyKey = body.idempotency_key?.trim() || null;

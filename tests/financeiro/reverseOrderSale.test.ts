@@ -16,14 +16,14 @@ describe("reverseOrderSale contract", () => {
         assert.equal(canCancelOrder("canceled"), false);
     });
 
-    it("reverseOrderSale chama rpc_admin_cancel_order e persiste reason", async () => {
+    it("reverseOrderSale chama rpc_admin_reverse_order_operation (full) e persiste reason", async () => {
         const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
         const updates: Array<Record<string, unknown>> = [];
 
         const admin = {
             rpc: async (name: string, args: Record<string, unknown>) => {
                 rpcCalls.push({ name, args });
-                return { data: null, error: null };
+                return { data: { ok: true, mode: "full" }, error: null };
             },
             from: (table: string) => {
                 assert.equal(table, "orders");
@@ -48,20 +48,21 @@ describe("reverseOrderSale contract", () => {
             companyId: "co-1",
             orderId: "ord-1",
             reason: "Cliente desistiu",
+            idempotencyKey: "order:ord-1:reverse:cancel",
         });
 
         assert.equal(rpcCalls.length, 1);
-        assert.equal(rpcCalls[0].name, "rpc_admin_cancel_order");
-        assert.equal(rpcCalls[0].args.p_company_id, "co-1");
+        assert.equal(rpcCalls[0].name, "rpc_admin_reverse_order_operation");
+        assert.equal(rpcCalls[0].args.p_mode, "full");
         assert.equal(rpcCalls[0].args.p_order_id, "ord-1");
-        assert.equal(rpcCalls[0].args.p_reject_confirmation, false);
+        assert.equal(rpcCalls[0].args.p_idempotency_key, "order:ord-1:reverse:cancel");
         assert.deepEqual(updates[0], { details: "Cliente desistiu" });
     });
 
     it("reverseOrderSale sem reason não atualiza orders", async () => {
         let updateCalled = false;
         const admin = {
-            rpc: async () => ({ data: null, error: null }),
+            rpc: async () => ({ data: { ok: true }, error: null }),
             from: () => ({
                 update: () => ({
                     eq: () => ({
@@ -89,7 +90,8 @@ describe("reverseOrderSale contract", () => {
     it("financeCommand.reverseOrderSale mapeia reject_confirmation", async () => {
         const rpc = mock.fn(async (_name: string, args: Record<string, unknown>) => {
             assert.equal(args.p_reject_confirmation, true);
-            return { data: null, error: null };
+            assert.equal(args.p_mode, "full");
+            return { data: { ok: true }, error: null };
         });
 
         const admin = { rpc };
@@ -105,6 +107,6 @@ describe("reverseOrderSale contract", () => {
         });
 
         assert.equal(rpc.mock.callCount(), 1);
-        assert.equal(rpc.mock.calls[0].arguments[0], "rpc_admin_cancel_order");
+        assert.equal(rpc.mock.calls[0].arguments[0], "rpc_admin_reverse_order_operation");
     });
 });
