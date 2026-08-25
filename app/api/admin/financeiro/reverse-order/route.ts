@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
+import { requireCompanyPlanFeature } from "@/lib/billing/requirePlanFeature";
 import { reverseOrderOperation } from "@/src/financeiro/application/reverseOrderOperation";
 import { financeRpcFailure } from "@/src/financeiro/application/http";
 
@@ -19,10 +19,15 @@ type ReverseOrderBody = {
 /**
  * POST /api/admin/financeiro/reverse-order
  * Estorno operacional unificado: storno integral do journal + reemissão (partial) ou cancel (full).
+ * Auth: owner/admin com financeiro.write (mesmo gate do Extrato).
  */
 export async function POST(req: Request) {
-    const ctx = await requireCapability("orders.status");
-    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+    const ctx = await requireCompanyPlanFeature(
+        "financeiro_full",
+        ["owner", "admin"],
+        "financeiro.write"
+    );
+    if (!ctx.ok) return ctx.response;
     const { admin, companyId } = ctx;
 
     const body = (await req.json().catch(() => ({}))) as ReverseOrderBody;

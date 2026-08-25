@@ -28,6 +28,9 @@ function reverseErrorLabel(code: string): string {
     if (code === "partial_requires_items") return "Selecione itens, taxa de entrega ou taxas de serviço.";
     if (code === "prazo_partial_blocked") return "Estorno parcial não disponível para venda a prazo.";
     if (code === "order_item_invalid") return "Quantidade de item inválida.";
+    if (code === "403" || /insufficient|capability|forbidden/i.test(code)) {
+        return "Sem permissão para estornar (financeiro.write).";
+    }
     return code || "Falha ao estornar";
 }
 
@@ -168,7 +171,11 @@ export default function JournalEntryModal({
     }
 
     async function executeOrderReverse(mode: "full" | "partial") {
-        if (!orderId) return;
+        if (!orderId) {
+            setError("Pedido não encontrado neste lançamento.");
+            setConfirmMode(null);
+            return;
+        }
         setReversing(true);
         setError(null);
         try {
@@ -189,13 +196,15 @@ export default function JournalEntryModal({
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setError(reverseErrorLabel(String(json?.error ?? "")));
-                setConfirmMode(null);
+                // Mantém o painel aberto para o erro ficar visível
+                setError(reverseErrorLabel(String(json?.error ?? res.status)));
                 return;
             }
             setConfirmMode(null);
             onClose();
             onReversed();
+        } catch (e) {
+            setError(e instanceof Error ? e.message : "Falha ao estornar");
         } finally {
             setReversing(false);
         }
@@ -212,7 +221,7 @@ export default function JournalEntryModal({
         <>
             <dialog
                 ref={dialogRef}
-                className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/60 dark:border-zinc-700 dark:bg-zinc-900"
+                className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-0 shadow-2xl backdrop:bg-black/60 dark:border-zinc-700 dark:bg-zinc-900 relative"
                 onCancel={(e) => {
                     e.preventDefault();
                     onClose();
@@ -451,17 +460,31 @@ export default function JournalEntryModal({
                                         rows={2}
                                         className="mt-3 w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                                     />
+                                    {error && (
+                                        <p className="mt-2 flex items-start gap-1 text-xs font-semibold text-red-600">
+                                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                            {error}
+                                        </p>
+                                    )}
                                     <div className="mt-3 flex flex-wrap justify-end gap-2">
                                         <button
                                             type="button"
-                                            onClick={() => openConfirm("partial")}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                openConfirm("partial");
+                                            }}
                                             className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                                         >
                                             Estornar seleção…
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={() => openConfirm("full")}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                openConfirm("full");
+                                            }}
                                             className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
                                         >
                                             Estornar pedido completo…
@@ -521,51 +544,58 @@ export default function JournalEntryModal({
                         </>
                     )}
                 </div>
-            </dialog>
 
-            {confirmMode && (
-                <dialog
-                    open
-                    className="fixed left-1/2 top-1/2 z-[60] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
-                >
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                        {confirmMode === "full" ? "Cancelar pedido completo" : "Confirmar estorno parcial"}
-                    </h3>
-                    {confirmMode === "full" ? (
-                        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
-                            Estorna todo o lançamento, devolve todos os produtos ao estoque e cancela o pedido.
-                            Não haverá reemissão financeira.
-                        </p>
-                    ) : (
-                        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
-                            Estornar: <strong>{partialSelectionSummary() || "seleção"}</strong>. O lançamento atual
-                            será estornado e um novo será criado com o que sobrou.
-                        </p>
-                    )}
-                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                        Altera extrato, caixa e estoque. Esta ação não pode ser desfeita pelo extrato.
-                    </p>
-                    {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
-                    <div className="mt-4 flex gap-2">
-                        <button
-                            type="button"
-                            disabled={reversing}
-                            onClick={() => setConfirmMode(null)}
-                            className="flex-1 rounded-lg border border-zinc-200 py-2 text-xs font-medium dark:border-zinc-700"
-                        >
-                            Voltar
-                        </button>
-                        <button
-                            type="button"
-                            disabled={reversing}
-                            onClick={() => void executeOrderReverse(confirmMode)}
-                            className="flex-1 rounded-lg bg-red-600 py-2 text-xs font-bold text-white disabled:opacity-50"
-                        >
-                            {reversing ? "Processando…" : "Confirmar"}
-                        </button>
+                {/* Confirmação DENTRO do dialog (top-layer). Nested <dialog open> fica atrás do backdrop e parece “sem ação”. */}
+                {confirmMode && (
+                    <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+                        <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+                            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                                {confirmMode === "full"
+                                    ? "Cancelar pedido completo"
+                                    : "Confirmar estorno parcial"}
+                            </h3>
+                            {confirmMode === "full" ? (
+                                <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
+                                    Estorna todo o lançamento, devolve todos os produtos ao estoque e cancela o
+                                    pedido. Não haverá reemissão financeira.
+                                </p>
+                            ) : (
+                                <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
+                                    Estornar: <strong>{partialSelectionSummary() || "seleção"}</strong>. O
+                                    lançamento atual será estornado e um novo será criado com o que sobrou.
+                                </p>
+                            )}
+                            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                                Altera extrato, caixa e estoque. Esta ação não pode ser desfeita pelo extrato.
+                            </p>
+                            {error && (
+                                <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>
+                            )}
+                            <div className="mt-4 flex gap-2">
+                                <button
+                                    type="button"
+                                    disabled={reversing}
+                                    onClick={() => {
+                                        setConfirmMode(null);
+                                        setError(null);
+                                    }}
+                                    className="flex-1 rounded-lg border border-zinc-200 py-2 text-xs font-medium dark:border-zinc-700"
+                                >
+                                    Voltar
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={reversing}
+                                    onClick={() => void executeOrderReverse(confirmMode)}
+                                    className="flex-1 rounded-lg bg-red-600 py-2 text-xs font-bold text-white disabled:opacity-50"
+                                >
+                                    {reversing ? "Processando…" : "Confirmar"}
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                </dialog>
-            )}
+                )}
+            </dialog>
         </>
     );
 }
