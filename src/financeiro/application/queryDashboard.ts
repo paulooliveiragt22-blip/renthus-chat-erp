@@ -116,8 +116,13 @@ export async function buildFinanceDashboard(
     );
 
     const dayMap: Record<string, DaySummary> = {};
-    for (const iso of eachCivilDay(dateRange.from, dateRange.to)) {
-        dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
+    // Evita loop de milhares de dias em “todo o período” / personalizado longo —
+    // só pré-preenche buckets vazios em janelas curtas; senão usa só dias com dado.
+    const fillEmptyDays = dateRange.days <= 93;
+    if (fillEmptyDays) {
+        for (const iso of eachCivilDay(dateRange.from, dateRange.to)) {
+            dayMap[iso] = { isoDate: iso, label: shortDay(iso), revenue: 0, cost: 0, orders: 0, expensesDay: 0 };
+        }
     }
     for (const d of dash.byDay) {
         if (!dayMap[d.day]) {

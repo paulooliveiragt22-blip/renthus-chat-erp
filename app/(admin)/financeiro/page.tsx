@@ -32,6 +32,7 @@ export default function FinanceiroPage() {
         setCustomTo,
         dateRange,
         periodLabel,
+        customInvalid,
     } = useFinancePeriod();
 
     const [activeTab, setActiveTab] = useState<FinanceTab>("dashboard");
@@ -98,7 +99,7 @@ export default function FinanceiroPage() {
                         </p>
                     </div>
                     <div className="-mx-1 flex max-w-full items-center gap-2 overflow-x-auto px-1 pb-0.5 scrollbar-hide sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-                        {(["today", "7d", "15d", "30d", "custom"] as Period[]).map((p) => (
+                        {(["today", "7d", "15d", "30d", "all", "custom"] as Period[]).map((p) => (
                             <button
                                 key={p}
                                 type="button"
@@ -110,7 +111,14 @@ export default function FinanceiroPage() {
                                 }`}
                             >
                                 <Calendar className="h-3 w-3" />
-                                {{ today: "Hoje", "7d": "7d", "15d": "15d", "30d": "30d", custom: "Personalizado" }[p]}
+                                {{
+                                    today: "Hoje",
+                                    "7d": "7d",
+                                    "15d": "15d",
+                                    "30d": "30d",
+                                    all: "Todo período",
+                                    custom: "Personalizado",
+                                }[p]}
                             </button>
                         ))}
                         <button
@@ -146,21 +154,35 @@ export default function FinanceiroPage() {
 
                 {period === "custom" && (
                     <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:p-4">
-                        <p className="text-xs font-medium text-zinc-500">Período:</p>
+                        <p className="text-xs font-medium text-zinc-500">De</p>
                         <input
                             type="date"
                             value={customFrom}
                             onChange={(e) => setCustomFrom(e.target.value)}
                             className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto"
                         />
-                        <span className="hidden text-xs text-zinc-400 sm:inline">até</span>
+                        <p className="text-xs font-medium text-zinc-500 sm:ml-1">até</p>
                         <input
                             type="date"
                             value={customTo}
+                            max={new Date().toISOString().slice(0, 10)}
                             onChange={(e) => setCustomTo(e.target.value)}
                             className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto"
                         />
+                        {customInvalid ? (
+                            <p className="text-xs text-red-500">Informe duas datas válidas (início ≤ fim).</p>
+                        ) : (
+                            <p className="text-xs text-zinc-400">
+                                {dateRange.days} dia{dateRange.days === 1 ? "" : "s"} · extrato em páginas de 50
+                            </p>
+                        )}
                     </div>
+                )}
+
+                {period === "all" && (
+                    <p className="text-xs text-zinc-400">
+                        Todo o período desde 2020-01-01 · extrato carrega 50 linhas por vez (“Carregar mais”).
+                    </p>
                 )}
 
                 {activeTab === "dashboard" && (
