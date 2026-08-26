@@ -115,7 +115,8 @@ export default function ReceberTab({ companyId, refreshKey }: Props) {
                 ) : bills.length === 0 ? (
                     <p className="py-12 text-center text-sm text-zinc-400">Nenhum título neste filtro.</p>
                 ) : (
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] text-xs">
                         <thead>
                             <tr className="border-b border-zinc-100 dark:border-zinc-800">
                                 {["Vencimento", "Cliente", "Descrição", "Forma", "Valor", "Saldo", "Status", ""].map(
@@ -166,6 +167,7 @@ export default function ReceberTab({ companyId, refreshKey }: Props) {
                             })}
                         </tbody>
                     </table>
+                    </div>
                 )}
             </div>
 

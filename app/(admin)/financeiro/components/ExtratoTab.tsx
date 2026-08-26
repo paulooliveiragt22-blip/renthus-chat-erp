@@ -105,7 +105,7 @@ export default function ExtratoTab({ companyId, dateRange, periodLabel, refreshK
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
                 {[
                     { icon: ArrowUpCircle, label: "Entradas", value: brl(income), cls: "text-emerald-600" },
                     { icon: ArrowDownCircle, label: "Saídas", value: brl(expenses), cls: "text-red-500" },
@@ -127,7 +127,7 @@ export default function ExtratoTab({ companyId, dateRange, periodLabel, refreshK
             </div>
 
             <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-zinc-900">
-                <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+                <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800 sm:px-5">
                     <FileText className="h-4 w-4 text-violet-600" />
                     <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Extrato — {periodLabel}</p>
                     <span className="ml-auto text-xs text-zinc-400">{lines.length} lançamentos</span>
@@ -144,7 +144,7 @@ export default function ExtratoTab({ companyId, dateRange, periodLabel, refreshK
                 ) : (
                     <>
                         <div className="overflow-x-auto">
-                            <table className="w-full text-xs">
+                            <table className="w-full min-w-[720px] text-xs">
                                 <thead>
                                     <tr className="bg-zinc-50 dark:bg-zinc-800/50">
                                         {["Data", "Descrição", "Cliente", "Origem", "Pagamento", "Valor", "Status"].map((h) => (

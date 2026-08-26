@@ -147,7 +147,8 @@ export default function PagarTab({ companyId, refreshKey }: Props) {
                 ) : bills.length === 0 ? (
                     <p className="py-12 text-center text-sm text-zinc-400">Nenhuma conta neste filtro.</p>
                 ) : (
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto">
+                    <table className="w-full min-w-[560px] text-xs">
                         <thead>
                             <tr className="border-b border-zinc-100 dark:border-zinc-800">
                                 {["Vencimento", "Descrição", "Forma", "Valor", "Saldo", "Status", ""].map((h) => (
@@ -190,6 +191,7 @@ export default function PagarTab({ companyId, refreshKey }: Props) {
                             ))}
                         </tbody>
                     </table>
+                    </div>
                 )}
             </div>
 

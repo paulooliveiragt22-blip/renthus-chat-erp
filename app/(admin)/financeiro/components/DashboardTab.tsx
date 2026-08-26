@@ -327,7 +327,8 @@ export default function DashboardTab({ stats, expenses, loading, periodLabel, on
                 ) : !stats?.byDay.filter((d) => d.orders > 0).length ? (
                     <p className="py-16 text-center text-sm text-zinc-400">Nenhuma liquidação no período.</p>
                 ) : (
-                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    <div className="overflow-x-auto">
+                        <div className="min-w-[480px] divide-y divide-zinc-100 dark:divide-zinc-800">
                         <div className="grid grid-cols-4 gap-4 bg-zinc-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:bg-zinc-800/50">
                             <span>Data</span>
                             <span className="text-right">Lançamentos</span>
@@ -347,6 +348,7 @@ export default function DashboardTab({ stats, expenses, loading, periodLabel, on
                                     </p>
                                 </div>
                             ))}
+                        </div>
                     </div>
                 )}
             </div>

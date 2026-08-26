@@ -157,6 +157,8 @@ export default function PDVPage() {
   const [pdvMode,         setPdvMode]         = useState<"normal" | "pending">("normal");
   const [pendingOrders,   setPendingOrders]   = useState<PendingOrder[]>([]);
   const [loadingPending,  setLoadingPending]  = useState(false);
+  /** Mobile/tablet: alterna catálogo ↔ cupom (desktop mostra os dois). */
+  const [mobilePanel, setMobilePanel] = useState<"catalog" | "cart">("catalog");
 
   const [variants,    setVariants]    = useState<Variant[]>([]);
   const [categories,  setCategories]  = useState<string[]>(["Todos"]);
@@ -279,6 +281,7 @@ export default function PDVPage() {
       setActiveOrderSource(order.source ?? null);
       setFromOrderBanner(`Pedido #${order.id.slice(-6).toUpperCase()}`);
       setPdvMode("normal");
+      setMobilePanel("cart");
     }
   }, [variants]);
 
@@ -734,7 +737,7 @@ export default function PDVPage() {
 
       {/* ── Caixa status bar ──────────────────────────────────────────── */}
       {!caixaLoading && (
-        <div className={`flex shrink-0 items-center gap-3 border-b px-4 py-1.5 text-xs ${
+        <div className={`flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-3 py-1.5 text-xs sm:px-4 ${
           caixa
             ? "border-emerald-900/50 bg-emerald-950/40"
             : "border-red-900/50 bg-red-950/40"
@@ -743,32 +746,38 @@ export default function PDVPage() {
             <>
               <Unlock className="h-3 w-3 text-emerald-400 shrink-0" />
               <span className="text-emerald-300 font-semibold">Caixa aberto</span>
-              {caixa.operator_name && <span className="text-zinc-500">· {caixa.operator_name}</span>}
-              <span className="text-zinc-600">·</span>
-              <span className="text-zinc-400">
+              {caixa.operator_name && (
+                <span className="hidden text-zinc-500 sm:inline">· {caixa.operator_name}</span>
+              )}
+              <span className="hidden text-zinc-400 sm:inline">
                 {new Date(caixa.opened_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
               </span>
-              <span className="ml-auto flex items-center gap-3">
-                <span className="flex items-center gap-1 text-emerald-400">
+              <span className="ml-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+                <span className="hidden items-center gap-1 text-emerald-400 sm:flex">
                   <TrendingUp className="h-3 w-3" />
                   {caixa.total_in.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
                 </span>
                 {caixa.total_out > 0 && (
-                  <span className="flex items-center gap-1 text-red-400">
+                  <span className="hidden items-center gap-1 text-red-400 md:flex">
                     <TrendingDown className="h-3 w-3" />
                     {caixa.total_out.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
                   </span>
                 )}
                 <span className="font-bold text-zinc-200">
-                  Saldo: {caixa.balance_expected.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
+                  <span className="text-zinc-500 font-medium sm:hidden">Saldo </span>
+                  {caixa.balance_expected.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
                 </span>
                 <button onClick={() => setShowMovimento(true)}
                   className="flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-zinc-400 hover:border-orange-600 hover:text-orange-400 transition-colors">
-                  <ArrowDownLeft className="h-2.5 w-2.5" /> Sangria / Suprimento
+                  <ArrowDownLeft className="h-2.5 w-2.5" />
+                  <span className="hidden sm:inline">Sangria / Suprimento</span>
+                  <span className="sm:hidden">Mov.</span>
                 </button>
                 <button onClick={() => setShowFecharCaixa(true)}
                   className="flex items-center gap-1 rounded-md border border-red-800 bg-red-950/40 px-2 py-0.5 text-red-400 hover:bg-red-900/40 transition-colors">
-                  <Lock className="h-2.5 w-2.5" /> Fechar caixa
+                  <Lock className="h-2.5 w-2.5" />
+                  <span className="hidden sm:inline">Fechar caixa</span>
+                  <span className="sm:hidden">Fechar</span>
                 </button>
               </span>
             </>
@@ -776,7 +785,7 @@ export default function PDVPage() {
             <>
               <Lock className="h-3 w-3 text-red-400 shrink-0" />
               <span className="text-red-300 font-semibold">Caixa fechado</span>
-              <span className="text-zinc-500">— finalizações bloqueadas</span>
+              <span className="hidden text-zinc-500 sm:inline">— finalizações bloqueadas</span>
               <button onClick={() => setShowAbrirCaixa(true)}
                 className="ml-auto flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-0.5 font-semibold text-white hover:bg-emerald-500 transition-colors">
                 <Unlock className="h-3 w-3" /> Abrir caixa
@@ -787,7 +796,7 @@ export default function PDVPage() {
       )}
 
       {/* ── Top bar (compact) ─────────────────────────────────────────── */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-2">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-2 sm:gap-3 sm:px-4">
         {/* Brand */}
         <div className="flex items-center gap-2 shrink-0">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500">
@@ -797,18 +806,18 @@ export default function PDVPage() {
         </div>
 
         {/* Search */}
-        <div className="relative flex-1 max-w-lg">
+        <div className="relative min-w-0 flex-1 basis-40 sm:max-w-lg">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
           <input
             ref={searchRef} autoFocus
             value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={handleEnter}
-            placeholder="Nome, código… Enter = add 1º"
+            placeholder="Nome, código… Enter = add"
             className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-1.5 pl-8 pr-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none"
           />
         </div>
 
         {/* Seller */}
-        <div className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 shrink-0">
+        <div className="hidden items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 shrink-0 md:flex">
           <User className="h-3 w-3 text-zinc-500" />
           <input value={sellerName} onChange={e=>setSellerName(e.target.value)}
             placeholder="Operador"
@@ -819,25 +828,25 @@ export default function PDVPage() {
         <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-800/80 p-0.5">
           <button
             onClick={() => setPdvMode("normal")}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors sm:px-2.5 ${
               pdvMode === "normal"
                 ? "bg-orange-500 text-white shadow"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
             <ShoppingCart className="h-3 w-3" />
-            Venda
+            <span className="hidden sm:inline">Venda</span>
           </button>
           <button
             onClick={() => { setPdvMode("pending"); loadPendingOrders(); }}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors sm:px-2.5 ${
               pdvMode === "pending"
                 ? "bg-violet-600 text-white shadow"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
             <Clock className="h-3 w-3" />
-            Pedidos
+            <span className="hidden sm:inline">Pedidos</span>
           </button>
         </div>
 
@@ -850,7 +859,7 @@ export default function PDVPage() {
 
         {/* Banner: fechando pedido existente */}
         {fromOrderBanner && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 shrink-0">
+          <div className="flex w-full items-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 sm:w-auto shrink-0">
             <ShoppingCart className="h-3 w-3" />
             Fechando {fromOrderBanner}
           </div>
@@ -861,7 +870,11 @@ export default function PDVPage() {
       <div className="flex flex-1 overflow-hidden min-h-0">
 
         {/* ── Left: products or pending orders ─────────────────────────── */}
-        <div className="flex flex-1 flex-col overflow-hidden border-r border-zinc-800 min-w-0">
+        <div
+          className={`${
+            mobilePanel === "cart" ? "hidden" : "flex"
+          } min-w-0 flex-1 flex-col overflow-hidden border-r border-zinc-800 lg:flex`}
+        >
 
           {pdvMode === "pending" ? (
             /* ── Pending orders view ────────────────────────────── */
@@ -936,9 +949,9 @@ export default function PDVPage() {
               </div>
 
               {/* Product grid — only this area scrolls */}
-              <div className="flex-1 overflow-y-auto p-3 min-h-0">
+              <div className="flex-1 overflow-y-auto p-2 min-h-0 sm:p-3">
                 {loadingProd ? (
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
                     {Array.from({length:15}).map((_,i)=>(
                       <div key={i} className="h-28 animate-pulse rounded-xl bg-zinc-800" />
                     ))}
@@ -949,7 +962,7 @@ export default function PDVPage() {
                     <p className="text-xs">Sem resultados.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
                     {filtered.map(v => {
                       const inCart = cart.find(c => c.variant.id === v.id);
                       const isPack = ["CX","FARD","PAC"].includes(v.sigla_comercial);
@@ -1001,7 +1014,11 @@ export default function PDVPage() {
         </div>
 
         {/* ── Right: cart — full height, nothing scrolls except items list ── */}
-        <div className="flex w-72 shrink-0 flex-col bg-zinc-900 min-h-0">
+        <div
+          className={`${
+            mobilePanel === "catalog" ? "hidden" : "flex"
+          } min-h-0 w-full flex-col bg-zinc-900 lg:flex lg:w-72 lg:shrink-0`}
+        >
 
           {/* Cart header */}
           <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-3 py-2">
@@ -1141,12 +1158,45 @@ export default function PDVPage() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-black text-white shadow-[0_0_18px_rgba(249,115,22,0.45)] transition-all hover:bg-orange-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25">
                 <BadgeDollarSign className="h-4 w-4" />
                 Finalizar
-                <kbd className="ml-auto rounded bg-orange-400/40 px-1.5 py-0.5 text-[10px] font-bold">F2</kbd>
+                <kbd className="ml-auto hidden rounded bg-orange-400/40 px-1.5 py-0.5 text-[10px] font-bold sm:inline">F2</kbd>
               </button>
             )}
           </div>
         </div>
       </div>
+
+      {/* Mobile / tablet: troca catálogo ↔ cupom */}
+      <nav className="flex shrink-0 border-t border-zinc-800 bg-zinc-900 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePanel("catalog")}
+          className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors ${
+            mobilePanel === "catalog" ? "text-orange-400" : "text-zinc-500"
+          }`}
+        >
+          <Search className="h-4 w-4" />
+          Produtos
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobilePanel("cart")}
+          className={`relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors ${
+            mobilePanel === "cart" ? "text-orange-400" : "text-zinc-500"
+          }`}
+        >
+          <span className="relative">
+            <ShoppingCart className="h-4 w-4" />
+            {cartCount > 0 && (
+              <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-black text-white">
+                {cartCount}
+              </span>
+            )}
+          </span>
+          <span className="tabular-nums">
+            {cartCount > 0 ? brl(cartTotal) : "Cupom"}
+          </span>
+        </button>
+      </nav>
 
       {/* ─────────────────────────────────────────────────────────────────────
           CHECKOUT MODAL

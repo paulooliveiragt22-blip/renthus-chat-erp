@@ -70,7 +70,8 @@ export default function CaixaTab({ companyId, refreshKey }: Props) {
                         <p className="mt-2 text-sm text-zinc-400">Nenhum caixa. Abra o primeiro no PDV.</p>
                     </div>
                 ) : (
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto">
+                    <table className="w-full min-w-[720px] text-xs">
                         <thead>
                             <tr className="border-b border-zinc-100 dark:border-zinc-800">
                                 {[
@@ -160,6 +161,7 @@ export default function CaixaTab({ companyId, refreshKey }: Props) {
                             })}
                         </tbody>
                     </table>
+                    </div>
                 )}
             </div>
 
@@ -179,7 +181,8 @@ export default function CaixaTab({ companyId, refreshKey }: Props) {
                             fechar
                         </button>
                     </div>
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] text-xs">
                         <thead>
                             <tr className="border-b border-zinc-100 dark:border-zinc-800">
                                 {["Hora", "Tipo", "Valor", "Operador", "Motivo"].map((h) => (
@@ -213,6 +216,7 @@ export default function CaixaTab({ companyId, refreshKey }: Props) {
                             ))}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             )}
         </div>

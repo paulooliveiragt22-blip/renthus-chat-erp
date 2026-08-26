@@ -73,13 +73,13 @@ export default function FinanceiroPage() {
         if (activeTab === "dashboard" || activeTab === "dre") loadDashboard();
     }
 
-    const tabs: Array<{ id: FinanceTab; label: string; icon: typeof BadgeDollarSign; active: string }> = [
-        { id: "dashboard", label: "Dashboard", icon: BadgeDollarSign, active: "text-violet-700 dark:text-violet-400" },
-        { id: "extrato", label: "Extrato", icon: FileText, active: "text-violet-700 dark:text-violet-400" },
-        { id: "receber", label: "A Receber", icon: ArrowDownCircle, active: "text-emerald-700 dark:text-emerald-400" },
-        { id: "pagar", label: "A Pagar", icon: ArrowUpCircle, active: "text-red-700 dark:text-red-400" },
-        { id: "caixa", label: "Caixa", icon: Banknote, active: "text-orange-700 dark:text-orange-400" },
-        { id: "dre", label: "DRE", icon: FileText, active: "text-violet-700 dark:text-violet-400" },
+    const tabs: Array<{ id: FinanceTab; label: string; short: string; icon: typeof BadgeDollarSign; active: string }> = [
+        { id: "dashboard", label: "Dashboard", short: "Home", icon: BadgeDollarSign, active: "text-violet-700 dark:text-violet-400" },
+        { id: "extrato", label: "Extrato", short: "Extrato", icon: FileText, active: "text-violet-700 dark:text-violet-400" },
+        { id: "receber", label: "A Receber", short: "Receber", icon: ArrowDownCircle, active: "text-emerald-700 dark:text-emerald-400" },
+        { id: "pagar", label: "A Pagar", short: "Pagar", icon: ArrowUpCircle, active: "text-red-700 dark:text-red-400" },
+        { id: "caixa", label: "Caixa", short: "Caixa", icon: Banknote, active: "text-orange-700 dark:text-orange-400" },
+        { id: "dre", label: "DRE", short: "DRE", icon: FileText, active: "text-violet-700 dark:text-violet-400" },
     ];
 
     return (
@@ -89,21 +89,21 @@ export default function FinanceiroPage() {
             description="Recebido, a receber, opex, extrato e resultado gerencial do período."
             requiredPlanLabel="Pro ou Market"
         >
-            <div className="flex flex-col gap-6 p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Financeiro</h1>
+            <div className="flex min-w-0 flex-col gap-4 p-1 sm:gap-6 sm:p-0">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                        <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-50 sm:text-xl">Financeiro</h1>
                         <p className="mt-0.5 text-xs text-zinc-400">
                             Recebido (caixa 1.1), títulos e resultado gerencial
                         </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="-mx-1 flex max-w-full items-center gap-2 overflow-x-auto px-1 pb-0.5 scrollbar-hide sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
                         {(["today", "7d", "15d", "30d", "custom"] as Period[]).map((p) => (
                             <button
                                 key={p}
                                 type="button"
                                 onClick={() => setPeriod(p)}
-                                className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                                className={`flex shrink-0 items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium sm:px-3 ${
                                     period === p
                                         ? "border-violet-600 bg-violet-600 text-white"
                                         : "border-zinc-200 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
@@ -117,44 +117,48 @@ export default function FinanceiroPage() {
                             type="button"
                             onClick={refresh}
                             disabled={loading}
-                            className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800"
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 sm:px-3"
                         >
                             <RefreshCcw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-                            Atualizar
+                            <span className="hidden sm:inline">Atualizar</span>
                         </button>
                     </div>
                 </div>
 
-                <div className="flex w-fit gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/50">
-                    {tabs.map(({ id, label, icon: Icon, active }) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => setActiveTab(id)}
-                            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold ${
-                                activeTab === id ? `bg-white shadow dark:bg-zinc-800 ${active}` : "text-zinc-500"
-                            }`}
-                        >
-                            <Icon className="h-3.5 w-3.5" /> {label}
-                        </button>
-                    ))}
+                <div className="-mx-1 max-w-full overflow-x-auto px-1 scrollbar-hide sm:mx-0 sm:px-0">
+                    <div className="flex w-max min-w-full gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/50 sm:w-fit sm:min-w-0">
+                        {tabs.map(({ id, label, short, icon: Icon, active }) => (
+                            <button
+                                key={id}
+                                type="button"
+                                onClick={() => setActiveTab(id)}
+                                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold sm:px-4 ${
+                                    activeTab === id ? `bg-white shadow dark:bg-zinc-800 ${active}` : "text-zinc-500"
+                                }`}
+                            >
+                                <Icon className="h-3.5 w-3.5" />
+                                <span className="sm:hidden">{short}</span>
+                                <span className="hidden sm:inline">{label}</span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {period === "custom" && (
-                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                    <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:p-4">
                         <p className="text-xs font-medium text-zinc-500">Período:</p>
                         <input
                             type="date"
                             value={customFrom}
                             onChange={(e) => setCustomFrom(e.target.value)}
-                            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                            className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto"
                         />
-                        <span className="text-xs text-zinc-400">até</span>
+                        <span className="hidden text-xs text-zinc-400 sm:inline">até</span>
                         <input
                             type="date"
                             value={customTo}
                             onChange={(e) => setCustomTo(e.target.value)}
-                            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                            className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto"
                         />
                     </div>
                 )}
