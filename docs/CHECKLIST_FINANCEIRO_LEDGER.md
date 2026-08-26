@@ -84,8 +84,9 @@ inventário valorado, impostos.
    caixa só na baixa.
 6. Estorno = contra-lançamento. `REVOKE UPDATE, DELETE` em `finance_journal_lines`.
    Nunca alterar `amount` postado.
-7. CMV = snapshot no post da venda. Cadastro atual não reescreve histórico.
-   Backfill das 23 linhas `unit_cost = 0`: copiar custo **atual** uma vez e documentar.
+7. CMV = snapshot no post da venda a partir de **`produto_embalagens.preco_custo`**
+   (`fn_fin_snapshot_pack_cost`; fallback `products.preco_custo_unitario * fator`).
+   Cadastro atual não reescreve histórico; backfill pré-prod usa custo atual.
 8. Uma despesa = um `bills` payable. Tabela `expenses` some.
 9. Grão = **1 pagamento / 1 baixa / 1 sangria / 1 estorno**. Unique só
    `(company_id, idempotency_key)`.
