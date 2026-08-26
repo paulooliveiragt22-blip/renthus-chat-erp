@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Lock, Loader2 } from "lucide-react";
+import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
 type Props = {
     featureKey: string;
@@ -13,41 +14,11 @@ type Props = {
 
 /**
  * Mostra o conteúdo só se o plano tiver a feature (Market).
- * Caso contrário, CTA para upgrade em Configurações → Plano.
+ * Usa o mesmo cache compartilhado de usePlanFeatures (sem fetch próprio).
  */
 export default function MarketPlanGate({ featureKey, title, description, children }: Props) {
-    const [loading, setLoading] = useState(true);
-    const [allowed, setAllowed] = useState(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await fetch("/api/billing/status", {
-                    credentials: "include",
-                    cache: "no-store",
-                });
-                const json = (await res.json().catch(() => ({}))) as {
-                    enabled_features?: string[];
-                    plan_key?: string | null;
-                };
-                const features = Array.isArray(json.enabled_features)
-                    ? json.enabled_features
-                    : [];
-                const ok =
-                    features.includes(featureKey) ||
-                    String(json.plan_key ?? "").toLowerCase() === "market";
-                if (!cancelled) setAllowed(ok);
-            } catch {
-                if (!cancelled) setAllowed(false);
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [featureKey]);
+    const { loading, has, planKey } = usePlanFeatures();
+    const allowed = has(featureKey) || String(planKey ?? "").toLowerCase() === "market";
 
     if (loading) {
         return (

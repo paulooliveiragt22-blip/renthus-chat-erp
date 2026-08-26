@@ -29,7 +29,7 @@ export default function PlanFeatureGate({
 
     if (loading) {
         return (
-            <div className="flex items-center gap-2 rounded-xl border border-zinc-100 px-4 py-10 text-sm text-zinc-500 dark:border-zinc-800">
+            <div className="flex min-h-[40vh] items-center justify-center gap-2 rounded-xl border border-zinc-100 px-4 py-10 text-sm text-zinc-500 dark:border-zinc-800">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Verificando plano…
             </div>

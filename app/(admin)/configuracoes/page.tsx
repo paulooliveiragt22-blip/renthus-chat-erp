@@ -5,6 +5,7 @@ import React, { Suspense, useCallback, useEffect, useId, useMemo, useRef, useSta
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
+import { useInvalidatePlanFeatures } from "@/lib/billing/usePlanFeatures";
 import { parseCardExpiry, pagarmeCreateCardToken } from "@/lib/pagarme/cardTokenBrowser";
 import { lookupCep } from "@/lib/address/cepLookup";
 import {
@@ -374,6 +375,7 @@ function ConfiguracoesPageContent() {
     const supabase = useMemo(() => createClient(), []);
     const searchParams = useSearchParams();
     const { currentCompanyId: companyId } = useWorkspace();
+    const invalidatePlanFeatures = useInvalidatePlanFeatures();
 
     const [activeTab, setActiveTab] = useState<Tab>("geral");
     const [loading, setLoading]     = useState(true);
@@ -997,6 +999,7 @@ function ConfiguracoesPageContent() {
                 return;
             }
             await loadBilling();
+            invalidatePlanFeatures();
         } catch {
             setBillingErr("Erro de rede.");
         } finally {
@@ -1120,6 +1123,7 @@ function ConfiguracoesPageContent() {
             const status = (json as { payment_status?: string; message?: string }).payment_status;
             const msg    = (json as { message?: string }).message;
             await loadBilling();
+            invalidatePlanFeatures();
             if (status === "paid") {
                 setBillingSuccessMsg(msg ?? "Pagamento aprovado. Plano liberado.");
             } else {

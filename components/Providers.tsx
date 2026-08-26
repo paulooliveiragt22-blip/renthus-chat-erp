@@ -5,6 +5,12 @@ import { useState } from "react";
 import { Toaster } from "sonner";
 import { GlobalOrderNotifier } from "./GlobalOrderNotifier";
 import { WorkspaceProvider } from "@/lib/workspace/useWorkspace";
+import { usePrefetchPlanFeatures } from "@/lib/billing/usePlanFeatures";
+
+function PlanFeaturesBootstrap() {
+  usePrefetchPlanFeatures();
+  return null;
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -12,7 +18,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30 * 1000,       // 30s
+            staleTime: 30 * 1000,
             retry: 1,
           },
         },
@@ -21,10 +27,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Provider fica no layout raiz (não remonta em navegação client-side) — o fetch de
-          workspace/companies roda 1x por sessão e é compartilhado por header, sidebar,
-          notifier e todas as páginas admin. */}
       <WorkspaceProvider>
+        <PlanFeaturesBootstrap />
         <GlobalOrderNotifier />
         {children}
         <Toaster position="top-right" richColors closeButton />
