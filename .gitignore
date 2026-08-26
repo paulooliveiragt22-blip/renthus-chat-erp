@@ -21,6 +21,15 @@
 /.next/
 /out/
 
+# PWA gerado no build (@ducanh2912/next-pwa) — NÃO versionar.
+# SW antigo com hashes de outro deploy = ChunkLoadError / tela branca no admin.
+/public/sw.js
+/public/sw.js.map
+/public/workbox-*.js
+/public/workbox-*.js.map
+/public/fallback-*.js
+/public/fallback-*.js.map
+
 # production
 /build
 /.tests-dist

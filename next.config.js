@@ -13,7 +13,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
     document: "/offline",
   },
   workboxOptions: {
-    // Rotas que NUNCA podem ser cacheadas
+    // Não precachar source maps nem rotas de API (só assets estáticos com hash).
     exclude: [
       /\/api\/whatsapp\/incoming/,
       /\/api\/whatsapp\/flows/,
@@ -22,6 +22,8 @@ const withPWA = require("@ducanh2912/next-pwa").default({
       /\/api\/billing\/create-invoice-checkout/,
       /\/api\/downloads\//,
       /\/api\/agent\/activate/,
+      /\.map$/,
+      /^\/api\//,
     ],
     runtimeCaching: [
       // Assets estáticos Next.js — CacheFirst (imutáveis com hash)
@@ -30,7 +32,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
         handler: "CacheFirst",
         options: {
           cacheName: "next-static",
-          expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+          expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 7 },
         },
       },
       // Imagens otimizadas
@@ -42,7 +44,16 @@ const withPWA = require("@ducanh2912/next-pwa").default({
           expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 7 },
         },
       },
-      // APIs sensíveis (pedidos, relatórios, WhatsApp): não cachear no SW — evita dados em disco partilhado
+      // Documentos HTML: rede primeiro — evita shell/RSC stale após deploy
+      {
+        urlPattern: ({ request }) => request.mode === "navigate",
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "pages",
+          networkTimeoutSeconds: 8,
+          expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 },
+        },
+      },
     ],
   },
 });
