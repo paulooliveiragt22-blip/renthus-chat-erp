@@ -159,6 +159,7 @@ export default function PDVPage() {
   const [loadingPending,  setLoadingPending]  = useState(false);
 
   const [variants,    setVariants]    = useState<Variant[]>([]);
+  const [categories,  setCategories]  = useState<string[]>(["Todos"]);
   const [loadingProd, setLoadingProd] = useState(true);
   const [search,      setSearch]      = useState("");
   const [activeCat,   setActiveCat]   = useState("Todos");
@@ -206,17 +207,38 @@ export default function PDVPage() {
   const pendingFocusId = useRef<string | null>(null);
   const manuallyEdited = useRef(new Set<string>());
 
-  // ── products ──────────────────────────────────────────────────────────────
-  const loadVariants = useCallback(async () => {
+  // ── products (top sellers no mount; busca sob demanda) ────────────────────
+  const loadVariants = useCallback(async (opts?: { q?: string; category?: string }) => {
     if (!companyId) return;
     setLoadingProd(true);
-    const res = await fetch("/api/admin/pdv/products", { credentials: "include", cache: "no-store" });
+    const params = new URLSearchParams({ limit: "60" });
+    const q = opts?.q?.trim() ?? "";
+    const category = opts?.category ?? "Todos";
+    if (q.length >= 2) params.set("q", q);
+    if (category && category !== "Todos") params.set("category", category);
+
+    const res = await fetch(`/api/admin/pdv/products?${params}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) console.error("[pdv] loadVariants:", json?.error ?? res.statusText);
 
     const rows = (json.rows ?? []) as Record<string, unknown>[];
     setVariants(rows.map((r) => mapPdvRowToVariant(r)));
     setLoadingProd(false);
+  }, [companyId]);
+
+  const loadCategories = useCallback(async () => {
+    if (!companyId) return;
+    const res = await fetch("/api/admin/pdv/products?facets=categories", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return;
+    const cats = Array.isArray(json.categories) ? (json.categories as string[]) : [];
+    setCategories(["Todos", ...cats]);
   }, [companyId]);
 
   // ── pending orders ────────────────────────────────────────────────────────
@@ -236,20 +258,28 @@ export default function PDVPage() {
       cache: "no-store",
     });
     const json = await res.json().catch(() => ({}));
-    const items = json.items as any[] | undefined;
+    const items = json.items as Array<Record<string, unknown>> | undefined;
     if (!res.ok || !items || items.length === 0) return;
     const newCart: CartItem[] = [];
-    for (const it of items as any[]) {
-      const v = variants.find(v => v.id === String(it.produto_embalagem_id));
+    for (const it of items) {
+      const pack = it.pack as Record<string, unknown> | null | undefined;
+      const embId = String(it.produto_embalagem_id ?? "");
+      let v = variants.find((x) => x.id === embId);
+      if (!v && pack) v = mapPdvRowToVariant(pack);
       if (v) newCart.push({ variant: v, qty: Number(it.quantity ?? it.qty ?? 1) });
     }
     if (newCart.length > 0) {
       setCart(newCart);
+      setVariants((prev) => {
+        const ids = new Set(prev.map((x) => x.id));
+        const extra = newCart.map((c) => c.variant).filter((v) => !ids.has(v.id));
+        return extra.length ? [...prev, ...extra] : prev;
+      });
       setActiveOrderId(order.id);
       setActiveOrderSource(order.source ?? null);
       setFromOrderBanner(`Pedido #${order.id.slice(-6).toUpperCase()}`);
+      setPdvMode("normal");
     }
-    setPdvMode("normal");
   }, [variants]);
 
   // ── caixa ops ─────────────────────────────────────────────────────────────
@@ -333,37 +363,55 @@ export default function PDVPage() {
     await loadCaixa();
   };
 
-  useEffect(() => { loadVariants(); }, [loadVariants]);
+  useEffect(() => { void loadCategories(); }, [loadCategories]);
   useEffect(() => { loadCaixa(); }, [loadCaixa]);
   useEffect(() => { if (!showCheckout) searchRef.current?.focus(); }, [showCheckout]);
 
+  // Busca sob demanda (debounce); vazio = top sellers / categoria.
+  useEffect(() => {
+    if (!companyId) return;
+    const q = search.trim();
+    if (q.length > 0 && q.length < 2 && !looksLikeScanCode(q)) return;
+    const timer = setTimeout(() => {
+      void loadVariants({ q, category: activeCat });
+    }, looksLikeScanCode(q) ? 0 : 280);
+    return () => clearTimeout(timer);
+  }, [search, activeCat, companyId, loadVariants]);
+
   // Pré-carrega carrinho a partir de um pedido existente (botão "Fechar no PDV")
   useEffect(() => {
-    if (!fromOrderId || !companyId || variants.length === 0) return;
+    if (!fromOrderId || !companyId) return;
     (async () => {
       const res = await fetch(`/api/admin/pdv/order-import?order_id=${encodeURIComponent(fromOrderId)}`, {
         credentials: "include",
         cache: "no-store",
       });
       const json = await res.json().catch(() => ({}));
-      const items = json.items as any[] | undefined;
+      const items = json.items as Array<Record<string, unknown>> | undefined;
       if (!res.ok || !items || items.length === 0) return;
       const newCart: CartItem[] = [];
-      for (const it of items as any[]) {
-        const embId = it.produto_embalagem_id;
-        const v = variants.find(v => v.id === embId);
-        if (v) {
-          newCart.push({ variant: v, qty: Number(it.quantity ?? it.qty ?? 1) });
+      for (const it of items) {
+        const pack = it.pack as Record<string, unknown> | null | undefined;
+        if (pack) {
+          newCart.push({
+            variant: mapPdvRowToVariant(pack),
+            qty: Number(it.quantity ?? it.qty ?? 1),
+          });
         }
       }
       if (newCart.length > 0) {
         setCart(newCart);
+        setVariants((prev) => {
+          const ids = new Set(prev.map((x) => x.id));
+          const extra = newCart.map((c) => c.variant).filter((v) => !ids.has(v.id));
+          return extra.length ? [...prev, ...extra] : prev;
+        });
         setActiveOrderId(fromOrderId);
         setActiveOrderSource(json.source ?? null);
         setFromOrderBanner(`Pedido #${fromOrderId.slice(-6).toUpperCase()}`);
       }
     })();
-  }, [fromOrderId, companyId, variants]);
+  }, [fromOrderId, companyId]);
 
   // ── customer search (debounced) ──────────────────────────────────────
   useEffect(() => {
@@ -423,39 +471,8 @@ export default function PDVPage() {
   };
 
   // ── derived ───────────────────────────────────────────────────────────────
-  const categories = useMemo(
-    () => ["Todos", ...[...new Set(variants.map((v) => v.category))].sort((a, b) => a.localeCompare(b, "pt-BR"))],
-    [variants]
-  );
-
-  const filtered = useMemo(() => {
-    const qRaw = search.trim();
-    const q = qRaw.toLowerCase();
-    const list = variants.filter((v) => {
-      const mc = activeCat === "Todos" || v.category === activeCat;
-      if (!q) return mc;
-
-      // Bipagem: só match exato de código interno ou EAN (embalagem certa).
-      if (looksLikeScanCode(qRaw)) {
-        const qDigits = normalizeScanDigits(qRaw);
-        const internalOk =
-          Boolean(v.codigo_interno) && String(v.codigo_interno).toLowerCase() === q;
-        const eanDigits = normalizeScanDigits(String(v.codigo_barras_ean ?? ""));
-        const eanOk = qDigits.length >= 4 && eanDigits.length > 0 && eanDigits === qDigits;
-        return mc && (internalOk || eanOk);
-      }
-
-      const internalOk =
-        Boolean(v.codigo_interno) && String(v.codigo_interno).toLowerCase().includes(q);
-      const textOk =
-        v.product_name.toLowerCase().includes(q) ||
-        (v.details?.toLowerCase().includes(q) ?? false) ||
-        (v.tags?.toLowerCase().includes(q) ?? false);
-
-      return mc && (internalOk || textOk);
-    });
-    return [...list].sort((a, b) => (b.sales_count ?? 0) - (a.sales_count ?? 0));
-  }, [variants, search, activeCat]);
+  // Resultados já vêm filtrados do servidor (q + categoria).
+  const filtered = variants;
 
   const cartTotal = useMemo(() => cart.reduce((s, i) => s + i.variant.unit_price * i.qty, 0), [cart]);
 

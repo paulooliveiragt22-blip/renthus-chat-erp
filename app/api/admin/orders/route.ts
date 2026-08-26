@@ -27,23 +27,204 @@ type SetStatusRpcResult = {
     order_code?: string;
 };
 
-export async function GET() {
+const ORDER_LIST_SELECT =
+    "id, status, channel, source, driver_id, total_amount, delivery_fee, delivery_address, payment_method, paid, change_for, created_at, details, notes, fulfillment_type, customers ( name, phone, address )";
+
+const ORDER_ITEM_PREVIEW_SELECT =
+    "order_id, product_name, quantity, unit_price, line_total";
+
+type OrderStats = {
+    total: number;
+    new: number;
+    preparing: number;
+    delivered: number;
+    finalized: number;
+    canceled: number;
+};
+
+type OrderSummary = {
+    novosQtd: number;
+    novosTotal: number;
+    prepQtd: number;
+    entregaQtd: number;
+    finalHojeQtd: number;
+    finalHojeTotal: number;
+};
+
+function emptyStats(): OrderStats {
+    return { total: 0, new: 0, preparing: 0, delivered: 0, finalized: 0, canceled: 0 };
+}
+
+function emptySummary(): OrderSummary {
+    return {
+        novosQtd: 0,
+        novosTotal: 0,
+        prepQtd: 0,
+        entregaQtd: 0,
+        finalHojeQtd: 0,
+        finalHojeTotal: 0,
+    };
+}
+
+function computeStatsAndSummary(
+    rows: Array<{ status?: string | null; total_amount?: number | null; created_at?: string | null }>
+): { stats: OrderStats; summary: OrderSummary } {
+    const stats = emptyStats();
+    const summary = emptySummary();
+    const startDay = new Date();
+    startDay.setHours(0, 0, 0, 0);
+
+    for (const o of rows) {
+        const st = String(o.status ?? "");
+        const tot = Number(o.total_amount ?? 0);
+        stats.total += 1;
+        if (st === "new" || st === "preparing" || st === "delivered" || st === "finalized" || st === "canceled") {
+            stats[st] += 1;
+        }
+
+        if (st === "new") {
+            summary.novosQtd += 1;
+            summary.novosTotal += tot;
+        } else if (st === "preparing") {
+            summary.prepQtd += 1;
+        } else if (st === "delivered") {
+            summary.entregaQtd += 1;
+        } else if (st === "finalized" && o.created_at && new Date(o.created_at) >= startDay) {
+            summary.finalHojeQtd += 1;
+            summary.finalHojeTotal += tot;
+        }
+    }
+    return { stats, summary };
+}
+
+export async function GET(req: Request) {
     const ctx = await requireCapability("orders.read");
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
 
-    const { data, error } = await admin
-        .from("orders")
-        .select(
-            `id, status, channel, source, driver_id, total_amount, delivery_fee, delivery_address, payment_method, paid, change_for, created_at, details, notes, fulfillment_type, customers ( name, phone, address ), order_items ( product_name, quantity, unit_price, line_total )`
-        )
-        .eq("company_id", companyId)
-        .neq("confirmation_status", "pending_confirmation")
-        .order("created_at", { ascending: false })
-        .limit(500);
+    const url = new URL(req.url);
+    const page = Math.max(1, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
+    const limit = Math.min(
+        100,
+        Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "20", 10) || 20)
+    );
+    const statusFilter = String(url.searchParams.get("status") ?? "all").trim().toLowerCase();
+    const q = String(url.searchParams.get("q") ?? "").trim();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ orders: data ?? [] });
+    // Agregados leves (sem join / sem itens) — alimentam chips e cards do topo.
+    const { data: aggRows, error: aggErr } = await admin
+        .from("orders")
+        .select("status, total_amount, created_at")
+        .eq("company_id", companyId)
+        .neq("confirmation_status", "pending_confirmation");
+    if (aggErr) return NextResponse.json({ error: aggErr.message }, { status: 500 });
+    const { stats, summary } = computeStatsAndSummary(aggRows ?? []);
+
+    let customerIds: string[] | null = null;
+    if (q.length >= 2) {
+        const safe = q.replaceAll(/[%_,]/g, " ").trim();
+        const { data: custs, error: custErr } = await admin
+            .from("customers")
+            .select("id")
+            .eq("company_id", companyId)
+            .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,address.ilike.%${safe}%`)
+            .limit(150);
+        if (custErr) return NextResponse.json({ error: custErr.message }, { status: 500 });
+        customerIds = (custs ?? []).map((c) => String((c as { id: string }).id));
+        if (customerIds.length === 0) {
+            return NextResponse.json({
+                orders: [],
+                meta: {
+                    page,
+                    limit,
+                    total: 0,
+                    total_pages: 1,
+                    stats,
+                    summary,
+                },
+            });
+        }
+    }
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    let listQuery = admin
+        .from("orders")
+        .select(ORDER_LIST_SELECT, { count: "exact" })
+        .eq("company_id", companyId)
+        .neq("confirmation_status", "pending_confirmation");
+
+    if (statusFilter !== "all") {
+        listQuery = listQuery.eq("status", statusFilter);
+    }
+    if (customerIds) {
+        listQuery = listQuery.in("customer_id", customerIds);
+    }
+
+    // Prioridade operacional: novos primeiro, depois por data.
+    const { data: pageRows, error: listErr, count } = await listQuery
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+    if (listErr) return NextResponse.json({ error: listErr.message }, { status: 500 });
+
+    const orders = (pageRows ?? []) as Array<
+        Record<string, unknown> & { id: string; status?: string | null; created_at?: string | null }
+    >;
+    const ids = orders.map((o) => o.id);
+
+    let itemsByOrder = new Map<string, Array<Record<string, unknown>>>();
+    if (ids.length > 0) {
+        const { data: items, error: itemsErr } = await admin
+            .from("order_items")
+            .select(ORDER_ITEM_PREVIEW_SELECT)
+            .in("order_id", ids);
+        if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
+        itemsByOrder = new Map();
+        for (const it of items ?? []) {
+            const oid = String((it as { order_id: string }).order_id);
+            const arr = itemsByOrder.get(oid) ?? [];
+            arr.push(it as Record<string, unknown>);
+            itemsByOrder.set(oid, arr);
+        }
+    }
+
+    const enriched = orders.map((o) => ({
+        ...o,
+        order_items: itemsByOrder.get(o.id) ?? [],
+    }));
+
+    // Ordenação por prioridade de status na página atual (UI legada).
+    const priority: Record<string, number> = {
+        new: 0,
+        preparing: 1,
+        delivered: 2,
+        finalized: 3,
+        canceled: 4,
+    };
+    enriched.sort((a, b) => {
+        const pa = priority[String(a.status ?? "")] ?? 99;
+        const pb = priority[String(b.status ?? "")] ?? 99;
+        if (pa !== pb) return pa - pb;
+        return (
+            new Date(String(b.created_at ?? 0)).getTime() -
+            new Date(String(a.created_at ?? 0)).getTime()
+        );
+    });
+
+    const total = count ?? enriched.length;
+    return NextResponse.json({
+        orders: enriched,
+        meta: {
+            page,
+            limit,
+            total,
+            total_pages: Math.max(1, Math.ceil(total / limit)),
+            stats,
+            summary,
+        },
+    });
 }
 
 export async function PATCH(req: Request) {

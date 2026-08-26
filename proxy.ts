@@ -26,14 +26,46 @@ type CompanyAccessRow = {
     is_active:               boolean;
 };
 
+/** TTL curto: evita 2 REST a cada navegação admin; billing/onboarding ainda revalida rápido. */
+const ACCESS_GUARD_COOKIE = "renthus_access_ok";
+const ACCESS_GUARD_TTL_MS = 45_000;
+
+function accessGuardFresh(request: NextRequest, companyId: string): boolean {
+    const raw = request.cookies.get(ACCESS_GUARD_COOKIE)?.value;
+    if (!raw) return false;
+    const sep = raw.lastIndexOf(":");
+    if (sep <= 0) return false;
+    const cid = raw.slice(0, sep);
+    const ts = Number(raw.slice(sep + 1));
+    if (cid !== companyId || !Number.isFinite(ts)) return false;
+    return Date.now() - ts < ACCESS_GUARD_TTL_MS;
+}
+
+function stampAccessGuard(response: NextResponse, companyId: string): void {
+    response.cookies.set(ACCESS_GUARD_COOKIE, `${companyId}:${Date.now()}`, {
+        path: "/",
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: Math.ceil(ACCESS_GUARD_TTL_MS / 1000) + 5,
+        secure: process.env.NODE_ENV === "production",
+    });
+}
+
+type AccessGuardResult =
+    | { type: "fresh" }
+    | { type: "allow" }
+    | { type: "redirect"; response: NextResponse };
+
 /** Redirecionamentos de cobrança / onboarding (extraído para reduzir complexidade cognitiva do proxy). */
-async function redirectForCompanyAccess(
+async function checkCompanyAccess(
     request: NextRequest,
     pathname: string,
     companyId: string,
     supabaseUrl: string,
     serviceKey: string
-): Promise<NextResponse | null> {
+): Promise<AccessGuardResult> {
+    if (accessGuardFresh(request, companyId)) return { type: "fresh" };
+
     try {
         const [subRes, compRes] = await Promise.all([
             fetch(
@@ -61,8 +93,8 @@ async function redirectForCompanyAccess(
             if (!isConfig) {
                 const payUrl = request.nextUrl.clone();
                 payUrl.pathname = "/configuracoes";
-                payUrl.search    = "?tab=plano";
-                return NextResponse.redirect(payUrl);
+                payUrl.search = "?tab=plano";
+                return { type: "redirect", response: NextResponse.redirect(payUrl) };
             }
         }
 
@@ -70,21 +102,23 @@ async function redirectForCompanyAccess(
             if (comp.senha_definida === false && comp.onboarding_token) {
                 const completeUrl = request.nextUrl.clone();
                 completeUrl.pathname = "/signup/complete";
-                completeUrl.search   = `?token=${comp.onboarding_token}`;
-                return NextResponse.redirect(completeUrl);
+                completeUrl.search = `?token=${comp.onboarding_token}`;
+                return { type: "redirect", response: NextResponse.redirect(completeUrl) };
             }
 
             if (comp.onboarding_completed_at === null && pathname !== "/onboarding") {
                 const onboardUrl = request.nextUrl.clone();
                 onboardUrl.pathname = "/onboarding";
-                onboardUrl.search   = "";
-                return NextResponse.redirect(onboardUrl);
+                onboardUrl.search = "";
+                return { type: "redirect", response: NextResponse.redirect(onboardUrl) };
             }
         }
+
+        return { type: "allow" };
     } catch {
         // Falha silenciosa — não bloqueia acesso em caso de erro de rede
     }
-    return null;
+    return { type: "allow" };
 }
 
 function handleSuperadminBranch(request: NextRequest, pathname: string): NextResponse | null {
@@ -245,14 +279,15 @@ export async function proxy(
         const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
         if (companyId) {
-            const guardRedirect = await redirectForCompanyAccess(
+            const guard = await checkCompanyAccess(
                 request,
                 pathname,
                 companyId,
                 supabaseUrl,
                 serviceKey
             );
-            if (guardRedirect) return guardRedirect;
+            if (guard.type === "redirect") return guard.response;
+            if (guard.type === "allow") stampAccessGuard(response, companyId);
         }
     }
 

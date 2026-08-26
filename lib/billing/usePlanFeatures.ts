@@ -1,57 +1,55 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-type State = {
-    loading: boolean;
+type BillingStatusJson = {
+    plan_key?: string | null;
+    enabled_features?: string[];
+};
+
+type PlanFeaturesData = {
     planKey: string | null;
     features: Set<string>;
 };
 
+async function fetchPlanFeatures(): Promise<PlanFeaturesData> {
+    const res = await fetch("/api/billing/status", {
+        credentials: "include",
+        cache: "no-store",
+    });
+    const json = (await res.json().catch(() => ({}))) as BillingStatusJson;
+    return {
+        planKey: json.plan_key ?? null,
+        features: new Set(Array.isArray(json.enabled_features) ? json.enabled_features : []),
+    };
+}
+
 /**
  * Features do plano atual (via /api/billing/status).
- * Em falha de rede: features vazias + loading false (UI decide fail-open/closed).
+ * Cache compartilhado via TanStack Query — uma chamada por sessão/staleTime
+ * mesmo com vários consumidores (sidebar, PDV, gates).
  */
-export function usePlanFeatures(): State & { has: (key: string) => boolean } {
-    const [state, setState] = useState<State>({
-        loading: true,
-        planKey: null,
-        features: new Set(),
+export function usePlanFeatures(): {
+    loading: boolean;
+    planKey: string | null;
+    features: Set<string>;
+    has: (key: string) => boolean;
+} {
+    const { data, isPending, isFetching } = useQuery({
+        queryKey: ["billing", "plan-features"],
+        queryFn: fetchPlanFeatures,
+        staleTime: 5 * 60 * 1000,
+        gcTime: 30 * 60 * 1000,
+        refetchOnWindowFocus: false,
     });
 
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await fetch("/api/billing/status", {
-                    credentials: "include",
-                    cache: "no-store",
-                });
-                const json = (await res.json().catch(() => ({}))) as {
-                    plan_key?: string | null;
-                    enabled_features?: string[];
-                };
-                if (cancelled) return;
-                setState({
-                    loading: false,
-                    planKey: json.plan_key ?? null,
-                    features: new Set(
-                        Array.isArray(json.enabled_features) ? json.enabled_features : []
-                    ),
-                });
-            } catch {
-                if (!cancelled) {
-                    setState({ loading: false, planKey: null, features: new Set() });
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    const features = data?.features ?? new Set<string>();
+    const loading = isPending || (isFetching && !data);
 
     return {
-        ...state,
-        has: (key: string) => state.features.has(key),
+        loading,
+        planKey: data?.planKey ?? null,
+        features,
+        has: (key: string) => features.has(key),
     };
 }

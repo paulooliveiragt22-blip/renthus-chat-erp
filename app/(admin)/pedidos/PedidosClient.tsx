@@ -261,11 +261,21 @@ export default function PedidosPage() {
 
     const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
     const [searchText,   setSearchText]   = useState("");
+    const [searchDebounced, setSearchDebounced] = useState("");
     const [page,         setPage]         = useState(1);
+    const [listTotal, setListTotal] = useState(0);
+    const [listTotalPages, setListTotalPages] = useState(1);
+    const [serverStats, setServerStats] = useState({
+        total: 0, new: 0, preparing: 0, delivered: 0, finalized: 0, canceled: 0,
+    });
+    const [serverSummary, setServerSummary] = useState({
+        novosQtd: 0, novosTotal: 0, prepQtd: 0, entregaQtd: 0, finalHojeQtd: 0, finalHojeTotal: 0,
+    });
     const [recentOrders, setRecentOrders] = useState<Record<string, number>>({});
     // IDs com flash ativo (ring verde por ~2s após INSERT ou UPDATE via realtime)
     const [flashOrders,  setFlashOrders]  = useState<Set<string>>(new Set());
     const ordersSnapshotRef = useRef<Record<string, { status: string; total: number }>>({});
+    const loadParamsRef = useRef({ page: 1, status: "all" as string, q: "" });
 
     // restore filter from URL or localStorage
     useEffect(() => {
@@ -526,14 +536,49 @@ export default function PedidosPage() {
      * `silent`: usado no auto-refresh (a cada 12s) — atualiza os dados sem trocar a grid
      * inteira pelos skeletons. Sem isso, a tela de pedidos "apaga e recarrega" periodicamente.
      */
-    async function loadOrders(opts?: { silent?: boolean }) {
+    async function loadOrders(opts?: { silent?: boolean; page?: number; status?: string; q?: string }) {
         if (!opts?.silent) setLoading(true);
         setMsg(null);
-        const res = await fetch("/api/admin/orders", { cache: "no-store", credentials: "include" });
+        const pageN = opts?.page ?? loadParamsRef.current.page;
+        const status = opts?.status ?? loadParamsRef.current.status;
+        const q = opts?.q ?? loadParamsRef.current.q;
+        loadParamsRef.current = { page: pageN, status, q };
+
+        const params = new URLSearchParams({
+            page: String(pageN),
+            limit: String(PAGE_SIZE),
+            status,
+        });
+        if (q.trim().length >= 2) params.set("q", q.trim());
+
+        const res = await fetch(`/api/admin/orders?${params}`, {
+            cache: "no-store",
+            credentials: "include",
+        });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) { setMsg(`Erro ao carregar pedidos: ${json?.error ?? "falha desconhecida"}`); setOrders([]); setLoading(false); return; }
+        if (!res.ok) {
+            setMsg(`Erro ao carregar pedidos: ${json?.error ?? "falha desconhecida"}`);
+            setOrders([]);
+            setListTotal(0);
+            setListTotalPages(1);
+            setLoading(false);
+            return;
+        }
         const incoming = (Array.isArray(json.orders) ? json.orders : []) as OrderRow[];
-        const nextSnapshot: Record<string, { status: string; total: number }> = {};
+        const meta = (json.meta ?? {}) as {
+            total?: number;
+            total_pages?: number;
+            stats?: typeof serverStats;
+            summary?: typeof serverSummary;
+        };
+        if (meta.stats) setServerStats(meta.stats);
+        if (meta.summary) setServerSummary(meta.summary);
+        setListTotal(Number(meta.total ?? incoming.length));
+        setListTotalPages(Math.max(1, Number(meta.total_pages ?? 1)));
+
+        const nextSnapshot: Record<string, { status: string; total: number }> = {
+            ...ordersSnapshotRef.current,
+        };
         const toFlash: string[] = [];
         const now = Date.now();
         setRecentOrders((prev) => {
@@ -726,9 +771,26 @@ export default function PedidosPage() {
             loadCompanySettings(companyId);
             loadDrivers(companyId);
         }
-        loadOrders();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [companyId]);
+
+    useEffect(() => {
+        const t = setTimeout(() => {
+            setSearchDebounced(searchText.trim());
+            setPage(1);
+        }, 280);
+        return () => clearTimeout(t);
+    }, [searchText]);
+
+    useEffect(() => {
+        if (!companyId) return;
+        void loadOrders({
+            page,
+            status: statusFilter,
+            q: searchDebounced,
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [companyId, page, statusFilter, searchDebounced]);
 
     useEffect(() => {
         const id = searchParams.get("open");
@@ -1505,48 +1567,19 @@ export default function PedidosPage() {
     }
 
     // ── computed ──────────────────────────────────────────────────────────────
-    const stats = useMemo(() => {
-        const by = { new: 0, preparing: 0, delivered: 0, finalized: 0, canceled: 0 } as Record<OrderStatus, number>;
-        for (const o of orders) { const s = String(o.status) as OrderStatus; if ((by as any)[s] !== undefined) (by as any)[s]++; }
-        return { total: orders.length, ...by };
-    }, [orders]);
+    const stats = serverStats;
+    const summary = serverSummary;
 
-    const summary = useMemo(() => {
-        let novosQtd = 0, novosTotal = 0, prepQtd = 0, entregaQtd = 0, finalHojeQtd = 0, finalHojeTotal = 0;
-        const startDay = new Date(); startDay.setHours(0, 0, 0, 0);
-        for (const o of orders) {
-            const st = String(o.status);
-            const tot = Number((o as any).total_amount ?? 0);
-            if (st === "new") { novosQtd++; novosTotal += tot; }
-            if (st === "preparing") prepQtd++;
-            if (st === "delivered") entregaQtd++;
-            if (st === "finalized" && new Date(o.created_at) >= startDay) { finalHojeQtd++; finalHojeTotal += tot; }
-        }
-        return { novosQtd, novosTotal, prepQtd, entregaQtd, finalHojeQtd, finalHojeTotal };
-    }, [orders]);
+    const filteredOrders = orders;
 
-    const filteredOrders = useMemo(() => {
-        if (typeof window !== "undefined") window.localStorage.setItem("orders_status_filter", statusFilter);
-        const priority: Record<string, number> = { new: 0, preparing: 1, delivered: 2, finalized: 3, canceled: 4 };
-        const byStatus = statusFilter === "all" ? orders : orders.filter((o) => String(o.status) === statusFilter);
-        const sq = searchText.trim().toLowerCase();
-        const base = !sq ? byStatus : byStatus.filter((o) => {
-            return [(o.customers?.name ?? ""), (o.customers?.phone ?? ""), (o.customers?.address ?? "")].some(v => v.toLowerCase().includes(sq));
-        });
-        return [...base].sort((a, b) => {
-            const pa = priority[String(a.status)] ?? 99, pb = priority[String(b.status)] ?? 99;
-            if (pa !== pb) return pa - pb;
-            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-    }, [orders, statusFilter, searchText]);
-
-    // ── paginação ─────────────────────────────────────────────────────────────
-    const totalPages  = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+    // ── paginação (server-side) ───────────────────────────────────────────────
+    const totalPages  = listTotalPages;
     const safePage    = Math.min(page, totalPages);
-    const pagedOrders = filteredOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+    const pagedOrders = filteredOrders;
 
-    // Reset para página 1 sempre que filtro ou busca mudar
-    useEffect(() => { setPage(1); }, [statusFilter, searchText]);
+    useEffect(() => {
+        if (typeof window !== "undefined") window.localStorage.setItem("orders_status_filter", statusFilter);
+    }, [statusFilter]);
 
     const newTotalNow      = useMemo(
         () =>
@@ -1617,7 +1650,7 @@ export default function PedidosPage() {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 {/* Novos */}
                 <button
-                    onClick={() => setStatusFilter("new")}
+                    onClick={() => { setStatusFilter("new"); setPage(1); }}
                     className={`rounded-xl border-l-4 border-orange-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "new" ? "ring-2 ring-orange-300" : ""}`}
 >
                     <div className="flex items-start justify-between">
@@ -1635,7 +1668,7 @@ export default function PedidosPage() {
                 {/* Em preparação */}
                 <button
                     type="button"
-                    onClick={() => setStatusFilter("preparing")}
+                    onClick={() => { setStatusFilter("preparing"); setPage(1); }}
                     className={`rounded-xl border-l-4 border-purple-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "preparing" ? "ring-2 ring-purple-300" : ""}`}
                 >
                     <div className="flex items-start justify-between">
@@ -1652,7 +1685,7 @@ export default function PedidosPage() {
 
                 {/* Em entrega */}
                 <button
-                    onClick={() => setStatusFilter("delivered")}
+                    onClick={() => { setStatusFilter("delivered"); setPage(1); }}
                     className={`rounded-xl border-l-4 border-sky-400 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "delivered" ? "ring-2 ring-sky-300" : ""}`}
 >
                     <div className="flex items-start justify-between">
@@ -1669,7 +1702,7 @@ export default function PedidosPage() {
 
                 {/* Finalizados hoje */}
                 <button
-                    onClick={() => setStatusFilter("finalized")}
+                    onClick={() => { setStatusFilter("finalized"); setPage(1); }}
                     className={`rounded-xl border-l-4 border-emerald-500 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md dark:bg-zinc-900 dark:hover:bg-zinc-800 ${statusFilter === "finalized" ? "ring-2 ring-emerald-300" : ""}`}
 >
                     <div className="flex items-start justify-between">
@@ -1701,7 +1734,10 @@ export default function PedidosPage() {
                     {(["all", "new", "preparing", "delivered", "finalized", "canceled"] as const).map((f) => (
                         <button
                             key={f}
-                            onClick={() => setStatusFilter(f)}
+                            onClick={() => {
+                                setStatusFilter(f);
+                                setPage(1);
+                            }}
                             className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${
                                 statusFilter === f
                                     ? "bg-purple-800 text-white"
@@ -1962,18 +1998,18 @@ export default function PedidosPage() {
             )}
 
             {/* ── PAGINAÇÃO ── */}
-            {!loading && filteredOrders.length > PAGE_SIZE && (
+            {!loading && listTotal > PAGE_SIZE && (
                 <div className="flex items-center justify-between rounded-xl border border-zinc-100 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
 
                     {/* Info */}
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
                         Exibindo{" "}
                         <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                            {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredOrders.length)}
+                            {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, listTotal)}
                         </span>{" "}
                         de{" "}
                         <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                            {filteredOrders.length}
+                            {listTotal}
                         </span>{" "}
                         pedidos
                     </p>

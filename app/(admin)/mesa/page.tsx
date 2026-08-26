@@ -110,40 +110,32 @@ function MesaFloor() {
         })();
     }, [loadFloor]);
 
-    const [catalog, setCatalog] = useState<ProductHit[]>([]);
-
     useEffect(() => {
-        void (async () => {
-            const res = await fetch("/api/admin/pdv/products", {
-                credentials: "include",
-                cache: "no-store",
-            });
-            const json = await res.json().catch(() => ({}));
-            const rows = Array.isArray(json.rows) ? json.rows : [];
-            setCatalog(
-                rows.map((r: Record<string, unknown>) => ({
+        const q = search.trim();
+        if (q.length < 2) {
+            setHits([]);
+            return;
+        }
+        const timer = setTimeout(() => {
+            void (async () => {
+                const res = await fetch(
+                    `/api/admin/pdv/products?q=${encodeURIComponent(q)}&limit=24`,
+                    { credentials: "include", cache: "no-store" }
+                );
+                const json = await res.json().catch(() => ({}));
+                const rows = Array.isArray(json.rows) ? json.rows : [];
+                const mapped: ProductHit[] = rows.map((r: Record<string, unknown>) => ({
                     embalagemId: String(r.id ?? ""),
                     productId: String(r.produto_id ?? ""),
                     name: String(r.product_name ?? r.descricao ?? "Item"),
                     price: Number(r.preco_venda ?? 0),
                     sigla: (r.sigla_comercial ?? null) as string | null,
-                }))
-            );
-        })();
-    }, []);
-
-    useEffect(() => {
-        const q = search.trim().toLowerCase();
-        if (q.length < 2) {
-            setHits([]);
-            return;
-        }
-        setHits(
-            catalog
-                .filter((h) => h.name.toLowerCase().includes(q) || (h.sigla ?? "").toLowerCase().includes(q))
-                .slice(0, 8)
-        );
-    }, [search, catalog]);
+                }));
+                setHits(mapped.slice(0, 8));
+            })();
+        }, 280);
+        return () => clearTimeout(timer);
+    }, [search]);
 
     async function openTable(tableId: string) {
         setBusy(true);
