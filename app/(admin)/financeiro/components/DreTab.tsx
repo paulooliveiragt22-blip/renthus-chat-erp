@@ -66,7 +66,7 @@ export default function DreTab({ companyId, dateRange, periodLabel, stats, refre
                     </p>
                     <p className="text-xs text-zinc-400">
                         {fromView
-                            ? "Competência: sales + CMV snapshot (embalagem) + opex no mês"
+                            ? "Competência no período selecionado (sold_at / opex posted)"
                             : "Fallback gerencial: recebido (caixa) − CMV snapshot − opex pago"}
                     </p>
                 </div>
