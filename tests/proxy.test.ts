@@ -29,9 +29,16 @@ function createMockClient(
     return { factory, getUser, getAuthenticatorAssuranceLevel } as const;
 }
 
-function createRequest(pathname: string, cookies?: string, method = "GET") {
+function createRequest(
+    pathname: string,
+    cookies?: string,
+    method = "GET",
+    host?: string
+) {
     const url = new URL(pathname, "https://example.com");
-    const headers = cookies ? { cookie: cookies } : undefined;
+    const headers: Record<string, string> = {};
+    if (cookies) headers.cookie = cookies;
+    if (host) headers.host = host;
     return new NextRequest(url, { headers, method });
 }
 
@@ -221,6 +228,31 @@ describe("proxy auth routing", () => {
             assert.strictEqual(response.status, 403);
             const body = await response.json();
             assert.strictEqual(body.code, "host_not_allowed");
+        } finally {
+            if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
+            else process.env.PLATFORM_ADMIN_HOST = prevHost;
+        }
+    });
+
+    it("allows impersonate API on tenant host (AdminShell banner)", async () => {
+        const prevHost = process.env.PLATFORM_ADMIN_HOST;
+        process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";
+        try {
+            const response = await proxy(
+                createRequest(
+                    "/api/platform/impersonate",
+                    undefined,
+                    "GET",
+                    "app.renthus.com.br"
+                ),
+                undefined,
+                { createClient: factory }
+            );
+            assert.notStrictEqual(response.status, 403);
+            const body = (await response.json().catch(() => ({}))) as {
+                code?: string;
+            };
+            assert.notStrictEqual(body.code, "host_not_allowed");
         } finally {
             if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
             else process.env.PLATFORM_ADMIN_HOST = prevHost;

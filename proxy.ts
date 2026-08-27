@@ -161,10 +161,11 @@ async function handlePlatformBranch(
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    // Crons: auth via CRON_SECRET — Host pode ser *.vercel.app; isentar ANTES do gate de Host
+    // Crons + impersonation status no host tenant (AdminShell banner em app.*)
     if (
         pathname === "/api/platform/alerts/check" ||
-        pathname === "/api/platform/audit/archive"
+        pathname === "/api/platform/audit/archive" ||
+        pathname === "/api/platform/impersonate"
     ) {
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
