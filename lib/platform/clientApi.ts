@@ -144,6 +144,16 @@ export type PlatformTurnTraceRow = {
     outboundCount: number;
 };
 
+export type PlatformChatbotOpsSnapshot = {
+    periodMinutes: number;
+    generatedAt: string;
+    ingest: { proPipelineSupabase: boolean; turnTrace: boolean };
+    queue: PlatformQueueHealth;
+    outbound: PlatformOutboundHealth;
+    pipeline: PlatformPipelineHealth;
+    recentTraces: { enabled: boolean; rows: PlatformTurnTraceRow[] };
+};
+
 export type PlatformMetricsQuery = {
     minutes?: number;
     companyId?: string | "all";
@@ -339,15 +349,7 @@ export const platformApi = {
             return platformFetch<PlatformOutboundHealth>(`/api/platform/metrics?${q}`);
         }
         if (kind === "ops") {
-            return platformFetch<{
-                periodMinutes: number;
-                generatedAt: string;
-                ingest: { proPipelineSupabase: boolean; turnTrace: boolean };
-                queue: PlatformQueueHealth;
-                outbound: PlatformOutboundHealth;
-                pipeline: PlatformPipelineHealth;
-                recentTraces: { enabled: boolean; rows: PlatformTurnTraceRow[] };
-            }>(`/api/platform/metrics?${q}`);
+            return platformFetch<PlatformChatbotOpsSnapshot>(`/api/platform/metrics?${q}`);
         }
         if (kind === "turn-traces") {
             q.set("limit", String((opts as { limit?: number }).limit ?? 25));
@@ -360,7 +362,7 @@ export const platformApi = {
         (kind: "queue", opts?: PlatformMetricsQuery | number): Promise<PlatformQueueHealth>;
         (kind: "pipeline", opts?: PlatformMetricsQuery | number): Promise<PlatformPipelineHealth>;
         (kind: "outbound", opts?: PlatformMetricsQuery | number): Promise<PlatformOutboundHealth>;
-        (kind: "ops", opts?: PlatformMetricsQuery | number): Promise<unknown>;
+        (kind: "ops", opts?: PlatformMetricsQuery | number): Promise<PlatformChatbotOpsSnapshot>;
         (kind: "turn-traces", opts?: PlatformMetricsQuery | number): Promise<{
             enabled: boolean;
             rows: PlatformTurnTraceRow[];
