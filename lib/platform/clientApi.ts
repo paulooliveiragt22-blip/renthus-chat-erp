@@ -20,6 +20,81 @@ async function platformFetch<T>(path: string, init?: RequestInit): Promise<T> {
     return body as T;
 }
 
+export type PlatformDashboardStats = {
+    totalCompanies: number;
+    ordersThisMonth: number;
+    revenueThisMonth: number;
+    activeChannels: number;
+};
+
+export type PlatformQueueCompanyRow = {
+    companyId: string;
+    companyName: string;
+    pendingNow: number;
+    oldestPendingAgeSec: number;
+    done15m: number;
+    failed15m: number;
+    coalesced15m: number;
+    processed15m: number;
+    failureRate: number;
+    dedupHitRate: number;
+    severity: "green" | "yellow" | "red" | string;
+};
+
+export type PlatformQueueHealth = {
+    periodMinutes: number;
+    summary: {
+        pendingNow: number;
+        processed15m: number;
+        failed15m: number;
+        coalesced15m: number;
+        oldestPendingAgeSec: number;
+        failureRate: number;
+        dedupHitRate: number;
+    };
+    companies: PlatformQueueCompanyRow[];
+};
+
+export type PlatformPipelineRow = {
+    companyId: string;
+    companyName: string;
+    metricName: string;
+    reason: string | null;
+    intent: string | null;
+    errorCode: string | null;
+    provider: string | null;
+    total: number;
+};
+
+export type PlatformPipelineHealth = {
+    periodMinutes: number;
+    volume: number;
+    rows: PlatformPipelineRow[];
+};
+
+export type PlatformSecurityOps = {
+    vercelEnv: string | null;
+    nodeEnv: string;
+    isProd: boolean;
+    checks: Array<{
+        key: string;
+        label: string;
+        ok: boolean;
+        hint: string;
+    }>;
+};
+
+export type PlatformUserRow = {
+    id: string;
+    email: string;
+    display_name: string;
+    role: string;
+    is_active: boolean;
+    mfa_required: boolean;
+    last_login_at: string | null;
+    created_at: string;
+};
+
 export const platformApi = {
     me: () => platformFetch<{ user: unknown; mfa: unknown }>("/api/platform/me"),
     mfaStatus: () =>
@@ -48,7 +123,10 @@ export const platformApi = {
             method: "POST",
             body: JSON.stringify({ reason }),
         }),
-    plans: () => platformFetch<{ plans: unknown[] }>("/api/platform/plans"),
+    plans: () =>
+        platformFetch<{
+            plans: Array<{ id: string; key: string; name: string; price_cents: number }>;
+        }>("/api/platform/plans"),
     channels: () => platformFetch<{ channels: unknown[] }>("/api/platform/channels"),
     createChannel: (data: Record<string, unknown>) =>
         platformFetch<{ ok: boolean }>("/api/platform/channels", {
@@ -74,17 +152,38 @@ export const platformApi = {
         platformFetch<{ orders: unknown[]; total: number }>(
             `/api/platform/orders?page=${page}&limit=${limit}`
         ),
-    metrics: (kind: "dashboard" | "queue" | "pipeline", minutes?: number) => {
+    metrics: ((kind: "dashboard" | "queue" | "pipeline", minutes?: number) => {
         const q = new URLSearchParams({ kind });
         if (minutes != null) q.set("minutes", String(minutes));
-        return platformFetch<unknown>(`/api/platform/metrics?${q}`);
+        if (kind === "dashboard") {
+            return platformFetch<PlatformDashboardStats>(`/api/platform/metrics?${q}`);
+        }
+        if (kind === "queue") {
+            return platformFetch<PlatformQueueHealth>(`/api/platform/metrics?${q}`);
+        }
+        return platformFetch<PlatformPipelineHealth>(`/api/platform/metrics?${q}`);
+    }) as {
+        (kind: "dashboard", minutes?: number): Promise<PlatformDashboardStats>;
+        (kind: "queue", minutes?: number): Promise<PlatformQueueHealth>;
+        (kind: "pipeline", minutes?: number): Promise<PlatformPipelineHealth>;
     },
-    securityOps: () => platformFetch<unknown>("/api/platform/security/ops-status"),
+    securityOps: () => platformFetch<PlatformSecurityOps>("/api/platform/security/ops-status"),
     audit: (offset = 0, limit = 50) =>
-        platformFetch<{ rows: unknown[]; total: number }>(
-            `/api/platform/audit?offset=${offset}&limit=${limit}`
-        ),
-    users: () => platformFetch<{ users: unknown[] }>("/api/platform/users"),
+        platformFetch<{
+            rows: Array<{
+                id: string;
+                occurred_at: string;
+                actor_email: string | null;
+                actor_role: string | null;
+                action: string;
+                resource_type: string;
+                resource_id: string | null;
+                company_id: string | null;
+                outcome: string;
+            }>;
+            total: number;
+        }>(`/api/platform/audit?offset=${offset}&limit=${limit}`),
+    users: () => platformFetch<{ users: PlatformUserRow[] }>("/api/platform/users"),
     billingSubscriptions: () =>
         platformFetch<{ subscriptions: unknown[] }>("/api/platform/billing/subscriptions"),
     changePlan: (id: string, plan_key: string, reason = "") =>
@@ -97,7 +196,24 @@ export const platformApi = {
             `/api/platform/billing/subscriptions/${id}/allow-overage`,
             { method: "POST", body: JSON.stringify({ allow_overage, reason }) }
         ),
-    healthExtended: () => platformFetch<unknown>("/api/platform/health/extended"),
+    healthExtended: () =>
+        platformFetch<{
+            ok: boolean;
+            db: string;
+            latencyMs: number;
+            queue: {
+                pendingNow: number;
+                failed15m: number;
+                failureRate: number;
+                oldestPendingAgeSec: number;
+            } | null;
+            security: {
+                isProd: boolean;
+                checksOk: number;
+                checksTotal: number;
+                failing: string[];
+            };
+        }>("/api/platform/health/extended"),
     startImpersonation: (company_id: string, reason: string) =>
         platformFetch<{ ok: boolean; sessionId: string }>("/api/platform/impersonate", {
             method: "POST",

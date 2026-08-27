@@ -57,27 +57,27 @@ export default function PlatformAuditPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                            {rows.map((r: Record<string, unknown>) => (
-                                <tr key={String(r.id)}>
+                            {rows.map((r) => (
+                                <tr key={r.id}>
                                     <td className="px-3 py-2 text-xs text-zinc-500">
                                         {r.occurred_at
-                                            ? new Date(String(r.occurred_at)).toLocaleString("pt-BR")
+                                            ? new Date(r.occurred_at).toLocaleString("pt-BR")
                                             : "—"}
                                     </td>
                                     <td className="px-3 py-2 text-xs">
-                                        {String(r.actor_email ?? "—")}
+                                        {r.actor_email ?? "—"}
                                         {r.actor_role ? (
                                             <span className="ml-1 text-zinc-400">
-                                                ({String(r.actor_role)})
+                                                ({r.actor_role})
                                             </span>
                                         ) : null}
                                     </td>
-                                    <td className="px-3 py-2 font-mono text-[11px]">{String(r.action)}</td>
+                                    <td className="px-3 py-2 font-mono text-[11px]">{r.action}</td>
                                     <td className="px-3 py-2 text-xs">
-                                        {String(r.resource_type)}
-                                        {r.resource_id ? ` / ${String(r.resource_id).slice(0, 8)}…` : ""}
+                                        {r.resource_type}
+                                        {r.resource_id ? ` / ${r.resource_id.slice(0, 8)}…` : ""}
                                     </td>
-                                    <td className="px-3 py-2 text-xs">{String(r.outcome)}</td>
+                                    <td className="px-3 py-2 text-xs">{r.outcome}</td>
                                 </tr>
                             ))}
                             {rows.length === 0 && (

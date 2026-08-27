@@ -81,13 +81,19 @@ export default function SetPasswordClient() {
                         <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
                             Nova senha
                         </label>
-                        <PasswordInput value={password} onChange={setPassword} />
+                        <PasswordInput
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                        />
                     </div>
                     <div>
                         <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
                             Confirmar senha
                         </label>
-                        <PasswordInput value={confirm} onChange={setConfirm} />
+                        <PasswordInput
+                            value={confirm}
+                            onChange={(e) => setConfirm(e.target.value)}
+                        />
                     </div>
 
                     {error && (

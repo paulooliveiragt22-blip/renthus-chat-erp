@@ -66,11 +66,11 @@ export default function PlatformUsuariosPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                                {users.map((u: Record<string, unknown>) => (
-                                    <tr key={String(u.id)}>
-                                        <td className="px-4 py-3 font-medium">{String(u.display_name)}</td>
-                                        <td className="px-4 py-3 text-xs text-zinc-500">{String(u.email)}</td>
-                                        <td className="px-4 py-3 text-xs">{String(u.role)}</td>
+                                {users.map((u) => (
+                                    <tr key={u.id}>
+                                        <td className="px-4 py-3 font-medium">{u.display_name}</td>
+                                        <td className="px-4 py-3 text-xs text-zinc-500">{u.email}</td>
+                                        <td className="px-4 py-3 text-xs">{u.role}</td>
                                         <td className="px-4 py-3 text-xs">
                                             {u.mfa_required ? "Obrigatório" : "Opcional"}
                                         </td>

@@ -89,7 +89,10 @@ export default function PlatformLoginPage() {
                             <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
                                 Senha
                             </label>
-                            <PasswordInput value={password} onChange={setPassword} />
+                            <PasswordInput
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                            />
                         </div>
 
                         {error && (

@@ -24,17 +24,9 @@ export default function PlatformObservabilidadePage() {
         staleTime: 15_000,
     });
 
-    const q = health as {
-        ok?: boolean;
-        db?: string;
-        latencyMs?: number;
-        queue?: { pendingNow: number; failed15m: number; failureRate: number };
-        security?: { checksOk: number; checksTotal: number; failing: string[] };
-    } | undefined;
-
-    const queueSummary = (queue as { summary?: { pendingNow: number; failed15m: number } } | undefined)
-        ?.summary;
-    const pipelineVolume = (pipeline as { volume?: number } | undefined)?.volume;
+    const q = health;
+    const queueSummary = queue?.summary;
+    const pipelineVolume = pipeline?.volume;
 
     return (
         <div className="space-y-5">
