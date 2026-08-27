@@ -5,6 +5,20 @@ Use este roteiro com o app em ambiente onde o canal WA da empresa de teste já t
 
 Plano da empresa de teste: **Pro** ou **Market** (feature `whatsapp_templates_broadcast`).
 
+## Ativar solicitação de templates (ops)
+
+Sem isso o `POST …/message_templates` falha (Graph 190/200/#10 etc.):
+
+| Pré-requisito | Onde |
+|---------------|------|
+| Business Verification do BM | Meta Business Suite |
+| Permissão **`whatsapp_business_management`** (Advanced Access ou usuário com role no App em Dev) | App Review / App Roles |
+| Token com essa permissão + **WABA ID** + Phone Number ID do **mesmo** Meta App do webhook | Configurações → **Canais** |
+| Empresa no plano Pro/Market | Billing / `whatsapp_templates_broadcast` |
+| `CREDENTIALS_ENCRYPTION_KEY` em prod | Vercel / env |
+
+**Fonte de verdade do status:** Meta Graph / WhatsApp Manager (`GET /{waba_id}/message_templates`). O Renthus só **espelha** em `whatsapp_message_templates` no submit (grava `PENDING`) e no botão **Sincronizar da Meta**. Não há webhook push de status de template nesta entrega — sync é pull sob demanda.
+
 ---
 
 ## 1) `whatsapp_business_management`

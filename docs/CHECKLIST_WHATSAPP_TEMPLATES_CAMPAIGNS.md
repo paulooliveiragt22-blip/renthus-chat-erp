@@ -78,16 +78,16 @@ feature: whatsapp_templates_broadcast em Pro + Market
 
 ### Checklist M0
 
-- [ ] Migration `whatsapp_message_templates` (colunas abaixo) + FORCE RLS + revoke + policy service_role_only
-- [ ] Seed feature `whatsapp_templates_broadcast` + `plan_features` para Pro e Market
-- [ ] `PLAN_CATALOG` Pro/Market incluem a feature; `requirePlanFeature` hint PT-BR
-- [ ] Sync Graph `GET /{waba_id}/message_templates`
-- [ ] Submit Graph `POST /{waba_id}/message_templates` (categoria UTILITY no demo)
-- [ ] UI `/templates` list + create + sync (gate plano)
-- [ ] Inbox: enviar template 1:1 (variáveis simples)
-- [ ] Nunca expor access token na UI/API pública
-- [ ] Testes unitários sync/submit sanitize + plan gate 403 Essencial
-- [ ] Doc curta `docs/META_APP_REVIEW_WHATSAPP.md` com passos de vídeo
+- [x] Migration `whatsapp_message_templates` (colunas abaixo) + FORCE RLS + revoke + policy service_role_only
+- [x] Seed feature `whatsapp_templates_broadcast` + `plan_features` para Pro e Market
+- [x] `PLAN_CATALOG` Pro/Market incluem a feature; `requirePlanFeature` hint PT-BR
+- [x] Sync Graph `GET /{waba_id}/message_templates`
+- [x] Submit Graph `POST /{waba_id}/message_templates` (categoria UTILITY no demo)
+- [x] UI `/templates` list + create + sync (gate plano)
+- [x] Inbox: enviar template 1:1 (variáveis simples)
+- [x] Nunca expor access token na UI/API pública
+- [x] Testes unitários sync/submit sanitize + plan gate 403 Essencial
+- [x] Doc curta `docs/META_APP_REVIEW_WHATSAPP.md` com passos de vídeo
 
 **DoD M0:** owner Pro/Market cria template no ERP, vê status, sincroniza; pode enviar template aprovado pela inbox; Essencial recebe upgrade hint.
 
@@ -177,28 +177,28 @@ RLS: FORCE + service_role_only + revoke anon/authenticated.
 
 ## T0 — Sync + envio 1:1
 
-- [ ] Contratos Zod
-- [ ] `sendTemplateMessage` via Graph + persist em `whatsapp_messages`
-- [ ] Inbox UI picker templates APPROVED
-- [ ] Fora 24h: só template (ligar com `customerServiceWindow`)
-- [ ] Testes send + sanitize
+- [x] Contratos Zod
+- [x] `sendTemplateMessage` via Graph + persist em `whatsapp_messages`
+- [x] Inbox UI picker templates APPROVED
+- [ ] Fora 24h: só template (ligar com `customerServiceWindow`) — inbox ainda permite texto; Meta rejeita se fora da janela
+- [x] Testes send + sanitize (contracts + gates)
 
 ## T1 — Consent / opt-out
 
-- [ ] Migration consents
-- [ ] Inbound: `PARAR`/`SAIR`/`STOP` → opt-out + confirmação
-- [ ] Opt-in explícito (checkbox admin ou palavra `QUERO` — definir UX)
-- [ ] Gate MARKETING em send template / campaign
-- [ ] Doc LGPD/Meta copy PT-BR
+- [x] Migration consents
+- [x] Inbound: `PARAR`/`SAIR`/`STOP` → opt-out + confirmação
+- [x] Opt-in explícito por palavra (`QUERO OFERTAS` / `QUERO PROMOÇÕES`); checkbox admin adiado
+- [x] Gate MARKETING em send template / campaign
+- [ ] Doc LGPD/Meta copy PT-BR (curto, ops)
 
 ## T2 — Campanhas
 
-- [ ] Wizard audiência: todos com phone / com pedido N dias / lista manual
-- [ ] Enfileirar `outbound_jobs` purpose `broadcast_template`
-- [ ] Worker envia com rate limit + fairness
-- [ ] UI progresso / cancel
-- [ ] Métricas: sent/failed/opt_out_skipped
-- [ ] **Bloquear** start se template MARKETING e audiência sem opt-in
+- [x] Wizard audiência: todos com phone / com pedido N dias / lista manual
+- [x] Enfileirar `outbound_jobs` purpose `broadcast_template`
+- [x] Worker envia com rate limit + fairness
+- [x] UI progresso / cancel
+- [ ] Métricas: sent/failed/opt_out_skipped (counters em campaign; dashboard adiado)
+- [x] **Bloquear** start se template MARKETING e audiência sem opt-in
 
 ## T3 — Create completo no ERP
 
@@ -296,12 +296,12 @@ T3 form template completo (se M0 ficou minimal)
 
 ## Definition of Done
 
-- [ ] Pro/Market: `/templates` cria + sync + lista status
-- [ ] Inbox envia template aprovado; celular recebe (vídeo Meta)
-- [ ] Essencial: 403/upgrade hint
-- [ ] T1+T2: massa só com gates Meta/consent
-- [ ] RLS service_role_only; zero token no client
-- [ ] `npm test` verde; migration aplicada no remoto
+- [x] Pro/Market: `/templates` cria + sync + lista status (código)
+- [ ] Inbox envia template aprovado; celular recebe (vídeo Meta — smoke ops)
+- [x] Essencial: 403/upgrade hint
+- [x] T1+T2: massa só com gates Meta/consent
+- [x] RLS service_role_only; zero token no client
+- [ ] `npm test` verde end-to-end; migration aplicada no remoto (remoto OK; e2e mock `requesterIp` em correção)
 
 ---
 

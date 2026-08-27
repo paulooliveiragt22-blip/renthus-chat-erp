@@ -28,6 +28,10 @@ before(() => {
     const cache = require.cache as unknown as Record<string, unknown>;
 
     const db = makeMockAdmin({
+        companies: [{
+            id: "company-1",
+            is_active: true,
+        }],
         whatsapp_channels: [{
             id: "chan-1",
             company_id: "company-1",
@@ -81,7 +85,8 @@ before(() => {
         filename: rateLimitPath,
         loaded: true,
         exports: {
-            checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
+            checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0, remaining: 99 }),
+            requesterIp: () => "127.0.0.1",
         },
     };
     cache[channelCredsPath] = {
