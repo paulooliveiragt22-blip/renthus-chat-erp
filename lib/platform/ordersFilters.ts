@@ -10,8 +10,43 @@ export const PLATFORM_ORDER_STATUSES = [
 
 export type PlatformOrderStatusFilter = "all" | OrderStatus;
 
+/** Presets de período (mesmo padrão visual do Financeiro / cards estilo Clientes). */
+export const PLATFORM_DATE_PRESETS = [
+    "7d",
+    "14d",
+    "30d",
+    "60d",
+    "90d",
+    "all",
+    "custom",
+] as const;
+
+export type PlatformDatePreset = (typeof PLATFORM_DATE_PRESETS)[number];
+
+export const PLATFORM_DATE_PRESET_DAYS: Record<
+    Exclude<PlatformDatePreset, "all" | "custom">,
+    number
+> = {
+    "7d": 7,
+    "14d": 14,
+    "30d": 30,
+    "60d": 60,
+    "90d": 90,
+};
+
+export const PLATFORM_DATE_PRESET_LABELS: Record<PlatformDatePreset, string> = {
+    "7d": "7d",
+    "14d": "14d",
+    "30d": "30d",
+    "60d": "60d",
+    "90d": "90d",
+    all: "Todo período",
+    custom: "Personalizado",
+};
+
 export type PlatformOrdersFilter = {
     status: PlatformOrderStatusFilter;
+    datePreset: PlatformDatePreset;
     /** ISO date YYYY-MM-DD inclusive start (UTC date boundary applied as local midnight → ISO) */
     dateFrom: string | "all";
     dateTo: string | "all";
@@ -60,22 +95,49 @@ export const REVENUE_STATUSES_WHEN_ALL: OrderStatus[] = [
     "finalized",
 ];
 
-export function defaultOrdersFilter(): PlatformOrdersFilter {
-    const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth(), 1);
-    return {
-        status: "all",
-        dateFrom: toDateInputValue(from),
-        dateTo: toDateInputValue(now),
-        companyId: "all",
-    };
-}
-
 export function toDateInputValue(d: Date): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
+}
+
+/** Últimos N dias inclusive (hoje conta como dia 1). */
+export function rangeForLastDays(days: number): { from: string; to: string } {
+    const to = new Date();
+    const from = new Date(Date.now() - (days - 1) * 86_400_000);
+    return { from: toDateInputValue(from), to: toDateInputValue(to) };
+}
+
+export function applyDatePreset(
+    preset: PlatformDatePreset,
+    current?: Pick<PlatformOrdersFilter, "dateFrom" | "dateTo">
+): Pick<PlatformOrdersFilter, "datePreset" | "dateFrom" | "dateTo"> {
+    if (preset === "all") {
+        return { datePreset: "all", dateFrom: "all", dateTo: "all" };
+    }
+    if (preset === "custom") {
+        const fallback = rangeForLastDays(30);
+        const from =
+            current?.dateFrom && current.dateFrom !== "all"
+                ? current.dateFrom
+                : fallback.from;
+        const to =
+            current?.dateTo && current.dateTo !== "all"
+                ? current.dateTo
+                : fallback.to;
+        return { datePreset: "custom", dateFrom: from, dateTo: to };
+    }
+    const { from, to } = rangeForLastDays(PLATFORM_DATE_PRESET_DAYS[preset]);
+    return { datePreset: preset, dateFrom: from, dateTo: to };
+}
+
+export function defaultOrdersFilter(): PlatformOrdersFilter {
+    return {
+        status: "all",
+        companyId: "all",
+        ...applyDatePreset("30d"),
+    };
 }
 
 /** Início do dia local → ISO UTC */
@@ -93,12 +155,16 @@ export function dateToToIsoEnd(dateTo: string): string {
 function parseDateBound(
     sp: URLSearchParams,
     key: "date_from" | "date_to",
-    fallback: string
+    fallback: string | "all"
 ): string | "all" {
     if (!sp.has(key)) return fallback;
     const raw = (sp.get(key) ?? "").trim();
     if (!raw || raw === "all") return "all";
     return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : fallback;
+}
+
+function isDatePreset(v: string): v is PlatformDatePreset {
+    return (PLATFORM_DATE_PRESETS as readonly string[]).includes(v);
 }
 
 export function parseOrdersFilterFromSearchParams(
@@ -113,19 +179,41 @@ export function parseOrdersFilterFromSearchParams(
             : "all";
 
     const companyRaw = (sp.get("company_id") ?? "all").trim();
+    const presetRaw = sp.get("date_preset") ?? "";
+
+    if (presetRaw && isDatePreset(presetRaw) && presetRaw !== "custom") {
+        return {
+            status,
+            companyId: companyRaw || "all",
+            ...applyDatePreset(presetRaw),
+        };
+    }
+
+    if (presetRaw === "custom" || sp.has("date_from") || sp.has("date_to")) {
+        const dateFrom = parseDateBound(sp, "date_from", defaults.dateFrom);
+        const dateTo = parseDateBound(sp, "date_to", defaults.dateTo);
+        const bothAll = dateFrom === "all" && dateTo === "all";
+        return {
+            status,
+            companyId: companyRaw || "all",
+            datePreset: bothAll ? "all" : "custom",
+            dateFrom,
+            dateTo,
+        };
+    }
 
     return {
         status,
-        dateFrom: parseDateBound(sp, "date_from", defaults.dateFrom),
-        dateTo: parseDateBound(sp, "date_to", defaults.dateTo),
         companyId: companyRaw || "all",
+        ...applyDatePreset(defaults.datePreset),
     };
 }
 
-/** Sempre serializa os 4 campos — `all` explícito evita o server cair no default do mês. */
+/** Sempre serializa campos — `all`/`date_preset` explícitos evitam default errado no server. */
 export function ordersFilterToSearchParams(f: PlatformOrdersFilter): URLSearchParams {
     const sp = new URLSearchParams();
     sp.set("status", f.status);
+    sp.set("date_preset", f.datePreset);
     sp.set("date_from", f.dateFrom);
     sp.set("date_to", f.dateTo);
     sp.set("company_id", f.companyId);
