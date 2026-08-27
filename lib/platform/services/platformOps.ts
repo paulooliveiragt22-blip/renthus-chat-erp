@@ -64,6 +64,12 @@ export function getSecurityOpsStatus() {
             hint: "Allowlist IP para /platform em produção.",
         },
         {
+            key: "PLATFORM_ADMIN_HOST",
+            label: "PLATFORM_ADMIN_HOST",
+            ok: !isProd || envNonEmpty("PLATFORM_ADMIN_HOST"),
+            hint: "Host dedicado (ex. platform.renthus.com.br). Isola cookie/sessão do tenant.",
+        },
+        {
             key: "SUPABASE_SERVICE_ROLE_KEY",
             label: "SUPABASE_SERVICE_ROLE_KEY",
             ok: envNonEmpty("SUPABASE_SERVICE_ROLE_KEY"),

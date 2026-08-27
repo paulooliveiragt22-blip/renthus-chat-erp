@@ -4,6 +4,11 @@ import { createServerClient } from "@supabase/ssr";
 import { randomUUID } from "crypto";
 import { isIpAllowed, collectClientIpCandidates } from "@/lib/platform/checkPlatformIpAllowlist";
 import {
+    getPlatformAdminHost,
+    platformAdminCanonicalUrl,
+    resolveRequestHostname,
+} from "@/lib/platform/resolvePlatformRequestHost";
+import {
     PLATFORM_IMPERSONATION_COOKIE,
     isMutatingHttpMethod,
     isTenantMutationPath,
@@ -148,18 +153,25 @@ async function handlePlatformBranch(
         requestHeaders.set("x-request-id", randomUUID());
     }
 
-    // Página de diagnóstico do allowlist — sempre acessível
+    // Página de diagnóstico do allowlist — sempre acessível (mesmo Host errado ajuda ops)
     if (pathname === "/platform/forbidden") {
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    // Host dedicado (opcional): se PLATFORM_ADMIN_HOST estiver setado, rejeita outro Host
-    const adminHost = process.env.PLATFORM_ADMIN_HOST?.trim().toLowerCase();
+    // Crons: auth via CRON_SECRET — Host pode ser *.vercel.app; isentar ANTES do gate de Host
+    if (
+        pathname === "/api/platform/alerts/check" ||
+        pathname === "/api/platform/audit/archive"
+    ) {
+        return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
+    // Host dedicado: UI redireciona para platform.*; API → 403
+    const adminHost = getPlatformAdminHost();
     if (adminHost) {
-        const reqHost = (request.headers.get("host") ?? "")
-            .split(":")[0]
-            .trim()
-            .toLowerCase();
+        const reqHost =
+            resolveRequestHostname(request.headers) ||
+            request.nextUrl.hostname.toLowerCase();
         if (reqHost && reqHost !== adminHost) {
             if (pathname.startsWith("/api/")) {
                 return NextResponse.json(
@@ -167,16 +179,12 @@ async function handlePlatformBranch(
                     { status: 403 }
                 );
             }
-            return new NextResponse("Forbidden", { status: 403 });
+            const target = platformAdminCanonicalUrl(
+                pathname,
+                request.nextUrl.search
+            );
+            return NextResponse.redirect(target, 307);
         }
-    }
-
-    // Cron de alertas / archive: auth própria via CRON_SECRET (não passa por IP allowlist de ops)
-    if (
-        pathname === "/api/platform/alerts/check" ||
-        pathname === "/api/platform/audit/archive"
-    ) {
-        return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
     // NextRequest (v16) não expõe `.ip`; na Vercel o cliente vem em x-vercel-forwarded-for / xff.

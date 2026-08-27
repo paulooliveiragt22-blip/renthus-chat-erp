@@ -1,13 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<!-- Creator: CorelDRAW -->
-<?xml-stylesheet href="simbolo-branco.css" type="text/css"?>
-<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="660px" height="512px" version="1.1" style="shape-rendering:geometricPrecision; text-rendering:geometricPrecision; image-rendering:optimizeQuality; fill-rule:evenodd; clip-rule:evenodd"
-viewBox="0 0 54.09 41.96"
- xmlns:xlink="http://www.w3.org/1999/xlink"
- xmlns:xodm="http://www.corel.com/coreldraw/odm/2003">
- <g id="Camada_x0020_1">
-  <metadata id="CorelCorpID_0Corel-Layer"/>
-  <path class="fil0" d="M13.89 19.42l5.65 -5.64c4.4,-4.41 6.43,-4.29 11.34,0.62l8.92 8.92 -0.9 0.9c-5.08,5.08 -7.11,6.44 -9.88,6.61 -2.77,0.17 -3.49,0.23 -10.05,-6.32l-5.08 -5.09zm33.48 -3.67l-10.44 -10.44c-3.56,-3.56 -7.18,-5.36 -10.51,-5.31 -3.61,0 -6.55,1.7 -11.12,6.27l-7.28 7.28 -8.02 8.02 10.95 10.95c3.9,3.9 7.35,6.66 9.6,7.79 4.8,2.43 10.28,2.15 15.13,-0.67 2.43,-1.41 3.79,-2.54 9.09,-7.85l9.32 -9.32 -6.72 -6.72z"/>
- </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 33.16 33.16" fill="none">
+  <rect width="33.16" height="33.16" rx="4.97" ry="4.97" fill="#330066"/>
+  <path fill="#FF6600" fill-rule="nonzero" d="M10.76 15.89l2.5 -2.5c1.95,-1.94 2.85,-1.89 5.02,0.28l3.94 3.94 -0.4 0.4c-2.24,2.25 -3.14,2.85 -4.37,2.93 -1.22,0.07 -1.54,0.1 -4.44,-2.8l-2.25 -2.25zm14.81 -1.62l-4.62 -4.62c-1.57,-1.57 -3.17,-2.37 -4.65,-2.35 -1.59,0 -2.89,0.75 -4.91,2.77l-3.22 3.23 -3.55 3.54 4.84 4.84c1.73,1.73 3.25,2.95 4.25,3.45 2.12,1.07 4.54,0.95 6.69,-0.3 1.07,-0.62 1.67,-1.12 4.02,-3.47l4.12 -4.12 -2.97 -2.97z"/>
 </svg>

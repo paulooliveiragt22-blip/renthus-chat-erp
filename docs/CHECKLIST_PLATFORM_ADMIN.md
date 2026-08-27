@@ -431,7 +431,7 @@ Painéis: health estendido, fila chatbot, PRO pipeline (RPC existente), trials e
 2. [x] `PLATFORM_ADMIN_IP_ALLOWLIST` na Vercel Production
 3. [x] Bootstrap superadmin + enroll MFA
 4. [x] Smoke: login → MFA (aal2) — audit de login via `/api/platform/auth/login-audit`
-5. [ ] Quando DNS Lysthub existir: alias + `PLATFORM_ADMIN_HOST` (opcional)
+5. [x] `PLATFORM_ADMIN_HOST=platform.renthus.com.br` + domínio na Vercel (2026-08-27)
 
 **Estado:** [~] 2026-08-27 — MFA prod OK; falta host dedicado quando houver DNS
 
@@ -664,7 +664,7 @@ components/superadmin/SuperAdminSidebar.tsx
 
 | Risco | Correção | Estado |
 |-------|----------|--------|
-| Mesmo domínio tenant+platform (XSS/sessão) | DNS `PLATFORM_ADMIN_HOST` (ex. `admin.lysthub.com.br`) + env na Vercel; proxy já rejeita Host errado | Código pronto; DNS pendente |
+| Mesmo domínio tenant+platform (XSS/sessão) | DNS `PLATFORM_ADMIN_HOST=platform.renthus.com.br` + domínio na Vercel; proxy redireciona Host errado → host dedicado | [x] 2026-08-27 |
 | Sessão aal1 com MFA enrolled | Proxy redireciona `/platform/*` → `/platform/login/mfa` | [x] |
 | MFA sem enroll liberava console | `checkPlatformMfa` exige aal2 para superadmin/ops; UI enroll+QR | [x] |
 | Leak `CRON_SECRET` | Rotacionar periodicamente; só Vercel + Vault; crons platform sem IP | Ops |
@@ -683,10 +683,12 @@ components/superadmin/SuperAdminSidebar.tsx
 2. [ ] Rodar `bootstrap-platform-user.mjs` para cada um
 3. [x] Enroll MFA TOTP (Google Authenticator / 1Password)
 4. [x] Configurar VPN ou IP fixo → `PLATFORM_ADMIN_IP_ALLOWLIST`
-5. [ ] Alias DNS `admin.lysthub.com.br`
+5. [x] Alias DNS `platform.renthus.com.br` + `PLATFORM_ADMIN_HOST` (Vercel Domains)
 6. [ ] Confirmar Sentry `SENTRY_DSN` captura erros `/api/platform/*`
 7. [x] Smoke: login → MFA → audit `platform.auth.login_success`
 8. [x] Removido legado `/superadmin` (P3)
+9. [ ] Supabase Auth → Redirect URLs: `https://platform.renthus.com.br/**`
+10. [ ] Smoke: `https://app.renthus.com.br/platform` → 308 `platform.renthus.com.br`; login só no host dedicado
 
 ---
 

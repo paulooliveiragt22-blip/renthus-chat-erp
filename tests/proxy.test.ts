@@ -164,6 +164,69 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), "https://example.com/platform/empresas");
     });
 
+    it("redirects platform UI to PLATFORM_ADMIN_HOST when Host differs", async () => {
+        const prevHost = process.env.PLATFORM_ADMIN_HOST;
+        const prevVercel = process.env.VERCEL_ENV;
+        const prevList = process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+        process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";
+        delete process.env.VERCEL_ENV;
+        delete process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+        try {
+            const response = await proxy(
+                createRequest("/platform/empresas"),
+                undefined,
+                { createClient: factory }
+            );
+            assert.strictEqual(response.status, 307);
+            assert.strictEqual(
+                response.headers.get("location"),
+                "https://platform.renthus.com.br/platform/empresas"
+            );
+        } finally {
+            if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
+            else process.env.PLATFORM_ADMIN_HOST = prevHost;
+            if (prevVercel === undefined) delete process.env.VERCEL_ENV;
+            else process.env.VERCEL_ENV = prevVercel;
+            if (prevList === undefined) delete process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+            else process.env.PLATFORM_ADMIN_IP_ALLOWLIST = prevList;
+        }
+    });
+
+    it("allows platform cron on wrong host (CRON_SECRET auth)", async () => {
+        const prevHost = process.env.PLATFORM_ADMIN_HOST;
+        process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";
+        try {
+            const response = await proxy(
+                createRequest("/api/platform/alerts/check"),
+                undefined,
+                { createClient: factory }
+            );
+            assert.strictEqual(response.status, 200);
+            assert.strictEqual(factory.mock.calls.length, 0);
+        } finally {
+            if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
+            else process.env.PLATFORM_ADMIN_HOST = prevHost;
+        }
+    });
+
+    it("blocks platform API with host_not_allowed on wrong host", async () => {
+        const prevHost = process.env.PLATFORM_ADMIN_HOST;
+        process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";
+        try {
+            const response = await proxy(
+                createRequest("/api/platform/companies"),
+                undefined,
+                { createClient: factory }
+            );
+            assert.strictEqual(response.status, 403);
+            const body = await response.json();
+            assert.strictEqual(body.code, "host_not_allowed");
+        } finally {
+            if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
+            else process.env.PLATFORM_ADMIN_HOST = prevHost;
+        }
+    });
+
     it("allows platform login without session", async () => {
         const response = await proxy(createRequest("/platform/login"), undefined, {
             createClient: factory,
