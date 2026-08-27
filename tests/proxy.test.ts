@@ -155,6 +155,28 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.status, 200);
     });
 
+    it("redirects platform pages to forbidden when IP allowlist blocks in prod", async () => {
+        const prevVercel = process.env.VERCEL_ENV;
+        const prevList = process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+        process.env.VERCEL_ENV = "production";
+        process.env.PLATFORM_ADMIN_IP_ALLOWLIST = "203.0.113.10";
+        try {
+            const response = await proxy(createRequest("/platform/login"), undefined, {
+                createClient: factory,
+            });
+            assert.strictEqual(response.status, 307);
+            assert.ok(
+                response.headers.get("location")?.includes("/platform/forbidden"),
+                response.headers.get("location") ?? ""
+            );
+        } finally {
+            if (prevVercel === undefined) delete process.env.VERCEL_ENV;
+            else process.env.VERCEL_ENV = prevVercel;
+            if (prevList === undefined) delete process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+            else process.env.PLATFORM_ADMIN_IP_ALLOWLIST = prevList;
+        }
+    });
+
     it("blocks tenant mutations while platform impersonation cookie is set", async () => {
         const { factory: protectedFactory } = createMockClient({ id: "user-123" });
         const response = await proxy(

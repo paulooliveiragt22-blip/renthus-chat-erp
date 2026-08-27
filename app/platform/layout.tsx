@@ -13,6 +13,10 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         return <>{children}</>;
     }
 
+    if (pathname === "/platform/forbidden") {
+        return <>{children}</>;
+    }
+
     return (
         <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950">
             {/* Overlay mobile */}

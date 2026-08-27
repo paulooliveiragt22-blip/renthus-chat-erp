@@ -142,15 +142,26 @@ async function handlePlatformBranch(
         requestHeaders.set("x-request-id", randomUUID());
     }
 
+    // Página de diagnóstico do allowlist — sempre acessível
+    if (pathname === "/platform/forbidden") {
+        return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
     const ip = extractClientIp(
         request.headers.get("x-forwarded-for"),
         request.headers.get("x-real-ip")
     );
     if (!isIpAllowed(ip, process.env.PLATFORM_ADMIN_IP_ALLOWLIST)) {
         if (pathname.startsWith("/api/")) {
-            return NextResponse.json({ error: "IP not allowed", code: "ip_not_allowed" }, { status: 403 });
+            return NextResponse.json(
+                { error: "IP not allowed", code: "ip_not_allowed" },
+                { status: 403 }
+            );
         }
-        return NextResponse.rewrite(new URL("/404", request.url));
+        const url = request.nextUrl.clone();
+        url.pathname = "/platform/forbidden";
+        url.search = "";
+        return NextResponse.redirect(url);
     }
 
     const publicPaths =
