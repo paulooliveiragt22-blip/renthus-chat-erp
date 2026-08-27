@@ -21,6 +21,19 @@ export function resolveMetaAppSecret(env: EnvLike = process.env): string {
     );
 }
 
+/**
+ * Configuration ID do Facebook Login for Business.
+ * Apps tipo Business costumam exigir `config_id` no dialog/oauth;
+ * sem isso a Meta pode responder "URL bloqueada" mesmo com redirect URI cadastrada.
+ */
+export function resolveMetaLoginConfigId(env: EnvLike = process.env): string {
+    return (
+        env.META_LOGIN_CONFIG_ID?.trim() ||
+        env.META_FACEBOOK_LOGIN_CONFIG_ID?.trim() ||
+        ""
+    );
+}
+
 export function metaGraphVersion(env: EnvLike = process.env): string {
     return env.META_GRAPH_VERSION?.trim() || GRAPH_VERSION;
 }

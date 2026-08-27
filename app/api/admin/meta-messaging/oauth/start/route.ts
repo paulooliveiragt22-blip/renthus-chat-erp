@@ -6,6 +6,7 @@ import {
     metaGraphVersion,
     resolveMetaAppId,
     resolveMetaAppSecret,
+    resolveMetaLoginConfigId,
 } from "@/lib/meta/metaAppCredentials";
 import { createMetaOAuthState } from "@/lib/meta/oauthState";
 import { resolveOAuthRedirectBase } from "@/lib/meta/resolveOAuthRedirectBase";
@@ -39,18 +40,30 @@ export async function GET(req: Request) {
     const base = resolveOAuthRedirectBase(req);
     const redirectUri = `${base}/api/admin/meta-messaging/oauth/callback`;
     const state = createMetaOAuthState(companyId);
+    const configId = resolveMetaLoginConfigId();
 
     const url = new URL(`https://www.facebook.com/${metaGraphVersion()}/dialog/oauth`);
     url.searchParams.set("client_id", appId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("state", state);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", META_MESSAGING_OAUTH_SCOPES);
+
+    if (configId) {
+        // Facebook Login for Business: permissões vêm da Configuration.
+        url.searchParams.set("config_id", configId);
+        url.searchParams.set("override_default_response_type", "true");
+    } else {
+        url.searchParams.set("scope", META_MESSAGING_OAUTH_SCOPES);
+    }
 
     return NextResponse.json({
         url: url.toString(),
         redirectUri,
         appId,
-        scopes: META_MESSAGING_OAUTH_SCOPES.split(","),
+        configId: configId || null,
+        scopes: configId ? [] : META_MESSAGING_OAUTH_SCOPES.split(","),
+        hint: configId
+            ? undefined
+            : "Se a Meta mostrar URL bloqueada com redirect URI já cadastrada, crie uma Configuration em Facebook Login for Business e defina META_LOGIN_CONFIG_ID na Vercel.",
     });
 }

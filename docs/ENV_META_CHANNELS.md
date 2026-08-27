@@ -18,15 +18,22 @@ O paste do lojista (Configurações → **Canais**) só funciona se o número/to
 
 | Variável | Uso |
 |----------|-----|
+| `META_LOGIN_CONFIG_ID` | Configuration ID do **Facebook Login for Business** (obrigatório em muitos apps Business; sem isso o dialog pode dar “URL bloqueada”) |
 | `META_MESSAGING_WEBHOOK_VERIFY_TOKEN` | Challenge webhook Page/IG `/api/meta/messaging/incoming` |
 | `WHATSAPP_BASE_URL` | Default `https://graph.facebook.com/v20.0` |
 | `CRON_SECRET` | Workers outbound / filas |
 
 ## Callbacks a cadastrar no Meta Developer
 
-- OAuth: `/api/admin/meta-messaging/oauth/callback`
+- OAuth: `/api/admin/meta-messaging/oauth/callback` (em **Facebook Login** e **Facebook Login for Business → Settings**)
 - Webhook WhatsApp: `/api/whatsapp/incoming`
 - Webhook Page/IG: `/api/meta/messaging/incoming`
+
+### Facebook Login for Business (se “URL bloqueada” persistir)
+
+1. App → **Facebook Login for Business** → **Configurations** → Create  
+2. Inclua permissões: `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `pages_read_engagement`, `business_management`, `instagram_basic` / `instagram_business_basic`, `instagram_manage_messages`  
+3. Copie o **Configuration ID** → Vercel `META_LOGIN_CONFIG_ID` → redeploy  
 
 ## Fora desta entrega
 
