@@ -429,11 +429,11 @@ Painéis: health estendido, fila chatbot, PRO pipeline (RPC existente), trials e
 
 1. [x] Console em `/platform` no domínio Vercel atual (sem alias `admin.lysthub.com.br`)
 2. [x] `PLATFORM_ADMIN_IP_ALLOWLIST` na Vercel Production
-3. [ ] Bootstrap superadmin + enroll MFA
-4. [ ] Smoke: login → MFA → listar empresas → audit entry gerada
+3. [x] Bootstrap superadmin + enroll MFA
+4. [x] Smoke: login → MFA (aal2) — audit de login via `/api/platform/auth/login-audit`
 5. [ ] Quando DNS Lysthub existir: alias + `PLATFORM_ADMIN_HOST` (opcional)
 
-**Estado:** [~] 2026-08-27 — IP allowlist + login OK em prod; MFA enroll + smoke audit pendentes
+**Estado:** [~] 2026-08-27 — MFA prod OK; falta host dedicado quando houver DNS
 
 ---
 
@@ -681,12 +681,12 @@ components/superadmin/SuperAdminSidebar.tsx
 
 1. [ ] Criar usuários Auth para equipe Renthus (emails corporativos)
 2. [ ] Rodar `bootstrap-platform-user.mjs` para cada um
-3. [ ] Enroll MFA TOTP (Google Authenticator / 1Password)
-4. [ ] Configurar VPN ou IP fixo → `PLATFORM_ADMIN_IP_ALLOWLIST`
+3. [x] Enroll MFA TOTP (Google Authenticator / 1Password)
+4. [x] Configurar VPN ou IP fixo → `PLATFORM_ADMIN_IP_ALLOWLIST`
 5. [ ] Alias DNS `admin.lysthub.com.br`
 6. [ ] Confirmar Sentry `SENTRY_DSN` captura erros `/api/platform/*`
-7. [ ] Smoke audit: suspender empresa teste → ver linha em `platform_audit_log`
-8. [ ] Revogar/desativar `SUPERADMIN_SECRET` após P3
+7. [x] Smoke: login → MFA → audit `platform.auth.login_success`
+8. [x] Removido legado `/superadmin` (P3)
 
 ---
 

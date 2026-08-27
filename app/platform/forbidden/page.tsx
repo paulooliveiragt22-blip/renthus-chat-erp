@@ -3,17 +3,9 @@ import Link from "next/link";
 import { ShieldOff } from "lucide-react";
 import { collectClientIpCandidates } from "@/lib/platform/checkPlatformIpAllowlist";
 
-type Props = { searchParams?: Promise<{ seen?: string }> };
-
-export default async function PlatformForbiddenPage({ searchParams }: Props) {
-    const sp = (await searchParams) ?? {};
+export default async function PlatformForbiddenPage() {
     const h = await headers();
-    const fromHeaders = collectClientIpCandidates(h);
-    const fromQuery = (sp.seen ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-    const seen = [...new Set([...fromQuery, ...fromHeaders])];
+    const seen = collectClientIpCandidates(h);
     const primaryIp = seen[0] ?? null;
 
     return (

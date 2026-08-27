@@ -79,7 +79,32 @@ export default function PlatformMfaPage() {
             });
             if (verified.error) throw verified.error;
 
-            await supabase.auth.refreshSession();
+            const { data: refreshed, error: refreshErr } =
+                await supabase.auth.refreshSession();
+            if (refreshErr) throw refreshErr;
+
+            // Cookie HTTP do servidor precisa do token aal2 antes do login-audit
+            if (refreshed.session) {
+                await fetch("/api/auth/sync-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        access_token: refreshed.session.access_token,
+                        refresh_token: refreshed.session.refresh_token,
+                    }),
+                });
+            }
+
+            const auditRes = await fetch("/api/platform/auth/login-audit", {
+                method: "POST",
+            });
+            if (!auditRes.ok) {
+                console.warn(
+                    "[platform/mfa] login-audit falhou",
+                    auditRes.status,
+                    await auditRes.text().catch(() => "")
+                );
+            }
             router.push("/platform");
         } catch (e) {
             setError(e instanceof Error ? e.message : "Código inválido");

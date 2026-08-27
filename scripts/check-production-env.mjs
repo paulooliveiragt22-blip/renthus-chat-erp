@@ -33,6 +33,12 @@ if (!process.env.PLATFORM_ADMIN_IP_ALLOWLIST?.trim()) {
     );
 }
 
+if (!process.env.PLATFORM_ADMIN_HOST?.trim()) {
+    console.warn(
+        "[check-production-env] Aviso: PLATFORM_ADMIN_HOST ausente — console platform no mesmo host do tenant (ok até ter DNS dedicado)."
+    );
+}
+
 const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
 const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 if (!upstashUrl || !upstashToken) {

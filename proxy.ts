@@ -185,20 +185,13 @@ async function handlePlatformBranch(
     if (!isIpAllowed(ip, process.env.PLATFORM_ADMIN_IP_ALLOWLIST, candidates)) {
         if (pathname.startsWith("/api/")) {
             return NextResponse.json(
-                {
-                    error: "IP not allowed",
-                    code: "ip_not_allowed",
-                    seen: candidates,
-                },
+                { error: "IP not allowed", code: "ip_not_allowed" },
                 { status: 403 }
             );
         }
         const url = request.nextUrl.clone();
         url.pathname = "/platform/forbidden";
         url.search = "";
-        if (candidates.length) {
-            url.searchParams.set("seen", candidates.join(","));
-        }
         return NextResponse.redirect(url);
     }
 

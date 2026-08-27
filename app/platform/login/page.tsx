@@ -52,6 +52,12 @@ export default function PlatformLoginPage() {
                 return;
             }
 
+            const auditRes = await fetch("/api/platform/auth/login-audit", {
+                method: "POST",
+            });
+            if (!auditRes.ok) {
+                console.warn("[platform/login] login-audit falhou", auditRes.status);
+            }
             router.push("/platform");
         } finally {
             setLoading(false);
