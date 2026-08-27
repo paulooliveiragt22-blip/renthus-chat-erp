@@ -7,11 +7,26 @@ type MockedClientFactory = SupabaseClientFactory & {
     mock: ReturnType<typeof mock.fn>["mock"];
 };
 
-function createMockClient(user: unknown) {
+function createMockClient(
+    user: unknown,
+    aal: { currentLevel: string | null; nextLevel: string | null } = {
+        currentLevel: "aal1",
+        nextLevel: "aal1",
+    }
+) {
     const getUser = mock.fn(async () => ({ data: { user } }));
-    const client = { auth: { getUser } };
+    const getAuthenticatorAssuranceLevel = mock.fn(async () => ({
+        data: aal,
+        error: null,
+    }));
+    const client = {
+        auth: {
+            getUser,
+            mfa: { getAuthenticatorAssuranceLevel },
+        },
+    };
     const factory = mock.fn(() => client) as unknown as MockedClientFactory;
-    return { factory, getUser } as const;
+    return { factory, getUser, getAuthenticatorAssuranceLevel } as const;
 }
 
 function createRequest(pathname: string, cookies?: string, method = "GET") {
@@ -155,6 +170,32 @@ describe("proxy auth routing", () => {
         });
         assert.strictEqual(factory.mock.calls.length, 0);
         assert.strictEqual(response.status, 200);
+    });
+
+    it("redirects platform pages to MFA when session is aal1 with verified factor", async () => {
+        const prevVercel = process.env.VERCEL_ENV;
+        const prevList = process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+        delete process.env.VERCEL_ENV;
+        delete process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+        try {
+            const { factory: authed } = createMockClient(
+                { id: "user-1" },
+                { currentLevel: "aal1", nextLevel: "aal2" }
+            );
+            const response = await proxy(createRequest("/platform/empresas"), undefined, {
+                createClient: authed,
+            });
+            assert.strictEqual(response.status, 307);
+            assert.ok(
+                response.headers.get("location")?.includes("/platform/login/mfa"),
+                response.headers.get("location") ?? ""
+            );
+        } finally {
+            if (prevVercel === undefined) delete process.env.VERCEL_ENV;
+            else process.env.VERCEL_ENV = prevVercel;
+            if (prevList === undefined) delete process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+            else process.env.PLATFORM_ADMIN_IP_ALLOWLIST = prevList;
+        }
     });
 
     it("redirects platform pages to forbidden when IP allowlist blocks in prod", async () => {

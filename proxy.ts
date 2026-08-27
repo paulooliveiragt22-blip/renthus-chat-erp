@@ -16,6 +16,12 @@ import {
 type AuthClient = {
     auth: {
         getUser: () => Promise<{ data: { user: unknown } }>;
+        mfa?: {
+            getAuthenticatorAssuranceLevel: () => Promise<{
+                data: { currentLevel: string | null; nextLevel: string | null } | null;
+                error: unknown;
+            }>;
+        };
     };
 };
 
@@ -147,6 +153,24 @@ async function handlePlatformBranch(
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
+    // Host dedicado (opcional): se PLATFORM_ADMIN_HOST estiver setado, rejeita outro Host
+    const adminHost = process.env.PLATFORM_ADMIN_HOST?.trim().toLowerCase();
+    if (adminHost) {
+        const reqHost = (request.headers.get("host") ?? "")
+            .split(":")[0]
+            .trim()
+            .toLowerCase();
+        if (reqHost && reqHost !== adminHost) {
+            if (pathname.startsWith("/api/")) {
+                return NextResponse.json(
+                    { error: "Host not allowed", code: "host_not_allowed" },
+                    { status: 403 }
+                );
+            }
+            return new NextResponse("Forbidden", { status: 403 });
+        }
+    }
+
     // Cron de alertas / archive: auth própria via CRON_SECRET (não passa por IP allowlist de ops)
     if (
         pathname === "/api/platform/alerts/check" ||
@@ -203,6 +227,16 @@ async function handlePlatformBranch(
         const url = request.nextUrl.clone();
         url.pathname = "/platform/login";
         url.searchParams.set("redirectTo", pathname);
+        return NextResponse.redirect(url);
+    }
+
+    // Step-up: fator TOTP já verificado mas sessão ainda aal1 → força challenge
+    const auth = supabase.auth as AuthClient["auth"];
+    const aalRes = await auth.mfa?.getAuthenticatorAssuranceLevel?.();
+    const aal = aalRes?.data;
+    if (aal?.currentLevel !== "aal2" && aal?.nextLevel === "aal2") {
+        const url = request.nextUrl.clone();
+        url.pathname = "/platform/login/mfa";
         return NextResponse.redirect(url);
     }
 

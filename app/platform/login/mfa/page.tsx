@@ -35,11 +35,10 @@ export default function PlatformMfaPage() {
                 return;
             }
 
-            // Remove fatores unverified órfãos antes de re-enroll
-            const orphaned = [
-                ...(factors.data.totp ?? []),
-                ...(factors.data.phone ?? []),
-            ].filter((f) => f.status === "unverified");
+            // `totp`/`phone` tipados como só verified; órfãos ficam em `all`
+            const orphaned = (factors.data.all ?? []).filter(
+                (f) => (f.status as string) === "unverified"
+            );
             for (const f of orphaned) {
                 await supabase.auth.mfa.unenroll({ factorId: f.id });
             }

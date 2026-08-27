@@ -660,6 +660,23 @@ components/superadmin/SuperAdminSidebar.tsx
 
 ---
 
+## Hardening — riscos residuais (como corrigir)
+
+| Risco | Correção | Estado |
+|-------|----------|--------|
+| Mesmo domínio tenant+platform (XSS/sessão) | DNS `PLATFORM_ADMIN_HOST` (ex. `admin.lysthub.com.br`) + env na Vercel; proxy já rejeita Host errado | Código pronto; DNS pendente |
+| Sessão aal1 com MFA enrolled | Proxy redireciona `/platform/*` → `/platform/login/mfa` | [x] |
+| MFA sem enroll liberava console | `checkPlatformMfa` exige aal2 para superadmin/ops; UI enroll+QR | [x] |
+| Leak `CRON_SECRET` | Rotacionar periodicamente; só Vercel + Vault; crons platform sem IP | Ops |
+| Leak `SERVICE_ROLE` | Nunca no client; só server/Vercel; rotacionar se vazou; restringir quem vê env | Ops |
+| IP allowlist em máquina infectada | MFA + host dedicado + VPN corporativa; IPs mínimos | Ops |
+| Phishing TOTP | Hardware key / app com proteção; não aprovar prompt fora de `/platform` | Ops |
+| Página forbidden vaza IP | Aceitável p/ ops; não indexar; sem auth | OK |
+
+**Não “corrigir” no código:** service_role comprometido = game over do banco. Mitigação = higiene de secrets + least privilege de acesso ao dashboard Vercel/Supabase.
+
+---
+
 ## Checklist operacional pré-go-live
 
 1. [ ] Criar usuários Auth para equipe Renthus (emails corporativos)
