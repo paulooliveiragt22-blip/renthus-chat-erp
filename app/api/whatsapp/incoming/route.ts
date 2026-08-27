@@ -26,6 +26,7 @@ import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 import { maybeSendBacklogNotice } from "@/lib/chatbot/backlogNotice";
 import { tryTranscribeInboundAudio } from "@/lib/chatbot/transcribeInboundAudio";
+import { handleWhatsappConsentKeyword } from "@/lib/channels/messageConsent";
 
 export const runtime = "nodejs";
 /** `CHATBOT_QUEUE_WAKE_ENABLED=0` desliga o disparo assíncrono do worker (ex.: testes). */
@@ -384,6 +385,15 @@ async function processSingleInboundMessage(params: {
         .eq("id", threadId);
 
     if (!bodyText.trim()) return;
+
+    const consentHandled = await handleWhatsappConsentKeyword({
+        admin,
+        companyId: channel.company_id,
+        phoneE164,
+        bodyText,
+        waConfig,
+    });
+    if (consentHandled) return;
 
     const shouldContinue = await ensureBotActiveOrRecover({
         admin,

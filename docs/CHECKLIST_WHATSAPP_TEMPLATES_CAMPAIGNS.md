@@ -32,7 +32,7 @@ pré-produção radical (sem dual-path).
 |------|--------|--------|
 | **M0** | Superfície mínima App Review Tech Provider | [x] 2026-08-27 |
 | **T0** | Schema mirror + sync + send template 1:1 (inbox) | [x] 2026-08-27 |
-| **T1** | Consentimento + opt-out (`PARAR`/`SAIR`) | [ ] |
+| **T1** | Consentimento + opt-out (`PARAR`/`SAIR`) | [x] 2026-08-27 |
 | **T2** | Campanhas / massa + progresso + cancel | [ ] |
 | **T3** | Criar/submeter template pelo ERP (completo) | [x] parcial M0 (body+footer) |
 | **TX** | Plan catalog seed + docs + testes E2E smoke | [x] seed + doc review + contracts test |

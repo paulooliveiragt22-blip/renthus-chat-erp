@@ -49,6 +49,9 @@ export function resolvePageAccessToken(row: {
         const dec = decryptCredential(row.encrypted_page_access_token);
         if (dec) return dec;
     }
+    const isProd =
+        process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+    if (isProd) return "";
     const pm = (row.provider_metadata as { page_access_token?: string } | null) ?? {};
     if (typeof pm.page_access_token === "string") return pm.page_access_token;
     return process.env.META_PAGE_ACCESS_TOKEN?.trim() ?? "";

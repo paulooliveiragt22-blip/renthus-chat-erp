@@ -58,6 +58,12 @@ export function resolveChannelAccessToken(row: WhatsappChannelSecretRow): string
         const dec = decryptWaAccessToken(row.encrypted_access_token);
         if (dec) return dec;
     }
+    const isProd =
+        process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+    if (isProd) {
+        // Radical: em prod não cair em plaintext/env (evita “conectado” com token morto).
+        return "";
+    }
     const pm = (row.provider_metadata as { access_token?: string } | null) ?? {};
     if (pm.access_token) return pm.access_token;
     return process.env.WHATSAPP_TOKEN ?? "";

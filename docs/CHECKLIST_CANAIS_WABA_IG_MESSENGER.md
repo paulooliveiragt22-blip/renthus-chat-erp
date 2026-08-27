@@ -42,9 +42,9 @@ validação `execute_sql`; postura pré-produção radical (sem dual-path legado
 |------|--------|--------|
 | **C0** | Schema/segurança (RLS, colunas health/source, audit actor tenant) | [x] 2026-08-27 |
 | **C1** | Domain + shared use case WA + APIs tenant | [x] 2026-08-27 (API + upsert; health probe depois) |
-| **C2** | Health probes (WA + Meta Page) + disconnect | [ ] parcial: disconnect WA via PATCH |
+| **C2** | Health probes (WA + Meta Page) + disconnect | [x] 2026-08-27 |
 | **C3** | UI aba Canais + mover Meta + guia | [x] 2026-08-27 |
-| **C4** | Cortar dual-path plaintext; platform refatorado; testes | [ ] platform usa shared upsert; dual-path plaintext ainda em dev |
+| **C4** | Cortar dual-path plaintext; platform refatorado; testes | [x] 2026-08-27 (prod sem plaintext fallback) |
 | **C5** | Docs env/runbook + smoke; preparar gancho Embedded Signup | [ ] |
 
 ---

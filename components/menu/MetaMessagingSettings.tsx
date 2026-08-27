@@ -24,6 +24,7 @@ export default function MetaMessagingSettings() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [oauthBusy, setOauthBusy] = useState(false);
+    const [healthBusy, setHealthBusy] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
     const [webhookPath, setWebhookPath] = useState("/api/meta/messaging/incoming");
     const [pageId, setPageId] = useState("");
@@ -136,6 +137,37 @@ export default function MetaMessagingSettings() {
         }
     }
 
+    async function testHealth() {
+        setHealthBusy(true);
+        setMsg(null);
+        try {
+            const res = await fetch("/api/admin/meta-messaging/health", {
+                method: "POST",
+                credentials: "include",
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+                health?: { ok: boolean; errorMessage?: string; pageName?: string };
+                error?: string;
+                hint?: string;
+            };
+            if (!res.ok) {
+                setMsg(json.hint || json.error || "Falha no health Meta.");
+                return;
+            }
+            if (json.health?.ok) {
+                setMsg(
+                    `Page OK` +
+                        (json.health.pageName ? ` — ${json.health.pageName}` : "")
+                );
+            } else {
+                setMsg(json.health?.errorMessage || "Health Meta falhou.");
+            }
+            await load();
+        } finally {
+            setHealthBusy(false);
+        }
+    }
+
     async function save() {
         setSaving(true);
         setMsg(null);
@@ -218,6 +250,16 @@ export default function MetaMessagingSettings() {
                     )}
                     Conectar com Facebook
                 </button>
+                {conn?.hasAccessToken && (
+                    <button
+                        type="button"
+                        disabled={healthBusy}
+                        onClick={() => void testHealth()}
+                        className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                    >
+                        {healthBusy ? "Testando…" : "Testar Page"}
+                    </button>
+                )}
                 <button
                     type="button"
                     className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"

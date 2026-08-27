@@ -47,7 +47,11 @@ Alternativa/complemento: criar o mesmo modelo no WhatsApp Manager (botão do mod
 
 ---
 
-## Fora deste roteiro
+### Palavras de consentimento (WhatsApp)
 
-- Embedded Signup (só após Tech Provider + produto liberado no App)
-- Campanhas em massa (fase T2 — exige consentimento)
+| Texto do cliente | Efeito |
+|------------------|--------|
+| `PARAR` / `SAIR` / `STOP` / `CANCELAR` | Opt-out marketing |
+| `QUERO OFERTAS` / `QUERO PROMOÇÕES` | Opt-in marketing |
+
+Templates **MARKETING** só enviam se o cliente tiver opt-in.

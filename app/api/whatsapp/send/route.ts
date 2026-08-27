@@ -235,6 +235,34 @@ export async function POST(req: Request) {
                 const bodyParams = Array.isArray((payload as any).template_body_params)
                     ? ((payload as any).template_body_params as unknown[]).map((v) => String(v))
                     : [];
+
+                const { data: tpl } = await admin
+                    .from("whatsapp_message_templates")
+                    .select("category, status")
+                    .eq("company_id", companyId)
+                    .eq("name", templateName)
+                    .eq("language", language)
+                    .maybeSingle();
+
+                if (tpl?.category === "MARKETING") {
+                    const { data: customer } = await admin
+                        .from("customers")
+                        .select("id")
+                        .eq("company_id", companyId)
+                        .or(`phone.eq.${toPhone},phone.eq.${toPhone.replace(/^\+/, "")}`)
+                        .maybeSingle();
+                    if (!customer?.id) {
+                        throw new Error("marketing_consent_required: cliente não encontrado");
+                    }
+                    const { hasMarketingOptIn } = await import("@/lib/channels/messageConsent");
+                    const ok = await hasMarketingOptIn(admin, companyId, customer.id);
+                    if (!ok) {
+                        throw new Error(
+                            "marketing_consent_required: cliente sem opt-in (envie PARAR/QUERO OFERTAS)"
+                        );
+                    }
+                }
+
                 const sendRes = await sendTemplateMessage({
                     toE164: toPhone,
                     templateName,

@@ -18,6 +18,7 @@ type WaConnection = {
 export default function ChannelsSettings() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [healthBusy, setHealthBusy] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
     const [conn, setConn] = useState<WaConnection | null>(null);
     const [displayPhone, setDisplayPhone] = useState("");
@@ -90,6 +91,45 @@ export default function ChannelsSettings() {
             await load();
         } finally {
             setSaving(false);
+        }
+    }
+
+    async function testHealth() {
+        setHealthBusy(true);
+        setMsg(null);
+        try {
+            const res = await fetch("/api/admin/whatsapp-channel/health", {
+                method: "POST",
+                credentials: "include",
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+                health?: {
+                    ok: boolean;
+                    errorMessage?: string;
+                    displayPhoneNumber?: string;
+                    verifiedName?: string;
+                };
+                connection?: WaConnection | null;
+                error?: string;
+            };
+            if (!res.ok) {
+                setMsg(json.error || "Falha no teste de conexão.");
+                return;
+            }
+            if (json.connection) setConn(json.connection);
+            if (json.health?.ok) {
+                setMsg(
+                    `Conexão OK` +
+                        (json.health.verifiedName ? ` — ${json.health.verifiedName}` : "") +
+                        (json.health.displayPhoneNumber
+                            ? ` (${json.health.displayPhoneNumber})`
+                            : "")
+                );
+            } else {
+                setMsg(json.health?.errorMessage || "Health check falhou.");
+            }
+        } finally {
+            setHealthBusy(false);
         }
     }
 
@@ -234,6 +274,16 @@ export default function ChannelsSettings() {
                                 )}
                                 Salvar WhatsApp
                             </button>
+                            {conn?.hasAccessToken && (
+                                <button
+                                    type="button"
+                                    disabled={healthBusy || saving}
+                                    onClick={() => void testHealth()}
+                                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700"
+                                >
+                                    {healthBusy ? "Testando…" : "Testar conexão"}
+                                </button>
+                            )}
                             {conn?.hasAccessToken && conn.status === "active" && (
                                 <button
                                     type="button"
