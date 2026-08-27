@@ -1,8 +1,10 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
+    collectClientIpCandidates,
     extractClientIp,
     isIpAllowed,
+    normalizeIp,
 } from "../../lib/platform/checkPlatformIpAllowlist";
 import { redactAuditState } from "../../lib/platform/audit/redactAuditState";
 import { platformRoleHasPermission } from "../../lib/platform/platformPermissions";
@@ -21,6 +23,14 @@ describe("platform ip allowlist", () => {
                 true
             );
             assert.strictEqual(isIpAllowed("203.0.113.11", "203.0.113.10"), false);
+            assert.strictEqual(
+                isIpAllowed("10.0.0.1", "203.0.113.10", ["203.0.113.10"]),
+                true
+            );
+            assert.strictEqual(
+                isIpAllowed("::ffff:203.0.113.10", '"203.0.113.10"'),
+                true
+            );
         } finally {
             if (prevVercel === undefined) delete process.env.VERCEL_ENV;
             else process.env.VERCEL_ENV = prevVercel;
@@ -29,6 +39,25 @@ describe("platform ip allowlist", () => {
 
     it("extracts first forwarded ip", () => {
         assert.strictEqual(extractClientIp("203.0.113.1, 10.0.0.1", null), "203.0.113.1");
+    });
+
+    it("normalizes quoted and v4-mapped ips", () => {
+        assert.strictEqual(normalizeIp('"1.2.3.4"'), "1.2.3.4");
+        assert.strictEqual(normalizeIp("::ffff:1.2.3.4"), "1.2.3.4");
+    });
+
+    it("collects vercel forwarded headers", () => {
+        const headers = {
+            get(name: string) {
+                if (name === "x-vercel-forwarded-for") return "198.51.100.9";
+                if (name === "x-forwarded-for") return "198.51.100.9, 10.0.0.1";
+                return null;
+            },
+        };
+        assert.deepStrictEqual(collectClientIpCandidates(headers, null), [
+            "198.51.100.9",
+            "10.0.0.1",
+        ]);
     });
 });
 

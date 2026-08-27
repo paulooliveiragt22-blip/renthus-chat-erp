@@ -2,7 +2,7 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { randomUUID } from "crypto";
-import { isIpAllowed, extractClientIp } from "@/lib/platform/checkPlatformIpAllowlist";
+import { isIpAllowed, collectClientIpCandidates } from "@/lib/platform/checkPlatformIpAllowlist";
 import {
     PLATFORM_IMPERSONATION_COOKIE,
     isMutatingHttpMethod,
@@ -147,20 +147,26 @@ async function handlePlatformBranch(
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    const ip = extractClientIp(
-        request.headers.get("x-forwarded-for"),
-        request.headers.get("x-real-ip")
-    );
-    if (!isIpAllowed(ip, process.env.PLATFORM_ADMIN_IP_ALLOWLIST)) {
+    // NextRequest (v16) não expõe `.ip`; na Vercel o cliente vem em x-vercel-forwarded-for / xff.
+    const candidates = collectClientIpCandidates(request.headers);
+    const ip = candidates[0] ?? "";
+    if (!isIpAllowed(ip, process.env.PLATFORM_ADMIN_IP_ALLOWLIST, candidates)) {
         if (pathname.startsWith("/api/")) {
             return NextResponse.json(
-                { error: "IP not allowed", code: "ip_not_allowed" },
+                {
+                    error: "IP not allowed",
+                    code: "ip_not_allowed",
+                    seen: candidates,
+                },
                 { status: 403 }
             );
         }
         const url = request.nextUrl.clone();
         url.pathname = "/platform/forbidden";
         url.search = "";
+        if (candidates.length) {
+            url.searchParams.set("seen", candidates.join(","));
+        }
         return NextResponse.redirect(url);
     }
 

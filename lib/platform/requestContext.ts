@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { newRequestId } from "./audit/recordPlatformAudit";
-import { extractClientIp } from "./checkPlatformIpAllowlist";
+import { collectClientIpCandidates } from "./checkPlatformIpAllowlist";
 
 export type PlatformRequestContext = {
     requestId: string;
@@ -12,9 +12,10 @@ export async function getPlatformRequestContext(
     requestIdHeader?: string | null
 ): Promise<PlatformRequestContext> {
     const h = await headers();
+    const candidates = collectClientIpCandidates(h);
     return {
         requestId: newRequestId(requestIdHeader ?? h.get("x-request-id")),
-        ipAddress: extractClientIp(h.get("x-forwarded-for"), h.get("x-real-ip")),
+        ipAddress: candidates[0] ?? "",
         userAgent: h.get("user-agent"),
     };
 }
