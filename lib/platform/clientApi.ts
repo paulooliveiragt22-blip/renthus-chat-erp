@@ -95,6 +95,24 @@ export type PlatformUserRow = {
     created_at: string;
 };
 
+export type PlatformFeatureFlagOverride = {
+    id: string;
+    company_id: string;
+    key: string;
+    enabled: boolean;
+    companies?: { id: string; name: string; slug: string | null } | null;
+};
+
+export type PlatformFeatureFlag = {
+    key: string;
+    description: string;
+    enabled_global: boolean;
+    metadata: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+    overrides?: PlatformFeatureFlagOverride[];
+};
+
 export const platformApi = {
     me: () => platformFetch<{ user: unknown; mfa: unknown }>("/api/platform/me"),
     mfaStatus: () =>
@@ -184,6 +202,42 @@ export const platformApi = {
             total: number;
         }>(`/api/platform/audit?offset=${offset}&limit=${limit}`),
     users: () => platformFetch<{ users: PlatformUserRow[] }>("/api/platform/users"),
+    inviteUser: (data: { email: string; display_name: string; role: string }) =>
+        platformFetch<{
+            ok: boolean;
+            platformUserId: string;
+            authUserId: string;
+            invited: boolean;
+        }>("/api/platform/users/invite", {
+            method: "POST",
+            body: JSON.stringify(data),
+        }),
+    featureFlags: () =>
+        platformFetch<{ flags: PlatformFeatureFlag[] }>("/api/platform/feature-flags"),
+    upsertFeatureFlag: (data: {
+        key: string;
+        description?: string;
+        enabled_global: boolean;
+        metadata?: Record<string, unknown>;
+    }) =>
+        platformFetch<{ flag: PlatformFeatureFlag }>("/api/platform/feature-flags", {
+            method: "PUT",
+            body: JSON.stringify(data),
+        }),
+    setFeatureFlagOverride: (data: {
+        key: string;
+        company_id: string;
+        enabled: boolean;
+    }) =>
+        platformFetch<{ override: PlatformFeatureFlagOverride }>(
+            "/api/platform/feature-flags/overrides",
+            { method: "PUT", body: JSON.stringify(data) }
+        ),
+    deleteFeatureFlagOverride: (id: string) =>
+        platformFetch<{ ok: boolean }>(
+            `/api/platform/feature-flags/overrides?id=${encodeURIComponent(id)}`,
+            { method: "DELETE" }
+        ),
     billingSubscriptions: () =>
         platformFetch<{ subscriptions: unknown[] }>("/api/platform/billing/subscriptions"),
     changePlan: (id: string, plan_key: string, reason = "") =>

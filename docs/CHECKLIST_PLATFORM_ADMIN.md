@@ -428,12 +428,12 @@ Painéis: health estendido, fila chatbot, PRO pipeline (RPC existente), trials e
 **Operacional (sem domínio Lysthub ainda):**
 
 1. [x] Console em `/platform` no domínio Vercel atual (sem alias `admin.lysthub.com.br`)
-2. [ ] `PLATFORM_ADMIN_IP_ALLOWLIST` na Vercel Production
+2. [x] `PLATFORM_ADMIN_IP_ALLOWLIST` na Vercel Production
 3. [ ] Bootstrap superadmin + enroll MFA
 4. [ ] Smoke: login → MFA → listar empresas → audit entry gerada
 5. [ ] Quando DNS Lysthub existir: alias + `PLATFORM_ADMIN_HOST` (opcional)
 
-**Estado:** [x] 2026-08-27 — código pronto; ops manuais 2–4 pendentes
+**Estado:** [~] 2026-08-27 — IP allowlist + login OK em prod; MFA enroll + smoke audit pendentes
 
 ---
 
@@ -446,7 +446,7 @@ Painéis: health estendido, fila chatbot, PRO pipeline (RPC existente), trials e
 
 **UI/API:** `/platform/feature-flags`
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-27 — migration remota + RPC `rpc_platform_is_feature_enabled` + UI/API
 
 ---
 
@@ -456,7 +456,7 @@ Painéis: health estendido, fila chatbot, PRO pipeline (RPC existente), trials e
 - Cron `platform-audit-archive` → Storage bucket privado
 - DELETE hot rows > 24 meses pós-arquivo
 
-**Estado:** [ ]
+**Estado:** [~] 2026-08-27 — export CSV em `/api/platform/audit/export`; retenção/arquivo pendente
 
 ---
 
@@ -466,7 +466,7 @@ Painéis: health estendido, fila chatbot, PRO pipeline (RPC existente), trials e
 
 **UI:** formulário em `/platform/usuarios`
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-27 — invite API + form UI
 
 ---
 
@@ -676,3 +676,4 @@ components/superadmin/SuperAdminSidebar.tsx
 | 2026-08-26 | Checklist criado; decisões D1–D14 fechadas; remoto validado (sem platform_* tables) |
 | 2026-08-27 | P0 implementado: migration remota, lib/platform, APIs, UI /platform, proxy, bootstrap, tests |
 | 2026-08-27 | P1: billing RPCs/UI, observabilidade, impersonação read-only; host Lysthub adiado (path /platform) |
+| 2026-08-27 | P2.1 feature flags + P2.3 convites UI; forbidden page amigável; IP allowlist prod OK |

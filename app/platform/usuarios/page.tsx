@@ -1,14 +1,42 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, Users } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Loader2, UserPlus, Users } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
+import { PLATFORM_ROLES } from "@/lib/platform/platformRoles";
+import { toast } from "sonner";
 
 export default function PlatformUsuariosPage() {
+    const queryClient = useQueryClient();
+    const [email, setEmail] = useState("");
+    const [displayName, setDisplayName] = useState("");
+    const [role, setRole] = useState<(typeof PLATFORM_ROLES)[number]>("ops");
+
     const { data, isLoading, error } = useQuery({
         queryKey: ["platform", "users"],
         queryFn: () => platformApi.users(),
         staleTime: 30_000,
+    });
+
+    const invite = useMutation({
+        mutationFn: () =>
+            platformApi.inviteUser({
+                email,
+                display_name: displayName,
+                role,
+            }),
+        onSuccess: (res) => {
+            toast.success(
+                res.invited
+                    ? "Convite enviado por e-mail"
+                    : "Usuário platform vinculado (já tinha Auth)"
+            );
+            setEmail("");
+            setDisplayName("");
+            queryClient.invalidateQueries({ queryKey: ["platform", "users"] });
+        },
+        onError: (e: Error) => toast.error(e.message),
     });
 
     const users = data?.users ?? [];
@@ -20,8 +48,69 @@ export default function PlatformUsuariosPage() {
                     Usuários platform
                 </h1>
                 <p className="text-xs text-zinc-500">
-                    Operadores Renthus/Lysthub. Bootstrap via{" "}
-                    <code className="font-mono">scripts/bootstrap-platform-user.mjs</code>
+                    Operadores Renthus/Lysthub. Convite por e-mail (Supabase Auth) +{" "}
+                    <code className="font-mono">platform_users</code>.
+                </p>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                    <UserPlus className="h-4 w-4" />
+                    Convidar operador
+                </div>
+                <form
+                    className="grid gap-2 sm:grid-cols-4 sm:items-end"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        invite.mutate();
+                    }}
+                >
+                    <label className="text-xs text-zinc-500 sm:col-span-1">
+                        Nome
+                        <input
+                            value={displayName}
+                            onChange={(e) => setDisplayName(e.target.value)}
+                            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                            required
+                            minLength={2}
+                        />
+                    </label>
+                    <label className="text-xs text-zinc-500 sm:col-span-1">
+                        E-mail
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                            required
+                        />
+                    </label>
+                    <label className="text-xs text-zinc-500">
+                        Role
+                        <select
+                            value={role}
+                            onChange={(e) =>
+                                setRole(e.target.value as (typeof PLATFORM_ROLES)[number])
+                            }
+                            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                        >
+                            {PLATFORM_ROLES.map((r) => (
+                                <option key={r} value={r}>
+                                    {r}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <button
+                        type="submit"
+                        disabled={invite.isPending}
+                        className="h-10 rounded-lg bg-zinc-900 px-4 text-sm font-medium text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
+                    >
+                        {invite.isPending ? "Enviando…" : "Convidar"}
+                    </button>
+                </form>
+                <p className="mt-2 text-[11px] text-zinc-400">
+                    Roles superadmin/ops exigem MFA após o primeiro login.
                 </p>
             </div>
 
@@ -68,8 +157,12 @@ export default function PlatformUsuariosPage() {
                             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                                 {users.map((u) => (
                                     <tr key={u.id}>
-                                        <td className="px-4 py-3 font-medium">{u.display_name}</td>
-                                        <td className="px-4 py-3 text-xs text-zinc-500">{u.email}</td>
+                                        <td className="px-4 py-3 font-medium">
+                                            {u.display_name}
+                                        </td>
+                                        <td className="px-4 py-3 text-xs text-zinc-500">
+                                            {u.email}
+                                        </td>
                                         <td className="px-4 py-3 text-xs">{u.role}</td>
                                         <td className="px-4 py-3 text-xs">
                                             {u.mfa_required ? "Obrigatório" : "Opcional"}

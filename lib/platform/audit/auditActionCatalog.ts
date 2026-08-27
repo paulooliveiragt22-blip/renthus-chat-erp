@@ -18,6 +18,11 @@ export const PLATFORM_AUDIT_ACTIONS = [
     "platform.user.created",
     "platform.user.role_changed",
     "platform.user.deactivated",
+    "platform.feature_flag.created",
+    "platform.feature_flag.updated",
+    "platform.feature_flag.override_set",
+    "platform.feature_flag.override_removed",
+    "platform.audit.exported",
     "platform.access.denied",
 ] as const;
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
 
 export default function PlatformAuditPage() {
@@ -15,11 +15,22 @@ export default function PlatformAuditPage() {
 
     return (
         <div className="space-y-5">
-            <div>
-                <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Audit log</h1>
-                <p className="text-xs text-zinc-500">
-                    Ações registradas no console platform ({data?.total ?? 0} total)
-                </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+                        Audit log
+                    </h1>
+                    <p className="text-xs text-zinc-500">
+                        Ações registradas no console platform ({data?.total ?? 0} total)
+                    </p>
+                </div>
+                <a
+                    href="/api/platform/audit/export"
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                >
+                    <Download className="h-3.5 w-3.5" />
+                    Exportar CSV
+                </a>
             </div>
 
             {isLoading && (
@@ -80,13 +91,6 @@ export default function PlatformAuditPage() {
                                     <td className="px-3 py-2 text-xs">{r.outcome}</td>
                                 </tr>
                             ))}
-                            {rows.length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="px-3 py-8 text-center text-xs text-zinc-400">
-                                        Nenhum registro ainda.
-                                    </td>
-                                </tr>
-                            )}
                         </tbody>
                     </table>
                 </div>
