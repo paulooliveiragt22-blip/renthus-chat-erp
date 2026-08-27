@@ -479,7 +479,7 @@ export default function TemplatesClient() {
                                             {summarizeComponents(t.components)}
                                         </p>
                                     ) : null}
-                                    {t.rejectionReason ? (
+                                    {t.status === "REJECTED" && t.rejectionReason ? (
                                         <p className="mt-0.5 text-xs text-red-600">
                                             Rejeitado: {t.rejectionReason}
                                         </p>

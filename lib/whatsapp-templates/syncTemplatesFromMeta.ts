@@ -59,6 +59,16 @@ function normalizeCategory(raw: unknown): "UTILITY" | "MARKETING" | "AUTHENTICAT
     return "UTILITY";
 }
 
+/** Meta devolve `rejected_reason: "NONE"` em templates aprovados — não é rejeição. */
+export function normalizeRejectionReason(
+    raw: string | null | undefined
+): string | null {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    if (!s || /^none$/i.test(s) || /^null$/i.test(s)) return null;
+    return s;
+}
+
 export function toPublicTemplate(row: {
     id: string;
     name: string;
@@ -81,7 +91,7 @@ export function toPublicTemplate(row: {
         category: normalizeCategory(row.category),
         status: normalizeStatus(row.status) as WhatsappTemplatePublic["status"],
         components,
-        rejectionReason: row.rejection_reason,
+        rejectionReason: normalizeRejectionReason(row.rejection_reason),
         metaTemplateId: row.meta_template_id,
         wabaId: row.waba_id,
         lastSyncedAt: row.last_synced_at,
@@ -151,9 +161,7 @@ export async function syncTemplatesFromMeta(
             category: normalizeCategory(node.category),
             status: normalizeStatus(node.status),
             components: Array.isArray(node.components) ? node.components : [],
-            rejection_reason: node.rejected_reason
-                ? String(node.rejected_reason)
-                : null,
+            rejection_reason: normalizeRejectionReason(node.rejected_reason),
             last_synced_at: now,
             updated_at: now,
         };
