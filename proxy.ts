@@ -147,6 +147,11 @@ async function handlePlatformBranch(
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
+    // Cron de alertas: auth própria via CRON_SECRET (não passa por IP allowlist de ops)
+    if (pathname === "/api/platform/alerts/check") {
+        return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
     // NextRequest (v16) não expõe `.ip`; na Vercel o cliente vem em x-vercel-forwarded-for / xff.
     const candidates = collectClientIpCandidates(request.headers);
     const ip = candidates[0] ?? "";
@@ -236,6 +241,7 @@ function isTechnicalApiPublic(pathname: string): boolean {
          * Faltava aqui: o proxy redirecionava pra /login antes do handler rodar.
          */
         pathname.startsWith("/api/billing/charge") ||
+        pathname.startsWith("/api/platform/alerts/check") ||
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||

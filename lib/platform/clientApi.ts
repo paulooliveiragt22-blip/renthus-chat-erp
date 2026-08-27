@@ -268,6 +268,23 @@ export const platformApi = {
                 failing: string[];
             };
         }>("/api/platform/health/extended"),
+    alerts: () =>
+        platformFetch<{
+            ok: boolean;
+            generatedAt: string;
+            alerts: Array<{
+                id: string;
+                severity: "critical" | "warning" | "info";
+                title: string;
+                detail: string;
+                code: string;
+            }>;
+            thresholds: {
+                queuePendingN: number;
+                queueAgeSec: number;
+                failureRate: number;
+            };
+        }>("/api/platform/alerts"),
     startImpersonation: (company_id: string, reason: string) =>
         platformFetch<{ ok: boolean; sessionId: string }>("/api/platform/impersonate", {
             method: "POST",

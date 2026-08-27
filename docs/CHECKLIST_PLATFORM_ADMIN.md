@@ -478,7 +478,9 @@ Regras iniciais (cron ou check no dashboard):
 - Webhook WhatsApp 5xx spike (Sentry)
 - Empresa suspensa ainda recebendo mensagens WA
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-27 — `evaluatePlatformAlerts` + `/api/platform/alerts` + UI Observabilidade;
+cron `/api/platform/alerts/check` (5 min) → Sentry; inbound WA drop se `companies.is_active=false`;
+suspend RPC desativa canais WA (metadata `suspended_by_platform`)
 
 ---
 
@@ -677,3 +679,4 @@ components/superadmin/SuperAdminSidebar.tsx
 | 2026-08-27 | P0 implementado: migration remota, lib/platform, APIs, UI /platform, proxy, bootstrap, tests |
 | 2026-08-27 | P1: billing RPCs/UI, observabilidade, impersonação read-only; host Lysthub adiado (path /platform) |
 | 2026-08-27 | P2.1 feature flags + P2.3 convites UI; forbidden page amigável; IP allowlist prod OK |
+| 2026-08-27 | P2.4 alertas operacionais + gate WA empresa suspensa + suspend desativa canais |

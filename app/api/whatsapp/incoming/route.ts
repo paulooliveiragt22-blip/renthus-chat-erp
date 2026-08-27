@@ -231,6 +231,14 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
     const channel = await resolveActiveChannel(admin, phoneNumberId);
     if (!channel) return;
 
+    const companyActive = await isCompanyActive(admin, channel.company_id);
+    if (!companyActive) {
+        console.warn(
+            `[wa/incoming] empresa suspensa — drop inbound company=${channel.company_id} phone=${maskIdentifier(phoneNumberId)}`
+        );
+        return;
+    }
+
     const waConfig = buildWaConfig(channel, phoneNumberId);
 
     for (const msg of messages) {
@@ -274,6 +282,23 @@ async function resolveActiveChannel(
         return null;
     }
     return channel;
+}
+
+async function isCompanyActive(
+    admin: ReturnType<typeof createAdminClient>,
+    companyId: string
+): Promise<boolean> {
+    const { data, error } = await admin
+        .from("companies")
+        .select("is_active")
+        .eq("id", companyId)
+        .maybeSingle();
+    if (error) {
+        console.error("[wa/incoming] falha ao ler companies.is_active:", error.message);
+        // Fail-closed: sem confirmação de ativo, não processa inbound.
+        return false;
+    }
+    return data?.is_active === true;
 }
 
 function buildWaConfig(channel: ActiveChannel, phoneNumberId: string): WaConfig {

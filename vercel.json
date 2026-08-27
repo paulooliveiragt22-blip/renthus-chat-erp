@@ -19,6 +19,10 @@
         {
             "path": "/api/marketplace/sync-catalog",
             "schedule": "0 4 * * *"
+        },
+        {
+            "path": "/api/platform/alerts/check",
+            "schedule": "*/5 * * * *"
         }
     ]
 }
