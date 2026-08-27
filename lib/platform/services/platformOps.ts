@@ -198,14 +198,22 @@ export async function getAllOrders(
     };
 }
 
+import {
+    computeDedupHitRate,
+    isPipelineTurnTraceEnabled,
+    isProPipelineIngestEnabled,
+    queueCompanySeverity,
+} from "@/lib/platform/observabilityThresholds";
+
 type QueueHealthBaseRow = {
     companyId: string;
     companyName: string;
     pendingNow: number;
+    processingNow: number;
     oldestPendingAgeSec: number;
-    done15m: number;
-    failed15m: number;
-    coalesced15m: number;
+    doneWindow: number;
+    failedWindow: number;
+    coalescedWindow: number;
 };
 
 function ratio(numerator: number, denominator: number): number {
@@ -219,35 +227,86 @@ function ensureCompanyRow(map: Map<string, QueueHealthBaseRow>, companyId: strin
             companyId,
             companyName: companyId,
             pendingNow: 0,
+            processingNow: 0,
             oldestPendingAgeSec: 0,
-            done15m: 0,
-            failed15m: 0,
-            coalesced15m: 0,
+            doneWindow: 0,
+            failedWindow: 0,
+            coalescedWindow: 0,
         });
     }
     return map.get(companyId)!;
 }
 
-export async function getQueueHealthStats(admin: SupabaseClient, periodMinutes = 15) {
+function mapQueueRow(item: QueueHealthBaseRow) {
+    const processedWindow = item.doneWindow + item.failedWindow;
+    const failureRate = ratio(item.failedWindow, processedWindow);
+    const dedupHitRate = computeDedupHitRate(item.coalescedWindow, item.doneWindow);
+    const severity = queueCompanySeverity(
+        failureRate,
+        item.pendingNow,
+        item.processingNow
+    );
+    return {
+        ...item,
+        /** @deprecated use failedWindow */
+        failed15m: item.failedWindow,
+        /** @deprecated use doneWindow */
+        done15m: item.doneWindow,
+        /** @deprecated use coalescedWindow */
+        coalesced15m: item.coalescedWindow,
+        processed15m: processedWindow,
+        processedWindow,
+        backlogTotal: item.pendingNow + item.processingNow,
+        failureRate,
+        dedupHitRate,
+        severity,
+    };
+}
+
+export async function getQueueHealthStats(
+    admin: SupabaseClient,
+    periodMinutes = 15,
+    companyId?: string | "all"
+) {
     const windowStart = new Date(Date.now() - periodMinutes * 60_000).toISOString();
 
-    const [pendingRes, recentRes, oldestPendingRes] = await Promise.all([
-        admin.from("chatbot_queue").select("company_id, scheduled_at").eq("status", "pending"),
-        admin
-            .from("chatbot_queue")
-            .select("company_id, status, last_error")
-            .gte("created_at", windowStart)
-            .in("status", ["done", "failed"]),
-        admin
-            .from("chatbot_queue")
-            .select("scheduled_at")
-            .eq("status", "pending")
+    let pendingQ = admin
+        .from("chatbot_queue")
+        .select("company_id, scheduled_at")
+        .eq("status", "pending");
+    let processingQ = admin
+        .from("chatbot_queue")
+        .select("company_id")
+        .eq("status", "processing");
+    let recentQ = admin
+        .from("chatbot_queue")
+        .select("company_id, status, last_error")
+        .gte("created_at", windowStart)
+        .in("status", ["done", "failed"]);
+    let oldestPendingBuilder = admin
+        .from("chatbot_queue")
+        .select("scheduled_at")
+        .eq("status", "pending");
+
+    if (companyId && companyId !== "all") {
+        pendingQ = pendingQ.eq("company_id", companyId);
+        processingQ = processingQ.eq("company_id", companyId);
+        recentQ = recentQ.eq("company_id", companyId);
+        oldestPendingBuilder = oldestPendingBuilder.eq("company_id", companyId);
+    }
+
+    const [pendingRes, processingRes, recentRes, oldestPendingRes] = await Promise.all([
+        pendingQ,
+        processingQ,
+        recentQ,
+        oldestPendingBuilder
             .order("scheduled_at", { ascending: true })
             .limit(1)
             .maybeSingle(),
     ]);
 
     if (pendingRes.error) throw new Error(pendingRes.error.message);
+    if (processingRes.error) throw new Error(processingRes.error.message);
     if (recentRes.error) throw new Error(recentRes.error.message);
 
     const byCompany = new Map<string, QueueHealthBaseRow>();
@@ -259,16 +318,26 @@ export async function getQueueHealthStats(admin: SupabaseClient, periodMinutes =
         const item = ensureCompanyRow(byCompany, row.company_id);
         item.pendingNow += 1;
         if (typeof row.scheduled_at === "string") {
-            const age = Math.max(0, Math.floor((nowMs - new Date(row.scheduled_at).getTime()) / 1000));
+            const age = Math.max(
+                0,
+                Math.floor((nowMs - new Date(row.scheduled_at).getTime()) / 1000)
+            );
             if (age > item.oldestPendingAgeSec) item.oldestPendingAgeSec = age;
             if (age > globalOldestAgeSec) globalOldestAgeSec = age;
         }
     }
 
+    for (const row of processingRes.data ?? []) {
+        if (!row.company_id) continue;
+        ensureCompanyRow(byCompany, row.company_id).processingNow += 1;
+    }
+
     if (typeof oldestPendingRes.data?.scheduled_at === "string") {
         const age = Math.max(
             0,
-            Math.floor((nowMs - new Date(oldestPendingRes.data.scheduled_at).getTime()) / 1000)
+            Math.floor(
+                (nowMs - new Date(oldestPendingRes.data.scheduled_at).getTime()) / 1000
+            )
         );
         if (age > globalOldestAgeSec) globalOldestAgeSec = age;
     }
@@ -276,9 +345,9 @@ export async function getQueueHealthStats(admin: SupabaseClient, periodMinutes =
     for (const row of recentRes.data ?? []) {
         if (!row.company_id) continue;
         const item = ensureCompanyRow(byCompany, row.company_id);
-        if (row.status === "failed") item.failed15m += 1;
-        if (row.status === "done") item.done15m += 1;
-        if (row.last_error === "coalesced_duplicate_inbound") item.coalesced15m += 1;
+        if (row.status === "failed") item.failedWindow += 1;
+        if (row.status === "done") item.doneWindow += 1;
+        if (row.last_error === "coalesced_duplicate_inbound") item.coalescedWindow += 1;
     }
 
     const companyIds = [...byCompany.keys()];
@@ -295,26 +364,17 @@ export async function getQueueHealthStats(admin: SupabaseClient, periodMinutes =
     }
 
     const items = [...byCompany.values()]
-        .map((item) => {
-            const processed15m = item.done15m + item.failed15m;
-            const failureRate = ratio(item.failed15m, processed15m);
-            const dedupHitRate = ratio(item.coalesced15m, item.done15m);
-            const severity =
-                failureRate > 0.03 || item.pendingNow >= 20
-                    ? "red"
-                    : failureRate > 0 || item.pendingNow > 0
-                      ? "yellow"
-                      : "green";
-            return { ...item, processed15m, failureRate, dedupHitRate, severity };
-        })
-        .filter((item) => item.pendingNow > 0 || item.processed15m > 0);
+        .map(mapQueueRow)
+        .filter((item) => item.backlogTotal > 0 || item.processedWindow > 0);
 
-    const summary = items.reduce(
+    const summaryRaw = items.reduce(
         (acc, item) => {
             acc.pendingNow += item.pendingNow;
-            acc.processed15m += item.processed15m;
-            acc.failed15m += item.failed15m;
-            acc.coalesced15m += item.coalesced15m;
+            acc.processingNow += item.processingNow;
+            acc.processedWindow += item.processedWindow;
+            acc.failedWindow += item.failedWindow;
+            acc.doneWindow += item.doneWindow;
+            acc.coalescedWindow += item.coalescedWindow;
             if (item.oldestPendingAgeSec > acc.oldestPendingAgeSec) {
                 acc.oldestPendingAgeSec = item.oldestPendingAgeSec;
             }
@@ -322,25 +382,178 @@ export async function getQueueHealthStats(admin: SupabaseClient, periodMinutes =
         },
         {
             pendingNow: 0,
-            processed15m: 0,
-            failed15m: 0,
-            coalesced15m: 0,
+            processingNow: 0,
+            processedWindow: 0,
+            failedWindow: 0,
+            doneWindow: 0,
+            coalescedWindow: 0,
             oldestPendingAgeSec: globalOldestAgeSec,
         }
     );
 
+    const summary = {
+        ...summaryRaw,
+        backlogTotal: summaryRaw.pendingNow + summaryRaw.processingNow,
+        /** @deprecated alias */
+        processed15m: summaryRaw.processedWindow,
+        /** @deprecated alias */
+        failed15m: summaryRaw.failedWindow,
+        /** @deprecated alias */
+        coalesced15m: summaryRaw.coalescedWindow,
+        failureRate: ratio(summaryRaw.failedWindow, summaryRaw.processedWindow),
+        dedupHitRate: computeDedupHitRate(
+            summaryRaw.coalescedWindow,
+            summaryRaw.doneWindow
+        ),
+    };
+
+    return {
+        periodMinutes,
+        summary,
+        companies: items,
+    };
+}
+
+type OutboundHealthBaseRow = {
+    companyId: string;
+    companyName: string;
+    pendingNow: number;
+    processingNow: number;
+    doneWindow: number;
+    failedWindow: number;
+    skippedWindow: number;
+};
+
+export async function getOutboundHealthStats(
+    admin: SupabaseClient,
+    periodMinutes = 15,
+    companyId?: string | "all"
+) {
+    const windowStart = new Date(Date.now() - periodMinutes * 60_000).toISOString();
+
+    let pendingQ = admin.from("outbound_jobs").select("company_id").eq("status", "pending");
+    let processingQ = admin
+        .from("outbound_jobs")
+        .select("company_id")
+        .eq("status", "processing");
+    let recentQ = admin
+        .from("outbound_jobs")
+        .select("company_id, status")
+        .gte("created_at", windowStart)
+        .in("status", ["done", "failed", "skipped"]);
+
+    if (companyId && companyId !== "all") {
+        pendingQ = pendingQ.eq("company_id", companyId);
+        processingQ = processingQ.eq("company_id", companyId);
+        recentQ = recentQ.eq("company_id", companyId);
+    }
+
+    const [pendingRes, processingRes, recentRes] = await Promise.all([
+        pendingQ,
+        processingQ,
+        recentQ,
+    ]);
+    if (pendingRes.error) throw new Error(pendingRes.error.message);
+    if (processingRes.error) throw new Error(processingRes.error.message);
+    if (recentRes.error) throw new Error(recentRes.error.message);
+
+    const byCompany = new Map<string, OutboundHealthBaseRow>();
+
+    function ensure(id: string): OutboundHealthBaseRow {
+        if (!byCompany.has(id)) {
+            byCompany.set(id, {
+                companyId: id,
+                companyName: id,
+                pendingNow: 0,
+                processingNow: 0,
+                doneWindow: 0,
+                failedWindow: 0,
+                skippedWindow: 0,
+            });
+        }
+        return byCompany.get(id)!;
+    }
+
+    for (const row of pendingRes.data ?? []) {
+        if (row.company_id) ensure(row.company_id).pendingNow += 1;
+    }
+    for (const row of processingRes.data ?? []) {
+        if (row.company_id) ensure(row.company_id).processingNow += 1;
+    }
+    for (const row of recentRes.data ?? []) {
+        if (!row.company_id) continue;
+        const item = ensure(row.company_id);
+        if (row.status === "done") item.doneWindow += 1;
+        if (row.status === "failed") item.failedWindow += 1;
+        if (row.status === "skipped") item.skippedWindow += 1;
+    }
+
+    const companyIds = [...byCompany.keys()];
+    if (companyIds.length) {
+        const { data: companies } = await admin
+            .from("companies")
+            .select("id, name")
+            .in("id", companyIds);
+        for (const c of companies ?? []) {
+            const item = byCompany.get(c.id);
+            if (item) item.companyName = c.name ?? c.id;
+        }
+    }
+
+    const items = [...byCompany.values()]
+        .map((item) => {
+            const processedWindow =
+                item.doneWindow + item.failedWindow + item.skippedWindow;
+            const failureRate = ratio(item.failedWindow, item.doneWindow + item.failedWindow);
+            return {
+                ...item,
+                processedWindow,
+                backlogTotal: item.pendingNow + item.processingNow,
+                failureRate,
+            };
+        })
+        .filter((item) => item.backlogTotal > 0 || item.processedWindow > 0);
+
+    const summaryRaw = items.reduce(
+        (acc, item) => ({
+            pendingNow: acc.pendingNow + item.pendingNow,
+            processingNow: acc.processingNow + item.processingNow,
+            doneWindow: acc.doneWindow + item.doneWindow,
+            failedWindow: acc.failedWindow + item.failedWindow,
+            skippedWindow: acc.skippedWindow + item.skippedWindow,
+        }),
+        {
+            pendingNow: 0,
+            processingNow: 0,
+            doneWindow: 0,
+            failedWindow: 0,
+            skippedWindow: 0,
+        }
+    );
+
+    const processedWindow =
+        summaryRaw.doneWindow + summaryRaw.failedWindow + summaryRaw.skippedWindow;
+
     return {
         periodMinutes,
         summary: {
-            ...summary,
-            failureRate: ratio(summary.failed15m, summary.processed15m),
-            dedupHitRate: ratio(summary.coalesced15m, summary.processed15m - summary.failed15m),
+            ...summaryRaw,
+            backlogTotal: summaryRaw.pendingNow + summaryRaw.processingNow,
+            processedWindow,
+            failureRate: ratio(
+                summaryRaw.failedWindow,
+                summaryRaw.doneWindow + summaryRaw.failedWindow
+            ),
         },
         companies: items,
     };
 }
 
-export async function getProPipelineHealthStats(admin: SupabaseClient, periodMinutes = 15) {
+export async function getProPipelineHealthStats(
+    admin: SupabaseClient,
+    periodMinutes = 15,
+    companyId?: string | "all"
+) {
     const { data: raw, error } = await admin.rpc("superadmin_pro_pipeline_metric_totals", {
         p_window_minutes: periodMinutes,
     });
@@ -356,7 +569,11 @@ export async function getProPipelineHealthStats(admin: SupabaseClient, periodMin
         total: number | string;
     };
 
-    const rows = (raw ?? []) as RpcRow[];
+    let rows = (raw ?? []) as RpcRow[];
+    if (companyId && companyId !== "all") {
+        rows = rows.filter((r) => r.company_id === companyId);
+    }
+
     const companyIds = [...new Set(rows.map((r) => r.company_id))];
     const nameById = new Map<string, string>();
     if (companyIds.length) {
@@ -381,10 +598,95 @@ export async function getProPipelineHealthStats(admin: SupabaseClient, periodMin
         total: typeof r.total === "string" ? Number(r.total) : r.total,
     }));
 
+    const runRows = aggregates.filter((r) => r.metricName === "pro_pipeline.run");
+    const distinctRuns = runRows.reduce((s, r) => s + r.total, 0);
+
     return {
         periodMinutes,
         volume: aggregates.reduce((s, r) => s + r.total, 0),
+        distinctRuns,
+        ingestEnabled: isProPipelineIngestEnabled(),
+        turnTraceEnabled: isPipelineTurnTraceEnabled(),
         rows: aggregates,
+    };
+}
+
+/** Leitura sanitizada — sem state json completo (evita PII no painel). */
+export async function getPipelineTurnTraces(
+    admin: SupabaseClient,
+    opts: { companyId?: string; limit?: number } = {}
+) {
+    const limit = Math.min(50, Math.max(1, opts.limit ?? 25));
+    let q = admin
+        .from("pipeline_turn_traces")
+        .select(
+            "id, created_at, company_id, thread_id, channel, inbound_message_id, telemetry_reason, ai_profile, outbound"
+        )
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+    if (opts.companyId && opts.companyId !== "all") {
+        q = q.eq("company_id", opts.companyId);
+    }
+
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const companyIds = [...new Set((data ?? []).map((r) => r.company_id as string))];
+    const nameById = new Map<string, string>();
+    if (companyIds.length) {
+        const { data: companies } = await admin
+            .from("companies")
+            .select("id, name")
+            .in("id", companyIds);
+        for (const c of companies ?? []) {
+            nameById.set(c.id, c.name ?? c.id);
+        }
+    }
+
+    return {
+        enabled: isPipelineTurnTraceEnabled(),
+        rows: (data ?? []).map((r) => ({
+            id: r.id as string,
+            createdAt: r.created_at as string,
+            companyId: r.company_id as string,
+            companyName: nameById.get(r.company_id as string) ?? (r.company_id as string),
+            threadId: (r.thread_id as string).slice(0, 8) + "…",
+            channel: r.channel as string,
+            inboundMessageId: String(r.inbound_message_id).slice(-8),
+            telemetryReason: (r.telemetry_reason as string | null) ?? null,
+            aiProfile: (r.ai_profile as string | null) ?? null,
+            outboundCount: Array.isArray(r.outbound) ? r.outbound.length : 0,
+        })),
+    };
+}
+
+export async function getChatbotOpsSnapshot(
+    admin: SupabaseClient,
+    periodMinutes = 15,
+    companyId?: string | "all"
+) {
+    const [queue, outbound, pipeline, traces] = await Promise.all([
+        getQueueHealthStats(admin, periodMinutes, companyId),
+        getOutboundHealthStats(admin, periodMinutes, companyId),
+        getProPipelineHealthStats(admin, periodMinutes, companyId),
+        getPipelineTurnTraces(admin, {
+            companyId: companyId === "all" ? undefined : companyId,
+            limit: 10,
+        }),
+    ]);
+
+    return {
+        periodMinutes,
+        generatedAt: new Date().toISOString(),
+        ingest: {
+            proPipelineSupabase: pipeline.ingestEnabled,
+            turnTrace: pipeline.turnTraceEnabled,
+        },
+        queue,
+        outbound,
+        pipeline,
+        recentTraces: traces,
     };
 }
 

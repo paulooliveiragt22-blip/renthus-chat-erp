@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getQueueHealthStats } from "@/lib/platform/services/platformOps";
+import { getPlatformAlertThresholds } from "@/lib/platform/observabilityThresholds";
 
 export type PlatformAlertSeverity = "critical" | "warning" | "info";
 
@@ -20,17 +21,10 @@ export type PlatformAlert = {
     metadata?: Record<string, unknown>;
 };
 
-function envInt(name: string, fallback: number): number {
-    const raw = process.env[name]?.trim();
-    if (!raw) return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
 /**
  * Avalia regras P2.4 (dashboard + cron). Sem persistência — snapshot pontual.
  *
- * - Fila: pending > N e oldest pending ≥ 10 min
+ * - Fila: pending+processing > N e oldest pending ≥ limite
  * - Empresa suspensa com canal WA ainda active
  * - Empresa suspensa com jobs na fila na última hora
  * - Hint ops: alertar 5xx do webhook no Sentry (não duplica métrica in-app)
@@ -47,9 +41,12 @@ export async function evaluatePlatformAlerts(
         failureRate: number;
     };
 }> {
-    const queuePendingN = envInt("PLATFORM_ALERT_QUEUE_PENDING_N", 50);
-    const queueAgeSec = envInt("PLATFORM_ALERT_QUEUE_AGE_SEC", 600);
-    const failureRateThreshold = Number(process.env.PLATFORM_ALERT_FAILURE_RATE ?? "0.05");
+    const {
+        queuePendingN,
+        queueAgeSec,
+        failureRate: failureRateThreshold,
+        failureMinCount,
+    } = getPlatformAlertThresholds();
 
     const alerts: PlatformAlert[] = [];
 
@@ -67,25 +64,43 @@ export async function evaluatePlatformAlerts(
     }
 
     if (queue) {
-        const { pendingNow, oldestPendingAgeSec, failureRate, failed15m } = queue.summary;
-        if (pendingNow > queuePendingN && oldestPendingAgeSec >= queueAgeSec) {
+        const {
+            pendingNow,
+            processingNow,
+            backlogTotal,
+            oldestPendingAgeSec,
+            failureRate,
+            failedWindow,
+            failed15m,
+        } = queue.summary;
+        const backlog = backlogTotal ?? pendingNow + (processingNow ?? 0);
+        const failedCount = failedWindow ?? failed15m ?? 0;
+
+        if (backlog > queuePendingN && oldestPendingAgeSec >= queueAgeSec) {
             alerts.push({
                 id: "queue_backlog_sustained",
                 severity: "critical",
                 code: "queue_backlog_sustained",
-                title: "Fila chatbot acumulada há ≥10 min",
-                detail: `${pendingNow} pending (limite ${queuePendingN}); item mais antigo há ${Math.round(oldestPendingAgeSec / 60)} min.`,
-                metadata: { pendingNow, oldestPendingAgeSec, queuePendingN, queueAgeSec },
+                title: "Fila chatbot acumulada (pending + processing)",
+                detail: `${backlog} jobs (pending=${pendingNow}, processing=${processingNow ?? 0}; limite ${queuePendingN}); item mais antigo há ${Math.round(oldestPendingAgeSec / 60)} min.`,
+                metadata: {
+                    pendingNow,
+                    processingNow,
+                    backlogTotal: backlog,
+                    oldestPendingAgeSec,
+                    queuePendingN,
+                    queueAgeSec,
+                },
             });
         }
-        if (failureRate >= failureRateThreshold && failed15m >= 3) {
+        if (failureRate >= failureRateThreshold && failedCount >= failureMinCount) {
             alerts.push({
                 id: "queue_failure_spike",
                 severity: "warning",
                 code: "queue_failure_spike",
                 title: "Taxa de falha da fila elevada (15m)",
-                detail: `${failed15m} falhas; failureRate ${(failureRate * 100).toFixed(1)}% (limite ${(failureRateThreshold * 100).toFixed(0)}%).`,
-                metadata: { failed15m, failureRate },
+                detail: `${failedCount} falhas; failureRate ${(failureRate * 100).toFixed(1)}% (limite ${(failureRateThreshold * 100).toFixed(0)}%).`,
+                metadata: { failedCount, failureRate },
             });
         }
     }

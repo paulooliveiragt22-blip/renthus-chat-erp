@@ -50,11 +50,17 @@ export type PlatformQueueCompanyRow = {
     companyId: string;
     companyName: string;
     pendingNow: number;
+    processingNow?: number;
+    backlogTotal?: number;
     oldestPendingAgeSec: number;
-    done15m: number;
+    done15m?: number;
     failed15m: number;
-    coalesced15m: number;
+    coalesced15m?: number;
+    doneWindow?: number;
+    failedWindow?: number;
+    coalescedWindow?: number;
     processed15m: number;
+    processedWindow?: number;
     failureRate: number;
     dedupHitRate: number;
     severity: "green" | "yellow" | "red" | string;
@@ -64,14 +70,45 @@ export type PlatformQueueHealth = {
     periodMinutes: number;
     summary: {
         pendingNow: number;
+        processingNow?: number;
+        backlogTotal?: number;
         processed15m: number;
+        processedWindow?: number;
         failed15m: number;
+        failedWindow?: number;
         coalesced15m: number;
+        coalescedWindow?: number;
         oldestPendingAgeSec: number;
         failureRate: number;
         dedupHitRate: number;
     };
     companies: PlatformQueueCompanyRow[];
+};
+
+export type PlatformOutboundHealth = {
+    periodMinutes: number;
+    summary: {
+        pendingNow: number;
+        processingNow: number;
+        backlogTotal: number;
+        doneWindow: number;
+        failedWindow: number;
+        skippedWindow: number;
+        processedWindow: number;
+        failureRate: number;
+    };
+    companies: Array<{
+        companyId: string;
+        companyName: string;
+        pendingNow: number;
+        processingNow: number;
+        backlogTotal: number;
+        doneWindow: number;
+        failedWindow: number;
+        skippedWindow: number;
+        processedWindow: number;
+        failureRate: number;
+    }>;
 };
 
 export type PlatformPipelineRow = {
@@ -88,7 +125,28 @@ export type PlatformPipelineRow = {
 export type PlatformPipelineHealth = {
     periodMinutes: number;
     volume: number;
+    distinctRuns?: number;
+    ingestEnabled?: boolean;
+    turnTraceEnabled?: boolean;
     rows: PlatformPipelineRow[];
+};
+
+export type PlatformTurnTraceRow = {
+    id: string;
+    createdAt: string;
+    companyId: string;
+    companyName: string;
+    threadId: string;
+    channel: string;
+    inboundMessageId: string;
+    telemetryReason: string | null;
+    aiProfile: string | null;
+    outboundCount: number;
+};
+
+export type PlatformMetricsQuery = {
+    minutes?: number;
+    companyId?: string | "all";
 };
 
 export type PlatformSecurityOps = {
@@ -238,8 +296,14 @@ export const platformApi = {
         return platformFetch<PlatformOrdersListResponse>(`/api/platform/orders?${q}`);
     },
     metrics: ((
-        kind: "dashboard" | "queue" | "pipeline",
-        minutesOrFilters?: number | string,
+        kind:
+            | "dashboard"
+            | "queue"
+            | "pipeline"
+            | "outbound"
+            | "ops"
+            | "turn-traces",
+        minutesOrFilters?: number | string | PlatformMetricsQuery,
         filterQuery?: string
     ) => {
         const q = new URLSearchParams({ kind });
@@ -254,17 +318,53 @@ export const platformApi = {
             }
             return platformFetch<PlatformDashboardStats>(`/api/platform/metrics?${q}`);
         }
-        const minutes =
-            typeof minutesOrFilters === "number" ? minutesOrFilters : undefined;
-        if (minutes != null) q.set("minutes", String(minutes));
+
+        const opts: PlatformMetricsQuery =
+            typeof minutesOrFilters === "object" && minutesOrFilters !== null
+                ? minutesOrFilters
+                : { minutes: typeof minutesOrFilters === "number" ? minutesOrFilters : 15 };
+
+        if (opts.minutes != null) q.set("minutes", String(opts.minutes));
+        if (opts.companyId && opts.companyId !== "all") {
+            q.set("company_id", opts.companyId);
+        }
+
         if (kind === "queue") {
             return platformFetch<PlatformQueueHealth>(`/api/platform/metrics?${q}`);
         }
-        return platformFetch<PlatformPipelineHealth>(`/api/platform/metrics?${q}`);
+        if (kind === "pipeline") {
+            return platformFetch<PlatformPipelineHealth>(`/api/platform/metrics?${q}`);
+        }
+        if (kind === "outbound") {
+            return platformFetch<PlatformOutboundHealth>(`/api/platform/metrics?${q}`);
+        }
+        if (kind === "ops") {
+            return platformFetch<{
+                periodMinutes: number;
+                generatedAt: string;
+                ingest: { proPipelineSupabase: boolean; turnTrace: boolean };
+                queue: PlatformQueueHealth;
+                outbound: PlatformOutboundHealth;
+                pipeline: PlatformPipelineHealth;
+                recentTraces: { enabled: boolean; rows: PlatformTurnTraceRow[] };
+            }>(`/api/platform/metrics?${q}`);
+        }
+        if (kind === "turn-traces") {
+            q.set("limit", String((opts as { limit?: number }).limit ?? 25));
+            return platformFetch<{ enabled: boolean; rows: PlatformTurnTraceRow[] }>(
+                `/api/platform/metrics?${q}`
+            );
+        }
     }) as {
         (kind: "dashboard", filterQuery?: string): Promise<PlatformDashboardStats>;
-        (kind: "queue", minutes?: number): Promise<PlatformQueueHealth>;
-        (kind: "pipeline", minutes?: number): Promise<PlatformPipelineHealth>;
+        (kind: "queue", opts?: PlatformMetricsQuery | number): Promise<PlatformQueueHealth>;
+        (kind: "pipeline", opts?: PlatformMetricsQuery | number): Promise<PlatformPipelineHealth>;
+        (kind: "outbound", opts?: PlatformMetricsQuery | number): Promise<PlatformOutboundHealth>;
+        (kind: "ops", opts?: PlatformMetricsQuery | number): Promise<unknown>;
+        (kind: "turn-traces", opts?: PlatformMetricsQuery | number): Promise<{
+            enabled: boolean;
+            rows: PlatformTurnTraceRow[];
+        }>;
     },
     securityOps: () => platformFetch<PlatformSecurityOps>("/api/platform/security/ops-status"),
     audit: (offset = 0, limit = 50) =>
