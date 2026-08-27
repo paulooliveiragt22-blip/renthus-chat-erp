@@ -58,7 +58,10 @@ export function evaluateOutboundGates(ctx: OutboundGateContext): OutboundGateDec
         return { allow: false, reason: "empty_payload" };
     }
 
-    if (!isWithinCustomerServiceWindow(ctx.lastInboundAt, ctx.nowMs)) {
+    // HSM de campanha: não exige janela 24h (é exatamente o caso de uso do template).
+    const isBroadcast = ctx.purpose === "broadcast_template";
+
+    if (!isBroadcast && !isWithinCustomerServiceWindow(ctx.lastInboundAt, ctx.nowMs)) {
         return { allow: false, reason: "outside_service_window" };
     }
 

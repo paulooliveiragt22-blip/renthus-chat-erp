@@ -22,6 +22,7 @@ import {
 } from "@/lib/chatbot/outbound/gates";
 import { sendOutboundPayload } from "@/lib/chatbot/outbound/sendOutbound";
 import { isOutboundJobPayload, type OutboundJobRow } from "@/lib/chatbot/outbound/types";
+import { markRecipientFromOutboundJob } from "@/lib/campaigns/enqueueCampaign";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -121,6 +122,18 @@ export async function GET(req: Request) {
                 .from("outbound_jobs")
                 .update({ status: "skipped", skip_reason: decision.reason })
                 .eq("id", job.id);
+            if (job.purpose === "broadcast_template" && isOutboundJobPayload(job.payload)) {
+                const p = job.payload;
+                if (p.kind === "template") {
+                    await markRecipientFromOutboundJob({
+                        admin,
+                        recipientId: p.recipientId,
+                        campaignId: p.campaignId,
+                        outcome: "skipped",
+                        error: decision.reason,
+                    });
+                }
+            }
             console.info("[outbound-worker] job ignorado", {
                 jobId: job.id,
                 purpose: job.purpose,
@@ -162,6 +175,18 @@ export async function GET(req: Request) {
                     .eq("status", "open");
             }
 
+            if (job.purpose === "broadcast_template" && isOutboundJobPayload(job.payload)) {
+                const p = job.payload;
+                if (p.kind === "template") {
+                    await markRecipientFromOutboundJob({
+                        admin,
+                        recipientId: p.recipientId,
+                        campaignId: p.campaignId,
+                        outcome: "sent",
+                    });
+                }
+            }
+
             sent++;
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
@@ -173,6 +198,22 @@ export async function GET(req: Request) {
                     last_error: message.slice(0, 500),
                 })
                 .eq("id", job.id);
+            if (
+                job.purpose === "broadcast_template" &&
+                job.attempts >= MAX_ATTEMPTS &&
+                isOutboundJobPayload(job.payload)
+            ) {
+                const p = job.payload;
+                if (p.kind === "template") {
+                    await markRecipientFromOutboundJob({
+                        admin,
+                        recipientId: p.recipientId,
+                        campaignId: p.campaignId,
+                        outcome: "failed",
+                        error: message,
+                    });
+                }
+            }
             failed++;
         }
     }

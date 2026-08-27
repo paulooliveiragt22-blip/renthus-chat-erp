@@ -93,6 +93,17 @@ describe("evaluateOutboundGates", () => {
             { allow: false, reason: "human_handover" }
         );
     });
+
+    it("broadcast_template: não exige janela 24h (HSM)", () => {
+        const decision = evaluateOutboundGates(
+            baseContext({
+                purpose: "broadcast_template",
+                lastInboundAt: null,
+                cartStatus: null,
+            })
+        );
+        assert.deepEqual(decision, { allow: true });
+    });
 });
 
 describe("isWithinBusinessHours", () => {

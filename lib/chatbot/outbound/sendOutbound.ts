@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendInteractiveButtons, sendWhatsAppMessage, type WaConfig } from "@/lib/whatsapp/send";
+import { sendTemplateMessage } from "@/lib/whatsapp-templates/sendTemplateMessage";
 import type { OutboundJobPayload } from "./types";
 
 export interface SendOutboundResult {
@@ -24,6 +25,10 @@ export async function sendOutboundPayload(params: {
 }): Promise<SendOutboundResult> {
     const { admin, threadId, phoneE164, payload, waConfig } = params;
     const fromAddr = waConfig.phoneNumberId ? `whatsapp:${waConfig.phoneNumberId}` : "whatsapp";
+    const preview =
+        payload.kind === "template"
+            ? payload.text || `[template:${payload.templateName}]`
+            : payload.text;
 
     const { data: msgRow } = await admin
         .from("whatsapp_messages")
@@ -33,7 +38,7 @@ export async function sendOutboundPayload(params: {
             channel: "whatsapp",
             from_addr: fromAddr,
             to_addr: phoneE164,
-            body: payload.text,
+            body: preview,
             num_media: 0,
             status: "pending",
             sender_type: "bot",
@@ -42,9 +47,17 @@ export async function sendOutboundPayload(params: {
         .single();
 
     const result =
-        payload.kind === "buttons"
-            ? await sendInteractiveButtons(phoneE164, payload.text, payload.buttons, waConfig)
-            : await sendWhatsAppMessage(phoneE164, payload.text, waConfig);
+        payload.kind === "template"
+            ? await sendTemplateMessage({
+                  toE164: phoneE164,
+                  templateName: payload.templateName,
+                  languageCode: payload.language,
+                  bodyParameters: payload.bodyParams,
+                  config: waConfig,
+              })
+            : payload.kind === "buttons"
+              ? await sendInteractiveButtons(phoneE164, payload.text, payload.buttons, waConfig)
+              : await sendWhatsAppMessage(phoneE164, payload.text, waConfig);
 
     if (msgRow?.id) {
         await admin
@@ -55,7 +68,13 @@ export async function sendOutboundPayload(params: {
                           provider: "meta",
                           provider_message_id: result.messageId ?? null,
                           status: "sent",
-                          raw_payload: { sent_at: new Date().toISOString(), proactive: true },
+                          raw_payload: {
+                              sent_at: new Date().toISOString(),
+                              proactive: true,
+                              ...(payload.kind === "template"
+                                  ? { template: payload.templateName }
+                                  : {}),
+                          },
                       }
                     : {
                           status: "failed",
@@ -70,7 +89,7 @@ export async function sendOutboundPayload(params: {
             .from("whatsapp_threads")
             .update({
                 last_message_at: new Date().toISOString(),
-                last_message_preview: payload.text.slice(0, 120),
+                last_message_preview: preview.slice(0, 120),
             })
             .eq("id", threadId);
     }

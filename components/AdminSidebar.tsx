@@ -26,6 +26,7 @@ import {
   Wallet,
   X,
   FileText,
+  Megaphone,
 } from "lucide-react";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
@@ -37,6 +38,7 @@ const adminMenu = [
   { label: "Mesas",         href: "/mesa",            icon: UtensilsCrossed, feature: "table_service" },
   { label: "WhatsApp",      href: "/whatsapp",        icon: MessageCircle },
   { label: "Templates WA",  href: "/templates",       icon: FileText, feature: "whatsapp_templates_broadcast" },
+  { label: "Campanhas",     href: "/campanhas",       icon: Megaphone, feature: "whatsapp_templates_broadcast" },
   { label: "Produtos",      href: "/produtos/lista",  icon: ShoppingBag },
   { label: "Clientes",      href: "/clientes",        icon: Users },
   { label: "Entregadores",  href: "/entregadores",    icon: Bike },
