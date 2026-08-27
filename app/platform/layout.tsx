@@ -1,0 +1,53 @@
+"use client";
+
+import { useState } from "react";
+import { usePathname } from "next/navigation";
+import { Menu } from "lucide-react";
+import PlatformSidebar from "@/components/platform/PlatformSidebar";
+
+export default function PlatformLayout({ children }: { children: React.ReactNode }) {
+    const pathname = usePathname();
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    if (pathname.startsWith("/platform/login")) {
+        return <>{children}</>;
+    }
+
+    return (
+        <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950">
+            {/* Overlay mobile */}
+            {sidebarOpen && (
+                <button
+                    type="button"
+                    aria-label="Fechar menu"
+                    className="fixed inset-0 z-40 cursor-default border-0 bg-black/50 lg:hidden"
+                    onClick={() => setSidebarOpen(false)}
+                />
+            )}
+
+            <PlatformSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+            {/* Conteúdo principal */}
+            <div className="flex min-h-screen flex-1 flex-col">
+                {/* Header mobile */}
+                <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-zinc-200 bg-white px-4 dark:border-zinc-800 dark:bg-zinc-900 lg:hidden">
+                    <button
+                        type="button"
+                        onClick={() => setSidebarOpen(true)}
+                        aria-label="Abrir menu"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                        <Menu className="h-4 w-4" />
+                    </button>
+                    <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                        Platform Admin
+                    </span>
+                </header>
+
+                <main className="flex-1 p-4 lg:p-6">
+                    {children}
+                </main>
+            </div>
+        </div>
+    );
+}

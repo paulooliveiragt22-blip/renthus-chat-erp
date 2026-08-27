@@ -75,7 +75,21 @@ export async function jsonInternalError(
     console.error(`[api:${context.route}]`, detail, context);
     try {
         const Sentry = await import("@sentry/nextjs");
-        Sentry.captureException(err, { tags: { route: context.route }, extra: context });
+        Sentry.captureException(err, {
+            tags: {
+                route: context.route,
+                ...(typeof context.platform_actor_id === "string"
+                    ? { platform_actor_id: context.platform_actor_id }
+                    : {}),
+                ...(typeof context.platform_role === "string"
+                    ? { platform_role: context.platform_role }
+                    : {}),
+                ...(typeof context.request_id === "string"
+                    ? { request_id: context.request_id }
+                    : {}),
+            },
+            extra: context,
+        });
     } catch {
         /* Sentry indisponível (build/edge) — log acima já registrou o erro. */
     }

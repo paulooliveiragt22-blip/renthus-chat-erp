@@ -14,10 +14,10 @@ function createMockClient(user: unknown) {
     return { factory, getUser } as const;
 }
 
-function createRequest(pathname: string, cookies?: string) {
+function createRequest(pathname: string, cookies?: string, method = "GET") {
     const url = new URL(pathname, "https://example.com");
     const headers = cookies ? { cookie: cookies } : undefined;
-    return new NextRequest(url, { headers });
+    return new NextRequest(url, { headers, method });
 }
 
 describe("proxy auth routing", () => {
@@ -139,15 +139,31 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.headers.get("location"), "https://example.com/login");
     });
 
-    it("allows protected routes when a session exists", async () => {
-        const { factory: protectedFactory, getUser } = createMockClient({ id: "user-123" });
-        const response = await proxy(createRequest("/dashboard"), undefined, {
-            createClient: protectedFactory,
+    it("redirects superadmin to platform", async () => {
+        const response = await proxy(createRequest("/superadmin/empresas"), undefined, {
+            createClient: factory,
         });
+        assert.strictEqual(response.status, 308);
+        assert.strictEqual(response.headers.get("location"), "https://example.com/platform/empresas");
+    });
 
-        assert.strictEqual(protectedFactory.mock.calls.length, 1);
-        assert.strictEqual(getUser.mock.calls.length, 1);
+    it("allows platform login without session", async () => {
+        const response = await proxy(createRequest("/platform/login"), undefined, {
+            createClient: factory,
+        });
+        assert.strictEqual(factory.mock.calls.length, 0);
         assert.strictEqual(response.status, 200);
-        assert.strictEqual(response.headers.get("location"), null);
+    });
+
+    it("blocks tenant mutations while platform impersonation cookie is set", async () => {
+        const { factory: protectedFactory } = createMockClient({ id: "user-123" });
+        const response = await proxy(
+            createRequest("/api/admin/orders", "platform_impersonation=sess-1", "POST"),
+            undefined,
+            { createClient: protectedFactory }
+        );
+        assert.strictEqual(response.status, 403);
+        const body = await response.json();
+        assert.strictEqual(body.error.code, "impersonation_read_only");
     });
 });

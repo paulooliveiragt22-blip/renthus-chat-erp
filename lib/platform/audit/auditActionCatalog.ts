@@ -1,0 +1,24 @@
+export const PLATFORM_AUDIT_ACTIONS = [
+    "platform.auth.login_success",
+    "platform.auth.login_failure",
+    "platform.auth.mfa_failure",
+    "platform.auth.logout",
+    "platform.company.created",
+    "platform.company.updated",
+    "platform.company.suspended",
+    "platform.company.reactivated",
+    "platform.channel.created",
+    "platform.channel.updated",
+    "platform.channel.credentials_updated",
+    "platform.channel.status_changed",
+    "platform.subscription.plan_changed",
+    "platform.subscription.overage_changed",
+    "platform.impersonation.started",
+    "platform.impersonation.ended",
+    "platform.user.created",
+    "platform.user.role_changed",
+    "platform.user.deactivated",
+    "platform.access.denied",
+] as const;
+
+export type PlatformAuditAction = (typeof PLATFORM_AUDIT_ACTIONS)[number];

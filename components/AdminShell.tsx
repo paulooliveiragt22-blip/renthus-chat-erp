@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
 import AdminSidebar from "@/components/AdminSidebar";
 import HeaderClient from "@/components/HeaderClient";
+import ImpersonationBanner from "@/components/platform/ImpersonationBanner";
 
 // ── Wrapper externo: só lê pathname (resolve rules-of-hooks) ──────────────────
 export default function AdminShell({ children }: { children: React.ReactNode }) {
@@ -19,7 +20,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         pathname.startsWith("/onboarding") ||
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
-        pathname.startsWith("/superadmin");
+        pathname.startsWith("/superadmin") ||
+        pathname.startsWith("/platform");
 
     if (isStandalone) return <>{children}</>;
 
@@ -131,6 +133,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                     isFullscreen={isFullscreen}
                     onToggleFullscreen={toggleFullscreen}
                 />
+                <ImpersonationBanner />
 
                 {/* Corpo: sidebar + conteúdo */}
                 <div className="flex flex-1 overflow-hidden">

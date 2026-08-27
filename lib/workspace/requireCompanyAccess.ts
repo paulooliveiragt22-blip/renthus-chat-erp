@@ -1,7 +1,13 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
 import { getCurrentCompanyIdFromCookie } from "./getCurrentCompanyId";
 import { normalizeCompanyRole } from "./staffRoles";
+import {
+    PLATFORM_IMPERSONATION_COOKIE,
+    isImpersonationActive,
+    type ImpersonationSessionRow,
+} from "@/lib/platform/impersonation";
 
 export async function requireCompanyAccess(allowedRoles?: string[]) {
     const companyId = await getCurrentCompanyIdFromCookie();
@@ -16,6 +22,41 @@ export async function requireCompanyAccess(allowedRoles?: string[]) {
     }
 
     const admin = createAdminClient();
+
+    // Platform support impersonation (read-only at proxy layer for mutations)
+    const jar = await cookies();
+    const sessionId = jar.get(PLATFORM_IMPERSONATION_COOKIE)?.value;
+    if (sessionId) {
+        const { data: session } = await admin
+            .from("platform_impersonation_sessions")
+            .select("id, platform_user_id, company_id, reason, started_at, expires_at, ended_at")
+            .eq("id", sessionId)
+            .maybeSingle();
+
+        const row = session as ImpersonationSessionRow | null;
+        if (isImpersonationActive(row) && row!.company_id === companyId) {
+            const { data: platformUser } = await admin
+                .from("platform_users")
+                .select("id, auth_user_id, is_active")
+                .eq("id", row!.platform_user_id)
+                .eq("auth_user_id", userData.user.id)
+                .eq("is_active", true)
+                .maybeSingle();
+
+            if (platformUser) {
+                return {
+                    ok: true as const,
+                    companyId,
+                    userId: userData.user.id,
+                    role: "admin",
+                    admin,
+                    impersonating: true as const,
+                    impersonationSessionId: row!.id,
+                };
+            }
+        }
+    }
+
     const { data: membership } = await admin
         .from("company_users")
         .select("id, role, is_active")
@@ -46,5 +87,6 @@ export async function requireCompanyAccess(allowedRoles?: string[]) {
         userId: userData.user.id,
         role,
         admin,
+        impersonating: false as const,
     };
 }

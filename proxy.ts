@@ -1,6 +1,13 @@
 // proxy.ts — convenção Next.js 16+ (substitui middleware.ts na raiz do projeto)
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { randomUUID } from "crypto";
+import { isIpAllowed, extractClientIp } from "@/lib/platform/checkPlatformIpAllowlist";
+import {
+    PLATFORM_IMPERSONATION_COOKIE,
+    isMutatingHttpMethod,
+    isTenantMutationPath,
+} from "@/lib/platform/impersonation";
 import {
     lookupMenuSlugByHostViaRest,
     resolveMenuHostRewrite,
@@ -121,24 +128,74 @@ async function checkCompanyAccess(
     return { type: "allow" };
 }
 
+async function handlePlatformBranch(
+    request: NextRequest,
+    pathname: string,
+    options?: { createClient?: SupabaseClientFactory }
+): Promise<NextResponse | null> {
+    if (!pathname.startsWith("/platform") && !pathname.startsWith("/api/platform/")) {
+        return null;
+    }
+
+    const requestHeaders = new Headers(request.headers);
+    if (!requestHeaders.get("x-request-id")) {
+        requestHeaders.set("x-request-id", randomUUID());
+    }
+
+    const ip = extractClientIp(
+        request.headers.get("x-forwarded-for"),
+        request.headers.get("x-real-ip")
+    );
+    if (!isIpAllowed(ip, process.env.PLATFORM_ADMIN_IP_ALLOWLIST)) {
+        if (pathname.startsWith("/api/")) {
+            return NextResponse.json({ error: "IP not allowed", code: "ip_not_allowed" }, { status: 403 });
+        }
+        return NextResponse.rewrite(new URL("/404", request.url));
+    }
+
+    const publicPaths =
+        pathname === "/platform/login" ||
+        pathname.startsWith("/platform/login/") ||
+        pathname === "/api/platform/auth/mfa/status";
+
+    if (publicPaths || pathname.startsWith("/api/platform/")) {
+        return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
+    const supabase = (options?.createClient ?? createServerClient)(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                getAll: () => request.cookies.getAll(),
+                setAll: () => {},
+            },
+        }
+    );
+
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/platform/login";
+        url.searchParams.set("redirectTo", pathname);
+        return NextResponse.redirect(url);
+    }
+
+    return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 function handleSuperadminBranch(request: NextRequest, pathname: string): NextResponse | null {
     if (!pathname.startsWith("/superadmin") && !pathname.startsWith("/api/superadmin/")) {
         return null;
     }
-    if (process.env.VERCEL_ENV) {
-        return NextResponse.rewrite(new URL("/404", request.url));
-    }
     if (pathname === "/superadmin/login" || pathname === "/api/superadmin/login") {
-        return NextResponse.next();
-    }
-    const token  = request.cookies.get("sa_token")?.value;
-    const secret = process.env.SUPERADMIN_SECRET;
-    if (!secret || token !== secret) {
         const url = request.nextUrl.clone();
-        url.pathname = "/superadmin/login";
+        url.pathname = pathname.replace("/superadmin", "/platform");
         return NextResponse.redirect(url);
     }
-    return NextResponse.next();
+    const url = request.nextUrl.clone();
+    url.pathname = pathname.replace(/^\/superadmin/, "/platform");
+    return NextResponse.redirect(url, 308);
 }
 
 function isTechnicalApiPublic(pathname: string): boolean {
@@ -239,6 +296,9 @@ export async function proxy(
         return NextResponse.rewrite(url);
     }
 
+    const platformRes = await handlePlatformBranch(request, pathname, options);
+    if (platformRes) return platformRes;
+
     const superRes = handleSuperadminBranch(request, pathname);
     if (superRes) return superRes;
 
@@ -270,6 +330,23 @@ export async function proxy(
         const url = request.nextUrl.clone();
         url.pathname = "/login";
         return NextResponse.redirect(url);
+    }
+
+    // Impersonação platform: somente leitura no tenant (bloqueia mutações)
+    if (
+        request.cookies.get(PLATFORM_IMPERSONATION_COOKIE)?.value &&
+        isMutatingHttpMethod(request.method) &&
+        isTenantMutationPath(pathname)
+    ) {
+        return NextResponse.json(
+            {
+                error: {
+                    code: "impersonation_read_only",
+                    message: "Modo suporte é somente leitura. Mutações bloqueadas.",
+                },
+            },
+            { status: 403 }
+        );
     }
 
     // ── Checks para usuários logados (somente rotas de painel, não API) ──

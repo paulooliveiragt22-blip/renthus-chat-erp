@@ -36,6 +36,7 @@
     "lib/products/**/*.ts",
     "lib/public-menu/**/*.ts",
     "lib/security/**/*.ts",
+    "lib/platform/**/*.ts",
     "lib/agent/**/*.ts",
     "lib/delivery/**/*.ts",
     "lib/print/**/*.ts",

@@ -27,6 +27,12 @@ if (missing.length) {
     process.exit(1);
 }
 
+if (!process.env.PLATFORM_ADMIN_IP_ALLOWLIST?.trim()) {
+    console.warn(
+        "[check-production-env] Aviso: PLATFORM_ADMIN_IP_ALLOWLIST ausente — /platform bloqueado em produção."
+    );
+}
+
 const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
 const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 if (!upstashUrl || !upstashToken) {
