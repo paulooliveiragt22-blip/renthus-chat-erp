@@ -640,7 +640,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
             )}
 
             <footer className={`${shell} pb-10 pt-2 text-center text-[11px] text-zinc-400 sm:text-xs`}>
-                Powered by Lysthub
+                Powered by RenthusAgent
             </footer>
         </div>
     );

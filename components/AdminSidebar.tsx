@@ -152,8 +152,8 @@ export default function AdminSidebar({
         collapsed ? "justify-center px-0" : "gap-3 px-5",
       ].join(" ")}>
         <img
-          src="/brand/lysthub-mark-dark.svg"
-          alt={collapsed ? "Lysthub" : ""}
+          src="/brand/renthus-mark-on-dark.svg"
+          alt={collapsed ? "RenthusAgent" : ""}
           width={36}
           height={36}
           className="h-9 w-9 shrink-0 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.3)]"
@@ -161,7 +161,7 @@ export default function AdminSidebar({
 
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold tracking-wide">Lysthub</div>
+            <div className="truncate text-sm font-semibold tracking-wide">RenthusAgent</div>
             <div className="text-[10px] font-medium text-white/50">Painel Administrativo</div>
           </div>
         )}

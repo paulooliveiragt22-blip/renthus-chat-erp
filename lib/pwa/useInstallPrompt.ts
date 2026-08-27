@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -21,7 +21,7 @@ if (typeof window !== "undefined") {
     window.addEventListener("beforeinstallprompt", (e: Event) => {
         e.preventDefault();
         capturedPrompt = e as BeforeInstallPromptEvent;
-        window.dispatchEvent(new Event("lysthub:beforeinstallprompt"));
+        window.dispatchEvent(new Event("renthusagent:beforeinstallprompt"));
     });
     window.addEventListener("appinstalled", () => {
         capturedPrompt = null;
@@ -65,10 +65,10 @@ export function useInstallPrompt() {
             setDeferredEvent(null);
             setIsStandalone(true);
         }
-        window.addEventListener("lysthub:beforeinstallprompt", onCaptured);
+        window.addEventListener("renthusagent:beforeinstallprompt", onCaptured);
         window.addEventListener("appinstalled", onAppInstalled);
         return () => {
-            window.removeEventListener("lysthub:beforeinstallprompt", onCaptured);
+            window.removeEventListener("renthusagent:beforeinstallprompt", onCaptured);
             window.removeEventListener("appinstalled", onAppInstalled);
         };
     }, []);

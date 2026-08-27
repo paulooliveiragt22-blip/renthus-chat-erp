@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -48,7 +48,7 @@ export default function PlatformUsuariosPage() {
                     Usuários platform
                 </h1>
                 <p className="text-xs text-zinc-500">
-                    Operadores Renthus/Lysthub. Convite por e-mail (Supabase Auth) +{" "}
+                    Operadores RenthusAgent. Convite por e-mail (Supabase Auth) +{" "}
                     <code className="font-mono">platform_users</code>.
                 </p>
             </div>

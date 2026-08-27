@@ -6,13 +6,13 @@ import ThemeProvider from "@/components/ThemeProvider";
 import { Providers } from "@/components/Providers";
 
 export const metadata = {
-  title: "Lysthub",
-  description: "Painel de gestão Lysthub — pedidos, estoque e atendimento.",
+  title: "RenthusAgent",
+  description: "Painel de gestão RenthusAgent — pedidos, estoque e atendimento.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Lysthub",
+    title: "RenthusAgent",
   },
   icons: {
     apple: "/icons/apple-touch-icon.png",

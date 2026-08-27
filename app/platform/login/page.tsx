@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -75,7 +75,7 @@ export default function PlatformLoginPage() {
                         <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
                             Platform Admin
                         </h1>
-                        <p className="text-xs text-zinc-400">Renthus / Lysthub — acesso restrito</p>
+                        <p className="text-xs text-zinc-400">RenthusAgent — acesso restrito</p>
                     </div>
 
                     <form onSubmit={handleSubmit} className="space-y-4">

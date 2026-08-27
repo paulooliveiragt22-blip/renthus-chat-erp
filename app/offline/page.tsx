@@ -1,9 +1,9 @@
-// app/offline/page.tsx
+﻿// app/offline/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Sem conexão — Lysthub",
+  title: "Sem conexão — RenthusAgent",
 };
 
 export default function OfflinePage() {

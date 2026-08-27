@@ -178,10 +178,10 @@ export default function HeaderClient({
                         <Menu size={18} />
                     </button>
                 )}
-                <a href="/" aria-label="Lysthub" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                <a href="/" aria-label="RenthusAgent" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
                     <img
-                        src="/brand/lysthub-wordmark-dark.svg"
-                        alt="Lysthub"
+                        src="/brand/renthus-wordmark-on-light.svg"
+                        alt="RenthusAgent"
                         style={{
                             height: 28,
                             width: "auto",
@@ -195,7 +195,7 @@ export default function HeaderClient({
             {/* direita: empresa + fullscreen + avatar */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
-                    {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "Lysthub"}
+                    {loadingWorkspace ? "Carregando..." : currentCompany?.name ?? "RenthusAgent"}
                 </div>
 
                 {/* Instalar app (PWA) — some só quando já está em modo standalone */}
@@ -247,7 +247,7 @@ export default function HeaderClient({
                                 ) : (
                                     <>
                                         No Chrome, abra o menu <b>⋮</b> (canto superior direito) e escolha{" "}
-                                        <b>Instalar Lysthub</b>. Se a opção não aparecer, feche o Chrome por
+                                        <b>Instalar RenthusAgent</b>. Se a opção não aparecer, feche o Chrome por
                                         completo e abra o site de novo.
                                     </>
                                 )}
@@ -320,7 +320,7 @@ export default function HeaderClient({
                     }}
                 >
                     <div style={{ padding: "8px 12px", borderBottom: "1px solid #eee" }}>
-                        <div style={{ fontWeight: 900 }}>{currentCompany?.name ?? "Lysthub"}</div>
+                        <div style={{ fontWeight: 900 }}>{currentCompany?.name ?? "RenthusAgent"}</div>
                         <div style={{ color: "#666", fontSize: 12 }}>Empresa</div>
                     </div>
 

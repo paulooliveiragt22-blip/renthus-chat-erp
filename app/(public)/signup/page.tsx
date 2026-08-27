@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * app/(public)/signup/page.tsx  →  rota: /signup
@@ -185,8 +185,8 @@ export default function SignupPage() {
         <div style={S.page}>
             <div style={{ marginBottom: 36 }}>
                 <img
-                    src="/brand/lysthub-wordmark-dark.svg"
-                    alt="Lysthub"
+                    src="/brand/renthus-wordmark-on-light.svg"
+                    alt="RenthusAgent"
                     width={194}
                     height={28}
                     style={{ height: 32, width: "auto", display: "block" }}
@@ -362,7 +362,7 @@ export default function SignupPage() {
                 </form>
             )}
 
-            <p style={S.footer}>© {new Date().getFullYear()} Lysthub · Todos os direitos reservados</p>
+            <p style={S.footer}>© {new Date().getFullYear()} RenthusAgent · Todos os direitos reservados</p>
         </div>
     );
 }

@@ -130,8 +130,8 @@ export default function LoginPage() {
                 boxShadow:    "0 8px 32px rgba(0,0,0,0.08)",
             }}>
                 <img
-                    src="/brand/lysthub-wordmark-light.svg"
-                    alt="Lysthub"
+                    src="/brand/renthus-wordmark-on-light.svg"
+                    alt="RenthusAgent"
                     width={194}
                     height={28}
                     style={{ height: 28, width: "auto", display: "block", marginBottom: 20 }}
@@ -140,7 +140,7 @@ export default function LoginPage() {
                     Entrar na sua conta
                 </h1>
                 <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 24px" }}>
-                    Acesse o painel Lysthub
+                    Acesse o painel RenthusAgent
                 </p>
 
                 {msg && (

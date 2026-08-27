@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -20,7 +20,7 @@ export type PlanFeaturesData = {
 };
 
 function storageKey(companyId: string): string {
-    return `lysthub.planFeatures.v1.${companyId}`;
+    return `renthusagent.planFeatures.v1.${companyId}`;
 }
 
 function readSessionCache(companyId: string): PlanFeaturesData | undefined {

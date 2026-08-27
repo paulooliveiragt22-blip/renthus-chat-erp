@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+﻿import { headers } from "next/headers";
 import Link from "next/link";
 import { ShieldOff } from "lucide-react";
 import { collectClientIpCandidates } from "@/lib/platform/checkPlatformIpAllowlist";
@@ -20,7 +20,7 @@ export default async function PlatformForbiddenPage() {
                 </h1>
                 <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                     O console de plataforma só aceita conexões de IPs previamente
-                    liberados. Se você faz parte da operação Renthus/Lysthub, use a
+                    liberados. Se você faz parte da operação RenthusAgent, use a
                     rede ou VPN cadastrada — ou peça a um superadmin para incluir o
                     IP desta conexão.
                 </p>
