@@ -18,6 +18,8 @@ const FEATURE_HINTS: Record<string, string> = {
     financeiro_full: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
     pdv: "Disponível no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
     pdv_basic: "Disponível nos planos Essencial, Pro ou Market.",
+    whatsapp_templates_broadcast:
+        "Templates WhatsApp e campanhas disponíveis no plano Pro ou Market. Faça upgrade em Configurações → Plano.",
 };
 
 /** True se a empresa tem ao menos uma das features. */

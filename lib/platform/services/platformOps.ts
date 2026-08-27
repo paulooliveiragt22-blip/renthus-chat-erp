@@ -1,10 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-    encryptWaAccessToken,
     sanitizeWhatsappChannelForClient,
-    stripProviderMetadataSecrets,
 } from "@/lib/whatsapp/channelCredentials";
 import { invalidateWaConfig } from "@/lib/whatsapp/waConfigCache";
+import { upsertWhatsappChannelCredentials } from "@/lib/channels/upsertWhatsappChannelCredentials";
 import { recordPlatformAudit } from "@/lib/platform/audit/recordPlatformAudit";
 import type { PlatformActor } from "@/lib/platform/requirePlatformAccess";
 import {
@@ -1151,58 +1150,21 @@ export async function createChannel(
         whatsapp_phone?: string;
     }
 ) {
-    const phone_number_id = data.phone_number_id.trim();
-    const access_token = data.access_token.trim();
-    const waba_id = data.waba_id?.trim() || null;
-
-    if (!phone_number_id || !access_token) {
-        throw new Error("Phone Number ID e Access Token são obrigatórios.");
-    }
-
-    const enc = encryptWaAccessToken(access_token);
-    const provider_metadata = enc ? {} : { access_token, ...(waba_id ? { waba_id } : {}) };
-
-    const { data: inserted, error: chErr } = await admin
-        .from("whatsapp_channels")
-        .insert({
-            company_id: companyId,
-            provider: "meta",
-            status: "active",
-            from_identifier: phone_number_id,
-            encrypted_access_token: enc,
-            waba_id,
-            provider_metadata,
-        })
-        .select("id")
-        .single();
-
-    if (chErr) throw new Error(chErr.message);
-
-    const actorLabel = `platform:${audit.actor.id}`;
-    if (inserted?.id) {
-        await admin.from("whatsapp_channel_credential_audit").insert({
-            channel_id: inserted.id,
-            company_id: companyId,
-            action: "create_channel",
-            actor: actorLabel,
-        });
-    }
-
-    invalidateWaConfig(companyId);
-
-    if (data.whatsapp_phone) {
-        await admin
-            .from("companies")
-            .update({ whatsapp_phone: data.whatsapp_phone, updated_at: new Date().toISOString() })
-            .eq("id", companyId);
-    }
+    const result = await upsertWhatsappChannelCredentials(admin, {
+        companyId,
+        phoneNumberId: data.phone_number_id,
+        accessToken: data.access_token,
+        wabaId: data.waba_id,
+        whatsappPhone: data.whatsapp_phone,
+        actor: { kind: "platform", userId: audit.actor.id },
+    });
 
     await recordPlatformAudit({
         admin,
         actor: audit.actor,
         action: "platform.channel.created",
         resourceType: "channel",
-        resourceId: inserted?.id,
+        resourceId: result.channel.id,
         companyId,
         requestId: audit.requestId,
         ipAddress: audit.ipAddress,
@@ -1222,64 +1184,32 @@ export async function updateChannelCredentials(
 ) {
     const { data: ch, error: loadErr } = await admin
         .from("whatsapp_channels")
-        .select("company_id, provider_metadata, encrypted_access_token")
+        .select("company_id, from_identifier")
         .eq("id", channelId)
         .single();
 
     if (loadErr || !ch) throw new Error(loadErr?.message ?? "Canal não encontrado");
 
     const companyId = ch.company_id as string;
-    const updates: Record<string, unknown> = {};
+    const phoneNumberId =
+        data.phone_number_id?.trim() || String(ch.from_identifier ?? "").trim();
+    if (!phoneNumberId) throw new Error("Phone Number ID é obrigatório.");
 
-    if (data.phone_number_id?.trim()) {
-        updates.from_identifier = data.phone_number_id.trim();
-    }
-
-    const tokenIn = data.access_token?.trim() ?? "";
-    const metaNeedsTouch = Boolean(tokenIn) || data.waba_id !== undefined;
-
-    if (metaNeedsTouch) {
-        const current = (ch.provider_metadata as Record<string, unknown>) ?? {};
-        const cleaned = stripProviderMetadataSecrets(current);
-
-        if (tokenIn) {
-            const enc = encryptWaAccessToken(tokenIn);
-            if (enc) {
-                updates.encrypted_access_token = enc;
-                updates.provider_metadata = cleaned;
-            } else {
-                updates.encrypted_access_token = null;
-                updates.provider_metadata = { ...cleaned, access_token: tokenIn };
-            }
-        } else {
-            updates.provider_metadata = cleaned;
-        }
-    }
-
-    if (data.waba_id !== undefined) {
-        updates.waba_id = data.waba_id.trim() || null;
-    }
-
-    if (Object.keys(updates).length === 0) return;
-
-    const { error } = await admin.from("whatsapp_channels").update(updates).eq("id", channelId);
-    if (error) throw new Error(error.message);
-
-    await admin.from("whatsapp_channel_credential_audit").insert({
-        channel_id: channelId,
-        company_id: companyId,
-        action: "update_credentials",
-        actor: `platform:${audit.actor.id}`,
+    const result = await upsertWhatsappChannelCredentials(admin, {
+        companyId,
+        channelId,
+        phoneNumberId,
+        accessToken: data.access_token,
+        wabaId: data.waba_id,
+        actor: { kind: "platform", userId: audit.actor.id },
     });
-
-    invalidateWaConfig(companyId);
 
     await recordPlatformAudit({
         admin,
         actor: audit.actor,
         action: "platform.channel.credentials_updated",
         resourceType: "channel",
-        resourceId: channelId,
+        resourceId: result.channel.id,
         companyId,
         requestId: audit.requestId,
         ipAddress: audit.ipAddress,

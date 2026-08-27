@@ -31,13 +31,14 @@ import {
     CircleDollarSign,
     CalendarClock,
     BookOpen,
+    Radio,
 } from "lucide-react";
 import MenuCardapioSettings from "@/components/menu/MenuCardapioSettings";
 import MenuAnalyticsPanel from "@/components/menu/MenuAnalyticsPanel";
 import MarketplaceIfoodSettings from "@/components/menu/MarketplaceIfoodSettings";
 import MarketplaceAiqfomeSettings from "@/components/menu/MarketplaceAiqfomeSettings";
-import MetaMessagingSettings from "@/components/menu/MetaMessagingSettings";
 import MarketPlanGate from "@/components/menu/MarketPlanGate";
+import ChannelsSettings from "@/components/channels/ChannelsSettings";
 import ChatbotMessageTemplatesPanel from "@/components/menu/ChatbotMessageTemplatesPanel";
 import TeamMembersPanel from "@/components/settings/TeamMembersPanel";
 import StaffProfilesPanel from "@/components/settings/StaffProfilesPanel";
@@ -72,7 +73,7 @@ type DeliveryRuleUi = {
     is_active: boolean;
 };
 
-type Tab = "geral" | "delivery" | "taxas" | "cardapio" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
+type Tab = "geral" | "delivery" | "taxas" | "cardapio" | "canais" | "plano" | "formas_pagamento" | "seguranca" | "chatbot" | "pedidos";
 
 type BillingStatusJson = {
     ok?: boolean;
@@ -366,6 +367,9 @@ const TAB_QUERY_MAP: Record<string, Tab> = {
     taxa:               "taxas",
     cardapio:           "cardapio",
     menu:               "cardapio",
+    canais:             "canais",
+    channels:           "canais",
+    whatsapp_canais:    "canais",
     seguranca:          "seguranca",
     chatbot:            "chatbot",
     pedidos:            "pedidos",
@@ -1302,6 +1306,7 @@ function ConfiguracoesPageContent() {
         { id: "delivery",           label: "Delivery",              icon: Truck },
         { id: "taxas",              label: "Taxas",                 icon: Receipt },
         { id: "cardapio",           label: "Cardápio web",          icon: BookOpen },
+        { id: "canais",             label: "Canais",                icon: Radio },
         { id: "plano",              label: "Plano e pagamentos",    icon: CircleDollarSign },
         { id: "formas_pagamento",   label: "Pagamentos cliente",  icon: Wallet },
         { id: "seguranca",          label: "Segurança",             icon: Shield },
@@ -3171,13 +3176,6 @@ function ConfiguracoesPageContent() {
                                 <MarketplaceAiqfomeSettings />
                             </MarketPlanGate>
                             <MarketPlanGate
-                                featureKey="omnichannel_ig_messenger"
-                                title="Instagram e Messenger"
-                                description="Atendimento do chatbot também nas redes Meta."
-                            >
-                                <MetaMessagingSettings />
-                            </MarketPlanGate>
-                            <MarketPlanGate
                                 featureKey="table_service"
                                 title="Atendimento de mesa"
                                 description="Comandas e salão no mesmo sistema do delivery."
@@ -3199,6 +3197,13 @@ function ConfiguracoesPageContent() {
                                     </p>
                                 </div>
                             </MarketPlanGate>
+                        </div>
+                    )}
+
+                    {/* ── ABA: CANAIS ─────────────────────────────────────── */}
+                    {activeTab === "canais" && (
+                        <div className="flex flex-col gap-6">
+                            <ChannelsSettings />
                         </div>
                     )}
 

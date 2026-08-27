@@ -25,6 +25,7 @@ import {
   UtensilsCrossed,
   Wallet,
   X,
+  FileText,
 } from "lucide-react";
 import { usePlanFeatures } from "@/lib/billing/usePlanFeatures";
 
@@ -35,6 +36,7 @@ const adminMenu = [
   { label: "PDV / Balcão",  href: "/pdv",             icon: ShoppingCart, anyOf: ["pdv_basic", "pdv"] as const },
   { label: "Mesas",         href: "/mesa",            icon: UtensilsCrossed, feature: "table_service" },
   { label: "WhatsApp",      href: "/whatsapp",        icon: MessageCircle },
+  { label: "Templates WA",  href: "/templates",       icon: FileText, feature: "whatsapp_templates_broadcast" },
   { label: "Produtos",      href: "/produtos/lista",  icon: ShoppingBag },
   { label: "Clientes",      href: "/clientes",        icon: Users },
   { label: "Entregadores",  href: "/entregadores",    icon: Bike },

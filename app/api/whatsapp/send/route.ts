@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { checkLimit, requireFeature } from "@/lib/billing/entitlements";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
+import { sendTemplateMessage } from "@/lib/whatsapp-templates/sendTemplateMessage";
+import { hasFeature } from "@/lib/billing/entitlements";
 
 export const runtime = "nodejs";
 
@@ -16,6 +18,13 @@ type Body =
           kind: "image" | "video" | "audio" | "document";
           media_url: string;
           caption?: string;
+      }
+    | {
+          to_phone_e164: string;
+          kind: "template";
+          template_name: string;
+          template_language?: string;
+          template_body_params?: string[];
       };
 
 function normalizeE164(phone: string) {
@@ -84,6 +93,11 @@ export async function POST(req: Request) {
         if (kind === "text") {
             const text = ((payload as any).text ?? "").trim();
             if (!text) return NextResponse.json({ error: "text is required" }, { status: 400 });
+        } else if (kind === "template") {
+            const templateName = String((payload as any).template_name ?? "").trim();
+            if (!templateName) {
+                return NextResponse.json({ error: "template_name is required" }, { status: 400 });
+            }
         } else {
             const mediaUrl = (payload as any).media_url;
             if (!mediaUrl) return NextResponse.json({ error: "media_url is required for media messages" }, { status: 400 });
@@ -98,6 +112,20 @@ export async function POST(req: Request) {
             await requireFeature(admin, companyId, "whatsapp_messages");
         } catch (e: any) {
             return NextResponse.json({ error: e?.message ?? "Feature not enabled" }, { status: 403 });
+        }
+
+        if (kind === "template") {
+            const allowed = await hasFeature(admin, companyId, "whatsapp_templates_broadcast");
+            if (!allowed) {
+                return NextResponse.json(
+                    {
+                        error: "plan_feature_required",
+                        feature: "whatsapp_templates_broadcast",
+                        hint: "Templates disponíveis no plano Pro ou Market.",
+                    },
+                    { status: 403 }
+                );
+            }
         }
 
         // 1) Atomic check & reserve (RPC)
@@ -140,8 +168,12 @@ export async function POST(req: Request) {
                 provider_message_id: null,
                 from_addr: fromPlaceholder || "whatsapp",
                 to_addr: toPhone,
-                body: kind === "text" ? (payload as any).text ?? "" : (payload as any).caption ?? null,
-                num_media: kind === "text" ? 0 : 1,
+                body: kind === "text"
+                    ? (payload as any).text ?? ""
+                    : kind === "template"
+                      ? `[template:${(payload as any).template_name}]`
+                      : (payload as any).caption ?? null,
+                num_media: kind === "text" || kind === "template" ? 0 : 1,
                 status: "pending",
                 raw_payload: null,
             })
@@ -197,6 +229,53 @@ export async function POST(req: Request) {
                     type: "text",
                     text: { body: text },
                 };
+            } else if (kind === "template") {
+                const templateName = String((payload as any).template_name ?? "").trim();
+                const language = String((payload as any).template_language ?? "pt_BR").trim() || "pt_BR";
+                const bodyParams = Array.isArray((payload as any).template_body_params)
+                    ? ((payload as any).template_body_params as unknown[]).map((v) => String(v))
+                    : [];
+                const sendRes = await sendTemplateMessage({
+                    toE164: toPhone,
+                    templateName,
+                    languageCode: language,
+                    bodyParameters: bodyParams.length ? bodyParams : undefined,
+                    config: {
+                        phoneNumberId: String(phoneNumberId),
+                        accessToken: token,
+                    },
+                });
+                if (!sendRes.ok) throw new Error("meta_send_failed: " + (sendRes.error ?? "template"));
+                providerMessageId = sendRes.messageId ?? null;
+                fromAddr = String(channel.from_identifier ?? `whatsapp:${phoneNumberId}`);
+                toAddr = toPhone;
+
+                await admin
+                    .from("whatsapp_messages")
+                    .update({
+                        provider,
+                        provider_message_id: providerMessageId,
+                        from_addr: fromAddr,
+                        to_addr: toAddr,
+                        status: "sent",
+                        raw_payload: {
+                            provider,
+                            provider_message_id: providerMessageId,
+                            template: templateName,
+                            sent_at: new Date().toISOString(),
+                        },
+                    })
+                    .eq("id", messageId);
+
+                await admin
+                    .from("whatsapp_threads")
+                    .update({
+                        last_message_at: new Date().toISOString(),
+                        last_message_preview: `[template:${templateName}]`.slice(0, 120),
+                    })
+                    .eq("id", threadId);
+
+                return NextResponse.json({ ok: true, provider, provider_message_id: providerMessageId, usage });
             } else if (kind === "image") {
                 bodyPayload = {
                     messaging_product: "whatsapp",

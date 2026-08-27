@@ -113,9 +113,14 @@ export type PublicWhatsappChannel = {
     waba_id:             string;
     created_at?:         string;
     hasAccessToken:      boolean;
+    provisioning_mode?:  string;
+    credential_source?:  string | null;
+    last_health_at?:     string | null;
+    last_health_ok?:     boolean | null;
+    last_health_error?:  string | null;
 };
 
-/** Remove segredos antes de enviar ao cliente (superadmin UI). */
+/** Remove segredos antes de enviar ao cliente (platform / tenant UI). */
 export function sanitizeWhatsappChannelForClient(row: {
     id: string;
     company_id?: string;
@@ -125,6 +130,11 @@ export function sanitizeWhatsappChannelForClient(row: {
     encrypted_access_token?: string | null;
     waba_id?: string | null;
     created_at?: string;
+    provisioning_mode?: string | null;
+    credential_source?: string | null;
+    last_health_at?: string | null;
+    last_health_ok?: boolean | null;
+    last_health_error?: string | null;
 }): PublicWhatsappChannel {
     const pm = (row.provider_metadata ?? {}) as Record<string, unknown>;
     const hasAccessToken = Boolean(row.encrypted_access_token?.trim())
@@ -140,5 +150,10 @@ export function sanitizeWhatsappChannelForClient(row: {
         waba_id:           wabaCol || wabaMeta,
         created_at:        row.created_at,
         hasAccessToken,
+        provisioning_mode: row.provisioning_mode ?? undefined,
+        credential_source: row.credential_source ?? null,
+        last_health_at: row.last_health_at ?? null,
+        last_health_ok: row.last_health_ok ?? null,
+        last_health_error: row.last_health_error ?? null,
     };
 }

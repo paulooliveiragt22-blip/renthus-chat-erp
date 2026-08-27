@@ -65,29 +65,32 @@ export type MetaGraphPostResult = {
     json: Record<string, unknown>;
 };
 
-/** POST JSON ao Graph API com throttle + retry 429. */
-export async function metaGraphPostJson(
-    phoneNumberId: string,
+async function metaGraphFetchJson(
+    throttleKey: string,
     url: string,
     init: {
+        method: "GET" | "POST";
         accessToken: string;
-        body: unknown;
+        body?: unknown;
     }
 ): Promise<MetaGraphPostResult> {
-    await throttlePhone(phoneNumberId);
+    await throttlePhone(throttleKey);
 
     const retries = maxRetries();
     let lastStatus = 0;
     let lastJson: Record<string, unknown> = {};
 
     for (let attempt = 0; attempt <= retries; attempt++) {
+        const headers: Record<string, string> = {
+            Authorization: `Bearer ${init.accessToken}`,
+        };
+        if (init.method === "POST") {
+            headers["Content-Type"] = "application/json";
+        }
         const res = await fetch(url, {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${init.accessToken}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(init.body),
+            method: init.method,
+            headers,
+            body: init.method === "POST" ? JSON.stringify(init.body ?? {}) : undefined,
         });
         lastStatus = res.status;
         lastJson = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -98,13 +101,41 @@ export async function metaGraphPostJson(
 
         const wait = retryWaitMs(res, attempt);
         console.warn("[meta-graph] 429 backoff", {
-            phoneNumberId,
+            phoneNumberId: throttleKey,
             attempt,
             waitMs: wait,
         });
         await sleep(wait);
-        await throttlePhone(phoneNumberId);
+        await throttlePhone(throttleKey);
     }
 
     return { ok: false, status: lastStatus, json: lastJson };
+}
+
+/** POST JSON ao Graph API com throttle + retry 429. */
+export async function metaGraphPostJson(
+    phoneNumberId: string,
+    url: string,
+    init: {
+        accessToken: string;
+        body: unknown;
+    }
+): Promise<MetaGraphPostResult> {
+    return metaGraphFetchJson(phoneNumberId, url, {
+        method: "POST",
+        accessToken: init.accessToken,
+        body: init.body,
+    });
+}
+
+/** GET JSON ao Graph API com throttle + retry 429. */
+export async function metaGraphGetJson(
+    throttleKey: string,
+    url: string,
+    init: { accessToken: string }
+): Promise<MetaGraphPostResult> {
+    return metaGraphFetchJson(throttleKey, url, {
+        method: "GET",
+        accessToken: init.accessToken,
+    });
 }

@@ -1237,6 +1237,18 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                 </div>
 
                 {/* composer */}
+                {selectedThread &&
+                    String(selectedThread.channel ?? "whatsapp").toLowerCase() === "whatsapp" && (
+                    <TemplateQuickSend
+                        disabled={!selectedThread.phone_e164}
+                        phoneE164={selectedThread.phone_e164}
+                        onSent={async () => {
+                            if (!selectedThreadId) return;
+                            await loadMessages(selectedThreadId);
+                            await loadThreads(selectedThreadId);
+                        }}
+                    />
+                )}
                 <MessageComposer
                     disabled={!selectedThread}
                     threadId={selectedThreadId}
@@ -1664,6 +1676,165 @@ function CustomerProfileSidebar({
                 )}
             </div>
         </aside>
+    );
+}
+
+// ─── TemplateQuickSend ────────────────────────────────────────────────────────
+
+function TemplateQuickSend({
+    disabled,
+    phoneE164,
+    onSent,
+}: {
+    disabled: boolean;
+    phoneE164: string | null;
+    onSent: () => Promise<void>;
+}) {
+    const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [templates, setTemplates] = useState<
+        Array<{ id: string; name: string; language: string; status: string }>
+    >([]);
+    const [selected, setSelected] = useState("");
+    const [param1, setParam1] = useState("");
+    const [param2, setParam2] = useState("");
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        let cancelled = false;
+        setLoading(true);
+        setErr(null);
+        void fetch("/api/admin/whatsapp-templates", { credentials: "include", cache: "no-store" })
+            .then(async (res) => {
+                const json = (await res.json().catch(() => ({}))) as {
+                    templates?: Array<{ id: string; name: string; language: string; status: string }>;
+                    error?: string;
+                    hint?: string;
+                };
+                if (cancelled) return;
+                if (!res.ok) {
+                    setErr(json.hint || json.error || "Templates indisponíveis neste plano.");
+                    setTemplates([]);
+                    return;
+                }
+                const approved = (json.templates ?? []).filter((t) => t.status === "APPROVED");
+                setTemplates(approved);
+                if (approved[0]) setSelected(`${approved[0].name}::${approved[0].language}`);
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open]);
+
+    async function send() {
+        if (!phoneE164 || !selected) return;
+        const [name, language] = selected.split("::");
+        setSending(true);
+        setErr(null);
+        try {
+            const params = [param1, param2].map((p) => p.trim()).filter(Boolean);
+            const res = await fetch("/api/whatsapp/send", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    to_phone_e164: phoneE164,
+                    kind: "template",
+                    template_name: name,
+                    template_language: language || "pt_BR",
+                    template_body_params: params.length ? params : undefined,
+                }),
+            });
+            const json = (await res.json().catch(() => ({}))) as { error?: string; hint?: string };
+            if (!res.ok) {
+                setErr(json.hint || json.error || "Falha ao enviar template.");
+                return;
+            }
+            setOpen(false);
+            await onSent();
+        } finally {
+            setSending(false);
+        }
+    }
+
+    return (
+        <div className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+            {!open ? (
+                <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setOpen(true)}
+                    className="text-xs font-medium text-violet-600 hover:underline disabled:opacity-40 dark:text-violet-400"
+                >
+                    Enviar template (HSM)
+                </button>
+            ) : (
+                <div className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-900">
+                    {loading ? (
+                        <p className="text-xs text-zinc-500">Carregando templates…</p>
+                    ) : templates.length === 0 ? (
+                        <p className="text-xs text-zinc-500">
+                            Nenhum template APPROVED. Crie em{" "}
+                            <a href="/templates" className="underline">
+                                Templates WA
+                            </a>
+                            .
+                        </p>
+                    ) : (
+                        <>
+                            <select
+                                className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                                value={selected}
+                                onChange={(e) => setSelected(e.target.value)}
+                            >
+                                {templates.map((t) => (
+                                    <option key={t.id} value={`${t.name}::${t.language}`}>
+                                        {t.name} ({t.language})
+                                    </option>
+                                ))}
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                                <input
+                                    className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                                    placeholder="{{1}}"
+                                    value={param1}
+                                    onChange={(e) => setParam1(e.target.value)}
+                                />
+                                <input
+                                    className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                                    placeholder="{{2}}"
+                                    value={param2}
+                                    onChange={(e) => setParam2(e.target.value)}
+                                />
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    disabled={sending || !selected}
+                                    onClick={() => void send()}
+                                    className="rounded-md bg-violet-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+                                >
+                                    {sending ? "Enviando…" : "Enviar template"}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setOpen(false)}
+                                    className="rounded-md px-2.5 py-1 text-xs text-zinc-600"
+                                >
+                                    Cancelar
+                                </button>
+                            </div>
+                        </>
+                    )}
+                    {err && <p className="text-xs text-red-600">{err}</p>}
+                </div>
+            )}
+        </div>
     );
 }
 
