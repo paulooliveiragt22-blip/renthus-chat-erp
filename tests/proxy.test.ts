@@ -59,6 +59,7 @@ describe("proxy auth routing", () => {
             "/api/chatbot/outbound-worker",
             "/api/billing/charge",
             "/api/platform/alerts/check",
+            "/api/platform/audit/archive",
         ];
 
         for (const path of paths) {

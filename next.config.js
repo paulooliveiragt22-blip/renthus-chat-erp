@@ -87,6 +87,20 @@ const nextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: "/superadmin",
+        destination: "/platform",
+        permanent: true,
+      },
+      {
+        source: "/superadmin/:path*",
+        destination: "/platform/:path*",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 module.exports = withSentryConfig(withPWA(nextConfig), {

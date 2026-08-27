@@ -23,6 +23,10 @@
         {
             "path": "/api/platform/alerts/check",
             "schedule": "*/5 * * * *"
+        },
+        {
+            "path": "/api/platform/audit/archive",
+            "schedule": "0 5 1 * *"
         }
     ]
 }

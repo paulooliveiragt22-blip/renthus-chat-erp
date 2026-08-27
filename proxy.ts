@@ -147,8 +147,11 @@ async function handlePlatformBranch(
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    // Cron de alertas: auth própria via CRON_SECRET (não passa por IP allowlist de ops)
-    if (pathname === "/api/platform/alerts/check") {
+    // Cron de alertas / archive: auth própria via CRON_SECRET (não passa por IP allowlist de ops)
+    if (
+        pathname === "/api/platform/alerts/check" ||
+        pathname === "/api/platform/audit/archive"
+    ) {
         return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
@@ -242,6 +245,7 @@ function isTechnicalApiPublic(pathname: string): boolean {
          */
         pathname.startsWith("/api/billing/charge") ||
         pathname.startsWith("/api/platform/alerts/check") ||
+        pathname.startsWith("/api/platform/audit/archive") ||
         pathname.startsWith("/api/print/") ||
         pathname.startsWith("/api/billing/webhook") ||
         pathname === "/api/billing/signup" ||

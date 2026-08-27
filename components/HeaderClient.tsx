@@ -132,7 +132,8 @@ export default function HeaderClient({
         pathname.startsWith("/onboarding") ||
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
-        pathname.startsWith("/superadmin")
+        pathname.startsWith("/superadmin") ||
+        pathname.startsWith("/platform")
     ) return null;
     if (sessionExists === false) return null;
     if (sessionExists === null) {

@@ -45,7 +45,7 @@ Referência MFA Supabase: TOTP enroll/challenge/verify; JWT claim `aal: aal2` ap
 | **P0** | Schema platform + auth + guard + IP + MFA + audit + migrar empresas/canais | [x] 2026-08-27 |
 | **P1** | Billing platform, observabilidade, impersonação read-only, prod (path /platform) | [x] 2026-08-27 |
 | **P2** | Feature flags, alertas, export audit, retenção/arquivo, convites platform | [ ] |
-| **P3** | Remover legado superadmin + docs + env vars obsoletas | [ ] |
+| **P3** | Remover legado superadmin + docs + env vars obsoletas | [x] 2026-08-27 |
 
 ---
 
@@ -456,7 +456,8 @@ Painéis: health estendido, fila chatbot, PRO pipeline (RPC existente), trials e
 - Cron `platform-audit-archive` → Storage bucket privado
 - DELETE hot rows > 24 meses pós-arquivo
 
-**Estado:** [~] 2026-08-27 — export CSV em `/api/platform/audit/export`; retenção/arquivo pendente
+**Estado:** [x] 2026-08-27 — export CSV; bucket `platform-audit-archive` (privado);
+`/api/platform/audit/archive` (mensal) + `rpc_platform_delete_audit_by_ids`
 
 ---
 
@@ -511,7 +512,8 @@ suspend RPC desativa canais WA (metadata `suspended_by_platform`)
 
 `next.config.js`: `/superadmin/:path*` → `/platform/:path*` 308 (1 release cycle, depois remover)
 
-**Estado:** [ ]
+**Estado:** [x] 2026-08-27 — removidos `app/superadmin/**`, `app/api/superadmin/**`, `lib/superadmin/**`,
+`components/superadmin/**`; redirects em `next.config.js` + `proxy.ts` mantidos 1 ciclo
 
 ---
 
@@ -680,3 +682,4 @@ components/superadmin/SuperAdminSidebar.tsx
 | 2026-08-27 | P1: billing RPCs/UI, observabilidade, impersonação read-only; host Lysthub adiado (path /platform) |
 | 2026-08-27 | P2.1 feature flags + P2.3 convites UI; forbidden page amigável; IP allowlist prod OK |
 | 2026-08-27 | P2.4 alertas operacionais + gate WA empresa suspensa + suspend desativa canais |
+| 2026-08-27 | P2.2 audit archive (bucket privado + cron mensal); P3 remove legado /superadmin |
