@@ -153,12 +153,16 @@ export function usePlanFeatures(): {
 
     const featureList = data?.features ?? [];
     const featureSet = new Set(featureList);
-    // Sem dado em cache: espera. Com cache: nunca bloqueia a UI no spinner.
+    /**
+     * Enquanto o workspace resolve `companyId` OU o fetch de features ainda não
+     * trouxe dado, a UI deve tratar como "loading" (fail-open no menu).
+     * Bug antigo: `loading` era false quando `currentCompanyId` ainda era null,
+     * então o sidebar filtrava com Set vazio e as abas gated só apareciam depois
+     * (parecia "demora pra carregar todas as abas").
+     */
     const loading =
-        Boolean(currentCompanyId) &&
-        !data &&
-        (workspaceLoading || isPending) &&
-        !isError;
+        workspaceLoading ||
+        (Boolean(currentCompanyId) && !data && isPending && !isError);
 
     return {
         loading,

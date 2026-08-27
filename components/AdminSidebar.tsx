@@ -117,7 +117,8 @@ export default function AdminSidebar({
   const isDark = theme === "dark";
 
   const visibleMenu = useMemo(() => {
-    // Enquanto carrega features: mostra tudo (fail-open). Depois filtra por plano.
+    // Fail-open enquanto workspace/features resolvem — evita menu "manco"
+    // (abas gated sumindo e só aparecendo depois do /api/billing/features).
     if (featuresLoading) return adminMenu;
     return adminMenu.filter((item) => {
       const anyOf = "anyOf" in item ? item.anyOf : undefined;
