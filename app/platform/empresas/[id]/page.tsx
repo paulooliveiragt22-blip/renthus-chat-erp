@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
     ArrowLeft, Building2, CheckCircle2, Eye, Loader2, MessageSquare,
-    Pencil, Plus, Receipt, RefreshCcw, Save, Wifi, WifiOff, X,
+    Pencil, Plus, Receipt, RefreshCcw, Save, ShieldOff, ShieldCheck, Wifi, WifiOff, X,
 } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
 import { formatDistanceToNow } from "date-fns";
@@ -18,6 +18,18 @@ import { toast } from "sonner";
 function timeAgo(iso: string) {
     return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ptBR });
 }
+
+function fmtDateTime(iso: string | null | undefined) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
 function formatCurrency(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -246,6 +258,7 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
     const [showAddChannel, setShowAddChannel]     = useState(false);
     const [editingChannel, setEditingChannel]     = useState<any | null>(null);
     const [impersonating, setImpersonating] = useState(false);
+    const [accountBusy, setAccountBusy] = useState(false);
 
     const { data, isLoading, error, refetch, isFetching } = useQuery({
         queryKey: ["platform", "company", id],
@@ -353,11 +366,105 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                     <ArrowLeft className="h-4 w-4" />
                 </Link>
                 <div className="flex-1">
-                    <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
-                        {company.name ?? "(sem nome)"}
-                    </h1>
-                    <p className="text-xs text-zinc-400">{company.email ?? company.slug ?? "—"}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+                            {company.name ?? "(sem nome)"}
+                        </h1>
+                        <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                company.is_active
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                    : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            }`}
+                        >
+                            {company.is_active ? "Ativa" : "Suspensa"}
+                        </span>
+                    </div>
+                    <p className="text-xs text-zinc-400">
+                        {company.email ?? company.slug ?? "—"}
+                        {" · "}
+                        Cadastro {fmtDateTime(company.created_at)}
+                        {company.updated_at
+                            ? ` · Atualizado ${fmtDateTime(company.updated_at)}`
+                            : ""}
+                    </p>
                 </div>
+                {company.is_active ? (
+                    <button
+                        type="button"
+                        disabled={accountBusy}
+                        onClick={async () => {
+                            const reason = window.prompt(
+                                "Motivo da suspensão (obrigatório, mín. 3 chars):"
+                            );
+                            if (!reason || reason.trim().length < 3) {
+                                toast.error("Informe o motivo");
+                                return;
+                            }
+                            setAccountBusy(true);
+                            try {
+                                await platformApi.suspendCompany(id, reason.trim());
+                                toast.success("Empresa suspensa");
+                                queryClient.invalidateQueries({
+                                    queryKey: ["platform", "company", id],
+                                });
+                                queryClient.invalidateQueries({
+                                    queryKey: ["platform", "companies"],
+                                });
+                            } catch (e) {
+                                toast.error(
+                                    e instanceof Error ? e.message : "Falha ao suspender"
+                                );
+                            } finally {
+                                setAccountBusy(false);
+                            }
+                        }}
+                        className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-800 shadow-sm hover:bg-red-100 disabled:opacity-50 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+                    >
+                        <ShieldOff className="h-3.5 w-3.5" />
+                        Suspender
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        disabled={accountBusy}
+                        onClick={async () => {
+                            const reason = window.prompt(
+                                "Motivo da reativação (obrigatório, mín. 3 chars):"
+                            );
+                            if (!reason || reason.trim().length < 3) {
+                                toast.error("Informe o motivo");
+                                return;
+                            }
+                            setAccountBusy(true);
+                            try {
+                                await platformApi.reactivateCompany(
+                                    id,
+                                    reason.trim()
+                                );
+                                toast.success("Empresa reativada");
+                                queryClient.invalidateQueries({
+                                    queryKey: ["platform", "company", id],
+                                });
+                                queryClient.invalidateQueries({
+                                    queryKey: ["platform", "companies"],
+                                });
+                            } catch (e) {
+                                toast.error(
+                                    e instanceof Error
+                                        ? e.message
+                                        : "Falha ao reativar"
+                                );
+                            } finally {
+                                setAccountBusy(false);
+                            }
+                        }}
+                        className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 shadow-sm hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+                    >
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        Reativar
+                    </button>
+                )}
                 <button
                     type="button"
                     disabled={impersonating}
@@ -386,6 +493,7 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                     {impersonating ? "Entrando…" : "Entrar como suporte"}
                 </button>
                 <button
+                    type="button"
                     onClick={() => refetch()}
                     disabled={isFetching}
                     className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-500 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 disabled:opacity-50"
@@ -489,6 +597,8 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                                     ["Cidade",         company.cidade],
                                     ["CEP",            company.cep],
                                     ["Endereço",       company.endereco ? `${company.endereco}, ${company.numero ?? ""}` : null],
+                                    ["Cadastro",       company.created_at ? fmtDateTime(company.created_at) : null],
+                                    ["Atualizado",     company.updated_at ? fmtDateTime(company.updated_at) : null],
                                 ].map(([k, v]) => v ? (
                                     <div key={k as string} className="flex justify-between gap-2">
                                         <dt className="text-xs text-zinc-400">{k}</dt>

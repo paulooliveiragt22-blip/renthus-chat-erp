@@ -11,6 +11,7 @@ import {
     parseOrdersFilterFromSearchParams,
     type PlatformOrdersFilter,
 } from "@/lib/platform/ordersFilters";
+import { companiesOptionsQueryString } from "@/lib/platform/companiesFilters";
 import { useSearchParams } from "next/navigation";
 
 type QueueSortBy = "severity" | "failed15m" | "pendingNow";
@@ -50,7 +51,7 @@ export default function PlatformDashboard() {
 
     const { data: companiesData } = useQuery({
         queryKey: ["platform", "companies"],
-        queryFn: () => platformApi.companies(),
+        queryFn: () => platformApi.companies(companiesOptionsQueryString()),
         staleTime: 60_000,
     });
     const companies = useMemo(

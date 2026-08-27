@@ -138,7 +138,51 @@ export const platformApi = {
         platformFetch<{ satisfied: boolean; required: boolean; currentLevel: string | null }>(
             "/api/platform/auth/mfa/status"
         ),
-    companies: () => platformFetch<{ companies: unknown[] }>("/api/platform/companies"),
+    companies: (filterQuery = "") => {
+        const q = new URLSearchParams(
+            filterQuery || "date_preset=all&account=all&limit=200"
+        );
+        if (!q.has("date_preset")) q.set("date_preset", "all");
+        if (!q.has("limit")) q.set("limit", "200");
+        return platformFetch<{
+            companies: Array<{
+                id: string;
+                name: string | null;
+                slug?: string | null;
+                email?: string | null;
+                is_active?: boolean;
+                created_at?: string;
+                onboarding_completed_at?: string | null;
+                orderCount?: number;
+                lastOrderAt?: string | null;
+                channelCount?: number;
+                activeChannelCount?: number;
+                cidade?: string | null;
+                uf?: string | null;
+                cnpj?: string | null;
+                subscription?: {
+                    plan_id?: string;
+                    status?: string;
+                    plans?: { id?: string; name?: string; key?: string } | null;
+                } | null;
+            }>;
+            total: number;
+            page: number;
+            limit: number;
+            summary: {
+                total: number;
+                active: number;
+                suspended: number;
+                onboardingPending: number;
+                trial: number;
+                blocked: number;
+            };
+        }>(`/api/platform/companies?${q}`);
+    },
+    companiesExportUrl: (filterQuery = "") =>
+        `/api/platform/companies?${filterQuery}${
+            filterQuery ? "&" : ""
+        }export=csv&limit=200`,
     createCompany: (data: Record<string, unknown>) =>
         platformFetch<{ id: string }>("/api/platform/companies", {
             method: "POST",

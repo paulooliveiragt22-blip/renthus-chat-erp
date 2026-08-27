@@ -14,8 +14,13 @@ import {
     REVENUE_STATUSES_WHEN_ALL,
     type PlatformOrdersFilter,
 } from "@/lib/platform/ordersFilters";
+import {
+    companyCreatedAtBounds,
+    defaultCompaniesFilter,
+    type PlatformCompaniesFilter,
+} from "@/lib/platform/companiesFilters";
 
-export type { PlatformOrdersFilter };
+export type { PlatformOrdersFilter, PlatformCompaniesFilter };
 export type PlatformOpsAuditCtx = {
     actor: PlatformActor;
     requestId: string;
@@ -392,32 +397,230 @@ export async function getPlans(admin: SupabaseClient) {
     return data ?? [];
 }
 
-export async function getCompanies(admin: SupabaseClient) {
-    const { data, error } = await admin
-        .from("companies")
-        .select(`
-            id, name, slug, email, phone, cidade, created_at, onboarding_completed_at, is_active,
-            subscriptions ( plan_id, status, plans ( name ) )
-        `)
-        .order("created_at", { ascending: false });
+type CompanyListRow = {
+    id: string;
+    name: string | null;
+    slug: string | null;
+    email: string | null;
+    phone: string | null;
+    cnpj: string | null;
+    cidade: string | null;
+    uf: string | null;
+    created_at: string;
+    updated_at: string | null;
+    onboarding_completed_at: string | null;
+    is_active: boolean;
+    subscriptions?: unknown;
+};
 
+export type PlatformCompanyListItem = {
+    id: string;
+    name: string | null;
+    slug: string | null;
+    email: string | null;
+    phone: string | null;
+    cnpj: string | null;
+    cidade: string | null;
+    uf: string | null;
+    created_at: string;
+    updated_at: string | null;
+    onboarding_completed_at: string | null;
+    is_active: boolean;
+    orderCount: number;
+    lastOrderAt: string | null;
+    channelCount: number;
+    activeChannelCount: number;
+    subscription: {
+        plan_id?: string;
+        status?: string;
+        plans?: { id?: string; name?: string; key?: string } | null;
+    } | null;
+};
+
+export type PlatformCompaniesSummary = {
+    total: number;
+    active: number;
+    suspended: number;
+    onboardingPending: number;
+    trial: number;
+    blocked: number;
+};
+
+export async function getCompanies(
+    admin: SupabaseClient,
+    filters: PlatformCompaniesFilter = defaultCompaniesFilter(),
+    opts: { page?: number; limit?: number; forExport?: boolean } = {}
+) {
+    const page = Math.max(0, opts.page ?? 0);
+    const limitCap = opts.forExport ? 5000 : 200;
+    const limit = Math.min(limitCap, Math.max(1, opts.limit ?? 50));
+
+    let q = admin.from("companies").select(`
+            id, name, slug, email, phone, cnpj, cidade, uf, created_at, updated_at,
+            onboarding_completed_at, is_active,
+            subscriptions ( plan_id, status, plans ( id, name, key ) )
+        `);
+
+    if (filters.account === "active") q = q.eq("is_active", true);
+    if (filters.account === "suspended") q = q.eq("is_active", false);
+
+    const bounds = companyCreatedAtBounds(filters);
+    if (bounds.fromIso) q = q.gte("created_at", bounds.fromIso);
+    if (bounds.toIso) q = q.lte("created_at", bounds.toIso);
+
+    if (filters.onboarding === "done") {
+        q = q.not("onboarding_completed_at", "is", null);
+    } else if (filters.onboarding === "pending") {
+        q = q.is("onboarding_completed_at", null);
+    }
+
+    if (filters.cidade) {
+        q = q.ilike("cidade", `%${filters.cidade}%`);
+    }
+    if (filters.uf !== "all") {
+        q = q.eq("uf", filters.uf);
+    }
+
+    if (filters.q) {
+        const term = filters.q.replaceAll(/[%_,.()]/g, " ").trim();
+        if (term) {
+            const like = `%${term}%`;
+            q = q.or(
+                `name.ilike.${like},email.ilike.${like},slug.ilike.${like},cnpj.ilike.${like},phone.ilike.${like}`
+            );
+        }
+    }
+
+    const { data, error } = await q.order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
 
-    const ids = (data ?? []).map((c: { id: string }) => c.id);
-    const orderCounts: Record<string, number> = {};
+    let rows = (data ?? []) as CompanyListRow[];
 
-    if (ids.length) {
-        const { data: counts } = await admin.from("orders").select("company_id").in("company_id", ids);
-        (counts ?? []).forEach((o: { company_id: string }) => {
-            orderCounts[o.company_id] = (orderCounts[o.company_id] ?? 0) + 1;
+    if (filters.planId !== "all" || filters.subStatus !== "all") {
+        rows = rows.filter((c) => {
+            const sub = Array.isArray(c.subscriptions)
+                ? c.subscriptions[0]
+                : c.subscriptions;
+            const s = sub as
+                | { plan_id?: string; status?: string }
+                | null
+                | undefined;
+            if (filters.planId !== "all" && s?.plan_id !== filters.planId) {
+                return false;
+            }
+            if (filters.subStatus !== "all" && s?.status !== filters.subStatus) {
+                return false;
+            }
+            return true;
         });
     }
 
-    return (data ?? []).map((c: Record<string, unknown> & { id: string; subscriptions?: unknown }) => ({
-        ...c,
-        orderCount: orderCounts[c.id] ?? 0,
-        subscription: Array.isArray(c.subscriptions) ? c.subscriptions[0] : c.subscriptions,
-    }));
+    const ids = rows.map((c) => c.id);
+    const orderCounts: Record<string, number> = {};
+    const lastOrderAt: Record<string, string> = {};
+    const channelCount: Record<string, number> = {};
+    const activeChannelCount: Record<string, number> = {};
+
+    if (ids.length) {
+        const [ordersRes, channelsRes] = await Promise.all([
+            admin.from("orders").select("company_id, created_at").in("company_id", ids),
+            admin
+                .from("whatsapp_channels")
+                .select("company_id, status")
+                .in("company_id", ids),
+        ]);
+
+        for (const o of ordersRes.data ?? []) {
+            const cid = o.company_id as string;
+            orderCounts[cid] = (orderCounts[cid] ?? 0) + 1;
+            const at = o.created_at as string;
+            if (!lastOrderAt[cid] || at > lastOrderAt[cid]!) {
+                lastOrderAt[cid] = at;
+            }
+        }
+        for (const ch of channelsRes.data ?? []) {
+            const cid = ch.company_id as string;
+            channelCount[cid] = (channelCount[cid] ?? 0) + 1;
+            if (ch.status === "active") {
+                activeChannelCount[cid] = (activeChannelCount[cid] ?? 0) + 1;
+            }
+        }
+    }
+
+    let enriched: PlatformCompanyListItem[] = rows.map((c) => {
+        const subRaw = Array.isArray(c.subscriptions)
+            ? c.subscriptions[0]
+            : c.subscriptions;
+        return {
+            id: c.id,
+            name: c.name,
+            slug: c.slug,
+            email: c.email,
+            phone: c.phone,
+            cnpj: c.cnpj,
+            cidade: c.cidade,
+            uf: c.uf,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            onboarding_completed_at: c.onboarding_completed_at,
+            is_active: c.is_active,
+            orderCount: orderCounts[c.id] ?? 0,
+            lastOrderAt: lastOrderAt[c.id] ?? null,
+            channelCount: channelCount[c.id] ?? 0,
+            activeChannelCount: activeChannelCount[c.id] ?? 0,
+            subscription: (subRaw as PlatformCompanyListItem["subscription"]) ?? null,
+        };
+    });
+
+    if (filters.wa !== "all") {
+        enriched = enriched.filter((c) => {
+            if (filters.wa === "none") return c.channelCount === 0;
+            if (filters.wa === "active") return c.activeChannelCount > 0;
+            if (filters.wa === "inactive") {
+                return c.channelCount > 0 && c.activeChannelCount === 0;
+            }
+            return true;
+        });
+    }
+
+    const summary: PlatformCompaniesSummary = {
+        total: enriched.length,
+        active: enriched.filter((c) => c.is_active).length,
+        suspended: enriched.filter((c) => !c.is_active).length,
+        onboardingPending: enriched.filter((c) => !c.onboarding_completed_at)
+            .length,
+        trial: enriched.filter((c) => c.subscription?.status === "trial").length,
+        blocked: enriched.filter((c) => c.subscription?.status === "blocked")
+            .length,
+    };
+
+    const sort = filters.sort;
+    enriched.sort((a, b) => {
+        if (sort === "name") {
+            return (a.name ?? "").localeCompare(b.name ?? "", "pt-BR");
+        }
+        if (sort === "order_count") {
+            return b.orderCount - a.orderCount;
+        }
+        if (sort === "last_order_at") {
+            const av = a.lastOrderAt ?? "";
+            const bv = b.lastOrderAt ?? "";
+            return bv.localeCompare(av);
+        }
+        return b.created_at.localeCompare(a.created_at);
+    });
+
+    const total = enriched.length;
+    const slice = enriched.slice(page * limit, (page + 1) * limit);
+
+    return {
+        companies: slice,
+        total,
+        page,
+        limit,
+        summary,
+        filtersApplied: filters,
+    };
 }
 
 export async function getCompany(admin: SupabaseClient, id: string) {
@@ -427,7 +630,7 @@ export async function getCompany(admin: SupabaseClient, id: string) {
             .select(`
                 id, name, slug, email, phone, cnpj, razao_social, nome_fantasia,
                 cidade, cep, endereco, numero, bairro, uf, whatsapp_phone,
-                created_at, onboarding_completed_at, is_active,
+                created_at, updated_at, onboarding_completed_at, is_active,
                 subscriptions ( id, plan_id, status, allow_overage, started_at, plans ( id, name ) )
             `)
             .eq("id", id)

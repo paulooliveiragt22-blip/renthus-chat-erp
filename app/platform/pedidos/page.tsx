@@ -13,6 +13,7 @@ import {
     PLATFORM_ORDER_STATUS_CHIP,
     type PlatformOrdersFilter,
 } from "@/lib/platform/ordersFilters";
+import { companiesOptionsQueryString } from "@/lib/platform/companiesFilters";
 
 function formatCurrency(v: number) {
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -52,7 +53,7 @@ export default function PedidosPage() {
 
     const { data: companiesData } = useQuery({
         queryKey: ["platform", "companies"],
-        queryFn: () => platformApi.companies(),
+        queryFn: () => platformApi.companies(companiesOptionsQueryString()),
         staleTime: 60_000,
     });
 
