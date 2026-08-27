@@ -2,34 +2,55 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { roleRequiresMfa, type PlatformRole } from "./platformRoles";
 
 export type MfaCheckResult =
-    | { ok: true; aal: string | null }
-    | { ok: false; error: "mfa_required"; aal: string | null };
+    | { ok: true; aal: string | null; needsEnroll: false }
+    | {
+          ok: false;
+          error: "mfa_required";
+          aal: string | null;
+          /** Sem fator TOTP verificado — UI deve enroll antes do challenge */
+          needsEnroll: boolean;
+      };
 
+export function platformUserNeedsMfa(
+    role: PlatformRole,
+    mfaRequiredFlag: boolean
+): boolean {
+    return mfaRequiredFlag || roleRequiresMfa(role);
+}
+
+/**
+ * Para roles que exigem MFA (superadmin/ops ou flag): só passa com JWT aal2.
+ * Sem fator cadastrado / só aal1 → bloqueia (não “libera por ausência de enroll”).
+ */
 export async function checkPlatformMfa(
     supabase: SupabaseClient,
     role: PlatformRole,
     mfaRequiredFlag: boolean
 ): Promise<MfaCheckResult> {
-    const needsMfa = mfaRequiredFlag || roleRequiresMfa(role);
-    if (!needsMfa) return { ok: true, aal: null };
+    if (!platformUserNeedsMfa(role, mfaRequiredFlag)) {
+        return { ok: true, aal: null, needsEnroll: false };
+    }
 
     const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (error) {
-        return { ok: false, error: "mfa_required", aal: null };
+        return { ok: false, error: "mfa_required", aal: null, needsEnroll: true };
     }
 
     const current = data.currentLevel;
     const next = data.nextLevel;
 
     if (current === "aal2") {
-        return { ok: true, aal: current };
+        return { ok: true, aal: current, needsEnroll: false };
     }
 
-    if (next === "aal2") {
-        return { ok: false, error: "mfa_required", aal: current };
-    }
-
-    return { ok: true, aal: current };
+    // nextLevel aal2 = há fator verificado; falta só o challenge nesta sessão
+    const needsEnroll = next !== "aal2";
+    return {
+        ok: false,
+        error: "mfa_required",
+        aal: current ?? null,
+        needsEnroll,
+    };
 }
 
 export function readAalFromSession(session: { access_token?: string } | null): string | null {

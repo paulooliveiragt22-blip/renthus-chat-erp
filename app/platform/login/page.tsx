@@ -46,6 +46,7 @@ export default function PlatformLoginPage() {
             }
 
             const me = await meRes.json();
+            // required = role superadmin/ops (ou flag); satisfied = JWT aal2
             if (me.mfa?.required && !me.mfa?.satisfied) {
                 router.push("/platform/login/mfa");
                 return;

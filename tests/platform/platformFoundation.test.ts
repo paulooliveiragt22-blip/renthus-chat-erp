@@ -91,6 +91,16 @@ describe("platform permissions matrix", () => {
     });
 });
 
+describe("platform mfa policy helpers", () => {
+    it("superadmin and ops always need mfa", async () => {
+        const { platformUserNeedsMfa } = await import("../../lib/platform/checkPlatformMfa");
+        assert.strictEqual(platformUserNeedsMfa("superadmin", false), true);
+        assert.strictEqual(platformUserNeedsMfa("ops", false), true);
+        assert.strictEqual(platformUserNeedsMfa("readonly", false), false);
+        assert.strictEqual(platformUserNeedsMfa("readonly", true), true);
+    });
+});
+
 describe("platform impersonation helpers", () => {
     it("detects mutating methods and tenant paths", async () => {
         const {

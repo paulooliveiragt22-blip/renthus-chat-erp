@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { checkPlatformMfa } from "@/lib/platform/checkPlatformMfa";
 import { requirePlatformAccess, platformAccessJson } from "@/lib/platform/requirePlatformAccess";
+import {
+    checkPlatformMfa,
+    platformUserNeedsMfa,
+} from "@/lib/platform/checkPlatformMfa";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-/** MFA assurance level — usado pela UI /platform/login/mfa */
 export async function GET() {
     const ctx = await requirePlatformAccess(undefined, { skipMfa: true });
     if (!ctx.ok) {
@@ -14,10 +16,12 @@ export async function GET() {
 
     const supabase = await createClient();
     const mfa = await checkPlatformMfa(supabase, ctx.actor.role, ctx.actor.mfaRequired);
+    const required = platformUserNeedsMfa(ctx.actor.role, ctx.actor.mfaRequired);
 
     return NextResponse.json({
-        currentLevel: mfa.aal,
+        required,
         satisfied: mfa.ok,
-        required: ctx.actor.mfaRequired,
+        currentLevel: mfa.aal,
+        needsEnroll: mfa.ok ? false : mfa.needsEnroll,
     });
 }
