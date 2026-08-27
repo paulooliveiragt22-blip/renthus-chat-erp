@@ -3,6 +3,7 @@
 import React, {
     useCallback,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -211,6 +212,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     const messagesAreaRef   = useRef<HTMLDivElement | null>(null);
     const threadsAbortRef   = useRef<AbortController | null>(null);
     const messagesAbortRef  = useRef<AbortController | null>(null);
+    /** Cola no fim da conversa (padrão inbox); false se o usuário rolou para cima. */
+    const stickToBottomRef  = useRef(true);
     const prevThreadIdRef   = useRef<string | null>(null);
     /** Sempre em sincronia com `selectedThreadId` — lido dentro de `loadThreads` (que não pode
      * depender de `selectedThreadId` sem recriar a função a cada troca de conversa). */
@@ -444,6 +447,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
     // Load messages when thread changes
     useEffect(() => {
         if (selectedThreadId) {
+            stickToBottomRef.current = true;
             loadMessages(selectedThreadId);
             markAsRead(selectedThreadId);
             setSidebarOpen(false); // close mobile sidebar when thread selected
@@ -451,6 +455,17 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             setMessages([]);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedThreadId]);
+
+    // Usuário rolou para cima → não forçar scroll ao receber poll/optimistic
+    useEffect(() => {
+        const area = messagesAreaRef.current;
+        if (!area || !selectedThreadId) return;
+        const onScroll = () => {
+            stickToBottomRef.current = isNearBottom(area);
+        };
+        area.addEventListener("scroll", onScroll, { passive: true });
+        return () => area.removeEventListener("scroll", onScroll);
     }, [selectedThreadId]);
 
     // Auto-select thread by phone when initialPhone is provided (embedded mode)
@@ -495,28 +510,24 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
         window.history.replaceState({}, "", url.toString());
     }, [selectedThreadId]);
 
-    // Smart auto-scroll: instant on thread change, smooth on new messages near bottom
-    useEffect(() => {
+    // Scroll para a última mensagem ANTES do paint (useLayoutEffect — evita flash no topo).
+    // Ver React docs: useLayoutEffect roda antes do browser pintar.
+    useLayoutEffect(() => {
         if (loadingMessages) return;
         const area = messagesAreaRef.current;
-        if (!area) return;
+        if (!area || !selectedThreadId) return;
 
-        const id = requestAnimationFrame(() => {
-            const a = messagesAreaRef.current;
-            if (!a) return;
-
-            const isNewThread = selectedThreadId !== prevThreadIdRef.current;
+        const isNewThread = selectedThreadId !== prevThreadIdRef.current;
+        if (isNewThread) {
+            stickToBottomRef.current = true;
             prevThreadIdRef.current = selectedThreadId;
+        }
 
-            if (isNewThread) {
-                // Primeira carga da thread: pulo instantâneo sem animação
-                a.scrollTop = a.scrollHeight;
-            } else if (isNearBottom(a)) {
-                // Nova mensagem chegou e já estávamos perto do final: scroll suave
-                a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
-            }
-        });
-        return () => cancelAnimationFrame(id);
+        if (!stickToBottomRef.current) return;
+
+        // Duplo rAF só no layout path: garante scrollHeight após o flex pintar filhos
+        area.scrollTop = area.scrollHeight;
+        bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
     }, [messages, loadingMessages, selectedThreadId]);
 
     /**
@@ -612,10 +623,8 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
                 sender_type: "human",
             };
             setMessages((prev) => [...prev, optimisticMsg]);
-            requestAnimationFrame(() => {
-                const a = messagesAreaRef.current;
-                if (a) a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
-            });
+            stickToBottomRef.current = true;
+            // scroll via useLayoutEffect (stickToBottom)
 
             const res = await fetch("/api/meta/messaging/send", {
                 method: "POST",
@@ -663,10 +672,7 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, optimisticMsg]);
-        requestAnimationFrame(() => {
-            const a = messagesAreaRef.current;
-            if (a) a.scrollTo({ top: a.scrollHeight, behavior: "smooth" });
-        });
+        stickToBottomRef.current = true;
 
         let body: any = { to_phone_e164: selectedThread.phone_e164, text };
 
@@ -709,9 +715,22 @@ export default function WhatsAppInbox({ initialPhone }: { initialPhone?: string 
             return;
         }
 
-        // Replace optimistic with real message list
-        await loadMessages(selectedThread.id);
-        await loadThreads(selectedThread.id);
+        // Sem reload “barulhento”: evita skeleton/flash. Optimistic → sent + sync silencioso.
+        setMessages((prev) =>
+            prev.map((m) =>
+                m.id === optimisticId
+                    ? {
+                          ...m,
+                          status: "sent",
+                          provider: "meta",
+                          sender_type: "human" as const,
+                      }
+                    : m
+            )
+        );
+        setErr(null);
+        await loadMessages(selectedThread.id, { silent: true });
+        await loadThreads(selectedThread.id, { silent: true });
     }
 
     async function acceptOverageAndRetry() {
