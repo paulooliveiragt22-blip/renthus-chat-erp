@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { formatMetaClientError } from "@/lib/whatsapp-templates/metaGraphError";
 
 type TemplateRow = {
     id: string;
@@ -55,7 +56,13 @@ export default function TemplatesClient() {
                 hint?: string;
             };
             if (!res.ok) {
-                setErr(json.hint || json.error || "Falha ao carregar templates.");
+                setErr(
+                    formatMetaClientError(
+                        json.error,
+                        json.hint,
+                        "Falha ao carregar templates."
+                    )
+                );
                 return;
             }
             setTemplates(json.templates ?? []);
@@ -86,7 +93,13 @@ export default function TemplatesClient() {
                 hint?: string;
             };
             if (!res.ok) {
-                setErr(json.hint || json.error || "Falha ao sincronizar.");
+                setErr(
+                    formatMetaClientError(
+                        json.error,
+                        json.hint,
+                        "Falha ao sincronizar."
+                    )
+                );
                 return;
             }
             setTemplates(json.templates ?? []);
@@ -150,7 +163,13 @@ export default function TemplatesClient() {
                 hint?: string;
             };
             if (!res.ok) {
-                setErr(json.hint || json.error || "Falha ao criar template.");
+                setErr(
+                    formatMetaClientError(
+                        json.error,
+                        json.hint,
+                        "Falha ao criar template."
+                    )
+                );
                 return;
             }
             setMsg(`Template “${json.template?.name}” enviado (status PENDING).`);

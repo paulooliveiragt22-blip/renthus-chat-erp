@@ -11,6 +11,7 @@ import {
     loadActiveWaChannelCreds,
     toPublicTemplate,
 } from "@/lib/whatsapp-templates/syncTemplatesFromMeta";
+import { parseMetaGraphError } from "@/lib/whatsapp-templates/metaGraphError";
 
 const GRAPH_BASE =
     process.env.WHATSAPP_BASE_URL?.replace(/\/$/, "") ||
@@ -127,12 +128,17 @@ export async function submitTemplateToMeta(
     });
 
     if (!res.ok) {
-        const errObj = res.json?.error as { message?: string } | undefined;
+        const parsed = parseMetaGraphError(res.json, res.status);
+        console.warn("[whatsapp-templates] submit graph error", {
+            status: res.status,
+            code: parsed.code,
+            error: parsed.error,
+        });
         return {
             ok: false,
-            error: errObj?.message ?? `graph_http_${res.status}`,
+            error: parsed.error,
             details: res.json,
-            hint: "Permissão whatsapp_business_management / App Review pode estar pendente.",
+            hint: parsed.hint,
         };
     }
 

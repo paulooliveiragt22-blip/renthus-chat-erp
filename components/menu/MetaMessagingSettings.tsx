@@ -76,6 +76,25 @@ export default function MetaMessagingSettings() {
     useEffect(() => {
         void load();
         if (typeof window === "undefined") return;
+
+        function onMessage(ev: MessageEvent) {
+            if (ev.origin !== window.location.origin) return;
+            const data = ev.data as {
+                type?: string;
+                oauth?: string | null;
+                msg?: string | null;
+            };
+            if (data?.type !== "renthus-meta-oauth") return;
+            if (data.oauth === "ok") setMsg("Page conectada via Facebook Login.");
+            else if (data.oauth === "error") {
+                setMsg(data.msg || "Falha no OAuth Meta.");
+            } else if (data.oauth === "pick") {
+                setMsg("Escolha a Facebook Page para conectar.");
+            }
+            void load();
+        }
+        window.addEventListener("message", onMessage);
+
         const q = new URLSearchParams(window.location.search);
         const oauth = q.get("meta_oauth");
         if (oauth === "ok") setMsg("Page conectada via Facebook Login.");
@@ -85,6 +104,8 @@ export default function MetaMessagingSettings() {
         if (oauth === "pick") {
             setMsg("Escolha a Facebook Page para conectar.");
         }
+
+        return () => window.removeEventListener("message", onMessage);
     }, [load]);
 
     async function startOAuth() {
@@ -97,15 +118,42 @@ export default function MetaMessagingSettings() {
             });
             const json = (await res.json().catch(() => ({}))) as {
                 url?: string;
+                redirectUri?: string;
+                appId?: string;
                 error?: string;
                 hint?: string;
             };
             if (!res.ok || !json.url) {
                 setMsg(json.hint || json.error || "OAuth indisponível.");
+                setOauthBusy(false);
                 return;
             }
-            window.location.href = json.url;
-        } finally {
+            if (json.redirectUri) {
+                console.info("[meta-oauth] redirect_uri=", json.redirectUri, "appId=", json.appId);
+            }
+
+            const popup = window.open(
+                json.url,
+                "renthus_meta_oauth",
+                "popup=yes,width=680,height=760,scrollbars=yes,resizable=yes"
+            );
+            if (!popup) {
+                setMsg(
+                    "Pop-up bloqueado pelo navegador. Permita pop-ups para este site e tente de novo."
+                );
+                setOauthBusy(false);
+                return;
+            }
+            setMsg("Conclua o login na janela do Facebook…");
+            const timer = window.setInterval(() => {
+                if (popup.closed) {
+                    window.clearInterval(timer);
+                    void load();
+                    setOauthBusy(false);
+                }
+            }, 700);
+        } catch {
+            setMsg("Falha ao iniciar OAuth.");
             setOauthBusy(false);
         }
     }

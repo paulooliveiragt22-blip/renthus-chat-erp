@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { requirePlanFeature } from "@/lib/billing/requirePlanFeature";
-import { resolvePublicAppBaseUrl } from "@/lib/public-menu/appBaseUrl";
 import {
     META_MESSAGING_OAUTH_SCOPES,
     metaGraphVersion,
@@ -9,6 +8,7 @@ import {
     resolveMetaAppSecret,
 } from "@/lib/meta/metaAppCredentials";
 import { createMetaOAuthState } from "@/lib/meta/oauthState";
+import { resolveOAuthRedirectBase } from "@/lib/meta/resolveOAuthRedirectBase";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,7 @@ export const runtime = "nodejs";
  * Inicia Facebook Login → Page token (Messenger + Instagram Messaging).
  * Retorna URL para redirect no browser.
  */
-export async function GET() {
+export async function GET(req: Request) {
     const ctx = await requireCompanyAccess(["owner", "admin"]);
     if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const { admin, companyId } = ctx;
@@ -36,7 +36,7 @@ export async function GET() {
         );
     }
 
-    const base = resolvePublicAppBaseUrl();
+    const base = resolveOAuthRedirectBase(req);
     const redirectUri = `${base}/api/admin/meta-messaging/oauth/callback`;
     const state = createMetaOAuthState(companyId);
 
@@ -50,6 +50,7 @@ export async function GET() {
     return NextResponse.json({
         url: url.toString(),
         redirectUri,
+        appId,
         scopes: META_MESSAGING_OAUTH_SCOPES.split(","),
     });
 }

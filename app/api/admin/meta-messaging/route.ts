@@ -10,7 +10,10 @@ import {
 } from "@/lib/meta/messagingChannels";
 import { decryptCredential } from "@/lib/security/credentialCrypto";
 import { META_OAUTH_PENDING_COOKIE } from "@/lib/meta/oauthPersist";
-import { resolveMetaAppId } from "@/lib/meta/metaAppCredentials";
+import {
+    resolveMetaAppId,
+    resolveMetaAppSecret,
+} from "@/lib/meta/metaAppCredentials";
 
 export const runtime = "nodejs";
 
@@ -71,7 +74,9 @@ export async function GET() {
             ? toPublicMetaConnection(data as MetaMessagingChannelRow)
             : null,
         webhookPath: "/api/meta/messaging/incoming",
-        oauthConfigured: Boolean(resolveMetaAppId()),
+        oauthConfigured: Boolean(
+            resolveMetaAppId() && resolveMetaAppSecret()
+        ),
         pendingPages,
     });
 }

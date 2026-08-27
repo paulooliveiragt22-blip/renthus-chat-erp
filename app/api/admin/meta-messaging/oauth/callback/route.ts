@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { resolvePublicAppBaseUrl } from "@/lib/public-menu/appBaseUrl";
 import { parseMetaOAuthState } from "@/lib/meta/oauthState";
 import {
     exchangeCodeForUserToken,
@@ -11,12 +10,16 @@ import {
     META_OAUTH_PENDING_COOKIE,
     upsertMetaChannelFromOAuth,
 } from "@/lib/meta/oauthPersist";
+import { resolveOAuthRedirectBase } from "@/lib/meta/resolveOAuthRedirectBase";
 
 export const runtime = "nodejs";
 
-function settingsRedirect(params: Record<string, string>): NextResponse {
-    const base = resolvePublicAppBaseUrl();
-    const url = new URL(`${base}/configuracoes`);
+function settingsRedirect(
+    req: Request,
+    params: Record<string, string>
+): NextResponse {
+    const base = resolveOAuthRedirectBase(req);
+    const url = new URL(`${base}/oauth/meta-done`);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     return NextResponse.redirect(url.toString());
 }
@@ -27,7 +30,7 @@ export async function GET(req: Request) {
     const err = url.searchParams.get("error");
     const errDesc = url.searchParams.get("error_description");
     if (err) {
-        return settingsRedirect({
+        return settingsRedirect(req, {
             meta_oauth: "error",
             meta_oauth_msg: errDesc || err,
         });
@@ -37,10 +40,13 @@ export async function GET(req: Request) {
     const state = url.searchParams.get("state")?.trim() ?? "";
     const parsed = parseMetaOAuthState(state);
     if (!code || !parsed) {
-        return settingsRedirect({ meta_oauth: "error", meta_oauth_msg: "invalid_oauth_state" });
+        return settingsRedirect(req, {
+            meta_oauth: "error",
+            meta_oauth_msg: "invalid_oauth_state",
+        });
     }
 
-    const base = resolvePublicAppBaseUrl();
+    const base = resolveOAuthRedirectBase(req);
     const redirectUri = `${base}/api/admin/meta-messaging/oauth/callback`;
 
     try {
@@ -49,7 +55,7 @@ export async function GET(req: Request) {
         const pages = await listManageablePages(longToken);
 
         if (pages.length === 0) {
-            return settingsRedirect({
+            return settingsRedirect(req, {
                 meta_oauth: "error",
                 meta_oauth_msg: "Nenhuma Page encontrada. Confirme que você é admin da página.",
             });
@@ -61,12 +67,12 @@ export async function GET(req: Request) {
                 page: pages[0]!,
             });
             if (!saved.ok) {
-                return settingsRedirect({
+                return settingsRedirect(req, {
                     meta_oauth: "error",
                     meta_oauth_msg: saved.error,
                 });
             }
-            return settingsRedirect({ meta_oauth: "ok" });
+            return settingsRedirect(req, { meta_oauth: "ok" });
         }
 
         const pending = {
@@ -81,13 +87,13 @@ export async function GET(req: Request) {
         };
         const enc = encryptCredential(JSON.stringify(pending));
         if (!enc) {
-            return settingsRedirect({
+            return settingsRedirect(req, {
                 meta_oauth: "error",
                 meta_oauth_msg: "encryption_unavailable",
             });
         }
 
-        const res = settingsRedirect({ meta_oauth: "pick" });
+        const res = settingsRedirect(req, { meta_oauth: "pick" });
         res.cookies.set(META_OAUTH_PENDING_COOKIE, enc, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
@@ -99,6 +105,6 @@ export async function GET(req: Request) {
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "oauth_failed";
         console.error("[meta/oauth/callback]", msg);
-        return settingsRedirect({ meta_oauth: "error", meta_oauth_msg: msg });
+        return settingsRedirect(req, { meta_oauth: "error", meta_oauth_msg: msg });
     }
 }

@@ -107,7 +107,10 @@ async function checkCompanyAccess(
             (comp?.is_active === false && sub?.status === "overdue");
 
         if (billingPaywall) {
-            const isConfig = pathname === "/configuracoes" || pathname.startsWith("/configuracoes/");
+            const isConfig =
+                pathname === "/configuracoes" ||
+                pathname.startsWith("/configuracoes/") ||
+                pathname.startsWith("/oauth/");
             if (!isConfig) {
                 const payUrl = request.nextUrl.clone();
                 payUrl.pathname = "/configuracoes";

@@ -6,6 +6,7 @@ import {
     resolveChannelWabaId,
 } from "@/lib/whatsapp/channelCredentials";
 import { metaGraphGetJson } from "@/lib/whatsapp/metaGraphFetch";
+import { parseMetaGraphError } from "@/lib/whatsapp-templates/metaGraphError";
 import type { WhatsappTemplatePublic } from "@/src/domain/contracts/whatsappTemplates";
 import { WhatsappTemplateStatusSchema } from "@/src/domain/contracts/whatsappTemplates";
 
@@ -135,11 +136,13 @@ export async function syncTemplatesFromMeta(
         accessToken: creds.accessToken,
     });
     if (!res.ok) {
-        const errObj = res.json?.error as { message?: string } | undefined;
+        const parsed = parseMetaGraphError(res.json, res.status);
         return {
             ok: false,
-            error: errObj?.message ?? `graph_http_${res.status}`,
-            hint: "Confira token, WABA ID e permissão whatsapp_business_management.",
+            error: parsed.error,
+            hint:
+                parsed.hint ??
+                "Confira token, WABA ID e o payload do template na Meta.",
         };
     }
 
