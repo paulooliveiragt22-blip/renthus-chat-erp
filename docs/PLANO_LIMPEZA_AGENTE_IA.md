@@ -354,37 +354,31 @@ O maior salto compra 4 módulos que você **constrói uma vez**. O menor salto c
 
 Além disso, `pro` é `popular: true`: é a âncora da tabela. Âncora **deve** ser a melhor relação custo-benefício, é o mecanismo funcionando. Se algo se move, é o Market para cima, não o Pro.
 
-### 7.8 Mas **não** suba o Market agora — 3 das 5 features são placeholder
+### 7.8 Market — o que ainda é placeholder
 
-Estado real das features do Market em `configuracoes/page.tsx`:
+Estado real das features do Market:
 
 | Feature | Estado |
 |---------|--------|
-| `marketplace_ifood` | **Real** — `MarketplaceIfoodSettings`, rotas, sync, poll, migrations |
-| `marketplace_aiqfome` | **Real** — `MarketplaceAiqfomeSettings`, rotas, sync |
-| `omnichannel_ig_messenger` | Placeholder: *"Em breve na próxima versão"* (`:2665-2667`) |
-| `table_service` | Placeholder: *"Em breve na próxima versão"* (`:2674-2676`) |
-| `mobile_app` | Placeholder: *"Em breve na próxima versão — app Dart/Flutter"* (`:2683-2685`) |
+| `marketplace_ifood` | **Real** — settings, rotas, sync, poll |
+| `marketplace_aiqfome` | **Real** — settings, rotas, sync |
+| `omnichannel_ig_messenger` | **Real** — OAuth Page + Canais (`/configuracoes` aba Canais); webhook `/api/meta/messaging/incoming` |
+| `table_service` | Placeholder / parcial — verificar UI Configurações |
+| `mobile_app` | Placeholder: *"Em breve — app Dart/Flutter"* |
 
-Não há adapter de Instagram/Messenger em lugar nenhum — só o gate de UI e a linha no catálogo.
+IG/Messenger **não** é mais placeholder de produto: conexão e inbox Meta Messaging estão no épico Canais. O que ainda falta comercialmente é maturidade de venda ativa IG (sem HSM — ver gates por canal).
 
-Hoje o `+R$ 70` compra **iFood + Aiqfome**, e só. Para quem está em marketplace isso se paga sozinho (a comissão do iFood é ordens de grandeza maior que a mensalidade), então o preço atual está adequado ao produto atual. Subir agora seria cobrar mais por três cartões "Em breve".
-
-**Risco de lançamento:** cliente que pagar R$ 349 e encontrar três "Em breve" dentro da aba que ele acabou de comprar tem motivo de reembolso. Antes de abrir para clientes reais: construir, ou tirar do texto comercial.
+**Risco de lançamento:** features ainda “Em breve” (mesa / app mobile) devem sair do pitch ou ser construídas antes de clientes reais.
 
 ### 7.9 IG/Messenger deve ficar no Market
 
-É a **única feature horizontal** do Market. iFood e Aiqfome só valem para quem está em marketplace; mesa só vale para quem tem salão. Instagram, todo mundo tem. É o único puxador que funciona para um cliente Pro fora do segmento marketplace — e hoje ele não existe, que é a razão real de o Market parecer fraco.
-
-E é o **tipo certo de gate**, ao contrário do STT (§7.6): disponibilidade binária de canal, não degradação dentro de um canal que o cliente já usa. O WhatsApp dele funciona perfeito; ele só não tem Instagram junto. Sem modo de falha, fácil de explicar.
+É a **única feature horizontal** do Market. iFood e Aiqfome só valem para quem está em marketplace; mesa só vale para quem tem salão. Instagram, todo mundo tem — e a conexão já está em **Configurações → Canais** (OAuth Page).
 
 Sequência recomendada:
 
-1. **Agora:** não mexer no preço.
-2. **Construir IG/Messenger** — provavelmente o mais barato dos três placeholders (mesma Graph API, mesmo pipeline, adapter de canal novo) e o de maior alcance comercial.
-3. **No lançamento dele:** subir o Market para ~**R$ 397**, mantendo a escada geométrica de ~42% por degrau (197 → 279 → 397). O aumento passa a ter motivo visível, e os degraus deixam de decrescer.
-
-Ainda vale o timing: sem cliente real, mexer em preço é grátis. O que muda é que a mudança deve vir **junto com** a entrega, não antes.
+1. **Agora:** preço Market em R$ 397 alinhado a iFood + Aiqfome + IG/Messenger + mesa (conforme `BILLING_PLANS.md`).
+2. **Polish IG:** venda ativa / recovery IG é escopo separado (sem HSM).
+3. **Mesa / app mobile:** tirar do pitch ou entregar antes de clientes reais.
 
 ### 7.10 IG/Messenger é bloqueador de lançamento — consequências
 

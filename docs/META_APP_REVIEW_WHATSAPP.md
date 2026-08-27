@@ -19,10 +19,11 @@ Plano da empresa de teste: **Pro** ou **Market** (feature `whatsapp_templates_br
 ### B) Vídeo no produto Renthus
 
 1. Login owner/admin → **Templates WA** (`/templates`).
-2. Preencha nome snake_case, idioma `pt_BR`, categoria **UTILITY**, corpo com `{{1}}`/`{{2}}` e exemplos.
-3. Clique **Enviar para aprovação**.
-4. Mostre o status **PENDING** na lista.
-5. (Opcional) Clique **Sincronizar da Meta**.
+2. Preencha nome snake_case, idioma `pt_BR`, categoria **UTILITY**.
+3. Opcional no vídeo: header texto, rodapé e até 3 botões (resposta rápida / URL / telefone).
+4. Corpo com `{{1}}`/`{{2}}` + exemplos → **Enviar para aprovação**.
+5. Mostre o status **PENDING** na lista (e `rejection_reason` se rejeitado após sync).
+6. Clique **Sincronizar da Meta** para atualizar PENDING → APPROVED/REJECTED.
 
 Alternativa/complemento: criar o mesmo modelo no WhatsApp Manager (botão do modal Meta).
 

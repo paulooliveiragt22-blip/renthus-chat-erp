@@ -13,19 +13,22 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 
 ### Essencial (R$ 197)
 - WhatsApp (Meta) + Flow + cardápio web (free)
+- Credenciais WABA self-serve em **Configurações → Canais** (paste Cloud API)
 - IA Haiku com **crédito incluso = 10% do plano** (R$ 19,70) + packs R$10/20/50
 - Toggle desligar IA a qualquer momento
 - Sem crédito IA → trava **só a IA** (cai no Flow); ERP/WhatsApp seguem
 - PDV básico · **sem** iFood/Aiqfome · **sem** impressão automática
+- **Sem** templates HSM / campanhas em massa
 
 ### Pro (R$ 279)
 - Tudo do Essencial (crédito IA R$ 27,90)
 - PDV + estoque + financeiro + impressão automática
-- **Sem** marketplace (iFood/Aiqfome)
+- Feature **`whatsapp_templates_broadcast`**: Templates WA (`/templates`) + Campanhas (`/campanhas`) + envio HSM 1:1 na inbox
+- **Sem** marketplace (iFood/Aiqfome) · **sem** Instagram/Messenger
 
 ### Market (R$ 397)
-- Tudo do Pro (crédito IA R$ 39,70)
-- iFood + Aiqfome · Instagram + Messenger · atendimento de mesa / salão
+- Tudo do Pro (crédito IA R$ 39,70) incluindo templates/campanhas WA
+- iFood + Aiqfome · Instagram + Messenger (OAuth Page em **Configurações → Canais**) · mesa / salão
 
 ## Crédito IA (Haiku 4.5)
 - Preço API: **USD $1/M input** · **$5/M output** (cache hit $0,10/M)
@@ -40,7 +43,9 @@ Cliente pagante = `company` (tenant). **MVP: 1 usuário** por company (login em 
 ## Gates de plano (UI + API)
 - `estoque_full` · `financeiro_full` · `printing_auto` → Pro/Market (menu + APIs)
 - Relatórios (`/relatorios` + `/api/reports/*`) → `financeiro_full`
+- `whatsapp_templates_broadcast` → Pro/Market (`/templates`, `/campanhas`, sync/submit/send template)
 - `marketplace_*` → Market (GET/PATCH/sync)
+- `omnichannel_ig_messenger` → Market (Canais → Instagram/Messenger)
 - Essencial não contorna gate pela API
 
 ## Print Agent

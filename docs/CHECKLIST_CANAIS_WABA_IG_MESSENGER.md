@@ -45,7 +45,7 @@ validação `execute_sql`; postura pré-produção radical (sem dual-path legado
 | **C2** | Health probes (WA + Meta Page) + disconnect | [x] 2026-08-27 |
 | **C3** | UI aba Canais + mover Meta + guia | [x] 2026-08-27 |
 | **C4** | Cortar dual-path plaintext; platform refatorado; testes | [x] 2026-08-27 (prod sem plaintext fallback) |
-| **C5** | Docs env/runbook + smoke; preparar gancho Embedded Signup | [ ] |
+| **C5** | Docs env/runbook + smoke; preparar gancho Embedded Signup | [x] 2026-08-27 |
 
 ---
 
@@ -320,12 +320,12 @@ Extrair de `lib/platform/services/platformOps.ts` (`createChannel` / `updateChan
 ### C5.1 — Documentação
 
 **Arquivos alterar/criar:**
-- [ ] Este checklist — marcar fases
-- [ ] `docs/BILLING_PLANS.md` — nota: Canais tab; WA all plans; IG Market
-- [ ] `docs/CHATBOT_PROD.md` — tenant self-serve paste + mesmo App webhook
-- [ ] `docs/CHECKLIST_MVP_LANCAMENTO.md` — link Canais
-- [ ] `docs/PLANO_LIMPEZA_AGENTE_IA.md` — corrigir §7 “placeholder” vs Canais feito
-- [ ] `.env.example` — listar vars Meta/WA + `CREDENTIALS_ENCRYPTION_KEY` obrigatório prod
+- [x] Este checklist — marcar fases
+- [x] `docs/BILLING_PLANS.md` — Canais; WA all plans; templates Pro/Market; IG Market
+- [x] `docs/CHATBOT_PROD.md` — tenant Canais + HSM/consent atualizados
+- [x] `docs/CHECKLIST_MVP_LANCAMENTO.md` — link Canais / templates
+- [x] `docs/PLANO_LIMPEZA_AGENTE_IA.md` — §7.8 IG não é mais placeholder de conexão
+- [x] `docs/ENV_META_CHANNELS.md` — vars Meta/WA + `CREDENTIALS_ENCRYPTION_KEY` (`.env*` gitignored)
 
 ### C5.2 — Env / Meta Developer (ops, não código)
 
@@ -352,9 +352,9 @@ Extrair de `lib/platform/services/platformOps.ts` (`createChannel` / `updateChan
 
 ### C5.4 — Preparação Embedded Signup (só gancho)
 
-- [ ] `provisioning_mode = 'embedded_signup'` reservado (sem UI)
-- [ ] Comentário/ADR curto em `docs/ADR/` **somente se** quiser formalizar (opcional): “quando App tiver Embedded Signup, substituir paste”
-- [ ] **Não** implementar FB.login WA / sessionInfoListener nesta entrega
+- [x] `provisioning_mode = 'embedded_signup'` reservado (sem UI)
+- [x] Doc ops em `ENV_META_CHANNELS.md` / este checklist: “quando App tiver Embedded Signup, substituir paste”
+- [x] **Não** implementar FB.login WA / sessionInfoListener nesta entrega
 
 ---
 

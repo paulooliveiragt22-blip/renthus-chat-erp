@@ -10,6 +10,8 @@ Regra: mutação só RPC/API server-side; frontend nunca acessa tabela crua; mig
 FORCE RLS + `service_role_only` (ou view `v_sec_*` se o client precisar ler). Postura
 pré-produção radical (`.cursor/rules/projeto-pre-producao-radical.mdc`).
 
+**Canais / HSM (épicos paralelos):** [`CHECKLIST_CANAIS_WABA_IG_MESSENGER.md`](./CHECKLIST_CANAIS_WABA_IG_MESSENGER.md) · [`CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md`](./CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md) · [`ENV_META_CHANNELS.md`](./ENV_META_CHANNELS.md).
+
 ---
 
 ## Resumo

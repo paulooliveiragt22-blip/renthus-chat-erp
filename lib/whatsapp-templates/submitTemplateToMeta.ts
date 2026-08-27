@@ -2,20 +2,82 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { metaGraphPostJson } from "@/lib/whatsapp/metaGraphFetch";
-import type { SubmitWhatsappTemplateBody } from "@/src/domain/contracts/whatsappTemplates";
+import type {
+    SubmitWhatsappTemplateBody,
+    TemplateButton,
+    WhatsappTemplatePublic,
+} from "@/src/domain/contracts/whatsappTemplates";
 import {
     loadActiveWaChannelCreds,
     toPublicTemplate,
 } from "@/lib/whatsapp-templates/syncTemplatesFromMeta";
-import type { WhatsappTemplatePublic } from "@/src/domain/contracts/whatsappTemplates";
 
 const GRAPH_BASE =
     process.env.WHATSAPP_BASE_URL?.replace(/\/$/, "") ||
     "https://graph.facebook.com/v20.0";
 
-function countBodyPlaceholders(bodyText: string): number {
-    const matches = bodyText.match(/\{\{\d+\}\}/g);
+export function countPlaceholders(text: string): number {
+    const matches = text.match(/\{\{\d+\}\}/g);
     return matches ? new Set(matches).size : 0;
+}
+
+export function buildMetaTemplateComponents(
+    body: SubmitWhatsappTemplateBody
+): Array<Record<string, unknown>> {
+    const components: Array<Record<string, unknown>> = [];
+
+    if (body.headerText?.trim()) {
+        const header: Record<string, unknown> = {
+            type: "HEADER",
+            format: "TEXT",
+            text: body.headerText.trim(),
+        };
+        if (countPlaceholders(body.headerText) > 0 && body.headerExample?.trim()) {
+            header.example = { header_text: [body.headerExample.trim()] };
+        }
+        components.push(header);
+    }
+
+    const placeholderCount = countPlaceholders(body.bodyText);
+    const examples = body.exampleBodyValues ?? [];
+    const bodyComp: Record<string, unknown> = {
+        type: "BODY",
+        text: body.bodyText,
+    };
+    if (placeholderCount > 0) {
+        bodyComp.example = {
+            body_text: [examples.slice(0, placeholderCount)],
+        };
+    }
+    components.push(bodyComp);
+
+    if (body.footerText?.trim()) {
+        components.push({ type: "FOOTER", text: body.footerText.trim() });
+    }
+
+    const buttons = body.buttons ?? [];
+    if (buttons.length > 0) {
+        components.push({
+            type: "BUTTONS",
+            buttons: buttons.map(toMetaButton),
+        });
+    }
+
+    return components;
+}
+
+function toMetaButton(btn: TemplateButton): Record<string, unknown> {
+    if (btn.type === "QUICK_REPLY") {
+        return { type: "QUICK_REPLY", text: btn.text };
+    }
+    if (btn.type === "URL") {
+        return { type: "URL", text: btn.text, url: btn.url };
+    }
+    return {
+        type: "PHONE_NUMBER",
+        text: btn.text,
+        phone_number: btn.phoneNumber,
+    };
 }
 
 /**
@@ -41,7 +103,7 @@ export async function submitTemplateToMeta(
         };
     }
 
-    const placeholderCount = countBodyPlaceholders(body.bodyText);
+    const placeholderCount = countPlaceholders(body.bodyText);
     const examples = body.exampleBodyValues ?? [];
     if (placeholderCount > 0 && examples.length < placeholderCount) {
         return {
@@ -51,22 +113,7 @@ export async function submitTemplateToMeta(
         };
     }
 
-    const components: Array<Record<string, unknown>> = [
-        {
-            type: "BODY",
-            text: body.bodyText,
-            ...(placeholderCount > 0
-                ? {
-                      example: {
-                          body_text: [examples.slice(0, placeholderCount)],
-                      },
-                  }
-                : {}),
-        },
-    ];
-    if (body.footerText?.trim()) {
-        components.push({ type: "FOOTER", text: body.footerText.trim() });
-    }
+    const components = buildMetaTemplateComponents(body);
 
     const url = `${GRAPH_BASE}/${encodeURIComponent(creds.wabaId)}/message_templates`;
     const res = await metaGraphPostJson(creds.wabaId, url, {

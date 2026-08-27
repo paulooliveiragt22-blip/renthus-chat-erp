@@ -34,7 +34,7 @@ pré-produção radical (sem dual-path).
 | **T0** | Schema mirror + sync + send template 1:1 (inbox) | [x] 2026-08-27 |
 | **T1** | Consentimento + opt-out (`PARAR`/`SAIR`) | [x] 2026-08-27 |
 | **T2** | Campanhas / massa + progresso + cancel | [x] 2026-08-27 |
-| **T3** | Criar/submeter template pelo ERP (completo) | [x] parcial M0 (body+footer) |
+| **T3** | Criar/submeter template pelo ERP (completo) | [x] 2026-08-27 (header TEXT + buttons; mídia via Manager+sync) |
 | **TX** | Plan catalog seed + docs + testes E2E smoke | [x] seed + doc review + contracts test |
 
 ---
@@ -202,21 +202,23 @@ RLS: FORCE + service_role_only + revoke anon/authenticated.
 
 ## T3 — Create completo no ERP
 
-- [ ] Form completo (header media, buttons, exemplos)
-- [ ] Poll/sync status até APPROVED/REJECTED
-- [ ] Mostrar `rejection_reason`
+- [x] Form completo: header **TEXT**, body, footer, exemplos, botões QUICK_REPLY/URL/PHONE (máx. 3)
+- [x] Header mídia: fora do form (WhatsApp Manager → Sync) — documentado na UI
+- [x] Poll/sync status até APPROVED/REJECTED (`POST …/whatsapp-templates` action sync)
+- [x] Mostrar `rejection_reason` na lista
+- [x] Contracts + `buildMetaTemplateComponents` testados
 
 ## TX — Plano, nav, docs
 
 **Alterar:**
-- [ ] `lib/billing/planCatalog.ts` — feature em `pro` e `market`
-- [ ] Migration seed `features` + `plan_features`
-- [ ] `lib/billing/requirePlanFeature.ts` — hint upgrade
-- [ ] `components/AdminSidebar.tsx` — Templates (+ Campanhas em T2)
-- [ ] `docs/BILLING_PLANS.md`
-- [ ] `docs/CHATBOT_PROD.md` — marcar HSM Fase 2 em andamento
-- [ ] `docs/META_APP_REVIEW_WHATSAPP.md` — roteiro vídeo
-- [ ] `.env.example` se precisar vars Graph extras
+- [x] `lib/billing/planCatalog.ts` — feature em `pro` e `market`
+- [x] Migration seed `features` + `plan_features`
+- [x] `lib/billing/requirePlanFeature.ts` — hint upgrade
+- [x] `components/AdminSidebar.tsx` — Templates (+ Campanhas em T2)
+- [x] `docs/BILLING_PLANS.md`
+- [x] `docs/CHATBOT_PROD.md` — HSM + consent entregues (Pro/Market)
+- [x] `docs/META_APP_REVIEW_WHATSAPP.md` — roteiro vídeo
+- [x] `docs/ENV_META_CHANNELS.md` (substitui `.env.example` versionado — `.env*` gitignored)
 
 ---
 

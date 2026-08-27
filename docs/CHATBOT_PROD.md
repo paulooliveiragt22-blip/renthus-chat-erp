@@ -384,7 +384,9 @@ Rejeições de máquina de estados **internas** (`canTransition` → `invalid_st
 
 ## Venda ativa — Fase 1: recuperação de carrinho (dentro da janela de 24h)
 
-Mensagem proativa só quando o cliente falou com a loja há menos de 24h. Fora dessa janela a Meta exige template (HSM) aprovado, e HSM **não está implementado** no repositório — por isso a Fase 1 é deliberadamente limitada à janela aberta, onde não depende de aprovação da Meta nem de opt-in de marketing.
+Mensagem proativa de **recuperação de carrinho** só quando o cliente falou com a loja há menos de 24h. Fora dessa janela a Meta exige template (HSM) aprovado.
+
+**HSM (Fase 2 — entregue em Pro/Market):** feature `whatsapp_templates_broadcast` — sync/submit em `/templates`, envio 1:1 na inbox, campanhas em `/campanhas` via `outbound_jobs.purpose = broadcast_template`. Credenciais WABA do tenant em **Configurações → Canais** (mesmo Meta App / webhook da plataforma). A recuperação de carrinho abaixo permanece **dentro da janela 24h** (texto livre), sem depender de HSM.
 
 ### Fluxo
 
@@ -438,7 +440,9 @@ Auth das duas rotas: `Bearer CRON_SECRET`, igual ao `process-queue`. O `vercel.j
 
 ### Risco a monitorar
 
-O risco real não é técnico: marketing mal calibrado gera *block/report* e derruba o tier de mensagens da empresa na Meta, o que mata o canal inteiro — inclusive o transacional. Por isso o teto padrão é **uma** proativa por cliente a cada 72h. Antes de habilitar qualquer coisa fora da janela (HSM de categoria MARKETING), é obrigatório implementar consentimento e opt-out (Fase 2), que **hoje não existem** em schema nem no ingresso.
+O risco real não é técnico: marketing mal calibrado gera *block/report* e derruba o tier de mensagens da empresa na Meta, o que mata o canal inteiro — inclusive o transacional. Por isso o teto padrão é **uma** proativa por cliente a cada 72h.
+
+**Consent / opt-out (entregue):** tabela `customer_message_consents`; no ingresso WhatsApp, keywords `PARAR|SAIR|STOP|CANCELAR` revogam MARKETING e `QUERO OFERTAS` / `QUERO PROMOÇÕES` opt-in. Envio de template MARKETING (1:1 e campanha) exige consent ativo; sem isso o job/API é bloqueado.
 
 ### Métricas
 
@@ -473,6 +477,7 @@ Manter fronteiras claras sem microserviço:
 - Ingresso: `app/api/whatsapp/incoming/route.ts` — enqueue + wake + aviso de backlog (`after()`)
 - Typing indicator (WA Cloud API): `lib/whatsapp/send.ts` (`sendTypingIndicator`, best-effort) disparado em `process-queue/route.ts` logo antes de `processInboundMessage`, só quando o job vai ser efetivamente respondido (após o gate de handover). Marca a mensagem inbound como lida + "digitando..."; a Meta encerra sozinha ao enviarmos a resposta ou após 25s. Só WhatsApp (IG/Messenger usam mecanismo próprio, não implementado).
 - Venda ativa: `app/api/chatbot/{detect-abandoned-carts,outbound-worker}/route.ts`, `lib/chatbot/outbound/`, `lib/whatsapp/customerServiceWindow.ts`; migration `20260805160000_active_sales_cart_recovery.sql` (tabelas `abandoned_carts`/`outbound_jobs`, RPCs `detect_abandoned_carts`, `claim_outbound_jobs`, `mark_abandoned_cart_recovered`)
+- Templates HSM + campanhas (Pro/Market): `lib/whatsapp-templates/*`, `lib/campaigns/*`, `lib/channels/messageConsent*`, APIs `/api/admin/whatsapp-templates`, `/api/admin/campaigns`; UI `/templates`, `/campanhas`; Canais tenant em Configurações → Canais — checklists [`CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md`](./CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md), [`ENV_META_CHANNELS.md`](./ENV_META_CHANNELS.md)
 - Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
 - Checklist escala: [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md)
 
