@@ -480,7 +480,7 @@ Regras iniciais (cron ou check no dashboard):
 - Empresa suspensa ainda recebendo mensagens WA
 
 **Estado:** [x] 2026-08-27 — `evaluatePlatformAlerts` + `/api/platform/alerts` + UI Observabilidade;
-cron `/api/platform/alerts/check` (5 min) → Sentry; inbound WA drop se `companies.is_active=false`;
+cron `/api/platform/alerts/check` (backup diário Hobby; para intervalo curto use cron-job.org + `CRON_SECRET`) → Sentry; inbound WA drop se `companies.is_active=false`;
 suspend RPC desativa canais WA (metadata `suspended_by_platform`)
 
 ---
