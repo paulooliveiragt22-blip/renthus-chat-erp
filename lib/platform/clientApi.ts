@@ -25,6 +25,25 @@ export type PlatformDashboardStats = {
     ordersThisMonth: number;
     revenueThisMonth: number;
     activeChannels: number;
+    ordersCount?: number;
+    revenue?: number;
+    revenueNote?: string | null;
+};
+
+export type PlatformOrdersListResponse = {
+    orders: Array<{
+        id: string;
+        total_amount: number | null;
+        status: string;
+        payment_method: string | null;
+        created_at: string;
+        source?: string | null;
+        company_id?: string;
+        companies?: { id: string; name: string } | null;
+    }>;
+    total: number;
+    ordersCount: number;
+    revenue: number;
 };
 
 export type PlatformQueueCompanyRow = {
@@ -166,22 +185,40 @@ export const platformApi = {
             method: "PATCH",
             body: JSON.stringify(data),
         }),
-    orders: (page = 0, limit = 50) =>
-        platformFetch<{ orders: unknown[]; total: number }>(
-            `/api/platform/orders?page=${page}&limit=${limit}`
-        ),
-    metrics: ((kind: "dashboard" | "queue" | "pipeline", minutes?: number) => {
+    orders: (page = 0, limit = 50, filterQuery = "") => {
+        const q = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (filterQuery) {
+            const extra = new URLSearchParams(filterQuery);
+            extra.forEach((v, k) => q.set(k, v));
+        }
+        return platformFetch<PlatformOrdersListResponse>(`/api/platform/orders?${q}`);
+    },
+    metrics: ((
+        kind: "dashboard" | "queue" | "pipeline",
+        minutesOrFilters?: number | string,
+        filterQuery?: string
+    ) => {
         const q = new URLSearchParams({ kind });
-        if (minutes != null) q.set("minutes", String(minutes));
         if (kind === "dashboard") {
+            const fq =
+                typeof minutesOrFilters === "string"
+                    ? minutesOrFilters
+                    : (filterQuery ?? "");
+            if (fq) {
+                const extra = new URLSearchParams(fq);
+                extra.forEach((v, k) => q.set(k, v));
+            }
             return platformFetch<PlatformDashboardStats>(`/api/platform/metrics?${q}`);
         }
+        const minutes =
+            typeof minutesOrFilters === "number" ? minutesOrFilters : undefined;
+        if (minutes != null) q.set("minutes", String(minutes));
         if (kind === "queue") {
             return platformFetch<PlatformQueueHealth>(`/api/platform/metrics?${q}`);
         }
         return platformFetch<PlatformPipelineHealth>(`/api/platform/metrics?${q}`);
     }) as {
-        (kind: "dashboard", minutes?: number): Promise<PlatformDashboardStats>;
+        (kind: "dashboard", filterQuery?: string): Promise<PlatformDashboardStats>;
         (kind: "queue", minutes?: number): Promise<PlatformQueueHealth>;
         (kind: "pipeline", minutes?: number): Promise<PlatformPipelineHealth>;
     },

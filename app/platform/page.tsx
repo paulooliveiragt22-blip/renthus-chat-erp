@@ -5,6 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Building2, Loader2, MessageSquare, Receipt, TrendingUp } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
+import PlatformOrdersFiltersBar from "@/components/platform/PlatformOrdersFiltersBar";
+import {
+    ordersFilterQueryString,
+    parseOrdersFilterFromSearchParams,
+    type PlatformOrdersFilter,
+} from "@/lib/platform/ordersFilters";
+import { useSearchParams } from "next/navigation";
 
 type QueueSortBy = "severity" | "failed15m" | "pendingNow";
 
@@ -22,18 +29,41 @@ function formatCurrency(v: number) {
 }
 
 export default function PlatformDashboard() {
+    const searchParams = useSearchParams();
     const [periodMinutes, setPeriodMinutes] = useState(15);
     const [sortBy, setSortBy] = useState<QueueSortBy>("severity");
     const [autoRefresh, setAutoRefresh] = useState(true);
+    const [orderFilters, setOrderFilters] = useState<PlatformOrdersFilter>(() =>
+        parseOrdersFilterFromSearchParams(
+            new URLSearchParams(searchParams?.toString() ?? "")
+        )
+    );
+    const orderFilterQuery = useMemo(
+        () => ordersFilterQueryString(orderFilters),
+        [orderFilters]
+    );
     /** Evita mismatch de hidratação: o bloco PRO métricas só entra após o mount (SSR = cliente no 1º paint). */
     const [proMetricsMounted, setProMetricsMounted] = useState(false);
     useEffect(() => {
         setProMetricsMounted(true);
     }, []);
 
+    const { data: companiesData } = useQuery({
+        queryKey: ["platform", "companies"],
+        queryFn: () => platformApi.companies(),
+        staleTime: 60_000,
+    });
+    const companies = useMemo(
+        () =>
+            ((companiesData?.companies ?? []) as Array<{ id: string; name: string }>).map(
+                (c) => ({ id: c.id, name: c.name })
+            ),
+        [companiesData]
+    );
+
     const { data, isLoading, dataUpdatedAt: dashboardUpdatedAt } = useQuery({
-        queryKey: ["platform", "dashboard"],
-        queryFn:  () => platformApi.metrics("dashboard"),
+        queryKey: ["platform", "dashboard", orderFilterQuery],
+        queryFn: () => platformApi.metrics("dashboard", orderFilterQuery),
         staleTime: 60_000,
         refetchInterval: autoRefresh ? 30_000 : false,
         refetchIntervalInBackground: true,
@@ -63,6 +93,9 @@ export default function PlatformDashboard() {
         [proMetrics, isProMetricsLoading, periodMinutes]
     );
 
+    const ordersCount = data?.ordersCount ?? data?.ordersThisMonth ?? 0;
+    const revenue = data?.revenue ?? data?.revenueThisMonth ?? 0;
+
     const cards = [
         {
             label: "Empresas cadastradas",
@@ -72,17 +105,17 @@ export default function PlatformDashboard() {
             color: "bg-primary/10 text-primary dark:bg-primary/20",
         },
         {
-            label: "Pedidos este mês",
-            value: isLoading ? "—" : String(data?.ordersThisMonth ?? 0),
+            label: "Pedidos (filtro)",
+            value: isLoading ? "—" : String(ordersCount),
             icon:  Receipt,
-            href:  "/platform/pedidos",
+            href:  `/platform/pedidos${orderFilterQuery ? `?${orderFilterQuery}` : ""}`,
             color: "bg-accent/10 text-accent dark:bg-accent/20",
         },
         {
-            label: "Receita este mês",
-            value: isLoading ? "—" : formatCurrency(data?.revenueThisMonth ?? 0),
+            label: "Receita (filtro)",
+            value: isLoading ? "—" : formatCurrency(revenue),
             icon:  TrendingUp,
-            href:  "/platform/pedidos",
+            href:  `/platform/pedidos${orderFilterQuery ? `?${orderFilterQuery}` : ""}`,
             color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
         },
         {
@@ -117,8 +150,25 @@ export default function PlatformDashboard() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Dashboard</h1>
-                <p className="text-xs text-zinc-400">Visão geral da plataforma</p>
+                <p className="text-xs text-zinc-400">
+                    Visão geral da plataforma — pedidos/receita usam o mesmo filtro da lista
+                </p>
             </div>
+
+            <PlatformOrdersFiltersBar
+                value={orderFilters}
+                onChange={setOrderFilters}
+                companies={companies}
+                summary={
+                    data
+                        ? {
+                              ordersCount,
+                              revenue,
+                              revenueNote: data.revenueNote ?? null,
+                          }
+                        : undefined
+                }
+            />
 
             {/* Cards */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">

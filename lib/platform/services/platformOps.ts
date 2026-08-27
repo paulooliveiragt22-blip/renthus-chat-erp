@@ -7,7 +7,15 @@ import {
 import { invalidateWaConfig } from "@/lib/whatsapp/waConfigCache";
 import { recordPlatformAudit } from "@/lib/platform/audit/recordPlatformAudit";
 import type { PlatformActor } from "@/lib/platform/requirePlatformAccess";
+import {
+    dateFromToIsoStart,
+    dateToToIsoEnd,
+    defaultOrdersFilter,
+    REVENUE_STATUSES_WHEN_ALL,
+    type PlatformOrdersFilter,
+} from "@/lib/platform/ordersFilters";
 
+export type { PlatformOrdersFilter };
 export type PlatformOpsAuditCtx = {
     actor: PlatformActor;
     requestId: string;
@@ -74,33 +82,114 @@ export function getSecurityOpsStatus() {
     return { vercelEnv, nodeEnv, isProd, checks: [...checks] };
 }
 
-export async function getDashboardStats(admin: SupabaseClient) {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-    const [companiesRes, ordersRes, revenueRes, channelsRes] = await Promise.all([
+export async function getDashboardStats(
+    admin: SupabaseClient,
+    filters: PlatformOrdersFilter = defaultOrdersFilter()
+) {
+    const [companiesRes, channelsRes, orderStats] = await Promise.all([
         admin.from("companies").select("id", { count: "exact", head: true }),
-        admin
-            .from("orders")
-            .select("id", { count: "exact", head: true })
-            .gte("created_at", start),
-        admin.from("orders").select("total_amount").gte("created_at", start),
         admin
             .from("whatsapp_channels")
             .select("id", { count: "exact", head: true })
             .eq("status", "active"),
+        getOrdersAggregate(admin, filters),
     ]);
-
-    const revenue = (revenueRes.data ?? []).reduce(
-        (s: number, o: { total_amount: number }) => s + (o.total_amount ?? 0),
-        0
-    );
 
     return {
         totalCompanies: companiesRes.count ?? 0,
-        ordersThisMonth: ordersRes.count ?? 0,
-        revenueThisMonth: revenue,
         activeChannels: channelsRes.count ?? 0,
+        ordersThisMonth: orderStats.ordersCount,
+        revenueThisMonth: orderStats.revenue,
+        ordersCount: orderStats.ordersCount,
+        revenue: orderStats.revenue,
+        filtersApplied: filters,
+        revenueNote:
+            filters.status === "all"
+                ? "Receita exclui cancelados quando status=Todos"
+                : null,
+    };
+}
+
+function applyOrdersFiltersToQuery<
+    T extends {
+        eq: (col: string, val: string) => T;
+        gte: (col: string, val: string) => T;
+        lte: (col: string, val: string) => T;
+        in: (col: string, val: string[]) => T;
+    },
+>(q: T, filters: PlatformOrdersFilter, opts?: { forRevenue?: boolean }): T {
+    let query = q;
+    if (filters.companyId !== "all") {
+        query = query.eq("company_id", filters.companyId);
+    }
+    if (filters.dateFrom !== "all") {
+        query = query.gte("created_at", dateFromToIsoStart(filters.dateFrom));
+    }
+    if (filters.dateTo !== "all") {
+        query = query.lte("created_at", dateToToIsoEnd(filters.dateTo));
+    }
+    if (opts?.forRevenue && filters.status === "all") {
+        query = query.in("status", [...REVENUE_STATUSES_WHEN_ALL]);
+    } else if (filters.status !== "all") {
+        query = query.eq("status", filters.status);
+    }
+    return query;
+}
+
+export async function getOrdersAggregate(
+    admin: SupabaseClient,
+    filters: PlatformOrdersFilter
+): Promise<{ ordersCount: number; revenue: number }> {
+    let countQ = admin.from("orders").select("id", { count: "exact", head: true });
+    countQ = applyOrdersFiltersToQuery(countQ as never, filters) as typeof countQ;
+
+    let revenueQ = admin.from("orders").select("total_amount");
+    revenueQ = applyOrdersFiltersToQuery(revenueQ as never, filters, {
+        forRevenue: true,
+    }) as typeof revenueQ;
+
+    const [countRes, revenueRes] = await Promise.all([countQ, revenueQ]);
+    if (countRes.error) throw new Error(countRes.error.message);
+    if (revenueRes.error) throw new Error(revenueRes.error.message);
+
+    const revenue = (revenueRes.data ?? []).reduce(
+        (s: number, o: { total_amount: number | null }) => s + (o.total_amount ?? 0),
+        0
+    );
+
+    return { ordersCount: countRes.count ?? 0, revenue };
+}
+
+export async function getAllOrders(
+    admin: SupabaseClient,
+    page = 0,
+    limit = 50,
+    filters: PlatformOrdersFilter = defaultOrdersFilter()
+) {
+    let q = admin.from("orders").select(
+        `
+            id, total_amount, status, payment_method,
+            created_at, source, company_id,
+            companies ( id, name )
+        `,
+        { count: "exact" }
+    );
+    q = applyOrdersFiltersToQuery(q as never, filters) as typeof q;
+
+    const { data, error, count } = await q
+        .order("created_at", { ascending: false })
+        .range(page * limit, (page + 1) * limit - 1);
+
+    if (error) throw new Error(error.message);
+
+    const aggregate = await getOrdersAggregate(admin, filters);
+
+    return {
+        orders: data ?? [],
+        total: count ?? 0,
+        ordersCount: aggregate.ordersCount,
+        revenue: aggregate.revenue,
+        filtersApplied: filters,
     };
 }
 
@@ -720,24 +809,6 @@ export async function updateChannelStatus(
         userAgent: audit.userAgent,
         afterState: { status },
     });
-}
-
-export async function getAllOrders(admin: SupabaseClient, page = 0, limit = 50) {
-    const { data, error, count } = await admin
-        .from("orders")
-        .select(
-            `
-            id, total_amount, status, payment_method,
-            created_at, source,
-            companies ( id, name )
-        `,
-            { count: "exact" }
-        )
-        .order("created_at", { ascending: false })
-        .range(page * limit, (page + 1) * limit - 1);
-
-    if (error) throw new Error(error.message);
-    return { orders: data ?? [], total: count ?? 0 };
 }
 
 export async function listPlatformAudit(

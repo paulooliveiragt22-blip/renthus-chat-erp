@@ -5,6 +5,7 @@ import {
     getProPipelineHealthStats,
     getQueueHealthStats,
 } from "@/lib/platform/services/platformOps";
+import { parseOrdersFilterFromSearchParams } from "@/lib/platform/ordersFilters";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,7 @@ export async function GET(req: Request) {
     }
 
     return withPlatformAccess("platform.metrics.read", async (ctx) => {
-        return NextResponse.json(await getDashboardStats(ctx.admin));
+        const filters = parseOrdersFilterFromSearchParams(url.searchParams);
+        return NextResponse.json(await getDashboardStats(ctx.admin, filters));
     });
 }
