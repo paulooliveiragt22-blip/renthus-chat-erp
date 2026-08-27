@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { withPlatformAccess } from "@/lib/platform/apiHelpers";
 import { recordPlatformAudit } from "@/lib/platform/audit/recordPlatformAudit";
 import {
@@ -11,39 +12,43 @@ import {
 
 export const runtime = "nodejs";
 
+/**
+ * Status do banner no AdminShell (host tenant).
+ * Sem cookie → 200 { active:false } (não exige sessão platform — evita 403 no console).
+ * Com cookie → valida sessão via service_role.
+ */
 export async function GET() {
-    return withPlatformAccess("platform.impersonate", async (ctx) => {
-        const jar = await cookies();
-        const sessionId = jar.get(PLATFORM_IMPERSONATION_COOKIE)?.value;
-        if (!sessionId) {
-            return NextResponse.json({ active: false });
-        }
+    const jar = await cookies();
+    const sessionId = jar.get(PLATFORM_IMPERSONATION_COOKIE)?.value?.trim();
+    if (!sessionId) {
+        return NextResponse.json({ active: false });
+    }
 
-        const { data } = await ctx.admin
-            .from("platform_impersonation_sessions")
-            .select("id, platform_user_id, company_id, reason, started_at, expires_at, ended_at")
-            .eq("id", sessionId)
-            .maybeSingle();
+    const admin = createAdminClient();
+    const { data } = await admin
+        .from("platform_impersonation_sessions")
+        .select("id, platform_user_id, company_id, reason, started_at, expires_at, ended_at")
+        .eq("id", sessionId)
+        .maybeSingle();
 
-        const row = data as ImpersonationSessionRow | null;
-        if (!isImpersonationActive(row) || row!.platform_user_id !== ctx.actor.id) {
-            return NextResponse.json({ active: false });
-        }
+    const row = data as ImpersonationSessionRow | null;
+    if (!isImpersonationActive(row)) {
+        return NextResponse.json({ active: false });
+    }
 
-        const { data: company } = await ctx.admin
-            .from("companies")
-            .select("id, name")
-            .eq("id", row!.company_id)
-            .maybeSingle();
+    const { data: company } = await admin
+        .from("companies")
+        .select("id, name")
+        .eq("id", row!.company_id)
+        .maybeSingle();
 
-        return NextResponse.json({
-            active: true,
-            sessionId: row!.id,
-            companyId: row!.company_id,
-            companyName: company?.name ?? row!.company_id,
-            reason: row!.reason,
-            expiresAt: row!.expires_at,
-        });
+    return NextResponse.json({
+        active: true,
+        sessionId: row!.id,
+        companyId: row!.company_id,
+        companyName: company?.name ?? row!.company_id,
+        reason: row!.reason,
+        expiresAt: row!.expires_at,
     });
 }
 
