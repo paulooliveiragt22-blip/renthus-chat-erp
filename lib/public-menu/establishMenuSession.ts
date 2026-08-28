@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MessagingChannel } from "@/src/domain/contracts/identity";
 import type { PublicMenuSessionOk } from "@/src/types/contracts.public-menu";
-import { normalizeBrPhone } from "./phone";
+import { normalizeBrMobilePhone } from "./phone";
 import {
     linkWebMenuCustomerPhone,
     resolveWebMenuCustomer,
@@ -82,7 +82,7 @@ export async function establishMenuSessionFromWmToken(
         );
 
         if (customer?.needsPhone && phoneBody.trim()) {
-            const phoneNorm = normalizeBrPhone(phoneBody);
+            const phoneNorm = normalizeBrMobilePhone(phoneBody);
             if (!phoneNorm.ok) {
                 return { ok: false, error: "phone_invalid", status: 400 };
             }

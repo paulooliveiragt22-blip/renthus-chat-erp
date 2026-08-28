@@ -7,7 +7,7 @@ import {
     resolvePublicAppBaseUrl,
 } from "../../lib/public-menu/appBaseUrl";
 import { buildWebMenuOfferText } from "../../lib/public-menu/menuOfferText";
-import { normalizeBrPhone } from "../../lib/public-menu/phone";
+import { normalizeBrPhone, normalizeBrMobilePhone, formatBrPhoneAsYouType } from "../../lib/public-menu/phone";
 
 describe("public-menu slug", () => {
     it("normaliza acentos e espaços", () => {
@@ -146,6 +146,13 @@ describe("public-menu app URL + offer text", () => {
         if (r.ok) {
             assert.equal(r.phoneE164, "+5511988887777");
             assert.equal(r.digits, "11988887777");
+            assert.equal(r.nationalDisplay, "(11) 988887777");
         }
+    });
+
+    it("normalizeBrMobilePhone exige 11 dígitos com 9 após DDD", () => {
+        assert.equal(normalizeBrMobilePhone("(11) 91234-5678").ok, true);
+        assert.equal(normalizeBrMobilePhone("(11) 1234-5678").ok, false);
+        assert.equal(formatBrPhoneAsYouType("11912345678"), "(11) 912345678");
     });
 });

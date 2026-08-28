@@ -17,6 +17,10 @@ import {
     soleFulfillmentNotice,
 } from "@/lib/delivery/fulfillmentCopy";
 import { getMenuSession, postMenuSession } from "@/lib/public-menu/clientMenuSession";
+import {
+    formatBrPhoneAsYouType,
+    isCompleteBrMobileNational,
+} from "@/lib/public-menu/phone";
 import { isGenericCustomerDisplayName } from "@/lib/meta/customerDisplayName";
 import MenuIdentityFallback from "./MenuIdentityFallback";
 
@@ -331,7 +335,9 @@ export default function CheckoutDrawer({
                     setIsNewCustomer(true);
                     setError("Informe seu nome para continuar.");
                 } else if (json.error === "phone_invalid") {
-                    setError("Telefone inválido. Use DDD + número (ex.: 11 99999-9999).");
+                    setError(
+                        "Celular inválido. Use DDD + 9 dígitos, ex.: (11) 91234-5678"
+                    );
                 } else if (json.error === "link_phone_failed") {
                     setError(
                         "Não foi possível vincular este telefone. Confira o número ou fale com a loja."
@@ -754,9 +760,14 @@ export default function CheckoutDrawer({
                                     <input
                                         className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
                                         value={customerPhone}
-                                        onChange={(e) => setCustomerPhone(e.target.value)}
+                                        onChange={(e) =>
+                                            setCustomerPhone(
+                                                formatBrPhoneAsYouType(e.target.value)
+                                            )
+                                        }
                                         inputMode="tel"
-                                        placeholder="(11) 99999-9999"
+                                        autoComplete="tel"
+                                        placeholder="(11) 91234-5678"
                                     />
                                 </label>
                                 {(isNewCustomer || !sessionToken || !customerName.trim()) && (
@@ -780,7 +791,10 @@ export default function CheckoutDrawer({
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={busy || !customerPhone.trim()}
+                                        disabled={
+                                            busy ||
+                                            !isCompleteBrMobileNational(customerPhone)
+                                        }
                                         onClick={() => void completeChannelPhone()}
                                         className="flex-[2] rounded-lg bg-zinc-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
                                     >

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { normalizeBrPhone } from "./phone";
+import { normalizeBrMobilePhone, normalizeBrPhone } from "./phone";
 import {
     linkCustomerChannelPhone,
     resolveOrCreateCustomerByIdentity,
@@ -44,7 +44,7 @@ export async function resolveWebMenuCustomer(
         await admin
             .from("customers")
             .update({
-                phone: phone.digits,
+                phone: phone.nationalDisplay,
                 phone_e164: phone.phoneE164,
                 ...(name?.trim() ? { name: name.trim().slice(0, 120) } : {}),
             })
@@ -72,7 +72,7 @@ export async function resolveWebMenuCustomer(
         .select("id, name, phone, phone_e164")
         .eq("company_id", companyId)
         .or(
-            `phone_e164.eq.${phone.phoneE164},phone.eq.${phone.digits},phone.eq.${phone.phoneE164}`
+            `phone_e164.eq.${phone.phoneE164},phone.eq.${phone.nationalDisplay},phone.eq.${phone.digits}`
         )
         .limit(1)
         .maybeSingle();
@@ -98,7 +98,7 @@ export async function resolveWebMenuCustomer(
         .from("customers")
         .insert({
             company_id: companyId,
-            phone: phone.digits,
+            phone: phone.nationalDisplay,
             phone_e164: phone.phoneE164,
             name: displayName,
             origem: "web_menu",
@@ -164,13 +164,13 @@ export async function linkWebMenuCustomerPhone(
     customerId: string,
     phoneRaw: string
 ): Promise<LinkWebMenuPhoneResult> {
-    const phone = normalizeBrPhone(phoneRaw);
+    const phone = normalizeBrMobilePhone(phoneRaw);
     if (!phone.ok) return { ok: false, error: "phone_invalid" };
 
     const linked = await linkCustomerChannelPhone(admin, {
         companyId,
         customerId,
-        phone: phone.digits,
+        phone: phone.nationalDisplay,
         phoneE164: phone.phoneE164,
     });
     if (!linked) return { ok: false, error: "link_phone_failed" };
