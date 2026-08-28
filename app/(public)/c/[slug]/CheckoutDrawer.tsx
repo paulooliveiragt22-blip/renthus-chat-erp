@@ -342,6 +342,12 @@ export default function CheckoutDrawer({
                     setError(
                         "Não foi possível vincular este telefone. Confira o número ou fale com a loja."
                     );
+                } else if (json.error === "whatsapp_identity_conflict") {
+                    setError(
+                        "Este WhatsApp já está vinculado a outro cadastro. Fale com a loja."
+                    );
+                } else if (json.error === "customer_not_found") {
+                    setError("Cadastro não encontrado. Abra o cardápio pelo link do chat.");
                 } else {
                     setError("Não foi possível identificar. Tente de novo.");
                 }

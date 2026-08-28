@@ -94,11 +94,11 @@ export async function handleAwaitingPhoneTurn(params: {
     const linked = await linkCustomerChannelPhone(admin, {
         companyId: tenant.companyId,
         customerId,
-        phone: phone.digits,
+        phone: phone.nationalDisplay,
         phoneE164: phone.phoneE164,
     });
 
-    if (!linked) {
+    if (!linked.ok) {
         return {
             handled: true,
             state: { ...state, customerId, step: "pro_awaiting_phone", needsPhone: true },

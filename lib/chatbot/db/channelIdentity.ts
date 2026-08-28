@@ -9,10 +9,32 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
     ChannelIdentitySchema,
     type ChannelIdentity,
-    type LinkPhoneResult,
+    type LinkCustomerChannelPhoneResult,
     type ResolveIdentityResult,
     CustomerIdSchema,
 } from "@/src/domain/contracts/identity";
+
+function mapLinkPhonePgError(error: { message?: string; code?: string }): LinkCustomerChannelPhoneResult {
+    const code = error.code ?? "";
+    const message = error.message ?? "";
+
+    if (code === "23514" || message.includes("phone_invalid")) {
+        return { ok: false, error: "phone_invalid", pgCode: code, detail: message };
+    }
+    if (code === "P0002" || message.includes("customer_not_found")) {
+        return { ok: false, error: "customer_not_found", pgCode: code, detail: message };
+    }
+    if (code === "23505" || message.includes("whatsapp_identity_conflict")) {
+        return {
+            ok: false,
+            error: "whatsapp_identity_conflict",
+            pgCode: code,
+            detail: message,
+        };
+    }
+
+    return { ok: false, error: "link_phone_failed", pgCode: code, detail: message };
+}
 
 export async function resolveOrCreateCustomerByIdentity(
     admin: SupabaseClient,
@@ -57,7 +79,7 @@ export async function linkCustomerChannelPhone(
         phone: string;
         phoneE164?: string | null;
     }
-): Promise<LinkPhoneResult | null> {
+): Promise<LinkCustomerChannelPhoneResult> {
     const { data, error } = await admin.rpc("link_customer_channel_phone", {
         p_company_id: params.companyId,
         p_customer_id: params.customerId,
@@ -67,13 +89,16 @@ export async function linkCustomerChannelPhone(
 
     if (error) {
         console.error("[channelIdentity] link phone:", error.message, error.code);
-        return null;
+        return mapLinkPhonePgError(error);
     }
 
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.customer_id) return null;
+    if (!row?.customer_id) {
+        return { ok: false, error: "link_phone_failed", detail: "empty_rpc_result" };
+    }
 
     return {
+        ok: true,
         customerId: CustomerIdSchema.parse(String(row.customer_id)),
         merged: Boolean(row.merged),
         fromCustomerId: row.from_customer_id

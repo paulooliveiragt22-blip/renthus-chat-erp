@@ -9,6 +9,7 @@ import {
 import {
     ChannelIdentitySchema,
     type ChannelIdentity,
+    type LinkPhoneError,
 } from "@/src/domain/contracts/identity";
 import { isGenericCustomerDisplayName } from "@/lib/meta/customerDisplayName";
 
@@ -156,7 +157,14 @@ export async function resolveWebMenuCustomerByChannelIdentity(
 
 export type LinkWebMenuPhoneResult =
     | { ok: true; customer: WebMenuCustomer; merged: boolean }
-    | { ok: false; error: "phone_invalid" | "link_phone_failed" };
+    | {
+          ok: false;
+          error:
+              | "phone_invalid"
+              | "customer_not_found"
+              | "whatsapp_identity_conflict"
+              | "link_phone_failed";
+      };
 
 export async function linkWebMenuCustomerPhone(
     admin: SupabaseClient,
@@ -173,7 +181,9 @@ export async function linkWebMenuCustomerPhone(
         phone: phone.nationalDisplay,
         phoneE164: phone.phoneE164,
     });
-    if (!linked) return { ok: false, error: "link_phone_failed" };
+    if (!linked.ok) {
+        return { ok: false, error: linked.error };
+    }
 
     const { data } = await admin
         .from("customers")

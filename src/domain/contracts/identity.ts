@@ -59,8 +59,24 @@ export const ResolveIdentityResultSchema = z.object({
 export type ResolveIdentityResult = z.infer<typeof ResolveIdentityResultSchema>;
 
 export const LinkPhoneResultSchema = z.object({
+    ok: z.literal(true),
     customerId: CustomerIdSchema,
     merged: z.boolean(),
     fromCustomerId: CustomerIdSchema.nullable(),
 });
 export type LinkPhoneResult = z.infer<typeof LinkPhoneResultSchema>;
+
+export const LinkPhoneErrorSchema = z.object({
+    ok: z.literal(false),
+    error: z.enum([
+        "phone_invalid",
+        "customer_not_found",
+        "whatsapp_identity_conflict",
+        "link_phone_failed",
+    ]),
+    pgCode: z.string().optional(),
+    detail: z.string().optional(),
+});
+export type LinkPhoneError = z.infer<typeof LinkPhoneErrorSchema>;
+
+export type LinkCustomerChannelPhoneResult = LinkPhoneResult | LinkPhoneError;

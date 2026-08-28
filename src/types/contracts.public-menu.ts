@@ -226,7 +226,10 @@ export type PublicMenuSessionError =
               | "session_invalid"
               | "customer_failed"
               | "rate_limit_exceeded"
-              | "name_required";
+              | "name_required"
+              | "customer_not_found"
+              | "whatsapp_identity_conflict"
+              | "link_phone_failed";
       };
 
 export type PublicMenuSessionResult = PublicMenuSessionOk | PublicMenuSessionError;

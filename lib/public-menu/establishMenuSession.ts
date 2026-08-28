@@ -104,10 +104,16 @@ export async function establishMenuSessionFromWmToken(
                 phoneBody
             );
             if (!linked.ok) {
+                const status =
+                    linked.error === "phone_invalid"
+                        ? 400
+                        : linked.error === "customer_not_found"
+                          ? 404
+                          : 422;
                 return {
                     ok: false,
                     error: linked.error,
-                    status: linked.error === "phone_invalid" ? 400 : 422,
+                    status,
                 };
             }
             customer = linked.customer;
