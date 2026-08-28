@@ -23,8 +23,14 @@ import {
     channelEnabledFor,
     loadActiveMetaChannelByIgUserId,
     loadActiveMetaChannelByPageId,
+    resolvePageAccessToken,
     type MetaMessagingChannelRow,
 } from "@/lib/meta/messagingChannels";
+import {
+    fallbackMetaThreadProfileName,
+    shouldUpdateThreadProfileName,
+} from "@/lib/meta/customerDisplayName";
+import { fetchMetaChannelUserProfile } from "@/lib/meta/fetchMetaUserProfile";
 import type { MessagingChannel } from "@/src/domain/contracts/identity";
 import {
     enforceIpRateLimitAsync,
@@ -219,8 +225,19 @@ async function handleMessagingEvent(params: {
         return;
     }
 
-    const profileName =
-        channel === "instagram" ? "Cliente Instagram" : "Cliente Messenger";
+    let profileName = fallbackMetaThreadProfileName(channel);
+    const pageToken = resolvePageAccessToken(metaChannel);
+    if (pageToken) {
+        const profile = await fetchMetaChannelUserProfile({
+            channel,
+            userId: senderId,
+            pageId: metaChannel.page_id,
+            accessToken: pageToken,
+        });
+        if (profile?.displayName) {
+            profileName = profile.displayName;
+        }
+    }
 
     const threadId = await upsertMetaThread({
         admin,
@@ -288,17 +305,15 @@ async function upsertMetaThread(params: {
         .maybeSingle();
 
     if (existing?.id) {
-        await admin
-            .from("whatsapp_threads")
-            .update({
-                channel_id: metaChannelId,
-                last_message_at: new Date().toISOString(),
-                last_inbound_at: new Date().toISOString(),
-                ...(profileName && profileName !== existing.profile_name
-                    ? { profile_name: profileName }
-                    : {}),
-            })
-            .eq("id", existing.id);
+        const updates: Record<string, string> = {
+            channel_id: metaChannelId,
+            last_message_at: new Date().toISOString(),
+            last_inbound_at: new Date().toISOString(),
+        };
+        if (shouldUpdateThreadProfileName(existing.profile_name, profileName)) {
+            updates.profile_name = profileName;
+        }
+        await admin.from("whatsapp_threads").update(updates).eq("id", existing.id);
         return existing.id as string;
     }
 

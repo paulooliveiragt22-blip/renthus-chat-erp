@@ -41,6 +41,7 @@ O paste do lojista (Configurações → **Canais**) só funciona se o número/to
 
 1. App → **Facebook Login for Business** → **Configurations** → Create  
 2. Inclua permissões: `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `pages_read_engagement`, `business_management`, `instagram_basic` / `instagram_business_basic`, `instagram_manage_messages`  
+   - Nome do cliente IG/Messenger no inbox: User Profile API (`name` / `username` / `first_name`) — usa o **page access token** já salvo no OAuth; em Dev só testers recebem perfil completo.
 3. Copie o **Configuration ID** → Vercel `META_LOGIN_CONFIG_ID` → redeploy  
 
 ## Fora desta entrega
