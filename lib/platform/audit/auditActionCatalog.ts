@@ -13,6 +13,7 @@ export const PLATFORM_AUDIT_ACTIONS = [
     "platform.channel.status_changed",
     "platform.subscription.plan_changed",
     "platform.subscription.overage_changed",
+    "platform.billing.settings_updated",
     "platform.impersonation.started",
     "platform.impersonation.ended",
     "platform.user.created",

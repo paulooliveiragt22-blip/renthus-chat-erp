@@ -1,13 +1,7 @@
-/**
- * lib/billing/activateTrial.ts
- *
- * Ativa o trial (30 dias) após pagamento do setup legado (fluxo com setup_payments).
- * O cadastro direto em /signup usa `startFreeTrial` (TRIAL_DAYS, padrão 15) sem Pagar.me.
- */
-
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizePlanKey } from "@/lib/billing/planCatalog";
+import { getDefaultTrialDays } from "@/lib/billing/getDefaultTrialDays";
 
 export async function activateTrial(
     admin: ReturnType<typeof createAdminClient>,
@@ -15,9 +9,12 @@ export async function activateTrial(
     plan: string,
     pagarmeCustomerId: string
 ): Promise<string | undefined> {
+    const trialDays = await getDefaultTrialDays(admin);
     const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + 30);
+    trialEndsAt.setDate(trialEndsAt.getDate() + trialDays);
     const planKey = normalizePlanKey(plan) ?? "essencial";
+
+    const status = trialDays === 0 ? "active" : "trial";
 
     const { data, error } = await admin
         .from("pagarme_subscriptions")
@@ -25,7 +22,7 @@ export async function activateTrial(
             {
                 company_id:          companyId,
                 plan:                planKey,
-                status:              "trial",
+                status,
                 trial_ends_at:       trialEndsAt.toISOString(),
                 activated_at:        new Date().toISOString(),
                 pagarme_customer_id: pagarmeCustomerId || null,
@@ -40,12 +37,13 @@ export async function activateTrial(
         return undefined;
     }
 
-    // Garante que a empresa está ativa
     await admin
         .from("companies")
         .update({ is_active: true })
         .eq("id", companyId);
 
-    console.log(`[activateTrial] Trial ativado para empresa ${companyId} | plan=${plan}`);
+    console.log(
+        `[activateTrial] Assinatura ${status} para empresa ${companyId} | plan=${plan} | trialDays=${trialDays}`
+    );
     return data.id;
 }

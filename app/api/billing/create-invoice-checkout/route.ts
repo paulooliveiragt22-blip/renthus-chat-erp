@@ -183,12 +183,13 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Assinatura não encontrada" }, { status: 404 });
         }
 
-        // Primeiro pagamento (trial / pending_setup) = taxa de setup
-        // Pagamentos seguintes (active / overdue / blocked) = mensalidade
-        const isFirstPayment =
-            sub.status === "trial" || sub.status === "pending_setup";
-
+        // Primeiro pagamento = taxa de setup (pending_setup ou trial com setup > 0).
+        // pending_payment (pay-to-start) e mensalidade = invoice.
         const plan = String(sub.plan ?? "essencial");
+        const setupCents = getSetupPriceCents(plan);
+        const isFirstPayment =
+            sub.status === "pending_setup" ||
+            (sub.status === "trial" && setupCents > 0);
 
         // Busca registro pendente de acordo com o tipo de pagamento
         const [{ data: pendingSetup }, { data: pendingInv }] = await Promise.all([

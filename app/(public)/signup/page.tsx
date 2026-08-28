@@ -3,18 +3,16 @@
 /**
  * app/(public)/signup/page.tsx  →  rota: /signup
  *
- * Cadastro com senha + trial gratuito (TRIAL_DAYS, padrão 15 no servidor).
- * Sem pagamento aqui; após o trial o cron gera fatura PIX. Pagamento libera o sistema
- * sem /signup/complete nem /onboarding.
+ * Cadastro com senha. Trial configurável no platform (default 0 = pagamento antes de usar).
  */
 
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import PasswordInput from "@/components/PasswordInput";
 
-const TRIAL_DAYS = process.env.NEXT_PUBLIC_TRIAL_DAYS ?? "15";
+type TrialPolicy = { trial_days: number; payment_required: boolean };
 
 const PLANS = [
     {
@@ -87,6 +85,11 @@ export default function SignupPage() {
     const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [trialPolicy, setTrialPolicy] = useState<TrialPolicy>({
+        trial_days:       0,
+        payment_required: true,
+    });
+    const [policyLoaded, setPolicyLoaded] = useState(false);
     const [form, setForm] = useState({
         company_name:      "",
         cnpj:              "",
@@ -97,6 +100,29 @@ export default function SignupPage() {
     });
 
     const formRef = useRef<HTMLFormElement>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch("/api/billing/trial-policy", { cache: "no-store" })
+            .then((r) => r.json())
+            .then((d: TrialPolicy) => {
+                if (!cancelled && typeof d.trial_days === "number") {
+                    setTrialPolicy({
+                        trial_days:       d.trial_days,
+                        payment_required: Boolean(d.payment_required),
+                    });
+                }
+            })
+            .catch(() => {
+                /* mantém default pay-to-start */
+            })
+            .finally(() => {
+                if (!cancelled) setPolicyLoaded(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const plan = selectedPlan ? PLANS.find((p) => p.key === selectedPlan)! : null;
 
@@ -132,7 +158,11 @@ export default function SignupPage() {
                     password_confirm: form.password_confirm,
                 }),
             });
-            const data = (await res.json()) as { error?: string; company_id?: string };
+            const data = (await res.json()) as {
+                error?: string;
+                company_id?: string;
+                payment_required?: boolean;
+            };
             if (!res.ok) {
                 setError(data.error ?? "Não foi possível concluir o cadastro.");
                 return;
@@ -172,7 +202,9 @@ export default function SignupPage() {
                 }
             }
 
-            router.replace("/pedidos");
+            router.replace(
+                data.payment_required ? "/configuracoes?tab=plano" : "/pedidos"
+            );
             router.refresh();
         } catch {
             setError("Erro de conexão. Tente novamente.");
@@ -196,7 +228,11 @@ export default function SignupPage() {
             <div style={{ textAlign: "center", marginBottom: 32 }}>
                 <h1 style={S.title}>Crie sua conta</h1>
                 <p style={S.subtitle}>
-                    {TRIAL_DAYS} dias de teste completos · depois, pague a mensalidade para continuar
+                    {policyLoaded && trialPolicy.payment_required
+                        ? "Pagamento na primeira mensalidade para acessar o app"
+                        : policyLoaded
+                          ? `${trialPolicy.trial_days} dias de teste completos · depois, pague a mensalidade para continuar`
+                          : "Carregando…"}
                 </p>
             </div>
 
@@ -222,7 +258,11 @@ export default function SignupPage() {
                                 <span style={S.priceValue}>{fmt(p.monthlyPrice)}</span>
                                 <span style={S.pricePer}>/mês</span>
                             </div>
-                            <div style={S.setupLine}>Após o teste · cancele quando quiser</div>
+                            <div style={S.setupLine}>
+                                {trialPolicy.payment_required
+                                    ? "Pague para começar · cancele quando quiser"
+                                    : "Após o teste · cancele quando quiser"}
+                            </div>
                             <ul style={S.featureList}>
                                 {p.features.map((f) => (
                                     <li key={f} style={S.featureItem}>
@@ -267,13 +307,29 @@ export default function SignupPage() {
 
                     <div style={S.resumoBox}>
                         <div style={S.resumoQuestion}>Como funciona</div>
-                        <div style={S.resumoHighlight}>
-                            Você usa o sistema grátis por {TRIAL_DAYS} dias (plano {plan.name}).
-                        </div>
-                        <div style={S.resumoHighlight}>
-                            Quando o teste acabar, enviamos a cobrança da mensalidade ({fmt(plan.monthlyPrice)}
-                            /mês) por PIX. Ao pagar, o acesso continua normalmente — sem novo cadastro.
-                        </div>
+                        {trialPolicy.payment_required ? (
+                            <>
+                                <div style={S.resumoHighlight}>
+                                    Após criar a conta, você paga a 1ª mensalidade do plano {plan.name} (
+                                    {fmt(plan.monthlyPrice)}/mês) por PIX ou cartão.
+                                </div>
+                                <div style={S.resumoHighlight}>
+                                    Só depois do pagamento você acessa o ERP e configura WhatsApp e produtos.
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div style={S.resumoHighlight}>
+                                    Você usa o sistema grátis por {trialPolicy.trial_days} dias (plano{" "}
+                                    {plan.name}).
+                                </div>
+                                <div style={S.resumoHighlight}>
+                                    Quando o teste acabar, enviamos a cobrança da mensalidade (
+                                    {fmt(plan.monthlyPrice)}/mês) por PIX. Ao pagar, o acesso continua
+                                    normalmente — sem novo cadastro.
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     <div style={S.sectionLabel}>Empresa</div>

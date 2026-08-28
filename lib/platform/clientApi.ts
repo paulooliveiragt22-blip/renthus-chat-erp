@@ -433,6 +433,17 @@ export const platformApi = {
             `/api/platform/billing/subscriptions/${id}/allow-overage`,
             { method: "POST", body: JSON.stringify({ allow_overage, reason }) }
         ),
+    billingSettings: () =>
+        platformFetch<{
+            settings: { default_trial_days: number; updated_at: string; updated_by: string | null };
+        }>("/api/platform/billing/settings"),
+    updateBillingSettings: (default_trial_days: number) =>
+        platformFetch<{
+            settings: { default_trial_days: number; updated_at: string; updated_by: string | null };
+        }>("/api/platform/billing/settings", {
+            method:  "PATCH",
+            body:    JSON.stringify({ default_trial_days }),
+        }),
     healthExtended: () =>
         platformFetch<{
             ok: boolean;

@@ -105,6 +105,8 @@ async function checkCompanyAccess(
 
         const billingPaywall =
             sub?.status === "blocked" ||
+            sub?.status === "pending_payment" ||
+            sub?.status === "pending_setup" ||
             (comp?.is_active === false && sub?.status === "overdue");
 
         if (billingPaywall) {

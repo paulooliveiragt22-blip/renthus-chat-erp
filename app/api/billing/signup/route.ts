@@ -1,9 +1,8 @@
 /**
  * POST /api/billing/signup
  *
- * Cadastro inicial: cria empresa + usuário (senha) + trial gratuito (TRIAL_DAYS, padrão 15).
- * Sem pagamento no Pagar.me. Quando o trial vence, o cron /api/billing/charge gera fatura PIX;
- * após o pagamento o webhook reativa o acesso — sem /signup/complete nem /onboarding.
+ * Cadastro inicial: cria empresa + usuário + billing (trial N dias ou pay-to-start se N=0).
+ * Dias de trial: platform_billing_settings.default_trial_days (default 0).
  *
  * Body: {
  *   company_name, cnpj, whatsapp, email, plan: 'essencial' | 'pro' | 'market',
@@ -13,7 +12,8 @@
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { startTrialAfterSignup } from "@/lib/billing/startFreeTrial";
+import { startBillingAfterSignup } from "@/lib/billing/startBillingAfterSignup";
+import { getDefaultTrialDays } from "@/lib/billing/getDefaultTrialDays";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
@@ -141,19 +141,21 @@ export async function POST(req: Request) {
 
         const nowIso = new Date().toISOString();
         const trimmedName = company_name.trim();
+        const trialDays = await getDefaultTrialDays(admin);
+        const paymentRequired = trialDays === 0;
 
         const { data: newCompany, error: compErr } = await admin
             .from("companies")
             .insert({
-                nome_fantasia:           trimmedName,
-                cnpj:                    cnpjDigits,
-                name:                    trimmedName,
-                email:                   emailNorm,
-                whatsapp_phone:          whatsappDigits.startsWith("55") ? whatsappDigits : `55${whatsappDigits}`,
-                meta:                    { cnpj: cnpjDigits },
-                is_active:               true,
-                senha_definida:          true,
-                onboarding_completed_at: nowIso,
+                nome_fantasia:  trimmedName,
+                cnpj:           cnpjDigits,
+                name:           trimmedName,
+                email:          emailNorm,
+                whatsapp_phone: whatsappDigits.startsWith("55") ? whatsappDigits : `55${whatsappDigits}`,
+                meta:           { cnpj: cnpjDigits },
+                is_active:      !paymentRequired,
+                senha_definida: true,
+                onboarding_completed_at: paymentRequired ? null : nowIso,
             })
             .select("id")
             .single();
@@ -182,14 +184,20 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Erro ao vincular usuário à empresa" }, { status: 500 });
         }
 
-        await startTrialAfterSignup(admin, companyId, planKey);
-        await syncLogicalSubscription(admin, companyId, planKey);
+        const billing = await startBillingAfterSignup(admin, companyId, planKey, trialDays);
+
+        if (!billing.paymentRequired) {
+            await syncLogicalSubscription(admin, companyId, planKey);
+        }
 
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
+        const cadastroLabel = billing.paymentRequired
+            ? "Novo cadastro (aguardando pagamento)"
+            : `Novo cadastro (trial ${billing.trialDays}d)`;
         await sendBillingNotification(
             companyId,
             RENTHUS_PHONE,
-            `🆕 *Novo cadastro (trial)*\n\n` +
+            `🆕 *${cadastroLabel}*\n\n` +
                 `Empresa: ${trimmedName}\n` +
                 `Email: ${emailNorm}\n` +
                 `Plano: ${getPlanLabel(planKey)}\n` +
@@ -198,9 +206,13 @@ export async function POST(req: Request) {
         );
 
         return NextResponse.json({
-            ok:         true,
-            company_id: companyId,
-            message:    "Cadastro criado. Faça login para acessar o sistema.",
+            ok:                true,
+            company_id:        companyId,
+            payment_required:  billing.paymentRequired,
+            trial_days:        billing.trialDays,
+            message:           billing.paymentRequired
+                ? "Cadastro criado. Faça login e conclua o pagamento para acessar o sistema."
+                : "Cadastro criado. Faça login para acessar o sistema.",
         });
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

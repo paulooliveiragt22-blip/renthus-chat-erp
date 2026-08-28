@@ -1,47 +1,12 @@
 /**
- * Inicia trial gratuito no cadastro (sem pagamento no Pagar.me).
- * Após o prazo, o cron em charge/route gera a fatura PIX.
+ * Re-export — implementação em startBillingAfterSignup.ts
+ * @deprecated import from @/lib/billing/startBillingAfterSignup
  */
 
-import "server-only";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
+export {
+    startBillingAfterSignup,
+    startTrialAfterSignup,
+    type StartBillingResult,
+} from "@/lib/billing/startBillingAfterSignup";
 
-const TRIAL_DAYS = Math.max(1, Math.min(90, Number(process.env.TRIAL_DAYS ?? "15")));
-
-export function getTrialDays(): number {
-    return TRIAL_DAYS;
-}
-
-export async function startTrialAfterSignup(
-    admin: ReturnType<typeof createAdminClient>,
-    companyId: string,
-    plan: CommercialPlanKey | string
-): Promise<void> {
-    const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
-    const planKey = normalizePlanKey(plan) ?? "essencial";
-
-    const { error } = await admin.from("pagarme_subscriptions").upsert(
-        {
-            company_id:          companyId,
-            plan:                planKey,
-            status:              "trial",
-            trial_ends_at:       trialEndsAt.toISOString(),
-            activated_at:        new Date().toISOString(),
-            pagarme_customer_id: null,
-        },
-        { onConflict: "company_id" }
-    );
-
-    if (error) {
-        console.error("[startFreeTrial] Erro ao criar assinatura trial:", error.message);
-        throw new Error(error.message);
-    }
-
-    await admin.from("companies").update({ is_active: true }).eq("id", companyId);
-
-    console.log(
-        `[startFreeTrial] Trial de ${TRIAL_DAYS}d para empresa ${companyId} | plano=${planKey} | até ${trialEndsAt.toISOString()}`
-    );
-}
+export { getDefaultTrialDays, getTrialDays } from "@/lib/billing/getDefaultTrialDays";
