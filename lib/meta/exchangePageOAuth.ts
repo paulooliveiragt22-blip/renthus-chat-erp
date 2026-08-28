@@ -115,3 +115,27 @@ export async function subscribePageMessagingWebhooks(params: {
     }
     return { ok: true };
 }
+
+/** Inscreve o app nos webhooks da conta IG profissional (complementa subscribed_apps da Page). */
+export async function subscribeInstagramMessagingWebhooks(params: {
+    igUserId: string;
+    pageAccessToken: string;
+}): Promise<{ ok: boolean; error?: string }> {
+    const url = `https://graph.facebook.com/${metaGraphVersion()}/${encodeURIComponent(params.igUserId)}/subscribed_apps`;
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            subscribed_fields: ["messages", "messaging_postbacks", "message_deliveries", "message_reads"],
+            access_token: params.pageAccessToken,
+        }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: { message?: string };
+    };
+    if (!res.ok || json.success === false) {
+        return { ok: false, error: json.error?.message || `ig_subscribe_${res.status}` };
+    }
+    return { ok: true };
+}

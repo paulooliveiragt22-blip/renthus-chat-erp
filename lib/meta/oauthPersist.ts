@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+    subscribeInstagramMessagingWebhooks,
     subscribePageMessagingWebhooks,
     type MetaOAuthPageOption,
 } from "@/lib/meta/exchangePageOAuth";
@@ -53,6 +54,15 @@ export async function upsertMetaChannelFromOAuth(params: {
     });
     if (!sub.ok) {
         console.warn("[meta/oauth] subscribed_apps failed:", sub.error);
+    }
+    if (params.page.igUserId) {
+        const igSub = await subscribeInstagramMessagingWebhooks({
+            igUserId: params.page.igUserId,
+            pageAccessToken: params.page.accessToken,
+        });
+        if (!igSub.ok) {
+            console.warn("[meta/oauth] ig subscribed_apps failed:", igSub.error);
+        }
     }
     return { ok: true };
 }

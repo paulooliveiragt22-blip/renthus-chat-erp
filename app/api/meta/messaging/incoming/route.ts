@@ -9,8 +9,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isValidMetaWebhookSignature } from "@/lib/meta/validateMetaWebhookSignature";
 import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 import { hasFeature } from "@/lib/billing/entitlements";
 import {
@@ -40,27 +40,6 @@ function verifyToken(): string {
         process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim() ||
         ""
     );
-}
-
-function appSecret(): string {
-    return (
-        process.env.META_APP_SECRET?.trim() ||
-        process.env.WHATSAPP_APP_SECRET?.trim() ||
-        ""
-    );
-}
-
-function isValidMetaSignature(rawBody: string, signatureHeader: string | null): boolean {
-    const secret = appSecret();
-    if (!secret) return false;
-    if (!signatureHeader?.startsWith("sha256=")) return false;
-    const receivedHex = signatureHeader.slice("sha256=".length).trim();
-    if (!receivedHex) return false;
-    const expectedHex = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
-    const receivedBuf = Buffer.from(receivedHex, "hex");
-    const expectedBuf = Buffer.from(expectedHex, "hex");
-    if (receivedBuf.length !== expectedBuf.length) return false;
-    return timingSafeEqual(receivedBuf, expectedBuf);
 }
 
 function scheduleQueueWorkerWake(): void {
@@ -105,7 +84,12 @@ export async function POST(req: NextRequest) {
 
     const rawBody = await req.text();
     const signature = req.headers.get("x-hub-signature-256");
-    if (!isValidMetaSignature(rawBody, signature)) {
+    if (!isValidMetaWebhookSignature(rawBody, signature)) {
+        console.warn("[meta/incoming] invalid_signature", {
+            hasSignature: Boolean(signature),
+            hasMetaSecret: Boolean(process.env.META_APP_SECRET?.trim()),
+            hasWaSecret: Boolean(process.env.WHATSAPP_APP_SECRET?.trim()),
+        });
         return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
     }
 
@@ -130,6 +114,7 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient();
     const entries = Array.isArray(body.entry) ? body.entry : [];
+    let processedEvents = 0;
 
     for (const entry of entries) {
         const entryId = String(entry.id ?? "").trim();
@@ -170,7 +155,15 @@ export async function POST(req: NextRequest) {
                 channel,
                 ev,
             });
+            processedEvents += 1;
         }
+    }
+
+    if (entries.length > 0 && processedEvents === 0) {
+        console.warn("[meta/incoming] no_events_processed", {
+            object: objectType,
+            entryIds: entries.map((e) => e.id).filter(Boolean),
+        });
     }
 
     return NextResponse.json({ ok: true });
