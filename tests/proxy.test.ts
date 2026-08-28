@@ -443,7 +443,7 @@ describe("proxy billing paywall (P0.10)", () => {
         else process.env.SUPABASE_SERVICE_ROLE_KEY = prevServiceKey;
     });
 
-    it("redirects pending_payment from /pdv to configuracoes?tab=plano", async () => {
+    it("redirects pending_payment from /pdv to /plano/pagar", async () => {
         process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
         process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
         mockSupabaseRest("pending_payment");
@@ -457,8 +457,7 @@ describe("proxy billing paywall (P0.10)", () => {
 
         assert.strictEqual(response.status, 307);
         const loc = response.headers.get("location") ?? "";
-        assert.ok(loc.includes("/configuracoes"), loc);
-        assert.ok(loc.includes("tab=plano"), loc);
+        assert.ok(loc.includes("/plano/pagar"), loc);
     });
 
     it("allows /configuracoes?tab=plano during paywall", async () => {
@@ -492,7 +491,7 @@ describe("proxy billing paywall (P0.10)", () => {
 
         assert.strictEqual(response.status, 307);
         const loc = response.headers.get("location") ?? "";
-        assert.ok(loc.includes("tab=plano"), loc);
+        assert.ok(loc.includes("/plano/pagar"), loc);
     });
 
     it("does not skip paywall via renthus_access_ok cookie", async () => {
@@ -511,6 +510,6 @@ describe("proxy billing paywall (P0.10)", () => {
         );
 
         assert.strictEqual(response.status, 307);
-        assert.ok((response.headers.get("location") ?? "").includes("tab=plano"));
+        assert.ok((response.headers.get("location") ?? "").includes("/plano/pagar"));
     });
 });

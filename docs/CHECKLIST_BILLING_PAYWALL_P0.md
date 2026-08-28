@@ -28,7 +28,7 @@ Referências:
 | Fase | Escopo | Estado |
 |------|--------|--------|
 | **P0** | Settings trial (default 0) + `requireBillingActive` + gates API + block/IDOR/idempotência | [ ] |
-| **P1** | UX `/plano` + `/ativar` + banner + invalidação cookie paywall | [ ] |
+| **P1** | UX `/plano` + `/ativar` + banner + invalidação cookie paywall | [x] parcial 2026-08-28 |
 | **P2** | Consolidar entitlements (RPC/view) + limpeza legado signup/complete + dunning e-mail | [ ] |
 
 | # | Item P0 | Severidade | Estado |
@@ -494,13 +494,13 @@ apagando features.
 
 | # | Item | Estado |
 |---|------|--------|
-| P1.1 | Extrair hub `/plano` de `configuracoes` (status, PIX, cartão, AI wallet) | [ ] |
-| P1.2 | `/plano/bloqueado` + `/plano/pagar` | [ ] |
-| P1.3 | Banner overdue/trial no header (`HeaderClient`) | [ ] |
-| P1.4 | `/ativar` wizard (steps persistidos `companies.onboarding_step`) | [ ] |
-| P1.5 | Signup redirect: N=0 → `/plano/pagar`; N>0 → `/ativar` (parar de setar `onboarding_completed_at` no insert) | [ ] |
-| P1.6 | Client interceptor 402 → `/plano/bloqueado` | [ ] |
-| P1.7 | Invalidar `renthus_access_ok` após webhook pago / block | [ ] |
+| P1.1 | Extrair hub `/plano` de `configuracoes` (status, PIX, cartão, AI wallet) | [x] 2026-08-28 |
+| P1.2 | `/plano/bloqueado` + `/plano/pagar` | [x] 2026-08-28 |
+| P1.3 | Banner overdue/trial no header (`HeaderClient`) | [x] 2026-08-28 |
+| P1.4 | `/ativar` wizard (steps persistidos `companies.onboarding_step`) | [x] 2026-08-28 |
+| P1.5 | Signup redirect: N=0 → `/plano/pagar`; N>0 → `/ativar` (parar de setar `onboarding_completed_at` no insert) | [x] 2026-08-28 |
+| P1.6 | Client interceptor 402 → `/plano/bloqueado` | [x] 2026-08-28 |
+| P1.7 | Invalidar `renthus_access_ok` após webhook pago / block | [x] N/A (cookie removido P0.10) |
 
 Detalhe de steps `/ativar` (soft skip):
 

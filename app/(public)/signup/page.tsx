@@ -203,7 +203,7 @@ export default function SignupPage() {
             }
 
             router.replace(
-                data.payment_required ? "/configuracoes?tab=plano" : "/pedidos"
+                data.payment_required ? "/plano/pagar" : "/ativar"
             );
             router.refresh();
         } catch {

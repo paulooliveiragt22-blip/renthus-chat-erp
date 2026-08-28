@@ -7,7 +7,9 @@ import { createClient } from "@/lib/supabase/client";
 import { AdminOrdersProvider } from "@/components/AdminOrdersContext";
 import AdminSidebar from "@/components/AdminSidebar";
 import HeaderClient from "@/components/HeaderClient";
+import BillingStatusBanner from "@/components/billing/BillingStatusBanner";
 import ImpersonationBanner from "@/components/platform/ImpersonationBanner";
+import { installBillingFetchInterceptor } from "@/lib/billing/installBillingFetchInterceptor";
 
 // ── Wrapper externo: só lê pathname (resolve rules-of-hooks) ──────────────────
 export default function AdminShell({ children }: { children: React.ReactNode }) {
@@ -46,6 +48,10 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         localStorage.setItem("sidebar-collapsed", String(collapsed));
     }, [collapsed]);
+
+    useEffect(() => {
+        installBillingFetchInterceptor();
+    }, []);
 
     // ── Fullscreen API ────────────────────────────────────────────────────────
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -133,6 +139,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
                     isFullscreen={isFullscreen}
                     onToggleFullscreen={toggleFullscreen}
                 />
+                <BillingStatusBanner />
                 <ImpersonationBanner />
 
                 {/* Corpo: sidebar + conteúdo */}

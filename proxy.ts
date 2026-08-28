@@ -59,8 +59,8 @@ function isBillingPaywallAllowedPath(pathname: string, searchParams: URLSearchPa
 
 function billingPaywallRedirect(request: NextRequest): NextResponse {
     const payUrl = request.nextUrl.clone();
-    payUrl.pathname = "/configuracoes";
-    payUrl.search = "?tab=plano";
+    payUrl.pathname = "/plano/pagar";
+    payUrl.search = "";
     return NextResponse.redirect(payUrl);
 }
 
@@ -110,9 +110,9 @@ async function checkCompanyAccess(
                 return { type: "redirect", response: NextResponse.redirect(completeUrl) };
             }
 
-            if (comp.onboarding_completed_at === null && pathname !== "/onboarding") {
+            if (comp.onboarding_completed_at === null && pathname !== "/ativar" && pathname !== "/onboarding") {
                 const onboardUrl = request.nextUrl.clone();
-                onboardUrl.pathname = "/onboarding";
+                onboardUrl.pathname = "/ativar";
                 onboardUrl.search = "";
                 return { type: "redirect", response: NextResponse.redirect(onboardUrl) };
             }
