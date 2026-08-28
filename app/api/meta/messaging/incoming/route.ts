@@ -208,6 +208,21 @@ async function handleMessagingEvent(params: {
     }
     if (!bodyText.trim()) return;
 
+    const toAddr =
+        String(ev.recipient?.id ?? "").trim() ||
+        (channel === "instagram"
+            ? String(metaChannel.ig_user_id ?? "").trim()
+            : String(metaChannel.page_id ?? "").trim()) ||
+        String(metaChannel.page_id ?? "").trim();
+    if (!toAddr) {
+        console.warn("[meta/incoming] missing to_addr", {
+            channel,
+            pageId: metaChannel.page_id,
+            igUserId: metaChannel.ig_user_id,
+        });
+        return;
+    }
+
     const profileName =
         channel === "instagram" ? "Cliente Instagram" : "Cliente Messenger";
 
@@ -228,6 +243,7 @@ async function handleMessagingEvent(params: {
         channel,
         providerMessageId,
         senderId,
+        toAddr,
         bodyText,
         raw: ev,
     });
@@ -331,6 +347,7 @@ async function insertMetaInbound(params: {
     channel: string;
     providerMessageId: string;
     senderId: string;
+    toAddr: string;
     bodyText: string;
     raw: unknown;
 }): Promise<boolean> {
@@ -341,6 +358,7 @@ async function insertMetaInbound(params: {
         provider: "meta",
         provider_message_id: params.providerMessageId,
         from_addr: params.senderId,
+        to_addr: params.toAddr,
         body: params.bodyText,
         status: "received",
         raw_payload: params.raw,
