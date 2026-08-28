@@ -11,6 +11,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidMetaWebhookSignature } from "@/lib/meta/validateMetaWebhookSignature";
+import {
+    collectMetaAccountIds,
+    extractMetaMessagingEvents,
+    normalizeMetaMessagingWebhookBody,
+    type MetaMessagingEvent,
+} from "@/lib/meta/parseMetaMessagingWebhook";
 import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 import { hasFeature } from "@/lib/billing/entitlements";
 import {
@@ -60,18 +66,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
 }
 
-type MessagingEvent = {
-    sender?: { id?: string };
-    recipient?: { id?: string };
-    timestamp?: number;
-    message?: {
-        mid?: string;
-        text?: string;
-        is_echo?: boolean;
-        quick_reply?: { payload?: string };
-    };
-    postback?: { payload?: string; title?: string };
-};
+type MessagingEvent = MetaMessagingEvent;
+
+async function resolveMetaChannel(
+    admin: ReturnType<typeof createAdminClient>,
+    channel: Extract<MessagingChannel, "instagram" | "messenger">,
+    accountIds: string[]
+): Promise<MetaMessagingChannelRow | null> {
+    for (const id of accountIds) {
+        if (!id) continue;
+        if (channel === "instagram") {
+            const byIg = await loadActiveMetaChannelByIgUserId(admin, id);
+            if (byIg) return byIg;
+            const byPage = await loadActiveMetaChannelByPageId(admin, id);
+            if (byPage) return byPage;
+        } else {
+            const byPage = await loadActiveMetaChannelByPageId(admin, id);
+            if (byPage) return byPage;
+        }
+    }
+    return null;
+}
 
 export async function POST(req: NextRequest) {
     const limited = await enforceIpRateLimitAsync(
@@ -93,23 +108,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
     }
 
-    let body: {
-        object?: string;
-        entry?: Array<{
-            id?: string;
-            messaging?: MessagingEvent[];
-            standby?: MessagingEvent[];
-        }>;
-    };
+    let body: ReturnType<typeof normalizeMetaMessagingWebhookBody>;
     try {
-        body = JSON.parse(rawBody) as typeof body;
+        body = normalizeMetaMessagingWebhookBody(JSON.parse(rawBody));
     } catch {
         return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    }
+    if (!body) {
+        return NextResponse.json({ error: "invalid_body" }, { status: 400 });
     }
 
     const objectType = body.object;
     if (objectType !== "page" && objectType !== "instagram") {
-        return NextResponse.json({ ok: true, ignored: true });
+        return NextResponse.json({ ok: true, ignored: true, object: objectType ?? null });
     }
 
     const admin = createAdminClient();
@@ -117,21 +128,22 @@ export async function POST(req: NextRequest) {
     let processedEvents = 0;
 
     for (const entry of entries) {
-        const entryId = String(entry.id ?? "").trim();
-        if (!entryId) continue;
+        const events = extractMetaMessagingEvents(entry);
+        const accountIds = collectMetaAccountIds(entry, events);
 
         const channel: Extract<MessagingChannel, "instagram" | "messenger"> =
             objectType === "instagram" ? "instagram" : "messenger";
 
-        let metaChannel: MetaMessagingChannelRow | null = null;
-        if (channel === "instagram") {
-            metaChannel =
-                (await loadActiveMetaChannelByIgUserId(admin, entryId)) ||
-                (await loadActiveMetaChannelByPageId(admin, entryId));
-        } else {
-            metaChannel = await loadActiveMetaChannelByPageId(admin, entryId);
+        const metaChannel = await resolveMetaChannel(admin, channel, accountIds);
+        if (!metaChannel || !channelEnabledFor(metaChannel, channel)) {
+            console.warn("[meta/incoming] channel_not_found", {
+                object: objectType,
+                accountIds,
+                hasMessaging: Boolean(entry.messaging?.length),
+                hasChanges: Boolean(entry.changes?.length),
+            });
+            continue;
         }
-        if (!metaChannel || !channelEnabledFor(metaChannel, channel)) continue;
 
         const allowed = await hasFeature(
             admin,
@@ -142,11 +154,6 @@ export async function POST(req: NextRequest) {
             console.warn("[meta/incoming] plan feature missing:", metaChannel.company_id);
             continue;
         }
-
-        const events = [
-            ...(Array.isArray(entry.messaging) ? entry.messaging : []),
-            ...(Array.isArray(entry.standby) ? entry.standby : []),
-        ];
 
         for (const ev of events) {
             await handleMessagingEvent({

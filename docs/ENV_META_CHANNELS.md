@@ -29,7 +29,14 @@ O paste do lojista (Configurações → **Canais**) só funciona se o número/to
 - Webhook WhatsApp: `/api/whatsapp/incoming`
 - Webhook Page/IG: `/api/meta/messaging/incoming`
 
-### Facebook Login for Business (se “URL bloqueada” persistir)
+### Webhook Instagram / Messenger
+
+1. Caso de uso **Instagram** → Webhooks → callback `/api/meta/messaging/incoming` + verify token
+2. Assine **`messages`** (e opcional `messaging_postbacks`)
+3. **Obrigatório:** passo **“Adicionar conta”** (conta IG profissional autorizada no app) — sem isso a Meta **não envia** DMs, mesmo com OAuth/Page ok
+4. App em **Dev:** quem manda DM precisa ser **Instagram Tester** ou admin/dev do app
+5. Opcional: produto **Messenger** → Webhooks → objeto **Page** → campo `messages` (mesma URL)
+
 
 1. App → **Facebook Login for Business** → **Configurations** → Create  
 2. Inclua permissões: `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `pages_read_engagement`, `business_management`, `instagram_basic` / `instagram_business_basic`, `instagram_manage_messages`  
