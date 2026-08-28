@@ -6,7 +6,7 @@ import {
     loadActiveMetaChannelByCompany,
     resolvePageAccessToken,
 } from "@/lib/meta/messagingChannels";
-import { sendMetaPageQuickReplies, sendMetaPageText, sendMetaPageUrlButton } from "@/lib/meta/sendMetaMessage";
+import { sendMetaPageMenuPostbacks, sendMetaPageText, sendMetaPageWebUrlCard } from "@/lib/meta/sendMetaMessage";
 import { resolveFreeFormSendPolicy } from "@/src/domain/messaging/customerServiceWindow";
 
 /**
@@ -133,7 +133,7 @@ export class MetaMessageGateway implements MessageGateway {
             const { bodyText, displayText, url } = message.ctaUrl;
             if (!url.trim()) return;
             if (await this.isRecentDuplicateText(tenant, bodyText)) return;
-            const result = await sendMetaPageUrlButton({
+            const result = await sendMetaPageWebUrlCard({
                 pageId: row.page_id,
                 accessToken,
                 recipientId: recipient,
@@ -157,11 +157,11 @@ export class MetaMessageGateway implements MessageGateway {
             const text = message.text ?? "Como posso ajudar?";
             const buttons = message.buttons ?? [];
             if (!buttons.length) return;
-            const result = await sendMetaPageQuickReplies({
+            const result = await sendMetaPageMenuPostbacks({
                 pageId: row.page_id,
                 accessToken,
                 recipientId: recipient,
-                text,
+                text: `${text}\n\nSe não aparecer botão, digite: cardápio ou pedidos.`,
                 buttons,
             });
             if (!result.ok) {

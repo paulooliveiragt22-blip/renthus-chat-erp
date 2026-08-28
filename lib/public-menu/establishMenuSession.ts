@@ -9,6 +9,8 @@ import {
     resolveWebMenuCustomer,
     resolveWebMenuCustomerByChannelIdentity,
 } from "./resolveWebCustomer";
+import { resolveChannelDisplayNameForMenu } from "./channelThreadProfile";
+import { isGenericCustomerDisplayName } from "@/lib/meta/customerDisplayName";
 import { listCustomerAddressesForMenu } from "./checkout/addresses";
 import {
     signWebMenuCheckoutSession,
@@ -47,6 +49,8 @@ export async function establishMenuSessionFromWmToken(
     }
 
     const name: string | null = typeof input.name === "string" ? input.name.trim() : null;
+    const effectiveName =
+        name && !isGenericCustomerDisplayName(name) ? name : null;
     const phoneBody = typeof input.phone === "string" ? input.phone : "";
 
     let customer: Awaited<ReturnType<typeof resolveWebMenuCustomer>> = null;
@@ -60,11 +64,18 @@ export async function establishMenuSessionFromWmToken(
     } else {
         channel = link.channel;
         externalId = link.externalId;
+        const displayName = await resolveChannelDisplayNameForMenu(
+            admin,
+            input.companyId,
+            link.channel,
+            link.externalId,
+            effectiveName
+        );
         customer = await resolveWebMenuCustomerByChannelIdentity(
             admin,
             input.companyId,
             { channel: link.channel, externalId: link.externalId },
-            name
+            displayName ?? effectiveName
         );
 
         if (customer?.needsPhone && phoneBody.trim()) {
@@ -72,23 +83,47 @@ export async function establishMenuSessionFromWmToken(
             if (!phoneNorm.ok) {
                 return { ok: false, error: "phone_invalid", status: 400 };
             }
-            if (!name && customer.isNew) {
+            const nameForLink =
+                effectiveName ??
+                (await resolveChannelDisplayNameForMenu(
+                    admin,
+                    input.companyId,
+                    link.channel,
+                    link.externalId,
+                    customer.name
+                ));
+            if (!nameForLink && customer.isNew) {
                 return { ok: false, error: "name_required", status: 400 };
             }
-            customer = await linkWebMenuCustomerPhone(
+            const linked = await linkWebMenuCustomerPhone(
                 admin,
                 input.companyId,
                 customer.id,
                 phoneBody
             );
-            if (customer && name) {
+            if (!linked.ok) {
+                return {
+                    ok: false,
+                    error: linked.error,
+                    status: linked.error === "phone_invalid" ? 400 : 422,
+                };
+            }
+            customer = linked.customer;
+            if (nameForLink) {
                 await admin
                     .from("customers")
-                    .update({ name: name.slice(0, 120) })
+                    .update({ name: nameForLink.slice(0, 120) })
                     .eq("id", customer.id)
                     .eq("company_id", input.companyId);
-                customer = { ...customer, name };
+                customer = { ...customer, name: nameForLink };
             }
+        } else if (customer && displayName && isGenericCustomerDisplayName(customer.name)) {
+            await admin
+                .from("customers")
+                .update({ name: displayName.slice(0, 120) })
+                .eq("id", customer.id)
+                .eq("company_id", input.companyId);
+            customer = { ...customer, name: displayName };
         }
     }
 

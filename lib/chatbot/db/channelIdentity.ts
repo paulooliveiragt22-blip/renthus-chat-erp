@@ -66,7 +66,7 @@ export async function linkCustomerChannelPhone(
     });
 
     if (error) {
-        console.error("[channelIdentity] link phone:", error.message);
+        console.error("[channelIdentity] link phone:", error.message, error.code);
         return null;
     }
 

@@ -10,6 +10,7 @@ import {
     ChannelIdentitySchema,
     type ChannelIdentity,
 } from "@/src/domain/contracts/identity";
+import { isGenericCustomerDisplayName } from "@/lib/meta/customerDisplayName";
 
 export type WebMenuCustomer = {
     id: string;
@@ -129,10 +130,11 @@ export async function resolveWebMenuCustomerByChannelIdentity(
     name?: string | null
 ): Promise<WebMenuCustomer | null> {
     const parsed = ChannelIdentitySchema.parse(identity);
+    const trimmedName = (name ?? "").trim();
     const resolved = await resolveOrCreateCustomerByIdentity(admin, {
         companyId,
         identity: parsed,
-        name: (name ?? "").trim() || "Cliente",
+        name: trimmedName && !isGenericCustomerDisplayName(trimmedName) ? trimmedName : null,
         origem: parsed.channel === "web" ? "web_menu" : parsed.channel,
     });
     if (!resolved) return null;
@@ -152,14 +154,18 @@ export async function resolveWebMenuCustomerByChannelIdentity(
     };
 }
 
+export type LinkWebMenuPhoneResult =
+    | { ok: true; customer: WebMenuCustomer }
+    | { ok: false; error: "phone_invalid" | "link_phone_failed" };
+
 export async function linkWebMenuCustomerPhone(
     admin: SupabaseClient,
     companyId: string,
     customerId: string,
     phoneRaw: string
-): Promise<WebMenuCustomer | null> {
+): Promise<LinkWebMenuPhoneResult> {
     const phone = normalizeBrPhone(phoneRaw);
-    if (!phone.ok) return null;
+    if (!phone.ok) return { ok: false, error: "phone_invalid" };
 
     const linked = await linkCustomerChannelPhone(admin, {
         companyId,
@@ -167,7 +173,7 @@ export async function linkWebMenuCustomerPhone(
         phone: phone.digits,
         phoneE164: phone.phoneE164,
     });
-    if (!linked) return null;
+    if (!linked) return { ok: false, error: "link_phone_failed" };
 
     const { data } = await admin
         .from("customers")
@@ -176,10 +182,13 @@ export async function linkWebMenuCustomerPhone(
         .maybeSingle();
 
     return {
-        id: linked.customerId,
-        name: (data?.name as string | null) ?? null,
-        phoneE164: phone.phoneE164,
-        isNew: false,
-        needsPhone: false,
+        ok: true,
+        customer: {
+            id: linked.customerId,
+            name: (data?.name as string | null) ?? null,
+            phoneE164: phone.phoneE164,
+            isNew: false,
+            needsPhone: false,
+        },
     };
 }

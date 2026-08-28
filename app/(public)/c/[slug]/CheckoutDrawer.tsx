@@ -17,6 +17,7 @@ import {
     soleFulfillmentNotice,
 } from "@/lib/delivery/fulfillmentCopy";
 import { getMenuSession, postMenuSession } from "@/lib/public-menu/clientMenuSession";
+import { isGenericCustomerDisplayName } from "@/lib/meta/customerDisplayName";
 import MenuIdentityFallback from "./MenuIdentityFallback";
 
 function formatBRL(n: number): string {
@@ -229,9 +230,14 @@ export default function CheckoutDrawer({
         const phonePending = Boolean(json.needsPhone || json.customer.needsPhone);
         setNeedsPhone(phonePending);
         setSessionToken(phonePending ? null : json.sessionToken);
-        setCustomerName(json.customer.name ?? "");
+        const rawName = json.customer.name ?? "";
+        const displayName =
+            rawName && !isGenericCustomerDisplayName(rawName) ? rawName : "";
+        setCustomerName(displayName);
         setCustomerPhone(json.customer.phoneE164 || "");
-        setIsNewCustomer(json.customer.isNew || phonePending);
+        setIsNewCustomer(
+            json.customer.isNew || phonePending || !displayName
+        );
         setAddresses(phonePending ? [] : json.addresses);
         if (!phonePending && json.addresses.length > 0) {
             setAddressMode("saved");
@@ -302,17 +308,29 @@ export default function CheckoutDrawer({
         setError(null);
         setBusy(true);
         try {
+            const trimmedName = customerName.trim();
+            if (
+                isNewCustomer &&
+                (!trimmedName || isGenericCustomerDisplayName(trimmedName))
+            ) {
+                setError("Informe seu nome para continuar.");
+                return;
+            }
             const json = await postMenuSession(slug, {
                 wmToken: wmTokenFromUrl,
                 phone: customerPhone,
-                name: customerName || undefined,
+                name: trimmedName || undefined,
             });
             if (!json.ok) {
                 if (json.error === "name_required") {
                     setIsNewCustomer(true);
                     setError("Informe seu nome para continuar.");
                 } else if (json.error === "phone_invalid") {
-                    setError("Telefone inválido. Use DDD + número.");
+                    setError("Telefone inválido. Use DDD + número (ex.: 11 99999-9999).");
+                } else if (json.error === "link_phone_failed") {
+                    setError(
+                        "Não foi possível vincular este telefone. Confira o número ou fale com a loja."
+                    );
                 } else {
                     setError("Não foi possível identificar. Tente de novo.");
                 }
@@ -689,6 +707,8 @@ export default function CheckoutDrawer({
                             <p className="text-xs text-emerald-700">
                                 Identificado: {customerName || customerPhone}
                             </p>
+                        ) : needsPhone && customerName ? (
+                            <p className="text-xs text-zinc-600">Olá, {customerName}</p>
                         ) : null}
                         <button
                             type="button"
@@ -734,7 +754,7 @@ export default function CheckoutDrawer({
                                         placeholder="(11) 99999-9999"
                                     />
                                 </label>
-                                {(isNewCustomer || !sessionToken) && (
+                                {(isNewCustomer || !sessionToken || !customerName.trim()) && (
                                     <label className="block text-sm">
                                         <span className="text-zinc-600">Nome</span>
                                         <input
