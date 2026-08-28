@@ -6,6 +6,7 @@ import { hasFeature } from "@/lib/billing/entitlements";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import type { CapabilityKey } from "@/lib/workspace/rbac/capabilities";
+import { jsonAccessError } from "@/lib/api/errors";
 
 const FEATURE_HINTS: Record<string, string> = {
     marketplace_ifood: "Disponível no plano Market. Faça upgrade em Configurações → Plano.",
@@ -100,17 +101,7 @@ export async function requireCompanyPlanFeature(
         ? await requireCapability(capability)
         : await requireCompanyAccess(allowedRoles);
     if (!ctx.ok) {
-        return {
-            ok: false,
-            response: NextResponse.json(
-                {
-                    error: ctx.error,
-                    ...(ctx.code ? { code: ctx.code } : {}),
-                    ...(ctx.billingStatus ? { billing_status: ctx.billingStatus } : {}),
-                },
-                { status: ctx.status }
-            ),
-        };
+        return { ok: false, response: jsonAccessError(ctx) };
     }
     const feat = await requirePlanFeature(ctx.admin, ctx.companyId, featureKey);
     if (!feat.ok) return feat;
@@ -142,17 +133,7 @@ export async function requireCompanyAnyPlanFeature(
         ? await requireCapability(capability)
         : await requireCompanyAccess(allowedRoles);
     if (!ctx.ok) {
-        return {
-            ok: false,
-            response: NextResponse.json(
-                {
-                    error: ctx.error,
-                    ...(ctx.code ? { code: ctx.code } : {}),
-                    ...(ctx.billingStatus ? { billing_status: ctx.billingStatus } : {}),
-                },
-                { status: ctx.status }
-            ),
-        };
+        return { ok: false, response: jsonAccessError(ctx) };
     }
     const feat = await requireAnyPlanFeature(ctx.admin, ctx.companyId, featureKeys);
     if (!feat.ok) return feat;
