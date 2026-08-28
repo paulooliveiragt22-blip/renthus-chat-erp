@@ -238,7 +238,7 @@ export default function CheckoutDrawer({
         setIsNewCustomer(
             json.customer.isNew || phonePending || !displayName
         );
-        setAddresses(phonePending ? [] : json.addresses);
+        setAddresses(phonePending ? [] : json.addresses ?? []);
         if (!phonePending && json.addresses.length > 0) {
             setAddressMode("saved");
             const preferred = preferredSavedAddressId
@@ -247,7 +247,12 @@ export default function CheckoutDrawer({
             const principal =
                 preferred ?? json.addresses.find((a) => a.isPrincipal) ?? json.addresses[0]!;
             setSavedAddressId(principal.id);
-            void quoteDelivery({ sessionToken: json.sessionToken, savedAddressId: principal.id });
+            if (json.sessionToken) {
+                void quoteDelivery({
+                    sessionToken: json.sessionToken,
+                    savedAddressId: principal.id,
+                });
+            }
         } else {
             setAddressMode("new");
             setSavedAddressId(null);

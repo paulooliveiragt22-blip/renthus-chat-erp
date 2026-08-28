@@ -10,6 +10,7 @@ import {
     resolveWebMenuCustomerByChannelIdentity,
 } from "./resolveWebCustomer";
 import { resolveChannelDisplayNameForMenu } from "./channelThreadProfile";
+import { pickCustomerNameAfterPhoneLink } from "./customerNameAfterPhoneLink";
 import { isGenericCustomerDisplayName } from "@/lib/meta/customerDisplayName";
 import { listCustomerAddressesForMenu } from "./checkout/addresses";
 import {
@@ -57,6 +58,8 @@ export async function establishMenuSessionFromWmToken(
     let channel: WebMenuLinkPayloadV2["channel"] | undefined;
     let externalId: string | undefined;
 
+    let matchedExistingCustomer = false;
+
     if (link.v === 1) {
         customer = await resolveWebMenuCustomer(admin, input.companyId, link.phoneE164, name);
         channel = "whatsapp";
@@ -83,16 +86,15 @@ export async function establishMenuSessionFromWmToken(
             if (!phoneNorm.ok) {
                 return { ok: false, error: "phone_invalid", status: 400 };
             }
-            const nameForLink =
-                effectiveName ??
+            const channelName =
                 (await resolveChannelDisplayNameForMenu(
                     admin,
                     input.companyId,
                     link.channel,
                     link.externalId,
                     customer.name
-                ));
-            if (!nameForLink && customer.isNew) {
+                )) ?? null;
+            if (!effectiveName && !channelName && customer.isNew) {
                 return { ok: false, error: "name_required", status: 400 };
             }
             const linked = await linkWebMenuCustomerPhone(
@@ -109,13 +111,22 @@ export async function establishMenuSessionFromWmToken(
                 };
             }
             customer = linked.customer;
-            if (nameForLink) {
+            matchedExistingCustomer = linked.merged;
+
+            const finalName = pickCustomerNameAfterPhoneLink({
+                existingName: customer.name,
+                formName: effectiveName,
+                channelName,
+            });
+            if (finalName && finalName !== (customer.name ?? "").trim()) {
                 await admin
                     .from("customers")
-                    .update({ name: nameForLink.slice(0, 120) })
+                    .update({ name: finalName })
                     .eq("id", customer.id)
                     .eq("company_id", input.companyId);
-                customer = { ...customer, name: nameForLink };
+                customer = { ...customer, name: finalName };
+            } else if (customer.name) {
+                customer = { ...customer, name: customer.name.trim() };
             }
         } else if (customer && displayName && isGenericCustomerDisplayName(customer.name)) {
             await admin
@@ -163,6 +174,7 @@ export async function establishMenuSessionFromWmToken(
             },
             addresses,
             channel: channel ?? "whatsapp",
+            matchedExistingCustomer: matchedExistingCustomer || undefined,
         },
     };
 }

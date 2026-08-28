@@ -202,6 +202,8 @@ export interface PublicMenuSessionOk {
     needsPhone?: boolean;
     /** Canal que originou o link `wm` (quando conhecido). */
     channel?: "whatsapp" | "instagram" | "messenger" | "web";
+    /** True quando o telefone informado casou com cadastro já existente (merge IG→WA). */
+    matchedExistingCustomer?: boolean;
     customer: {
         id: string;
         name: string | null;

@@ -155,7 +155,7 @@ export async function resolveWebMenuCustomerByChannelIdentity(
 }
 
 export type LinkWebMenuPhoneResult =
-    | { ok: true; customer: WebMenuCustomer }
+    | { ok: true; customer: WebMenuCustomer; merged: boolean }
     | { ok: false; error: "phone_invalid" | "link_phone_failed" };
 
 export async function linkWebMenuCustomerPhone(
@@ -177,16 +177,20 @@ export async function linkWebMenuCustomerPhone(
 
     const { data } = await admin
         .from("customers")
-        .select("id, name")
+        .select("id, name, phone_e164")
         .eq("id", linked.customerId)
         .maybeSingle();
 
+    const phoneE164 =
+        (data?.phone_e164 as string | null)?.trim() || phone.phoneE164;
+
     return {
         ok: true,
+        merged: linked.merged,
         customer: {
             id: linked.customerId,
             name: (data?.name as string | null) ?? null,
-            phoneE164: phone.phoneE164,
+            phoneE164,
             isNew: false,
             needsPhone: false,
         },
