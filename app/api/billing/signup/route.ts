@@ -12,9 +12,8 @@
 
 import { NextResponse }      from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { startBillingAfterSignup } from "@/lib/billing/startBillingAfterSignup";
+import { signupCompanyViaRpc } from "@/lib/billing/signupCompanyViaRpc";
 import { getDefaultTrialDays } from "@/lib/billing/getDefaultTrialDays";
-import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
 import {
@@ -139,56 +138,28 @@ export async function POST(req: Request) {
 
         const userId = authData.user.id;
 
-        const nowIso = new Date().toISOString();
         const trimmedName = company_name.trim();
         const trialDays = await getDefaultTrialDays(admin);
-        const paymentRequired = trialDays === 0;
 
-        const { data: newCompany, error: compErr } = await admin
-            .from("companies")
-            .insert({
-                nome_fantasia:  trimmedName,
-                cnpj:           cnpjDigits,
-                name:           trimmedName,
+        let billing: Awaited<ReturnType<typeof signupCompanyViaRpc>>;
+        try {
+            billing = await signupCompanyViaRpc(admin, {
+                authUserId:     userId,
+                companyName:    trimmedName,
+                cnpjDigits,
                 email:          emailNorm,
-                whatsapp_phone: whatsappDigits.startsWith("55") ? whatsappDigits : `55${whatsappDigits}`,
-                meta:           { cnpj: cnpjDigits },
-                is_active:      !paymentRequired,
-                senha_definida: true,
-                onboarding_completed_at: paymentRequired ? null : nowIso,
-            })
-            .select("id")
-            .single();
-
-        if (compErr || !newCompany) {
+                whatsappDigits,
+                plan:           planKey,
+                trialDays,
+            });
+        } catch (rpcErr) {
             await admin.auth.admin.deleteUser(userId);
-            console.error("[signup] Erro ao criar empresa:", compErr?.message);
-            return NextResponse.json(
-                { error: compErr?.message ?? "Erro ao criar empresa" },
-                { status: 500 }
-            );
+            const msg = rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
+            console.error("[signup] rpc_signup_company_with_billing:", msg);
+            return NextResponse.json({ error: msg }, { status: 500 });
         }
 
-        const companyId = newCompany.id;
-
-        const { error: linkErr } = await admin.from("company_users").insert({
-            company_id: companyId,
-            user_id:    userId,
-            role:       "owner",
-        });
-
-        if (linkErr) {
-            await admin.from("companies").delete().eq("id", companyId);
-            await admin.auth.admin.deleteUser(userId);
-            console.error("[signup] company_users:", linkErr.message);
-            return NextResponse.json({ error: "Erro ao vincular usuário à empresa" }, { status: 500 });
-        }
-
-        const billing = await startBillingAfterSignup(admin, companyId, planKey, trialDays);
-
-        if (!billing.paymentRequired) {
-            await syncLogicalSubscription(admin, companyId, planKey);
-        }
+        const companyId = billing.companyId;
 
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
         const cadastroLabel = billing.paymentRequired

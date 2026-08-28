@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { beforeEach, describe, it, mock } from "node:test";
+import { beforeEach, afterEach, describe, it, mock } from "node:test";
 import { NextRequest } from "next/server";
 import { proxy, type SupabaseClientFactory } from "../proxy";
 
@@ -403,5 +403,114 @@ describe("proxy auth routing", () => {
         assert.strictEqual(response.status, 403);
         const body = await response.json();
         assert.strictEqual(body.error.code, "impersonation_read_only");
+    });
+});
+
+describe("proxy billing paywall (P0.10)", () => {
+    const originalFetch = globalThis.fetch;
+    const prevSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const prevServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    function mockSupabaseRest(subStatus: string, company: Record<string, unknown> = {}) {
+        globalThis.fetch = (async (input: RequestInfo | URL) => {
+            const url = String(input);
+            if (url.includes("pagarme_subscriptions")) {
+                return new Response(JSON.stringify([{ status: subStatus }]), { status: 200 });
+            }
+            if (url.includes("companies")) {
+                return new Response(
+                    JSON.stringify([
+                        {
+                            senha_definida: true,
+                            onboarding_completed_at: null,
+                            onboarding_token: null,
+                            is_active: false,
+                            ...company,
+                        },
+                    ]),
+                    { status: 200 }
+                );
+            }
+            return new Response("not found", { status: 404 });
+        }) as typeof fetch;
+    }
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        if (prevSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+        else process.env.NEXT_PUBLIC_SUPABASE_URL = prevSupabaseUrl;
+        if (prevServiceKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+        else process.env.SUPABASE_SERVICE_ROLE_KEY = prevServiceKey;
+    });
+
+    it("redirects pending_payment from /pdv to configuracoes?tab=plano", async () => {
+        process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
+        process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
+        mockSupabaseRest("pending_payment");
+
+        const { factory } = createMockClient({ id: "user-1" });
+        const response = await proxy(
+            createRequest("/pdv", "renthus_company_id=comp-1"),
+            undefined,
+            { createClient: factory }
+        );
+
+        assert.strictEqual(response.status, 307);
+        const loc = response.headers.get("location") ?? "";
+        assert.ok(loc.includes("/configuracoes"), loc);
+        assert.ok(loc.includes("tab=plano"), loc);
+    });
+
+    it("allows /configuracoes?tab=plano during paywall", async () => {
+        process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
+        process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
+        mockSupabaseRest("blocked");
+
+        const { factory } = createMockClient({ id: "user-1" });
+        const response = await proxy(
+            createRequest("/configuracoes?tab=plano", "renthus_company_id=comp-1"),
+            undefined,
+            { createClient: factory }
+        );
+
+        assert.notStrictEqual(response.status, 307);
+    });
+
+    it("fail-closed on fetch error (redirect paywall)", async () => {
+        process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
+        process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
+        globalThis.fetch = (async () => {
+            throw new Error("network down");
+        }) as typeof fetch;
+
+        const { factory } = createMockClient({ id: "user-1" });
+        const response = await proxy(
+            createRequest("/dashboard", "renthus_company_id=comp-1"),
+            undefined,
+            { createClient: factory }
+        );
+
+        assert.strictEqual(response.status, 307);
+        const loc = response.headers.get("location") ?? "";
+        assert.ok(loc.includes("tab=plano"), loc);
+    });
+
+    it("does not skip paywall via renthus_access_ok cookie", async () => {
+        process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
+        process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
+        mockSupabaseRest("pending_payment");
+
+        const { factory } = createMockClient({ id: "user-1" });
+        const response = await proxy(
+            createRequest(
+                "/pdv",
+                `renthus_company_id=comp-1; renthus_access_ok=comp-1:${Date.now()}`
+            ),
+            undefined,
+            { createClient: factory }
+        );
+
+        assert.strictEqual(response.status, 307);
+        assert.ok((response.headers.get("location") ?? "").includes("tab=plano"));
     });
 });

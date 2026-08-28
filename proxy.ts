@@ -45,35 +45,24 @@ type CompanyAccessRow = {
     is_active:               boolean;
 };
 
-/** TTL curto: evita 2 REST a cada navegação admin; billing/onboarding ainda revalida rápido. */
-const ACCESS_GUARD_COOKIE = "renthus_access_ok";
-const ACCESS_GUARD_TTL_MS = 45_000;
+type AccessGuardResult = { type: "allow" } | { type: "redirect"; response: NextResponse };
 
-function accessGuardFresh(request: NextRequest, companyId: string): boolean {
-    const raw = request.cookies.get(ACCESS_GUARD_COOKIE)?.value;
-    if (!raw) return false;
-    const sep = raw.lastIndexOf(":");
-    if (sep <= 0) return false;
-    const cid = raw.slice(0, sep);
-    const ts = Number(raw.slice(sep + 1));
-    if (cid !== companyId || !Number.isFinite(ts)) return false;
-    return Date.now() - ts < ACCESS_GUARD_TTL_MS;
+/** Rotas permitidas enquanto billing paywall está ativo (P0.10). */
+function isBillingPaywallAllowedPath(pathname: string, searchParams: URLSearchParams): boolean {
+    if (pathname === "/logout" || pathname.startsWith("/logout/")) return true;
+    if (pathname === "/plano" || pathname.startsWith("/plano/")) return true;
+    if (pathname.startsWith("/oauth/")) return true;
+    if (pathname === "/configuracoes" && searchParams.get("tab") === "plano") return true;
+    if (pathname.startsWith("/configuracoes/") && searchParams.get("tab") === "plano") return true;
+    return false;
 }
 
-function stampAccessGuard(response: NextResponse, companyId: string): void {
-    response.cookies.set(ACCESS_GUARD_COOKIE, `${companyId}:${Date.now()}`, {
-        path: "/",
-        httpOnly: true,
-        sameSite: "lax",
-        maxAge: Math.ceil(ACCESS_GUARD_TTL_MS / 1000) + 5,
-        secure: process.env.NODE_ENV === "production",
-    });
+function billingPaywallRedirect(request: NextRequest): NextResponse {
+    const payUrl = request.nextUrl.clone();
+    payUrl.pathname = "/configuracoes";
+    payUrl.search = "?tab=plano";
+    return NextResponse.redirect(payUrl);
 }
-
-type AccessGuardResult =
-    | { type: "fresh" }
-    | { type: "allow" }
-    | { type: "redirect"; response: NextResponse };
 
 /** Redirecionamentos de cobrança / onboarding (extraído para reduzir complexidade cognitiva do proxy). */
 async function checkCompanyAccess(
@@ -83,8 +72,6 @@ async function checkCompanyAccess(
     supabaseUrl: string,
     serviceKey: string
 ): Promise<AccessGuardResult> {
-    if (accessGuardFresh(request, companyId)) return { type: "fresh" };
-
     try {
         const [subRes, compRes] = await Promise.all([
             fetch(
@@ -110,19 +97,12 @@ async function checkCompanyAccess(
             (comp?.is_active === false && sub?.status === "overdue");
 
         if (billingPaywall) {
-            const isConfig =
-                pathname === "/configuracoes" ||
-                pathname.startsWith("/configuracoes/") ||
-                pathname.startsWith("/oauth/");
-            if (!isConfig) {
-                const payUrl = request.nextUrl.clone();
-                payUrl.pathname = "/configuracoes";
-                payUrl.search = "?tab=plano";
-                return { type: "redirect", response: NextResponse.redirect(payUrl) };
+            if (!isBillingPaywallAllowedPath(pathname, request.nextUrl.searchParams)) {
+                return { type: "redirect", response: billingPaywallRedirect(request) };
             }
         }
 
-        if (comp) {
+        if (comp && !billingPaywall) {
             if (comp.senha_definida === false && comp.onboarding_token) {
                 const completeUrl = request.nextUrl.clone();
                 completeUrl.pathname = "/signup/complete";
@@ -139,10 +119,10 @@ async function checkCompanyAccess(
         }
 
         return { type: "allow" };
-    } catch {
-        // Falha silenciosa — não bloqueia acesso em caso de erro de rede
+    } catch (err) {
+        console.error("[proxy] checkCompanyAccess:", err);
+        return { type: "redirect", response: billingPaywallRedirect(request) };
     }
-    return { type: "allow" };
 }
 
 /** Rotas tenant / APIs internas não devem ser servidas no host dedicado platform.* */
@@ -489,7 +469,6 @@ export async function proxy(
                 serviceKey
             );
             if (guard.type === "redirect") return guard.response;
-            if (guard.type === "allow") stampAccessGuard(response, companyId);
         }
     }
 
