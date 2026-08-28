@@ -42,19 +42,6 @@ export default async function PlatformForbiddenPage() {
                         Detalhes técnicos (ops)
                     </summary>
                     <div className="space-y-3 border-t border-zinc-200 px-4 pt-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-                        <p>
-                            Código:{" "}
-                            <code className="font-mono text-[11px] text-zinc-800 dark:text-zinc-200">
-                                ip_not_allowed
-                            </code>
-                            . Em produção a variável{" "}
-                            <code className="font-mono text-[11px]">
-                                PLATFORM_ADMIN_IP_ALLOWLIST
-                            </code>{" "}
-                            (Vercel → Production) precisa incluir o IP que a edge
-                            vê — pode diferir do ifconfig.me. Valor sem aspas;
-                            redeploy após alterar.
-                        </p>
                         <div>
                             <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
                                 IP detectado nesta requisição
