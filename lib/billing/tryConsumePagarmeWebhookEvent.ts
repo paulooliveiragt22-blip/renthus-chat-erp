@@ -1,23 +1,32 @@
 /**
- * Retorna true se o evento deve ser processado; false se já foi visto (id duplicado).
- * Sem id no payload, retorna true (compatível com payloads antigos).
+ * Retorna true se o evento deve ser processado; false se já foi visto.
+ * Chave: event.id OU `${eventType}:${orderId}` (P0.5).
+ * Sem chave estável → false (não processa — evita side effects não idempotentes).
  */
 
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
+import { webhookConsumeKey } from "@/lib/billing/webhookIdempotencyKey";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
 export async function tryConsumePagarmeWebhookEvent(
     admin: Admin,
     eventId: string | null | undefined,
-    eventType: string
+    eventType: string,
+    orderId?: string | null
 ): Promise<boolean> {
-    const id = eventId?.trim();
-    if (!id) return true;
+    const id = webhookConsumeKey(eventId, eventType, orderId);
+    if (!id) {
+        console.warn(
+            "[billing:webhook] sem chave de idempotência (event.id / order.id) — skip",
+            { eventType }
+        );
+        return false;
+    }
 
     const { error } = await admin.from("pagarme_webhook_events").insert({
-        id:         id,
+        id,
         event_type: eventType,
     });
 

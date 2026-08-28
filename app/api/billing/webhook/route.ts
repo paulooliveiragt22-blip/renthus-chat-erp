@@ -20,6 +20,7 @@ import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
 import { creditAiPack } from "@/lib/billing/aiWallet";
 import { billingLog } from "@/lib/billing/billingLog";
 import { tryConsumePagarmeWebhookEvent } from "@/lib/billing/tryConsumePagarmeWebhookEvent";
+import { extractWebhookOrderId } from "@/lib/billing/webhookIdempotencyKey";
 import {
     enforceIpRateLimitAsync,
     RATE_LIMIT_WINDOW_MS,
@@ -65,21 +66,28 @@ export async function POST(req: Request) {
     const eventType: string = event?.type ?? "";
     const data              = event?.data ?? {};
     const eventId           = typeof event?.id === "string" ? event.id : undefined;
+    const orderIdForIdem    = extractWebhookOrderId(eventType, data);
 
     billingLog("webhook", "received", {
         event_type: eventType,
         event_id:   eventId,
-        order_id:   (data as { id?: string })?.id,
+        order_id:   orderIdForIdem ?? (data as { id?: string })?.id,
     });
 
     const admin = createAdminClient();
 
     try {
-        const proceed = await tryConsumePagarmeWebhookEvent(admin, eventId, eventType);
+        const proceed = await tryConsumePagarmeWebhookEvent(
+            admin,
+            eventId,
+            eventType,
+            orderIdForIdem
+        );
         if (!proceed) {
             billingLog("webhook", "duplicate_event_skipped", {
                 event_id:   eventId,
                 event_type: eventType,
+                order_id:   orderIdForIdem,
             });
             return NextResponse.json({ ok: true, duplicate: true });
         }

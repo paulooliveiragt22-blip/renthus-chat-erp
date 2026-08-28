@@ -27,6 +27,7 @@ import {
 } from "@/lib/billing/sendBillingNotification";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { billingLog } from "@/lib/billing/billingLog";
+import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
 export const runtime = "nodejs";
 
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
         .from("pagarme_subscriptions")
         .select(`
             id, company_id, plan, status, activated_at, next_billing_at, trial_ends_at,
-            pagarme_customer_id,
+            last_paid_at, pagarme_customer_id,
             companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
         `)
         .in("status", ["trial", "active"])
@@ -69,10 +70,15 @@ export async function POST(req: Request) {
         for (const sub of dueSubs ?? []) {
             try {
                 if (sub.status === "trial") {
-                    await generateSetupCharge(admin, sub, now);
+                    const setupCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
+                    if (setupCents <= 0) {
+                        await generateMonthlyInvoice(admin, sub, now, "pending_payment");
+                    } else {
+                        await generateSetupCharge(admin, sub, now);
+                    }
                     results.trialsCharged++;
                 } else {
-                    await generateMonthlyInvoice(admin, sub, now);
+                    await generateMonthlyInvoice(admin, sub, now, "overdue");
                     results.activeCharged++;
                 }
             } catch (err: any) {
@@ -174,134 +180,166 @@ function buildCustomerPayload(sub: any, company: CompanyRow | null) {
 }
 
 // ---------------------------------------------------------------------------
-// generateSetupCharge: trial vencido → primeira cobrança é o setup fee
+// generateSetupCharge: trial vencido + setup fee > 0 → claim row → Pagar.me → update
 // ---------------------------------------------------------------------------
 async function generateSetupCharge(
     admin: ReturnType<typeof createAdminClient>,
     sub: any,
     now: Date
 ) {
-    // Dedup: não criar se já existe setup_payment pendente para esta subscription
-    const { data: existing } = await admin
-        .from("setup_payments")
-        .select("id")
-        .eq("company_id", sub.company_id)
-        .eq("status", "pending")
-        .maybeSingle();
-
-    if (existing) {
-        console.log(`[charge] setup_payment pendente já existe para sub ${sub.id}, pulando`);
-        return;
-    }
-
     const company     = sub.companies as CompanyRow | null;
     const amountCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
-    const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
+    const brlAmount   = centsToBRL(amountCents);
 
-    const created = await createPixInvoiceOrder({
-        amountCents,
-        description: `Taxa de ativação Renthus — Plano ${sub.plan}`,
-        itemCode:    "setup",
-        customerId:  sub.pagarme_customer_id ?? undefined,
-        customer:    buildCustomerPayload(sub, company),
-        additionalInfo: [
-            { name: "Empresa", value: compLabel },
-            { name: "Tipo",    value: "Taxa de ativação" },
-        ],
-        metadata: {
-            type:            "setup",
-            company_id:      sub.company_id,
-            subscription_id: sub.id,
-            plan:            sub.plan,
-        },
-    });
+    const { data: claimed, error: claimErr } = await admin
+        .from("setup_payments")
+        .insert({
+            company_id:          sub.company_id,
+            plan:                sub.plan,
+            amount:              brlAmount,
+            installments:        1,
+            status:              "pending",
+            pagarme_order_id:    null,
+            pagarme_payment_url: "",
+        })
+        .select("id")
+        .single();
 
-    const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
+    if (claimErr) {
+        if (isUniqueViolation(claimErr)) {
+            console.log(`[charge] setup_payment pendente já existe para sub ${sub.id}, pulando`);
+            return;
+        }
+        throw new Error(claimErr.message);
+    }
 
-    await admin.from("setup_payments").insert({
-        company_id:          sub.company_id,
-        plan:                sub.plan,
-        amount:              centsToBRL(amountCents),
-        installments:        1,
-        status:              "pending",
-        pagarme_order_id:    order.id,
-        pagarme_payment_url: pixUrl ?? "",
-    });
+    const claimId = claimed.id as string;
+    const compLabel = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
-    await admin
-        .from("pagarme_subscriptions")
-        .update({ status: "pending_setup" })
-        .eq("id", sub.id);
+    try {
+        const created = await createPixInvoiceOrder({
+            amountCents,
+            description: `Taxa de ativação Renthus — Plano ${sub.plan}`,
+            itemCode:    "setup",
+            customerId:  sub.pagarme_customer_id ?? undefined,
+            customer:    buildCustomerPayload(sub, company),
+            additionalInfo: [
+                { name: "Empresa", value: compLabel },
+                { name: "Tipo",    value: "Taxa de ativação" },
+            ],
+            metadata: {
+                type:            "setup",
+                company_id:      sub.company_id,
+                subscription_id: sub.id,
+                plan:            sub.plan,
+            },
+        });
 
-    if (company?.whatsapp_phone) {
-        const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
-        if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
+        const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
+
+        await admin
+            .from("setup_payments")
+            .update({
+                pagarme_order_id:    order.id,
+                pagarme_payment_url: pixUrl ?? "",
+            })
+            .eq("id", claimId);
+
+        await admin
+            .from("pagarme_subscriptions")
+            .update({ status: "pending_setup" })
+            .eq("id", sub.id);
+
+        if (company?.whatsapp_phone) {
+            const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
+            if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
+        }
+    } catch (err) {
+        await admin.from("setup_payments").update({ status: "failed" }).eq("id", claimId);
+        throw err;
     }
 }
 
 // ---------------------------------------------------------------------------
-// generateMonthlyInvoice: ativa com next_billing_at vencido → mensalidade
+// generateMonthlyInvoice: claim pending → Pagar.me → update (+ status overdue|pending_payment)
 // ---------------------------------------------------------------------------
 async function generateMonthlyInvoice(
     admin: ReturnType<typeof createAdminClient>,
     sub: any,
-    now: Date
+    now: Date,
+    nextStatus: "overdue" | "pending_payment" = "overdue"
 ) {
-    // Dedup: não criar se já existe invoice pendente para esta subscription
-    const { data: existing } = await admin
-        .from("invoices")
-        .select("id")
-        .eq("subscription_id", sub.id)
-        .eq("status", "pending")
-        .maybeSingle();
-
-    if (existing) {
-        console.log(`[charge] invoice pendente já existe para sub ${sub.id}, pulando`);
-        return;
-    }
-
     const company     = sub.companies as CompanyRow | null;
     const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
-    const compLabel   = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
+    const brlAmount   = centsToBRL(amountCents);
 
-    const created = await createPixInvoiceOrder({
-        amountCents,
-        description: `Mensalidade Renthus — Plano ${sub.plan}`,
-        customerId:  sub.pagarme_customer_id ?? undefined,
-        customer:    buildCustomerPayload(sub, company),
-        additionalInfo: [
-            { name: "Empresa", value: compLabel },
-            { name: "Tipo",    value: "Mensalidade" },
-        ],
-        metadata: {
-            type:            "invoice",
-            company_id:      sub.company_id,
-            subscription_id: sub.id,
-            plan:            sub.plan,
-        },
-    });
+    const { data: claimed, error: claimErr } = await admin
+        .from("invoices")
+        .insert({
+            company_id:          sub.company_id,
+            subscription_id:     sub.id,
+            amount:              brlAmount,
+            status:              "pending",
+            due_at:              now.toISOString(),
+            pagarme_order_id:    null,
+            pagarme_payment_url: null,
+            pix_qr_code:         null,
+        })
+        .select("id")
+        .single();
 
-    const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
+    if (claimErr) {
+        if (isUniqueViolation(claimErr)) {
+            console.log(`[charge] invoice pendente já existe para sub ${sub.id}, pulando`);
+            return;
+        }
+        throw new Error(claimErr.message);
+    }
 
-    await admin.from("invoices").insert({
-        company_id:          sub.company_id,
-        subscription_id:     sub.id,
-        amount:              centsToBRL(amountCents),
-        status:              "pending",
-        due_at:              now.toISOString(),
-        pagarme_order_id:    order.id,
-        pagarme_payment_url: pixUrl,
-        pix_qr_code:         pixCode,
-    });
+    const claimId = claimed.id as string;
+    const compLabel = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
 
-    await admin
-        .from("pagarme_subscriptions")
-        .update({ status: "overdue" })
-        .eq("id", sub.id);
+    try {
+        const created = await createPixInvoiceOrder({
+            amountCents,
+            description: `Mensalidade Renthus — Plano ${sub.plan}`,
+            customerId:  sub.pagarme_customer_id ?? undefined,
+            customer:    buildCustomerPayload(sub, company),
+            additionalInfo: [
+                { name: "Empresa", value: compLabel },
+                { name: "Tipo",    value: "Mensalidade" },
+            ],
+            metadata: {
+                type:            "invoice",
+                company_id:      sub.company_id,
+                subscription_id: sub.id,
+                plan:            sub.plan,
+            },
+        });
 
-    if (company?.whatsapp_phone) {
-        const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
-        if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
+        const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
+
+        await admin
+            .from("invoices")
+            .update({
+                pagarme_order_id:    order.id,
+                pagarme_payment_url: pixUrl,
+                pix_qr_code:         pixCode,
+            })
+            .eq("id", claimId);
+
+        await admin
+            .from("pagarme_subscriptions")
+            .update({ status: nextStatus })
+            .eq("id", sub.id);
+
+        if (company?.whatsapp_phone) {
+            const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
+            if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
+        }
+    } catch (err) {
+        await admin.from("invoices").update({ status: "failed" }).eq("id", claimId);
+        throw err;
     }
 }
 

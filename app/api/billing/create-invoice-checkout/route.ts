@@ -24,11 +24,24 @@ import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
 import { activateAfterSetupPayment, syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { getPlanLabel } from "@/lib/billing/planCatalog";
+import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
 export const runtime = "nodejs";
 
 const CREATE_INVOICE_CHECKOUT_RATE_LIMIT = 10;
 const CREATE_INVOICE_CHECKOUT_RATE_WINDOW_MS = 60_000;
+
+function resolveCheckoutIdempotencyKey(
+    req: Request,
+    body: { idempotency_key?: string }
+): string | null {
+    const fromHeader = req.headers.get("idempotency-key")?.trim() ?? "";
+    const fromBody =
+        typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
+    const raw = fromHeader || fromBody;
+    if (!raw || raw.length > 128) return null;
+    return raw;
+}
 
 async function persistCardBillingOrder(
     admin: ReturnType<typeof createAdminClient>,
@@ -120,7 +133,7 @@ async function persistPixBillingOrder(
             })
             .eq("id", p.pendingInv.id);
     } else {
-        await admin.from("invoices").insert({
+        const { error } = await admin.from("invoices").insert({
             company_id:          p.companyId,
             subscription_id:     p.subId,
             amount:              brlAmount,
@@ -130,6 +143,7 @@ async function persistPixBillingOrder(
             pagarme_payment_url: p.pixUrl ?? "",
             pix_qr_code:         p.pixCode,
         });
+        if (error) throw error;
     }
 }
 
@@ -137,6 +151,7 @@ type Body = {
     payment_method?:  "pix" | "credit_card";
     card_token?:      string;
     installments?:    number;
+    idempotency_key?: string;
     billing_address?: {
         cep:      string;
         endereco: string;
@@ -174,6 +189,33 @@ export async function POST(req: Request) {
             body.payment_method === "credit_card" ? "credit_card" : "pix";
 
         const admin = createAdminClient();
+        const idemKey = resolveCheckoutIdempotencyKey(req, body);
+        const idemRowId = idemKey ? `${companyId}:${idemKey}` : null;
+
+        if (idemRowId) {
+            const { data: cached } = await admin
+                .from("billing_checkout_idempotency")
+                .select("response")
+                .eq("id", idemRowId)
+                .maybeSingle();
+            if (cached?.response && typeof cached.response === "object") {
+                return NextResponse.json(cached.response as Record<string, unknown>);
+            }
+        }
+
+        const remember = async (payload: Record<string, unknown>) => {
+            if (idemRowId) {
+                await admin.from("billing_checkout_idempotency").upsert(
+                    {
+                        id:         idemRowId,
+                        company_id: companyId,
+                        response:   payload,
+                    },
+                    { onConflict: "id" }
+                );
+            }
+            return NextResponse.json(payload);
+        };
 
         const { data: sub, error: subErr } = await admin
             .from("pagarme_subscriptions")
@@ -338,7 +380,7 @@ export async function POST(req: Request) {
                 } else {
                     await applyMonthlyInvoicePaid(admin, order.id, { pagarmeCustomerId: custId });
                 }
-                return NextResponse.json({
+                return remember({
                     ok:             true,
                     payment_method: "credit_card",
                     payment_status: "paid",
@@ -346,7 +388,7 @@ export async function POST(req: Request) {
                 });
             }
 
-            return NextResponse.json({
+            return remember({
                 ok:             true,
                 payment_method: "credit_card",
                 payment_status: "pending",
@@ -357,11 +399,11 @@ export async function POST(req: Request) {
 
         // ── PIX ───────────────────────────────────────────────────────────
         const existingPixUrl  = pendingRecord?.pagarme_payment_url ?? null;
-        const existingPixCode = (pendingRecord as any)?.pix_qr_code ?? null;
+        const existingPixCode = (pendingRecord as { pix_qr_code?: string | null } | null)?.pix_qr_code ?? null;
         const hasHostedCheckout = existingPixUrl?.includes("checkout.pagar.me") ?? false;
 
         if (pendingRecord?.pagarme_order_id && existingPixUrl && !hasHostedCheckout) {
-            return NextResponse.json({
+            return remember({
                 ok:             true,
                 payment_method: "pix",
                 pix_qr_url:     existingPixUrl,
@@ -394,20 +436,41 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Erro ao gerar PIX" }, { status: 500 });
         }
 
-        await persistPixBillingOrder(admin, {
-            companyId,
-            subId: sub.id,
-            plan,
-            amountCents,
-            orderId: order.id,
-            pixUrl,
-            pixCode,
-            isFirstPayment,
-            pendingSetup: pendingSetup ? { id: pendingSetup.id } : null,
-            pendingInv:   pendingInv ? { id: pendingInv.id } : null,
-        });
+        try {
+            await persistPixBillingOrder(admin, {
+                companyId,
+                subId: sub.id,
+                plan,
+                amountCents,
+                orderId: order.id,
+                pixUrl,
+                pixCode,
+                isFirstPayment,
+                pendingSetup: pendingSetup ? { id: pendingSetup.id } : null,
+                pendingInv:   pendingInv ? { id: pendingInv.id } : null,
+            });
+        } catch (persistErr: unknown) {
+            const pe = persistErr as { code?: string; message?: string };
+            if (!isUniqueViolation(pe)) throw persistErr;
+            // Race: outro request já criou pending — devolve o PIX atual se existir
+            const { data: raceInv } = await admin
+                .from("invoices")
+                .select("pagarme_payment_url, pix_qr_code")
+                .eq("company_id", companyId)
+                .eq("status", "pending")
+                .maybeSingle();
+            if (raceInv?.pagarme_payment_url || raceInv?.pix_qr_code) {
+                return remember({
+                    ok:             true,
+                    payment_method: "pix",
+                    pix_qr_url:     raceInv.pagarme_payment_url,
+                    pix_qr_code:    raceInv.pix_qr_code,
+                });
+            }
+            throw persistErr;
+        }
 
-        return NextResponse.json({
+        return remember({
             ok:             true,
             payment_method: "pix",
             pix_qr_url:     pixUrl,
