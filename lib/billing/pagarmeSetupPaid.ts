@@ -68,7 +68,7 @@ async function provisionUserAfterPayment(
 ) {
     const { data: company } = await admin
         .from("companies")
-        .select("email, name, onboarding_token, whatsapp_phone")
+        .select("email, name, whatsapp_phone")
         .eq("id", companyId)
         .maybeSingle();
 
@@ -119,7 +119,7 @@ async function provisionUserAfterPayment(
     }
 
     const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
-    const onboardUrl = `${appUrl}/signup/complete?token=${company.onboarding_token}`;
+    const loginUrl   = `${appUrl}/login`;
 
     const renthusNumber = process.env.RENTHUS_SUPPORT_PHONE ?? "5566992071285";
     await sendBillingNotification(
@@ -130,7 +130,8 @@ async function provisionUserAfterPayment(
             `Email: ${company.email}\n` +
             `Plano: ${plan}\n` +
             `WhatsApp: ${company.whatsapp_phone ?? "-"}\n\n` +
-            `Link onboarding: ${onboardUrl}`
+            `Login: ${loginUrl}\n` +
+            `Onboarding: ${appUrl}/ativar`
     );
 }
 

@@ -40,5 +40,8 @@ npm run test:e2e:ui               # modo interativo
 | M4+M6 | Impressoras → Limpar fila / vias |
 | M7 | Home/dashboard carrega |
 | — | `/login` renderiza |
+| B1+B2 | `/plano/pagar` — cartão + PIX sandbox (deploy Vercel) |
+
+Ver `e2e/billing.sandbox.spec.ts` e `docs/SMOKE_BILLING_PAGARME_SANDBOX.md`.
 
 Não substitui o E2E de banco/RPC (`tests/mvp/`) nem o envio real Meta WhatsApp.

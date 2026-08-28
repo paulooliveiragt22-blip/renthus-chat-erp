@@ -169,7 +169,7 @@ WHERE company_id = '<COMPANY_ID>' AND user_id = '<USER_ID>';
 ### Crítico (necessário antes de entrega aos clientes)
 1. **Entitlements / Billing**
    - Implementar `feature_limits` checks no backend (ex.: limites de mensagens/whatsapp, usuários).
-   - Rotina `usage_monthly` e cobrança (ou integração com Stripe).
+   - Rotina `usage_monthly` e cobrança via **Pagar.me** (`pagarme_subscriptions`, invoices, cron `/api/billing/charge`).
    - Acceptance: endpoints rejeitam ação quando limite excedido e `usage_monthly` atualiza.
 
 2. **RLS & Service role + Segurança**
@@ -282,7 +282,7 @@ Entitlements / Billing
 
 Implementar validação feature_limits no backend (bloqueio/rejeição e overage).
 
-Integrar usage_monthly com cobrança (Stripe ou fluxo de cobrança).
+Integrar usage_monthly com cobrança (fluxo Pagar.me / invoices).
 
 Acceptance: endpoints rejeitam ação quando limite excedido; overage tratado conforme subscriptions.allow_overage.
 

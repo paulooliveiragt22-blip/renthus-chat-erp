@@ -27,9 +27,9 @@ Referências:
 
 | Fase | Escopo | Estado |
 |------|--------|--------|
-| **P0** | Settings trial (default 0) + `requireBillingActive` + gates API + block/IDOR/idempotência | [ ] |
-| **P1** | UX `/plano` + `/ativar` + banner + invalidação cookie paywall | [x] parcial 2026-08-28 |
-| **P2** | Consolidar entitlements (RPC/view) + limpeza legado signup/complete + dunning e-mail | [ ] |
+| **P0** | Settings trial (default 0) + `requireBillingActive` + gates API + block/IDOR/idempotência | [x] 2026-08-28 |
+| **P1** | UX `/plano` + `/ativar` + banner + invalidação cookie paywall | [x] 2026-08-28 |
+| **P2** | Consolidar entitlements (RPC/view) + limpeza legado signup/complete + dunning e-mail | [x] parcial 2026-08-28 |
 
 | # | Item P0 | Severidade | Estado |
 |---|---------|------------|--------|
@@ -517,13 +517,28 @@ Detalhe de steps `/ativar` (soft skip):
 
 | # | Item | Estado |
 |---|------|--------|
-| P2.1 | RPC/view `get_company_entitlements` (billing + features + addons) | [ ] |
-| P2.2 | `entitlements.ts` passa a usar RPC; deprecar dual-read | [ ] |
-| P2.3 | Remover `/signup/complete` + `onboarding_token` flow (após zero tenants) | [ ] |
-| P2.4 | Unificar `TRIAL_DAYS` (15 vs 30 em `activateTrial`) | [ ] |
-| P2.5 | E-mail dunning dias 1/3/5 (além de WA) | [ ] |
-| P2.6 | Docs: remover menções Stripe em `DB_CURRENT_STATE.md` | [ ] |
-| P2.7 | Cron charge: paginação / cursor (evitar timeout Vercel) | [ ] |
+| P2.1 | RPC/view `get_company_entitlements` (billing + features + addons) | [x] 2026-08-28 |
+| P2.2 | `entitlements.ts` passa a usar RPC; deprecar dual-read | [x] 2026-08-28 |
+| P2.3 | Remover `/signup/complete` + `onboarding_token` flow (após zero tenants) | [x] 2026-08-28 |
+| P2.4 | Unificar `TRIAL_DAYS` (15 vs 30 em `activateTrial`) | [x] 2026-08-28 (já usa `getDefaultTrialDays`) |
+| P2.5 | E-mail dunning dias 1/3/5 (além de WA) | [ ] adiado — sem provider de e-mail no repo |
+| P2.6 | Docs: remover menções Stripe em `DB_CURRENT_STATE.md` | [x] 2026-08-28 |
+| P2.7 | Cron charge: paginação / cursor (evitar timeout Vercel) | [x] 2026-08-28 |
+
+---
+
+## Sandbox Pagar.me (cartão + PIX)
+
+Runbook: [`docs/SMOKE_BILLING_PAGARME_SANDBOX.md`](./SMOKE_BILLING_PAGARME_SANDBOX.md)
+
+| # | Item | Estado |
+|---|------|--------|
+| S1 | Chaves `sk_test_` / `pk_test_` em `.env.local` + Vercel | [ ] |
+| S2 | `npm run test:billing-sandbox` (API smoke) | [ ] |
+| S3 | E2E cartão `/plano/pagar` | [ ] |
+| S4 | E2E PIX + webhook | [ ] |
+| S5 | PIX copia-e-cola (EMV) aparece na UI | [ ] fix 2026-08-28 — auth no decode QR + backfill |
+| S6 | `/plano/pagar` standalone (sem sidebar) até pagar → `/ativar` | [ ] fix 2026-08-28 |
 
 ---
 
@@ -549,17 +564,17 @@ P0.0 → P0.1 → P0.8 → P0.2 → P0.3 → P0.4 → P0.5 → P0.6 → P0.7 →
 
 ## Definition of Done (P0)
 
-- [ ] `default_trial_days=0` no platform; signup N=0 → `pending_payment` + 402 até pagar
-- [ ] Platform consegue alterar dias (ex.: 7) e próximo signup respeita
-- [ ] Tenant `blocked` não conclui venda PDV via API (402)
-- [ ] Tenant `blocked` / `pending_payment` consegue abrir status e gerar PIX
-- [ ] Grace overdue **não** libera never-paid (D18)
-- [ ] `?company_id=` cross-tenant impossível em billing/status
-- [ ] `blockCompany` deixa `hasFeature` false
-- [ ] Webhook/cron não duplicam cobrança sob retry
-- [ ] `npm test` verde
-- [ ] Migration remota aplicada + `execute_sql` de validação
-- [ ] Este checklist atualizado com datas `[x]`
+- [x] `default_trial_days=0` no platform; signup N=0 → `pending_payment` + 402 até pagar
+- [x] Platform consegue alterar dias (ex.: 7) e próximo signup respeita
+- [x] Tenant `blocked` não conclui venda PDV via API (402)
+- [x] Tenant `blocked` / `pending_payment` consegue abrir status e gerar PIX
+- [x] Grace overdue **não** libera never-paid (D18)
+- [x] `?company_id=` cross-tenant impossível em billing/status
+- [x] `blockCompany` deixa `hasFeature` false
+- [x] Webhook/cron não duplicam cobrança sob retry
+- [x] `npm test` verde
+- [x] Migration remota aplicada + `execute_sql` de validação
+- [x] Este checklist atualizado com datas `[x]`
 
 ---
 

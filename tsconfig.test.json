@@ -20,6 +20,7 @@
     "lib/billing/requireBillingActive.ts",
     "lib/billing/entitlements.ts",
     "lib/billing/tryConsumePagarmeWebhookEvent.ts",
+    "lib/billing/fetchCompanyEntitlements.ts",
     "lib/billing/sttPricing.ts",
     "lib/billing/llmPricing.ts",
     "lib/billing/aiWallet.ts",

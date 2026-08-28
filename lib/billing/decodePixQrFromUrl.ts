@@ -8,6 +8,36 @@ import sharp, { type Sharp } from "sharp";
 import jsQR from "jsqr";
 import { isImageMagic, isPixEmvPayload, pickPixEmvFromText } from "@/lib/billing/pixEmv";
 
+/**
+ * QR do Pagar.me (`/core/v5/transactions/.../qrcode`) exige Basic auth com sk_*.
+ * Sem isso o fetch devolve 401 e o EMV nunca é recuperado — só a URL vazia no textarea.
+ */
+function pagarmeAuthHeaders(url: string): Record<string, string> {
+    try {
+        const host = new URL(url).hostname;
+        if (!host.endsWith("pagar.me") && !host.endsWith("mundipagg.com")) {
+            return {};
+        }
+    } catch {
+        return {};
+    }
+    const key = process.env.PAGARME_API_KEY?.trim();
+    if (!key) return {};
+    return {
+        Authorization: "Basic " + Buffer.from(`${key}:`).toString("base64"),
+    };
+}
+
+async function fetchPixResource(url: string, accept: string): Promise<Response> {
+    return fetch(url, {
+        redirect: "follow",
+        headers: {
+            Accept: accept,
+            ...pagarmeAuthHeaders(url),
+        },
+    });
+}
+
 /** Pipelines → RGBA (jsQR exige 4 canais). */
 async function decodeEmvFromImageBuffer(buf: Buffer): Promise<string | null> {
     const pipelines: Array<(img: Sharp) => Sharp> = [
@@ -54,10 +84,7 @@ async function decodeEmvFromImageBuffer(buf: Buffer): Promise<string | null> {
 /** Decodifica QR de imagem (PNG/JPEG/WebP) → EMV PIX. */
 export async function decodePixEmvFromImageUrl(url: string): Promise<string | null> {
     try {
-        const res = await fetch(url, {
-            redirect: "follow",
-            headers: { Accept: "image/*,*/*" },
-        });
+        const res = await fetchPixResource(url, "image/*,*/*");
         if (!res.ok) return null;
         const buf = Buffer.from(await res.arrayBuffer());
         if (isImageMagic(buf)) {
@@ -74,10 +101,7 @@ export async function decodePixEmvFromImageUrl(url: string): Promise<string | nu
 /** Página Mundipagg (`digital.mundipagg.com/pix/...`) às vezes embute o EMV no HTML. */
 export async function extractPixEmvFromPageUrl(url: string): Promise<string | null> {
     try {
-        const res = await fetch(url, {
-            redirect: "follow",
-            headers: { Accept: "text/html,application/json,*/*" },
-        });
+        const res = await fetchPixResource(url, "text/html,application/json,*/*");
         if (!res.ok) return null;
         const buf = Buffer.from(await res.arrayBuffer());
         // Nunca tratar PNG/JPEG como “página” — isso gerava lixo �…IEND no textarea

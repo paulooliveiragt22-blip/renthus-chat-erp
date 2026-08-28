@@ -20,6 +20,7 @@ export type BillingStatusJson = {
     } | null;
     pending_setup_payment?: {
         pagarme_payment_url: string | null;
+        pix_qr_code?: string | null;
         amount: number;
     } | null;
     invoice_history?: Array<{

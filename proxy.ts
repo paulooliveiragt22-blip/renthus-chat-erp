@@ -103,13 +103,6 @@ async function checkCompanyAccess(
         }
 
         if (comp && !billingPaywall) {
-            if (comp.senha_definida === false && comp.onboarding_token) {
-                const completeUrl = request.nextUrl.clone();
-                completeUrl.pathname = "/signup/complete";
-                completeUrl.search = `?token=${comp.onboarding_token}`;
-                return { type: "redirect", response: NextResponse.redirect(completeUrl) };
-            }
-
             if (comp.onboarding_completed_at === null && pathname !== "/ativar" && pathname !== "/onboarding") {
                 const onboardUrl = request.nextUrl.clone();
                 onboardUrl.pathname = "/ativar";
@@ -328,7 +321,6 @@ function isTechnicalApiPublic(pathname: string): boolean {
         pathname.startsWith("/api/meta/messaging/incoming") ||
         /** Print agent (api_key nas rotas) + painel /api/agent/keys|settings (exige sessão na própria rota) */
         pathname.startsWith("/api/agent/") ||
-        pathname === "/api/signup/complete" ||
         /**
          * Estabelece/encerra sessão a partir de tokens no body.
          * Sem isto, o proxy manda /api/auth/sync-session → /login (HTML) quando ainda

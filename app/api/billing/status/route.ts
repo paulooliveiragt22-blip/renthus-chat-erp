@@ -44,7 +44,7 @@ export async function GET() {
                 .maybeSingle(),
             admin
                 .from("setup_payments")
-                .select("pagarme_payment_url, amount")
+                .select("pagarme_payment_url, pix_qr_code, amount")
                 .eq("company_id", companyId)
                 .eq("status", "pending")
                 .order("created_at", { ascending: false })
@@ -55,6 +55,7 @@ export async function GET() {
         const pendingInvoice = invPending ?? null;
         const pendingSetupPayment: {
             pagarme_payment_url: string | null;
+            pix_qr_code: string | null;
             amount: number;
         } | null = setupPending ?? null;
 

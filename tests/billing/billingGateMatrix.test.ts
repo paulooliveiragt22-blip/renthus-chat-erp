@@ -69,55 +69,27 @@ describe("billing gate matrix (P0.9)", () => {
 
     it("4 — trial logical sub → hasFeature via active subscription", async () => {
         const admin = {
-            from: (table: string) => {
-                if (table === "subscriptions") {
+            rpc: async (name: string) => {
+                if (name === "rpc_get_company_entitlements") {
                     return {
-                        select: () => ({
-                            eq: (_c: string, val: unknown) => ({
-                                eq: (_s: string, status: unknown) => ({
-                                    order: () => ({
-                                        limit: () => ({
-                                            maybeSingle: async () => {
-                                                if (status === "active") {
-                                                    return {
-                                                        data: {
-                                                            id: "sub-1",
-                                                            plan_id: "plan-pro",
-                                                            allow_overage: false,
-                                                            plans: { key: "pro", name: "Pro" },
-                                                        },
-                                                        error: null,
-                                                    };
-                                                }
-                                                return { data: null, error: null };
-                                            },
-                                        }),
-                                    }),
-                                }),
-                            }),
-                        }),
+                        data: {
+                            company_id: "c1",
+                            subscription: {
+                                id: "sub-1",
+                                plan_id: "plan-pro",
+                                plan_key: "pro",
+                                plan_name: "Pro",
+                                status: "active",
+                                allow_overage: false,
+                            },
+                            features: ["pdv_basic"],
+                        },
+                        error: null,
                     };
                 }
-                if (table === "plan_features") {
-                    return {
-                        select: () => ({
-                            eq: async () => ({
-                                data: [{ feature_key: "pdv_basic" }],
-                                error: null,
-                            }),
-                        }),
-                    };
-                }
-                if (table === "subscription_addons") {
-                    return {
-                        select: () => ({
-                            eq: async () => ({ data: [], error: null }),
-                        }),
-                    };
-                }
-                throw new Error(`unexpected table ${table}`);
+                if (name === "current_year_month") return { data: "2026-08", error: null };
+                return { data: null, error: null };
             },
-            rpc: async () => "2026-08",
         } as unknown as SupabaseClient;
 
         const sub = await getActiveSubscription(admin, "c1");
@@ -127,23 +99,18 @@ describe("billing gate matrix (P0.9)", () => {
 
     it("5 — suspended logical sub → hasFeature false (pós blockCompany)", async () => {
         const admin = {
-            from: (table: string) => {
-                if (table === "subscriptions") {
+            rpc: async (name: string) => {
+                if (name === "rpc_get_company_entitlements") {
                     return {
-                        select: () => ({
-                            eq: () => ({
-                                eq: () => ({
-                                    order: () => ({
-                                        limit: () => ({
-                                            maybeSingle: async () => ({ data: null, error: null }),
-                                        }),
-                                    }),
-                                }),
-                            }),
-                        }),
+                        data: {
+                            company_id: "c1",
+                            subscription: null,
+                            features: [],
+                        },
+                        error: null,
                     };
                 }
-                return { select: () => ({ eq: async () => ({ data: [], error: null }) }) };
+                return { data: null, error: null };
             },
         } as unknown as SupabaseClient;
 

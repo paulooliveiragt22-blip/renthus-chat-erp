@@ -14,6 +14,7 @@ import {
     createPixInvoiceOrder,
     createSetupOrder,
     resolvePixFromOrder,
+    getPagarmeOrder,
     extractOrderCustomerId,
     getMonthlyPriceCents,
     getSetupPriceCents,
@@ -111,7 +112,11 @@ async function persistPixBillingOrder(
     if (p.isFirstPayment) {
         if (p.pendingSetup) {
             await admin.from("setup_payments")
-                .update({ pagarme_order_id: p.orderId, pagarme_payment_url: p.pixUrl ?? "" })
+                .update({
+                    pagarme_order_id:    p.orderId,
+                    pagarme_payment_url: p.pixUrl ?? "",
+                    pix_qr_code:         p.pixCode,
+                })
                 .eq("id", p.pendingSetup.id);
         } else {
             await admin.from("setup_payments").insert({
@@ -122,6 +127,7 @@ async function persistPixBillingOrder(
                 status:              "pending",
                 pagarme_order_id:    p.orderId,
                 pagarme_payment_url: p.pixUrl ?? "",
+                pix_qr_code:         p.pixCode,
             });
         }
     } else if (p.pendingInv) {
@@ -240,7 +246,7 @@ export async function POST(req: Request) {
         const [{ data: pendingSetup }, { data: pendingInv }] = await Promise.all([
             admin
                 .from("setup_payments")
-                .select("id, amount, pagarme_order_id, pagarme_payment_url")
+                .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
                 .eq("company_id", companyId)
                 .eq("status", "pending")
                 .order("created_at", { ascending: false })
@@ -399,16 +405,52 @@ export async function POST(req: Request) {
 
         // ── PIX ───────────────────────────────────────────────────────────
         const existingPixUrl  = pendingRecord?.pagarme_payment_url ?? null;
-        const existingPixCode = (pendingRecord as { pix_qr_code?: string | null } | null)?.pix_qr_code ?? null;
+        const existingPixCode =
+            (pendingRecord as { pix_qr_code?: string | null } | null)?.pix_qr_code ?? null;
         const hasHostedCheckout = existingPixUrl?.includes("checkout.pagar.me") ?? false;
 
+        // Já tem order + EMV: reutiliza. Se só tem URL (sem copia-e-cola), tenta backfill.
         if (pendingRecord?.pagarme_order_id && existingPixUrl && !hasHostedCheckout) {
-            return remember({
-                ok:             true,
-                payment_method: "pix",
-                pix_qr_url:     existingPixUrl,
-                pix_qr_code:    existingPixCode,
-            });
+            if (existingPixCode) {
+                return remember({
+                    ok:             true,
+                    payment_method: "pix",
+                    pix_qr_url:     existingPixUrl,
+                    pix_qr_code:    existingPixCode,
+                });
+            }
+            try {
+                const existingOrder = await getPagarmeOrder(pendingRecord.pagarme_order_id);
+                const resolved = await resolvePixFromOrder(existingOrder);
+                if (resolved.pixCode) {
+                    const url = resolved.pixUrl ?? existingPixUrl;
+                    if (isFirstPayment && pendingSetup) {
+                        await admin.from("setup_payments")
+                            .update({
+                                pix_qr_code:         resolved.pixCode,
+                                pagarme_payment_url: url,
+                            })
+                            .eq("id", pendingSetup.id);
+                    } else if (pendingInv) {
+                        await admin.from("invoices")
+                            .update({
+                                pix_qr_code:         resolved.pixCode,
+                                pagarme_payment_url: url,
+                            })
+                            .eq("id", pendingInv.id);
+                    }
+                    return remember({
+                        ok:             true,
+                        payment_method: "pix",
+                        pix_qr_url:     url,
+                        pix_qr_code:    resolved.pixCode,
+                    });
+                }
+            } catch (backfillErr) {
+                console.warn("[create-invoice-checkout] PIX EMV backfill failed:", backfillErr);
+            }
+            // Sem EMV ainda: cai no fluxo de criar novo order abaixo (ou reutiliza URL só se
+            // o usuário só precisar do QR imagem — preferimos regenerar com EMV).
         }
 
         const companyLabel = (company.nome_fantasia as string | null)?.trim()

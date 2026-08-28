@@ -33,7 +33,7 @@ Gerado para o item 1 de `SECURITY_IMPROVEMENTS_CHECKLIST.md`. Rever em cada rota
 | `app/api/orders/stats/route.ts` | `requireCompanyAccess` |
 | `app/api/orders/status/route.ts` | `requireCompanyAccess` |
 | `app/api/products/upload-image/route.ts` | `requireCompanyAccess` + validação upload |
-| `app/api/signup/complete/route.ts` | Token signup |
+| ~~`app/api/signup/complete/route.ts`~~ | Removido P2.3 — signup via `/api/billing/signup` + `/ativar` |
 | `app/api/support/create-ticket/route.ts` | `requireCompanyAccess` |
 | `app/api/whatsapp/incoming/route.ts` | HMAC Meta + rate limit |
 | `app/api/whatsapp/send/route.ts` | `requireCompanyAccess` |

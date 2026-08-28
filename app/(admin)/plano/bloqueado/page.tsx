@@ -3,7 +3,7 @@ import { Lock } from "lucide-react";
 
 export default function PlanoBloqueadoPage() {
     return (
-        <div className="flex flex-col items-center gap-6 py-12 text-center">
+        <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-50 px-4 py-12 text-center dark:bg-zinc-950">
             <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-100 dark:bg-red-950/40">
                 <Lock className="h-8 w-8 text-red-600 dark:text-red-400" />
             </span>
@@ -20,11 +20,8 @@ export default function PlanoBloqueadoPage() {
             >
                 Ir para pagamento
             </Link>
-            <Link
-                href="/plano"
-                className="text-xs font-semibold text-violet-600 hover:text-violet-700"
-            >
-                Ver detalhes do plano
+            <Link href="/logout" className="text-xs font-semibold text-zinc-500 hover:text-zinc-800">
+                Sair
             </Link>
         </div>
     );

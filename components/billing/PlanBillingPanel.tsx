@@ -101,6 +101,8 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
     const [planSaving, setPlanSaving] = useState(false);
     const [pixLoading, setPixLoading] = useState(false);
     const [pixCopied, setPixCopied] = useState(false);
+    const [pixLiveCode, setPixLiveCode] = useState<string | null>(null);
+    const [pixLiveUrl, setPixLiveUrl] = useState<string | null>(null);
     const [renthusPayMode, setRenthusPayMode] = useState<"pix" | "card">("pix");
     const [renthusCard, setRenthusCard] = useState<RenthusCardForm>({
         holder: "",
@@ -174,6 +176,28 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         void loadBilling();
     }, [loadBilling]);
 
+    // Gate /plano/pagar: após PIX, espera webhook liberar e manda para /ativar (não fica no ERP).
+    useEffect(() => {
+        if (variant !== "pay") return;
+        const st = billingData?.pagarme_subscription?.status;
+        if (st === "active" || st === "trial") {
+            window.location.assign("/ativar");
+            return;
+        }
+        if (!pixLiveCode && !pixLiveUrl && !billingData?.pending_invoice?.pix_qr_code) return;
+        const id = window.setInterval(() => {
+            void loadBilling();
+        }, 5000);
+        return () => window.clearInterval(id);
+    }, [
+        variant,
+        billingData?.pagarme_subscription?.status,
+        billingData?.pending_invoice?.pix_qr_code,
+        pixLiveCode,
+        pixLiveUrl,
+        loadBilling,
+    ]);
+
     async function changeRenthusPlan(plan: "essencial" | "pro" | "market") {
         setPlanSaving(true);
         setBillingErr(null);
@@ -235,10 +259,22 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                 setBillingErr((json as { error?: string }).error ?? "Erro ao gerar PIX.");
                 return;
             }
-            if (json.pix_qr_code || json.pix_qr_url) {
+            const code =
+                typeof (json as { pix_qr_code?: unknown }).pix_qr_code === "string"
+                    ? (json as { pix_qr_code: string }).pix_qr_code
+                    : null;
+            const url =
+                typeof (json as { pix_qr_url?: unknown }).pix_qr_url === "string"
+                    ? (json as { pix_qr_url: string }).pix_qr_url
+                    : null;
+            setPixLiveCode(code);
+            setPixLiveUrl(url);
+            if (code || url) {
                 await loadBilling();
                 setBillingSuccessMsg(
-                    "PIX gerado. Após o pagamento no banco, o plano é liberado automaticamente."
+                    code
+                        ? "PIX gerado. Copie o código ou escaneie o QR. Após o pagamento, o plano é liberado automaticamente."
+                        : "PIX gerado (QR). Se o copia-e-cola não aparecer, clique em atualizar PIX."
                 );
             } else {
                 setBillingErr("PIX não retornado. Tente novamente ou fale com o suporte.");
@@ -319,6 +355,11 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             invalidatePlanFeatures();
             if (status === "paid") {
                 setBillingSuccessMsg(msg ?? "Pagamento aprovado. Plano liberado.");
+                if (variant === "pay") {
+                    window.setTimeout(() => {
+                        window.location.assign("/ativar");
+                    }, 800);
+                }
             } else {
                 setBillingSuccessMsg(
                     msg ?? "Pagamento em análise. Quando aprovado, o plano será liberado automaticamente."
@@ -501,10 +542,20 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 (mp as Record<string, number | undefined>)[pk] ?? priceFallback;
                         }
 
-                        const pixUrl = pendRecord?.pagarme_payment_url?.startsWith("http")
-                            ? pendRecord.pagarme_payment_url
-                            : null;
-                        const pixCode = billingData.pending_invoice?.pix_qr_code ?? "";
+                        const fromPendPix =
+                            typeof (pendRecord as { pix_qr_code?: string | null } | null | undefined)
+                                ?.pix_qr_code === "string"
+                                ? String(
+                                      (pendRecord as { pix_qr_code: string }).pix_qr_code
+                                  ).trim()
+                                : "";
+                        const fromInvPix = (billingData.pending_invoice?.pix_qr_code ?? "").trim();
+                        const pixUrl =
+                            pixLiveUrl ??
+                            (pendRecord?.pagarme_payment_url?.startsWith("http")
+                                ? pendRecord.pagarme_payment_url
+                                : null);
+                        const pixCode = (pixLiveCode ?? "").trim() || fromPendPix || fromInvPix;
 
                         const showPay =
                             st === "trial" ||

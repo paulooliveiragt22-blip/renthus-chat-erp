@@ -1,5 +1,7 @@
 import "server-only";
 
+import { fetchCompanyEntitlements } from "@/lib/billing/fetchCompanyEntitlements";
+
 type AdminClient = ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>;
 
 export type ActiveSubscription = {
@@ -40,46 +42,22 @@ export async function getCurrentYearMonth(admin: AdminClient): Promise<string> {
 }
 
 export async function getActiveSubscription(admin: AdminClient, companyId: string): Promise<ActiveSubscription | null> {
-    const { data, error } = await admin
-        .from("subscriptions")
-        .select("id, plan_id, allow_overage, plans:plans ( key, name )")
-        .eq("company_id", companyId)
-        .eq("status", "active")
-        .order("started_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-    if (error) throw new Error(error.message);
-    if (!data?.plan_id) return null;
-
-    const planKey = (data as any)?.plans?.key as string | undefined;
-    const planName = (data as any)?.plans?.name as string | null | undefined;
-
-    if (!planKey) return null;
+    const ent = await fetchCompanyEntitlements(admin, companyId);
+    const sub = ent.subscription;
+    if (!sub?.plan_id || !sub.plan_key) return null;
 
     return {
-        subscription_id: data.id,
-        plan_id: data.plan_id,
-        plan_key: planKey,
-        plan_name: planName ?? null,
-        allow_overage: Boolean((data as any)?.allow_overage),
+        subscription_id: sub.id,
+        plan_id: sub.plan_id,
+        plan_key: sub.plan_key,
+        plan_name: sub.plan_name,
+        allow_overage: sub.allow_overage,
     };
 }
 
 export async function getEnabledFeatures(admin: AdminClient, companyId: string): Promise<Set<string>> {
-    const sub = await getActiveSubscription(admin, companyId);
-    if (!sub) return new Set();
-
-    const { data: pf, error: pfErr } = await admin.from("plan_features").select("feature_key").eq("plan_id", sub.plan_id);
-    if (pfErr) throw new Error(pfErr.message);
-
-    const { data: addons, error: addErr } = await admin.from("subscription_addons").select("feature_key").eq("company_id", companyId);
-    if (addErr) throw new Error(addErr.message);
-
-    const s = new Set<string>();
-    for (const row of pf ?? []) if (row?.feature_key) s.add(String(row.feature_key));
-    for (const row of addons ?? []) if (row?.feature_key) s.add(String(row.feature_key));
-    return s;
+    const ent = await fetchCompanyEntitlements(admin, companyId);
+    return new Set(ent.features);
 }
 
 export async function hasFeature(admin: AdminClient, companyId: string, featureKey: string) {

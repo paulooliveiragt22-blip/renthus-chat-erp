@@ -31,6 +31,9 @@ import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
 export const runtime = "nodejs";
 
+/** Máximo de linhas por execução do cron (P2.7 — evita timeout Vercel). */
+const CHARGE_BATCH_LIMIT = 50;
+
 export async function POST(req: Request) {
     const authHeader = req.headers.get("authorization");
     const authError = validateCronAuthorization(authHeader);
@@ -44,6 +47,7 @@ export async function POST(req: Request) {
         activeCharged:   0,
         notified:        0,
         blocked:         0,
+        truncated:       false,
         errors:          [] as string[],
     };
 
@@ -61,13 +65,19 @@ export async function POST(req: Request) {
         .or(
             `and(status.eq.trial,trial_ends_at.lte.${now.toISOString()}),` +
             `and(status.eq.active,next_billing_at.lte.${now.toISOString()})`
-        );
+        )
+        .order("next_billing_at", { ascending: true, nullsFirst: true })
+        .limit(CHARGE_BATCH_LIMIT + 1);
 
     if (dueErr) {
         console.error("[charge] Erro ao buscar subs vencidas:", dueErr.message);
         results.errors.push(`fetch_due_subs: ${dueErr.message}`);
     } else {
-        for (const sub of dueSubs ?? []) {
+        const dueBatch = dueSubs ?? [];
+        if (dueBatch.length > CHARGE_BATCH_LIMIT) {
+            results.truncated = true;
+        }
+        for (const sub of dueBatch.slice(0, CHARGE_BATCH_LIMIT)) {
             try {
                 if (sub.status === "trial") {
                     const setupCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
@@ -105,20 +115,27 @@ export async function POST(req: Request) {
             companies ( whatsapp_phone, is_active )
         `)
         .eq("status", "pending")
-        .lte("due_at", now.toISOString());
+        .lte("due_at", now.toISOString())
+        .order("due_at", { ascending: true })
+        .limit(CHARGE_BATCH_LIMIT + 1);
 
     // Pending_setup com mais de 5 dias sem pagamento → bloquear
     const { data: stalePendingSetups } = await admin
         .from("pagarme_subscriptions")
         .select("id, company_id")
         .eq("status", "pending_setup")
-        .lte("updated_at", fiveDaysAgo.toISOString());
+        .lte("updated_at", fiveDaysAgo.toISOString())
+        .limit(CHARGE_BATCH_LIMIT);
 
     if (ovErr) {
         console.error("[charge] Erro ao buscar invoices vencidas:", ovErr.message);
         results.errors.push(`fetch_overdue_invoices: ${ovErr.message}`);
     } else {
-        for (const inv of overdueInvoices ?? []) {
+        const invBatch = overdueInvoices ?? [];
+        if (invBatch.length > CHARGE_BATCH_LIMIT) {
+            results.truncated = true;
+        }
+        for (const inv of invBatch.slice(0, CHARGE_BATCH_LIMIT)) {
             try {
                 await processOverdueInvoiceRow(admin, inv, now, results);
             } catch (err: any) {

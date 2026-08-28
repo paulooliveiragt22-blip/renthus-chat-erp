@@ -20,6 +20,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         pathname === "/billing/blocked" ||
         pathname.startsWith("/signup") ||
         pathname.startsWith("/onboarding") ||
+        pathname === "/ativar" ||
+        pathname.startsWith("/ativar/") ||
+        pathname === "/plano" ||
+        pathname.startsWith("/plano/") ||
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
         pathname.startsWith("/superadmin") ||
