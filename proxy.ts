@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { isIpAllowed, collectClientIpCandidates } from "@/lib/platform/checkPlatformIpAllowlist";
 import {
     getPlatformAdminHost,
+    isPlatformDedicatedHostRequest,
     platformAdminCanonicalUrl,
     resolveRequestHostname,
 } from "@/lib/platform/resolvePlatformRequestHost";
@@ -140,6 +141,59 @@ async function checkCompanyAccess(
         // Falha silenciosa — não bloqueia acesso em caso de erro de rede
     }
     return { type: "allow" };
+}
+
+/** Rotas tenant / APIs internas não devem ser servidas no host dedicado platform.* */
+function handlePlatformDedicatedHost(
+    request: NextRequest,
+    pathname: string
+): NextResponse | null {
+    if (
+        !isPlatformDedicatedHostRequest(
+            request.headers,
+            request.nextUrl.hostname
+        )
+    ) {
+        return null;
+    }
+
+    if (
+        pathname.startsWith("/platform") ||
+        pathname.startsWith("/api/platform/")
+    ) {
+        return null;
+    }
+
+    if (
+        pathname.startsWith("/_next") ||
+        pathname === "/favicon.ico" ||
+        pathname === "/manifest.webmanifest" ||
+        pathname.startsWith("/sw.js") ||
+        pathname.startsWith("/workbox-") ||
+        pathname.startsWith("/fallback-") ||
+        pathname.startsWith("/icons/") ||
+        pathname === "/offline" ||
+        pathname.startsWith("/offline/") ||
+        isTechnicalApiPublic(pathname)
+    ) {
+        return NextResponse.next();
+    }
+
+    if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+            { error: "Host not allowed", code: "host_not_allowed" },
+            { status: 403 }
+        );
+    }
+
+    const url = request.nextUrl.clone();
+    if (pathname === "/login" || pathname.startsWith("/login/")) {
+        url.pathname = "/platform/login";
+    } else {
+        url.pathname = "/platform";
+        url.search = "";
+    }
+    return NextResponse.redirect(url, 307);
 }
 
 async function handlePlatformBranch(
@@ -361,6 +415,9 @@ export async function proxy(
         url.pathname = hostRewrite.pathname;
         return NextResponse.rewrite(url);
     }
+
+    const dedicatedHostRes = handlePlatformDedicatedHost(request, pathname);
+    if (dedicatedHostRes) return dedicatedHostRes;
 
     const platformRes = await handlePlatformBranch(request, pathname, options);
     if (platformRes) return platformRes;

@@ -234,6 +234,84 @@ describe("proxy auth routing", () => {
         }
     });
 
+    it("redirects tenant UI on dedicated platform host to /platform", async () => {
+        const prevHost = process.env.PLATFORM_ADMIN_HOST;
+        const prevList = process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+        process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";
+        delete process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+        try {
+            for (const path of ["/", "/fila", "/dashboard", "/pedidos"]) {
+                const response = await proxy(
+                    createRequest(path, undefined, "GET", "platform.renthus.com.br"),
+                    undefined,
+                    { createClient: factory }
+                );
+                assert.strictEqual(response.status, 307, path);
+                assert.strictEqual(
+                    response.headers.get("location"),
+                    "https://example.com/platform",
+                    path
+                );
+            }
+            assert.strictEqual(factory.mock.calls.length, 0);
+        } finally {
+            if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
+            else process.env.PLATFORM_ADMIN_HOST = prevHost;
+            if (prevList === undefined) delete process.env.PLATFORM_ADMIN_IP_ALLOWLIST;
+            else process.env.PLATFORM_ADMIN_IP_ALLOWLIST = prevList;
+        }
+    });
+
+    it("redirects tenant login on dedicated platform host to /platform/login", async () => {
+        const prevHost = process.env.PLATFORM_ADMIN_HOST;
+        process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";
+        try {
+            const response = await proxy(
+                createRequest(
+                    "/login?redirectTo=%2Ffila",
+                    undefined,
+                    "GET",
+                    "platform.renthus.com.br"
+                ),
+                undefined,
+                { createClient: factory }
+            );
+            assert.strictEqual(response.status, 307);
+            assert.strictEqual(
+                response.headers.get("location"),
+                "https://example.com/platform/login?redirectTo=%2Ffila"
+            );
+            assert.strictEqual(factory.mock.calls.length, 0);
+        } finally {
+            if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
+            else process.env.PLATFORM_ADMIN_HOST = prevHost;
+        }
+    });
+
+    it("blocks tenant API on dedicated platform host", async () => {
+        const prevHost = process.env.PLATFORM_ADMIN_HOST;
+        process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";
+        try {
+            const response = await proxy(
+                createRequest(
+                    "/api/admin/orders",
+                    undefined,
+                    "GET",
+                    "platform.renthus.com.br"
+                ),
+                undefined,
+                { createClient: factory }
+            );
+            assert.strictEqual(response.status, 403);
+            const body = await response.json();
+            assert.strictEqual(body.code, "host_not_allowed");
+            assert.strictEqual(factory.mock.calls.length, 0);
+        } finally {
+            if (prevHost === undefined) delete process.env.PLATFORM_ADMIN_HOST;
+            else process.env.PLATFORM_ADMIN_HOST = prevHost;
+        }
+    });
+
     it("allows impersonate API on tenant host (AdminShell banner)", async () => {
         const prevHost = process.env.PLATFORM_ADMIN_HOST;
         process.env.PLATFORM_ADMIN_HOST = "platform.renthus.com.br";

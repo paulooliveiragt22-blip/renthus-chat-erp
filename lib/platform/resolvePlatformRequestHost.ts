@@ -40,3 +40,23 @@ export function platformAdminCanonicalUrl(
     const qs = search && !search.startsWith("?") ? `?${search}` : search;
     return `https://${host}${path}${qs}`;
 }
+
+/** Hostname efetivo do request (header ou URL). */
+export function resolveEffectiveRequestHostname(
+    headers: { get(name: string): string | null },
+    urlHostname: string
+): string {
+    return (
+        resolveRequestHostname(headers) || urlHostname.trim().toLowerCase()
+    );
+}
+
+/** Request chegou no host dedicado do console platform. */
+export function isPlatformDedicatedHostRequest(
+    headers: { get(name: string): string | null },
+    urlHostname: string
+): boolean {
+    const expected = getPlatformAdminHost();
+    if (!expected) return false;
+    return resolveEffectiveRequestHostname(headers, urlHostname) === expected;
+}

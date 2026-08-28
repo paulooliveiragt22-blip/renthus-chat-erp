@@ -49,6 +49,10 @@ export function isAppApexHost(
     if (h.endsWith(".vercel.app")) return true;
 
     const apex: string[] = ["app.renthus.com.br"];
+    const platformHost = env.PLATFORM_ADMIN_HOST?.trim();
+    if (platformHost) {
+        apex.push(normalizeMenuHost(platformHost));
+    }
     const appUrl = env.NEXT_PUBLIC_APP_URL?.trim();
     if (appUrl) {
         try {

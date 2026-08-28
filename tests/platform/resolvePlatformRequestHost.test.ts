@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
     getPlatformAdminHost,
     isPlatformAdminHostAllowed,
+    isPlatformDedicatedHostRequest,
     platformAdminCanonicalUrl,
     resolveRequestHostname,
 } from "../../lib/platform/resolvePlatformRequestHost";
@@ -67,6 +68,20 @@ describe("resolvePlatformRequestHost", () => {
             assert.strictEqual(
                 platformAdminCanonicalUrl("/platform/login", "?x=1"),
                 "https://platform.renthus.com.br/platform/login?x=1"
+            );
+            assert.strictEqual(
+                isPlatformDedicatedHostRequest(
+                    headers({ host: "platform.renthus.com.br" }),
+                    "example.com"
+                ),
+                true
+            );
+            assert.strictEqual(
+                isPlatformDedicatedHostRequest(
+                    headers({ host: "app.renthus.com.br" }),
+                    "example.com"
+                ),
+                false
             );
         } finally {
             if (prev === undefined) delete process.env.PLATFORM_ADMIN_HOST;
