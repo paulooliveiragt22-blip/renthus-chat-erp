@@ -214,6 +214,7 @@ async function handleMessagingEvent(params: {
     const threadId = await upsertMetaThread({
         admin,
         companyId: metaChannel.company_id,
+        metaChannelId: metaChannel.id,
         channel,
         externalId: senderId,
         profileName,
@@ -270,11 +271,12 @@ async function handleMessagingEvent(params: {
 async function upsertMetaThread(params: {
     admin: ReturnType<typeof createAdminClient>;
     companyId: string;
+    metaChannelId: string;
     channel: "instagram" | "messenger";
     externalId: string;
     profileName: string;
 }): Promise<string | null> {
-    const { admin, companyId, channel, externalId, profileName } = params;
+    const { admin, companyId, metaChannelId, channel, externalId, profileName } = params;
 
     const { data: existing } = await admin
         .from("whatsapp_threads")
@@ -288,6 +290,7 @@ async function upsertMetaThread(params: {
         await admin
             .from("whatsapp_threads")
             .update({
+                channel_id: metaChannelId,
                 last_message_at: new Date().toISOString(),
                 last_inbound_at: new Date().toISOString(),
                 ...(profileName && profileName !== existing.profile_name
@@ -302,6 +305,7 @@ async function upsertMetaThread(params: {
         .from("whatsapp_threads")
         .insert({
             company_id: companyId,
+            channel_id: metaChannelId,
             channel,
             external_id: externalId,
             phone_e164: null,
