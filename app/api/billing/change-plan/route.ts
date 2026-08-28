@@ -2,13 +2,15 @@
  * POST /api/billing/change-plan
  *
  * Trial: qualquer plano comercial.
- * Active/overdue: só upgrade (essencial → pro → market).
+ * Active: só upgrade (essencial → pro → market).
+ * Overdue / pending_payment / blocked: proibido (pague primeiro — D11).
  */
 
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { normalizePlanKey, parseCommercialPlanInput, planRank } from "@/lib/billing/planCatalog";
+import { jsonAccessError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
@@ -16,8 +18,11 @@ type Body = { plan?: string };
 
 export async function POST(req: Request) {
     try {
-        const ctx = await requireCompanyAccess(["owner", "admin"]);
-        if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+        const ctx = await requireCompanyAccess({
+            allowedRoles: ["owner", "admin"],
+            billing: "billing_self",
+        });
+        if (!ctx.ok) return jsonAccessError(ctx);
 
         const { admin, companyId } = ctx;
         const body = (await req.json()) as Body;
@@ -43,9 +48,18 @@ export async function POST(req: Request) {
         const st = String(row.status ?? "");
         const current = normalizePlanKey(String(row.plan ?? "")) ?? String(row.plan ?? "");
 
-        if (st === "blocked" || st === "cancelled") {
+        if (
+            st === "blocked" ||
+            st === "cancelled" ||
+            st === "pending_payment" ||
+            st === "pending_setup" ||
+            st === "overdue"
+        ) {
             return NextResponse.json(
-                { error: "Não é possível alterar o plano com a assinatura bloqueada ou cancelada." },
+                {
+                    error:
+                        "Não é possível alterar o plano nesta situação. Regularize o pagamento primeiro.",
+                },
                 { status: 400 }
             );
         }
@@ -65,10 +79,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ ok: true, action: "changed", plan: planKey });
         }
 
-        if (
-            (st === "active" || st === "overdue") &&
-            planRank(planKey) > planRank(current)
-        ) {
+        if (st === "active" && planRank(planKey) > planRank(current)) {
             const { error: upErr } = await admin
                 .from("pagarme_subscriptions")
                 .update({ plan: planKey })

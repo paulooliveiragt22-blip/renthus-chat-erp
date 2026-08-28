@@ -35,6 +35,7 @@ export function codeFromStatus(status: number): string {
     switch (status) {
         case 400: return "bad_request";
         case 401: return "unauthorized";
+        case 402: return "billing_inactive";
         case 403: return "forbidden";
         case 404: return "not_found";
         case 409: return "conflict";
@@ -51,6 +52,8 @@ interface AccessDenied {
     ok: false;
     status: number;
     error: string;
+    code?: string;
+    billingStatus?: string;
 }
 
 /**
@@ -59,7 +62,20 @@ interface AccessDenied {
  * alterar a assinatura desses helpers (usados em dezenas de rotas fora do piloto desta migração).
  */
 export function jsonAccessError(ctx: AccessDenied): NextResponse<ApiErrorBody> {
-    return jsonError(codeFromStatus(ctx.status), ctx.error, ctx.status);
+    const code = ctx.code ?? codeFromStatus(ctx.status);
+    const extra =
+        ctx.billingStatus != null ? { billing_status: ctx.billingStatus } : undefined;
+    return jsonError(code, ctx.error, ctx.status, extra);
+}
+
+/** 402 Payment Required — assinatura inativa / pending payment. */
+export function jsonBillingInactive(
+    billingStatus: string,
+    message = "Assinatura inativa. Regularize o pagamento em Plano."
+): NextResponse<ApiErrorBody> {
+    return jsonError("billing_inactive", message, 402, {
+        billing_status: billingStatus,
+    });
 }
 
 /**

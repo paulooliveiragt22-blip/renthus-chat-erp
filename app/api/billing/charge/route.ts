@@ -356,6 +356,12 @@ async function blockCompany(
             .from("companies")
             .update({ is_active: false })
             .eq("id", companyId),
+
+        admin
+            .from("subscriptions")
+            .update({ status: "suspended" })
+            .eq("company_id", companyId)
+            .eq("status", "active"),
     ]);
 
     billingLog("charge_cron", "company_blocked", { company_id: companyId, subscription_id: subscriptionId });

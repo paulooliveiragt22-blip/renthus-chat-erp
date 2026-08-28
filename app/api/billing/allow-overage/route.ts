@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 export async function POST() {
     try {
-        // Apenas admin/owner (decisão comercial)
+        // Exige billing ativo (full) — blocked/pending não muda overage
         const ctx = await requireCompanyAccess(["owner", "admin"]);
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 

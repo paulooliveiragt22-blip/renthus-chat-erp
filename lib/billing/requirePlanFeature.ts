@@ -102,7 +102,14 @@ export async function requireCompanyPlanFeature(
     if (!ctx.ok) {
         return {
             ok: false,
-            response: NextResponse.json({ error: ctx.error }, { status: ctx.status }),
+            response: NextResponse.json(
+                {
+                    error: ctx.error,
+                    ...(ctx.code ? { code: ctx.code } : {}),
+                    ...(ctx.billingStatus ? { billing_status: ctx.billingStatus } : {}),
+                },
+                { status: ctx.status }
+            ),
         };
     }
     const feat = await requirePlanFeature(ctx.admin, ctx.companyId, featureKey);
@@ -137,7 +144,14 @@ export async function requireCompanyAnyPlanFeature(
     if (!ctx.ok) {
         return {
             ok: false,
-            response: NextResponse.json({ error: ctx.error }, { status: ctx.status }),
+            response: NextResponse.json(
+                {
+                    error: ctx.error,
+                    ...(ctx.code ? { code: ctx.code } : {}),
+                    ...(ctx.billingStatus ? { billing_status: ctx.billingStatus } : {}),
+                },
+                { status: ctx.status }
+            ),
         };
     }
     const feat = await requireAnyPlanFeature(ctx.admin, ctx.companyId, featureKeys);

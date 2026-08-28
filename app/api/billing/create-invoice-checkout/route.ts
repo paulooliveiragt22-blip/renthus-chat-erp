@@ -149,7 +149,10 @@ type Body = {
 
 export async function POST(req: Request) {
     try {
-        const ctx = await requireCompanyAccess(["owner", "admin"]);
+        const ctx = await requireCompanyAccess({
+            allowedRoles: ["owner", "admin"],
+            billing: "billing_self",
+        });
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
         const companyId = ctx.companyId;

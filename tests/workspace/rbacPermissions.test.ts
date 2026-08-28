@@ -332,11 +332,12 @@ describe("RBAC — auditoria estática de rotas (vazamento)", () => {
             const src = readFileSync(join(projectRoot, rel), "utf8");
             assert.match(
                 src,
-                /requireCompanyAccess\(\[\s*["']owner["']\s*,\s*["']admin["']\s*\]\)/,
+                /requireCompanyAccess\(\s*(?:\[\s*["']owner["']\s*,\s*["']admin["']\s*\]|\{\s*allowedRoles:\s*\[\s*["']owner["']\s*,\s*["']admin["']\s*\])/,
                 `${rel} deve restringir a owner/admin`
             );
             assert.equal(
-                /requireCompanyAccess\(\[[^\]]*member/.test(src),
+                /requireCompanyAccess\(\[[^\]]*member/.test(src) ||
+                    /allowedRoles:\s*\[[^\]]*member/.test(src),
                 false,
                 `${rel} não deve permitir member em requireCompanyAccess`
             );

@@ -11,7 +11,10 @@ export const runtime = "nodejs";
  */
 export async function GET() {
     try {
-        const ctx = await requireCompanyAccess(["owner", "admin", "member"]);
+        const ctx = await requireCompanyAccess({
+            allowedRoles: ["owner", "admin", "member"],
+            billing: "billing_self",
+        });
         if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
         const { admin, companyId } = ctx;
 

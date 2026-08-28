@@ -34,14 +34,14 @@ Referências:
 | # | Item P0 | Severidade | Estado |
 |---|---------|------------|--------|
 | P0.0 | `platform_billing_settings` + default_trial_days=0 + UI platform | Crítico | [x] 2026-08-28 |
-| P0.1 | Contrato + helper `requireBillingActive` (effective status) | Crítico | [ ] |
-| P0.2 | Integrar helper no guard central (`requireCompanyAccess` / wrappers) | Crítico | [ ] |
-| P0.3 | Fix IDOR `GET /api/billing/status?company_id=` | Crítico | [ ] |
-| P0.4 | `blockCompany` revoga `subscriptions` + invalida cache | Crítico | [ ] |
+| P0.1 | Contrato + helper `requireBillingActive` (effective status) | Crítico | [x] 2026-08-28 |
+| P0.2 | Integrar helper no guard central (`requireCompanyAccess` / wrappers) | Crítico | [x] 2026-08-28 |
+| P0.3 | Fix IDOR `GET /api/billing/status?company_id=` | Crítico | [x] 2026-08-28 |
+| P0.4 | `blockCompany` revoga `subscriptions` + invalida cache | Crítico | [x] 2026-08-28 |
 | P0.5 | Webhook idempotente por `order_id` (+ `event.id`) | Alto | [ ] |
 | P0.6 | Idempotência checkout + unique pending invoice/setup | Alto | [ ] |
-| P0.7 | Signup usa settings (N=0 → `pending_payment`; N>0 → trial) + RPC | Alto | [ ] |
-| P0.8 | Envelope erro `billing_inactive` (402) no contrato API | Médio | [ ] |
+| P0.7 | Signup usa settings (N=0 → `pending_payment`; N>0 → trial) + RPC | Alto | [x] 2026-08-28 (parcial: settings+pending; RPC transacional ainda aberto) |
+| P0.8 | Envelope erro `billing_inactive` (402) no contrato API | Médio | [x] 2026-08-28 |
 | P0.9 | Testes unitários/integração da matriz de estados | Alto | [ ] |
 | P0.10 | Proxy: fail-closed billing + não cachear decisão de block | Alto | [ ] |
 

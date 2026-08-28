@@ -27,9 +27,26 @@ devolve:
   `confirmationId` num erro de envio que precisa ser referenciado depois), mas `error.code` e
   `error.message` são sempre obrigatórios.
 
-O HTTP status code continua sendo a fonte primária de semântica (`401`, `403`, `404`, `409`, `429`,
+O HTTP status code continua sendo a fonte primária de semântica (`401`, `402`, `403`, `404`, `409`, `429`,
 `500`, `502`...); `error.code` é redundante de propósito (mais específico que o status, estável
 mesmo se o status mudar por algum motivo).
+
+### Billing inativo (402)
+
+Quando a assinatura não libera a API mutável (`pending_payment`, `blocked`, `trial` expirado, etc.):
+
+```json
+{
+  "error": {
+    "code": "billing_inactive",
+    "message": "Assinatura inativa. Regularize o pagamento em Plano."
+  },
+  "billing_status": "pending_payment"
+}
+```
+
+Helper: `jsonBillingInactive(billingStatus)` / `jsonAccessError` quando `requireCompanyAccess` falha com 402.
+Rotas de pagamento (`/api/billing/status`, `checkout`, …) usam `billing: "billing_self"` e **não** retornam 402.
 
 ## Helpers (`lib/api/errors.ts`)
 

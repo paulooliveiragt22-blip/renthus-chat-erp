@@ -8,8 +8,53 @@ import {
     isImpersonationActive,
     type ImpersonationSessionRow,
 } from "@/lib/platform/impersonation";
+import {
+    requireBillingActive,
+    type BillingAccessStatus,
+    type BillingGateMode,
+} from "@/lib/billing/requireBillingActive";
 
-export async function requireCompanyAccess(allowedRoles?: string[]) {
+export type RequireCompanyAccessOptions = {
+    allowedRoles?: string[];
+    /** default "full"; billing routes usam "billing_self"; impersonation força "skip" */
+    billing?: BillingGateMode;
+};
+
+type AccessOk = {
+    ok: true;
+    companyId: string;
+    userId: string;
+    role: string;
+    admin: ReturnType<typeof createAdminClient>;
+    impersonating: boolean;
+    impersonationSessionId?: string;
+    billingStatus?: BillingAccessStatus;
+};
+
+type AccessDenied = {
+    ok: false;
+    status: number;
+    error: string;
+    code?: string;
+    billingStatus?: BillingAccessStatus;
+};
+
+function normalizeOpts(
+    allowedRolesOrOpts?: string[] | RequireCompanyAccessOptions
+): RequireCompanyAccessOptions {
+    if (!allowedRolesOrOpts) return {};
+    if (Array.isArray(allowedRolesOrOpts)) {
+        return { allowedRoles: allowedRolesOrOpts };
+    }
+    return allowedRolesOrOpts;
+}
+
+export async function requireCompanyAccess(
+    allowedRolesOrOpts?: string[] | RequireCompanyAccessOptions
+): Promise<AccessOk | AccessDenied> {
+    const opts = normalizeOpts(allowedRolesOrOpts);
+    const allowedRoles = opts.allowedRoles;
+
     const companyId = await getCurrentCompanyIdFromCookie();
     if (!companyId) {
         return { ok: false as const, status: 400, error: "No workspace selected" };
@@ -52,6 +97,7 @@ export async function requireCompanyAccess(allowedRoles?: string[]) {
                     admin,
                     impersonating: true as const,
                     impersonationSessionId: row!.id,
+                    billingStatus: "active",
                 };
             }
         }
@@ -81,6 +127,18 @@ export async function requireCompanyAccess(allowedRoles?: string[]) {
         }
     }
 
+    const billingMode: BillingGateMode = opts.billing ?? "full";
+    const billing = await requireBillingActive(admin, companyId, billingMode);
+    if (!billing.ok) {
+        return {
+            ok: false as const,
+            status: billing.status,
+            error: billing.error,
+            code: billing.code,
+            billingStatus: billing.billingStatus,
+        };
+    }
+
     return {
         ok: true as const,
         companyId,
@@ -88,5 +146,6 @@ export async function requireCompanyAccess(allowedRoles?: string[]) {
         role,
         admin,
         impersonating: false as const,
+        billingStatus: billing.status,
     };
 }

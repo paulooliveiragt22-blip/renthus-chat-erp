@@ -14,6 +14,7 @@
     "proxy.ts",
     "lib/billing/computeNextBillingAt.ts",
     "lib/billing/trialDaysPolicy.ts",
+    "lib/billing/resolveBillingAccess.ts",
     "lib/billing/sttPricing.ts",
     "lib/billing/llmPricing.ts",
     "lib/billing/aiWallet.ts",
