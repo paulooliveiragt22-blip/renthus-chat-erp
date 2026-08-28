@@ -21,7 +21,7 @@ import {
 } from "@/lib/delivery/hours";
 import { persistEnderecoCliente } from "@/lib/customers/persistEnderecoCliente";
 import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addresses";
-import { notifyWebMenuOrderWhatsApp } from "./notifyWhatsApp";
+import { notifyWebMenuOrder } from "./notifyWhatsApp";
 import { verifyWebMenuCheckoutSession } from "../sessionToken";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
@@ -355,10 +355,13 @@ export async function createWebMenuOrder(
 
     const code = `#${String(orderId).replaceAll("-", "").slice(-6).toUpperCase()}`;
 
-    await notifyWebMenuOrderWhatsApp({
+    await notifyWebMenuOrder({
         admin,
         companyId: params.companyId,
+        customerId: session.customerId,
         phoneE164: session.phoneE164,
+        originChannel: session.channel,
+        originExternalId: session.externalId,
         orderCode: code,
         requireApproval,
         items: orderItems,

@@ -164,7 +164,6 @@ export default function FilaClient() {
   const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
   const [requireApproval, setRequireApproval] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState(false);
-  const [deliveryEtaMin, setDeliveryEtaMin] = useState<number | null>(null);
 
   // ── Overlay state ─────────────────────────────────────────────────────────
   const [chatPhone,      setChatPhone]      = useState<string | null>(null);
@@ -205,18 +204,6 @@ export default function FilaClient() {
     } catch { /* ignore */ }
   }, [companyId]);
 
-  const fetchDeliveryEta = useCallback(async () => {
-    if (!companyId) return;
-    try {
-      const res = await fetch("/api/delivery/policy", { credentials: "include", cache: "no-store" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) return;
-      const raw = (json?.company?.settings as Record<string, unknown> | undefined)?.delivery_est_minutes;
-      const n = raw == null ? NaN : Math.floor(Number(raw));
-      setDeliveryEtaMin(Number.isFinite(n) ? n : null);
-    } catch { /* ignore */ }
-  }, [companyId]);
-
   // ── Realtime + polling ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -224,13 +211,12 @@ export default function FilaClient() {
 
     fetchOrders();
     fetchApprovalSetting();
-    fetchDeliveryEta();
     const poll = setInterval(fetchOrders, 8000);
 
     return () => {
       clearInterval(poll);
     };
-  }, [companyId, fetchOrders, fetchApprovalSetting, fetchDeliveryEta]);
+  }, [companyId, fetchOrders, fetchApprovalSetting]);
 
   // ── Atalhos de teclado ────────────────────────────────────────────────────
 
@@ -275,21 +261,6 @@ export default function FilaClient() {
     }
   }
 
-  // ── WhatsApp ──────────────────────────────────────────────────────────────
-
-  async function sendWhatsApp(rawPhone: string | null, text: string) {
-    const phone = toE164(rawPhone);
-    if (!phone) return;
-    try {
-      await fetch("/api/whatsapp/send", {
-        method:      "POST",
-        headers:     { "Content-Type": "application/json" },
-        credentials: "include",
-        body:        JSON.stringify({ to_phone_e164: phone, text }),
-      });
-    } catch (_) { /* falha silenciosa — pedido já está confirmado */ }
-  }
-
   // ── Confirmar ─────────────────────────────────────────────────────────────
 
   async function handleConfirm(orderId: string) {
@@ -305,26 +276,7 @@ export default function FilaClient() {
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j?.error ?? "falha");
 
-      const order   = orders.find((o) => o.id === orderId);
-      const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;
       const shortId = orderId.replaceAll("-", "").slice(-6).toUpperCase();
-      const total   = Number(order?.total_amount || order?.total || 0)
-        .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-      const isPickup = isPickupFulfillment(order?.fulfillment_type);
-      const modeLine = isPickup ? `🏪 *Retirada no local*\n\n` : "";
-      const etaLine =
-        !isPickup && deliveryEtaMin != null && Number.isFinite(deliveryEtaMin)
-        ? `🚚 *Previsão de entrega:* ${Math.max(0, Math.floor(deliveryEtaMin))} minutos\n\n`
-        : "";
-
-      await sendWhatsApp(phone,
-        `✅ *Pedido Confirmado!*\n\n` +
-        `Pedido #${shortId}\n` +
-        `Total: ${total}\n\n` +
-        modeLine +
-        etaLine +
-        `Obrigado pela preferência! 🍺`
-      );
 
       notify(true, `Pedido #${shortId} confirmado! Cupom sendo impresso...`);
       fetchOrders();
@@ -348,20 +300,12 @@ export default function FilaClient() {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject" }),
+        body: JSON.stringify({ action: "reject", reason: reason.trim() }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j?.error ?? "falha");
 
-      const order   = orders.find((o) => o.id === orderId);
-      const phone   = order?.customer_phone ?? order?.customers?.phone ?? null;
       const shortId = orderId.replaceAll("-", "").slice(-6).toUpperCase();
-
-      await sendWhatsApp(phone,
-        `❌ Infelizmente seu pedido não pôde ser confirmado.\n\n` +
-        (reason.trim() ? `Motivo: ${reason.trim()}\n\n` : "") +
-        `Entre em contato conosco para mais informações.`
-      );
 
       notify(true, `Pedido #${shortId} rejeitado.`);
       fetchOrders();

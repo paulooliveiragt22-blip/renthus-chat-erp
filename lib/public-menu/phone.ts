@@ -71,10 +71,18 @@ export function normalizeBrMobilePhone(
     };
 }
 
-/** Compara telefones ignorando máscara / E.164. */
+/** Compara telefones ignorando máscara / E.164 / celular legado sem o 9. */
+export function canonicalBrMobileDigits(raw: string): string {
+    let d = digitsOnlyBr(raw);
+    if (d.length === 10) {
+        d = `${d.slice(0, 2)}9${d.slice(2)}`;
+    }
+    return d;
+}
+
 export function brPhoneDigitsEqual(a: string, b: string): boolean {
-    const da = digitsOnlyBr(a);
-    const db = digitsOnlyBr(b);
+    const da = canonicalBrMobileDigits(a);
+    const db = canonicalBrMobileDigits(b);
     if (!da || !db) return false;
     return da === db;
 }

@@ -7,7 +7,7 @@ import {
     resolvePublicAppBaseUrl,
 } from "../../lib/public-menu/appBaseUrl";
 import { buildWebMenuOfferText } from "../../lib/public-menu/menuOfferText";
-import { normalizeBrPhone, normalizeBrMobilePhone, formatBrPhoneAsYouType } from "../../lib/public-menu/phone";
+import { normalizeBrPhone, normalizeBrMobilePhone, formatBrPhoneAsYouType, brPhoneDigitsEqual } from "../../lib/public-menu/phone";
 
 describe("public-menu slug", () => {
     it("normaliza acentos e espaços", () => {
@@ -154,5 +154,11 @@ describe("public-menu app URL + offer text", () => {
         assert.equal(normalizeBrMobilePhone("(11) 91234-5678").ok, true);
         assert.equal(normalizeBrMobilePhone("(11) 1234-5678").ok, false);
         assert.equal(formatBrPhoneAsYouType("11912345678"), "(11) 912345678");
+    });
+
+    it("brPhoneDigitsEqual casa celular legado (10 dígitos) com canônico", () => {
+        assert.equal(brPhoneDigitsEqual("6692285005", "66992285005"), true);
+        assert.equal(brPhoneDigitsEqual("+556692285005", "+5566992285005"), true);
+        assert.equal(brPhoneDigitsEqual("66992285005", "6692285006"), false);
     });
 });
