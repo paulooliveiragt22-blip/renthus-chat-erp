@@ -22,6 +22,18 @@ export function resolveMetaAppSecret(env: EnvLike = process.env): string {
 }
 
 /**
+ * Secret do produto "API do Instagram" (app IG `28138…` no dashboard).
+ * Webhooks assinados nesse produto podem usar este secret, não o do app principal.
+ */
+export function resolveInstagramAppSecret(env: EnvLike = process.env): string {
+    return (
+        env.META_INSTAGRAM_APP_SECRET?.trim() ||
+        env.INSTAGRAM_APP_SECRET?.trim() ||
+        ""
+    );
+}
+
+/**
  * Configuration ID do Facebook Login for Business.
  * Apps tipo Business costumam exigir `config_id` no dialog/oauth;
  * sem isso a Meta pode responder "URL bloqueada" mesmo com redirect URI cadastrada.

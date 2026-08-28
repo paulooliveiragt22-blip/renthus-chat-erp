@@ -1,7 +1,10 @@
 import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { resolveMetaAppSecret } from "@/lib/meta/metaAppCredentials";
+import {
+    resolveInstagramAppSecret,
+    resolveMetaAppSecret,
+} from "@/lib/meta/metaAppCredentials";
 
 function matchesSignature(rawBody: string, signatureHeader: string, secret: string): boolean {
     if (!secret || !signatureHeader.startsWith("sha256=")) return false;
@@ -26,12 +29,15 @@ export function isValidMetaWebhookSignature(
         "META_APP_SECRET",
         "WHATSAPP_APP_SECRET",
         "FACEBOOK_APP_SECRET",
+        "META_INSTAGRAM_APP_SECRET",
+        "INSTAGRAM_APP_SECRET",
     ] as const) {
         const v = process.env[key]?.trim();
         if (v) candidates.add(v);
     }
-    const resolved = resolveMetaAppSecret();
-    if (resolved) candidates.add(resolved);
+    for (const resolved of [resolveMetaAppSecret(), resolveInstagramAppSecret()]) {
+        if (resolved) candidates.add(resolved);
+    }
 
     for (const secret of candidates) {
         if (matchesSignature(rawBody, signatureHeader, secret)) return true;

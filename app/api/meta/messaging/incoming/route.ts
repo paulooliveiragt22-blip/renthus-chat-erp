@@ -104,6 +104,10 @@ export async function POST(req: NextRequest) {
             hasSignature: Boolean(signature),
             hasMetaSecret: Boolean(process.env.META_APP_SECRET?.trim()),
             hasWaSecret: Boolean(process.env.WHATSAPP_APP_SECRET?.trim()),
+            hasIgProductSecret: Boolean(
+                process.env.META_INSTAGRAM_APP_SECRET?.trim() ||
+                    process.env.INSTAGRAM_APP_SECRET?.trim()
+            ),
         });
         return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
     }

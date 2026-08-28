@@ -11,7 +11,8 @@ O paste do lojista (Configurações → **Canais**) só funciona se o número/to
 | `WHATSAPP_APP_SECRET` | Assinatura webhook `POST /api/whatsapp/incoming` |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Challenge GET do webhook WA |
 | `META_APP_ID` | OAuth Instagram/Messenger |
-| `META_APP_SECRET` | OAuth + app secret Page |
+| `META_APP_SECRET` | OAuth + assinatura webhook (app principal `26394…`) |
+| `META_INSTAGRAM_APP_SECRET` | Assinatura webhook do produto **API do Instagram** (`28138…` — “Chave secreta do app do Instagram” no dashboard) |
 | `NEXT_PUBLIC_APP_URL` (ou equivalente) | Callback OAuth absoluto |
 
 ## Recomendadas
