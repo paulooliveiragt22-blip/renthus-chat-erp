@@ -109,3 +109,68 @@ export async function sendMetaPageQuickReplies(params: {
 
     return { ok: true };
 }
+
+/**
+ * Botão URL (cardápio web) — template button + web_url, como CTA do WhatsApp.
+ * Fallback: texto + link se Graph rejeitar.
+ */
+export async function sendMetaPageUrlButton(params: {
+    pageId: string;
+    accessToken: string;
+    recipientId: string;
+    bodyText: string;
+    buttonTitle: string;
+    url: string;
+}): Promise<MetaSendResult> {
+    const bodyText = params.bodyText.trim() || "Toque para abrir:";
+    const buttonTitle = params.buttonTitle.trim() || "Abrir";
+    const url = params.url.trim();
+    if (!url) return { ok: false, error: "missing_url" };
+    if (!params.pageId || !params.accessToken || !params.recipientId) {
+        return { ok: false, error: "missing_credentials" };
+    }
+
+    const graphUrl = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(params.pageId)}/messages`;
+    const result = await metaGraphPostJson(params.pageId, graphUrl, {
+        accessToken: params.accessToken,
+        body: {
+            recipient: { id: params.recipientId },
+            messaging_type: "RESPONSE",
+            message: {
+                attachment: {
+                    type: "template",
+                    payload: {
+                        template_type: "button",
+                        text: bodyText.slice(0, 640),
+                        buttons: [
+                            {
+                                type: "web_url",
+                                title: buttonTitle.slice(0, 20),
+                                url,
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    });
+
+    if (!result.ok) {
+        console.warn("[meta/send] url_button failed, fallback text:", result.status);
+        return sendMetaPageText({
+            pageId: params.pageId,
+            accessToken: params.accessToken,
+            recipientId: params.recipientId,
+            text: `${bodyText}\n\n${url}`,
+        });
+    }
+
+    const messageId =
+        typeof result.json.message_id === "string"
+            ? result.json.message_id
+            : typeof result.json.id === "string"
+              ? result.json.id
+              : undefined;
+
+    return { ok: true, messageId };
+}

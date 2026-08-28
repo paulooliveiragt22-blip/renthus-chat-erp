@@ -6,7 +6,7 @@ import {
     loadActiveMetaChannelByCompany,
     resolvePageAccessToken,
 } from "@/lib/meta/messagingChannels";
-import { sendMetaPageQuickReplies, sendMetaPageText } from "@/lib/meta/sendMetaMessage";
+import { sendMetaPageQuickReplies, sendMetaPageText, sendMetaPageUrlButton } from "@/lib/meta/sendMetaMessage";
 import { resolveFreeFormSendPolicy } from "@/src/domain/messaging/customerServiceWindow";
 
 /**
@@ -107,11 +107,8 @@ export class MetaMessageGateway implements MessageGateway {
             return;
         }
 
-        if (message.kind === "text" || message.kind === "cta_url") {
-            const text =
-                message.kind === "cta_url"
-                    ? `${message.ctaUrl?.bodyText ?? ""}\n\n${message.ctaUrl?.url ?? ""}`.trim()
-                    : (message.text ?? "");
+        if (message.kind === "text") {
+            const text = message.text ?? "";
             if (!text.trim()) return;
             if (await this.isRecentDuplicateText(tenant, text)) return;
             const result = await sendMetaPageText({
@@ -127,6 +124,30 @@ export class MetaMessageGateway implements MessageGateway {
             await this.persistOutbound({
                 tenant,
                 body: text,
+                providerMessageId: result.messageId,
+            });
+            return;
+        }
+
+        if (message.kind === "cta_url" && message.ctaUrl) {
+            const { bodyText, displayText, url } = message.ctaUrl;
+            if (!url.trim()) return;
+            if (await this.isRecentDuplicateText(tenant, bodyText)) return;
+            const result = await sendMetaPageUrlButton({
+                pageId: row.page_id,
+                accessToken,
+                recipientId: recipient,
+                bodyText,
+                buttonTitle: displayText,
+                url,
+            });
+            if (!result.ok) {
+                console.error("[pro/meta] cta_url failed:", result.error);
+                return;
+            }
+            await this.persistOutbound({
+                tenant,
+                body: bodyText,
                 providerMessageId: result.messageId,
             });
             return;

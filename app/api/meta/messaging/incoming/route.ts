@@ -36,10 +36,6 @@ export const runtime = "nodejs";
 const CHATBOT_QUEUE_WAKE_ENABLED = process.env.CHATBOT_QUEUE_WAKE_ENABLED !== "0";
 const META_INCOMING_RATE_LIMIT = 180;
 
-const BOT_DISCLOSURE_PT_BR =
-    "Olá! Sou o *assistente virtual* desta loja. Posso ajudar com cardápio e pedidos. " +
-    "Se quiser falar com uma pessoa, digite *atendente*.";
-
 function verifyToken(): string {
     return (
         process.env.META_MESSAGING_WEBHOOK_VERIFY_TOKEN?.trim() ||
@@ -249,17 +245,6 @@ async function handleMessagingEvent(params: {
     });
     if (!inserted) return;
 
-    await maybeSendBotDisclosure({
-        admin,
-        companyId: metaChannel.company_id,
-        threadId,
-        channel,
-        senderId,
-        pageId: metaChannel.page_id,
-        encryptedToken: metaChannel.encrypted_page_access_token,
-        providerMetadata: metaChannel.provider_metadata,
-    });
-
     const { error } = await admin.from("chatbot_queue").insert({
         company_id: metaChannel.company_id,
         thread_id: threadId,
@@ -368,39 +353,4 @@ async function insertMetaInbound(params: {
     if ((error as { code?: string }).code === "23505") return false;
     console.error("[meta/incoming] insert message:", error.message);
     return false;
-}
-
-async function maybeSendBotDisclosure(params: {
-    admin: ReturnType<typeof createAdminClient>;
-    companyId: string;
-    threadId: string;
-    channel: "instagram" | "messenger";
-    senderId: string;
-    pageId: string;
-    encryptedToken: string | null;
-    providerMetadata: unknown;
-}): Promise<void> {
-    const { count } = await params.admin
-        .from("whatsapp_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("thread_id", params.threadId)
-        .eq("direction", "outbound");
-
-    if ((count ?? 0) > 0) return;
-
-    const { MetaMessageGateway } = await import(
-        "@/src/pro/adapters/meta/message.gateway.meta"
-    );
-    const gw = new MetaMessageGateway(params.admin, params.channel);
-    await gw.send(
-        {
-            companyId: params.companyId,
-            threadId: params.threadId,
-            messageId: "disclosure",
-            phoneE164: "",
-            messagingChannel: params.channel,
-            channelUserId: params.senderId,
-        },
-        { kind: "text", text: BOT_DISCLOSURE_PT_BR }
-    );
 }
