@@ -55,7 +55,7 @@ export async function probeMetaPageHealth(
 
     const url =
         `${GRAPH_BASE}/${encodeURIComponent(row.page_id)}` +
-        `?fields=name,instagram_business_account{id}`;
+        `?fields=name`;
     const res = await metaGraphGetJson(row.page_id, url, { accessToken: token });
 
     if (!res.ok) {
@@ -73,12 +73,38 @@ export async function probeMetaPageHealth(
         return result;
     }
 
-    const ig = res.json.instagram_business_account as { id?: string } | undefined;
+    let igUserId = row.ig_user_id;
+    const igUrl =
+        `${GRAPH_BASE}/${encodeURIComponent(row.page_id)}` +
+        `?fields=instagram_business_account{id}`;
+    const igRes = await metaGraphGetJson(row.page_id, igUrl, { accessToken: token });
+    if (igRes.ok) {
+        const ig = igRes.json.instagram_business_account as { id?: string } | undefined;
+        if (ig?.id?.trim()) igUserId = ig.id.trim();
+    } else if (!igUserId) {
+        const errObj = igRes.json?.error as { message?: string } | undefined;
+        const igMsg = errObj?.message ?? "";
+        const result: MetaPageHealthResult = {
+            ok: true,
+            checkedAt,
+            pageName: typeof res.json.name === "string" ? res.json.name : undefined,
+            igUserId: null,
+            errorCode: "instagram_not_linked",
+            errorMessage:
+                igMsg.includes("pages_read_engagement") || igMsg.includes("#100")
+                    ? "Page OK (Messenger). Instagram: vincule a conta profissional à Page no Meta Business Suite e inclua pages_read_engagement + instagram na Configuration do Login for Business; reconecte."
+                    : igMsg ||
+                      "Page OK (Messenger). Instagram não detectado — vincule IG profissional à Page no Meta Business Suite.",
+        };
+        await persistMetaHealth(admin, row.id, result);
+        return result;
+    }
+
     const result: MetaPageHealthResult = {
         ok: true,
         checkedAt,
         pageName: typeof res.json.name === "string" ? res.json.name : undefined,
-        igUserId: ig?.id ?? row.ig_user_id,
+        igUserId,
     };
     await persistMetaHealth(admin, row.id, result);
     return result;
@@ -103,7 +129,9 @@ async function persistMetaHealth(
                       500
                   ),
             ...(result.pageName ? { page_name: result.pageName } : {}),
-            ...(result.igUserId ? { ig_user_id: result.igUserId } : {}),
+            ...(result.igUserId
+                ? { ig_user_id: result.igUserId, instagram_enabled: true }
+                : {}),
             updated_at: result.checkedAt,
         })
         .eq("id", channelId);

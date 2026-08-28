@@ -194,7 +194,12 @@ export default function MetaMessagingSettings() {
                 credentials: "include",
             });
             const json = (await res.json().catch(() => ({}))) as {
-                health?: { ok: boolean; errorMessage?: string; pageName?: string };
+                health?: {
+                    ok: boolean;
+                    errorMessage?: string;
+                    pageName?: string;
+                    igUserId?: string | null;
+                };
                 error?: string;
                 hint?: string;
             };
@@ -203,9 +208,16 @@ export default function MetaMessagingSettings() {
                 return;
             }
             if (json.health?.ok) {
+                const igNote =
+                    json.health.igUserId != null
+                        ? ` · IG ${json.health.igUserId}`
+                        : json.health.errorMessage
+                          ? ` · ${json.health.errorMessage}`
+                          : "";
                 setMsg(
                     `Page OK` +
-                        (json.health.pageName ? ` — ${json.health.pageName}` : "")
+                        (json.health.pageName ? ` — ${json.health.pageName}` : "") +
+                        igNote
                 );
             } else {
                 setMsg(json.health?.errorMessage || "Health Meta falhou.");
@@ -427,8 +439,18 @@ export default function MetaMessagingSettings() {
                         <span className="ml-2 text-xs text-zinc-400">{conn.pageId}</span>
                     </p>
                     {conn.igUserId ? (
-                        <p className="text-xs text-zinc-500">IG user: {conn.igUserId}</p>
-                    ) : null}
+                        <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            Instagram conectado · IG user {conn.igUserId}
+                        </p>
+                    ) : (
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                            Instagram não detectado. Vincule a conta profissional à Page no Meta
+                            Business Suite, inclua{" "}
+                            <code className="text-[10px]">pages_read_engagement</code> e permissões
+                            IG na Configuration do Login for Business, e clique em Conectar de
+                            novo. Ou cole o IG User ID em token manual.
+                        </p>
+                    )}
                 </div>
             )}
 
