@@ -1,23 +1,17 @@
 /**
  * POST /api/admin/ai-wallet/checkout
- * Body: { packCents: 1000|2000|5000, method?: "pix" }
- * Cria cobrança PIX no Pagar.me; webhook credita a carteira (metadata.type=ai_pack).
+ * Body: { packCents: 1000|2000|5000 }
+ * PIX pack — crédito só via webhook FulfillPayment.
  */
 
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
-import {
-    createPixInvoiceOrder,
-    resolvePixFromOrder,
-    centsToBRL,
-} from "@/lib/billing/pagarme";
-import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { ensureAiWallet } from "@/lib/billing/aiWallet";
+import { ensureAiPackCheckout } from "@/lib/billing/ensureAiPackCheckout";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
-const PACKS = new Set([1000, 2000, 5000]);
 const AI_WALLET_CHECKOUT_RATE_LIMIT = 10;
 const AI_WALLET_CHECKOUT_RATE_WINDOW_MS = 60_000;
 
@@ -38,14 +32,8 @@ export async function POST(req: Request) {
         );
     }
 
-    const body = (await req.json().catch(() => ({}))) as {
-        packCents?: number;
-        method?: string;
-    };
+    const body = (await req.json().catch(() => ({}))) as { packCents?: number };
     const packCents = Number(body.packCents);
-    if (!PACKS.has(packCents)) {
-        return NextResponse.json({ error: "pack_invalid" }, { status: 400 });
-    }
 
     await ensureAiWallet(admin, companyId);
 
@@ -70,56 +58,38 @@ export async function POST(req: Request) {
             ? pagarmeSub.pagarme_customer_id
             : undefined;
 
-    const brl = centsToBRL(packCents);
-    const description = `Crédito IA Renthus — R$ ${brl.toFixed(2).replace(".", ",")}`;
-
     try {
-        const customerPayload = buildPagarmeCustomerPayload({
-            id: companyId,
-            name: (company.name as string | null) ?? null,
-            nome_fantasia: (company.nome_fantasia as string | null) ?? null,
-            email: (company.email as string | null) ?? null,
-            whatsapp_phone:
-                (company.whatsapp_phone as string | null) ??
-                (company.phone as string | null) ??
-                null,
-            cnpj: (company.cnpj as string | null) ?? null,
-        });
-        const created = await createPixInvoiceOrder({
-            amountCents: packCents,
-            description,
-            itemCode: `ai_pack_${packCents}`,
-            expiresInSeconds: 3600,
+        const checkout = await ensureAiPackCheckout(admin, {
+            companyId,
+            packCents,
             customerId,
-            customer: customerId ? undefined : customerPayload,
-            metadata: {
-                type: "ai_pack",
-                company_id: companyId,
-                pack_cents: String(packCents),
+            company: {
+                name: company.name as string | null,
+                nome_fantasia: company.nome_fantasia as string | null,
+                email: company.email as string | null,
+                whatsapp_phone: company.whatsapp_phone as string | null,
+                phone: company.phone as string | null,
+                cnpj: company.cnpj as string | null,
             },
         });
 
-        const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
-
-        if (!pixCode && !pixUrl) {
-            return NextResponse.json(
-                { error: "pix_payload_missing", orderId: order.id },
-                { status: 502 }
-            );
-        }
-
         return NextResponse.json({
             ok: true,
-            orderId: order.id,
-            amountBrl: brl,
-            packCents,
-            // Docs: qr_code = EMV copia-e-cola; qr_code_url = imagem
-            pixQrCode: pixCode,
-            pixUrl,
-            hasCopyPaste: Boolean(pixCode),
+            orderId: checkout.orderId,
+            amountBrl: checkout.amountBrl,
+            packCents: checkout.packCents,
+            pixQrCode: checkout.pixQrCode,
+            pixUrl: checkout.pixUrl,
+            hasCopyPaste: Boolean(checkout.pixQrCode),
         });
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
+        if (msg === "pack_invalid") {
+            return NextResponse.json({ error: "pack_invalid" }, { status: 400 });
+        }
+        if (msg === "pix_payload_missing") {
+            return NextResponse.json({ error: "pix_payload_missing" }, { status: 502 });
+        }
         console.error("[ai-wallet/checkout]", msg);
         return NextResponse.json({ error: msg }, { status: 500 });
     }

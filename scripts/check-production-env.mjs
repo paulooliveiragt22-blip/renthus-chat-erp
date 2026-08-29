@@ -39,6 +39,28 @@ if (!process.env.PLATFORM_ADMIN_HOST?.trim()) {
     );
 }
 
+if (process.env.SQS_DISPATCH_ENABLED?.trim() !== "1") {
+    console.error(
+        "[check-production-env] SQS_DISPATCH_ENABLED deve ser 1 em produção (ADR-0003 cutover)."
+    );
+    process.exit(1);
+}
+const sqsRequired = [
+    "AWS_REGION",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "SQS_INBOUND_QUEUE_URL",
+    "SQS_OUTBOUND_QUEUE_URL",
+];
+const sqsMissing = sqsRequired.filter((k) => !process.env[k]?.trim());
+if (sqsMissing.length) {
+    console.error(
+        "[check-production-env] SQS_DISPATCH_ENABLED=1 mas faltam:",
+        sqsMissing.join(", ")
+    );
+    process.exit(1);
+}
+
 const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
 const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 if (!upstashUrl || !upstashToken) {

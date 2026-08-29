@@ -67,6 +67,36 @@ describe("billing gate matrix (P0.9)", () => {
         if (res.ok) assert.strictEqual(res.status, "overdue");
     });
 
+    it("3b — pending_payment + full → 402 (never-paid A6)", async () => {
+        const admin = pagarmeSubMock({
+            status: "pending_payment",
+            trial_ends_at: null,
+            last_paid_at: null,
+            plan: "pro",
+        });
+        const res = await requireBillingActive(admin, "company-1", "full");
+        assert.strictEqual(res.ok, false);
+        if (!res.ok) {
+            assert.strictEqual(res.status, 402);
+            assert.strictEqual(res.billingStatus, "pending_payment");
+        }
+    });
+
+    it("3c — overdue never-paid + full → 402 pending_payment efetivo", async () => {
+        const admin = pagarmeSubMock({
+            status: "overdue",
+            trial_ends_at: null,
+            last_paid_at: null,
+            plan: "essencial",
+        });
+        const res = await requireBillingActive(admin, "company-1", "full");
+        assert.strictEqual(res.ok, false);
+        if (!res.ok) {
+            assert.strictEqual(res.status, 402);
+            assert.strictEqual(res.billingStatus, "pending_payment");
+        }
+    });
+
     it("4 — trial logical sub → hasFeature via active subscription", async () => {
         const admin = {
             rpc: async (name: string) => {
@@ -74,6 +104,17 @@ describe("billing gate matrix (P0.9)", () => {
                     return {
                         data: {
                             company_id: "c1",
+                            access: "allow",
+                            access_reason: "trial",
+                            features_eligible: true,
+                            pagarme: {
+                                status: "trial",
+                                plan: "pro",
+                                trial_ends_at: "2099-01-01T00:00:00.000Z",
+                                last_paid_at: null,
+                                next_billing_at: null,
+                                activated_at: "2026-08-01T00:00:00.000Z",
+                            },
                             subscription: {
                                 id: "sub-1",
                                 plan_id: "plan-pro",
@@ -127,16 +168,35 @@ describe("billing gate matrix (P0.9)", () => {
     });
 
     it("7 — webhook duplicate → tryConsume retorna false na 2ª vez", async () => {
-        const seen = new Set<string>();
+        const seen = new Map<string, { status: string }>();
         const admin = {
             from: () => ({
-                insert: async (row: { id: string }) => {
+                insert: async (row: { id: string; status?: string }) => {
                     if (seen.has(row.id)) {
                         return { error: { code: "23505", message: "duplicate key" } };
                     }
-                    seen.add(row.id);
+                    seen.set(row.id, { status: row.status ?? "processing" });
                     return { error: null };
                 },
+                select: () => ({
+                    eq: () => ({
+                        maybeSingle: async () => {
+                            const id = [...seen.keys()][0];
+                            const row = id ? seen.get(id) : undefined;
+                            return {
+                                data: row
+                                    ? { status: row.status, updated_at: new Date().toISOString() }
+                                    : null,
+                                error: null,
+                            };
+                        },
+                    }),
+                }),
+                update: () => ({
+                    eq: () => ({
+                        in: async () => ({ error: null }),
+                    }),
+                }),
             }),
         } as unknown as ReturnType<
             typeof import("../../lib/supabase/admin").createAdminClient
@@ -148,6 +208,9 @@ describe("billing gate matrix (P0.9)", () => {
             "order.paid",
             "ord-1"
         );
+        // Second insert duplicates; select returns completed only if we mark it —
+        // mock returns processing with fresh updated_at → skip (proceed false)
+        seen.set("evt-1", { status: "completed" });
         const second = await tryConsumePagarmeWebhookEvent(
             admin,
             "evt-1",

@@ -75,10 +75,8 @@ describe("proxy auth routing", () => {
 
     it("exempts scheduler routes that authenticate via CRON_SECRET", async () => {
         const paths = [
-            "/api/chatbot/process-queue",
             "/api/chatbot/reactivate",
             "/api/chatbot/detect-abandoned-carts",
-            "/api/chatbot/outbound-worker",
             "/api/billing/charge",
             "/api/platform/alerts/check",
             "/api/platform/audit/archive",
@@ -411,11 +409,26 @@ describe("proxy billing paywall (P0.10)", () => {
     const prevSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const prevServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    function mockSupabaseRest(subStatus: string, company: Record<string, unknown> = {}) {
+    function mockSupabaseRest(
+        subStatus: string,
+        company: Record<string, unknown> = {},
+        subExtra: Record<string, unknown> = {}
+    ) {
         globalThis.fetch = (async (input: RequestInfo | URL) => {
             const url = String(input);
             if (url.includes("pagarme_subscriptions")) {
-                return new Response(JSON.stringify([{ status: subStatus }]), { status: 200 });
+                return new Response(
+                    JSON.stringify([
+                        {
+                            status: subStatus,
+                            trial_ends_at: null,
+                            last_paid_at: null,
+                            plan: "essencial",
+                            ...subExtra,
+                        },
+                    ]),
+                    { status: 200 }
+                );
             }
             if (url.includes("companies")) {
                 return new Response(
@@ -505,6 +518,24 @@ describe("proxy billing paywall (P0.10)", () => {
                 "/pdv",
                 `renthus_company_id=comp-1; renthus_access_ok=comp-1:${Date.now()}`
             ),
+            undefined,
+            { createClient: factory }
+        );
+
+        assert.strictEqual(response.status, 307);
+        assert.ok((response.headers.get("location") ?? "").includes("/plano/pagar"));
+    });
+
+    it("redirects trial expired (trial_ends_at no passado) to /plano/pagar", async () => {
+        process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
+        process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
+        mockSupabaseRest("trial", { is_active: true, onboarding_completed_at: "2026-01-01" }, {
+            trial_ends_at: "2020-01-01T00:00:00.000Z",
+        });
+
+        const { factory } = createMockClient({ id: "user-1" });
+        const response = await proxy(
+            createRequest("/pdv", "renthus_company_id=comp-1"),
             undefined,
             { createClient: factory }
         );

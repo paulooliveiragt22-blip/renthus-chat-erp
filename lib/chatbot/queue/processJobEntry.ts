@@ -4,6 +4,7 @@ import { sendTypingIndicator, sendWhatsAppMessage, type WaConfig } from "@/lib/w
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
 import { tryResolvePendingOrderConfirmation } from "@/src/pro/pipeline/resolvePendingOrderConfirmation";
 import type { AdminClient, ChatbotQueueJobRow } from "./types";
+import { canProcessInboundChannel } from "@/lib/billing/canProcessInboundChannel";
 
 const REACTIVATE_MSG =
     "😔 No momento não há atendentes disponíveis.\n" +
@@ -51,6 +52,16 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
         messaging_channel,
         channel_user_id,
     } = job;
+
+    const inboundGate = await canProcessInboundChannel(admin, company_id);
+    if (!inboundGate.allowed) {
+        console.log(
+            "[process-queue] tenant access deny, skipping:",
+            company_id,
+            inboundGate.reason
+        );
+        return;
+    }
 
     const messagingChannel =
         messaging_channel === "instagram" || messaging_channel === "messenger"

@@ -426,8 +426,8 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 - [ ] Supabase: Compute + Supavisor `:6543` documentado (`PLANO_ESCALA` Fase 0)
 - [ ] Upstash prod + `LLM_GLOBAL_MAX_IN_FLIGHT` + `COMPANY_LLM_MAX_IN_FLIGHT`
 - [ ] AWS: criar filas FIFO + DLQ (inbound/outbound)
-- [ ] AWS: Lambda inbound + outbound + event source mappings
-- [ ] AWS: IAM user Vercel (SendMessage only) + Lambda execution roles
+- [x] AWS: Lambda inbound + outbound + event source mappings
+- [x] AWS: IAM user Vercel (SendMessage only) + Lambda execution role `renthus-lambda-sqs-worker`
 - [ ] AWS: CloudWatch alarm `ApproximateAgeOfOldestMessage` > 120s (inbound)
 - [ ] AWS: SNS alarm DLQ depth > 0
 - [ ] EventBridge Scheduler: jobs listados na seção envs (exceto process-queue/outbound-worker)
@@ -436,44 +436,46 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 
 ### Fase 1 — Schema + libs (PR 1)
 
-- [ ] Migration: colunas `sqs_enqueued_at`, `sqs_message_id` + índices outbox pending
-- [ ] Aplicar migration remoto (MCP/CLI) + validar índices
-- [ ] `lib/queue/sqsDispatch.ts` + testes unitários (mock SDK)
-- [ ] `lib/chatbot/queue/processInboundJobById.ts`
-- [ ] `lib/chatbot/outbound/processOutboundJobById.ts`
-- [ ] `lib/chatbot/queue/companyWorkerCap.ts` (Upstash fairness)
-- [ ] Env docs / `.env.example` atualizados
-- [ ] `npm test` verde
+- [x] Migration: colunas `sqs_enqueued_at`, `sqs_message_id` + índices outbox pending
+- [x] Aplicar migration remoto (MCP/CLI) + validar índices
+- [x] `lib/queue/sqsDispatch.ts` + testes unitários (mock SDK)
+- [x] `lib/chatbot/queue/processInboundJobById.ts`
+- [x] `lib/chatbot/outbound/processOutboundJobById.ts`
+- [x] `lib/chatbot/queue/companyWorkerCap.ts` (Upstash fairness)
+- [x] Env docs / `scripts/check-production-env.mjs` (aviso SQS + required se `SQS_DISPATCH_ENABLED=1`)
+- [x] `npm test` verde (sqsDispatch + runQueueEntry — 9/9)
 
 ### Fase 2 — Produtores (PR 2)
 
-- [ ] `whatsapp/incoming`: `after(dispatch)` substitui `scheduleQueueWorkerWake`
-- [ ] `meta/messaging/incoming`: idem
-- [ ] Outbound produtores: `enqueueCampaign`, `detect-abandoned-carts`, `admin/orders` → dispatch
-- [ ] `SQS_DISPATCH_ENABLED=0` default em test/dev; testes de integração ajustados
-- [ ] Smoke: insert outbox + mock SendMessage
+- [x] `whatsapp/incoming`: `after(dispatch)` via `scheduleInboundAfterEnqueue` (wake até cutover)
+- [x] `meta/messaging/incoming`: idem
+- [x] Outbound producers: `enqueueCampaign`, `detect-abandoned-carts`, `admin/orders` → afterEnqueue
+- [x] `SQS_DISPATCH_ENABLED=0` default em test/dev; dual-path até `SQS_WORKER_CUTOVER=1`
+- [x] Testes de contrato producers + flags
+- [x] Vercel Production: env vars SQS/AWS (confirmado pelo dono — MCP Vercel sem tool de env)
 
 ### Fase 3 — Lambda workers (PR 3)
 
-- [ ] `workers/inbound/handler.ts` — consome SQS, chama `processInboundJobById`
-- [ ] `workers/outbound/handler.ts` — consome SQS, chama `processOutboundJobById`
-- [ ] Retry: integrar `queueRetryDelayMs` → visibility / redispatch
-- [ ] Bundle esbuild + script deploy (`npm run deploy:workers` ou CI)
-- [ ] Deploy Lambda staging; teste com mensagem synthetic
-- [ ] Reserved concurrency alinhada a `LLM_GLOBAL_MAX_IN_FLIGHT`
+- [x] `workers/inbound/handler.ts` — consome SQS, chama `processInboundJobById`
+- [x] `workers/outbound/handler.ts` — consome SQS, chama `processOutboundJobById`
+- [x] Retry: `queueRetryDelayMs` → `ChangeMessageVisibility` + `ReportBatchItemFailures`
+- [x] Bundle esbuild + script deploy (`npm run build:workers` / `deploy:workers`)
+- [x] Deploy Lambda `sa-east-1` + event source mappings (inbound batch 1, outbound batch 5)
+- [ ] Reserved concurrency alinhada a `LLM_GLOBAL_MAX_IN_FLIGHT` (conta AWS: Unreserved mínimo 10 — setar depois com `RENTHUS_LAMBDA_RESERVED=1` ou Service Quotas)
+- [ ] Smoke: mensagem synthetic jobId real outbox → Lambda → `done` (script `npm run smoke:sqs-workers` — skip path validado)
 
 ### Fase 4 — Cutover produção (PR 4)
 
-- [ ] Vercel prod: envs AWS + `SQS_DISPATCH_ENABLED=1`
-- [ ] Remover cron-job.org (process-queue, outbound-worker, reactivate)
-- [ ] Atualizar `vercel.json` — remover crons process-queue e outbound-worker
-- [ ] Se `chatbot-queue-drain` existir no pg_cron → migration unschedule
-- [ ] Deletar rotas `process-queue` e `outbound-worker`
-- [ ] Deletar `queueWorkerWake.ts`, `outboundWorkerWake.ts`
-- [ ] Remover entradas `isTechnicalApiPublic` obsoletas em `proxy.ts`
+- [x] Vercel prod: envs AWS + `SQS_DISPATCH_ENABLED=1` (dono confirmou envs; flag via dashboard/CLI no deploy)
+- [ ] Remover cron-job.org (process-queue, outbound-worker, reactivate) — manual ops
+- [x] Atualizar `vercel.json` — remover crons process-queue e outbound-worker
+- [x] Migration `unschedule('chatbot-queue-drain')` se existir
+- [x] Deletar rotas `process-queue` e `outbound-worker`
+- [x] Deletar `queueWorkerWake.ts`, `outboundWorkerWake.ts`
+- [x] Remover entradas `isTechnicalApiPublic` obsoletas em `proxy.ts`
 - [ ] Atualizar `docs/CHATBOT_PROD.md`, `PLANO_ESCALA_PICOS_PEDIDOS.md` (wake/drain obsoletos)
-- [ ] Smoke runbook: webhook → outbox → SQS → Lambda → done
-- [ ] Platform `/platform/observabilidade`: confirmar KPIs fila OK
+- [x] Smoke script `npm run smoke:sqs-workers`
+- [ ] Platform `/platform/observabilidade`: confirmar KPIs fila OK (pós-deploy)
 
 ### Fase 5 — Otimizações pós-cutover (PR 5+)
 

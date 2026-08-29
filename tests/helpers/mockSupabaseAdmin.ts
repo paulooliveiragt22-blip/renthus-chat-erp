@@ -76,6 +76,7 @@ export function makeMockAdmin(tables: Tables): MockAdminHandle {
                 return {
                     select: () => ({
                         single: async () => ({ data: inserted[0] ?? null, error: null }),
+                        maybeSingle: async () => ({ data: inserted[0] ?? null, error: null }),
                     }),
                     single: async () => ({ data: inserted[0] ?? null, error: null }),
                     then: (resolve: (v: unknown) => void) =>

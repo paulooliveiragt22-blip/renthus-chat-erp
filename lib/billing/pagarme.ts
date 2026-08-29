@@ -215,6 +215,17 @@ export function extractOrderCustomerId(order: PagarmeOrder): string | null {
     return typeof id === "string" && id.trim() ? id.trim() : null;
 }
 
+/** card_id Pagar.me a partir da charge (nunca PAN). */
+export function extractCardIdFromOrder(order: PagarmeOrder): string | null {
+    const tx = order.charges?.[0]?.last_transaction as
+        | { card?: { id?: string }; card_id?: string }
+        | undefined;
+    const fromCard = tx?.card?.id?.trim();
+    if (fromCard) return fromCard;
+    const fromId = tx?.card_id?.trim();
+    return fromId || null;
+}
+
 // ---------------------------------------------------------------------------
 // Customers
 // ---------------------------------------------------------------------------
@@ -334,6 +345,8 @@ export async function createOrderWithSavedCard(params: {
     itemCode?: string;
     customerId: string;
     cardId: string;
+    /** true para mensalidade / renovação (descriptor recorrente). */
+    recurrence?: boolean;
     metadata?: Record<string, string>;
 }): Promise<PagarmeOrder> {
     const body: Record<string, unknown> = {
@@ -352,7 +365,7 @@ export async function createOrderWithSavedCard(params: {
                 amount: params.amountCents,
                 credit_card: {
                     card_id: params.cardId,
-                    recurrence: false,
+                    recurrence: params.recurrence === true,
                     installments: 1,
                     statement_descriptor: "RENTHUS",
                     capture: true,

@@ -169,7 +169,7 @@ describe("MVP checklist — M5 preparing + notify", () => {
         assert.match(orders, /enqueuePreparingNotify|preparing/);
         assert.ok(exists("lib/orders/enqueuePreparingNotify.ts"));
         assert.match(read("app/api/admin/orders/route.ts"), /enqueuePreparingNotify|preparing/);
-        assert.match(read("app/api/admin/orders/route.ts"), /scheduleOutboundWorkerWake/);
+        assert.match(read("app/api/admin/orders/route.ts"), /scheduleOutboundAfterEnqueue/);
         assert.match(read("app/(admin)/pedidos/PedidosClient.tsx"), /kind === "prepare"/);
         assert.match(read("lib/orders/ViewOrderModal.tsx"), /Saiu pra entregar/);
         assert.equal(/Avisar WA/.test(read("lib/orders/ViewOrderModal.tsx")), false);

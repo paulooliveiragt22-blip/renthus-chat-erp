@@ -14,6 +14,8 @@ export const PLATFORM_AUDIT_ACTIONS = [
     "platform.subscription.plan_changed",
     "platform.subscription.overage_changed",
     "platform.billing.settings_updated",
+    "platform.billing.courtesy_trial_granted",
+    "platform.billing.checkout_ensured",
     "platform.impersonation.started",
     "platform.impersonation.ended",
     "platform.user.created",

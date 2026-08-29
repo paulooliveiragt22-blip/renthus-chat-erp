@@ -540,6 +540,10 @@ Runbook: [`docs/SMOKE_BILLING_PAGARME_SANDBOX.md`](./SMOKE_BILLING_PAGARME_SANDB
 | S5 | PIX copia-e-cola (EMV) aparece na UI | [ ] fix 2026-08-28 — auth no decode QR + backfill |
 | S6 | `/plano/pagar` standalone (sem sidebar) até pagar → `/ativar` | [ ] fix 2026-08-28 |
 
+**Próximo checklist estrutural (não misturar com P0):**  
+[`docs/CHECKLIST_TENANT_ACCESS_SIGNUP_PAYMENTS.md`](./CHECKLIST_TENANT_ACCESS_SIGNUP_PAYMENTS.md) — TenantAccess v2 + signup/pagamentos.  
+[`docs/CHECKLIST_AUTO_RECHARGE_RENEWAL.md`](./CHECKLIST_AUTO_RECHARGE_RENEWAL.md) — renovação mensal + recarga IA + falha de cartão.
+
 ---
 
 ## Fora de escopo (não abrir neste checklist)

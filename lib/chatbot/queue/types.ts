@@ -23,6 +23,9 @@ export interface ChatbotQueueJobRow {
     channel_user_id: string | null;
     processing_started_at: string | null;
     metadata: ({ message_type?: string | null } & Record<string, unknown>) | null;
+    /** ADR-0003 outbox — set after SQS SendMessage. */
+    sqs_enqueued_at?: string | null;
+    sqs_message_id?: string | null;
 }
 
 /** Contadores de um lote processado (usados no metric/response do worker). */

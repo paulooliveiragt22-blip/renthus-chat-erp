@@ -38,7 +38,9 @@ export type BillingStatusJson = {
         holder: string;
         exp: string;
         status: string;
+        is_default?: boolean;
     }>;
+    default_card_id?: string | null;
     plan_key?: string | null;
     plan_label?: string | null;
     monthly_prices_brl?: {

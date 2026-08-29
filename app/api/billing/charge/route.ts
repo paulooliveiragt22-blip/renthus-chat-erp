@@ -3,20 +3,17 @@
  *
  * Cron diário (Vercel, 08:00 BRT) — vercel.json: "0 11 * * *" (UTC)
  *
- * Responsabilidades:
- *  1. trial vencido       → gera primeira invoice (PIX) + status='overdue'
- *  2. active vencido      → gera nova invoice (PIX)    + status='overdue'
- *  3. overdue dias 1,3,5  → envia aviso WhatsApp
- *  4. overdue > 5 dias    → bloqueia empresa (companies.is_active=false) + status='blocked'
+ * 1. trial/active vencido → CollectPayment (card-first se default_card_id; senão PIX)
+ * 2. overdue D1/D3 → retry card (CollectPayment) + WA; D5+ block
+ * 3. pending_setup stale >5d → block
  */
 
-import { NextResponse }      from "next/server";
+import { NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import {
     createPixInvoiceOrder,
-    getMonthlyPriceCents,
     getSetupPriceCents,
     centsToBRL,
     resolvePixFromOrder,
@@ -28,43 +25,49 @@ import {
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { billingLog } from "@/lib/billing/billingLog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
+import { collectPayment, type CollectSub } from "@/lib/billing/collectPayment";
+import {
+    resolveCollectionAction,
+    resolveTrialDueKind,
+} from "@/lib/billing/collectionPolicy";
+import { processAiRechargeJobs } from "@/lib/billing/processAiRechargeJobs";
 
 export const runtime = "nodejs";
 
-/** Máximo de linhas por execução do cron (P2.7 — evita timeout Vercel). */
 const CHARGE_BATCH_LIMIT = 50;
 
 export async function POST(req: Request) {
     const authHeader = req.headers.get("authorization");
-    const authError = validateCronAuthorization(authHeader);
+    const authError = validateCronAuthorization(authHeader, {
+        vercelCronHeader: req.headers.get("x-vercel-cron"),
+    });
     if (authError) return authError;
 
     const admin = createAdminClient();
-    const now   = new Date();
+    const now = new Date();
 
     const results = {
-        trialsCharged:   0,
-        activeCharged:   0,
-        notified:        0,
-        blocked:         0,
-        truncated:       false,
-        errors:          [] as string[],
+        trialsCharged: 0,
+        activeCharged: 0,
+        cardPaid: 0,
+        notified: 0,
+        blocked: 0,
+        truncated: false,
+        aiRecharge: { processed: 0, paid: 0, failed: 0 },
+        errors: [] as string[],
     };
 
-    // -----------------------------------------------------------------------
-    // 1 & 2. Trials vencidos → setup_payment | Ativas vencidas → invoice
-    // -----------------------------------------------------------------------
     const { data: dueSubs, error: dueErr } = await admin
         .from("pagarme_subscriptions")
         .select(`
             id, company_id, plan, status, activated_at, next_billing_at, trial_ends_at,
-            last_paid_at, pagarme_customer_id,
+            last_paid_at, pagarme_customer_id, default_card_id,
             companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
         `)
         .in("status", ["trial", "active"])
         .or(
             `and(status.eq.trial,trial_ends_at.lte.${now.toISOString()}),` +
-            `and(status.eq.active,next_billing_at.lte.${now.toISOString()})`
+                `and(status.eq.active,next_billing_at.lte.${now.toISOString()})`
         )
         .order("next_billing_at", { ascending: true, nullsFirst: true })
         .limit(CHARGE_BATCH_LIMIT + 1);
@@ -81,18 +84,34 @@ export async function POST(req: Request) {
             try {
                 if (sub.status === "trial") {
                     const setupCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
-                    if (setupCents <= 0) {
-                        await generateMonthlyInvoice(admin, sub, now, "pending_payment");
-                    } else {
+                    if (resolveTrialDueKind(setupCents) === "setup") {
                         await generateSetupCharge(admin, sub, now);
+                    } else {
+                        const r = await collectPayment(admin, {
+                            sub: sub as CollectSub,
+                            kind: "subscription_first",
+                            prefer: sub.default_card_id ? "card" : "pix",
+                            attemptN: 0,
+                            now,
+                            fallbackSubStatus: "pending_payment",
+                        });
+                        if (r.ok && r.outcome === "paid_card") results.cardPaid++;
                     }
                     results.trialsCharged++;
                 } else {
-                    await generateMonthlyInvoice(admin, sub, now, "overdue");
+                    const r = await collectPayment(admin, {
+                        sub: sub as CollectSub,
+                        kind: "subscription_renewal",
+                        prefer: sub.default_card_id ? "card" : "pix",
+                        attemptN: 0,
+                        now,
+                        fallbackSubStatus: "overdue",
+                    });
+                    if (r.ok && r.outcome === "paid_card") results.cardPaid++;
                     results.activeCharged++;
                 }
-            } catch (err: any) {
-                const msg = `sub ${sub.id}: ${err?.message ?? String(err)}`;
+            } catch (err: unknown) {
+                const msg = `sub ${sub.id}: ${err instanceof Error ? err.message : String(err)}`;
                 console.error("[charge] Erro ao gerar cobrança:", msg);
                 Sentry.captureException(err, {
                     tags: { companyId: sub.company_id, route: "billing-charge" },
@@ -102,16 +121,16 @@ export async function POST(req: Request) {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 3 & 4. Overdues — notificar (dias 1, 3, 5) e bloquear (> 5 dias)
-    // -----------------------------------------------------------------------
     const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
 
     const { data: overdueInvoices, error: ovErr } = await admin
         .from("invoices")
         .select(`
             id, company_id, subscription_id, due_at, pagarme_payment_url, pix_qr_code,
-            pagarme_subscriptions ( id, status ),
+            pagarme_subscriptions (
+              id, status, company_id, plan, pagarme_customer_id, default_card_id, last_paid_at,
+              companies ( id, name, nome_fantasia, email, whatsapp_phone, meta, cnpj )
+            ),
             companies ( whatsapp_phone, is_active )
         `)
         .eq("status", "pending")
@@ -119,7 +138,6 @@ export async function POST(req: Request) {
         .order("due_at", { ascending: true })
         .limit(CHARGE_BATCH_LIMIT + 1);
 
-    // Pending_setup com mais de 5 dias sem pagamento → bloquear
     const { data: stalePendingSetups } = await admin
         .from("pagarme_subscriptions")
         .select("id, company_id")
@@ -138,8 +156,8 @@ export async function POST(req: Request) {
         for (const inv of invBatch.slice(0, CHARGE_BATCH_LIMIT)) {
             try {
                 await processOverdueInvoiceRow(admin, inv, now, results);
-            } catch (err: any) {
-                const msg = `invoice ${inv.id}: ${err?.message ?? String(err)}`;
+            } catch (err: unknown) {
+                const msg = `invoice ${inv.id}: ${err instanceof Error ? err.message : String(err)}`;
                 console.error("[charge] Erro ao processar overdue:", msg);
                 Sentry.captureException(err, {
                     tags: { companyId: inv.company_id, route: "billing-charge-overdue" },
@@ -149,29 +167,42 @@ export async function POST(req: Request) {
         }
     }
 
-    // Bloquear pending_setup antigos (>5 dias sem pagar o setup)
     for (const sub of stalePendingSetups ?? []) {
         try {
             await blockCompany(admin, sub.company_id, sub.id);
             results.blocked++;
-        } catch (err: any) {
-            results.errors.push(`pending_setup_block sub ${sub.id}: ${err?.message ?? String(err)}`);
+        } catch (err: unknown) {
+            results.errors.push(
+                `pending_setup_block sub ${sub.id}: ${err instanceof Error ? err.message : String(err)}`
+            );
         }
+    }
+
+    try {
+        const aiResult = await processAiRechargeJobs(admin);
+        results.aiRecharge = {
+            processed: aiResult.processed,
+            paid: aiResult.paid,
+            failed: aiResult.failed,
+        };
+        results.errors.push(...aiResult.errors);
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        results.errors.push(`ai_recharge: ${msg}`);
+        Sentry.captureException(err, { tags: { route: "billing-charge-ai-recharge" } });
     }
 
     billingLog("charge_cron", "completed", {
         trialsCharged: results.trialsCharged,
         activeCharged: results.activeCharged,
-        notified:      results.notified,
-        blocked:       results.blocked,
-        error_count:   results.errors.length,
+        cardPaid: results.cardPaid,
+        notified: results.notified,
+        blocked: results.blocked,
+        ai_recharge_paid: results.aiRecharge.paid,
+        error_count: results.errors.length,
     });
     return NextResponse.json({ ok: true, ...results });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 type CompanyRow = {
     id?: string;
@@ -183,41 +214,46 @@ type CompanyRow = {
     cnpj?: string | null;
 };
 
-function buildCustomerPayload(sub: any, company: CompanyRow | null) {
+function buildCustomerPayload(sub: { pagarme_customer_id?: string | null; company_id: string }, company: CompanyRow | null) {
     if (sub.pagarme_customer_id || !company) return undefined;
     return buildPagarmeCustomerPayload({
-        id:             sub.company_id,
-        name:           company.name ?? null,
-        nome_fantasia:  company.nome_fantasia ?? null,
-        email:          company.email ?? null,
+        id: sub.company_id,
+        name: company.name ?? null,
+        nome_fantasia: company.nome_fantasia ?? null,
+        email: company.email ?? null,
         whatsapp_phone: company.whatsapp_phone ?? null,
-        cnpj:           company.cnpj ?? null,
-        meta:           company.meta ?? null,
+        cnpj: company.cnpj ?? null,
+        meta: company.meta ?? null,
     });
 }
 
-// ---------------------------------------------------------------------------
-// generateSetupCharge: trial vencido + setup fee > 0 → claim row → Pagar.me → update
-// ---------------------------------------------------------------------------
 async function generateSetupCharge(
     admin: ReturnType<typeof createAdminClient>,
-    sub: any,
-    now: Date
+    sub: {
+        id: string;
+        company_id: string;
+        plan: string | null;
+        pagarme_customer_id: string | null;
+        companies?: CompanyRow | CompanyRow[] | null;
+    },
+    _now: Date
 ) {
-    const company     = sub.companies as CompanyRow | null;
+    const companyRaw = sub.companies;
+    const company = Array.isArray(companyRaw) ? companyRaw[0] ?? null : companyRaw ?? null;
     const amountCents = getSetupPriceCents(String(sub.plan ?? "essencial"));
-    const brlAmount   = centsToBRL(amountCents);
+    const brlAmount = centsToBRL(amountCents);
 
     const { data: claimed, error: claimErr } = await admin
         .from("setup_payments")
         .insert({
-            company_id:          sub.company_id,
-            plan:                sub.plan,
-            amount:              brlAmount,
-            installments:        1,
-            status:              "pending",
-            pagarme_order_id:    null,
+            company_id: sub.company_id,
+            plan: sub.plan,
+            amount: brlAmount,
+            installments: 1,
+            status: "pending",
+            pagarme_order_id: null,
             pagarme_payment_url: "",
+            pix_qr_code: null,
         })
         .select("id")
         .single();
@@ -237,18 +273,18 @@ async function generateSetupCharge(
         const created = await createPixInvoiceOrder({
             amountCents,
             description: `Taxa de ativação Renthus — Plano ${sub.plan}`,
-            itemCode:    "setup",
-            customerId:  sub.pagarme_customer_id ?? undefined,
-            customer:    buildCustomerPayload(sub, company),
+            itemCode: "setup",
+            customerId: sub.pagarme_customer_id ?? undefined,
+            customer: buildCustomerPayload(sub, company),
             additionalInfo: [
                 { name: "Empresa", value: compLabel },
-                { name: "Tipo",    value: "Taxa de ativação" },
+                { name: "Tipo", value: "Taxa de ativação" },
             ],
             metadata: {
-                type:            "setup",
-                company_id:      sub.company_id,
+                type: "setup",
+                company_id: sub.company_id,
                 subscription_id: sub.id,
-                plan:            sub.plan,
+                plan: String(sub.plan ?? ""),
             },
         });
 
@@ -257,8 +293,9 @@ async function generateSetupCharge(
         await admin
             .from("setup_payments")
             .update({
-                pagarme_order_id:    order.id,
+                pagarme_order_id: order.id,
                 pagarme_payment_url: pixUrl ?? "",
+                pix_qr_code: pixCode,
             })
             .eq("id", claimId);
 
@@ -277,141 +314,89 @@ async function generateSetupCharge(
     }
 }
 
-// ---------------------------------------------------------------------------
-// generateMonthlyInvoice: claim pending → Pagar.me → update (+ status overdue|pending_payment)
-// ---------------------------------------------------------------------------
-async function generateMonthlyInvoice(
-    admin: ReturnType<typeof createAdminClient>,
-    sub: any,
-    now: Date,
-    nextStatus: "overdue" | "pending_payment" = "overdue"
-) {
-    const company     = sub.companies as CompanyRow | null;
-    const amountCents = getMonthlyPriceCents(String(sub.plan ?? "essencial"));
-    const brlAmount   = centsToBRL(amountCents);
-
-    const { data: claimed, error: claimErr } = await admin
-        .from("invoices")
-        .insert({
-            company_id:          sub.company_id,
-            subscription_id:     sub.id,
-            amount:              brlAmount,
-            status:              "pending",
-            due_at:              now.toISOString(),
-            pagarme_order_id:    null,
-            pagarme_payment_url: null,
-            pix_qr_code:         null,
-        })
-        .select("id")
-        .single();
-
-    if (claimErr) {
-        if (isUniqueViolation(claimErr)) {
-            console.log(`[charge] invoice pendente já existe para sub ${sub.id}, pulando`);
-            return;
-        }
-        throw new Error(claimErr.message);
-    }
-
-    const claimId = claimed.id as string;
-    const compLabel = (company?.nome_fantasia ?? company?.name ?? "").trim() || "Renthus";
-
-    try {
-        const created = await createPixInvoiceOrder({
-            amountCents,
-            description: `Mensalidade Renthus — Plano ${sub.plan}`,
-            customerId:  sub.pagarme_customer_id ?? undefined,
-            customer:    buildCustomerPayload(sub, company),
-            additionalInfo: [
-                { name: "Empresa", value: compLabel },
-                { name: "Tipo",    value: "Mensalidade" },
-            ],
-            metadata: {
-                type:            "invoice",
-                company_id:      sub.company_id,
-                subscription_id: sub.id,
-                plan:            sub.plan,
-            },
-        });
-
-        const { order, pixUrl, pixCode } = await resolvePixFromOrder(created);
-
-        await admin
-            .from("invoices")
-            .update({
-                pagarme_order_id:    order.id,
-                pagarme_payment_url: pixUrl,
-                pix_qr_code:         pixCode,
-            })
-            .eq("id", claimId);
-
-        await admin
-            .from("pagarme_subscriptions")
-            .update({ status: nextStatus })
-            .eq("id", sub.id);
-
-        if (company?.whatsapp_phone) {
-            const msg = buildOverdueMessage(1, pixUrl ?? pixCode ?? "");
-            if (msg) await sendBillingNotification(sub.company_id, company.whatsapp_phone, msg);
-        }
-    } catch (err) {
-        await admin.from("invoices").update({ status: "failed" }).eq("id", claimId);
-        throw err;
-    }
-}
-
 async function processOverdueInvoiceRow(
     admin: ReturnType<typeof createAdminClient>,
-    inv: any,
+    inv: {
+        id: string;
+        company_id: string;
+        subscription_id: string;
+        due_at: string;
+        pagarme_payment_url: string | null;
+        pix_qr_code: string | null;
+        pagarme_subscriptions: CollectSub & { status?: string } | (CollectSub & { status?: string })[] | null;
+        companies: { whatsapp_phone?: string | null; is_active?: boolean | null } | null;
+    },
     now: Date,
-    results: { notified: number; blocked: number }
+    results: { notified: number; blocked: number; cardPaid: number }
 ) {
-    const sub     = inv.pagarme_subscriptions;
+    const subRaw = inv.pagarme_subscriptions;
+    const sub = Array.isArray(subRaw) ? subRaw[0] ?? null : subRaw;
     const company = inv.companies;
 
     if (!sub || sub.status === "blocked" || sub.status === "cancelled") return;
 
-    const dueAt       = new Date(inv.due_at);
-    const daysOverdue = Math.floor(
-        (now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000)
-    );
+    const neverPaid = sub.last_paid_at == null || String(sub.last_paid_at).trim() === "";
 
-    if (daysOverdue >= 5) {
+    const dueAt = new Date(inv.due_at);
+    const daysOverdue = Math.floor((now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000));
+
+    const action = resolveCollectionAction({
+        daysOverdue,
+        hasDefaultCard: Boolean(sub.default_card_id),
+        hasPendingInvoice: true,
+    });
+
+    if (action.type === "block") {
         await blockCompany(admin, inv.company_id, inv.subscription_id);
         results.blocked++;
         return;
     }
 
-    const msg = buildOverdueMessage(
-        daysOverdue === 0 ? 1 : daysOverdue,
-        inv.pagarme_payment_url ?? inv.pix_qr_code ?? ""
-    );
+    // B4.3: dunning WA/card retry só para quem já pagou ao menos uma vez
+    if (neverPaid) return;
 
-    if (msg && company?.whatsapp_phone) {
-        const sent = await sendBillingNotification(inv.company_id, company.whatsapp_phone, msg);
-        if (sent.ok) results.notified++;
+    if (action.type === "collect" && action.prefer === "card") {
+        const r = await collectPayment(admin, {
+            sub: {
+                ...sub,
+                companies: sub.companies ?? company,
+            },
+            kind: "subscription_renewal",
+            prefer: "card",
+            attemptN: action.attemptLabel === "d1" ? 1 : 3,
+            now,
+            fallbackSubStatus: "overdue",
+            notifyWhatsApp: true,
+        });
+        if (r.ok && r.outcome === "paid_card") {
+            results.cardPaid++;
+            return;
+        }
+        results.notified++;
+        return;
+    }
+
+    if (action.type === "notify_only" || action.type === "collect") {
+        const day = action.type === "notify_only" ? action.day : daysOverdue === 0 ? 1 : daysOverdue;
+        const msg = buildOverdueMessage(
+            day,
+            inv.pagarme_payment_url ?? inv.pix_qr_code ?? ""
+        );
+        if (msg && company?.whatsapp_phone) {
+            const sent = await sendBillingNotification(inv.company_id, company.whatsapp_phone, msg);
+            if (sent.ok) results.notified++;
+        }
     }
 }
 
-// ---------------------------------------------------------------------------
-// blockCompany: bloqueia empresa e para o bot
-// ---------------------------------------------------------------------------
 async function blockCompany(
     admin: ReturnType<typeof createAdminClient>,
     companyId: string,
     subscriptionId: string
 ) {
     await Promise.all([
-        admin
-            .from("pagarme_subscriptions")
-            .update({ status: "blocked" })
-            .eq("id", subscriptionId),
-
-        admin
-            .from("companies")
-            .update({ is_active: false })
-            .eq("id", companyId),
-
+        admin.from("pagarme_subscriptions").update({ status: "blocked" }).eq("id", subscriptionId),
+        admin.from("companies").update({ is_active: false }).eq("id", companyId),
         admin
             .from("subscriptions")
             .update({ status: "suspended" })
@@ -419,5 +404,8 @@ async function blockCompany(
             .eq("status", "active"),
     ]);
 
-    billingLog("charge_cron", "company_blocked", { company_id: companyId, subscription_id: subscriptionId });
+    billingLog("charge_cron", "company_blocked", {
+        company_id: companyId,
+        subscription_id: subscriptionId,
+    });
 }

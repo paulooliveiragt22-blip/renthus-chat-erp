@@ -13,16 +13,18 @@ import { checkRateLimit } from "@/lib/security/rateLimit";
 import {
     createPixInvoiceOrder,
     createSetupOrder,
+    createOrderWithSavedCard,
     resolvePixFromOrder,
     getPagarmeOrder,
     extractOrderCustomerId,
+    extractCardIdFromOrder,
     getMonthlyPriceCents,
     getSetupPriceCents,
     centsToBRL,
     isOrderCreditPaid,
+    listCustomerCards,
 } from "@/lib/billing/pagarme";
-import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
-import { activateAfterSetupPayment, syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
+import { fulfillPayment } from "@/lib/billing/fulfillPayment";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { getPlanLabel } from "@/lib/billing/planCatalog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
@@ -156,6 +158,8 @@ async function persistPixBillingOrder(
 type Body = {
     payment_method?:  "pix" | "credit_card";
     card_token?:      string;
+    /** Cartão já salvo no customer Pagar.me (retry / default). */
+    card_id?:         string;
     installments?:    number;
     idempotency_key?: string;
     billing_address?: {
@@ -306,58 +310,93 @@ export async function POST(req: Request) {
 
         if (paymentMethod === "credit_card") {
             const token = body.card_token?.trim();
-            if (!token) {
-                return NextResponse.json({ error: "Token do cartão ausente" }, { status: 400 });
+            const savedCardId = body.card_id?.trim();
+            if (!token && !savedCardId) {
+                return NextResponse.json(
+                    { error: "Informe card_token (novo) ou card_id (salvo)." },
+                    { status: 400 }
+                );
             }
 
             const installments = Math.max(1, Math.min(12, Number(body.installments) || 1));
+            let order;
+            let usedCardId: string | null = savedCardId || null;
 
-            const bodyAddr = body.billing_address;
-            const street  = (bodyAddr?.endereco?.trim() || String(company.endereco ?? "")).trim();
-            const num     = (bodyAddr?.numero?.trim()   || String(company.numero   ?? "")).trim();
-            const bairro  = (bodyAddr?.bairro?.trim()   || String((company as any).bairro ?? "")).trim();
-            const city    = (bodyAddr?.cidade?.trim()   || String(company.cidade   ?? "")).trim();
-            const uf      = (bodyAddr?.uf?.trim()       || String(company.uf       ?? "")).trim();
-            let zip       = (bodyAddr?.cep ?? String(company.cep ?? "")).replaceAll(/\D/g, "");
+            if (savedCardId) {
+                const customerId = sub.pagarme_customer_id?.trim();
+                if (!customerId) {
+                    return NextResponse.json(
+                        { error: "Cliente Pagar.me ausente. Cadastre um cartão novo primeiro." },
+                        { status: 400 }
+                    );
+                }
+                const cards = await listCustomerCards(customerId);
+                if (!cards.some((c) => c.id === savedCardId)) {
+                    return NextResponse.json(
+                        { error: "Cartão não pertence a esta empresa." },
+                        { status: 403 }
+                    );
+                }
+                order = await createOrderWithSavedCard({
+                    amountCents,
+                    description: isFirstPayment
+                        ? `Taxa de ativação Renthus — Plano ${planLabel}`
+                        : `Mensalidade Renthus — Plano ${planLabel}`,
+                    itemCode: isFirstPayment ? "setup" : "mensalidade",
+                    customerId,
+                    cardId: savedCardId,
+                    recurrence: !isFirstPayment,
+                    metadata: orderMeta,
+                });
+            } else {
+                const bodyAddr = body.billing_address;
+                const street  = (bodyAddr?.endereco?.trim() || String(company.endereco ?? "")).trim();
+                const num     = (bodyAddr?.numero?.trim()   || String(company.numero   ?? "")).trim();
+                const bairro  = (bodyAddr?.bairro?.trim()   || String((company as { bairro?: string | null }).bairro ?? "")).trim();
+                const city    = (bodyAddr?.cidade?.trim()   || String(company.cidade   ?? "")).trim();
+                const uf      = (bodyAddr?.uf?.trim()       || String(company.uf       ?? "")).trim();
+                let zip       = (bodyAddr?.cep ?? String(company.cep ?? "")).replaceAll(/\D/g, "");
 
-            if (!street || !num || !city || uf.length < 2) {
-                return NextResponse.json(
-                    { error: "Preencha o endereço de cobrança (endereço, número, cidade e UF) para pagar com cartão." },
-                    { status: 400 }
-                );
+                if (!street || !num || !city || uf.length < 2) {
+                    return NextResponse.json(
+                        { error: "Preencha o endereço de cobrança (endereço, número, cidade e UF) para pagar com cartão." },
+                        { status: 400 }
+                    );
+                }
+                if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
+                if (zip.length < 8) {
+                    return NextResponse.json(
+                        { error: "CEP completo (8 dígitos) é obrigatório para pagamento com cartão." },
+                        { status: 400 }
+                    );
+                }
+
+                const line1Parts = [num, street, bairro].filter(Boolean);
+                const cnpjDigits = (company.cnpj as string | null ?? "").replaceAll(/\D/g, "");
+
+                order = await createSetupOrder({
+                    amountCents,
+                    description:     isFirstPayment
+                        ? `Taxa de ativação Renthus — Plano ${planLabel}`
+                        : `Mensalidade Renthus — Plano ${planLabel}`,
+                    installments,
+                    cardToken:       token!,
+                    itemCode:        isFirstPayment ? "setup" : "mensalidade",
+                    holderDocument:  cnpjDigits || undefined,
+                    customerId:      sub.pagarme_customer_id ?? undefined,
+                    customer:        !sub.pagarme_customer_id ? customerBase : undefined,
+                    billingAddress: {
+                        line_1:   line1Parts.join(", "),
+                        line_2:   "",
+                        zip_code: zip,
+                        city,
+                        state:    uf.slice(0, 2).toUpperCase(),
+                        country:  "BR",
+                    },
+                    metadata: orderMeta,
+                });
+                usedCardId = extractCardIdFromOrder(order);
             }
-            if (zip.length > 0 && zip.length < 8) zip = zip.padStart(8, "0");
-            if (zip.length < 8) {
-                return NextResponse.json(
-                    { error: "CEP completo (8 dígitos) é obrigatório para pagamento com cartão." },
-                    { status: 400 }
-                );
-            }
-
-            const line1Parts = [num, street, bairro].filter(Boolean);
-            const cnpjDigits = (company.cnpj as string | null ?? "").replaceAll(/\D/g, "");
-
-            const order = await createSetupOrder({
-                amountCents,
-                description:     isFirstPayment
-                    ? `Taxa de ativação Renthus — Plano ${planLabel}`
-                    : `Mensalidade Renthus — Plano ${planLabel}`,
-                installments,
-                cardToken:       token,
-                itemCode:        isFirstPayment ? "setup" : "mensalidade",
-                holderDocument:  cnpjDigits || undefined,
-                customerId:      sub.pagarme_customer_id ?? undefined,
-                customer:        !sub.pagarme_customer_id ? customerBase : undefined,
-                billingAddress: {
-                    line_1:   line1Parts.join(", "),
-                    line_2:   "",
-                    zip_code: zip,
-                    city,
-                    state:    uf.slice(0, 2).toUpperCase(),
-                    country:  "BR",
-                },
-                metadata: orderMeta,
-            });
 
             const custId = extractOrderCustomerId(order);
 
@@ -373,19 +412,19 @@ export async function POST(req: Request) {
                 pendingInv:   pendingInv ? { id: pendingInv.id } : null,
             });
 
-            if (custId) {
-                await admin.from("pagarme_subscriptions")
-                    .update({ pagarme_customer_id: custId })
-                    .eq("id", sub.id);
+            const subPatch: Record<string, unknown> = {};
+            if (custId) subPatch.pagarme_customer_id = custId;
+            if (usedCardId) subPatch.default_card_id = usedCardId;
+            if (Object.keys(subPatch).length > 0) {
+                await admin.from("pagarme_subscriptions").update(subPatch).eq("id", sub.id);
             }
 
             if (isOrderCreditPaid(order)) {
-                if (isFirstPayment) {
-                    await activateAfterSetupPayment(admin, companyId, plan, custId ?? undefined);
-                    await syncLogicalSubscription(admin, companyId, plan);
-                } else {
-                    await applyMonthlyInvoicePaid(admin, order.id, { pagarmeCustomerId: custId });
-                }
+                await fulfillPayment(admin, {
+                    id: order.id,
+                    metadata: orderMeta as Record<string, string>,
+                    customer: custId ? { id: custId } : undefined,
+                });
                 return remember({
                     ok:             true,
                     payment_method: "credit_card",

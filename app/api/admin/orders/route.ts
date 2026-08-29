@@ -1,8 +1,11 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { orderItemsForAdminRpc } from "@/lib/server/orders/rpcAdminOrderItems";
 import { enqueuePreparingNotify } from "@/lib/orders/enqueuePreparingNotify";
-import { scheduleOutboundWorkerWake } from "@/lib/chatbot/outbound/outboundWorkerWake";
+import {
+    scheduleOutboundAfterEnqueue,
+    scheduleOutboundAfterEnqueueLookup,
+} from "@/lib/queue/afterEnqueue";
 import { recognizeOrderSale } from "@/src/financeiro/application/recognizeOrderSale";
 import { reverseOrderSale } from "@/src/financeiro/application/reverseOrderSale";
 import { financeRpcFailure } from "@/src/financeiro/application/http";
@@ -311,7 +314,7 @@ export async function PATCH(req: Request) {
             }
 
             // Notify best-effort: nunca desfaz o status.
-            // cron-job.org cobre process-queue (~1 min); outbound-worker no Hobby
+            // Outbound via SQS + Lambda (ADR-0003); detect-abandoned-carts cron enfileira
             // só sai rápido se o wake rodar (igual cart_recovery). Cron Vercel é diário.
             if (result.changed && statusChangedTo === "preparing") {
                 try {
@@ -324,7 +327,20 @@ export async function PATCH(req: Request) {
                         fulfillmentType: result.fulfillment_type ?? null,
                     });
                     if (notify.enqueued) {
-                        after(() => scheduleOutboundWorkerWake("order_preparing"));
+                        if (notify.job) {
+                            scheduleOutboundAfterEnqueue(
+                                admin,
+                                [notify.job],
+                                "order_preparing"
+                            );
+                        } else {
+                            scheduleOutboundAfterEnqueueLookup(admin, {
+                                companyId,
+                                dedupKeys: [`order_preparing:${id}`],
+                                reason: "order_preparing",
+                                limit: 5,
+                            });
+                        }
                     }
                 } catch (err) {
                     console.warn(

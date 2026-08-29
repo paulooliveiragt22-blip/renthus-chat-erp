@@ -12,11 +12,11 @@
  * espera o tick seguinte do scheduler e a ordem dos dois crons deixa de importar.
  */
 
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuthorization } from "@/lib/security/cronAuth";
 import { buildCartRecoveryMessage } from "@/lib/chatbot/outbound/cartRecoveryMessage";
-import { scheduleOutboundWorkerWake } from "@/lib/chatbot/outbound/outboundWorkerWake";
+import { scheduleOutboundAfterEnqueueLookup } from "@/lib/queue/afterEnqueue";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -71,7 +71,12 @@ export async function GET(req: Request) {
     const expired = await expireStaleCarts(admin);
 
     if (enqueued > 0) {
-        after(() => scheduleOutboundWorkerWake("cart_recovery_enqueue"));
+        const dedupKeys = carts.map((c) => `cart_recovery:${c.id}`);
+        scheduleOutboundAfterEnqueueLookup(admin, {
+            dedupKeys,
+            reason: "cart_recovery_enqueue",
+            limit: Math.max(50, enqueued),
+        });
     }
 
     const result = { detected: carts.length, enqueued, discarded, expired };

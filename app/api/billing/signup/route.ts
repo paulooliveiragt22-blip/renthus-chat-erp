@@ -1,18 +1,13 @@
 /**
  * POST /api/billing/signup
  *
- * Cadastro inicial: cria empresa + usuário + billing (trial N dias ou pay-to-start se N=0).
- * Dias de trial: platform_billing_settings.default_trial_days (default 0).
- *
- * Body: {
- *   company_name, cnpj, whatsapp, email, plan: 'essencial' | 'pro' | 'market',
- *   password (mín. 8), password_confirm
- * }
+ * Orquestra: validate → createUser → SignupCompany → notify.
+ * Se Pagar.me falhar no pay-to-start: 200 + invoice_ready:false (não 500).
  */
 
-import { NextResponse }      from "next/server";
+import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { signupCompanyViaRpc } from "@/lib/billing/signupCompanyViaRpc";
+import { signupCompany } from "@/lib/billing/signupCompany";
 import { getDefaultTrialDays } from "@/lib/billing/getDefaultTrialDays";
 import { sendBillingNotification } from "@/lib/billing/sendBillingNotification";
 import { parseCommercialPlanInput, getPlanLabel } from "@/lib/billing/planCatalog";
@@ -37,12 +32,12 @@ export async function POST(req: Request) {
         if (limited) return limited;
 
         const body = (await req.json()) as {
-            company_name?:     string;
-            cnpj?:             string;
-            whatsapp?:         string;
-            email?:            string;
-            plan?:             string;
-            password?:         string;
+            company_name?: string;
+            cnpj?: string;
+            whatsapp?: string;
+            email?: string;
+            plan?: string;
+            password?: string;
             password_confirm?: string;
         };
 
@@ -89,24 +84,17 @@ export async function POST(req: Request) {
 
         const admin = createAdminClient();
 
-        const { data: dupMeta } = await admin
-            .from("companies")
-            .select("id")
-            .eq("meta->>cnpj", cnpjDigits)
-            .maybeSingle();
-
         const { data: dupCol } = await admin
             .from("companies")
             .select("id")
             .eq("cnpj", cnpjDigits)
             .maybeSingle();
 
-        const existingId = dupMeta?.id ?? dupCol?.id;
-        if (existingId) {
+        if (dupCol?.id) {
             const { data: sub } = await admin
                 .from("pagarme_subscriptions")
                 .select("status")
-                .eq("company_id", existingId)
+                .eq("company_id", dupCol.id)
                 .maybeSingle();
 
             if (sub && sub.status !== "cancelled") {
@@ -118,7 +106,7 @@ export async function POST(req: Request) {
         }
 
         const { data: authData, error: authErr } = await admin.auth.admin.createUser({
-            email:         emailNorm,
+            email: emailNorm,
             password,
             email_confirm: true,
             user_metadata: { company_name: company_name.trim() },
@@ -137,52 +125,58 @@ export async function POST(req: Request) {
         }
 
         const userId = authData.user.id;
-
         const trimmedName = company_name.trim();
         const trialDays = await getDefaultTrialDays(admin);
 
-        let billing: Awaited<ReturnType<typeof signupCompanyViaRpc>>;
+        let billing: Awaited<ReturnType<typeof signupCompany>>;
         try {
-            billing = await signupCompanyViaRpc(admin, {
-                authUserId:     userId,
-                companyName:    trimmedName,
+            billing = await signupCompany(admin, {
+                authUserId: userId,
+                companyName: trimmedName,
                 cnpjDigits,
-                email:          emailNorm,
+                email: emailNorm,
                 whatsappDigits,
-                plan:           planKey,
+                plan: planKey,
                 trialDays,
             });
         } catch (rpcErr) {
             await admin.auth.admin.deleteUser(userId);
             const msg = rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
-            console.error("[signup] rpc_signup_company_with_billing:", msg);
+            console.error("[signup] SignupCompany:", msg);
             return NextResponse.json({ error: msg }, { status: 500 });
         }
 
         const companyId = billing.companyId;
-
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.renthus.com.br";
         const cadastroLabel = billing.paymentRequired
             ? "Novo cadastro (aguardando pagamento)"
             : `Novo cadastro (trial ${billing.trialDays}d)`;
-        await sendBillingNotification(
-            companyId,
-            RENTHUS_PHONE,
-            `🆕 *${cadastroLabel}*\n\n` +
-                `Empresa: ${trimmedName}\n` +
-                `Email: ${emailNorm}\n` +
-                `Plano: ${getPlanLabel(planKey)}\n` +
-                `WhatsApp: ${whatsappDigits}\n\n` +
-                `Login: ${appUrl}/login`
-        );
+
+        try {
+            await sendBillingNotification(
+                companyId,
+                RENTHUS_PHONE,
+                `🆕 *${cadastroLabel}*\n\n` +
+                    `Empresa: ${trimmedName}\n` +
+                    `Email: ${emailNorm}\n` +
+                    `Plano: ${getPlanLabel(planKey)}\n` +
+                    `WhatsApp: ${whatsappDigits}\n\n` +
+                    `Login: ${appUrl}/login`
+            );
+        } catch (notifyErr) {
+            console.warn("[signup] notify failed:", notifyErr);
+        }
 
         return NextResponse.json({
-            ok:                true,
-            company_id:        companyId,
-            payment_required:  billing.paymentRequired,
-            trial_days:        billing.trialDays,
-            message:           billing.paymentRequired
-                ? "Cadastro criado. Faça login e conclua o pagamento para acessar o sistema."
+            ok: true,
+            company_id: companyId,
+            payment_required: billing.paymentRequired,
+            invoice_ready: billing.invoiceReady,
+            trial_days: billing.trialDays,
+            message: billing.paymentRequired
+                ? billing.invoiceReady
+                    ? "Cadastro criado. Conclua o pagamento para acessar o sistema."
+                    : "Cadastro criado. Gere o PIX ou pague com cartão em Plano."
                 : "Cadastro criado. Faça login para acessar o sistema.",
         });
     } catch (err: unknown) {

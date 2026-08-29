@@ -26,7 +26,7 @@ export async function GET() {
             admin
                 .from("pagarme_subscriptions")
                 .select(
-                    "id, plan, status, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id"
+                    "id, plan, status, trial_ends_at, next_billing_at, last_paid_at, activated_at, pagarme_customer_id, default_card_id"
                 )
                 .eq("company_id", companyId)
                 .maybeSingle()
@@ -127,7 +127,15 @@ export async function GET() {
                         ? `${String(c.exp_month).padStart(2, "0")}/${c.exp_year}`
                         : "",
                 status: c.status ?? "",
+                is_default:
+                    Boolean(c.id) &&
+                    c.id ===
+                        (pagarmeSubRaw as { default_card_id?: string | null } | null)
+                            ?.default_card_id,
             })),
+            default_card_id:
+                (pagarmeSubRaw as { default_card_id?: string | null } | null)?.default_card_id ??
+                null,
             monthly_prices_brl: monthlyPricesBRL,
             setup_prices_brl: setupPricesBRL,
             enabled_features: Array.from(features.values()),

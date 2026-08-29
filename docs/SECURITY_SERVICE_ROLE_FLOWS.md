@@ -10,7 +10,22 @@ Objetivo: saber onde o Postgres vê `auth.role() = 'service_role'` (RLS contorna
 | Webhook Pagar.me `POST /api/billing/webhook` | `PAGARME_WEBHOOK_SECRET` (HMAC) + rate limit por IP |
 | Cron fila chatbot `GET /api/chatbot/process-queue` | `Authorization: Bearer CRON_SECRET` |
 | Cron sync catálogo marketplace `GET /api/marketplace/sync-catalog` | `Authorization: Bearer CRON_SECRET` |
+| Cron billing `POST /api/billing/charge` | `Authorization: Bearer CRON_SECRET` (+ opcional `x-vercel-cron: 1` do Vercel) |
 | Print agent (várias rotas `/api/agent/*`) | API key `rpa_*` validada em servidor |
+
+### Crons HTTP — auth (`lib/security/cronAuth.ts`)
+
+| Origem | Headers | Regra |
+|--------|---------|--------|
+| **Vercel Cron** (`vercel.json` → `crons`) | `Authorization: Bearer ${CRON_SECRET}` + `x-vercel-cron: 1` | Bearer **obrigatório** em produção |
+| **cron-job.org** / scheduler externo | `Authorization: Bearer ${CRON_SECRET}` | Mesmo secret; sem `x-vercel-cron` |
+| Local dev | Secret ausente → skip auth | Só fora de produção |
+
+> **Nunca** aceitar só `x-vercel-cron` sem Bearer — header é indicativo, não segredo.
+
+Rotas em `vercel.json` (2026-08-28): `/api/billing/charge`, `/api/chatbot/detect-abandoned-carts`, `/api/marketplace/sync-catalog`, `/api/platform/alerts/check`, `/api/platform/audit/archive`.
+
+Ver ADR-0004: billing **não** usa Edge Functions.
 
 ## Sessão utilizador (cookie) + membership
 

@@ -36,6 +36,10 @@ export interface OutboundJobRow {
     source_id: string | null;
     attempts: number;
     scheduled_at: string;
+    status?: string;
+    /** ADR-0003 outbox — set after SQS SendMessage. */
+    sqs_enqueued_at?: string | null;
+    sqs_message_id?: string | null;
 }
 
 export function isOutboundJobPayload(value: unknown): value is OutboundJobPayload {

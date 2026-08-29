@@ -18,6 +18,7 @@ import {
     lookupMenuSlugByHostViaRest,
     resolveMenuHostRewrite,
 } from "@/lib/public-menu/menuHostRewrite";
+import { resolveTenantAccess } from "@/lib/billing/tenantAccess";
 
 type AuthClient = {
     auth: {
@@ -37,7 +38,12 @@ export type SupabaseClientFactory = (
     options: Parameters<typeof createServerClient>[2]
 ) => AuthClient;
 
-type SubscriptionStatusRow = { status: string };
+type SubscriptionStatusRow = {
+    status: string;
+    trial_ends_at?: string | null;
+    last_paid_at?: string | null;
+    plan?: string | null;
+};
 type CompanyAccessRow = {
     senha_definida:          boolean;
     onboarding_completed_at: string | null;
@@ -76,7 +82,8 @@ async function checkCompanyAccess(
         const [subRes, compRes] = await Promise.all([
             fetch(
                 `${supabaseUrl}/rest/v1/pagarme_subscriptions` +
-                    `?company_id=eq.${encodeURIComponent(companyId)}&select=status&limit=1`,
+                    `?company_id=eq.${encodeURIComponent(companyId)}` +
+                    `&select=status,trial_ends_at,last_paid_at,plan&limit=1`,
                 { headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } }
             ),
             fetch(
@@ -90,11 +97,18 @@ async function checkCompanyAccess(
         const [sub] = subRes.ok ? ((await subRes.json()) as SubscriptionStatusRow[]) : [];
         const [comp] = compRes.ok ? ((await compRes.json()) as CompanyAccessRow[]) : [];
 
-        const billingPaywall =
-            sub?.status === "blocked" ||
-            sub?.status === "pending_payment" ||
-            sub?.status === "pending_setup" ||
-            (comp?.is_active === false && sub?.status === "overdue");
+        const tenant = resolveTenantAccess(
+            sub
+                ? {
+                      status: sub.status,
+                      trial_ends_at: sub.trial_ends_at ?? null,
+                      last_paid_at: sub.last_paid_at ?? null,
+                      plan: sub.plan ?? null,
+                  }
+                : null
+        );
+
+        const billingPaywall = tenant.access === "deny";
 
         if (billingPaywall) {
             if (!isBillingPaywallAllowedPath(pathname, request.nextUrl.searchParams)) {
@@ -300,10 +314,8 @@ function isTechnicalApiPublic(pathname: string): boolean {
          * (`validateCronAuthorization`). Não incluir `/api/chatbot/*` por prefixo —
          * `config` e `resolve` dependem da sessão validada aqui.
          */
-        pathname.startsWith("/api/chatbot/process-queue") ||
         pathname.startsWith("/api/chatbot/reactivate") ||
         pathname.startsWith("/api/chatbot/detect-abandoned-carts") ||
-        pathname.startsWith("/api/chatbot/outbound-worker") ||
         /** Cron sync catálogo marketplace (F4.1) — Bearer CRON_SECRET. */
         pathname.startsWith("/api/marketplace/sync-catalog") ||
         /**

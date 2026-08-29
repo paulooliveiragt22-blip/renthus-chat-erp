@@ -13,7 +13,7 @@ export async function enqueuePreparingNotify(params: {
     orderCode: string;
     customerId: string | null;
     fulfillmentType?: string | null;
-}): Promise<{ enqueued: boolean; reason?: string }> {
+}): Promise<{ enqueued: boolean; reason?: string; job?: { id: string; company_id: string; thread_id: string } }> {
     const { admin, companyId, orderId, orderCode, customerId, fulfillmentType } = params;
     if (!customerId) return { enqueued: false, reason: "no_customer" };
 
@@ -64,7 +64,7 @@ export async function enqueuePreparingNotify(params: {
     const text =
         `🍳 Seu pedido ${orderCode} está em preparo!\n` + readyLine;
 
-    const { error } = await admin.from("outbound_jobs").upsert(
+    const { data: upserted, error } = await admin.from("outbound_jobs").upsert(
         {
             company_id: companyId,
             thread_id: thread.id,
@@ -76,11 +76,38 @@ export async function enqueuePreparingNotify(params: {
             scheduled_at: new Date().toISOString(),
         },
         { onConflict: "company_id,dedup_key", ignoreDuplicates: true }
-    );
+    ).select("id, company_id, thread_id").maybeSingle();
 
     if (error) {
         console.warn("[orders] enqueue preparing notify:", error.message);
         return { enqueued: false, reason: "enqueue_failed" };
+    }
+    // ignoreDuplicates: se já existia, select pode ser null — lookup por dedup
+    if (upserted?.id) {
+        return {
+            enqueued: true,
+            job: {
+                id: String(upserted.id),
+                company_id: String(upserted.company_id),
+                thread_id: String(upserted.thread_id),
+            },
+        };
+    }
+    const { data: existing } = await admin
+        .from("outbound_jobs")
+        .select("id, company_id, thread_id")
+        .eq("company_id", companyId)
+        .eq("dedup_key", `order_preparing:${orderId}`)
+        .maybeSingle();
+    if (existing?.id) {
+        return {
+            enqueued: true,
+            job: {
+                id: String(existing.id),
+                company_id: String(existing.company_id),
+                thread_id: String(existing.thread_id),
+            },
+        };
     }
     return { enqueued: true };
 }

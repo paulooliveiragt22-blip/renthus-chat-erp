@@ -9,6 +9,9 @@ import { getEnabledFeatures, getActiveSubscription } from "../../lib/billing/ent
 
 const SAMPLE: CompanyEntitlementsPayload = {
     company_id: "c1",
+    access: "allow",
+    access_reason: "trial",
+    features_eligible: true,
     pagarme: {
         status: "trial",
         plan: "pro",
@@ -76,6 +79,9 @@ describe("entitlements via RPC (P2.2)", () => {
             rpc: async () => ({
                 data: {
                     company_id: "c1",
+                    access: "deny",
+                    access_reason: "blocked",
+                    features_eligible: false,
                     pagarme: { status: "blocked", plan: "pro" },
                     subscription: null,
                     features: [],
@@ -86,5 +92,43 @@ describe("entitlements via RPC (P2.2)", () => {
 
         assert.strictEqual(await getActiveSubscription(admin, "c1"), null);
         assert.strictEqual((await getEnabledFeatures(admin, "c1")).size, 0);
+    });
+
+    it("pending_payment com features no payload cru → gate esvazia (defense-in-depth)", async () => {
+        const admin = {
+            rpc: async () => ({
+                data: {
+                    company_id: "c1",
+                    access: "allow",
+                    access_reason: "active",
+                    features_eligible: true,
+                    pagarme: {
+                        status: "pending_payment",
+                        plan: "pro",
+                        trial_ends_at: null,
+                        last_paid_at: null,
+                    },
+                    // Simula RPC antiga vazando features
+                    subscription: {
+                        id: "sub-1",
+                        plan_id: "plan-pro",
+                        plan_key: "pro",
+                        plan_name: "Pro",
+                        status: "active",
+                        allow_overage: false,
+                    },
+                    features: ["pdv", "financeiro_full"],
+                },
+                error: null,
+            }),
+        } as unknown as SupabaseClient;
+
+        const ent = await fetchCompanyEntitlements(admin, "c1");
+        assert.strictEqual(ent.access, "deny");
+        assert.strictEqual(ent.access_reason, "pending_payment");
+        assert.strictEqual(ent.features_eligible, false);
+        assert.deepStrictEqual(ent.features, []);
+        assert.strictEqual(ent.subscription, null);
+        assert.strictEqual(await getActiveSubscription(admin, "c1"), null);
     });
 });

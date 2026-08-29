@@ -8,7 +8,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidMetaWebhookSignature } from "@/lib/meta/validateMetaWebhookSignature";
 import {
@@ -17,7 +16,7 @@ import {
     normalizeMetaMessagingWebhookBody,
     type MetaMessagingEvent,
 } from "@/lib/meta/parseMetaMessagingWebhook";
-import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
+import { scheduleInboundAfterEnqueue } from "@/lib/queue/afterEnqueue";
 import { hasFeature } from "@/lib/billing/entitlements";
 import {
     channelEnabledFor,
@@ -36,10 +35,10 @@ import {
     enforceIpRateLimitAsync,
     RATE_LIMIT_WINDOW_MS,
 } from "@/lib/security/rateLimit";
+import { canProcessInboundChannel } from "@/lib/billing/canProcessInboundChannel";
 
 export const runtime = "nodejs";
 
-const CHATBOT_QUEUE_WAKE_ENABLED = process.env.CHATBOT_QUEUE_WAKE_ENABLED !== "0";
 const META_INCOMING_RATE_LIMIT = 180;
 
 function verifyToken(): string {
@@ -48,13 +47,6 @@ function verifyToken(): string {
         process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim() ||
         ""
     );
-}
-
-function scheduleQueueWorkerWake(): void {
-    if (!CHATBOT_QUEUE_WAKE_ENABLED) return;
-    after(() => {
-        scheduleQueueWorkerWakeShared({ reason: "meta_inbound_enqueue" });
-    });
 }
 
 export async function GET(req: NextRequest) {
@@ -161,6 +153,15 @@ export async function POST(req: NextRequest) {
             continue;
         }
 
+        const inboundGate = await canProcessInboundChannel(admin, metaChannel.company_id);
+        if (!inboundGate.allowed) {
+            console.warn("[meta/incoming] tenant access deny:", {
+                companyId: metaChannel.company_id,
+                reason: inboundGate.reason,
+            });
+            continue;
+        }
+
         for (const ev of events) {
             await handleMessagingEvent({
                 admin,
@@ -262,28 +263,42 @@ async function handleMessagingEvent(params: {
     });
     if (!inserted) return;
 
-    const { error } = await admin.from("chatbot_queue").insert({
-        company_id: metaChannel.company_id,
-        thread_id: threadId,
-        phone_e164: null,
-        channel_user_id: senderId,
-        messaging_channel: channel,
-        message_id: providerMessageId,
-        body_text: bodyText,
-        profile_name: profileName,
-        metadata: {
-            source: "meta_messaging_incoming",
-            page_id: metaChannel.page_id,
-        },
-        status: "pending",
-        attempts: 0,
-        scheduled_at: new Date().toISOString(),
-    });
+    const { data: inserted, error } = await admin
+        .from("chatbot_queue")
+        .insert({
+            company_id: metaChannel.company_id,
+            thread_id: threadId,
+            phone_e164: null,
+            channel_user_id: senderId,
+            messaging_channel: channel,
+            message_id: providerMessageId,
+            body_text: bodyText,
+            profile_name: profileName,
+            metadata: {
+                source: "meta_messaging_incoming",
+                page_id: metaChannel.page_id,
+            },
+            status: "pending",
+            attempts: 0,
+            scheduled_at: new Date().toISOString(),
+        })
+        .select("id")
+        .maybeSingle();
     if (error && (error as { code?: string }).code !== "23505") {
         console.error("[meta/incoming] queue insert:", error.message);
         return;
     }
-    if (!error) scheduleQueueWorkerWake();
+    if (!error && inserted?.id) {
+        scheduleInboundAfterEnqueue(
+            admin,
+            {
+                id: String(inserted.id),
+                company_id: metaChannel.company_id,
+                thread_id: threadId,
+            },
+            "meta_inbound_enqueue"
+        );
+    }
 }
 
 async function upsertMetaThread(params: {

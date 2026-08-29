@@ -6,7 +6,7 @@
  * GET  → verificação do webhook (hub.challenge)
  * POST → valida assinatura, persiste inbound e responde **200** ao Meta.
  *        Sempre enfileira em `chatbot_queue` e agenda wake
- *        (`after()` → `GET /api/chatbot/process-queue`).
+ *        (`after()` → SQS dispatch → Lambda worker, ADR-0003).
  *
  * Deduplicação: INSERT em whatsapp_messages com unique index em provider_message_id.
  * Se o Meta reenviar o mesmo waId (retry), o INSERT falha com 23505 e é ignorado.
@@ -23,14 +23,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { checkRateLimitAsync } from "@/lib/security/rateLimitDistributed";
 import { requesterIp } from "@/lib/security/rateLimit";
 import { resolveChannelAccessToken } from "@/lib/whatsapp/channelCredentials";
-import { scheduleQueueWorkerWake as scheduleQueueWorkerWakeShared } from "@/lib/chatbot/queueWorkerWake";
 import { maybeSendBacklogNotice } from "@/lib/chatbot/backlogNotice";
 import { tryTranscribeInboundAudio } from "@/lib/chatbot/transcribeInboundAudio";
 import { handleWhatsappConsentKeyword } from "@/lib/channels/messageConsent";
+import { scheduleInboundAfterEnqueue } from "@/lib/queue/afterEnqueue";
+import { canProcessInboundChannel } from "@/lib/billing/canProcessInboundChannel";
 
 export const runtime = "nodejs";
-/** `CHATBOT_QUEUE_WAKE_ENABLED=0` desliga o disparo assíncrono do worker (ex.: testes). */
-const CHATBOT_QUEUE_WAKE_ENABLED = process.env.CHATBOT_QUEUE_WAKE_ENABLED !== "0";
 const INBOUND_ENQUEUE_DEDUP_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
 
 const INCOMING_RATE_LIMIT = 180;
@@ -95,17 +94,6 @@ function safeAfter(task: () => void): void {
     } catch {
         task();
     }
-}
-
-/**
- * Agenda `GET /api/chatbot/process-queue` após a resposta ao Meta (`after()`).
- * Rede de segurança: cron-job.org (≈1 min) + reclaim/self-wake no worker.
- */
-function scheduleQueueWorkerWake(): void {
-    if (!CHATBOT_QUEUE_WAKE_ENABLED) return;
-    safeAfter(() => {
-        scheduleQueueWorkerWakeShared({ reason: "inbound_enqueue" });
-    });
 }
 
 async function emitInboundDedupMetric(companyId: string, threadId: string, reason: string) {
@@ -232,10 +220,10 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
     const channel = await resolveActiveChannel(admin, phoneNumberId);
     if (!channel) return;
 
-    const companyActive = await isCompanyActive(admin, channel.company_id);
-    if (!companyActive) {
+    const inboundGate = await canProcessInboundChannel(admin, channel.company_id);
+    if (!inboundGate.allowed) {
         console.warn(
-            `[wa/incoming] empresa suspensa — drop inbound company=${channel.company_id} phone=${maskIdentifier(phoneNumberId)}`
+            `[wa/incoming] tenant access deny — drop inbound company=${channel.company_id} reason=${inboundGate.reason} phone=${maskIdentifier(phoneNumberId)}`
         );
         return;
     }
@@ -283,23 +271,6 @@ async function resolveActiveChannel(
         return null;
     }
     return channel;
-}
-
-async function isCompanyActive(
-    admin: ReturnType<typeof createAdminClient>,
-    companyId: string
-): Promise<boolean> {
-    const { data, error } = await admin
-        .from("companies")
-        .select("is_active")
-        .eq("id", companyId)
-        .maybeSingle();
-    if (error) {
-        console.error("[wa/incoming] falha ao ler companies.is_active:", error.message);
-        // Fail-closed: sem confirmação de ativo, não processa inbound.
-        return false;
-    }
-    return data?.is_active === true;
 }
 
 function buildWaConfig(channel: ActiveChannel, phoneNumberId: string): WaConfig {
@@ -544,7 +515,7 @@ async function enqueueInboundIfNeeded(params: {
         return;
     }
 
-    const { error: queueErr } = await admin
+    const { data: inserted, error: queueErr } = await admin
         .from("chatbot_queue")
         .insert({
             company_id: channel.company_id,
@@ -561,15 +532,25 @@ async function enqueueInboundIfNeeded(params: {
             status: "pending",
             attempts: 0,
             scheduled_at: new Date().toISOString(),
-        });
+        })
+        .select("id")
+        .maybeSingle();
 
     if (queueErr && (queueErr as { code?: string }).code !== "23505") {
         console.error("[wa/incoming] queue insert error:", queueErr.message);
         return;
     }
 
-    if (!queueErr) {
-        scheduleQueueWorkerWake();
+    if (!queueErr && inserted?.id) {
+        scheduleInboundAfterEnqueue(
+            admin,
+            {
+                id: String(inserted.id),
+                company_id: channel.company_id,
+                thread_id: threadId,
+            },
+            "inbound_enqueue"
+        );
         // Aviso de fila sem atrasar o 200 ao Meta
         safeAfter(() => {
             void maybeSendBacklogNotice({

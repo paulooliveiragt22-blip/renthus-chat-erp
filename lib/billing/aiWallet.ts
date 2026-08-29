@@ -16,6 +16,7 @@ import {
     sttUsdPerMinute,
 } from "@/lib/billing/sttPricing";
 import { estimateLlmCostBrlCents } from "@/lib/billing/llmPricing";
+import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
 
 export {
     estimateSttCostBrlCents,
@@ -140,97 +141,22 @@ export async function ensureAiWallet(
 }
 
 export async function canUseAi(admin: SupabaseClient, companyId: string): Promise<boolean> {
-    let snap = await ensureAiWallet(admin, companyId);
+    const snap = await ensureAiWallet(admin, companyId);
     if (snap.remainingTotalCents > 0) return true;
-    const recharged = await tryAutoRechargeAiWallet(admin, companyId);
-    if (!recharged) return false;
-    snap = await ensureAiWallet(admin, companyId);
-    return snap.remainingTotalCents > 0;
+    const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
+    void enqueueAiRechargeIfNeeded(admin, companyId).catch(() => {});
+    return false;
 }
 
 /**
- * Se auto-recarga estiver ligada e o saldo estiver baixo/zerado, cobra o pack
- * no cartão salvo (Pagar.me) e credita a carteira.
+ * @deprecated Auto-recarga via outbox (ai_recharge_jobs + cron). Não chamar inline.
  */
 export async function tryAutoRechargeAiWallet(
     admin: SupabaseClient,
     companyId: string
 ): Promise<boolean> {
-    const snap = await ensureAiWallet(admin, companyId);
-    if (!snap.autoRechargeEnabled || !snap.autoRechargePackCents) return false;
-    if (snap.remainingTotalCents > 50) return false;
-
-    const pack = snap.autoRechargePackCents as 1000 | 2000 | 5000;
-    if (pack !== 1000 && pack !== 2000 && pack !== 5000) return false;
-
-    // Debounce: não disparar outra recarga se já houve pack nos últimos 15 min
-    const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-    const { data: recent } = await admin
-        .from("company_ai_ledger")
-        .select("id, meta, created_at")
-        .eq("company_id", companyId)
-        .eq("kind", "pack_credit")
-        .gte("created_at", since)
-        .limit(10);
-    const recentAuto = (recent ?? []).some(
-        (r) =>
-            r.meta &&
-            typeof r.meta === "object" &&
-            (r.meta as { source?: string }).source === "auto_recharge_card"
-    );
-    if (recentAuto) return false;
-
-    const { data: pagarmeSub } = await admin
-        .from("pagarme_subscriptions")
-        .select("pagarme_customer_id")
-        .eq("company_id", companyId)
-        .maybeSingle();
-    const customerId = pagarmeSub?.pagarme_customer_id;
-    if (!customerId || typeof customerId !== "string") {
-        console.warn("[aiWallet] auto-recharge: sem pagarme_customer_id", companyId);
-        return false;
-    }
-
-    try {
-        const { createOrderWithSavedCard, isOrderCreditPaid, listCustomerCards } = await import(
-            "@/lib/billing/pagarme"
-        );
-        const cards = await listCustomerCards(customerId);
-        const cardId = cards.find((c) => c.status === "active" || !c.status)?.id ?? cards[0]?.id;
-        if (!cardId) {
-            console.warn("[aiWallet] auto-recharge: sem cartão salvo", companyId);
-            return false;
-        }
-
-        const brl = (pack / 100).toFixed(2).replace(".", ",");
-        const order = await createOrderWithSavedCard({
-            amountCents: pack,
-            description: `Crédito IA automático Renthus — R$ ${brl}`,
-            itemCode: `ai_pack_auto_${pack}`,
-            customerId,
-            cardId,
-            metadata: {
-                type: "ai_pack",
-                company_id: companyId,
-                pack_cents: String(pack),
-                source: "auto_recharge",
-            },
-        });
-
-        if (!isOrderCreditPaid(order)) {
-            console.warn("[aiWallet] auto-recharge: cartão não aprovado", order.id, order.status);
-            return false;
-        }
-
-        await creditAiPack(admin, companyId, pack, {
-            pagarme_order_id: order.id,
-            source: "auto_recharge_card",
-        });
-        return true;
-    } catch (e) {
-        console.warn("[aiWallet] auto-recharge falhou:", e);
-        return false;
-    }
+    const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
+    return enqueueAiRechargeIfNeeded(admin, companyId);
 }
 
 /** Debita incluso primeiro; depois prepaid. Retorna false se não houver saldo. */
@@ -280,7 +206,8 @@ export async function debitAiUsage(
     const remTotal =
         Math.max(0, snap.includedBudgetCents - includedSpent) + Math.max(0, prepaid);
     if (remTotal <= 50) {
-        void tryAutoRechargeAiWallet(admin, companyId).catch(() => {});
+        const { enqueueAiRechargeIfNeeded } = await import("@/lib/billing/enqueueAiRecharge");
+        void enqueueAiRechargeIfNeeded(admin, companyId).catch(() => {});
     }
 
     return true;
@@ -293,6 +220,26 @@ export async function creditAiPack(
     meta?: Record<string, unknown>
 ): Promise<AiWalletSnapshot> {
     await ensureAiWallet(admin, companyId);
+
+    const orderId =
+        meta &&
+        typeof meta.pagarme_order_id === "string" &&
+        meta.pagarme_order_id.trim()
+            ? meta.pagarme_order_id.trim()
+            : null;
+    if (orderId) {
+        const { data: dup } = await admin
+            .from("company_ai_ledger")
+            .select("id")
+            .eq("company_id", companyId)
+            .eq("kind", "pack_credit")
+            .filter("meta->>pagarme_order_id", "eq", orderId)
+            .maybeSingle();
+        if (dup?.id) {
+            return ensureAiWallet(admin, companyId);
+        }
+    }
+
     const { data } = await admin
         .from("company_ai_wallets")
         .select("prepaid_balance_cents")
@@ -306,12 +253,23 @@ export async function creditAiPack(
             updated_at: new Date().toISOString(),
         })
         .eq("company_id", companyId);
-    await admin.from("company_ai_ledger").insert({
+
+    const { error: ledgerErr } = await admin.from("company_ai_ledger").insert({
         company_id: companyId,
         kind: "pack_credit",
         amount_cents: packCents,
         meta: { pack_cents: packCents, ...(meta ?? {}) },
     });
+    if (ledgerErr && !isUniqueViolation(ledgerErr)) {
+        throw new Error(ledgerErr.message);
+    }
+    await admin
+        .from("company_ai_wallets")
+        .update({
+            auto_recharge_last_error: null,
+            updated_at: new Date().toISOString(),
+        })
+        .eq("company_id", companyId);
     return ensureAiWallet(admin, companyId);
 }
 

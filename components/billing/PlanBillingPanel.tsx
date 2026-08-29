@@ -122,6 +122,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         uf: "",
     });
     const [cepLoading, setCepLoading] = useState(false);
+    const [savedCardBusyId, setSavedCardBusyId] = useState<string | null>(null);
 
     const loadCompany = useCallback(async () => {
         if (!companyId) return;
@@ -283,6 +284,71 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             setBillingErr("Erro de conexão.");
         } finally {
             setPixLoading(false);
+        }
+    }
+
+    async function setDefaultSavedCard(cardId: string) {
+        setSavedCardBusyId(cardId);
+        setBillingErr(null);
+        setBillingSuccessMsg(null);
+        try {
+            const res = await fetch("/api/billing/payment-methods", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ action: "set_default", card_id: cardId }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBillingErr((json as { error?: string }).error ?? "Não foi possível definir o cartão padrão.");
+                return;
+            }
+            setBillingSuccessMsg(
+                (json as { message?: string }).message ?? "Cartão padrão atualizado."
+            );
+            await loadBilling();
+        } catch {
+            setBillingErr("Erro de conexão.");
+        } finally {
+            setSavedCardBusyId(null);
+        }
+    }
+
+    async function payWithSavedCard(cardId: string) {
+        setSavedCardBusyId(cardId);
+        setBillingErr(null);
+        setBillingSuccessMsg(null);
+        try {
+            const res = await fetch("/api/billing/create-invoice-checkout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ payment_method: "credit_card", card_id: cardId }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBillingErr((json as { error?: string }).error ?? "Cobrança no cartão falhou.");
+                return;
+            }
+            const status = (json as { payment_status?: string }).payment_status;
+            if (status === "paid") {
+                setBillingSuccessMsg("Pagamento aprovado. Plano liberado.");
+                invalidatePlanFeatures();
+                if (variant === "pay") {
+                    window.location.assign("/ativar");
+                    return;
+                }
+            } else {
+                setBillingSuccessMsg(
+                    (json as { message?: string }).message ??
+                        "Pagamento em análise. O plano libera quando o banco confirmar."
+                );
+            }
+            await loadBilling();
+        } catch {
+            setBillingErr("Erro de conexão.");
+        } finally {
+            setSavedCardBusyId(null);
         }
     }
 
@@ -1046,10 +1112,13 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                         <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                             Cartões salvos no Pagar.me
                         </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                            Defina o cartão padrão para renovação automática. Se houver fatura aberta, use
+                            &quot;Tentar de novo&quot;.
+                        </p>
                         {!billingData.saved_cards?.length ? (
                             <p className="mt-2 text-xs text-zinc-500">
-                                Nenhum cartão cadastrado ainda. Cartões aparecem aqui após pagamentos com cartão
-                                pelo gateway (quando o cliente existir no Pagar.me).
+                                Nenhum cartão cadastrado ainda. Pague com cartão acima para salvar o método.
                             </p>
                         ) : null}
                         {billingData.saved_cards?.length ? (
@@ -1057,14 +1126,47 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                                 {billingData.saved_cards.map((c) => (
                                     <li
                                         key={c.id || c.last_four}
-                                        className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/80"
+                                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/80"
                                     >
                                         <span>
                                             <span className="font-medium capitalize">{c.brand || "Cartão"}</span>
                                             {c.last_four ? ` •••• ${c.last_four}` : ""}
                                             {c.exp ? ` · validade ${c.exp}` : ""}
+                                            {c.is_default ? (
+                                                <span className="ml-2 text-[11px] font-semibold text-emerald-600">
+                                                    padrão
+                                                </span>
+                                            ) : null}
                                         </span>
-                                        <span className="text-xs text-zinc-400">{c.status || "—"}</span>
+                                        <span className="flex flex-wrap gap-2">
+                                            {!c.is_default && c.id ? (
+                                                <button
+                                                    type="button"
+                                                    disabled={savedCardBusyId === c.id}
+                                                    onClick={() => {
+                                                        void setDefaultSavedCard(c.id);
+                                                    }}
+                                                    className="text-xs font-semibold text-violet-600 hover:text-violet-700 disabled:opacity-50"
+                                                >
+                                                    {savedCardBusyId === c.id ? "…" : "Tornar padrão"}
+                                                </button>
+                                            ) : null}
+                                            {c.id &&
+                                            (billingData.pending_invoice ||
+                                                billingData.pending_setup_payment ||
+                                                billingData.is_blocked) ? (
+                                                <button
+                                                    type="button"
+                                                    disabled={savedCardBusyId === c.id}
+                                                    onClick={() => {
+                                                        void payWithSavedCard(c.id);
+                                                    }}
+                                                    className="rounded-md bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                                                >
+                                                    {savedCardBusyId === c.id ? "Cobrando…" : "Tentar de novo"}
+                                                </button>
+                                            ) : null}
+                                        </span>
                                     </li>
                                 ))}
                             </ul>

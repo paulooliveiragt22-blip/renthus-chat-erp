@@ -6,7 +6,7 @@ import {
     filterMarketingOptInAudience,
     type AudienceFilter,
 } from "@/lib/campaigns/buildAudience";
-import { scheduleOutboundWorkerWake } from "@/lib/chatbot/outbound/outboundWorkerWake";
+import { scheduleOutboundAfterEnqueue } from "@/lib/queue/afterEnqueue";
 import type { OutboundJobPayload } from "@/lib/chatbot/outbound/types";
 
 async function getOrCreateThread(
@@ -127,6 +127,7 @@ export async function startBroadcastCampaign(params: {
 
     const campaignId = campaign.id as string;
     let queued = 0;
+    const jobRefs: Array<{ id: string; company_id: string; thread_id: string }> = [];
 
     for (const member of audience) {
         const threadId = await getOrCreateThread(
@@ -195,6 +196,11 @@ export async function startBroadcastCampaign(params: {
             .eq("id", recipient.id);
 
         queued += 1;
+        jobRefs.push({
+            id: String(job.id),
+            company_id: params.companyId,
+            thread_id: threadId,
+        });
     }
 
     await params.admin
@@ -208,7 +214,13 @@ export async function startBroadcastCampaign(params: {
         })
         .eq("id", campaignId);
 
-    scheduleOutboundWorkerWake("broadcast_campaign_start");
+    if (jobRefs.length > 0) {
+        scheduleOutboundAfterEnqueue(
+            params.admin as never,
+            jobRefs,
+            "broadcast_campaign_start"
+        );
+    }
 
     return { ok: true, campaignId, queued };
 }

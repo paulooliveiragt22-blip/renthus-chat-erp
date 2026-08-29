@@ -1,26 +1,27 @@
 /**
  * POST /api/billing/webhook
  *
- * Webhook do Pagar.me — recebe eventos de pagamento.
- *
- * Eventos tratados:
- *   order.paid          → se setup_payment: ativa trial
- *                       → se invoice:       marca paga + ativa/reativa subscription
- *   order.payment_failed → registra falha
- *
- * Variáveis de ambiente:
- *   PAGARME_WEBHOOK_SECRET — segredo configurado no painel Pagar.me (opcional em dev)
+ * Eventos: order.paid / charge.paid → FulfillPayment
+ * Política E1: transitório → 500 + failed_retryable; permanente → 200 + dead-letter
  */
 
 import { NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyWebhookSignature, extractOrderCustomerId, type PagarmeOrder } from "@/lib/billing/pagarme";
-import { processSetupOrderPaid } from "@/lib/billing/pagarmeSetupPaid";
-import { applyMonthlyInvoicePaid } from "@/lib/billing/applyMonthlyInvoicePaid";
-import { creditAiPack } from "@/lib/billing/aiWallet";
+import { verifyWebhookSignature } from "@/lib/billing/pagarme";
 import { billingLog } from "@/lib/billing/billingLog";
-import { tryConsumePagarmeWebhookEvent } from "@/lib/billing/tryConsumePagarmeWebhookEvent";
-import { extractWebhookOrderId } from "@/lib/billing/webhookIdempotencyKey";
+import {
+    tryConsumePagarmeWebhookEvent,
+    markWebhookEventCompleted,
+    markWebhookEventRetryable,
+    markWebhookEventPermanent,
+} from "@/lib/billing/tryConsumePagarmeWebhookEvent";
+import { extractWebhookOrderId, webhookConsumeKey } from "@/lib/billing/webhookIdempotencyKey";
+import {
+    fulfillPayment,
+    isPermanentFulfillError,
+    isRetryableFulfillError,
+} from "@/lib/billing/fulfillPayment";
 import {
     enforceIpRateLimitAsync,
     RATE_LIMIT_WINDOW_MS,
@@ -30,7 +31,6 @@ export const runtime = "nodejs";
 
 const BILLING_WEBHOOK_RL_LIMIT = 120;
 
-// Pagar.me não envia autenticação de rota — usa assinatura HMAC no body
 export async function POST(req: Request) {
     const limited = await enforceIpRateLimitAsync(
         req,
@@ -47,31 +47,31 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "server_misconfigured" }, { status: 500 });
     }
 
-    const rawBody  = await req.text();
-    const signature = (req as any).headers?.get?.("x-hub-signature") ?? "";
+    const rawBody = await req.text();
+    const signature = req.headers.get("x-hub-signature") ?? "";
 
-    // Verifica assinatura (ignora em dev se PAGARME_WEBHOOK_SECRET não estiver setado)
     const valid = await verifyWebhookSignature(rawBody, signature.replaceAll("sha256=", ""));
     if (!valid) {
         return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
     }
 
-    let event: any;
+    let event: Record<string, unknown>;
     try {
-        event = JSON.parse(rawBody);
+        event = JSON.parse(rawBody) as Record<string, unknown>;
     } catch {
         return NextResponse.json({ error: "invalid_json" }, { status: 400 });
     }
 
-    const eventType: string = event?.type ?? "";
-    const data              = event?.data ?? {};
-    const eventId           = typeof event?.id === "string" ? event.id : undefined;
-    const orderIdForIdem    = extractWebhookOrderId(eventType, data);
+    const eventType: string = typeof event?.type === "string" ? event.type : "";
+    const data = (event?.data ?? {}) as Record<string, unknown>;
+    const eventId = typeof event?.id === "string" ? event.id : undefined;
+    const orderIdForIdem = extractWebhookOrderId(eventType, data);
+    const eventKey = webhookConsumeKey(eventId, eventType, orderIdForIdem);
 
     billingLog("webhook", "received", {
         event_type: eventType,
-        event_id:   eventId,
-        order_id:   orderIdForIdem ?? (data as { id?: string })?.id,
+        event_id: eventId,
+        order_id: orderIdForIdem ?? (data as { id?: string })?.id,
     });
 
     const admin = createAdminClient();
@@ -85,9 +85,9 @@ export async function POST(req: Request) {
         );
         if (!proceed) {
             billingLog("webhook", "duplicate_event_skipped", {
-                event_id:   eventId,
+                event_id: eventId,
                 event_type: eventType,
-                order_id:   orderIdForIdem,
+                order_id: orderIdForIdem,
             });
             return NextResponse.json({ ok: true, duplicate: true });
         }
@@ -103,19 +103,26 @@ export async function POST(req: Request) {
                 await handleOrderPaid(admin, data);
                 break;
 
-            // Alguns ambientes enviam confirmação só em charge.* — o pedido vem em data.order
             case "charge.paid": {
-                const d    = data as Record<string, unknown>;
-                const ord  = (d?.order ?? {}) as { id?: string; metadata?: Record<string, string> };
-                const oid  = (typeof ord?.id === "string" && ord.id) ? ord.id : (d?.order_id as string | undefined);
+                const ord = (data?.order ?? {}) as {
+                    id?: string;
+                    metadata?: Record<string, string>;
+                    customer?: unknown;
+                };
+                const oid =
+                    typeof ord?.id === "string" && ord.id
+                        ? ord.id
+                        : (data?.order_id as string | undefined);
                 if (oid) {
                     await handleOrderPaid(admin, {
-                        id:       oid,
-                        metadata: (ord?.metadata ?? d?.metadata ?? {}) as Record<string, string>,
-                        customer: (d?.customer ?? (ord as { customer?: unknown }).customer) as unknown,
+                        id: oid,
+                        metadata: (ord?.metadata ??
+                            (data?.metadata as Record<string, string> | undefined) ??
+                            {}) as Record<string, string>,
+                        customer: (data?.customer ?? ord.customer) as { id?: string } | undefined,
                     });
                 } else {
-                    console.warn("[webhook/pagarme] charge.paid sem id do pedido (order.id / order_id)");
+                    throw new Error("charge.paid sem id do pedido");
                 }
                 break;
             }
@@ -128,130 +135,72 @@ export async function POST(req: Request) {
             default:
                 billingLog("webhook", "event_type_ignored", { event_type: eventType });
         }
-    } catch (err: any) {
-        console.error("[webhook/pagarme] handler_error:", err?.message ?? err);
-        // Retorna 200 para o Pagar.me não fazer retry em erros de negócio
-        return NextResponse.json({ ok: false, error: err?.message ?? "Erro interno" });
+
+        if (eventKey) {
+            await markWebhookEventCompleted(admin, eventKey);
+        }
+        return NextResponse.json({ ok: true });
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[webhook/pagarme] handler_error:", msg);
+
+        const permanent =
+            isPermanentFulfillError(err) ||
+            /sem (order\.id|setup_payments|invoice|ai_pack)|metadata\.(type|inválida)|não tratado/i.test(
+                msg
+            );
+
+        if (eventKey) {
+            if (permanent) {
+                await markWebhookEventPermanent(admin, eventKey, msg, {
+                    event_type: eventType,
+                    order_id: orderIdForIdem,
+                });
+                Sentry.captureException(err, {
+                    tags: { route: "billing-webhook", kind: "permanent" },
+                });
+                return NextResponse.json({ ok: false, error: msg, permanent: true });
+            }
+            await markWebhookEventRetryable(admin, eventKey, msg);
+        }
+
+        Sentry.captureException(err, {
+            tags: { route: "billing-webhook", kind: "retryable" },
+        });
+        // 500 → Pagar.me retenta (E1)
+        return NextResponse.json({ ok: false, error: msg }, { status: 500 });
     }
-
-    return NextResponse.json({ ok: true });
 }
-
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
 
 async function handleOrderPaid(
     admin: ReturnType<typeof createAdminClient>,
-    order: any
+    order: Record<string, unknown>
 ) {
-    const orderId = order?.id as string;
-    if (!orderId) {
-        console.warn("[webhook/pagarme] order.paid sem order.id");
-        return;
-    }
-
-    const metadata = (order?.metadata ?? {}) as Record<string, string>;
-    const metaType = metadata?.type as string | undefined;
-
-    // ── 1) Setup: localizar SEMPRE por pagarme_order_id.
-    if (await processSetupOrderPaid(admin, order)) {
-        return;
-    }
-
-    if (metaType === "setup") {
-        console.warn(
-            "[webhook/pagarme] metadata.type=setup mas nenhuma linha em setup_payments para pagarme_order_id:",
-            orderId
-        );
-        return;
-    }
-
-    // ── 1b) Pack de crédito IA
-    if (metaType === "ai_pack") {
-        const companyId = String(metadata.company_id ?? "");
-        const packCents = Number(metadata.pack_cents);
-        if (
-            companyId &&
-            (packCents === 1000 || packCents === 2000 || packCents === 5000)
-        ) {
-            const { data: recentCredits } = await admin
-                .from("company_ai_ledger")
-                .select("id, meta")
-                .eq("company_id", companyId)
-                .eq("kind", "pack_credit")
-                .order("created_at", { ascending: false })
-                .limit(30);
-            const already = (recentCredits ?? []).some(
-                (r) =>
-                    r.meta &&
-                    typeof r.meta === "object" &&
-                    (r.meta as { pagarme_order_id?: string }).pagarme_order_id === orderId
-            );
-            if (!already) {
-                await creditAiPack(admin, companyId, packCents as 1000 | 2000 | 5000, {
-                    pagarme_order_id: orderId,
-                    source: "pagarme_webhook",
-                });
-                billingLog("webhook", "ai_pack_credited", {
-                    order_id: orderId,
-                    company_id: companyId,
-                    pack_cents: packCents,
-                });
-            } else {
-                billingLog("webhook", "ai_pack_already_credited", { order_id: orderId });
-            }
-        } else {
-            console.warn("[webhook/pagarme] ai_pack metadata inválida:", metadata);
-        }
-        return;
-    }
-
-    // ── 2) Invoice: metadata pode faltar — localiza por pagarme_order_id em invoices
-    if (metaType === "invoice" || metaType === undefined) {
-        const custId = extractOrderCustomerId(order as PagarmeOrder);
-        const r = await applyMonthlyInvoicePaid(admin, orderId, { pagarmeCustomerId: custId });
-
-        if (r.ok) {
-            if (r.alreadyPaid) {
-                billingLog("webhook", "invoice_already_paid_idempotent", { order_id: orderId });
-            }
-            return;
-        }
-
-        if (metaType === "invoice") {
-            console.warn("[webhook/pagarme] metadata.type=invoice mas invoice não encontrada para order:", orderId);
-        } else {
-            console.warn(
-                "[webhook/pagarme] order.paid sem setup_payment nem invoice para order:",
-                orderId,
-                "| metadata.type=",
-                metaType ?? "(vazio)"
-            );
-        }
-    } else if (metaType) {
-        billingLog("webhook", "order_paid_unhandled_metadata_type", {
-            order_id: orderId,
-            meta_type: metaType,
-        });
-    }
+    const result = await fulfillPayment(admin, {
+        id: order.id as string | undefined,
+        metadata: (order.metadata ?? {}) as Record<string, string>,
+        customer: order.customer as { id?: string } | undefined,
+    });
+    billingLog("webhook", "fulfill_ok", {
+        order_id: order.id,
+        kind: result.kind,
+        already_done: result.alreadyDone ?? false,
+    });
 }
 
 async function handleOrderFailed(
     admin: ReturnType<typeof createAdminClient>,
-    order: any
+    order: Record<string, unknown>
 ) {
     const orderId = order?.id as string;
     if (!orderId) return;
 
-    // Atualiza invoice com status failed (se encontrada)
     await admin
         .from("invoices")
         .update({ status: "failed" })
         .eq("pagarme_order_id", orderId)
         .eq("status", "pending");
 
-    // Atualiza setup_payment (se for setup)
     await admin
         .from("setup_payments")
         .update({ status: "failed" })
@@ -260,4 +209,3 @@ async function handleOrderFailed(
 
     billingLog("webhook", "payment_failed", { order_id: orderId });
 }
-

@@ -14,10 +14,22 @@ type SubRow = {
     plans?: { id: string; key: string; name: string; price_cents: number } | null;
 };
 
+type BillingTab = "subscriptions" | "never_paid";
+
 export default function PlatformBillingPage() {
     const queryClient = useQueryClient();
+    const [tab, setTab] = useState<BillingTab>("subscriptions");
     const [planEdits, setPlanEdits] = useState<Record<string, string>>({});
     const [trialDaysInput, setTrialDaysInput] = useState<string>("");
+    const [courtesyDaysByCompany, setCourtesyDaysByCompany] = useState<Record<string, string>>({});
+
+    const { data: meData } = useQuery({
+        queryKey: ["platform", "me"],
+        queryFn: () => platformApi.me(),
+        staleTime: 60_000,
+    });
+    const isSuperadmin =
+        (meData?.user as { role?: string } | undefined)?.role === "superadmin";
 
     const { data: settingsData, isLoading: settingsLoading } = useQuery({
         queryKey: ["platform", "billing", "settings"],
@@ -47,6 +59,20 @@ export default function PlatformBillingPage() {
         queryKey: ["platform", "billing", "subscriptions"],
         queryFn: () => platformApi.billingSubscriptions(),
         staleTime: 30_000,
+        enabled: tab === "subscriptions",
+    });
+
+    const {
+        data: neverPaidData,
+        isLoading: neverPaidLoading,
+        error: neverPaidError,
+        refetch: refetchNeverPaid,
+        isFetching: neverPaidFetching,
+    } = useQuery({
+        queryKey: ["platform", "billing", "never_paid"],
+        queryFn: () => platformApi.neverPaidTenants(0, 100),
+        staleTime: 30_000,
+        enabled: tab === "never_paid",
     });
 
     const { data: plansData } = useQuery({
@@ -57,6 +83,7 @@ export default function PlatformBillingPage() {
 
     const plans = (plansData?.plans ?? []) as Array<{ id: string; key: string; name: string }>;
     const subscriptions = (data?.subscriptions ?? []) as SubRow[];
+    const neverPaidTenants = neverPaidData?.tenants ?? [];
 
     const changePlan = useMutation({
         mutationFn: ({ id, plan_key }: { id: string; plan_key: string }) =>
@@ -78,23 +105,79 @@ export default function PlatformBillingPage() {
         onError: (e: Error) => toast.error(e.message),
     });
 
+    const ensureCheckout = useMutation({
+        mutationFn: (companyId: string) =>
+            platformApi.ensureTenantCheckout(companyId),
+        onSuccess: (res) => {
+            if (res.has_pix) toast.success("Checkout gerado com PIX");
+            else if (res.invoice_ready) toast.success("Fatura pending criada (sem PIX ainda)");
+            else toast.message("Nenhuma fatura gerada — verifique Pagar.me");
+            queryClient.invalidateQueries({ queryKey: ["platform", "billing", "never_paid"] });
+        },
+        onError: (e: Error) => toast.error(e.message),
+    });
+
+    const courtesyTrial = useMutation({
+        mutationFn: ({ companyId, days }: { companyId: string; days: number }) =>
+            platformApi.grantCourtesyTrial(
+                companyId,
+                days,
+                "cortesia via /platform/billing"
+            ),
+        onSuccess: (res) => {
+            toast.success(`Trial até ${new Date(res.trial_ends_at).toLocaleDateString("pt-BR")}`);
+            queryClient.invalidateQueries({ queryKey: ["platform", "billing", "never_paid"] });
+        },
+        onError: (e: Error) => toast.error(e.message),
+    });
+
+    const listFetching = tab === "never_paid" ? neverPaidFetching : isFetching;
+    const listRefetch = tab === "never_paid" ? refetchNeverPaid : refetch;
+
     return (
         <div className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Billing</h1>
                     <p className="text-xs text-zinc-500">
-                        Assinaturas cross-tenant ({subscriptions.length})
+                        {tab === "never_paid"
+                            ? `Sem pagamento (${neverPaidData?.total ?? neverPaidTenants.length})`
+                            : `Assinaturas cross-tenant (${subscriptions.length})`}
                     </p>
                 </div>
                 <button
                     type="button"
-                    onClick={() => refetch()}
-                    disabled={isFetching}
+                    onClick={() => listRefetch()}
+                    disabled={listFetching}
                     className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
                 >
-                    <RefreshCcw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+                    <RefreshCcw className={`h-3.5 w-3.5 ${listFetching ? "animate-spin" : ""}`} />
                     Atualizar
+                </button>
+            </div>
+
+            <div className="flex gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-800 dark:bg-zinc-900/80">
+                <button
+                    type="button"
+                    onClick={() => setTab("subscriptions")}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
+                        tab === "subscriptions"
+                            ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
+                            : "text-zinc-500 hover:text-zinc-700"
+                    }`}
+                >
+                    Assinaturas
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setTab("never_paid")}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
+                        tab === "never_paid"
+                            ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
+                            : "text-zinc-500 hover:text-zinc-700"
+                    }`}
+                >
+                    Sem pagamento
                 </button>
             </div>
 
@@ -147,19 +230,19 @@ export default function PlatformBillingPage() {
                 </div>
             </div>
 
-            {isLoading && (
+            {tab === "subscriptions" && isLoading && (
                 <div className="flex justify-center py-16">
                     <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
                 </div>
             )}
 
-            {error && (
+            {tab === "subscriptions" && error && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
                     {(error as Error).message}
                 </div>
             )}
 
-            {!isLoading && !error && (
+            {tab === "subscriptions" && !isLoading && !error && (
                 <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                     <table className="w-full text-sm">
                         <thead>
@@ -258,6 +341,156 @@ export default function PlatformBillingPage() {
                                         className="px-3 py-8 text-center text-xs text-zinc-400"
                                     >
                                         Nenhuma assinatura.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {tab === "never_paid" && neverPaidLoading && (
+                <div className="flex justify-center py-16">
+                    <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+                </div>
+            )}
+
+            {tab === "never_paid" && neverPaidError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                    {(neverPaidError as Error).message}
+                </div>
+            )}
+
+            {tab === "never_paid" && !neverPaidLoading && !neverPaidError && (
+                <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                    {!isSuperadmin && (
+                        <p className="border-b border-zinc-100 px-3 py-2 text-[11px] text-amber-700 dark:border-zinc-800 dark:text-amber-400">
+                            Trial cortesia (1–14d) só para superadmin. Checkout disponível para billing write.
+                        </p>
+                    )}
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    Empresa
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    Plano / status
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    Fatura
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    Ações
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                            {neverPaidTenants.map((t) => {
+                                const courtesyInput =
+                                    courtesyDaysByCompany[t.companyId] ?? "7";
+                                return (
+                                    <tr key={t.companyId}>
+                                        <td className="px-3 py-2">
+                                            <div className="font-medium text-zinc-900 dark:text-zinc-100">
+                                                {t.companyName}
+                                            </div>
+                                            <div className="text-[11px] text-zinc-400">
+                                                {t.email ?? "—"} · {t.companyId.slice(0, 8)}
+                                            </div>
+                                        </td>
+                                        <td className="px-3 py-2 text-xs">
+                                            <div>{t.plan}</div>
+                                            <div className="text-zinc-400">{t.billingStatus}</div>
+                                        </td>
+                                        <td className="px-3 py-2 text-xs">
+                                            {t.pendingInvoice ? (
+                                                <>
+                                                    <div>
+                                                        {t.pendingInvoice.amount.toLocaleString(
+                                                            "pt-BR",
+                                                            {
+                                                                style: "currency",
+                                                                currency: "BRL",
+                                                            }
+                                                        )}
+                                                    </div>
+                                                    <div className="text-zinc-400">
+                                                        {t.pendingInvoice.hasPix
+                                                            ? "PIX ok"
+                                                            : "Sem EMV"}
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <span className="text-zinc-400">Sem pending</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    disabled={ensureCheckout.isPending}
+                                                    onClick={() =>
+                                                        ensureCheckout.mutate(t.companyId)
+                                                    }
+                                                    className="rounded bg-primary px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                                                >
+                                                    Gerar checkout
+                                                </button>
+                                                {isSuperadmin ? (
+                                                    <>
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            max={14}
+                                                            value={courtesyInput}
+                                                            onChange={(e) =>
+                                                                setCourtesyDaysByCompany((m) => ({
+                                                                    ...m,
+                                                                    [t.companyId]: e.target.value,
+                                                                }))
+                                                            }
+                                                            className="w-12 rounded border border-zinc-200 bg-zinc-50 px-1 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                                                            title="Dias cortesia"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            disabled={courtesyTrial.isPending}
+                                                            onClick={() => {
+                                                                const d = Number(courtesyInput);
+                                                                if (
+                                                                    !Number.isFinite(d) ||
+                                                                    d < 1 ||
+                                                                    d > 14
+                                                                ) {
+                                                                    toast.error(
+                                                                        "Cortesia: 1 a 14 dias"
+                                                                    );
+                                                                    return;
+                                                                }
+                                                                courtesyTrial.mutate({
+                                                                    companyId: t.companyId,
+                                                                    days: d,
+                                                                });
+                                                            }}
+                                                            className="rounded border border-zinc-200 px-2 py-1 text-[11px] dark:border-zinc-700"
+                                                        >
+                                                            Trial cortesia
+                                                        </button>
+                                                    </>
+                                                ) : null}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {neverPaidTenants.length === 0 && (
+                                <tr>
+                                    <td
+                                        colSpan={4}
+                                        className="px-3 py-8 text-center text-xs text-zinc-400"
+                                    >
+                                        Nenhuma empresa sem pagamento.
                                     </td>
                                 </tr>
                             )}

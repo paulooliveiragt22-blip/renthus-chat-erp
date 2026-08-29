@@ -140,6 +140,19 @@ async function provisionUserAfterPayment(
  * - Se já existe sub → atualiza para active + define next_billing_at
  * - Se não existe sub → cria nova como active
  */
+export async function provisionUserAfterPaymentIfNeeded(
+    admin: ReturnType<typeof createAdminClient>,
+    companyId: string,
+    plan: string
+): Promise<void> {
+    await provisionUserAfterPayment(admin, companyId, plan);
+}
+
+/**
+ * Ativa a assinatura após pagamento do setup:
+ * - Se já existe sub → atualiza para active + define next_billing_at
+ * - Se não existe sub → cria nova como active
+ */
 export async function activateAfterSetupPayment(
     admin: ReturnType<typeof createAdminClient>,
     companyId: string,
@@ -187,31 +200,24 @@ export async function activateAfterSetupPayment(
  */
 export async function processSetupOrderPaid(
     admin: ReturnType<typeof createAdminClient>,
-    order: { id?: string; customer?: { id?: string } }
+    order: { id?: string; customer?: { id?: string }; metadata?: Record<string, string> }
 ): Promise<boolean> {
-    const orderId = order?.id as string;
+    const orderId = order?.id;
     if (!orderId) return false;
 
     const { data: sp } = await admin
         .from("setup_payments")
-        .select("id, plan, company_id")
+        .select("id")
         .eq("pagarme_order_id", orderId)
-        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+    if (!sp) return false;
 
-    if (!sp?.company_id) return false;
-
-    const companyId         = sp.company_id as string;
-    const pagarmeCustomerId = (order?.customer?.id as string | undefined) ?? undefined;
-
-    await admin
-        .from("setup_payments")
-        .update({ status: "paid", paid_at: new Date().toISOString() })
-        .eq("id", sp.id);
-
-    await activateAfterSetupPayment(admin, companyId, String(sp.plan), pagarmeCustomerId);
-    await syncLogicalSubscription(admin, companyId, sp.plan as string);
-    await provisionUserAfterPayment(admin, companyId, sp.plan as string);
-    return true;
+    const { fulfillPayment } = await import("@/lib/billing/fulfillPayment");
+    const r = await fulfillPayment(admin, {
+        id: orderId,
+        metadata: { ...(order.metadata ?? {}), type: "setup" },
+        customer: order.customer,
+    });
+    return r.kind === "setup";
 }

@@ -7,10 +7,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
     billingInactiveMessage,
     isBillingAccessAllowed,
-    resolveEffectiveBillingStatus,
     type BillingAccessStatus,
     type BillingGateMode,
 } from "@/lib/billing/resolveBillingAccess";
+import { resolveTenantAccess } from "@/lib/billing/tenantAccess";
 
 export type {
     BillingAccessStatus,
@@ -61,7 +61,7 @@ export async function requireBillingActive(
         };
     }
 
-    const effective = resolveEffectiveBillingStatus(
+    const tenant = resolveTenantAccess(
         data
             ? {
                   status: data.status as string | null,
@@ -72,7 +72,8 @@ export async function requireBillingActive(
             : null
     );
 
-    const plan = data?.plan != null ? String(data.plan) : null;
+    const plan = tenant.plan_intent;
+    const effective = tenant.reason;
 
     if (!isBillingAccessAllowed(effective, mode)) {
         const message = billingInactiveMessage(effective);

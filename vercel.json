@@ -5,16 +5,8 @@
             "schedule": "0 11 * * *"
         },
         {
-            "path": "/api/chatbot/process-queue",
-            "schedule": "0 3 * * *"
-        },
-        {
             "path": "/api/chatbot/detect-abandoned-carts",
             "schedule": "10 3 * * *"
-        },
-        {
-            "path": "/api/chatbot/outbound-worker",
-            "schedule": "20 3 * * *"
         },
         {
             "path": "/api/marketplace/sync-catalog",

@@ -101,6 +101,17 @@ npm run test:billing-sandbox
 
 Esperado: `PASS cartão` + `PASS PIX`.
 
+> **Nota (R6.4):** chaves sandbox costumam estar só na **Vercel** (`vercel env pull` ou painel). Sem `PAGARME_API_KEY`/`NEXT_PUBLIC_PAGARME_PUBLIC_KEY` locais, o script falha com mensagem explícita — use deploy `/plano/pagar` ou `npm run test:e2e:billing` no `E2E_BASE_URL` de produção preview.
+
+### Matriz R6.4 (manual pós-deploy)
+
+| Cenário | Como validar |
+|---------|----------------|
+| Renovação cartão OK | Tenant `active` + `default_card_id`; cron charge ou vencimento trial |
+| Cartão fail → PIX EMV | CVV `612` ou simulador recusa; UI `/plano/pagar` mostra PIX copia-e-cola |
+| Add card → retry | `/plano/pagar` cadastra cartão; `POST /api/billing/payment-methods` set_default |
+| AI auto-recharge | Saldo IA baixo → job `ai_recharge_jobs`; step no cron charge |
+
 ---
 
 ## 3. Smoke E2E — cartão de crédito

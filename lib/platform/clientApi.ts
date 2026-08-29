@@ -444,6 +444,51 @@ export const platformApi = {
             method:  "PATCH",
             body:    JSON.stringify({ default_trial_days }),
         }),
+    neverPaidTenants: (page = 0, limit = 50) =>
+        platformFetch<{
+            ok: boolean;
+            billing: "never_paid";
+            tenants: Array<{
+                companyId: string;
+                companyName: string;
+                email: string | null;
+                cnpj: string | null;
+                whatsappPhone: string | null;
+                isActive: boolean;
+                companyCreatedAt: string | null;
+                pagarmeSubscriptionId: string;
+                plan: string;
+                billingStatus: string;
+                trialEndsAt: string | null;
+                pendingInvoice: {
+                    id: string;
+                    amount: number;
+                    dueAt: string;
+                    hasPix: boolean;
+                    pixQrCode: string | null;
+                    paymentUrl: string | null;
+                } | null;
+            }>;
+            total: number;
+            page: number;
+            limit: number;
+        }>(`/api/platform/tenants?billing=never_paid&page=${page}&limit=${limit}`),
+    grantCourtesyTrial: (companyId: string, days: number, reason = "") =>
+        platformFetch<{ ok: boolean; trial_ends_at: string; days: number }>(
+            `/api/platform/tenants/${encodeURIComponent(companyId)}/courtesy-trial`,
+            { method: "POST", body: JSON.stringify({ days, reason }) }
+        ),
+    ensureTenantCheckout: (companyId: string) =>
+        platformFetch<{
+            ok: boolean;
+            invoice_id: string | null;
+            pix_qr_code: string | null;
+            invoice_ready: boolean;
+            has_pix: boolean;
+        }>(`/api/platform/tenants/${encodeURIComponent(companyId)}/ensure-checkout`, {
+            method: "POST",
+            body: JSON.stringify({}),
+        }),
     healthExtended: () =>
         platformFetch<{
             ok: boolean;
