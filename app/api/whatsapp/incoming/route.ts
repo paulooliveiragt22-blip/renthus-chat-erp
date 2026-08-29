@@ -515,7 +515,7 @@ async function enqueueInboundIfNeeded(params: {
         return;
     }
 
-    const { data: inserted, error: queueErr } = await admin
+    const { data: queueRow, error: queueErr } = await admin
         .from("chatbot_queue")
         .insert({
             company_id: channel.company_id,
@@ -541,11 +541,11 @@ async function enqueueInboundIfNeeded(params: {
         return;
     }
 
-    if (!queueErr && inserted?.id) {
+    if (!queueErr && queueRow?.id) {
         scheduleInboundAfterEnqueue(
             admin,
             {
-                id: String(inserted.id),
+                id: String(queueRow.id),
                 company_id: channel.company_id,
                 thread_id: threadId,
             },

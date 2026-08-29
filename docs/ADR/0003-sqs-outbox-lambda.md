@@ -467,7 +467,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 ### Fase 4 — Cutover produção (PR 4)
 
 - [x] Vercel prod: envs AWS + `SQS_DISPATCH_ENABLED=1` (dono confirmou envs; flag via dashboard/CLI no deploy)
-- [ ] Remover cron-job.org (process-queue, outbound-worker, reactivate) — manual ops
+- [x] Remover cron-job.org (process-queue, outbound-worker, reactivate) — #7490619 + #8221331 removidos; reactivate não existia na conta
 - [x] Atualizar `vercel.json` — remover crons process-queue e outbound-worker
 - [x] Migration `unschedule('chatbot-queue-drain')` se existir
 - [x] Deletar rotas `process-queue` e `outbound-worker`

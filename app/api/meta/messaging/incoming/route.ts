@@ -263,7 +263,7 @@ async function handleMessagingEvent(params: {
     });
     if (!inserted) return;
 
-    const { data: inserted, error } = await admin
+    const { data: queueRow, error: queueErr } = await admin
         .from("chatbot_queue")
         .insert({
             company_id: metaChannel.company_id,
@@ -284,15 +284,15 @@ async function handleMessagingEvent(params: {
         })
         .select("id")
         .maybeSingle();
-    if (error && (error as { code?: string }).code !== "23505") {
-        console.error("[meta/incoming] queue insert:", error.message);
+    if (queueErr && (queueErr as { code?: string }).code !== "23505") {
+        console.error("[meta/incoming] queue insert:", queueErr.message);
         return;
     }
-    if (!error && inserted?.id) {
+    if (!queueErr && queueRow?.id) {
         scheduleInboundAfterEnqueue(
             admin,
             {
-                id: String(inserted.id),
+                id: String(queueRow.id),
                 company_id: metaChannel.company_id,
                 thread_id: threadId,
             },

@@ -27,7 +27,8 @@
     "sonar:export-quality:new:csv": "node scripts/fetch-sonar-reliability.mjs --quality --new-code --csv",
     "build:workers": "node scripts/build-workers.mjs",
     "deploy:workers": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-workers.ps1",
-    "smoke:sqs-workers": "node scripts/smoke-sqs-worker.mjs"
+    "smoke:sqs-workers": "node scripts/smoke-sqs-worker.mjs",
+    "cleanup:cron-job-org": "node scripts/cleanup-cron-job-org.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.107",
