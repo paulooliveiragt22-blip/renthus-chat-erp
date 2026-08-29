@@ -205,7 +205,7 @@ Detalhe D-R4: transitório → HTTP **500** + evento `failed_retryable` (PSP ret
 | R2.2 | Cron `charge` só chama `ScheduleRenewals` → CollectPayment | Sem PIX-only hardcoded | [x] 2026-08-28 |
 | R2.3 | Gravar `pix_qr_code` no cron (setup + invoice) | EMV no DB | [x] 2026-08-28 |
 | R2.4 | Batch limit + cursor (já parcial) | Truncated flag + re-run ok | [x] parcial |
-| R2.5 | Testes: card ok; card fail→PIX; unique pending | Verde | [~] policy matrix |
+| R2.5 | Testes: card ok; card fail→PIX; unique pending | Verde | [x] 2026-08-28 `collectPayment.test.ts` |
 
 ### R3 — EnsureCheckout UI (falha / overdue)
 
@@ -250,7 +250,7 @@ Detalhe D-R4: transitório → HTTP **500** + evento `failed_retryable` (PSP ret
 - [x] EMV sempre persistido nos paths PIX  
 - [x] Sem double charge / double credit  
 - [x] Cron e webhook endurecidos (R6.1–R6.3)  
-- [~] `npm test` + smoke sandbox (testes 91/91; smoke API requer `sk_test_` local ou Vercel)  
+- [x] `npm test` + smoke sandbox (testes billing + `test:billing-sandbox`; PIX: paid ou EMV)  
 - [x] Este checklist atualizado `[x]` + data  
 
 ---

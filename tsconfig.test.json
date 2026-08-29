@@ -24,6 +24,8 @@
     "lib/billing/tenantAccess.ts",
     "lib/billing/canProcessInboundChannel.ts",
     "lib/billing/fulfillPayment.ts",
+    "lib/billing/collectPayment.ts",
+    "lib/billing/collectionPolicy.ts",
     "lib/billing/tryConsumePagarmeWebhookEvent.ts",
     "lib/billing/sttPricing.ts",
     "lib/billing/llmPricing.ts",

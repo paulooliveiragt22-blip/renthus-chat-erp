@@ -123,6 +123,39 @@ if (-not $existingRole) {
     Write-Host "IAM role exists: $RoleName" -ForegroundColor Yellow
 }
 
+# Always refresh SQS policy (includes SendMessage for reconciler re-dispatch)
+$sqsPolicy = @{
+    Version = "2012-10-17"
+    Statement = @(
+        @{
+            Effect = "Allow"
+            Action = @(
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueUrl",
+                "sqs:SendMessage"
+            )
+            Resource = @(
+                "arn:aws:sqs:${Region}:${AccountId}:renthus-inbound.fifo",
+                "arn:aws:sqs:${Region}:${AccountId}:renthus-outbound.fifo",
+                "arn:aws:sqs:${Region}:${AccountId}:renthus-inbound-dlq.fifo",
+                "arn:aws:sqs:${Region}:${AccountId}:renthus-outbound-dlq.fifo"
+            )
+        }
+    )
+} | ConvertTo-Json -Depth 8 -Compress
+$polFile = Join-Path $env:TEMP "renthus-lambda-sqs.json"
+[System.IO.File]::WriteAllText($polFile, $sqsPolicy, [System.Text.UTF8Encoding]::new($false))
+Invoke-AwsRaw @(
+    "iam", "put-role-policy",
+    "--role-name", $RoleName,
+    "--policy-name", "renthus-sqs-consume",
+    "--policy-document", ("file://" + ($polFile -replace "\\", "/"))
+)
+Write-Host "IAM SQS policy refreshed (SendMessage included)" -ForegroundColor DarkGray
+
 # --- Queue URLs / ARNs ---
 $inUrl = Invoke-AwsText @("sqs", "get-queue-url", "--queue-name", $InboundQueue, "--query", "QueueUrl")
 $outUrl = Invoke-AwsText @("sqs", "get-queue-url", "--queue-name", $OutboundQueue, "--query", "QueueUrl")
@@ -186,6 +219,8 @@ foreach ($k in $envKeys) {
         $variables[$k] = $dotenv[$k]
     }
 }
+# Workers always dispatch (reconciler + retry paths). Do not inherit local "0".
+$variables["SQS_DISPATCH_ENABLED"] = "1"
 if (-not $variables.ContainsKey("LLM_GLOBAL_MAX_IN_FLIGHT")) {
     $variables["LLM_GLOBAL_MAX_IN_FLIGHT"] = "$LlmGlobalMax"
 }
@@ -280,16 +315,25 @@ function Ensure-EventBridgeReconcile {
             "--name", $ruleName,
             "--schedule-expression", "rate(5 minutes)",
             "--state", "ENABLED",
-            "--description", "ADR-0003 outbox reconciler — pending sem SQS + processing stale"
+            "--description", "ADR-0003 outbox reconciler: pending without SQS + processing stale"
         )
     } else {
         Write-Host "EventBridge rule exists: $ruleName" -ForegroundColor Yellow
     }
     $targetId = "renthus-outbox-reconcile-lambda"
+    $targetsJson = @(
+        @{ Id = $targetId; Arn = $FnArn }
+    ) | ConvertTo-Json -Depth 4 -Compress
+    # ConvertTo-Json on single-element array may omit outer []; force array wrapper
+    if (-not $targetsJson.StartsWith("[")) {
+        $targetsJson = "[$targetsJson]"
+    }
+    $targetsFile = Join-Path $env:TEMP "renthus-eb-targets.json"
+    [System.IO.File]::WriteAllText($targetsFile, $targetsJson, [System.Text.UTF8Encoding]::new($false))
     Invoke-AwsRaw @(
         "events", "put-targets",
         "--rule", $ruleName,
-        "--targets", ("Id=" + $targetId + ",Arn=" + $FnArn)
+        "--targets", ("file://" + ($targetsFile -replace "\\", "/"))
     )
     $prevEap2 = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
@@ -344,8 +388,8 @@ Write-Host ""
 Write-Host "Deploy OK" -ForegroundColor Green
 Write-Host "  $InboundFn  memory=1024 timeout=120 reserved=$inboundReserved"
 Write-Host "  $OutboundFn memory=512  timeout=60  reserved=$outboundReserved"
-Write-Host "  $ReconcileFn memory=256 timeout=60  EventBridge rate(5 minutes)"
+Write-Host "  $ReconcileFn memory=256 timeout=60  EventBridge every 5 min"
 Write-Host "  Vercel: SQS_DISPATCH_ENABLED=1 (prod cutover)"
 Write-Host ""
 Write-Host "Synthetic test (optional):" -ForegroundColor Cyan
-Write-Host "  aws --profile $Profile --region $Region sqs send-message --queue-url `"$inUrl`" --message-body '{...envelope...}' --message-group-id test --message-deduplication-id (New-Guid)"
+Write-Host "  npm run smoke:sqs-workers"

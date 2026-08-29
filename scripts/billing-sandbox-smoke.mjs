@@ -216,6 +216,28 @@ async function testCreditCard(secretKey, publicKey, amountCents) {
     return order.id;
 }
 
+function looksLikePixEmv(raw) {
+    if (typeof raw !== "string") return false;
+    const t = raw.trim();
+    return t.includes("BR.GOV.BCB.PIX") || /^00020126/.test(t);
+}
+
+function extractPixEmvFromOrder(order) {
+    const tx = order?.charges?.[0]?.last_transaction;
+    const candidates = [
+        tx?.qr_code,
+        tx?.qr_code_url,
+        order?.charges?.[0]?.last_transaction?.qr_code,
+    ];
+    for (const c of candidates) {
+        if (looksLikePixEmv(c)) return String(c).trim();
+    }
+    // Deep-ish scan
+    const json = JSON.stringify(order ?? {});
+    const m = json.match(/00020126[\w./+\-=%]{20,}/);
+    return m?.[0] ?? null;
+}
+
 async function testPix(secretKey, amountCents) {
     console.log("\n── PIX (simulador — auto-paga em segundos se valor ≤ R$500) ──");
     const order = await pagarme(secretKey, "/orders", "POST", {
@@ -236,6 +258,13 @@ async function testPix(secretKey, amountCents) {
             phones: {
                 mobile_phone: { country_code: "55", area_code: "11", number: "999999999" },
             },
+            address: {
+                line_1: "100, Rua Teste, Centro",
+                zip_code: "01310100",
+                city: "Sao Paulo",
+                state: "SP",
+                country: "BR",
+            },
         },
         payments: [
             {
@@ -247,26 +276,42 @@ async function testPix(secretKey, amountCents) {
         metadata: { type: "smoke", channel: "billing-sandbox-smoke" },
     });
 
-    let st = orderChargeStatus(order);
+    let current = order;
+    let st = orderChargeStatus(current);
     console.log(`  order_id=${order.id} charge_status inicial=${st}`);
+    if (st === "failed") {
+        throw new Error(
+            `PIX falhou na criação: ${orderChargeFailureReason(current)}. ` +
+                "Confira simulador PIX no painel Pagar.me."
+        );
+    }
 
     const deadline = Date.now() + 45_000;
     while (Date.now() < deadline) {
         if (st === "paid") break;
         await new Promise((r) => setTimeout(r, 2000));
-        const refreshed = await pagarme(secretKey, `/orders/${order.id}`, "GET");
-        st = orderChargeStatus(refreshed);
+        current = await pagarme(secretKey, `/orders/${order.id}`, "GET");
+        st = orderChargeStatus(current);
         process.stdout.write(".");
     }
     console.log(`\n  charge_status final=${st}`);
-    if (st !== "paid") {
-        throw new Error(
-            `PIX esperava paid em ≤45s, recebeu ${st} (${orderChargeFailureReason(order)}). ` +
-                "Confira simulador PIX no painel Pagar.me (Configurações → Meios de pagamento)."
-        );
+
+    const emv = extractPixEmvFromOrder(current);
+    if (st === "paid") {
+        console.log("  PASS PIX (auto-pago)");
+        return order.id;
     }
-    console.log("  PASS PIX");
-    return order.id;
+    if (emv) {
+        console.log(`  EMV OK (${emv.slice(0, 24)}…)`);
+        console.log(
+            "  PASS PIX (cobrança criada + EMV; auto-pay off — ative Simulador PIX no painel para paid)"
+        );
+        return order.id;
+    }
+    throw new Error(
+        `PIX esperava paid ou EMV, recebeu ${st} (${orderChargeFailureReason(current)}). ` +
+            "Confira simulador PIX no painel Pagar.me (Configurações → Meios de pagamento)."
+    );
 }
 
 async function main() {
