@@ -33,6 +33,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.107",
     "@ai-sdk/openai": "3.0.91",
+    "@ai-sdk/openai-compatible": "^1.0.52",
     "@ai-sdk/provider": "3.0.14",
     "@anthropic-ai/sdk": "^0.89.0",
     "@aws-sdk/client-sqs": "^3.1121.0",

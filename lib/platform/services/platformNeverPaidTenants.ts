@@ -136,6 +136,14 @@ export async function listNeverPaidTenants(
     };
 }
 
+export type CourtesyPlanKey = "essencial" | "pro" | "market";
+
+const ALLOWED_COURTESY_PLANS: ReadonlySet<CourtesyPlanKey> = new Set([
+    "essencial",
+    "pro",
+    "market",
+]);
+
 export async function grantCourtesyTrial(
     admin: SupabaseClient,
     actor: PlatformActor,
@@ -144,16 +152,22 @@ export async function grantCourtesyTrial(
         ipAddress: string;
         userAgent: string | null;
     },
-    params: { companyId: string; days: number; reason?: string }
-): Promise<{ trialEndsAt: string }> {
+    params: { companyId: string; days: number; planKey: string; reason?: string }
+): Promise<{ trialEndsAt: string; planKey: CourtesyPlanKey }> {
     const days = Math.floor(params.days);
-    if (days < 1 || days > 14) {
+    if (days < 1 || days > 30) {
         throw new Error("courtesy_trial_days_invalid");
+    }
+
+    const planKey = String(params.planKey ?? "").trim().toLowerCase() as CourtesyPlanKey;
+    if (!ALLOWED_COURTESY_PLANS.has(planKey)) {
+        throw new Error("courtesy_trial_plan_invalid");
     }
 
     const { data: trialEndsAt, error } = await admin.rpc("rpc_platform_grant_courtesy_trial", {
         p_company_id: params.companyId,
         p_days: days,
+        p_plan_key: planKey,
         p_actor_id: actor.id,
         p_actor_email: actor.email,
         p_actor_role: actor.role,
@@ -166,7 +180,7 @@ export async function grantCourtesyTrial(
     if (error) throw new Error(error.message);
     if (!trialEndsAt) throw new Error("courtesy_trial_failed");
 
-    return { trialEndsAt: String(trialEndsAt) };
+    return { trialEndsAt: String(trialEndsAt), planKey };
 }
 
 export async function ensureTenantCheckout(

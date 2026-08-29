@@ -63,7 +63,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data.
 | # | Item | Arquivos | DoD |
 |---|------|----------|-----|
 | A5.1 | `GET /api/platform/tenants?billing=never_paid` | platform API | Lista paginada | [x] 2026-08-28 |
-| A5.2 | `POST .../courtesy-trial` `{ days }` | RPC + API | Audit log; status→trial | [x] 2026-08-28 superadmin 1–14d |
+| A5.2 | `POST .../courtesy-trial` `{ days, plan_key }` | RPC + API | Audit log; status→trial | [x] 2026-08-29 superadmin 1–30d + plano |
 | A5.3 | `POST .../ensure-checkout` | chama A4.2 + opcional PIX | Idempotente | [x] 2026-08-28 |
 | A5.4 | UI platform: aba “Sem pagamento” | platform page | 3 ações acima | [x] 2026-08-28 `/platform/billing` |
 
@@ -236,7 +236,7 @@ Não abrir platform UI (A5) antes de A2+B3 — senão ops “libera” tenant co
 |---|---------|---------|
 | E1 | Webhook fulfill fail | **Híbrido** — ver §E1 abaixo (não 500 puro nem dead-letter puro) |
 | E2 | Setup fee | Manter `pending_setup` **somente** se `SETUP_PRICE_*>0`; senão só `pending_payment` |
-| E3 | Courtesy trial | Teto **14 dias**; só role `superadmin` (platform) |
+| E3 | Courtesy trial | Teto **30 dias**; só role `superadmin` (platform); `plan_key` ∈ {essencial, pro, market} |
 
 ### E1 — Webhook: híbrido (decisão técnica canônica)
 

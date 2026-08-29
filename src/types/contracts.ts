@@ -335,7 +335,7 @@ export interface ProPipelineInput {
          * também constroem este objeto sem `provider` — torná-lo obrigatório exigiria tocar esses
          * arquivos fora do escopo da fase. Ausente = fallback pro env global, sem risco.
          */
-        provider?: "anthropic" | "openai";
+        provider?: "anthropic" | "openai" | "ollama";
         planKey?: string | null;
     } | null;
 }
@@ -376,7 +376,7 @@ export interface PipelinePolicies {
     /** false = perfil degradado: sem LLM no intent nem no aiStage. */
     llmEnabled?: boolean;
     /** Provider/modelo resolvidos por empresa (multi-provider). Ausentes = comportamento atual (env global). */
-    aiProvider?: "anthropic" | "openai";
+    aiProvider?: "anthropic" | "openai" | "ollama";
     aiModel?: string;
     escalationRule: {
         unknownConsecutive: number;

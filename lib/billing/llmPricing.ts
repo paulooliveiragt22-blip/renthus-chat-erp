@@ -21,6 +21,8 @@ const LLM_RATES: Record<string, LlmTokenRates> = {
     "gpt-4.1": { inputUsdPerM: 2, outputUsdPerM: 8 },
     "gpt-5-mini": { inputUsdPerM: 0.25, outputUsdPerM: 2 },
     "gpt-5-mini-2025-08-07": { inputUsdPerM: 0.25, outputUsdPerM: 2 },
+    // Ollama (local) — custo zero em USD (a máquina paga em energia, mas isso é do developer,
+    // não do cliente). Llama 3.1 8B, Qwen2.5-Coder 7B, etc. caem aqui via heurística abaixo.
 };
 
 /** Conservador: Sonnet-class se modelo desconhecido. */
@@ -53,6 +55,11 @@ export function resolveLlmRates(model: string | null | undefined): LlmTokenRates
     if (key.includes("gpt-5-mini")) return { ...LLM_RATES["gpt-5-mini"]!, matched: true };
     if (key.includes("gpt-4o-mini")) return { ...LLM_RATES["gpt-4o-mini"]!, matched: true };
     if (key.includes("gpt-4o")) return { ...LLM_RATES["gpt-4o"]!, matched: true };
+    // Ollama local — qualquer modelo servido por Ollama (llama3.1, qwen2.5-coder, mistral, …)
+    // tem custo $0. Match por prefixo "ollama" também ajuda se a métrica vier como "ollama/llama3.1:8b".
+    if (key.startsWith("ollama") || key.includes("llama") || key.includes("qwen") || key.includes("mistral")) {
+        return { inputUsdPerM: 0, outputUsdPerM: 0, matched: true };
+    }
 
     return { ...FALLBACK_RATES, matched: false };
 }

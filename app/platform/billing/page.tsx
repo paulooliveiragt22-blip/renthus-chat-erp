@@ -22,6 +22,9 @@ export default function PlatformBillingPage() {
     const [planEdits, setPlanEdits] = useState<Record<string, string>>({});
     const [trialDaysInput, setTrialDaysInput] = useState<string>("");
     const [courtesyDaysByCompany, setCourtesyDaysByCompany] = useState<Record<string, string>>({});
+    const [courtesyPlanByCompany, setCourtesyPlanByCompany] = useState<
+        Record<string, "essencial" | "pro" | "market">
+    >({});
 
     const { data: meData } = useQuery({
         queryKey: ["platform", "me"],
@@ -118,14 +121,31 @@ export default function PlatformBillingPage() {
     });
 
     const courtesyTrial = useMutation({
-        mutationFn: ({ companyId, days }: { companyId: string; days: number }) =>
+        mutationFn: ({
+            companyId,
+            days,
+            planKey,
+        }: {
+            companyId: string;
+            days: number;
+            planKey: "essencial" | "pro" | "market";
+        }) =>
             platformApi.grantCourtesyTrial(
                 companyId,
                 days,
+                planKey,
                 "cortesia via /platform/billing"
             ),
         onSuccess: (res) => {
-            toast.success(`Trial até ${new Date(res.trial_ends_at).toLocaleDateString("pt-BR")}`);
+            const planLabel =
+                res.plan_key === "market"
+                    ? "Market"
+                    : res.plan_key === "pro"
+                      ? "Pro"
+                      : "Essencial";
+            toast.success(
+                `Trial ${planLabel} até ${new Date(res.trial_ends_at).toLocaleDateString("pt-BR")}`
+            );
             queryClient.invalidateQueries({ queryKey: ["platform", "billing", "never_paid"] });
         },
         onError: (e: Error) => toast.error(e.message),
@@ -389,6 +409,15 @@ export default function PlatformBillingPage() {
                             {neverPaidTenants.map((t) => {
                                 const courtesyInput =
                                     courtesyDaysByCompany[t.companyId] ?? "7";
+                                const currentPlanRaw = String(t.plan ?? "").toLowerCase();
+                                const initialPlan: "essencial" | "pro" | "market" =
+                                    currentPlanRaw === "market" ||
+                                    currentPlanRaw === "pro" ||
+                                    currentPlanRaw === "essencial"
+                                        ? (currentPlanRaw as "essencial" | "pro" | "market")
+                                        : "essencial";
+                                const courtesyPlan =
+                                    courtesyPlanByCompany[t.companyId] ?? initialPlan;
                                 return (
                                     <tr key={t.companyId}>
                                         <td className="px-3 py-2">
@@ -439,10 +468,30 @@ export default function PlatformBillingPage() {
                                                 </button>
                                                 {isSuperadmin ? (
                                                     <>
+                                                        <select
+                                                            value={courtesyPlan}
+                                                            onChange={(e) =>
+                                                                setCourtesyPlanByCompany((m) => ({
+                                                                    ...m,
+                                                                    [t.companyId]: e.target
+                                                                        .value as
+                                                                        | "essencial"
+                                                                        | "pro"
+                                                                        | "market",
+                                                                }))
+                                                            }
+                                                            className="rounded border border-zinc-200 bg-zinc-50 px-1 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                                                            title="Plano do trial"
+                                                            aria-label="Plano do trial"
+                                                        >
+                                                            <option value="essencial">Essencial</option>
+                                                            <option value="pro">Pro</option>
+                                                            <option value="market">Market</option>
+                                                        </select>
                                                         <input
                                                             type="number"
                                                             min={1}
-                                                            max={14}
+                                                            max={30}
                                                             value={courtesyInput}
                                                             onChange={(e) =>
                                                                 setCourtesyDaysByCompany((m) => ({
@@ -451,7 +500,7 @@ export default function PlatformBillingPage() {
                                                                 }))
                                                             }
                                                             className="w-12 rounded border border-zinc-200 bg-zinc-50 px-1 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
-                                                            title="Dias cortesia"
+                                                            title="Dias cortesia (1 a 30)"
                                                         />
                                                         <button
                                                             type="button"
@@ -461,16 +510,17 @@ export default function PlatformBillingPage() {
                                                                 if (
                                                                     !Number.isFinite(d) ||
                                                                     d < 1 ||
-                                                                    d > 14
+                                                                    d > 30
                                                                 ) {
                                                                     toast.error(
-                                                                        "Cortesia: 1 a 14 dias"
+                                                                        "Cortesia: 1 a 30 dias"
                                                                     );
                                                                     return;
                                                                 }
                                                                 courtesyTrial.mutate({
                                                                     companyId: t.companyId,
                                                                     days: d,
+                                                                    planKey: courtesyPlan,
                                                                 });
                                                             }}
                                                             className="rounded border border-zinc-200 px-2 py-1 text-[11px] dark:border-zinc-700"

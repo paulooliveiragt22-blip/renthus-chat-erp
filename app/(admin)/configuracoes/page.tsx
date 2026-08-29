@@ -423,7 +423,7 @@ function ConfiguracoesPageContent() {
     const settingsMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // company_settings (motor de IA — aba Chatbot, salvo junto com saveChatbot)
-    const [llmProvider, setLlmProvider] = useState<"anthropic" | "openai">("anthropic");
+    const [llmProvider, setLlmProvider] = useState<"anthropic" | "openai" | "ollama">("anthropic");
 
     // ── load company ──────────────────────────────────────────────────────────
     const loadCompany = useCallback(async () => {
@@ -903,7 +903,11 @@ function ConfiguracoesPageContent() {
                 if (!data) return;
                 setRequireApproval(!!data.require_order_approval);
                 setAutoPrint(!!data.auto_print_orders);
-                setLlmProvider(data.llm_provider === "openai" ? "openai" : "anthropic");
+                setLlmProvider(
+                    data.llm_provider === "openai" || data.llm_provider === "ollama"
+                        ? data.llm_provider
+                        : "anthropic"
+                );
             })
             .catch(() => {});
     }, [companyId, supabase]);
@@ -1595,7 +1599,12 @@ function ConfiguracoesPageContent() {
                                     </label>
                                     <select
                                         value={llmProvider}
-                                        onChange={(e) => setLlmProvider(e.target.value === "openai" ? "openai" : "anthropic")}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            setLlmProvider(
+                                                v === "openai" || v === "ollama" ? v : "anthropic"
+                                            );
+                                        }}
                                         disabled={!chatbotId}
                                         className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
                                     >
@@ -1603,10 +1612,14 @@ function ConfiguracoesPageContent() {
                                             Claude Haiku 4.5 (Anthropic) — recomendado
                                         </option>
                                         <option value="openai">GPT-5 mini (OpenAI) — custo menor</option>
+                                        <option value="ollama">
+                                            Ollama (local — Llama 3.1 / Qwen2.5-Coder) — dev/teste
+                                        </option>
                                     </select>
                                     <p className="text-[11px] text-zinc-400">
                                         Claude Haiku é o motor validado em produção. GPT-5 mini custa menos por
-                                        pedido.
+                                        pedido. <strong>Ollama</strong> roda local na sua máquina (grátis, sem
+                                        custo de API) — só funciona em dev, requer Ollama instalado.
                                     </p>
                                 </div>
 

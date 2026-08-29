@@ -473,10 +473,20 @@ export const platformApi = {
             page: number;
             limit: number;
         }>(`/api/platform/tenants?billing=never_paid&page=${page}&limit=${limit}`),
-    grantCourtesyTrial: (companyId: string, days: number, reason = "") =>
-        platformFetch<{ ok: boolean; trial_ends_at: string; days: number }>(
+    grantCourtesyTrial: (
+        companyId: string,
+        days: number,
+        planKey: "essencial" | "pro" | "market",
+        reason = ""
+    ) =>
+        platformFetch<{
+            ok: boolean;
+            trial_ends_at: string;
+            days: number;
+            plan_key: "essencial" | "pro" | "market";
+        }>(
             `/api/platform/tenants/${encodeURIComponent(companyId)}/courtesy-trial`,
-            { method: "POST", body: JSON.stringify({ days, reason }) }
+            { method: "POST", body: JSON.stringify({ days, plan_key: planKey, reason }) }
         ),
     ensureTenantCheckout: (companyId: string) =>
         platformFetch<{

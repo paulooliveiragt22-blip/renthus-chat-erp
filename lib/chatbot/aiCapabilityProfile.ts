@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getActiveSubscription } from "@/lib/billing/entitlements";
 import { canUseAi, isAiEnabledInBotConfig } from "@/lib/billing/aiWallet";
 import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
-import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL } from "@/src/pro/adapters/ai/modelProvider";
+import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OLLAMA_MODEL } from "@/src/pro/adapters/ai/modelProvider";
 
 export type AiCapabilityTier = "degradado" | "basico" | "avancado";
 
@@ -19,7 +19,7 @@ export type AiCapabilityProfile = {
     tier: AiCapabilityTier;
     /** Plano comercial resolvido (null se sem assinatura). */
     planKey: CommercialPlanKey | null;
-    provider: "anthropic" | "openai";
+    provider: "anthropic" | "openai" | "ollama";
     model: string;
     maxToolRounds: number;
     maxHistoryTurns: number;
@@ -39,18 +39,22 @@ const ALL_TOOLS: AiToolName[] = ["search_produtos", "get_order_hints", "prepare_
  * comportamento idêntico ao anterior.
  */
 /** Exportada só para teste unitário direto (evita mockar toda a cadeia de subscription/wallet). */
-export function configuredProvider(companyOverride?: string | null): "anthropic" | "openai" {
+export function configuredProvider(companyOverride?: string | null): "anthropic" | "openai" | "ollama" {
     const override = (companyOverride ?? "").trim().toLowerCase();
-    if (override === "anthropic" || override === "openai") return override;
+    if (override === "anthropic" || override === "openai" || override === "ollama") return override;
     const p = (process.env.LLM_PROVIDER ?? "anthropic").trim().toLowerCase();
-    return p === "openai" ? "openai" : "anthropic";
+    if (p === "openai") return "openai";
+    if (p === "ollama") return "ollama";
+    return "anthropic";
 }
 
 /** Exportada só para teste unitário direto (mesma razão de `configuredProvider`). */
-export function configuredModel(provider: "anthropic" | "openai"): string {
+export function configuredModel(provider: "anthropic" | "openai" | "ollama"): string {
     const fromEnv = process.env.LLM_MODEL?.trim();
     if (fromEnv) return fromEnv;
-    return provider === "openai" ? DEFAULT_OPENAI_MODEL : DEFAULT_ANTHROPIC_MODEL;
+    if (provider === "openai") return DEFAULT_OPENAI_MODEL;
+    if (provider === "ollama") return DEFAULT_OLLAMA_MODEL;
+    return DEFAULT_ANTHROPIC_MODEL;
 }
 
 function profileForPlan(

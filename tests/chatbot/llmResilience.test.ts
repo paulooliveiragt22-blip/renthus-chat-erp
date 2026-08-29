@@ -9,7 +9,7 @@ import {
 } from "../../lib/chatbot/llmResilience";
 import type { LlmProviderName } from "../../src/pro/adapters/ai/modelProvider";
 
-const PROVIDERS: LlmProviderName[] = ["anthropic", "openai"];
+const PROVIDERS: LlmProviderName[] = ["anthropic", "openai", "ollama"];
 
 describe("llmResilience", () => {
     beforeEach(() => {
