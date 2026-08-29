@@ -37,6 +37,7 @@ const pathAliasPlugin = {
 const entries = [
     { name: "inbound", entry: join(root, "workers", "inbound", "handler.ts") },
     { name: "outbound", entry: join(root, "workers", "outbound", "handler.ts") },
+    { name: "reconcile", entry: join(root, "workers", "reconcile", "handler.ts") },
 ];
 
 if (existsSync(outDir)) {
@@ -72,7 +73,7 @@ for (const { name, entry } of entries) {
     console.log(`built ${name} → ${outfile} + ${zipPath}`);
 }
 
-console.log("OK dist/workers/{inbound,outbound}.zip");
+console.log("OK dist/workers/{inbound,outbound,reconcile}.zip");
 
 function zipDir(sourceDir, zipPath) {
     return new Promise((resolve, reject) => {

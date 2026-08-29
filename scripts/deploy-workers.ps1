@@ -17,6 +17,7 @@ Set-Location $Root
 $AccountId = "696457893414"
 $InboundFn = "renthus-inbound-worker"
 $OutboundFn = "renthus-outbound-worker"
+$ReconcileFn = "renthus-outbox-reconcile"
 $RoleName = "renthus-lambda-sqs-worker"
 $InboundQueue = "renthus-inbound.fifo"
 $OutboundQueue = "renthus-outbound.fifo"
@@ -57,8 +58,9 @@ if (-not $SkipBuild) {
 
 $inboundZip = Join-Path $Root "dist\workers\inbound.zip"
 $outboundZip = Join-Path $Root "dist\workers\outbound.zip"
-if (-not (Test-Path $inboundZip) -or -not (Test-Path $outboundZip)) {
-    throw "Missing zip artifacts under dist/workers"
+$reconcileZip = Join-Path $Root "dist\workers\reconcile.zip"
+if (-not (Test-Path $inboundZip) -or -not (Test-Path $outboundZip) -or -not (Test-Path $reconcileZip)) {
+    throw "Missing zip artifacts under dist/workers (inbound, outbound, reconcile)"
 }
 
 # --- IAM role ---
@@ -95,7 +97,8 @@ if (-not $existingRole) {
                     "sqs:DeleteMessage",
                     "sqs:GetQueueAttributes",
                     "sqs:ChangeMessageVisibility",
-                    "sqs:GetQueueUrl"
+                    "sqs:GetQueueUrl",
+                    "sqs:SendMessage"
                 )
                 Resource = @(
                     "arn:aws:sqs:${Region}:${AccountId}:renthus-inbound.fifo",
@@ -161,7 +164,9 @@ $envKeys = @(
     "LLM_GLOBAL_MAX_IN_FLIGHT",
     "COMPANY_LLM_MAX_IN_FLIGHT",
     "SENTRY_DSN",
-    "NEXT_PUBLIC_APP_URL"
+    "NEXT_PUBLIC_APP_URL",
+    "SQS_DISPATCH_ENABLED",
+    "CHATBOT_QUEUE_STALE_MINUTES"
 )
 
 $dotenvPath = if ($EnvFile) { $EnvFile } else { Join-Path $Root ".env.local" }
@@ -172,6 +177,7 @@ $variables = @{
     SQS_INBOUND_QUEUE_URL = $inUrl
     SQS_OUTBOUND_QUEUE_URL = $outUrl
     CHATBOT_QUEUE_ENABLED = "1"
+    SQS_DISPATCH_ENABLED = "1"
 }
 
 # Lambda reserves AWS_REGION — do not set it in Environment.Variables
@@ -258,6 +264,46 @@ if ($LlmGlobalMax -gt 0 -and $env:RENTHUS_LAMBDA_RESERVED -eq "1") {
 }
 Ensure-Function -Name $InboundFn -Zip $inboundZip -Memory 1024 -Timeout 120 -Reserved $inboundReserved
 Ensure-Function -Name $OutboundFn -Zip $outboundZip -Memory 512 -Timeout 60 -Reserved $outboundReserved
+Ensure-Function -Name $ReconcileFn -Zip $reconcileZip -Memory 256 -Timeout 60 -Reserved 0
+
+function Ensure-EventBridgeReconcile {
+    param([string]$FnArn)
+    $ruleName = "renthus-outbox-reconcile-5m"
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    $existing = aws --profile $Profile --region $Region events describe-rule --name $ruleName --output json 2>$null
+    $ErrorActionPreference = $prevEap
+    if (-not $existing) {
+        Write-Host "Creating EventBridge rule $ruleName" -ForegroundColor Cyan
+        Invoke-AwsRaw @(
+            "events", "put-rule",
+            "--name", $ruleName,
+            "--schedule-expression", "rate(5 minutes)",
+            "--state", "ENABLED",
+            "--description", "ADR-0003 outbox reconciler — pending sem SQS + processing stale"
+        )
+    } else {
+        Write-Host "EventBridge rule exists: $ruleName" -ForegroundColor Yellow
+    }
+    $targetId = "renthus-outbox-reconcile-lambda"
+    Invoke-AwsRaw @(
+        "events", "put-targets",
+        "--rule", $ruleName,
+        "--targets", ("Id=" + $targetId + ",Arn=" + $FnArn)
+    )
+    $prevEap2 = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    aws --profile $Profile --region $Region lambda add-permission `
+        --function-name $ReconcileFn `
+        --statement-id "eventbridge-outbox-reconcile" `
+        --action "lambda:InvokeFunction" `
+        --principal events.amazonaws.com `
+        --source-arn ("arn:aws:events:${Region}:${AccountId}:rule/" + $ruleName) 2>$null | Out-Null
+    $ErrorActionPreference = $prevEap2
+}
+
+$reconcileArn = Invoke-AwsText @("lambda", "get-function", "--function-name", $ReconcileFn, "--query", "Configuration.FunctionArn")
+Ensure-EventBridgeReconcile -FnArn $reconcileArn
 
 function Ensure-EventSource {
     param(
@@ -298,7 +344,8 @@ Write-Host ""
 Write-Host "Deploy OK" -ForegroundColor Green
 Write-Host "  $InboundFn  memory=1024 timeout=120 reserved=$inboundReserved"
 Write-Host "  $OutboundFn memory=512  timeout=60  reserved=$outboundReserved"
-Write-Host "  SQS dispatch still OFF on Vercel until Fase 4 (SQS_DISPATCH_ENABLED=1)"
+Write-Host "  $ReconcileFn memory=256 timeout=60  EventBridge rate(5 minutes)"
+Write-Host "  Vercel: SQS_DISPATCH_ENABLED=1 (prod cutover)"
 Write-Host ""
 Write-Host "Synthetic test (optional):" -ForegroundColor Cyan
 Write-Host "  aws --profile $Profile --region $Region sqs send-message --queue-url `"$inUrl`" --message-body '{...envelope...}' --message-group-id test --message-deduplication-id (New-Guid)"

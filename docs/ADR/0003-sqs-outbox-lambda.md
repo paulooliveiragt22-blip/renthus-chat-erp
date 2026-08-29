@@ -479,12 +479,33 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 
 ### Fase 5 — Otimizações pós-cutover (PR 5+)
 
-- [ ] Coalesce Upstash (P2) + fallback PG
-- [ ] Lambda reconciler outbox (`pending` sem `sqs_enqueued_at` > 2 min)
-- [ ] Remover RPC claim/reclaim (migration DROP FUNCTION)
-- [ ] Remover `emitQueueMetrics` SELECTs redundantes
-- [ ] Calibrar memory/timeout/concurrency com CloudWatch Insights (GB-s, p95 duração)
-- [ ] ADR review: ECS vs Lambda se GB-s > orçamento acordado
+- [x] Coalesce Upstash (P2) + fallback PG — `lib/chatbot/queue/coalesceRedis.ts` + `shouldCoalesceInbound`
+- [x] Lambda reconciler outbox (`pending` sem `sqs_enqueued_at` > 2 min) — `workers/reconcile/` + EventBridge `rate(5 minutes)`
+- [x] Remover RPC claim/reclaim — `20260829020000_drop_claim_reclaim_queue_rpcs.sql`
+- [x] Remover `emitQueueMetrics` SELECTs redundantes — `lib/chatbot/queue/maintenance.ts`
+- [ ] Calibrar memory/timeout/concurrency com CloudWatch Insights (GB-s, p95 duração) — ver § Calibração abaixo
+- [ ] ADR review: ECS vs Lambda se GB-s > orçamento acordado — ver § Calibração abaixo
+
+#### Calibração CloudWatch (operacional)
+
+Métricas a monitorar pós-deploy (sa-east-1):
+
+| Métrica | Onde | Ação se anormal |
+|---------|------|-----------------|
+| `Duration` p95 | Lambda inbound/outbound | Subir memory se p95 > 80% timeout |
+| `GB-Second` sum | Lambda → Cost Explorer | Se > ~USD 50/mês pré-100 empresas → revisar ECS Fargate (ADR review) |
+| `ApproximateAgeOfOldestMessage` | SQS FIFO | Alarme > 120s; checar reconciler + DLQ |
+| `Errors` / DLQ depth | Lambda + SQS DLQ | Runbook Fase 6 |
+
+Query Insights exemplo (Duration p95 inbound):
+
+```sql
+filter @type = "REPORT"
+| stats pct(@duration, 95) as p95_ms by bin(1h)
+```
+
+Reserved concurrency: habilitar quando quota AWS permitir (`RENTHUS_LAMBDA_RESERVED=1` no deploy).
+
 
 ### Fase 6 — Validação escala (~100 empresas)
 
@@ -500,8 +521,9 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 | Área | Path |
 |------|------|
 | Enqueue inbound | `app/api/whatsapp/incoming/route.ts` |
-| Worker atual | `app/api/chatbot/process-queue/route.ts` |
-| Claim SQL | `supabase/migrations/20260805100000_claim_chatbot_queue_jobs_fair_company.sql` |
+| Worker inbound | `workers/inbound/handler.ts` → `processInboundJobById` |
+| Reconciler outbox | `workers/reconcile/handler.ts` → `lib/queue/outboxReconcile.ts` |
+| Coalesce Redis | `lib/chatbot/queue/coalesceRedis.ts` |
 | Coalesce | `lib/chatbot/queue/coalesce.ts` |
 | Outbound | `app/api/chatbot/outbound-worker/route.ts` |
 | Platform stats | `lib/platform/services/platformOps.ts` → `getQueueHealthStats` |
@@ -517,4 +539,4 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 | Data | Nota |
 |------|------|
 | 2026-08-28 | Aceito — SQS outbox + Lambda; substitui wake/claim HTTP; EventBridge para crons restantes |
-| 2026-08-28 | Fase 4 cutover: rotas/wake/cron-job drain removidos; docs CHATBOT_PROD + PLANO_ESCALA atualizados |
+| 2026-08-28 | Fase 5: coalesce Upstash, reconciler Lambda, DROP claim/reclaim RPCs, emitQueueMetrics sem SELECT |

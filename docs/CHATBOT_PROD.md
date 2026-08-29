@@ -31,7 +31,7 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`** ([ADR-0003
 | Modo | Papel |
 |------|--------|
 | **Caminho feliz** | Enqueue outbox → `SendMessage` SQS → Lambda (event source mapping). Sem wake HTTP na Vercel. |
-| **Rede de segurança** | DLQ SQS + (Fase 5) reconciler outbox `pending` sem `sqs_enqueued_at`; cleanup diário `chatbot-queue-cleanup` via `pg_cron`. |
+| **Rede de segurança** | DLQ SQS + reconciler Lambda `renthus-outbox-reconcile` (EventBridge 5 min): `pending` sem `sqs_enqueued_at` > 2 min + reclaim `processing` stale; cleanup diário `chatbot-queue-cleanup` via `pg_cron`. |
 
 *Estado da implementação (pós cutover ADR-0003):*
 - Dispatch: `incoming` / producers outbound → `scheduleInboundAfterEnqueue` / `scheduleOutboundAfterEnqueue*` → SQS.
@@ -39,7 +39,7 @@ Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`** ([ADR-0003
 - Rotas HTTP `process-queue` / `outbound-worker` e wake (`queueWorkerWake`) **removidas**.
 - Crons Vercel/cron-job.org de drain de fila **removidos**; permanece `detect-abandoned-carts` (enfileira outbound).
 - `pg_cron` job `chatbot-queue-drain` **unscheduled**; cleanup diário de outbox **mantido**.
-- Fairness no worker: Upstash `companyWorkerCap` (+ teto LLM global). Claim SQL RPC permanece no schema mas **fora do hot path**.
+- Fairness no worker: Upstash `companyWorkerCap` (+ teto LLM global). Coalesce inbound: Upstash `SET NX` + fallback PG (`coalesceRedis.ts`). RPCs claim/reclaim **removidas** (Fase 5).
 - **Backlog UX:** se a fila da empresa estiver profunda/atrasada, `incoming` envia aviso PT-BR (cooldown por thread) via `lib/chatbot/backlogNotice.ts`.
 - **Cache busca catálogo:** TTL in-memory em `src/pro/tools/catalogSearchCache.ts` (por instância).
 

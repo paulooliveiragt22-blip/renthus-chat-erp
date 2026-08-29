@@ -1,7 +1,7 @@
 import "server-only";
 import * as Sentry from "@sentry/nextjs";
 import { isQueueRetryableError, queueRetryDelayMs } from "@/lib/chatbot/queueRetry";
-import { buildCoalesceKey, hasRecentEquivalentProcessed } from "./coalesce";
+import { buildCoalesceKey, shouldCoalesceInbound } from "./coalesce";
 import { processQueueJobEntry } from "./processJobEntry";
 import { MAX_ATTEMPTS } from "./env";
 import type { AdminClient, ChatbotQueueJobRow } from "./types";
@@ -39,8 +39,7 @@ export async function runQueueEntryWithOutcome(
         job.metadata?.message_type ?? null
     );
     const shouldCoalesce =
-        !!coalesceKey &&
-        (seenInBatch.has(coalesceKey) || (await hasRecentEquivalentProcessed(admin, job, coalesceKey)));
+        !!coalesceKey && (await shouldCoalesceInbound(admin, job, coalesceKey, seenInBatch));
 
     if (shouldCoalesce) {
         console.info("[process-queue] inbound coalesced", {
@@ -62,7 +61,11 @@ export async function runQueueEntryWithOutcome(
     if (markProcessingBeforeRun) {
         await admin
             .from("chatbot_queue")
-            .update({ status: "processing", attempts: (job.attempts ?? 0) + 1 })
+            .update({
+                status: "processing",
+                attempts: (job.attempts ?? 0) + 1,
+                processing_started_at: new Date().toISOString(),
+            })
             .eq("id", job.id);
     }
 

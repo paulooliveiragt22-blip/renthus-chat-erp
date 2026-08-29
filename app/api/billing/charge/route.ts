@@ -314,6 +314,11 @@ async function generateSetupCharge(
     }
 }
 
+type OverdueInvoiceCompany = {
+    whatsapp_phone?: string | null;
+    is_active?: boolean | null;
+};
+
 async function processOverdueInvoiceRow(
     admin: ReturnType<typeof createAdminClient>,
     inv: {
@@ -323,15 +328,19 @@ async function processOverdueInvoiceRow(
         due_at: string;
         pagarme_payment_url: string | null;
         pix_qr_code: string | null;
-        pagarme_subscriptions: CollectSub & { status?: string } | (CollectSub & { status?: string })[] | null;
-        companies: { whatsapp_phone?: string | null; is_active?: boolean | null } | null;
+        pagarme_subscriptions:
+            | (CollectSub & { status?: string })
+            | (CollectSub & { status?: string })[]
+            | null;
+        companies: OverdueInvoiceCompany | OverdueInvoiceCompany[] | null;
     },
     now: Date,
     results: { notified: number; blocked: number; cardPaid: number }
 ) {
     const subRaw = inv.pagarme_subscriptions;
     const sub = Array.isArray(subRaw) ? subRaw[0] ?? null : subRaw;
-    const company = inv.companies;
+    const companyRaw = inv.companies;
+    const company = Array.isArray(companyRaw) ? companyRaw[0] ?? null : companyRaw;
 
     if (!sub || sub.status === "blocked" || sub.status === "cancelled") return;
 

@@ -8,12 +8,12 @@
  *   node scripts/billing-sandbox-smoke.mjs
  *   node scripts/billing-sandbox-smoke.mjs --amount-cents 19700
  *
- * Requer em .env.local (ou env):
+ * Requer em .env.local ou .env.pagarme.local (ou env):
  *   PAGARME_API_KEY=sk_test_...
  *   NEXT_PUBLIC_PAGARME_PUBLIC_KEY=pk_test_...
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const BASE = "https://api.pagar.me/core/v5";
@@ -21,10 +21,12 @@ const TEST_CARD = "4000000000000010";
 const TEST_CVV = "123";
 const TEST_EXP_MONTH = 12;
 const TEST_EXP_YEAR = 30;
+const TEST_CNPJ = "11444777000161"; // CNPJ válido (Receita) — 12345678000199 falha validação Pagar.me
 const DEFAULT_AMOUNT_CENTS = 19700; // Essencial mensal — < R$500 (PIX sandbox ok)
 
-function loadDotEnvLocal() {
-    const p = resolve(process.cwd(), ".env.local");
+function loadDotEnvFile(relPath) {
+    const p = resolve(process.cwd(), relPath);
+    if (!existsSync(p)) return;
     try {
         const raw = readFileSync(p, "utf8");
         for (const line of raw.split(/\r?\n/)) {
@@ -47,6 +49,12 @@ function loadDotEnvLocal() {
     }
 }
 
+/** .env.local primeiro; .env.pagarme.local preenche só o que faltar (vercel env pull production). */
+function loadDotEnvLocal() {
+    loadDotEnvFile(".env.local");
+    loadDotEnvFile(".env.pagarme.local");
+}
+
 function parseArgs() {
     const args = process.argv.slice(2);
     let amountCents = DEFAULT_AMOUNT_CENTS;
@@ -62,7 +70,7 @@ function parseArgs() {
 function requireEnv(name) {
     const v = process.env[name]?.trim();
     if (!v) {
-        console.error(`[billing-sandbox] ${name} ausente. Adicione em .env.local (sk_test_/pk_test_).`);
+        console.error(`[billing-sandbox] ${name} ausente. Adicione em .env.local ou .env.pagarme.local (vercel env pull --environment=production).`);
         process.exit(1);
     }
     if (name === "PAGARME_API_KEY" && !v.startsWith("sk_test_")) {
@@ -133,6 +141,18 @@ function orderChargeStatus(order) {
     return order?.charges?.[0]?.status ?? order?.status ?? "unknown";
 }
 
+function orderChargeFailureReason(order) {
+    const charge = order?.charges?.[0];
+    const tx = charge?.last_transaction;
+    const parts = [
+        charge?.status,
+        tx?.status,
+        tx?.acquirer_message,
+        tx?.gateway_response?.errors?.[0]?.message,
+    ].filter(Boolean);
+    return parts.join(" | ") || "sem detalhe";
+}
+
 async function testCreditCard(secretKey, publicKey, amountCents) {
     console.log("\n── Cartão de crédito (simulador PSP) ──");
     const token = await createCardToken(publicKey);
@@ -151,7 +171,7 @@ async function testCreditCard(secretKey, publicKey, amountCents) {
             name: "Loja Sandbox Renthus",
             email: "sandbox+billing@renthus.test",
             type: "company",
-            document: "12345678000199",
+            document: TEST_CNPJ,
             document_type: "CNPJ",
             phones: {
                 mobile_phone: { country_code: "55", area_code: "11", number: "999999999" },
@@ -190,7 +210,7 @@ async function testCreditCard(secretKey, publicKey, amountCents) {
     const st = orderChargeStatus(order);
     console.log(`  order_id=${order.id} charge_status=${st}`);
     if (st !== "paid") {
-        throw new Error(`cartão esperava paid, recebeu ${st}`);
+        throw new Error(`cartão esperava paid, recebeu ${st} (${orderChargeFailureReason(order)})`);
     }
     console.log("  PASS cartão");
     return order.id;
@@ -211,8 +231,11 @@ async function testPix(secretKey, amountCents) {
             name: "Loja Sandbox Renthus",
             email: "sandbox+pix@renthus.test",
             type: "company",
-            document: "12345678000199",
+            document: TEST_CNPJ,
             document_type: "CNPJ",
+            phones: {
+                mobile_phone: { country_code: "55", area_code: "11", number: "999999999" },
+            },
         },
         payments: [
             {
@@ -237,7 +260,10 @@ async function testPix(secretKey, amountCents) {
     }
     console.log(`\n  charge_status final=${st}`);
     if (st !== "paid") {
-        throw new Error(`PIX esperava paid em ≤45s, recebeu ${st}`);
+        throw new Error(
+            `PIX esperava paid em ≤45s, recebeu ${st} (${orderChargeFailureReason(order)}). ` +
+                "Confira simulador PIX no painel Pagar.me (Configurações → Meios de pagamento)."
+        );
     }
     console.log("  PASS PIX");
     return order.id;

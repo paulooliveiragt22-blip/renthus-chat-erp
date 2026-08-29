@@ -40,6 +40,7 @@ export type CollectSub = {
     plan: string | null;
     pagarme_customer_id: string | null;
     default_card_id: string | null;
+    last_paid_at?: string | null;
     companies?: CollectCompany | CollectCompany[] | null;
 };
 

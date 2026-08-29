@@ -88,3 +88,4 @@ sonar-new-code-smells.json
 sonar-new-code-smells.csv
 sonar-new-code-bugs.json
 sonar-new-code-bugs.csv
+.env*.local

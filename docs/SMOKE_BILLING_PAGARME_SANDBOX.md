@@ -95,13 +95,14 @@ Em **localhost**, use túnel apontando para `:3000/api/billing/webhook`. No depl
 Valida chaves e simuladores **sem** login no admin:
 
 ```bash
-# Adicione sk_test_ e pk_test_ no .env.local, depois:
+# Chaves Pagar.me estão em Production na Vercel — pull separado (não sobrescreva .env.local):
+vercel env pull .env.pagarme.local --environment=production
 npm run test:billing-sandbox
 ```
 
-Esperado: `PASS cartão` + `PASS PIX`.
+O script lê `.env.local` **e** `.env.pagarme.local` (só preenche vars ausentes).
 
-> **Nota (R6.4):** chaves sandbox costumam estar só na **Vercel** (`vercel env pull` ou painel). Sem `PAGARME_API_KEY`/`NEXT_PUBLIC_PAGARME_PUBLIC_KEY` locais, o script falha com mensagem explícita — use deploy `/plano/pagar` ou `npm run test:e2e:billing` no `E2E_BASE_URL` de produção preview.
+Esperado: `PASS cartão` + `PASS PIX`.
 
 ### Matriz R6.4 (manual pós-deploy)
 

@@ -43,6 +43,11 @@ export function makeMockAdmin(tables: Tables): MockAdminHandle {
         const api: Record<string, unknown> = {
             select: () => chain(tableName, filters),
             eq: (key: string, value: unknown) => chain(tableName, [...filters, (r) => r[key] === value]),
+            is: (key: string, value: unknown) =>
+                chain(tableName, [
+                    ...filters,
+                    (r) => (value === null ? r[key] == null : r[key] === value),
+                ]),
             in: (key: string, values: unknown[]) => chain(tableName, [...filters, (r) => values.includes(r[key])]),
             lt: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") < String(value)]),
             lte: (key: string, value: unknown) => chain(tableName, [...filters, (r) => String(r[key] ?? "") <= String(value)]),

@@ -1,8 +1,14 @@
 import "server-only";
 import type { AdminClient, ChatbotQueueJobRow } from "./types";
 import { getPositiveIntEnv } from "./env";
+import { tryCoalesceRedisLock } from "./coalesceRedis";
 
 const INBOUND_COALESCE_WINDOW_SECONDS = getPositiveIntEnv("INBOUND_DEDUP_WINDOW_SECONDS", 20);
+
+type CoalesceJob = Pick<
+    ChatbotQueueJobRow,
+    "id" | "thread_id" | "phone_e164" | "company_id" | "body_text" | "metadata"
+>;
 
 function normalizeInboundText(text: string): string {
     return text
@@ -64,10 +70,29 @@ function buildCoalesceKey(
     return `${owner}::${normalized}`;
 }
 
+/**
+ * Deve coalescer este inbound? Redis SET NX primeiro; fallback PG se Upstash indisponível.
+ * `seenInBatch` cobre duplicatas no mesmo batch Lambda/SQS.
+ */
+async function shouldCoalesceInbound(
+    admin: AdminClient,
+    job: CoalesceJob,
+    coalesceKey: string,
+    seenInBatch: Set<string>
+): Promise<boolean> {
+    if (seenInBatch.has(coalesceKey)) return true;
+
+    const redis = await tryCoalesceRedisLock(coalesceKey);
+    if (redis === "duplicate") return true;
+    if (redis === "acquired") return false;
+
+    return hasRecentEquivalentProcessed(admin, job, coalesceKey);
+}
+
 /** Já existe um job equivalente (mesma chave de coalesce) processado/processando na janela recente? */
 async function hasRecentEquivalentProcessed(
     admin: AdminClient,
-    job: Pick<ChatbotQueueJobRow, "id" | "thread_id" | "phone_e164" | "company_id" | "body_text" | "metadata">,
+    job: CoalesceJob,
     coalesceKey: string
 ): Promise<boolean> {
     const threadId = job.thread_id;
@@ -125,6 +150,7 @@ async function hasRecentEquivalentProcessed(
 export {
     buildCoalesceKey,
     hasRecentEquivalentProcessed,
+    shouldCoalesceInbound,
     normalizeInboundText,
     isCriticalOrderConfirmationText,
     shouldSkipCoalesceByPayload,
