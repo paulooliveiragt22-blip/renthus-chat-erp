@@ -10,79 +10,65 @@ Documento de decisão e checklist para o time executar. Alinhado ao código atua
 
 ## Objetivo
 
-Suportar **muitas empresas e muitos pedidos em paralelo** sem acoplar o webhook ao tempo de IA/DB. Prioridade: **custo, latência, simplicidade** — sem microserviço nem fila externa até haver evidência de gargalo.
+Suportar **muitas empresas e muitos pedidos em paralelo** sem acoplar o webhook ao tempo de IA/DB. Prioridade: **custo, latência, simplicidade**. Transporte de fila: **SQS + Lambda** (ADR-0003); outbox permanece no Postgres.
 
 **Planejamento de carga (referência interna):** piloto com **3 empresas** da ordem de **~10 mil pedidos/mês cada**; meta de crescimento até **~100 empresas** nesse perfil (ex.: **12/26**). Para capacidade e custo de IA, planear em **mensagens inbound e chamadas ao modelo no pico**, não só em “pedidos/mês” médio — o funil gera **várias mensagens por pedido**.
 
 ---
 
-## Arquitetura alvo (referência) — Webhook → fila → worker → pipeline → resposta
+## Arquitetura alvo (referência) — Webhook → outbox → SQS → Lambda → pipeline → resposta
 
-Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`**:
+Fluxo canónico de processamento quando **`CHATBOT_QUEUE_ENABLED=1`** ([ADR-0003](./ADR/0003-sqs-outbox-lambda.md)):
 
-1. **Webhook** (`POST` Meta): validação, persistência mínima, **dedup** de curta janela (texto), **enqueue** em `chatbot_queue`, **200** rápido.
-2. **Fila:** Postgres (`chatbot_queue`) com **claim exclusivo** (RPC / equivalente) e idempotência **`(company_id, message_id)`** onde aplicável.
-3. **Worker** (`GET /api/chatbot/process-queue` autenticado): claim → **loop limitado** (batch + tempo dentro do `maxDuration`) → `processInboundMessage` → estado `done` / `failed` / retry.
+1. **Webhook** (`POST` Meta): validação, persistência mínima, **dedup** de curta janela (texto), **enqueue** em `chatbot_queue` (outbox), **200** rápido.
+2. **Outbox + transporte:** Postgres (`chatbot_queue` / `outbound_jobs`) continua fonte de verdade (dedup, coalesce, ops); após insert, `after()` → `SQS SendMessage` (`lib/queue/afterEnqueue.ts` + `sqsDispatch.ts`) quando `SQS_DISPATCH_ENABLED=1`.
+3. **Worker:** AWS Lambda (`renthus-inbound-worker` / `renthus-outbound-worker`) consome SQS FIFO → `processInboundJobById` / `processOutboundJobById`.
 4. **Pipeline:** `lib/chatbot/processMessage.ts` — plano **PRO** → `runProPipeline` (`src/pro/`); **Starter** → `inboundPipeline`.
 5. **Resposta:** envio WhatsApp dentro do pipeline / camadas já existentes; manter idempotência de **efeito** (pedido, outbound).
 
-**Gatilho do worker (decisão de produto, não detalhe de deploy):**
+**Gatilho do worker (cutover SQS — Fase 4):**
 
 | Modo | Papel |
 |------|--------|
-| **Caminho feliz** | **Wake imediato** após enqueue (HTTP interno assíncrono / fire-and-forget para `process-queue` com o mesmo `CRON_SECRET`) para não depender do próximo tick do scheduler. |
-| **Rede de segurança** | **Scheduler** (Vercel Cron quando o plano permitir frequência útil, ou serviço externo no Hobby) para jobs presos, falhas intermitentes do wake, ou burst. |
+| **Caminho feliz** | Enqueue outbox → `SendMessage` SQS → Lambda (event source mapping). Sem wake HTTP na Vercel. |
+| **Rede de segurança** | DLQ SQS + (Fase 5) reconciler outbox `pending` sem `sqs_enqueued_at`; cleanup diário `chatbot-queue-cleanup` via `pg_cron`. |
 
-*Estado da implementação:*
-- Wake pós-enqueue: `incoming` → `after()` → `lib/chatbot/queueWorkerWake.ts` → `GET /api/chatbot/process-queue` (`Bearer CRON_SECRET`).
-- Self-wake (pico): worker agenda outra invocação se ainda há `pending` após o claim (`?drain=N`, teto `CHATBOT_QUEUE_DRAIN_MAX`, default 5) — cobre batch cheio e claim parcial (fairness / skip-busy).
-- Reclaim: RPC `reclaim_stuck_chatbot_queue_jobs` devolve `processing` stuck (> `CHATBOT_QUEUE_STALE_MINUTES`, default 3) para `pending`.
-- **Claim justo (P2):** `claim_chatbot_queue_jobs(batch, max_attempts, max_per_company)` — teto por `company_id` + não claima `thread_id` já em `processing` (single-flight por conversa).
-- **Paralelismo por thread (P3):** no mesmo lote, threads diferentes correm em paralelo (`CHATBOT_QUEUE_CONCURRENCY`, default 3); a mesma conversa continua sequencial. Claim SQL já garante que 2 jobs da mesma thread nunca ficam `processing` ao mesmo tempo.
-- **Cron de drenagem (P3):** `pg_cron` + `pg_net` chama `GET /api/chatbot/process-queue` a cada 10s (job `chatbot-queue-drain`). Complementa o wake; não desliga wake/`CHATBOT_QUEUE_DRAIN_MAX` sem métrica de produção.
+*Estado da implementação (pós cutover ADR-0003):*
+- Dispatch: `incoming` / producers outbound → `scheduleInboundAfterEnqueue` / `scheduleOutboundAfterEnqueue*` → SQS.
+- Filas: `renthus-inbound.fifo` (MessageGroupId = `thread_id`), `renthus-outbound.fifo` (MessageGroupId = `company_id`).
+- Rotas HTTP `process-queue` / `outbound-worker` e wake (`queueWorkerWake`) **removidas**.
+- Crons Vercel/cron-job.org de drain de fila **removidos**; permanece `detect-abandoned-carts` (enfileira outbound).
+- `pg_cron` job `chatbot-queue-drain` **unscheduled**; cleanup diário de outbox **mantido**.
+- Fairness no worker: Upstash `companyWorkerCap` (+ teto LLM global). Claim SQL RPC permanece no schema mas **fora do hot path**.
 - **Backlog UX:** se a fila da empresa estiver profunda/atrasada, `incoming` envia aviso PT-BR (cooldown por thread) via `lib/chatbot/backlogNotice.ts`.
 - **Cache busca catálogo:** TTL in-memory em `src/pro/tools/catalogSearchCache.ts` (por instância).
-- Desligar wake: `CHATBOT_QUEUE_WAKE_ENABLED=0`.
 
-### Scheduler externo (cron-job.org) — rede de segurança obrigatória no Hobby
+### Scheduler externo
 
-O cron nativo em `vercel.json` para `process-queue` está em **`0 3 * * *` (1×/dia)** — só backup terciário. No Hobby a frequência útil é o **cron-job.org** (ou equivalente).
-
-| Campo | Valor esperado |
-|-------|----------------|
-| URL | `GET https://<seu-app>/api/chatbot/process-queue` (ex. `CHATBOT_QUEUE_WAKE_URL`) |
-| Auth | Header `Authorization: Bearer <CRON_SECRET>` (mesmo secret do `.env`) |
-| Cadência | **a cada 1 minuto** (recomendado para fim de semana) |
-| Papel | Cobre falha do wake, burst e jobs reclaimados |
-
-Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos últimos runs. Sem isso, picos de sábado dependem só do wake pós-mensagem (e se um wake falhar, a fila envelhece).
+Após cutover, **não** use cron-job.org para `process-queue` / `outbound-worker` / `reactivate`. Job útil restante no Hobby: `detect-abandoned-carts` (e crons Vercel diários em `vercel.json`: billing, marketplace, platform alerts/audit). Crons de 5 min (reactivate, etc.) → EventBridge Scheduler quando migrar (ver ADR-0003).
 
 ---
 
 ## Arquitetura por horizonte (decisão)
 
-### Agora — **Vercel Hobby** (melhor esforço, uma pessoa)
+### Agora — **Vercel + SQS + Lambda** (cutover ADR-0003)
 
-- Manter **Postgres como fila** (`chatbot_queue`).
-- **Worker HTTP** (`process-queue`) com **auth forte** (`CRON_SECRET`), **fail-fast** em claim crítico em produção quando aplicável.
-- **Scheduler externo** (ex.: cron-job.org) na **menor cadência que o plano permitir** como **backup** obrigatório enquanto o cron nativo não for viável a cada minuto.
-- **Loop limitado** no worker: drenar só o que couber em **tempo + batch** por invocação (nunca “loop infinito” num único request serverless).
-- **Concorrência:** claim atômico obrigatório; múltiplas invocações (wake + cron) são **esperadas** — idempotência + lock no claim são o que evita custo/efeito duplicado.
-- **Expectativa honesta:** Hobby não entrega SLA de chat “tempo real”; entrega **arquitetura correta com latência limitada pelo gatilho + IA**.
+- **Outbox** em Postgres (`chatbot_queue` / `outbound_jobs`) + **SQS FIFO** + **Lambda** workers.
+- Vercel: webhooks, UI, APIs tenant, enqueue + `SendMessage` (`SQS_DISPATCH_ENABLED=1`).
+- **Expectativa:** latência dominada por IA/Meta, não por poll HTTP de fila na Vercel.
 
-### Médio prazo — tráfego real / saída do Hobby
+### Médio prazo — tráfego real
 
-- **Wake imediato** após enqueue já é o **caminho feliz** implementado (`incoming` → `after()` → `GET /api/chatbot/process-queue`); nesta fase o foco passa a **confiabilidade e observabilidade** (logs, métricas, p95), não “ligar o wake”.
-- Preferir **cron Vercel com frequência útil** quando o plano Pro permitir, **em conjunto** com wake (o scheduler externo deixa de ser tão crítico para UX, mas permanece como rede de segurança).
-- Avaliar **fila com entrega** (ex.: QStash / Inngest / SQS) **só** quando métricas ou operação justificarem (profundidade, idade p95, falhas de poll, custo humano).
-- **Fairness por `company_id` no claim SQL** já implementada (`max_per_company` + interleave no batch); Redis/broker só se métrica de multi-réplica justificar.
+- Observabilidade: CloudWatch (idade SQS, DLQ) + platform `getQueueHealthStats` na outbox.
+- Reconciler outbox + coalesce Upstash (Fase 5 do ADR).
+- Remover RPC claim/reclaim quando métrica confirmar zero consumidores HTTP.
 
 ### Escala alvo — **~100 empresas × ~10k pedidos/mês** (~1M pedidos/mês agregado)
 
 - Tratar **mensagens + rodadas de IA** como driver de carga, não “pedidos/mês” médio.
-- **Tetos externos:** Anthropic (quota/RPM), Meta (rate limit / número), Postgres (contenção fila + OLTP).
-- Evolução provável: **fila dedicada ou particionamento** da tabela de jobs + **pool de workers** com **concurrency limit** + **orçamento de IA** (timeout, max tool rounds, circuito em 429).
-- **Postgres único** como fila + OLTP tem **teto**; acima dele, decisão consciente (réplica leitura, particionar, ou sair para fila gerenciada) com **ADR** e métricas.
+- **Tetos externos:** Anthropic (quota/RPM), Meta (rate limit / número), Postgres (OLTP; fila quente já fora do claim SQL).
+- Calibrar reserved concurrency Lambda vs `LLM_GLOBAL_MAX_IN_FLIGHT` (Service Quotas se conta nova).
+- Postgres único como **outbox + OLTP** ainda tem teto de conexões — pooler `:6543` nas Lambdas é obrigatório.
 
 ---
 
@@ -90,8 +76,8 @@ Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos ú
 
 - **Fila não aumenta capacidade de IA** — só desloca trabalho e protege o webhook; latência de modelo continua a dominar muitos casos.
 - **Dedup de texto** cobre bem **duplo envio rápido / retry**; **não** substitui idempotência de **efeito** (criar pedido, cobrar, template) se outra camada reexecutar.
-- **RPC claim atômico** é necessário, não suficiente: sob muitos consumers, o gargalo migra para **hot rows**, índices e taxa de `UPDATE` na fila.
-- **Scheduler HTTP como único motor** gera UX de **até um intervalo entre mensagens**; por isso o wake + scheduler como rede de segurança é decisão explícita acima.
+- **SQS at-least-once** exige disciplina idempotente na outbox + efeitos (já parcial no repo).
+- **Reserved concurrency** em contas AWS novas pode falhar (mín. unreserved); calibrar depois.
 
 ---
 
@@ -134,8 +120,8 @@ Confirme no painel cron-job.org: URL correta, Bearer presente, status 200 nos ú
 | Ação | Nota |
 |------|------|
 | `POST` webhook (ex.: `app/api/whatsapp/incoming`) | Após validação: **insert job** (`chatbot_queue` ou RPC equivalente), responder **200** sem `await` do motor |
-| Worker | `app/api/chatbot/process-queue` (ou job dedicado): `claim` atômico (RPC preferencial), processar, marcar `done` / `failed`, **backoff** em falha |
-| **Execução do worker** | **Wake** após enqueue (caminho feliz) + **scheduler** como backup. Em **serverless**: **loop limitado** por batch e por tempo dentro de `maxDuration`; evitar “loop infinito”. Cron HTTP **esparso** sozinho não é arquitetura final para UX de chat |
+| Worker | Lambda SQS → `processInboundJobById` (ADR-0003); marcar `done` / `failed`, **backoff** via visibility SQS |
+| **Execução do worker** | **SQS event source** após enqueue (caminho feliz). Sem wake HTTP. Reconciler outbox (Fase 5) para `pending` sem `sqs_enqueued_at`. |
 | Idempotência | Unique ou guard clause em **(empresa, `message_id`)** antes de efeitos colaterais (pedido, outbound) |
 | Índices / fila | Garantir **índice alinhado ao `claim`** (estado + ordenação); plano de **retenção/arquivamento** de jobs `done` antes da tabela virar problema operacional |
 
@@ -338,10 +324,13 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 
 | Variável | Papel |
 |----------|--------|
-| `CRON_SECRET` | Auth do `GET /api/chatbot/process-queue` e do **wake** (`Authorization: Bearer`). |
-| Uma base URL pública ou interna | Wake: `CHATBOT_QUEUE_WAKE_URL` → `APP_INTERNAL_URL` → `NEXT_PUBLIC_APP_URL` → `VERCEL_URL` (ver comentários em `app/api/whatsapp/incoming/route.ts`). Sem isso + secret, só o scheduler cobre latência. |
+| `SQS_DISPATCH_ENABLED` | `1` em produção — dispara SQS após outbox insert. |
+| `SQS_INBOUND_QUEUE_URL` / `SQS_OUTBOUND_QUEUE_URL` | Filas FIFO AWS. |
+| `AWS_REGION` + keys IAM (SendMessage only) | Credenciais Vercel → SQS. |
+| `CRON_SECRET` | Auth de crons HTTP restantes (`detect-abandoned-carts`, billing, platform). |
 | `ANTHROPIC_API_KEY` | Motor PRO (e classificadores que usam Haiku). |
 | Credenciais Meta / canal | Já exigidas pelo ingresso (`WHATSAPP_APP_SECRET`, tokens de canal, etc.). |
+| `UPSTASH_*` + `LLM_GLOBAL_MAX_IN_FLIGHT` | Cap LLM + fairness por company no worker Lambda. |
 
 Estado persistido do PRO: `session.context.__pro_v2_state` (ver adapter `session.repository.supabase`). O motor PRO legado (`handleProOrderIntent` / `ai_order_canonical`) foi removido.
 
@@ -391,13 +380,10 @@ Mensagem proativa de **recuperação de carrinho** só quando o cliente falou co
 ### Fluxo
 
 ```
-detect-abandoned-carts (cron ~5 min)
+detect-abandoned-carts (cron ~5 min / diário Hobby)
   → RPC detect_abandoned_carts  → snapshot em abandoned_carts
   → enfileira em outbound_jobs (dedup_key = cart_recovery:<cart_id>)
-
-outbound-worker (cron ~5 min)
-  → reclaim_stuck_outbound_jobs → claim_outbound_jobs (fair por empresa)
-  → gates no envio → sendOutboundPayload → abandoned_carts.status = 'notified'
+  → after() → SQS outbound → Lambda renthus-outbound-worker
 
 cliente toca «Finalizar pedido» (pro_recover_cart)
   → applyQuickAction retoma o draft da sessão; o card do passo certo vem do post-process
@@ -423,20 +409,15 @@ O texto sai do snapshot do rascunho (`buildCartRecoveryMessage`), sem passar por
 | `CART_RECOVERY_IDLE_MINUTES` | `25` | Rascunho parado há N min vira candidato a snapshot. |
 | `CART_RECOVERY_DETECT_LIMIT` | `50` | Máx. snapshots por execução. |
 | `CART_RECOVERY_MAX_AGE_HOURS` | `48` | Idade após a qual o carrinho vira `expired`. |
-| `OUTBOUND_WORKER_BATCH` | `10` | Jobs por claim. |
-| `OUTBOUND_MAX_PER_COMPANY` | `3` | Fairness por empresa no claim. |
-| `OUTBOUND_MAX_ATTEMPTS` | `3` | Tentativas antes de `failed`. |
-| `OUTBOUND_STALE_MINUTES` | `5` | Reclaim de jobs presos em `processing`. |
+| `OUTBOUND_MAX_ATTEMPTS` | `3` | Tentativas antes de `failed` (Lambda). |
 | `OUTBOUND_FREQUENCY_WINDOW_HOURS` | `72` | Janela do teto de frequência. |
 | `OUTBOUND_MAX_PER_CUSTOMER` | `1` | Máx. proativas não-transacionais por cliente na janela. |
 | `OUTBOUND_JOB_RETENTION_DAYS` | `30` | Limpeza de jobs terminais. |
-| `OUTBOUND_WORKER_WAKE_ENABLED` | `1` | `0` desliga o wake detector → worker. |
+| `SQS_DISPATCH_ENABLED` | `1` prod | Enfileira outbound no SQS após insert. |
 
-Auth das duas rotas: `Bearer CRON_SECRET`, igual ao `process-queue`. O `vercel.json` traz as duas em cron **diário** (backup do Hobby); a frequência útil (~5 min) vem do **scheduler externo**, como já acontece com `process-queue` e `reactivate`.
+Auth do detector: `Bearer CRON_SECRET`. Worker outbound = **Lambda** (`processOutboundJobById`), não rota HTTP.
 
-**Gatilho (mesmo padrão do `process-queue`):** o caminho feliz é o detector acordar o worker via `after()` (`lib/chatbot/outbound/outboundWorkerWake.ts`) assim que enfileira; o cron do worker é rede de segurança para retry e reclaim. Com isso os dois jobs do scheduler podem rodar no mesmo minuto — não é preciso escalonar minutos no cron-job.org. Sem loop: o worker não acorda o detector.
-
-**Allowlist do `proxy.ts`:** toda rota de scheduler precisa estar em `isTechnicalApiPublic`, senão o proxy devolve **307 → `/login`** antes de a rota rodar e o `CRON_SECRET` nunca é avaliado — no painel do cron-job.org isso aparece como "redirecionamento detectado", não como erro de auth. As quatro rotas com `validateCronAuthorization` (`process-queue`, `reactivate`, `detect-abandoned-carts`, `outbound-worker`) estão liberadas **uma a uma**, de propósito: liberar `/api/chatbot/*` por prefixo exporia `config` e `resolve`, que dependem da sessão validada no proxy. Coberto por `tests/proxy.test.ts`.
+**Allowlist do `proxy.ts`:** rotas de scheduler restantes (`detect-abandoned-carts`, `reactivate` se EventBridge, billing, platform) em `isTechnicalApiPublic` — liberadas **uma a uma** (não `/api/chatbot/*` por prefixo). Coberto por `tests/proxy.test.ts`.
 
 ### Risco a monitorar
 
@@ -454,9 +435,9 @@ O risco real não é técnico: marketing mal calibrado gera *block/report* e der
 
 Manter fronteiras claras sem microserviço:
 
-- `app/api/whatsapp/incoming/` — ingresso, validação, enqueue apenas.
-- `app/api/chatbot/process-queue/` — worker (claim/process/update).
-- `lib/chatbot/` — motor; opcionalmente `parsers/` (determinístico: IDs Meta, normalização) vs `llm/` (chamada, tools, retries) quando o diff justificar.
+- `app/api/whatsapp/incoming/` — ingresso, validação, enqueue + SQS dispatch.
+- `workers/inbound/` + `workers/outbound/` — Lambda handlers (esbuild → zip).
+- `lib/chatbot/queue/` + `lib/queue/` — núcleo inbound + dispatch SQS; opcionalmente `parsers/` vs `llm/` quando o diff justificar.
 
 ---
 
@@ -473,10 +454,10 @@ Manter fronteiras claras sem microserviço:
 - LLM multi-provider: `src/pro/adapters/ai/modelProvider.ts` (`resolveLanguageModel`/`getConfiguredLlmProviderName`, `LanguageModel` do pacote `ai` sobre `@ai-sdk/anthropic`/`@ai-sdk/openai`); replay/teste: `src/pro/adapters/ai/replayRecorder.ts` (`createRecordingModel`/`createReplayModel`). Sem `LlmPort`/`createLlmPort` (deletados — [`PLANO_MIGRACAO_VERCEL_AI_SDK.md`](./PLANO_MIGRACAO_VERCEL_AI_SDK.md)).
 - STT áudio: `src/pro/ports/speechToText.port.ts`, `adapters/stt/openai.whisper.ts`, `lib/chatbot/transcribeInboundAudio.ts`
 - Resiliência: `lib/chatbot/anthropicResilience.ts`, `lib/whatsapp/metaGraphFetch.ts` (throttle + Retry-After)
-- Fila: `process-queue/route.ts`, `queueWorkerWake.ts`, `backlogNotice.ts`; RPC `claim_chatbot_queue_jobs` (fair + skip busy thread); reclaim `reclaim_stuck_chatbot_queue_jobs`
-- Ingresso: `app/api/whatsapp/incoming/route.ts` — enqueue + wake + aviso de backlog (`after()`)
-- Typing indicator (WA Cloud API): `lib/whatsapp/send.ts` (`sendTypingIndicator`, best-effort) disparado em `process-queue/route.ts` logo antes de `processInboundMessage`, só quando o job vai ser efetivamente respondido (após o gate de handover). Marca a mensagem inbound como lida + "digitando..."; a Meta encerra sozinha ao enviarmos a resposta ou após 25s. Só WhatsApp (IG/Messenger usam mecanismo próprio, não implementado).
-- Venda ativa: `app/api/chatbot/{detect-abandoned-carts,outbound-worker}/route.ts`, `lib/chatbot/outbound/`, `lib/whatsapp/customerServiceWindow.ts`; migration `20260805160000_active_sales_cart_recovery.sql` (tabelas `abandoned_carts`/`outbound_jobs`, RPCs `detect_abandoned_carts`, `claim_outbound_jobs`, `mark_abandoned_cart_recovered`)
+- Fila / outbox: `lib/queue/sqsDispatch.ts`, `afterEnqueue.ts`, `processInboundJobById.ts`, `processOutboundJobById.ts`, `companyWorkerCap.ts`; ADR [`0003-sqs-outbox-lambda.md`](./ADR/0003-sqs-outbox-lambda.md)
+- Ingresso: `app/api/whatsapp/incoming/route.ts` — enqueue + SQS + aviso de backlog (`after()`)
+- Typing indicator (WA Cloud API): `lib/whatsapp/send.ts` (`sendTypingIndicator`, best-effort) disparado no núcleo do worker inbound antes de `processInboundMessage`, só quando o job vai ser efetivamente respondido (após o gate de handover). Marca a mensagem inbound como lida + "digitando..."; a Meta encerra sozinha ao enviarmos a resposta ou após 25s. Só WhatsApp (IG/Messenger usam mecanismo próprio, não implementado).
+- Venda ativa: `app/api/chatbot/detect-abandoned-carts/route.ts`, `lib/chatbot/outbound/`, Lambda outbound; migration `20260805160000_active_sales_cart_recovery.sql`
 - Templates HSM + campanhas (Pro/Market): `lib/whatsapp-templates/*`, `lib/campaigns/*`, `lib/channels/messageConsent*`, APIs `/api/admin/whatsapp-templates`, `/api/admin/campaigns`; UI `/templates`, `/campanhas`; Canais tenant em Configurações → Canais — checklists [`CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md`](./CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md), [`ENV_META_CHANNELS.md`](./ENV_META_CHANNELS.md)
 - Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
 - Checklist escala: [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md)
@@ -485,7 +466,7 @@ Manter fronteiras claras sem microserviço:
 
 ## Decisão em uma linha
 
-**Transporte:** Postgres como fila primeiro; worker com claim exclusivo + idempotência forte + loop limitado; wake imediato como caminho feliz e scheduler como rede de segurança; fila gerenciada / particionamento / workers dedicados só com métrica de dor ou meta de escala (100×10k).
+**Transporte:** outbox Postgres + SQS FIFO + Lambda ([ADR-0003](./ADR/0003-sqs-outbox-lambda.md)); idempotência forte na outbox e nos efeitos; wake HTTP / claim poll **removidos** do hot path.
 
 **Pedido PRO:** estado e gates no servidor; IA para preenchimento e linguagem; confirmação e RPCs disciplinadas — detalhe em [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
 

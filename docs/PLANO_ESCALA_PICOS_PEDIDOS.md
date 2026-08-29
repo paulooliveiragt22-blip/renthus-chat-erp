@@ -4,12 +4,19 @@ Documento de execução. Origem: chat "pra que serve o pooling do Supabase / com
 pra picos" (2026-08-11). Diagnóstico completo (achados de código + SQL real do projeto) não é
 repetido aqui — está no histórico daquele chat. Este documento é só o plano de implementação.
 
-**Status:** Fases 1–5 de código concluídas (2026-08-12). Fase 0 (compute/pool no Dashboard) continua
-operacional — não é commit. `CHATBOT_QUEUE_CONCURRENCY` default **3** até o compute subir.
+**Status:** Fases 1–5 de código deste plano concluídas (2026-08-12). Fase 0 (compute/pool no Dashboard) continua
+operacional — não é commit.
+
+> **Supersedido parcialmente (2026-08-28) — [ADR-0003](./ADR/0003-sqs-outbox-lambda.md):**
+> hot path de fila migrou para **outbox Postgres + SQS FIFO + Lambda**. Rotas
+> `process-queue` / `outbound-worker`, wake HTTP e `pg_cron` `chatbot-queue-drain` **removidos**.
+> Mantém-se útil deste plano: **Fase 0** (compute + pooler `:6543` nas Lambdas), tipos/helpers de
+> paralelismo se ainda referenciados, e cleanup diário `chatbot-queue-cleanup`. Não reativar wake
+> nem o drain HTTP de 10s.
 
 **Vinculado a:** [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) — nova seção "P3 —
 Infra Supabase / paralelismo para picos" aponta pra este documento, mesmo padrão de
-[`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md).
+[`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md). Ver também ADR-0003 para o caminho atual.
 
 ---
 
@@ -216,66 +223,25 @@ existia; não é gambiarra nova.
 
 ---
 
-### Fase 4 — `pg_cron` + `pg_net`: drenagem com batimento fixo (reduz tempestade de self-wake)
+### Fase 4 — `pg_cron` + `pg_net`: drenagem com batimento fixo — **OBSOLETO (ADR-0003)**
 
-**Objetivo:** hoje cada enqueue dispara um `fetch` HTTP pro próprio worker
-(`lib/chatbot/queueWorkerWake.ts`), com auto-drain recursivo (profundidade até
-`CHATBOT_QUEUE_DRAIN_MAX`, default 5). Em pico isso pode gerar várias invocações concorrentes do
-worker batendo no PostgREST ao mesmo tempo — não é bug de correção (o claim RPC particiona certo),
-é ineficiência de recursos. `pg_cron` dá uma drenagem previsível de dentro do banco, complementar
-ao wake (que continua cobrindo a latência do "primeiro job").
+> **Não reaplicar.** Job `chatbot-queue-drain` foi **unscheduled** (`20260828230000_unschedule_chatbot_queue_drain.sql`).
+> Transporte atual: SQS + Lambda. Histórico abaixo preservado só como registro do que existiu.
 
-- [x] Confirmar extensões disponíveis (já checado nesta sessão via MCP `user-supabase`): `pg_cron`
-  1.6.4 e `pg_net` 0.19.5 (este já **instalado**, schema `extensions`).
-- [x] **Fora da migration, via `execute_sql`/dashboard** (nunca versionar o valor em texto plano):
-  `select vault.create_secret('<valor real do CRON_SECRET>', 'chatbot_queue_cron_secret');`
-- [x] Migration nova `supabase/migrations/20260812233000_pg_cron_chatbot_queue_drain.sql`:
+**Objetivo (histórico):** cada enqueue disparava `fetch` HTTP pro worker
+(`queueWorkerWake.ts`), com auto-drain recursivo. `pg_cron` dava drenagem previsível complementar
+ao wake.
 
-```sql
-create extension if not exists pg_cron;
-
-select cron.schedule(
-    'chatbot-queue-drain',
-    '10 seconds',
-    $$
-    select net.http_post(
-        url := '<APP_URL>/api/chatbot/process-queue',
-        headers := jsonb_build_object(
-            'authorization',
-            'Bearer ' || (
-                select decrypted_secret
-                from vault.decrypted_secrets
-                where name = 'chatbot_queue_cron_secret'
-            )
-        )
-    );
-    $$
-);
-```
-
-  `<APP_URL>` = mesma origem já usada em `CHATBOT_QUEUE_WAKE_URL`/`APP_INTERNAL_URL` — decidir na
-  implementação se vem hardcoded na migration (domínio de produção é estável) ou lido de uma
-  `app.settings` custom (mais indireção, avaliar se compensa).
-- [x] Aplicar no remoto (regra `supabase-migrations.mdc`) e confirmar:
-  `select * from cron.job;` (job ativo) e `select * from cron.job_run_details order by start_time desc limit 5;` (execuções OK, sem erro).
-- [x] Decisão operacional a registrar (não é código): com cron de 10s ativo, avaliar se reduz
-  `CHATBOT_QUEUE_DRAIN_MAX` (menos self-wake recursivo) ou desliga
-  `CHATBOT_QUEUE_WAKE_ENABLED` — **não fazer nesta fase sem dado real de produção**, registrar
-  como próximo passo observacional.
-- **Critério de pronto:** job aparece em `cron.job`, execuções recentes sem erro em
-  `cron.job_run_details`. Nenhum `.ts` alterado nesta fase.
+- [x] ~~Migration `20260812233000_pg_cron_chatbot_queue_drain.sql`~~ — **supersedida**; não usar em prod.
+- [x] Unschedule em prod (ADR-0003 Fase 4).
+- Cleanup diário `chatbot-queue-cleanup` (**mantido**).
 
 ---
 
 ### Fase 5 — Documentação cruzada
 
-- [x] `docs/CHATBOT_PROD.md`: nova env `CHATBOT_QUEUE_CONCURRENCY` na tabela de variáveis (perto de
-  `CHATBOT_QUEUE_MAX_PER_COMPANY`, linha ~319); seção "Fluxo canónico" ganha nota sobre o cron de
-  drenagem (linhas 37-39, ao lado de wake/self-wake/reclaim já documentados).
-- [x] `docs/CHECKLIST_ARCH_PRO_SCALE.md`: marcar os itens da nova seção "P3" (ver Seção 3 abaixo)
-  conforme cada fase fechar, igual ao padrão já usado em P0-P2.
-- **Critério de pronto:** docs refletem exatamente o que está em produção, sem menção a mecanismo
-  removido/alterado deixada pra trás.
+- [x] Docs deste plano + `CHATBOT_PROD.md` atualizados para SQS (2026-08-28).
+- Ver [ADR-0003](./ADR/0003-sqs-outbox-lambda.md) como fonte de verdade do transporte.
 
 ---
 

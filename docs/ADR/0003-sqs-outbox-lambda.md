@@ -473,7 +473,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 - [x] Deletar rotas `process-queue` e `outbound-worker`
 - [x] Deletar `queueWorkerWake.ts`, `outboundWorkerWake.ts`
 - [x] Remover entradas `isTechnicalApiPublic` obsoletas em `proxy.ts`
-- [ ] Atualizar `docs/CHATBOT_PROD.md`, `PLANO_ESCALA_PICOS_PEDIDOS.md` (wake/drain obsoletos)
+- [x] Atualizar `docs/CHATBOT_PROD.md`, `PLANO_ESCALA_PICOS_PEDIDOS.md` (wake/drain obsoletos → SQS)
 - [x] Smoke script `npm run smoke:sqs-workers`
 - [ ] Platform `/platform/observabilidade`: confirmar KPIs fila OK (pós-deploy)
 
@@ -517,3 +517,4 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 | Data | Nota |
 |------|------|
 | 2026-08-28 | Aceito — SQS outbox + Lambda; substitui wake/claim HTTP; EventBridge para crons restantes |
+| 2026-08-28 | Fase 4 cutover: rotas/wake/cron-job drain removidos; docs CHATBOT_PROD + PLANO_ESCALA atualizados |
