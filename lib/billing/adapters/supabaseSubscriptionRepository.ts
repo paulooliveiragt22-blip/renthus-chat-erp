@@ -106,7 +106,7 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
     else if (filter.limit) q = q.limit(filter.limit);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return ((data ?? []) as SubRow[]).map(rowToDomainWithCompany);
+    return ((data ?? []) as unknown as SubRow[]).map(rowToDomainWithCompany);
   }
 
   async listNeverPaid(): Promise<PagarmeSubscriptionWithCompany[]> {
@@ -116,7 +116,7 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
       .select(this.baseSelect())
       .order("started_at", { ascending: false, nullsFirst: false });
     if (error) throw new Error(error.message);
-    return ((data ?? []) as SubRow[])
+    return ((data ?? []) as unknown as SubRow[])
       .filter((row) =>
         isNeverPaid({
           status: row.status,
@@ -168,7 +168,7 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
       .eq("id", id)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    return data ? rowToDomainWithCompany(data as SubRow) : null;
+    return data ? rowToDomainWithCompany(data as unknown as SubRow) : null;
   }
 
   async findByCompany(companyId: string): Promise<PagarmeSubscription | null> {
@@ -180,7 +180,7 @@ export class SupabaseSubscriptionRepository implements SubscriptionRepositoryPor
       .eq("company_id", companyId)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    return data ? rowToDomain(data as SubRow) : null;
+    return data ? rowToDomain(data as unknown as SubRow) : null;
   }
 }
 function rowToDomainWithCompany(row: SubRow): PagarmeSubscriptionWithCompany {

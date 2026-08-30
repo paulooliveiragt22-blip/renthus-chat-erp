@@ -29,6 +29,7 @@
     "lib/billing/contracts/**/*.ts",
     "lib/billing/ports/**/*.ts",
     "lib/billing/adapters/**/*.ts",
+    "lib/billing/use-cases/**/*.ts",
     "lib/billing/tryConsumePagarmeWebhookEvent.ts",
     "lib/billing/sttPricing.ts",
     "lib/billing/llmPricing.ts",

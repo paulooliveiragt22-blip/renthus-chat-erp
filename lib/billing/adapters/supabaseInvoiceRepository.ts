@@ -76,7 +76,7 @@ export class SupabaseInvoiceRepository implements InvoiceRepositoryPort {
     if (filter.subscriptionId) q = q.eq("subscription_id", filter.subscriptionId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return ((data ?? []) as InvoiceRow[]).map(rowToDomain);
+    return ((data ?? []) as unknown as InvoiceRow[]).map(rowToDomain);
   }
 
   async lastByCompany(companyIds: readonly string[]): Promise<Map<string, Invoice>> {
@@ -89,7 +89,7 @@ export class SupabaseInvoiceRepository implements InvoiceRepositoryPort {
     if (error) throw new Error(error.message);
 
     const result = new Map<string, Invoice>();
-    for (const row of (data ?? []) as InvoiceRow[]) {
+    for (const row of (data ?? []) as unknown as InvoiceRow[]) {
       if (!result.has(row.company_id)) {
         result.set(row.company_id, rowToDomain(row));
       }
@@ -104,6 +104,6 @@ export class SupabaseInvoiceRepository implements InvoiceRepositoryPort {
       .eq("id", id)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    return data ? rowToDomain(data as InvoiceRow) : null;
+    return data ? rowToDomain(data as unknown as InvoiceRow) : null;
   }
 }
