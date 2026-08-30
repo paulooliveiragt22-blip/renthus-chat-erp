@@ -407,10 +407,10 @@ async function blockCompany(
         admin.from("pagarme_subscriptions").update({ status: "blocked" }).eq("id", subscriptionId),
         admin.from("companies").update({ is_active: false }).eq("id", companyId),
         admin
-            .from("subscriptions")
-            .update({ status: "suspended" })
+            .from("pagarme_subscriptions")
+            .update({ status: "blocked", updated_at: new Date().toISOString() })
             .eq("company_id", companyId)
-            .eq("status", "active"),
+            .in("status", ["active", "trial"]),
     ]);
 
     billingLog("charge_cron", "company_blocked", {

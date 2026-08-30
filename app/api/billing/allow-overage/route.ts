@@ -13,11 +13,11 @@ export async function POST() {
 
         // Busca subscription ativa
         const { data: sub, error: subErr } = await admin
-            .from("subscriptions")
+            .from("pagarme_subscriptions")
             .select("id, allow_overage, plan_id, status")
             .eq("company_id", companyId)
-            .eq("status", "active")
-            .order("started_at", { ascending: false })
+            .in("status", ["active", "trial"])
+            .order("started_at", { ascending: false, nullsFirst: false })
             .limit(1)
             .maybeSingle();
 
@@ -31,7 +31,7 @@ export async function POST() {
 
         // Habilita overage
         const { error: upErr } = await admin
-            .from("subscriptions")
+            .from("pagarme_subscriptions")
             .update({ allow_overage: true })
             .eq("id", sub.id);
 

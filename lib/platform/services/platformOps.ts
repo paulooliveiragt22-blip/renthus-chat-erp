@@ -717,7 +717,7 @@ type CompanyListRow = {
     updated_at: string | null;
     onboarding_completed_at: string | null;
     is_active: boolean;
-    subscriptions?: unknown;
+    pagarme_subscriptions?: unknown;
 };
 
 export type PlatformCompanyListItem = {
@@ -765,7 +765,7 @@ export async function getCompanies(
     let q = admin.from("companies").select(`
             id, name, slug, email, phone, cnpj, cidade, uf, created_at, updated_at,
             onboarding_completed_at, is_active,
-            subscriptions ( plan_id, status, plans ( id, name, key ) )
+            pagarme_subscriptions ( plan_id, status, plans ( id, name, key ) )
         `);
 
     if (filters.account === "active") q = q.eq("is_active", true);
@@ -805,9 +805,9 @@ export async function getCompanies(
 
     if (filters.planId !== "all" || filters.subStatus !== "all") {
         rows = rows.filter((c) => {
-            const sub = Array.isArray(c.subscriptions)
-                ? c.subscriptions[0]
-                : c.subscriptions;
+            const sub = Array.isArray(c.pagarme_subscriptions)
+                ? c.pagarme_subscriptions[0]
+                : c.pagarme_subscriptions;
             const s = sub as
                 | { plan_id?: string; status?: string }
                 | null
@@ -855,9 +855,9 @@ export async function getCompanies(
     }
 
     let enriched: PlatformCompanyListItem[] = rows.map((c) => {
-        const subRaw = Array.isArray(c.subscriptions)
-            ? c.subscriptions[0]
-            : c.subscriptions;
+        const subRaw = Array.isArray(c.pagarme_subscriptions)
+            ? c.pagarme_subscriptions[0]
+            : c.pagarme_subscriptions;
         return {
             id: c.id,
             name: c.name,
@@ -938,7 +938,7 @@ export async function getCompany(admin: SupabaseClient, id: string) {
                 id, name, slug, email, phone, cnpj, razao_social, nome_fantasia,
                 cidade, cep, endereco, numero, bairro, uf, whatsapp_phone,
                 created_at, updated_at, onboarding_completed_at, is_active,
-                subscriptions ( id, plan_id, status, allow_overage, started_at, plans ( id, name ) )
+                pagarme_subscriptions ( id, plan_id, status, allow_overage, started_at, plans ( id, name ) )
             `)
             .eq("id", id)
             .maybeSingle(),
@@ -962,12 +962,12 @@ export async function getCompany(admin: SupabaseClient, id: string) {
 
     if (!compRes.data) return null;
 
-    const company = compRes.data as Record<string, unknown> & { subscriptions?: unknown };
-    const sub = Array.isArray(company.subscriptions) ? company.subscriptions[0] : null;
+    const company = compRes.data as Record<string, unknown> & { pagarme_subscriptions?: unknown };
+    const sub = Array.isArray(company.pagarme_subscriptions) ? company.pagarme_subscriptions[0] : null;
     const rawChannels = channelsRes.data ?? [];
 
     return {
-        company: { ...company, subscriptions: undefined },
+        company: { ...company, pagarme_subscriptions: undefined },
         sub,
         channels: rawChannels.map((row: Record<string, unknown>) =>
             sanitizeWhatsappChannelForClient(row as Parameters<typeof sanitizeWhatsappChannelForClient>[0])
@@ -1001,9 +1001,20 @@ export async function createCompany(
 
     if (cErr) throw new Error(cErr.message);
 
-    const { error: sErr } = await admin.from("subscriptions").insert({
+    // Buscar plan_key do plano selecionado (necessário após unificação subscriptions → pagarme_subscriptions)
+    const { data: planRow } = await admin
+        .from("plans")
+        .select("key")
+        .eq("id", plan_id)
+        .maybeSingle();
+
+    const planKey = planRow?.key ?? "bot";
+
+    const { error: sErr } = await admin.from("pagarme_subscriptions").insert({
         company_id: company.id,
         plan_id,
+        plan: planKey as never,
+        plan_key: planKey,
         status: "active",
         started_at: new Date().toISOString(),
     });
@@ -1288,13 +1299,27 @@ export async function updateSubscription(
     subId: string,
     data: { plan_id?: string; status?: string; allow_overage?: boolean }
 ) {
+    // Se plan_id mudou, sincronizar plan/plan_key com a tabela plans
+    const updateData: Record<string, unknown> = { ...data };
+    if (data.plan_id) {
+        const { data: planRow } = await admin
+            .from("plans")
+            .select("key")
+            .eq("id", data.plan_id)
+            .maybeSingle();
+        if (planRow?.key) {
+            updateData.plan = planRow.key as never;
+            updateData.plan_key = planRow.key;
+        }
+    }
+
     const { data: before } = await admin
-        .from("subscriptions")
+        .from("pagarme_subscriptions")
         .select("plan_id, status, allow_overage, company_id")
         .eq("id", subId)
         .maybeSingle();
 
-    const { error } = await admin.from("subscriptions").update(data).eq("id", subId);
+    const { error } = await admin.from("pagarme_subscriptions").update(updateData).eq("id", subId);
     if (error) throw new Error(error.message);
 
     await recordPlatformAudit({

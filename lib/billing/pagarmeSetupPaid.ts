@@ -50,10 +50,12 @@ export async function syncLogicalSubscription(
         return;
     }
 
-    await admin.from("subscriptions").upsert(
+    await admin.from("pagarme_subscriptions").upsert(
         {
             company_id: companyId,
             plan_id:    planRow.id,
+            plan:       mappedKey as never,
+            plan_key:   mappedKey,
             status:     "active",
             started_at: new Date().toISOString(),
         },
