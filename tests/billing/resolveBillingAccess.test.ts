@@ -73,7 +73,7 @@ describe("resolveEffectiveBillingStatus", () => {
         );
     });
 
-    it("pending_payment / blocked / cancelled passthrough", () => {
+    it("pending_payment / blocked / cancelled / abandoned passthrough", () => {
         assert.strictEqual(
             resolveEffectiveBillingStatus(
                 {
@@ -100,6 +100,13 @@ describe("resolveEffectiveBillingStatus", () => {
             ),
             "cancelled"
         );
+        assert.strictEqual(
+            resolveEffectiveBillingStatus(
+                { status: "abandoned", trial_ends_at: null, last_paid_at: null, plan: "pro" },
+                NOW
+            ),
+            "abandoned"
+        );
     });
 });
 
@@ -111,11 +118,14 @@ describe("isBillingAccessAllowed", () => {
         assert.strictEqual(isBillingAccessAllowed("pending_payment", "full"), false);
         assert.strictEqual(isBillingAccessAllowed("trial_expired", "full"), false);
         assert.strictEqual(isBillingAccessAllowed("blocked", "full"), false);
+        // abandoned: deny por default (paywall mantém empresa bloqueada para API mutável)
+        assert.strictEqual(isBillingAccessAllowed("abandoned", "full"), false);
     });
 
     it("billing_self and skip always allow", () => {
         assert.strictEqual(isBillingAccessAllowed("blocked", "billing_self"), true);
         assert.strictEqual(isBillingAccessAllowed("pending_payment", "skip"), true);
+        assert.strictEqual(isBillingAccessAllowed("abandoned", "skip"), true);
     });
 });
 
@@ -123,5 +133,10 @@ describe("billingInactiveMessage", () => {
     it("returns pt-BR copy", () => {
         assert.match(billingInactiveMessage("pending_payment"), /Pagamento/);
         assert.match(billingInactiveMessage("blocked"), /bloqueada/i);
+    });
+
+    it("abandoned copy mentions reativação", () => {
+        assert.match(billingInactiveMessage("abandoned"), /reativ/i);
+        assert.match(billingInactiveMessage("abandoned"), /inativ/i);
     });
 });

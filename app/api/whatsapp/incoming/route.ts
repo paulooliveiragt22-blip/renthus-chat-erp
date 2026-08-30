@@ -228,6 +228,17 @@ async function processIncomingChange(admin: ReturnType<typeof createAdminClient>
         return;
     }
 
+    // Exceção abandoned: liberamos o inbound para receber template de reativação.
+    // Não processamos com LLM — enviamos template WA e encerramos.
+    if ("autoReply" in inboundGate && inboundGate.autoReply === "reactivation") {
+        console.info(
+            `[wa/incoming] abandoned reactivation — auto-reply company=${channel.company_id} phone=${maskIdentifier(phoneNumberId)}`
+        );
+        // TODO: disparar template WA pré-aprovado "reativacao_solicitada"
+        // await sendTemplateMessage(admin, channel, "reativacao_solicitada");
+        return;
+    }
+
     const waConfig = buildWaConfig(channel, phoneNumberId);
 
     for (const msg of messages) {

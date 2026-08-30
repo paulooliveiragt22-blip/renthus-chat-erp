@@ -115,7 +115,8 @@ export async function GET() {
             is_blocked:
                 subStatus === "blocked" ||
                 subStatus === "pending_payment" ||
-                subStatus === "pending_setup",
+                subStatus === "pending_setup" ||
+                subStatus === "abandoned",
             invoice_history: invoiceRows ?? [],
             saved_cards: savedCards.map((c) => ({
                 id: c.id ?? "",

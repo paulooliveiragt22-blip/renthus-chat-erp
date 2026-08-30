@@ -67,4 +67,36 @@ describe("resolveInboundFromSnapshots", () => {
         }, NOW);
         assert.equal(r.allowed, true);
     });
+
+    it("abandoned com plan → allow com autoReply=reactivation (bypassa is_active=false)", () => {
+        const r = resolveInboundFromSnapshots(false, {
+            status: "abandoned",
+            trial_ends_at: null,
+            last_paid_at: null,
+            plan: "essencial",
+        }, NOW);
+        assert.equal(r.allowed, true);
+        assert.equal("autoReply" in r && r.autoReply, "reactivation");
+    });
+
+    it("abandoned sem plan → allow com autoReply=reactivation", () => {
+        const r = resolveInboundFromSnapshots(false, {
+            status: "abandoned",
+            trial_ends_at: null,
+            last_paid_at: null,
+            plan: null,
+        }, NOW);
+        assert.equal(r.allowed, true);
+        assert.equal("autoReply" in r && r.autoReply, "reactivation");
+    });
+
+    it("pending_setup com plan → allow", () => {
+        const r = resolveInboundFromSnapshots(true, {
+            status: "pending_setup",
+            trial_ends_at: null,
+            last_paid_at: null,
+            plan: "market",
+        }, NOW);
+        assert.equal(r.allowed, true);
+    });
 });

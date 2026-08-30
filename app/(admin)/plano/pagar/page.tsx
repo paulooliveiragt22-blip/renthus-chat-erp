@@ -43,6 +43,16 @@ export default function PlanoPagarPage() {
                 <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-zinc-900">
                     <PlanBillingPanel variant="pay" />
                 </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                    <strong>Assinatura desativada por inatividade?</strong>{" "}
+                    <Link
+                        href="/plano/reativar"
+                        className="font-semibold underline hover:text-amber-700 dark:hover:text-amber-100"
+                    >
+                        Reative aqui
+                    </Link>{" "}
+                    para ganhar um novo período de teste.
+                </div>
             </main>
         </div>
     );

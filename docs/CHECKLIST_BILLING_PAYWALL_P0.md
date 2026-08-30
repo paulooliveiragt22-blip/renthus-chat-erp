@@ -592,3 +592,66 @@ Hoje:
 Isso é **intencional sob D3**. Em P2, a RPC de entitlements deve expor
 `billing_status` + `features[]` juntos para a UI (“Trial · Pro”) sem o client
 adivinhar a partir de duas tabelas.
+
+---
+
+## P3 — Ciclo de vida Tenant completo (abandoned + self-reactivation)
+
+Origem: fechamento de ciclo — `trial → pending_setup/payment → abandoned → blocked`,
+com auto-reply de reativação via WA e self-reactivation pelo owner.
+
+| # | Item | Estado |
+|---|------|--------|
+| P3.0 | Enum `pagarme_sub_status` ganha valor `abandoned` (migration 20260830120000) | [x] 2026-08-30 |
+| P3.1 | Colunas `abandoned_at`, `self_reactivation_count`, `last_status_change_at` em `pagarme_subscriptions` | [x] 2026-08-30 |
+| P3.2 | Trigger `trg_pagarme_subs_status_change` mantém `abandoned_at` e `last_status_change_at` | [x] 2026-08-30 |
+| P3.3 | RPC `rpc_self_reactivate_subscription(uuid, text)` (auth.uid = owner; cooldown 60d) | [x] 2026-08-30 |
+| P3.4 | `resolveEffectiveBillingStatus` retorna `"abandoned"` para sub abandonada | [x] 2026-08-30 |
+| P3.5 | `isBillingAccessAllowed("abandoned", "full")` = false (paywall mantém empresa bloqueada para API mutável) | [x] 2026-08-30 |
+| P3.6 | `billingInactiveMessage("abandoned")` = "Assinatura desativada por inatividade. Reative seu plano em /plano/reativar para continuar." | [x] 2026-08-30 |
+| P3.7 | `canProcessInboundChannel` libera inbound `abandoned` com `autoReply: "reactivation"` | [x] 2026-08-30 |
+| P3.8 | Handler `/api/whatsapp/incoming` detecta `autoReply === "reactivation"` e (futuro) dispara template WA pré-aprovado | [x] 2026-08-30 (template é TODO) |
+| P3.9 | Cron `POST /api/billing/mark-abandoned` (vercel: `0 9 * * *`) — marca subs inativas há 14+ dias | [x] 2026-08-30 |
+| P3.10 | Cron `POST /api/billing/expire-trials` (vercel: `0 10 * * *`) — fecha trials vencidos → `pending_payment`/`pending_setup` | [x] 2026-08-30 |
+| P3.11 | Endpoint `POST /api/billing/self-reactivate` chama RPC e retorna `trialEndsAt` | [x] 2026-08-30 |
+| P3.12 | Página `/plano/reativar` (auto-reativação pelo owner) | [x] 2026-08-30 |
+| P3.13 | Link "Reative aqui" em `/plano/pagar` quando status é abandoned | [x] 2026-08-30 |
+| P3.14 | Testes unitários: `resolveBillingAccess` (10 testes) + `canProcessInboundChannel` (9 testes) + crons (13 testes) | [x] 2026-08-30 |
+| P3.15 | Template WA `reativacao_solicitada` cadastrado na Meta e disparo no `autoReply` | [ ] TODO (depende aprovação Meta) |
+
+### Decisões P3
+
+| # | Tema | Decisão | Motivo |
+|---|------|---------|--------|
+| P3.D1 | **Quando marcar abandoned?** | Empresa com `pending_setup`/`pending_payment`, `is_active=false`, `created_at <= now-14d` | Distingue "esqueceu de pagar" (ainda em trial grace) de "abandonou de fato" |
+| P3.D2 | **Inbound em abandoned?** | Liberado com `autoReply: "reactivation"` (não bloqueado, mas não passa pelo LLM) | Aproveita tráfego de clientes para ativar owner via template WA pré-aprovado |
+| P3.D3 | **Self-reactivation tem cooldown?** | Sim, 60 dias entre tentativas (validado no RPC) | Anti-abuso, mas permite recuperação real |
+| P3.D4 | **Self-reactivation tem limite?** | Não (apenas cooldown) | P2.5 dunning define quando bloquear totalmente; abandoned é "esquecimento" |
+| P3.D5 | **Por que dois crons separados?** | `expire-trials` (10h) é anterior a `mark-abandoned` (09h)... | **Na verdade, ordem inversa:** mark-abandoned roda primeiro (09h) e expire-trials depois (10h). Se expire-trail virar pending_payment, mark-abandoned do dia seguinte avalia. |
+| P3.D6 | **`pending_setup` vs `pending_payment` após trial?** | `hasPlanChoice ? pending_payment : pending_setup` | trial sem plano → precisa escolher; trial com plano → só pagar |
+
+### Fluxo visual
+
+```
+signup
+  │
+  ▼
+trial (N dias, default=0 → vai direto para pending_payment)
+  │
+  │ trial_ends_at <= now (cron 10h)
+  ▼
+pending_setup (sem plano)  OU  pending_payment (com plano)
+  │
+  │ is_active=false AND created_at <= now-14d (cron 09h)
+  ▼
+abandoned (inbound flui → template WA "reativacao_solicitada")
+  │
+  │ /plano/reativar (owner clica) → rpc_self_reactivate_subscription
+  │ cooldown 60d (anti-abuso)
+  ▼
+trial (novo, 7-14 dias)
+  │
+  │ paga via /plano/pagar
+  ▼
+active
+```

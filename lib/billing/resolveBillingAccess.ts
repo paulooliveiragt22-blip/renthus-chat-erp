@@ -9,6 +9,7 @@ export type BillingAccessStatus =
     | "overdue"
     | "pending_payment"
     | "pending_setup"
+    | "abandoned"
     | "blocked"
     | "cancelled"
     | "missing"
@@ -32,6 +33,7 @@ export function resolveEffectiveBillingStatus(
 
     const raw = String(row.status).toLowerCase();
 
+    if (raw === "abandoned") return "abandoned";
     if (raw === "blocked") return "blocked";
     if (raw === "cancelled") return "cancelled";
     if (raw === "pending_payment") return "pending_payment";
@@ -74,6 +76,8 @@ export function billingInactiveMessage(effective: BillingAccessStatus): string {
             return "Período de teste encerrado. Regularize o pagamento em Plano.";
         case "blocked":
             return "Assinatura bloqueada. Regularize o pagamento em Plano.";
+        case "abandoned":
+            return "Assinatura desativada por inatividade. Reative seu plano em /plano/reativar para continuar.";
         case "cancelled":
             return "Assinatura cancelada. Fale com o suporte ou reative o plano.";
         case "missing":
