@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
     if (fetchErr) {
         console.error("[mark-abandoned] Erro ao buscar subs abandonadas:", fetchErr.message);
-        await billingLog(admin, null, "mark_abandoned_error", {
+        billingLog("mark-abandoned", "mark_abandoned_error", {
             phase: "fetch",
             error: fetchErr.message,
         });
@@ -89,14 +89,19 @@ export async function POST(req: Request) {
                 continue;
             }
 
-            await billingLog(admin, sub.company_id, "marked_abandoned", {
+            billingLog("mark-abandoned", "marked_abandoned", {
                 subId: sub.id,
+                companyId: sub.company_id,
                 previousStatus: sub.status,
                 neverPaidAt: sub.never_paid_at,
                 createdAt: sub.created_at,
             });
 
-            Sentry.addBreadcrumb?.(`marked_abandoned: sub=${sub.id} company=${sub.company_id}`);
+            Sentry.addBreadcrumb?.({
+                category: "billing",
+                message: `marked_abandoned: sub=${sub.id} company=${sub.company_id}`,
+                level: "info",
+            });
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error(`[mark-abandoned] Exceção para ${sub.id}:`, msg);
@@ -108,7 +113,7 @@ export async function POST(req: Request) {
         Sentry.captureMessage("[mark-abandoned] Algumas subscriptions falharam", "warning");
     }
 
-    await billingLog(admin, null, "mark_abandoned_done", {
+    billingLog("mark-abandoned", "mark_abandoned_done", {
         marked: results.marked,
         alreadyAbandoned: results.alreadyAbandoned,
         errors: results.errors.length,

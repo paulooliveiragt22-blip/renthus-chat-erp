@@ -94,7 +94,7 @@ export async function POST(req: Request) {
         }
 
         // Sucesso — RPC retorna o novo trial_ends_at
-        await billingLog(supabase, companyId, "self_reactivated", {
+        billingLog("self-reactivate", "self_reactivated", {
             companyId,
             trialEndsAt: trialEndsAt as string,
         });

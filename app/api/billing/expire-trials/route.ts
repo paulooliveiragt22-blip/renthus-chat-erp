@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
     if (fetchErr) {
         console.error("[expire-trials] Erro ao buscar trials:", fetchErr.message);
-        await billingLog(admin, null, "expire_trials_error", {
+        billingLog("expire-trials", "expire_trials_error", {
             phase: "fetch",
             error: fetchErr.message,
         });
@@ -100,8 +100,9 @@ export async function POST(req: Request) {
                 // Não falhamos o cron por causa disso.
             }
 
-            await billingLog(admin, sub.company_id, "trial_expired", {
+            await billingLog("expire-trials", "trial_expired", {
                 subId: sub.id,
+                companyId: sub.company_id,
                 nextStatus,
                 trialEndsAt: sub.trial_ends_at,
                 plan: sub.plan,
@@ -117,7 +118,7 @@ export async function POST(req: Request) {
         Sentry.captureMessage("[expire-trials] Algumas subscriptions falharam", "warning");
     }
 
-    await billingLog(admin, null, "expire_trials_done", {
+    billingLog("expire-trials", "expire_trials_done", {
         expired: results.expired,
         alreadyExpired: results.alreadyExpired,
         errors: results.errors.length,
