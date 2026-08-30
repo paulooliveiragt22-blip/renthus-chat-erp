@@ -11,7 +11,7 @@ export async function listSubscriptions(admin: SupabaseClient) {
         .from("pagarme_subscriptions")
         .select(`
             id, company_id, plan_id, plan, plan_key, status, allow_overage,
-            started_at, ended_at, trial_ends_at, last_paid_at, next_billing_at, activated_at,
+            started_at, trial_ends_at, last_paid_at, next_billing_at, activated_at,
             companies ( id, name, slug, is_active ),
             plans ( id, key, name, price_cents )
         `)
