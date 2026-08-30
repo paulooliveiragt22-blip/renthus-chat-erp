@@ -21,6 +21,13 @@ const LLM_RATES: Record<string, LlmTokenRates> = {
     "gpt-4.1": { inputUsdPerM: 2, outputUsdPerM: 8 },
     "gpt-5-mini": { inputUsdPerM: 0.25, outputUsdPerM: 2 },
     "gpt-5-mini-2025-08-07": { inputUsdPerM: 0.25, outputUsdPerM: 2 },
+    // Groq Cloud — pricing idêntico ao gpt-4o-mini (mesma faixa de preço). Alinhar
+    // tabelas em https://console.groq.com/docs/pricing. Família "gpt-oss" é open-source
+    // OpenAI (120B/20B), rate limit por minuto (não por dia). Fallback: openai/gpt-oss-20b.
+    "openai/gpt-oss-120b": { inputUsdPerM: 0.15, outputUsdPerM: 0.6 },
+    "openai/gpt-oss-20b": { inputUsdPerM: 0.1, outputUsdPerM: 0.5 },
+    "qwen/qwen3-32b": { inputUsdPerM: 0.29, outputUsdPerM: 0.59 },
+    "groq/compound": { inputUsdPerM: 0, outputUsdPerM: 0 }, // placeholder — pricing variável
     // Ollama (local) — custo zero em USD (a máquina paga em energia, mas isso é do developer,
     // não do cliente). Llama 3.1 8B, Qwen2.5-Coder 7B, etc. caem aqui via heurística abaixo.
 };

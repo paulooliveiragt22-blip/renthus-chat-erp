@@ -50,3 +50,8 @@ export const runWithAnthropicInFlightSlot = createInFlightGate("ANTHROPIC_CHATBO
 
 /** Executa `fn` com teto de chamadas OpenAI concorrentes neste processo. */
 export const runWithOpenAiInFlightSlot = createInFlightGate("OPENAI_CHATBOT_MAX_IN_FLIGHT", 8);
+
+/** Executa `fn` com teto de chamadas Groq concorrentes neste processo.
+ * Mesmo default de 8 que Anthropic/OpenAI — Groq é rápido (LPU), mas o tier grátis tem
+ * rate limit por minuto (ver https://console.groq.com/docs/rate-limits). */
+export const runWithGroqInFlightSlot = createInFlightGate("GROQ_CHATBOT_MAX_IN_FLIGHT", 8);

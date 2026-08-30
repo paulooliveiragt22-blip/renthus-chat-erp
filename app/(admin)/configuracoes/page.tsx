@@ -423,7 +423,7 @@ function ConfiguracoesPageContent() {
     const settingsMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // company_settings (motor de IA — aba Chatbot, salvo junto com saveChatbot)
-    const [llmProvider, setLlmProvider] = useState<"anthropic" | "openai" | "ollama">("anthropic");
+    const [llmProvider, setLlmProvider] = useState<"anthropic" | "openai" | "ollama" | "groq">("anthropic");
 
     // ── load company ──────────────────────────────────────────────────────────
     const loadCompany = useCallback(async () => {
@@ -904,7 +904,7 @@ function ConfiguracoesPageContent() {
                 setRequireApproval(!!data.require_order_approval);
                 setAutoPrint(!!data.auto_print_orders);
                 setLlmProvider(
-                    data.llm_provider === "openai" || data.llm_provider === "ollama"
+                    data.llm_provider === "openai" || data.llm_provider === "ollama" || data.llm_provider === "groq"
                         ? data.llm_provider
                         : "anthropic"
                 );
@@ -1602,7 +1602,7 @@ function ConfiguracoesPageContent() {
                                         onChange={(e) => {
                                             const v = e.target.value;
                                             setLlmProvider(
-                                                v === "openai" || v === "ollama" ? v : "anthropic"
+                                                v === "openai" || v === "ollama" || v === "groq" ? v : "anthropic"
                                             );
                                         }}
                                         disabled={!chatbotId}
@@ -1614,6 +1614,9 @@ function ConfiguracoesPageContent() {
                                         <option value="openai">GPT-5 mini (OpenAI) — custo menor</option>
                                         <option value="ollama">
                                             Ollama (local — Llama 3.1 / Qwen2.5-Coder) — dev/teste
+                                        </option>
+                                        <option value="groq">
+                                            Groq Cloud (GPT-OSS 120B) — tier gratuito, ~200ms
                                         </option>
                                     </select>
                                     <p className="text-[11px] text-zinc-400">

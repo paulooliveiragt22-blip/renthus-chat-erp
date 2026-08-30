@@ -12,7 +12,7 @@ import { normalizePrintCopyTypes } from "@/lib/print/copyTypes";
 
 export const runtime = "nodejs";
 
-const VALID_LLM_PROVIDERS = new Set(["anthropic", "openai", "ollama"]);
+const VALID_LLM_PROVIDERS = new Set(["anthropic", "openai", "ollama", "groq"]);
 
 const SETTINGS_SELECT =
     "require_order_approval, auto_print_orders, llm_provider, open_time, close_time, opening_periods, timezone, delivery_description, print_auto_copies";

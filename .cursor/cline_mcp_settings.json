@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "github.com/supabase-community/supabase-mcp": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=zwcfuvohxmvlxhdfbgxo"
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "aws-serverless": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["awslabs.aws-serverless-mcp-server@latest"],
+      "env": {
+        "AWS_PROFILE": "renthus",
+        "AWS_REGION": "sa-east-1",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "vercel": {
+      "type": "http",
+      "url": "https://mcp.vercel.com"
+    }
+  }
+}

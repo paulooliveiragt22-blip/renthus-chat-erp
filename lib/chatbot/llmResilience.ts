@@ -9,7 +9,7 @@
  * (`COMPANY_LLM_MAX_IN_FLIGHT`) via `llmDistributedCap.ts`.
  */
 
-import { runWithAnthropicInFlightSlot, runWithOpenAiInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
+import { runWithAnthropicInFlightSlot, runWithOpenAiInFlightSlot, runWithGroqInFlightSlot } from "@/lib/chatbot/anthropicInFlightGate";
 import { runWithDistributedLlmCap } from "@/lib/chatbot/llmDistributedCap";
 import type { LlmProviderName } from "@/src/pro/adapters/ai/modelProvider";
 
@@ -49,12 +49,16 @@ const circuits: Record<LlmProviderName, CircuitState> = {
     // Ollama (local) raramente retorna 429 — não compartilha cota, mas mantemos o estado
     // pra não dar undefined quando o provider é resolvido como "ollama" no dev.
     ollama: { openUntilMs: 0, consecutive429: 0 },
+    // Groq (cloud) tem tier grátis com rate limit próprio — gate dedicado evita saturar
+    // os slots de Anthropic/OpenAI quando Groq 429 em pico de fim de semana.
+    groq: { openUntilMs: 0, consecutive429: 0 },
 };
 
 const CIRCUIT_OPEN_ENV: Record<LlmProviderName, string> = {
     anthropic: "ANTHROPIC_CIRCUIT_OPEN_MS",
     openai: "OPENAI_CIRCUIT_OPEN_MS",
     ollama: "OLLAMA_CIRCUIT_OPEN_MS",
+    groq: "GROQ_CIRCUIT_OPEN_MS",
 };
 
 const IN_FLIGHT_GATE: Record<LlmProviderName, <T>(fn: () => Promise<T>) => Promise<T>> = {
@@ -63,6 +67,9 @@ const IN_FLIGHT_GATE: Record<LlmProviderName, <T>(fn: () => Promise<T>) => Promi
     // Ollama roda local — usa o mesmo gate "aberto" da Anthropic só pra satisfazer o tipo
     // Record<LlmProviderName, …>. Não impõe limite de concorrência real.
     ollama: <T,>(fn: () => Promise<T>) => fn(),
+    // Groq tem seu próprio gate (particionado por instância) — saturar Groq não bloqueia
+    // Anthropic/OpenAI no mesmo processo. Ver `anthropicInFlightGate.ts`.
+    groq: runWithGroqInFlightSlot,
 };
 
 export function getCircuitOpenRemainingMs(provider: LlmProviderName): number {
@@ -71,7 +78,7 @@ export function getCircuitOpenRemainingMs(provider: LlmProviderName): number {
 
 /** Só para testes unitários. */
 export function resetCircuitForTests(provider?: LlmProviderName): void {
-    const targets: LlmProviderName[] = provider ? [provider] : ["anthropic", "openai", "ollama"];
+    const targets: LlmProviderName[] = provider ? [provider] : ["anthropic", "openai", "ollama", "groq"];
     for (const p of targets) {
         circuits[p] = { openUntilMs: 0, consecutive429: 0 };
         wasOpen[p] = false;
@@ -91,7 +98,7 @@ export type CircuitStateChangeEvent =
     | { provider: LlmProviderName; state: "close" };
 
 /** Estado anterior por provider — usado só pra detectar a transição aberto→fechado (Fase 9). */
-const wasOpen: Record<LlmProviderName, boolean> = { anthropic: false, openai: false, ollama: false };
+const wasOpen: Record<LlmProviderName, boolean> = { anthropic: false, openai: false, ollama: false, groq: false };
 
 function tripCircuit(provider: LlmProviderName, onCircuitStateChange?: (e: CircuitStateChangeEvent) => void): void {
     const openMs = getPositiveIntEnv(CIRCUIT_OPEN_ENV[provider], 30_000);

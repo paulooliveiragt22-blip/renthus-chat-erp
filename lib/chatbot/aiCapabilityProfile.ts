@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getActiveSubscription } from "@/lib/billing/entitlements";
 import { canUseAi, isAiEnabledInBotConfig } from "@/lib/billing/aiWallet";
 import { normalizePlanKey, type CommercialPlanKey } from "@/lib/billing/planCatalog";
-import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OLLAMA_MODEL } from "@/src/pro/adapters/ai/modelProvider";
+import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OLLAMA_MODEL, DEFAULT_GROQ_MODEL } from "@/src/pro/adapters/ai/modelProvider";
 
 export type AiCapabilityTier = "degradado" | "basico" | "avancado";
 
@@ -19,7 +19,7 @@ export type AiCapabilityProfile = {
     tier: AiCapabilityTier;
     /** Plano comercial resolvido (null se sem assinatura). */
     planKey: CommercialPlanKey | null;
-    provider: "anthropic" | "openai" | "ollama";
+    provider: "anthropic" | "openai" | "ollama" | "groq";
     model: string;
     maxToolRounds: number;
     maxHistoryTurns: number;
@@ -39,21 +39,23 @@ const ALL_TOOLS: AiToolName[] = ["search_produtos", "get_order_hints", "prepare_
  * comportamento idêntico ao anterior.
  */
 /** Exportada só para teste unitário direto (evita mockar toda a cadeia de subscription/wallet). */
-export function configuredProvider(companyOverride?: string | null): "anthropic" | "openai" | "ollama" {
+export function configuredProvider(companyOverride?: string | null): "anthropic" | "openai" | "ollama" | "groq" {
     const override = (companyOverride ?? "").trim().toLowerCase();
-    if (override === "anthropic" || override === "openai" || override === "ollama") return override;
+    if (override === "anthropic" || override === "openai" || override === "ollama" || override === "groq") return override;
     const p = (process.env.LLM_PROVIDER ?? "anthropic").trim().toLowerCase();
     if (p === "openai") return "openai";
     if (p === "ollama") return "ollama";
+    if (p === "groq") return "groq";
     return "anthropic";
 }
 
 /** Exportada só para teste unitário direto (mesma razão de `configuredProvider`). */
-export function configuredModel(provider: "anthropic" | "openai" | "ollama"): string {
+export function configuredModel(provider: "anthropic" | "openai" | "ollama" | "groq"): string {
     const fromEnv = process.env.LLM_MODEL?.trim();
     if (fromEnv) return fromEnv;
     if (provider === "openai") return DEFAULT_OPENAI_MODEL;
     if (provider === "ollama") return DEFAULT_OLLAMA_MODEL;
+    if (provider === "groq") return DEFAULT_GROQ_MODEL;
     return DEFAULT_ANTHROPIC_MODEL;
 }
 
