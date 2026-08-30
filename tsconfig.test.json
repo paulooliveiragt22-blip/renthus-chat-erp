@@ -26,6 +26,7 @@
     "lib/billing/fulfillPayment.ts",
     "lib/billing/collectPayment.ts",
     "lib/billing/collectionPolicy.ts",
+    "lib/billing/contracts/**/*.ts",
     "lib/billing/tryConsumePagarmeWebhookEvent.ts",
     "lib/billing/sttPricing.ts",
     "lib/billing/llmPricing.ts",
