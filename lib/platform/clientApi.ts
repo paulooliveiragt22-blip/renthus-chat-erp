@@ -422,7 +422,30 @@ export const platformApi = {
             { method: "DELETE" }
         ),
     billingSubscriptions: () =>
-        platformFetch<{ subscriptions: unknown[] }>("/api/platform/billing/subscriptions"),
+        platformFetch<{
+            subscriptions: Array<{
+                id: string;
+                company_id: string;
+                plan: string;
+                plan_key: string | null;
+                status: string;
+                allow_overage: boolean;
+                is_active: boolean;
+                trial_ends_at: string | null;
+                last_paid_at: string | null;
+                next_billing_at: string | null;
+                activated_at: string | null;
+                companies?: { id: string; name: string; slug?: string } | null;
+                plans?: { id: string; key: string; name: string; price_cents: number } | null;
+                last_invoice?: {
+                    id: string;
+                    amount: number;
+                    status: string;
+                    due_at: string;
+                    paid_at: string | null;
+                } | null;
+            }>;
+        }>("/api/platform/billing/subscriptions"),
     changePlan: (id: string, plan_key: string, reason = "") =>
         platformFetch<{ ok: boolean }>(
             `/api/platform/billing/subscriptions/${id}/change-plan`,

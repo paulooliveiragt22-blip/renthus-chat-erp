@@ -9,10 +9,60 @@ import { toast } from "sonner";
 type SubRow = {
     id: string;
     status: string;
+    plan_key: string | null;
+    is_active?: boolean;
+    trial_ends_at: string | null;
+    last_paid_at: string | null;
+    next_billing_at: string | null;
     allow_overage: boolean;
-    companies?: { id: string; name: string; slug?: string } | null;
+    companies?: { id: string; name: string; slug?: string; is_active?: boolean } | null;
     plans?: { id: string; key: string; name: string; price_cents: number } | null;
+    last_invoice?: {
+        id: string;
+        amount: number;
+        status: string;
+        due_at: string;
+        paid_at: string | null;
+    } | null;
 };
+
+/**
+ * Badge visual do status de pagamento.
+ * Cores semânticas: verde (pago), amarelo (trial/pending_payment), vermelho (overdue/blocked/cancelled), cinza (pending_setup).
+ */
+function PaymentStatusBadge({ status }: { status: string }) {
+    const config: Record<string, { label: string; cls: string }> = {
+        active: { label: "Pago", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" },
+        trial: { label: "Trial", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
+        overdue: { label: "Vencido", cls: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" },
+        blocked: { label: "Bloqueado", cls: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" },
+        cancelled: { label: "Cancelado", cls: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" },
+        pending_payment: { label: "Pgto pendente", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
+        pending_setup: { label: "Setup pendente", cls: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" },
+        abandoned: { label: "Abandonado", cls: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" },
+    };
+    const c = config[status] ?? { label: status, cls: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" };
+    return (
+        <span className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold ${c.cls}`}>
+            {c.label}
+        </span>
+    );
+}
+
+function InvoiceStatusBadge({ status }: { status: string }) {
+    const config: Record<string, { label: string; cls: string }> = {
+        paid: { label: "Paga", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+        pending: { label: "Pendente", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+        failed: { label: "Falhou", cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+        cancelled: { label: "Cancelada", cls: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" },
+    };
+    const c = config[status] ?? { label: status, cls: "bg-zinc-100 text-zinc-700" };
+    return (
+        <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${c.cls}`}>
+            {c.label}
+        </span>
+    );
+}
 
 type BillingTab = "subscriptions" | "never_paid";
 
@@ -277,6 +327,15 @@ export default function PlatformBillingPage() {
                                     Status
                                 </th>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    Pagamento
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    Última fatura
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
+                                    Próx. cobrança
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
                                     Overage
                                 </th>
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase text-zinc-400">
@@ -288,6 +347,7 @@ export default function PlatformBillingPage() {
                             {subscriptions.map((s) => {
                                 const selected =
                                     planEdits[s.id] ?? s.plans?.key ?? plans[0]?.key ?? "";
+                                const isCompanyActive = s.companies?.is_active ?? s.is_active ?? true;
                                 return (
                                     <tr key={s.id}>
                                         <td className="px-3 py-2">
@@ -296,10 +356,36 @@ export default function PlatformBillingPage() {
                                             </div>
                                             <div className="text-[11px] text-zinc-400">
                                                 {s.companies?.slug ?? s.id.slice(0, 8)}
+                                                {!isCompanyActive && (
+                                                    <span className="ml-1 inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                                        Suspensa
+                                                    </span>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="px-3 py-2 text-xs">{s.plans?.name ?? "—"}</td>
-                                        <td className="px-3 py-2 text-xs">{s.status}</td>
+                                        <td className="px-3 py-2 text-xs">
+                                            <PaymentStatusBadge status={s.status} />
+                                        </td>
+                                        <td className="px-3 py-2 text-xs">
+                                            {s.last_invoice ? (
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="font-mono">
+                                                        R$ {s.last_invoice.amount.toFixed(2)}
+                                                    </span>
+                                                    <InvoiceStatusBadge status={s.last_invoice.status} />
+                                                </div>
+                                            ) : (
+                                                <span className="text-zinc-400">—</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                            {s.next_billing_at
+                                                ? new Date(s.next_billing_at).toLocaleDateString("pt-BR")
+                                                : s.last_paid_at
+                                                  ? <span className="text-emerald-600 dark:text-emerald-400">Pago</span>
+                                                  : "—"}
+                                        </td>
                                         <td className="px-3 py-2 text-xs">
                                             {s.allow_overage ? "Sim" : "Não"}
                                         </td>
@@ -357,7 +443,7 @@ export default function PlatformBillingPage() {
                             {subscriptions.length === 0 && (
                                 <tr>
                                     <td
-                                        colSpan={5}
+                                        colSpan={7}
                                         className="px-3 py-8 text-center text-xs text-zinc-400"
                                     >
                                         Nenhuma assinatura.

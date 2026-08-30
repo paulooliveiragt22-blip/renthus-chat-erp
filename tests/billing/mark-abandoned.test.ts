@@ -65,8 +65,8 @@ describe("abandoned_at populado corretamente", () => {
 
     it("ao sair de abandoned, abandoned_at deve ser null", () => {
         // Trigger no banco: IF OLD.status = 'abandoned' AND NEW.status <> 'abandoned' → abandoned_at = NULL
-        const nextStatus = "trial";
-        const currentStatus = "abandoned";
+        const nextStatus: string = "trial";
+        const currentStatus: string = "abandoned";
         const shouldClearAbandonedAt = currentStatus === "abandoned" && nextStatus !== "abandoned";
         assert.equal(shouldClearAbandonedAt, true);
     });
