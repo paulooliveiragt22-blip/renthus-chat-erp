@@ -1,6 +1,9 @@
 /**
  * Gate inbound WA/Meta/chatbot: companies.is_active + TenantAccess (paywall).
  * Fail-closed em erro de leitura.
+ * Exceção: quando a empresa já escolheu um plano (plan_intent) e o status é pending_payment,
+ * o inbound é liberado — mensagens de clientes reais devem fluir mesmo antes do pagamento,
+ * para não perder vendas e atender o cliente enquanto o dono regulariza a assinatura.
  */
 
 import "server-only";
@@ -20,6 +23,12 @@ export function resolveInboundFromSnapshots(
 ): InboundChannelGateResult {
     if (companyActive !== true) {
         return { allowed: false, reason: "company_inactive" };
+    }
+    // Se a empresa já escolheu um plano (plan_intent) mas ainda não pagou,
+    // permitimos o inbound para que mensagens de clientes reais possam chegar.
+    const hasPlan = sub?.plan != null && String(sub.plan).trim() !== "";
+    if (hasPlan && sub?.status === "pending_payment") {
+        return { allowed: true };
     }
     const access = resolveTenantAccess(sub, now);
     if (access.access !== "allow") {

@@ -96,7 +96,7 @@ describe("A6 DoD — never-paid features []", () => {
         );
     });
 
-    it("inbound channel deny alinhado (is_active true não bypassa)", () => {
+    it("inbound channel libera para empresa com plan definido (mensagens de clientes fluem mesmo antes do pagamento)", () => {
         const r = resolveInboundFromSnapshots(
             true,
             {
@@ -104,6 +104,20 @@ describe("A6 DoD — never-paid features []", () => {
                 trial_ends_at: null,
                 last_paid_at: null,
                 plan: "pro",
+            },
+            new Date("2026-08-28T12:00:00.000Z")
+        );
+        assert.strictEqual(r.allowed, true);
+    });
+
+    it("inbound channel bloqueia se sem plan definido (defense)", () => {
+        const r = resolveInboundFromSnapshots(
+            true,
+            {
+                status: "pending_payment",
+                trial_ends_at: null,
+                last_paid_at: null,
+                plan: null,
             },
             new Date("2026-08-28T12:00:00.000Z")
         );

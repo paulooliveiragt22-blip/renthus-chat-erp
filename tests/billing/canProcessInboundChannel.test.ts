@@ -16,12 +16,22 @@ describe("resolveInboundFromSnapshots", () => {
         if (!r.allowed) assert.equal(r.reason, "company_inactive");
     });
 
-    it("pending_payment → deny mesmo com is_active true (defense)", () => {
+    it("pending_payment com plan definido → allow (inbound liberado para empresas que escolheram plano)", () => {
         const r = resolveInboundFromSnapshots(true, {
             status: "pending_payment",
             trial_ends_at: NOW.toISOString(),
             last_paid_at: null,
             plan: "essencial",
+        }, NOW);
+        assert.equal(r.allowed, true);
+    });
+
+    it("pending_payment sem plan → deny (defense)", () => {
+        const r = resolveInboundFromSnapshots(true, {
+            status: "pending_payment",
+            trial_ends_at: NOW.toISOString(),
+            last_paid_at: null,
+            plan: null,
         }, NOW);
         assert.equal(r.allowed, false);
         if (!r.allowed) assert.equal(r.reason, "pending_payment");
