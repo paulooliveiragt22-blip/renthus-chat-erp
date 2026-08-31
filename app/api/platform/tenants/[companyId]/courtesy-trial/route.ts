@@ -43,6 +43,20 @@ export async function POST(
         const uc = new GrantCourtesyTrial(rpc, notifier);
 
         try {
+            // FORÇAR LOG PARA DIAGNÓSTICO
+            console.log("[courtesy-trial] calling rpc_platform_grant_courtesy_trial", {
+                companyId: companyId.trim(),
+                days: Number(body.days ?? 0),
+                planKey: String(body.plan_key ?? body.planKey ?? ""),
+                actor: {
+                    actorId: ctx.actor.id,
+                    actorEmail: ctx.actor.email,
+                    actorRole: ctx.actor.role,
+                    requestId: ctx.requestId,
+                    ipAddress: ctx.ipAddress,
+                    userAgent: ctx.userAgent ?? "unknown",
+                },
+            });
             const result = await uc.execute({
                 companyId: companyId.trim(),
                 days: Number(body.days ?? 0),
@@ -66,7 +80,10 @@ export async function POST(
             });
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
-            console.error(`[courtesy-trial] failed: ${msg}`);
+            const stack = e instanceof Error ? e.stack : "(no stack)";
+            const name = e instanceof Error ? e.constructor.name : typeof e;
+            // LOG COMPLETO PARA DIAGNÓSTICO
+            console.error(`[courtesy-trial] FAILED name=${name} msg=${msg} stack=${stack}`);
             const status =
                 msg.includes("already_paid") ||
                 msg.includes("not_eligible") ||
@@ -75,7 +92,7 @@ export async function POST(
                 msg.includes("plan_not_found")
                     ? 409
                     : 400;
-            return NextResponse.json({ error: msg }, { status });
+            return NextResponse.json({ error: msg, _diag_name: name }, { status });
         }
     });
 }
