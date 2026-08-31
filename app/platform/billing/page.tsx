@@ -5,33 +5,17 @@ import { useState } from "react";
 import { Loader2, RefreshCcw, Save } from "lucide-react";
 import { platformApi } from "@/lib/platform/clientApi";
 import { toast } from "sonner";
+import type { UiSubscriptionRow, UiPlan, UiNeverPaidTenant } from "@/lib/billing/contracts/ui";
+import type { PagarmeSubStatus, PagarmeInvoiceStatus } from "@/lib/billing/contracts/status";
 
-type SubRow = {
-    id: string;
-    status: string;
-    plan_key: string | null;
-    is_active?: boolean;
-    trial_ends_at: string | null;
-    last_paid_at: string | null;
-    next_billing_at: string | null;
-    allow_overage: boolean;
-    companies?: { id: string; name: string; slug?: string; is_active?: boolean } | null;
-    plans?: { id: string; key: string; name: string; price_cents: number } | null;
-    last_invoice?: {
-        id: string;
-        amount: number;
-        status: string;
-        due_at: string;
-        paid_at: string | null;
-    } | null;
-};
+type SubRow = UiSubscriptionRow;
 
 /**
  * Badge visual do status de pagamento.
  * Cores semânticas: verde (pago), amarelo (trial/pending_payment), vermelho (overdue/blocked/cancelled), cinza (pending_setup).
  */
-function PaymentStatusBadge({ status }: { status: string }) {
-    const config: Record<string, { label: string; cls: string }> = {
+function PaymentStatusBadge({ status }: { status: PagarmeSubStatus }) {
+    const config: Record<PagarmeSubStatus, { label: string; cls: string }> = {
         active: { label: "Pago", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" },
         trial: { label: "Trial", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
         overdue: { label: "Vencido", cls: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" },
@@ -49,8 +33,8 @@ function PaymentStatusBadge({ status }: { status: string }) {
     );
 }
 
-function InvoiceStatusBadge({ status }: { status: string }) {
-    const config: Record<string, { label: string; cls: string }> = {
+function InvoiceStatusBadge({ status }: { status: PagarmeInvoiceStatus }) {
+    const config: Record<PagarmeInvoiceStatus, { label: string; cls: string }> = {
         paid: { label: "Paga", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
         pending: { label: "Pendente", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
         failed: { label: "Falhou", cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
@@ -346,16 +330,16 @@ export default function PlatformBillingPage() {
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                             {subscriptions.map((s) => {
                                 const selected =
-                                    planEdits[s.id] ?? s.plans?.key ?? plans[0]?.key ?? "";
-                                const isCompanyActive = s.companies?.is_active ?? s.is_active ?? true;
+                                    planEdits[s.id] ?? s.plan?.key ?? plans[0]?.key ?? "";
+                                const isCompanyActive = s.company?.is_active ?? true;
                                 return (
                                     <tr key={s.id}>
                                         <td className="px-3 py-2">
                                             <div className="font-medium text-zinc-900 dark:text-zinc-100">
-                                                {s.companies?.name ?? "—"}
+                                                {s.company?.name ?? "—"}
                                             </div>
                                             <div className="text-[11px] text-zinc-400">
-                                                {s.companies?.slug ?? s.id.slice(0, 8)}
+                                                {s.company?.slug ?? s.id.slice(0, 8)}
                                                 {!isCompanyActive && (
                                                     <span className="ml-1 inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-700 dark:bg-red-900/30 dark:text-red-300">
                                                         Suspensa
@@ -363,7 +347,7 @@ export default function PlatformBillingPage() {
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="px-3 py-2 text-xs">{s.plans?.name ?? "—"}</td>
+                                        <td className="px-3 py-2 text-xs">{s.plan?.name ?? "—"}</td>
                                         <td className="px-3 py-2 text-xs">
                                             <PaymentStatusBadge status={s.status} />
                                         </td>

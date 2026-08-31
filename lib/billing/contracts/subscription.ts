@@ -39,3 +39,21 @@ export interface PagarmeSubscriptionWithLastInvoice extends PagarmeSubscriptionW
   lastInvoiceDueAt: Date | null;
   lastInvoicePaidAt: Date | null;
 }
+
+/**
+ * Type helper: estende qualquer subscription type com os embeds do Supabase
+ * (companies, plans) usados pelos mappers de UI.
+ */
+export type WithSupabaseEmbeds<T> = T & {
+  companies?: {
+    name: string | null;
+    slug: string | null;
+    is_active: boolean | null;
+  } | null;
+  plans?: {
+    id: string;
+    key: string;
+    name: string;
+    price_cents: number;
+  } | null;
+};

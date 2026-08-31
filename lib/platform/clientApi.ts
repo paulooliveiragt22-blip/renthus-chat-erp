@@ -1,5 +1,7 @@
 /** Client-side fetch helpers for /platform UI (never import server-only code). */
 
+import type { UiSubscriptionRow, UiNeverPaidTenant } from "@/lib/billing/contracts/ui";
+
 async function platformFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(path, {
         ...init,
@@ -422,30 +424,9 @@ export const platformApi = {
             { method: "DELETE" }
         ),
     billingSubscriptions: () =>
-        platformFetch<{
-            subscriptions: Array<{
-                id: string;
-                company_id: string;
-                plan: string;
-                plan_key: string | null;
-                status: string;
-                allow_overage: boolean;
-                is_active: boolean;
-                trial_ends_at: string | null;
-                last_paid_at: string | null;
-                next_billing_at: string | null;
-                activated_at: string | null;
-                companies?: { id: string; name: string; slug?: string } | null;
-                plans?: { id: string; key: string; name: string; price_cents: number } | null;
-                last_invoice?: {
-                    id: string;
-                    amount: number;
-                    status: string;
-                    due_at: string;
-                    paid_at: string | null;
-                } | null;
-            }>;
-        }>("/api/platform/billing/subscriptions"),
+        platformFetch<{ subscriptions: UiSubscriptionRow[] }>(
+            "/api/platform/billing/subscriptions"
+        ),
     changePlan: (id: string, plan_key: string, reason = "") =>
         platformFetch<{ ok: boolean }>(
             `/api/platform/billing/subscriptions/${id}/change-plan`,
@@ -471,31 +452,11 @@ export const platformApi = {
         platformFetch<{
             ok: boolean;
             billing: "never_paid";
-            tenants: Array<{
-                companyId: string;
-                companyName: string;
-                email: string | null;
-                cnpj: string | null;
-                whatsappPhone: string | null;
-                isActive: boolean;
-                companyCreatedAt: string | null;
-                pagarmeSubscriptionId: string;
-                plan: string;
-                billingStatus: string;
-                trialEndsAt: string | null;
-                pendingInvoice: {
-                    id: string;
-                    amount: number;
-                    dueAt: string;
-                    hasPix: boolean;
-                    pixQrCode: string | null;
-                    paymentUrl: string | null;
-                } | null;
-            }>;
+            tenants: UiNeverPaidTenant[];
             total: number;
             page: number;
             limit: number;
-        }>(`/api/platform/tenants?billing=never_paid&page=${page}&limit=${limit}`),
+        }>(`/api/platform/billing/never-paid?page=${page}&limit=${limit}`),
     grantCourtesyTrial: (
         companyId: string,
         days: number,
