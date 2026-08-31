@@ -8,10 +8,33 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-function makeRpc(ctxAdmin: unknown): RpcExecutor {
-    // Adapter mínimo: usa client.rpc do Supabase service-role
-    const rpc = (ctxAdmin as { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> }).rpc;
-    return async (fn, args) => rpc(fn, args);
+function makeRpc(): RpcExecutor {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !serviceKey) throw new Error("Missing Supabase URL or service role key");
+    return async (fn, args) => {
+        const res = await fetch(`${url}/rest/v1/rpc/${fn}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "apikey": serviceKey,
+                "Authorization": `Bearer ${serviceKey}`,
+            },
+            body: JSON.stringify(args),
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            let msg = text;
+            try {
+                const parsed = JSON.parse(text);
+                msg = parsed.message ?? parsed.details ?? parsed.hint ?? text;
+            } catch { /* keep text */ }
+            return { data: null, error: { message: msg || `HTTP ${res.status}` } };
+        }
+        let data: unknown = text;
+        try { data = JSON.parse(text); } catch { /* keep text */ }
+        return { data, error: null };
+    };
 }
 
 export async function POST(req: Request, { params }: Ctx) {
@@ -26,7 +49,7 @@ export async function POST(req: Request, { params }: Ctx) {
             return NextResponse.json({ error: "plan_key required" }, { status: 400 });
         }
 
-        const rpc = makeRpc(ctx.admin);
+        const rpc = makeRpc();
         const notifier = new ConsoleBillingNotifier();
         const uc = new ChangeSubscriptionPlan(rpc, notifier);
 

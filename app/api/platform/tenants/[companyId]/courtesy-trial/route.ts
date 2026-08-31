@@ -8,9 +8,57 @@ import {
 
 export const runtime = "nodejs";
 
-function makeRpc(ctxAdmin: unknown): RpcExecutor {
-    const rpc = (ctxAdmin as { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> }).rpc;
-    return async (fn, args) => rpc(fn, args);
+/**
+ * Executa RPC via HTTP direto (PostgREST REST endpoint).
+ *
+ * Por que NÃO usar `client.rpc(...)`?
+ *   O @supabase/postgrest-js@2.89.0 tem um bug conhecido onde ele faz
+ *   destructuring `const { ..., ...rest } = response` e quando recebe uma
+ *   resposta mal-formed (ex: signature mismatch, response de erro não-Postgrest),
+ *   V8 lança `TypeError: Cannot read properties of undefined (reading 'rest')`
+ *   e isso vira a `error.message` que o Next retorna como 400.
+ *
+ *   Fazendo o fetch direto, controlamos o shape da resposta e extraímos a
+ *   mensagem real do SQL/PgSQL.
+ */
+function makeRpc(): RpcExecutor {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !serviceKey) {
+        throw new Error("Missing Supabase URL or service role key");
+    }
+    return async (fn, args) => {
+        const res = await fetch(`${url}/rest/v1/rpc/${fn}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "apikey": serviceKey,
+                "Authorization": `Bearer ${serviceKey}`,
+            },
+            body: JSON.stringify(args),
+        });
+        // RPCs podem retornar timestamp (string) ou json; tenta json, fallback text
+        const text = await res.text();
+        if (!res.ok) {
+            // Mensagem de erro do PostgREST vem em `message` ou `details` ou é o próprio body
+            let msg = text;
+            try {
+                const parsed = JSON.parse(text);
+                msg = parsed.message ?? parsed.details ?? parsed.hint ?? text;
+            } catch {
+                // text não era JSON, usa o body cru
+            }
+            return { data: null, error: { message: msg || `HTTP ${res.status}` } };
+        }
+        // Sucesso: data é o retorno da RPC
+        let data: unknown = text;
+        try {
+            data = JSON.parse(text);
+        } catch {
+            // text não era JSON (ex: timestamp string), mantém o texto cru
+        }
+        return { data, error: null };
+    };
 }
 
 /**
@@ -22,7 +70,9 @@ export async function POST(
     req: Request,
     ctxParams: { params: Promise<{ companyId: string }> }
 ) {
+    console.log("[courtesy-trial] ENTRY");
     return withPlatformAccess("platform.billing.write", async (ctx) => {
+        console.log("[courtesy-trial] withPlatformAccess OK, actor=", ctx.actor.role, ctx.actor.email);
         if (ctx.actor.role !== "superadmin") {
             return NextResponse.json(
                 { error: "Courtesy trial requires superadmin role" },
@@ -31,20 +81,24 @@ export async function POST(
         }
 
         const { companyId } = await ctxParams.params;
-        const body = (await req.json().catch(() => ({}))) as {
+        console.log("[courtesy-trial] companyId=", companyId);
+        const body = (await req.json().catch((err) => {
+            console.error("[courtesy-trial] body parse failed:", err);
+            return {};
+        })) as {
             days?: number;
             plan_key?: string;
             planKey?: string;
             reason?: string;
         };
+        console.log("[courtesy-trial] body=", body);
 
-        const rpc = makeRpc(ctx.admin);
+        const rpc = makeRpc();
         const notifier = new ConsoleBillingNotifier();
         const uc = new GrantCourtesyTrial(rpc, notifier);
 
         try {
-            // FORÇAR LOG PARA DIAGNÓSTICO
-            console.log("[courtesy-trial] calling rpc_platform_grant_courtesy_trial", {
+            console.log("[courtesy-trial] calling rpc_platform_grant_courtesy_trial with", {
                 companyId: companyId.trim(),
                 days: Number(body.days ?? 0),
                 planKey: String(body.plan_key ?? body.planKey ?? ""),
@@ -71,6 +125,7 @@ export async function POST(
                     userAgent: ctx.userAgent ?? "unknown",
                 },
             });
+            console.log("[courtesy-trial] SUCCESS result=", result);
             return NextResponse.json({
                 ok: true,
                 company_id: companyId,
@@ -82,7 +137,6 @@ export async function POST(
             const msg = e instanceof Error ? e.message : String(e);
             const stack = e instanceof Error ? e.stack : "(no stack)";
             const name = e instanceof Error ? e.constructor.name : typeof e;
-            // LOG COMPLETO PARA DIAGNÓSTICO
             console.error(`[courtesy-trial] FAILED name=${name} msg=${msg} stack=${stack}`);
             const status =
                 msg.includes("already_paid") ||
@@ -92,7 +146,7 @@ export async function POST(
                 msg.includes("plan_not_found")
                     ? 409
                     : 400;
-            return NextResponse.json({ error: msg, _diag_name: name }, { status });
+            return NextResponse.json({ error: msg, _diag_name: name, _diag_stack: stack?.split("\n").slice(0, 3) }, { status });
         }
     });
 }
