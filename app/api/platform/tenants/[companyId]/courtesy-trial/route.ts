@@ -54,7 +54,7 @@ export async function POST(
                     actorRole: ctx.actor.role,
                     requestId: ctx.requestId,
                     ipAddress: ctx.ipAddress,
-                    userAgent: ctx.userAgent,
+                    userAgent: ctx.userAgent ?? "unknown",
                 },
             });
             return NextResponse.json({
