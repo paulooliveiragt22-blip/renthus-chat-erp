@@ -7,11 +7,13 @@
 
 import type { BillingNotifierPort } from "../ports/billingNotifier";
 import type { SubscriptionPlanKey } from "../contracts/status";
+import type { ActorContext } from "./actorContext";
 
 export interface ChangeSubscriptionPlanInput {
   subscriptionId: string;
   planKey: SubscriptionPlanKey;
   reason?: string;
+  actor: ActorContext;
 }
 
 export type RpcExecutor = (
@@ -32,6 +34,12 @@ export class ChangeSubscriptionPlan {
     const { error } = await this.rpc("rpc_platform_change_subscription_plan", {
       p_subscription_id: input.subscriptionId,
       p_plan_key: input.planKey,
+      p_actor_id: input.actor.actorId,
+      p_actor_email: input.actor.actorEmail,
+      p_actor_role: input.actor.actorRole,
+      p_request_id: input.actor.requestId,
+      p_ip_address: input.actor.ipAddress,
+      p_user_agent: input.actor.userAgent,
       p_reason: input.reason ?? "",
     });
 

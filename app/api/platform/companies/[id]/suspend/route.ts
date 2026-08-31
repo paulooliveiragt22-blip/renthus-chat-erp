@@ -24,6 +24,14 @@ export async function POST(req: Request, { params }: Ctx) {
             await uc.execute({
                 companyId: id,
                 reason: typeof body.reason === "string" ? body.reason : "",
+                actor: {
+                    actorId: ctx.actor.id,
+                    actorEmail: ctx.actor.email,
+                    actorRole: ctx.actor.role,
+                    requestId: ctx.requestId,
+                    ipAddress: ctx.ipAddress,
+                    userAgent: ctx.userAgent,
+                },
             });
             return NextResponse.json({ ok: true });
         } catch (e: unknown) {

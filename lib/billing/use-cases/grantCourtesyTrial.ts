@@ -11,6 +11,7 @@
 
 import type { BillingNotifierPort } from "../ports/billingNotifier";
 import type { SubscriptionPlanKey } from "../contracts/status";
+import type { ActorContext } from "./actorContext";
 
 export type CourtesyPlanKey = Extract<SubscriptionPlanKey, "essencial" | "pro" | "market">;
 
@@ -19,6 +20,7 @@ export interface GrantCourtesyTrialInput {
   days: number;
   planKey: CourtesyPlanKey;
   reason?: string;
+  actor: ActorContext;
 }
 
 export interface GrantCourtesyTrialResult {
@@ -47,7 +49,12 @@ export class GrantCourtesyTrial {
     const { data, error } = await this.rpc("rpc_platform_grant_courtesy_trial", {
       p_company_id: input.companyId,
       p_days: input.days,
-      p_plan_key: input.planKey,
+      p_actor_id: input.actor.actorId,
+      p_actor_email: input.actor.actorEmail,
+      p_actor_role: input.actor.actorRole,
+      p_request_id: input.actor.requestId,
+      p_ip_address: input.actor.ipAddress,
+      p_user_agent: input.actor.userAgent,
       p_reason: input.reason ?? "",
     });
 

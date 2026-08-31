@@ -8,10 +8,12 @@
  */
 
 import type { BillingNotifierPort } from "../ports/billingNotifier";
+import type { ActorContext } from "./actorContext";
 
 export interface SuspendCompanyInput {
   companyId: string;
   reason?: string;
+  actor: ActorContext;
 }
 
 export type RpcExecutor = (
@@ -30,6 +32,12 @@ export class SuspendCompany {
 
     const { error } = await this.rpc("rpc_platform_suspend_company", {
       p_company_id: input.companyId,
+      p_actor_id: input.actor.actorId,
+      p_actor_email: input.actor.actorEmail,
+      p_actor_role: input.actor.actorRole,
+      p_request_id: input.actor.requestId,
+      p_ip_address: input.actor.ipAddress,
+      p_user_agent: input.actor.userAgent,
       p_reason: input.reason ?? "",
     });
 

@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 
 import type { BillingNotifierPort, BillingEvent } from "../../../../lib/billing/ports/billingNotifier";
 import { SuspendCompany, type RpcExecutor } from "../../../../lib/billing/use-cases/suspendCompany";
+import { fakeActor } from "./_fakeActor";
 
 function fakeRpc(error?: { message: string }): RpcExecutor {
   return async (_fn, _args) => ({ data: null, error: error ?? null });
@@ -26,17 +27,20 @@ describe("SuspendCompany — validações + RPC + notifier", () => {
       return { data: null, error: null };
     };
     const uc = new SuspendCompany(rpc, new InMemoryNotifier());
-    await uc.execute({ companyId: "c-1", reason: "trial_expired" });
+    await uc.execute({ companyId: "c-1", reason: "trial_expired", actor: fakeActor() });
 
     assert.strictEqual(captured.fn, "rpc_platform_suspend_company");
     assert.strictEqual(captured.args.p_company_id, "c-1");
     assert.strictEqual(captured.args.p_reason, "trial_expired");
+    assert.strictEqual(captured.args.p_actor_id, "actor-1");
+    assert.strictEqual(captured.args.p_actor_role, "superadmin");
+    assert.strictEqual(captured.args.p_request_id, "req-1");
   });
 
   it("execute(): rejeita companyId vazio", async () => {
     const uc = new SuspendCompany(fakeRpc(), new InMemoryNotifier());
     await assert.rejects(
-      uc.execute({ companyId: "" }),
+      uc.execute({ companyId: "", actor: fakeActor() }),
       /companyId required/
     );
   });
@@ -47,7 +51,7 @@ describe("SuspendCompany — validações + RPC + notifier", () => {
       new InMemoryNotifier()
     );
     await assert.rejects(
-      uc.execute({ companyId: "c-1" }),
+      uc.execute({ companyId: "c-1", actor: fakeActor() }),
       /company_not_found/
     );
   });
@@ -55,7 +59,7 @@ describe("SuspendCompany — validações + RPC + notifier", () => {
   it("execute(): publica evento de auditoria no sucesso", async () => {
     const notifier = new InMemoryNotifier();
     const uc = new SuspendCompany(fakeRpc(), notifier);
-    await uc.execute({ companyId: "c-1", reason: "manual" });
+    await uc.execute({ companyId: "c-1", reason: "manual", actor: fakeActor() });
     assert.strictEqual(notifier.events.length, 1);
     assert.strictEqual(notifier.events[0]?.kind, "company_suspended");
     assert.strictEqual(notifier.events[0]?.companyId, "c-1");

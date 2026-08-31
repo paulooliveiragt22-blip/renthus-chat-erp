@@ -48,6 +48,14 @@ export async function POST(
                 days: Number(body.days ?? 0),
                 planKey: String(body.plan_key ?? body.planKey ?? "") as "essencial" | "pro" | "market",
                 reason: body.reason,
+                actor: {
+                    actorId: ctx.actor.id,
+                    actorEmail: ctx.actor.email,
+                    actorRole: ctx.actor.role,
+                    requestId: ctx.requestId,
+                    ipAddress: ctx.ipAddress,
+                    userAgent: ctx.userAgent,
+                },
             });
             return NextResponse.json({
                 ok: true,
@@ -58,6 +66,7 @@ export async function POST(
             });
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
+            console.error(`[courtesy-trial] failed: ${msg}`);
             const status =
                 msg.includes("already_paid") ||
                 msg.includes("not_eligible") ||
