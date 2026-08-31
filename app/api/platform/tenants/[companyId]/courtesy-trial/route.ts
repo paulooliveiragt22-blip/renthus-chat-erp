@@ -1,23 +1,22 @@
 import { NextResponse } from "next/server";
-import { withPlatformAccess, toAuditCtx } from "@/lib/platform/apiHelpers";
+import { withPlatformAccess } from "@/lib/platform/apiHelpers";
+import { ConsoleBillingNotifier } from "@/lib/billing/adapters/consoleBillingNotifier";
 import {
-    grantCourtesyTrial,
-    type CourtesyPlanKey,
-} from "@/lib/platform/services/platformNeverPaidTenants";
+    GrantCourtesyTrial,
+    type RpcExecutor,
+} from "@/lib/billing/use-cases/grantCourtesyTrial";
 
 export const runtime = "nodejs";
 
-const MAX_COURTESY_DAYS = 30;
-const ALLOWED_PLANS: ReadonlySet<CourtesyPlanKey> = new Set([
-    "essencial",
-    "pro",
-    "market",
-]);
+function makeRpc(ctxAdmin: unknown): RpcExecutor {
+    const rpc = (ctxAdmin as { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> }).rpc;
+    return async (fn, args) => rpc(fn, args);
+}
 
 /**
  * POST /api/platform/tenants/[companyId]/courtesy-trial
  * Body: { days: number, plan_key: "essencial"|"pro"|"market", reason?: string }
- * Superadmin only — 1 a 30 dias.
+ * Superadmin only — 1 a 14 dias (validado no use case).
  */
 export async function POST(
     req: Request,
@@ -32,47 +31,29 @@ export async function POST(
         }
 
         const { companyId } = await ctxParams.params;
-        if (!companyId?.trim()) {
-            return NextResponse.json({ error: "companyId required" }, { status: 400 });
-        }
-
         const body = (await req.json().catch(() => ({}))) as {
             days?: number;
             plan_key?: string;
             planKey?: string;
             reason?: string;
         };
-        const days = Number(body.days);
-        if (!Number.isFinite(days) || days < 1 || days > MAX_COURTESY_DAYS) {
-            return NextResponse.json(
-                { error: `days must be between 1 and ${MAX_COURTESY_DAYS}` },
-                { status: 400 }
-            );
-        }
 
-        const planKey = String(body.plan_key ?? body.planKey ?? "")
-            .trim()
-            .toLowerCase() as CourtesyPlanKey;
-        if (!ALLOWED_PLANS.has(planKey)) {
-            return NextResponse.json(
-                { error: "plan_key must be one of essencial|pro|market" },
-                { status: 400 }
-            );
-        }
+        const rpc = makeRpc(ctx.admin);
+        const notifier = new ConsoleBillingNotifier();
+        const uc = new GrantCourtesyTrial(rpc, notifier);
 
         try {
-            const audit = toAuditCtx(ctx);
-            const result = await grantCourtesyTrial(ctx.admin, ctx.actor, audit, {
+            const result = await uc.execute({
                 companyId: companyId.trim(),
-                days: Math.floor(days),
-                planKey,
+                days: Number(body.days ?? 0),
+                planKey: String(body.plan_key ?? body.planKey ?? "") as "essencial" | "pro" | "market",
                 reason: body.reason,
             });
             return NextResponse.json({
                 ok: true,
                 company_id: companyId,
                 trial_ends_at: result.trialEndsAt,
-                days: Math.floor(days),
+                days: result.days,
                 plan_key: result.planKey,
             });
         } catch (e: unknown) {
@@ -80,7 +61,8 @@ export async function POST(
             const status =
                 msg.includes("already_paid") ||
                 msg.includes("not_eligible") ||
-                msg.includes("plan_key_invalid") ||
+                msg.includes("courtesy_trial_days_invalid") ||
+                msg.includes("plan_key") ||
                 msg.includes("plan_not_found")
                     ? 409
                     : 400;

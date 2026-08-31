@@ -14,6 +14,7 @@ import type { SubscriptionRepositoryPort, SubscriptionFilter } from "../../../..
 import type { InvoiceRepositoryPort } from "../../../../lib/billing/ports/invoiceRepository";
 import type { BillingNotifierPort, BillingEvent } from "../../../../lib/billing/ports/billingNotifier";
 import type {
+  PagarmeSubscription,
   PagarmeSubscriptionWithCompany,
   PagarmeSubscriptionWithLastInvoice,
 } from "../../../../lib/billing/contracts/subscription";
@@ -41,28 +42,43 @@ function makeSub(id: string, companyId: string): PagarmeSubscriptionWithCompany 
 
 class InMemorySubRepo implements SubscriptionRepositoryPort {
   constructor(public rows: PagarmeSubscriptionWithCompany[] = []) {}
-  async list(filter: SubscriptionFilter) {
-    return this.rows.filter((r) => !filter.statuses?.length || (filter.statuses as readonly string[]).includes(r.status));
+  list(filter: SubscriptionFilter): Promise<PagarmeSubscriptionWithCompany[]> {
+    return Promise.resolve(this.rows.filter((r) => !filter.statuses?.length || (filter.statuses as readonly string[]).includes(r.status)));
   }
-  async listNeverPaid() { return []; }
-  async listWithLastInvoice() { return this.rows.map((s) => ({ ...s, lastInvoiceId: null, lastInvoiceAmount: null, lastInvoiceStatus: null, lastInvoiceDueAt: null, lastInvoicePaidAt: null })); }
-  async findById(id: string) { return this.rows.find((r) => r.id === id) ?? null; }
-  async findByCompany(companyId: string) { return this.rows.find((r) => r.companyId === companyId) ?? null; }
+  listNeverPaid(): Promise<PagarmeSubscriptionWithCompany[]> {
+    return Promise.resolve([]);
+  }
+  listWithLastInvoice(): Promise<PagarmeSubscriptionWithLastInvoice[]> {
+    return Promise.resolve(this.rows.map((s) => ({
+      ...s,
+      lastInvoiceId: null,
+      lastInvoiceAmount: null,
+      lastInvoiceStatus: null,
+      lastInvoiceDueAt: null,
+      lastInvoicePaidAt: null,
+    })));
+  }
+  findById(id: string): Promise<PagarmeSubscriptionWithCompany | null> {
+    return Promise.resolve(this.rows.find((r) => r.id === id) ?? null);
+  }
+  findByCompany(companyId: string): Promise<PagarmeSubscription | null> {
+    return Promise.resolve(this.rows.find((r) => r.companyId === companyId) ?? null);
+  }
 }
 
 class InMemoryInvoiceRepo implements InvoiceRepositoryPort {
   constructor(public rows: Invoice[] = []) {}
-  async list() { return this.rows; }
-  async lastByCompany(companyIds: readonly string[]): Promise<Map<string, Invoice>> {
+  list(): Promise<Invoice[]> { return Promise.resolve(this.rows); }
+  lastByCompany(companyIds: readonly string[]): Promise<Map<string, Invoice>> {
     const m = new Map<string, Invoice>();
     for (const id of companyIds) {
       const cands = this.rows.filter((r) => r.companyId === id).sort((a, b) => b.dueAt.getTime() - a.dueAt.getTime());
       const top = cands[0];
       if (top) m.set(id, top);
     }
-    return m;
+    return Promise.resolve(m);
   }
-  async findById(id: string) { return this.rows.find((r) => r.id === id) ?? null; }
+  findById(id: string): Promise<Invoice | null> { return Promise.resolve(this.rows.find((r) => r.id === id) ?? null); }
 }
 
 class InMemoryNotifier implements BillingNotifierPort {
@@ -116,19 +132,19 @@ describe("ListSubscriptionsForPlatform — orquestração", () => {
 
   it("execute(): propaga erro do repo", async () => {
     class FailingRepo implements SubscriptionRepositoryPort {
-      async list() {
+      async list(_filter: SubscriptionFilter): Promise<PagarmeSubscriptionWithCompany[]> {
         throw new Error("boom");
       }
       async listNeverPaid(): Promise<PagarmeSubscriptionWithCompany[]> {
         return [];
       }
-      async listWithLastInvoice(): Promise<PagarmeSubscriptionWithLastInvoice[]> {
+      async listWithLastInvoice(_filter: SubscriptionFilter): Promise<PagarmeSubscriptionWithLastInvoice[]> {
         return [];
       }
-      async findById() {
+      async findById(_id: string): Promise<PagarmeSubscriptionWithCompany | null> {
         return null;
       }
-      async findByCompany() {
+      async findByCompany(_companyId: string): Promise<PagarmeSubscription | null> {
         return null;
       }
     }
