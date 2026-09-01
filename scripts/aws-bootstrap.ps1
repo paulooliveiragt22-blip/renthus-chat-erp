@@ -102,14 +102,16 @@ $inRedrive = (@{ deadLetterTargetArn = $inDlqArn; maxReceiveCount = 3 } | Conver
 $outRedrive = (@{ deadLetterTargetArn = $outDlqArn; maxReceiveCount = 3 } | ConvertTo-Json -Compress)
 
 $inUrl = New-FifoQueue "renthus-inbound.fifo" @{
-    VisibilityTimeout      = "720"
-    MessageRetentionPeriod = "1209600"
-    RedrivePolicy          = $inRedrive
+    VisibilityTimeout              = "180"
+    ReceiveMessageWaitTimeSeconds  = "20"
+    MessageRetentionPeriod         = "1209600"
+    RedrivePolicy                  = $inRedrive
 }
 $outUrl = New-FifoQueue "renthus-outbound.fifo" @{
-    VisibilityTimeout      = "360"
-    MessageRetentionPeriod = "1209600"
-    RedrivePolicy          = $outRedrive
+    VisibilityTimeout              = "180"
+    ReceiveMessageWaitTimeSeconds  = "20"
+    MessageRetentionPeriod         = "1209600"
+    RedrivePolicy                  = $outRedrive
 }
 
 Write-Host ""

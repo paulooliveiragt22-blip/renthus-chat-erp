@@ -39,12 +39,24 @@ export function resolveOutboundQueueUrl(): string {
 }
 
 function resolveAwsRegion(): string {
-    return process.env.AWS_REGION?.trim() || process.env.AWS_DEFAULT_REGION?.trim() || "sa-east-1";
+    // Prioridade: env var > extrair do QueueUrl (region é confiável) > fallback
+    const fromEnv = process.env.AWS_REGION?.trim() || process.env.AWS_DEFAULT_REGION?.trim();
+    if (fromEnv) return fromEnv;
+
+    // Extrai região do QueueUrl (formato: https://sqs.<region>.amazonaws.com/...)
+    const queueUrl =
+        process.env.SQS_INBOUND_QUEUE_URL?.trim() || process.env.SQS_OUTBOUND_QUEUE_URL?.trim() || "";
+    const m = queueUrl.match(/^https?:\/\/sqs\.([a-z0-9-]+)\.amazonaws\.com\//i);
+    if (m?.[1]) return m[1];
+
+    return "sa-east-1"; // fallback final (fila conhecida está em SP)
 }
 
 function getSqsClient(): SQSClient {
     if (!cachedClient) {
-        cachedClient = new SQSClient({ region: resolveAwsRegion() });
+        const region = resolveAwsRegion();
+        console.log(`[sqsDispatch] init SQSClient region=${region} (resolved from env or queue url)`);
+        cachedClient = new SQSClient({ region });
     }
     return cachedClient;
 }

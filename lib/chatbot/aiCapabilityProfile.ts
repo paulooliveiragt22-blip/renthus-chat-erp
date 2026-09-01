@@ -76,22 +76,27 @@ function profileForPlan(
          * chamada — o abortSignal usa este teto por completo, não por etapa. Forces
          * determinísticos (ver ai.service.ts: shouldForceSearchForDeclaredPendingTerms /
          * shouldForcePrepareAfterEmbalagemChoice) podem adicionar 1-2 idas e voltas extras à
-         * Anthropic no mesmo turno; 15s era justo demais nesse cenário.
+         * Anthropic no mesmo turno.
+         *
+         * Fase 7 (ADR-0003): teto cortado de 20s → 15s (avancado) para falhar rápido em
+         * loops patológicos em vez de esperar. `maxSteps` em ai.service.ts continua sendo
+         * teto de segurança contra item irresolúvel (Fase 9 vai adicionar stopWhen explícito).
          */
-        aiTimeoutMs: 20_000,
+        aiTimeoutMs: 15_000,
     };
     if (planKey === "essencial") {
         return {
             ...base,
             tier: "basico",
-            maxToolRounds: 4,
+            maxToolRounds: 3,
             maxHistoryTurns: 8,
+            aiTimeoutMs: 12_000,
         };
     }
     return {
         ...base,
         tier: "avancado",
-        maxToolRounds: 12,
+        maxToolRounds: 10,
         maxHistoryTurns: 24,
     };
 }
@@ -108,7 +113,7 @@ function degradadoProfile(
         model: configuredModel(provider),
         maxToolRounds: 0,
         maxHistoryTurns: 0,
-        aiTimeoutMs: 15_000,
+        aiTimeoutMs: 10_000,
         tools: [],
         sttEnabled: false,
         llmEnabled: false,

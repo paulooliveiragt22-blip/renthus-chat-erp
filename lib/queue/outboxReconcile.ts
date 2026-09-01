@@ -1,6 +1,12 @@
 /**
  * Reconciler outbox ADR-0003 Fase 5 — pending sem SQS + processing stale.
- * Usado pela Lambda `renthus-outbox-reconcile` (EventBridge 5 min).
+ * Usado pela Lambda `renthus-outbox-reconcile` (EventBridge).
+ *
+ * Fase 7 (ADR-0003): schedule EventBridge alterado de 5min → 15min (operacional,
+ * ver `scripts/setup-eventbridge-scheduler.ps1`). Reconciler deve ser REDE DE
+ * SEGURANÇA, não caminho principal. Se `inboundNeverEnqueued > 0` em 3 janelas
+ * consecutivas, log warning para Sentry/CloudWatch — investigar causa raiz
+ * (visibility, ESM, IAM), não escalar reenfileiramento silencioso.
  */
 
 import "server-only";
@@ -229,6 +235,30 @@ export async function reconcileOutbox(
     stats.inboundNeverEnqueued = inboundNever.length;
     stats.outboundNeverEnqueued = outboundNever.length;
     stats.dispatchErrors = inDispatch.errors + outDispatch.errors;
+
+    // Fase 7 (ADR-0003): alerta operacional quando reconciler está fazendo trabalho
+    // que deveria ter sido feito pela Lambda. Em prod saudável esses números são 0.
+    if (stats.inboundNeverEnqueued > 0 || stats.outboundNeverEnqueued > 0) {
+        console.warn(
+            "[outboxReconcile] ⚠️ jobs reenfileirados pelo reconciler — investigar ESM/SQS/visibility",
+            {
+                inboundNeverEnqueued: stats.inboundNeverEnqueued,
+                outboundNeverEnqueued: stats.outboundNeverEnqueued,
+                inboundStuckReclaimed: stats.inboundStuckReclaimed,
+                outboundStuckReclaimed: stats.outboundStuckReclaimed,
+            }
+        );
+    }
+    if (stats.inboundStuckReclaimed > 0 || stats.outboundStuckReclaimed > 0) {
+        console.warn(
+            "[outboxReconcile] ⚠️ jobs processing stale foram reclamados — investigar timeout ou crash",
+            {
+                inboundStuckReclaimed: stats.inboundStuckReclaimed,
+                outboundStuckReclaimed: stats.outboundStuckReclaimed,
+                staleMinutes,
+            }
+        );
+    }
 
     console.info("[outboxReconcile] done", stats);
     return stats;

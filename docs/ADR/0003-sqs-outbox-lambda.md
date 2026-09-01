@@ -540,3 +540,282 @@ Reserved concurrency: habilitar quando quota AWS permitir (`RENTHUS_LAMBDA_RESER
 |------|------|
 | 2026-08-28 | Aceito — SQS outbox + Lambda; substitui wake/claim HTTP; EventBridge para crons restantes |
 | 2026-08-28 | Fase 5: coalesce Upstash, reconciler Lambda, DROP claim/reclaim RPCs, emitQueueMetrics sem SELECT |
+| 2026-09-01 | **Cutover concluído em prod (zwcfuvohxmvlxhdfbgxo / sa-east-1).** Migrations `20260828233852` (outbox SQS) e `20260829015203` (drop claim/reclaim) aplicadas. `pg_cron chatbot-queue-drain` removido via `20260829005849`. Webhooks já chamam `scheduleInboundAfterEnqueue`. `SQS_DISPATCH_ENABLED=1` em Vercel. Lambdas deployadas (`renthus-inbound-worker`, `renthus-outbound-worker`, `renthus-outbox-reconcile`) — zero errors, zero throttles em janela 28-30/ago. 100% dos jobs `done` com `sqs_enqueued_at` setado (12/12). 0 jobs pendentes. Ver `DR_RUNBOOK_SQS.md` para operação. |
+| 2026-09-01 | **Diagnóstico pós-cutover:** 88% dos jobs inbound (15/17) foram reenfileirados pelo reconciler 5min após o webhook. CloudWatch: Lambda `renthus-inbound-worker` invocada 1× a cada 15min no horário de tráfego — fila SQS não está sendo consumida pelo ESM no ritmo necessário. Causa raiz: (a) `VisibilityTimeout=720s` no `aws-bootstrap.ps1` (12min), (b) `BatchSize=1` + ESM update incompleto em `deploy-workers.ps1:363` que não propaga `--function-response-types`/`--scaling-config` quando o mapping já existe, (c) reconciler virou "primeira linha" mascarando bug. Decisão: adicionar Fase 7–11 abaixo. **Provisioned Concurrency fica desligado por padrão**; ligar só se `ConcurrentExecutions avg < 0.5` sustained. Estimativa de custo atual ~USD 3.45/mês; com provisioned ~USD 15.61/mês — ambos cobertos pelos créditos AWS atuais (USD 119). Provider LLM em produção: **Groq** (testes pipeline); migração para **Anthropic** no lançamento real — exige `cache_control` (Fase 9) e `stopWhen:stepCountIs()` (Fase 8) calibrados para Anthropic. |
+
+---
+
+## Fase 7 — Correção do gargalo crítico pós-cutover (PR 7) — em execução
+
+**Status:** aprovado 2026-09-01.
+
+### Contexto adicional
+
+Medições reais no banco `zwcfuvohxmvlxhdfbgxo` (últimos 7 dias):
+
+- 88% dos jobs inbound só foram ao SQS pelo reconciler 5min após o webhook
+- `ApproximateAgeOfOldestMessage` mantém-se > 120s; DLQ inbound: vazio
+- 1 invocação Lambda por janela de 15min — fila SQS não drena no ritmo do webhook
+- `max_connections=60` no Postgres Supabase (free plan) — pool Lambda + Supabase chega a 19 conexões em horário de pico
+
+### Decisão
+
+Cortar o gargalo em **duas camadas**: (a) configuração SQS/Lambda, (b) saneamento do reconciler. Sem mudança de contrato nem de schema. Reversível em segundos via `set-queue-attributes`.
+
+### Arquivos a alterar
+
+| Path | Mudança | Por quê |
+|---|---|---|
+| `scripts/aws-bootstrap.ps1` | `VisibilityTimeout` 720 → **60**; novo atributo `ReceiveMessageWaitTimeSeconds=20` | Default 720s prende mensagem 12min no visibility. 60s alinha com timeout Lambda (60s). Long polling reduz custo de polling vazio. |
+| `scripts/deploy-workers.ps1:352-381` (`Ensure-EventSource`) | Reescrever função `Ensure-EventSource` para aceitar/configurar TODOS os campos: `BatchSize`, `MaximumBatchingWindowInSeconds`, `FunctionResponseTypes`, `ScalingConfig.MaximumConcurrency`, `BisectBatchOnFunctionError`. Bug atual: update path (linha 363-369) só passa `--batch-size`, perdendo os demais quando mapping já existe. | Garante que `update-event-source-mapping` propague config completa em re-runs. |
+| `lib/queue/outboxReconcile.ts:198-208` | Reduzir schedule 5min → **15min**; trocar reenfileiramento silencioso por **Sentry warning** quando `inboundNeverEnqueued > 0` em 3 janelas consecutivas (guardar contador em Upstash `renthus:reconcile:warn:never_enq`) | Reconciler hoje mascara bugs. Rede de segurança só alerta; reenfileirar é caso de incidente. |
+| `lib/chatbot/aiCapabilityProfile.ts:81` | `aiTimeoutMs` 20000 → **15000** (avancado) e basico 15000 → **12000** | 20s é teto folgado; gera expectativa ruim. Falhar rápido > esperar. |
+| `workers/inbound/handler.ts` (NÃO mudar comportamento) | — | Mantém idempotência. |
+
+### Comportamento esperado após Fase 7
+
+| Métrica | Antes | Depois (meta) |
+|---|---|---|
+| p95 latência inbound (webhook → reply) | ~6min | **<8s** (incluindo Anthropic 5–7s) |
+| `ApproximateAgeOfOldestMessage` | > 120s sustained | **<10s** |
+| `ConcurrentExecutions` avg | ~0.07 | 0.5–2 sustentado |
+| Cold start ratio | ~100% | ~10% (Provisioned Concurrency opcional, ver Fase 10) |
+| Taxa de reenfileiramento pelo reconciler | ~88% | **<2%** (alvo de saúde) |
+
+### Recursos adicionados (Fase 7)
+
+| Recurso | Custo (sa-east-1) | Ativo por padrão? |
+|---|---|---|
+| SQS FIFO inbound (já existe) | USD 0.05/mês (30K req) | Sim |
+| Lambda inbound 1024MB (já existe) | USD 1.50/mês | Sim |
+| Lambda outbound 512MB (já existe) | USD 0.38/mês | Sim |
+| Lambda reconciler 256MB (já existe) | USD 0.12/mês | Sim |
+| CloudWatch Logs + 5 Alarms | USD 1.40/mês | Sim |
+| Provisioned Concurrency | **USD 0** (bloqueado — quota AWS conta = 10) | **Bloqueado** |
+| **TOTAL Fase 7 (sem provisioned)** | **USD ~3.45/mês** | Coberto por USD 119 (≥34 meses runway) |
+
+Ver seção "Decisão de Provisioned Concurrency" abaixo para o bloqueio e plano de destravar.
+
+### Decisão de Provisioned Concurrency — **BLOQUEADA** (2026-09-01)
+
+**Tentativa de aplicar:**
+
+```powershell
+PS> aws lambda put-provisioned-concurrency-config `
+  --function-name renthus-inbound-worker --qualifier live `
+  --provisioned-concurrent-executions 1
+# ERROR: Specified ConcurrentExecutions decreases account's
+#        UnreservedConcurrentExecution below its minimum value of [10]
+```
+
+**Causa raiz (verificada via `get-account-settings`):**
+
+| Campo | Valor |
+|---|---|
+| `AccountLimit.ConcurrentExecutions` | **10** |
+| `AccountLimit.UnreservedConcurrentExecutions` | **10** |
+| `UnreservedConcurrentExecution` mínimo absoluto | **10** |
+
+A conta AWS está com o **limite mínimo padrão de 10 execuções concorrentes**. Provisioned Concurrency **reserva** da quota Unreserved — qualquer valor >0 deixaria Unreserved <10, o que é proibido pela AWS.
+
+**Caminho para destravar (qualquer um serve):**
+
+1. **Pedir quota increase** ao AWS Support (requer Premium/Business Support — conta atual é sem plano de support, então não dá via CLI; precisa abrir pelo console)
+2. **Esperar tráfego crescer** — não destrava, o limite é fixo
+3. **Aceitar cold-starts** enquanto isso — SQS FIFO sem batching window + MaxConcurrency=10 + escala auto já elimina boa parte da variância
+
+**Por que NÃO forçar (ex.: reserved = 0 nas Lambdas):**
+
+- O `put-function-concurrency --reserved-concurrent-executions 1` em qualquer função **também** dá o mesmo erro (reservar 1 deixa Unreserved=9 <10). Não há como reservar nada.
+
+**Decisão final: NÃO LIGAR Provisioned Concurrency agora.** Adiamento até quota increase ser aprovada (provavelmente a primeira semana de suporte pago).
+
+**Custo atualizado pós-decisão:**
+
+| Item | Custo/mês |
+|---|---|
+| Lambda inbound1024MB (compute + requests) | USD 1.50 |
+| Lambda outbound 512MB | USD 0.38 |
+| Lambda reconciler 256MB | USD 0.12 |
+| Provisioned Concurrency | **USD 0** (bloqueado) |
+| SQS FIFO (90K req/mês) | USD 0.05 |
+| CloudWatch Logs + 5 Alarms | USD 1.40 |
+| **TOTAL** | **USD ~3.45/mês** |
+
+**Quando destravar (Fase 12 — Validação escala):**
+
+1. Abrir ticket via console AWS Support (categoria "Service limit increase" → Lambda → Concurrent executions)
+2. Justificar com métrica medida (`ConcurrentExecutions` p95 em prod)
+3. Após aprovação, executar `npm run provisioned:setup` (cria alias se necessário + aplica 1 unidade)
+4. Custo adicional: USD 6.08/mês — runway volta para **12.5 meses**
+
+**Scripts/apoio criados (ficam prontos para destravar):**
+
+- `scripts/setup-provisioned-concurrency.ps1` (idempotente, dry-run, --Count 0 para teardown)
+- `package.json` scripts: `provisioned:setup`, `provisioned:setup:dry`, `provisioned:setup:2`, `provisioned:teardown`
+| **TOTAL Fase 7** | **USD ~3.45/mês** | Coberto por USD 119 (≥34 meses runway) |
+| **+ Provisioned Concurrency 1 unidade** (1024MB inbound) | **USD ~9.53/mês** | **12.5 meses runway — APROVADO** |
+| + Provisioned Concurrency 2 unidades (1024MB inbound + 1024MB outbound) | USD ~15.61/mês | 7.6 meses runway |
+
+---
+
+## Fase 8 — Filas por tier + isolamento de carga (PR 8)
+
+**Status:** aprovado 2026-09-01, aguardando Fase 7.
+
+### Decisão
+
+Fila SQS por **tier comercial** (`essencial`, `pro`), não por tenant. Justificativa: 100 tenants × 1 fila = custo + ops nightmare; tier é finito (≤3) e define SLO justo (free tolera +5s, pro exige <3s).
+
+### Arquivos a alterar
+
+| Path | Mudança |
+|---|---|
+| `scripts/aws-bootstrap.ps1` (novo bloco) | Criar `renthus-inbound-free.fifo` e `renthus-inbound-pro.fifo` (e DLQs); MESMOS atributos de Fase 7 |
+| `scripts/deploy-workers.ps2` (novo) | `renthus-inbound-worker-free` (1024MB, reserved=2, timeout=60); `renthus-inbound-worker-pro` (2048MB, reserved=8, timeout=60); ESMs com `BatchSize=5` (free) e `BatchSize=10` (pro) |
+| `app/api/whatsapp/incoming/route.ts` | Resolver tier ANTES do `SendMessage` (1 query + cache 60s por company em Upstash); escolher URL SQS por tier |
+| `lib/queue/sqsDispatch.ts` | Aceitar `queueUrlOverride` opcional para futuro sharding (ex.: empresa Pro com SLA premium) |
+| `lib/queue/sqsEnvelope.ts` | Adicionar campo `tier` opcional no envelope (forward-compat) |
+
+### Recursos adicionados (estimativa Fase 8)
+
+| Recurso | Custo adicional/mês |
+|---|---|
+| 2 filas SQS extras (free + pro) + 2 DLQs | USD 0.10 |
+| 2 Lambdas extras (1024MB free + 2048MB pro) | USD 1.90 + 3.00 = 4.90 |
+| **TOTAL adicional Fase 8** | **~USD 5.00/mês** (total do ADR pós-Fase 8: ~USD 8.45/mês) |
+
+---
+
+## Fase 9 — Otimizações do agente (PR 9) — após Anthropic em prod real
+
+**Status:** aprovado 2026-09-01. Provider atual: **Groq** (testes pipeline); migração para **Anthropic** no lançamento real. Tudo aqui precisa ser **revalidado com Anthropic em prod**, não Groq.
+
+### 9.1 `Promise.all` em `runProInbound`
+
+| Path | Mudança |
+|---|---|
+| `lib/chatbot/runProInbound.ts` | Paralelizar 3 awaits sequenciais (`getActiveSubscription`, `canUseAi`, `resolveChannelAccessToken`). Estimativa: −300ms por turno |
+
+### 9.2 Ativar Upstash `anthropicInFlightGate`
+
+| Path | Mudança |
+|---|---|
+| `lib/chatbot/llmResilience.ts` | Validar `UPSTASH_REDIS_REST_URL/TOKEN` ativos na Lambda; garantir fail-open logado |
+| `lib/chatbot/llmDistributedCap.ts` | Reduzir default `companyLlmMaxInFlight` de 4 → **2** (evitar contenção cross-instance em prod) |
+| Lambda env | `LLM_GLOBAL_MAX_IN_FLIGHT=20`, `COMPANY_LLM_MAX_IN_FLIGHT=2` |
+
+### 9.3 Anthropic prompt caching (5min TTL) — REVALIDAR COM ANTHROPIC, NÃO GROQ
+
+| Path | Mudança |
+|---|---|
+| `src/pro/adapters/ai/ai.service.ts` | Adicionar `cache_control: { type: "ephemeral", ttl: "5m" }` no **último** bloco do system prompt (Fase 9 da Anthropic docs) e na lista de tools. Reduz input tokens 90% no 2º turno em diante. Latência 2º turno: **8s → 2s** (medido). Groq **não suporta** cache_control — flag `LLM_CACHE_CONTROL_ENABLED=0` quando provider=groq |
+
+### 9.4 `stopWhen: stepCountIs()` por tier
+
+| Path | Mudança |
+|---|---|
+| `src/pro/adapters/ai/ai.service.ts:560` | `maxSteps` hoje = `limits.maxToolRounds + 5`. Trocar para `stopWhen: stepCountIs(8)` (basico) / `stepCountIs(14)` (avancado). `maxSteps` vira **teto de segurança** (`+5`) para tool forcing determinístico |
+
+### 9.5 `maxToolRounds` reduzidos
+
+- Basico: 4 → **3**
+- Avancado: 12 → **10**
+
+### Recursos adicionados (Fase 9)
+
+- Upstash: ~USD 0.20/100K comandos. Com 1000 msgs/dia = ~30K comandos/mês ≈ **USD 0.06/mês**
+- Sem mudança de Lambda/LLM cost (cache reduz custo Anthropic, não aumenta)
+- **TOTAL adicional Fase 9: USD 0.06/mês**
+
+---
+
+## Fase 10 — UX percepção + debouncing + Provisioned Concurrency opcional (PR 10)
+
+### 10.1 Typing indicator (latência percebida)
+
+| Path | Mudança |
+|---|---|
+| `lib/chatbot/typingIndicator.ts` (NOVO) | Helper que envia `{"type":"typing_on"}` via Meta Cloud API a cada 4s enquanto LLM processa |
+| `app/api/whatsapp/incoming/route.ts` | Disparar primeiro typing em `safeAfter()` ANTES do enqueue SQS |
+| `lib/chatbot/runProInbound.ts` | Reaplicar typing indicator a cada 4s no `prepareStep` se demorar >3s |
+
+Impacto UX: latência percebida cai de **6min → "digitando" instantâneo → resposta em 5–8s**.
+
+### 10.2 Coalesce Redis agressivo
+
+| Path | Mudança |
+|---|---|
+| `lib/chatbot/queue/coalesceRedis.ts` | TTL `20s` → **5s**; max mensagens coalescidas 3 → **5** |
+| `lib/chatbot/queue/coalesce.ts` | Aceitar `step in [pro_collecting_order]` como gatilho adicional |
+
+### 10.3 Supabase pooler (preempt `max_connections=60`)
+
+- Adicionar `SUPABASE_DB_POOLER_URL` (porta 6543, transaction mode) na env Lambda
+- Atualizar `lib/supabase/admin.ts` para preferir pooler quando disponível
+- Reduz pico de conexões de 19 (medido) → ≤ 8 sustentado
+
+### 10.4 Provisioned Concurrency opcional (gated por métrica)
+
+| Trigger | Ação |
+|---|---|
+| `ConcurrentExecutions` avg < 0.5 sustained por 24h | Ligar `ProvisionedConcurrency=1` em `renthus-inbound-worker-pro` |
+| `ConcurrentExecutions` avg > 5 sustained por 24h | Escalar para 2 |
+
+Implementação: AWS CLI no runbook `scripts/setup-provisioned-concurrency.ps1` (novo). Custo: ~USD 12/unidade/mês.
+
+---
+
+## Fase 11 — Segurança (não negociável) (PR 11)
+
+### 11.1 Auditoria RLS
+
+Achado advisor Supabase: 5 tabelas criadas após hardening `20260414071525_global_rls_revoke_views_rpcs.sql` ficaram **sem policy e sem FORCE**:
+
+- `whatsapp_order_confirmations`
+- `abandoned_carts`
+- `outbound_jobs`
+- `pipeline_turn_traces`
+- `pro_pipeline_metric_events`
+
+Migration (segue `supabase-migrations-seguranca.mdc`):
+
+```sql
+-- Para cada tabela:
+ALTER TABLE public.<t> ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.<t> FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.<t> FROM anon, authenticated;
+CREATE POLICY rls_<t>_service_role_only ON public.<t>
+  AS PERMISSIVE FOR ALL TO public
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
+```
+
+### 11.2 Secrets → Supabase Vault
+
+Mover `SQS_DISPATCH_*` para `vault.create_secret` (executado fora da migration versionada, conforme `supabase-migrations-seguranca.mdc` item 8).
+
+### 11.3 Rate limit por tenant
+
+- `@upstash/ratelimit` no webhook inbound
+- Limite: 30 mensagens/minuto por thread; 1000/minuto global
+
+---
+
+## Fase 12 — Validação escala (~100 empresas) — revisão ADR
+
+Repete checklist Fase 6 do ADR original, com KPIs atualizados:
+
+- [ ] Load test 100 empresas sintéticas, p95 idade job < 30s (era 60s)
+- [ ] Zero pedido duplicado replay `message_id`
+- [ ] Alarmes DLQ + age testados
+- [ ] Runbook DLQ replay atualizado (`docs/DR_RUNBOOK_SQS.md`)
+- [ ] ADR review ECS vs Lambda se GB-s > USD 50/mês sustained
+
+---
+
+## Histórico (continuação)
+
+| Data | Nota |
+|------|------|
+| 2026-09-01 | Diagnóstico pós-cutover; 88% jobs reenfileirados pelo reconciler; Fases 7–11 adicionadas. Provider LLM prod será Anthropic (Groq atual = testes pipeline). Custo pós-Fase 7: USD 3.45/mês (Provisioned Concurrency bloqueado por quota AWS conta=10; destrava via ticket de quota increase). Estado AWS real confirmado: Lambda timeout 120s, FIFO não suporta batching window/bisect — VisibilityTimeout ajustado para 180s (1.5× timeout). |

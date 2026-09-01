@@ -1,0 +1,20 @@
+---
+description: Sempre aplicar migrations no remoto via MCP supabase (apply_migration/execute_sql); CLI só se o MCP falhar
+alwaysApply: true
+---
+
+# Migrations Supabase — aplicação obrigatória
+
+Ao criar ou alterar arquivos em `supabase/migrations/`:
+
+1. **Sempre aplicar** no banco remoto (não deixar só no git / “rode você”).
+2. **Via MCP `supabase`** (preferência — `.cursor/mcp.json`, projeto **disk bebidas** / `zwcfuvohxmvlxhdfbgxo`):
+   - `apply_migration` com o SQL do arquivo em `supabase/migrations/`
+   - `execute_sql` para validar objeto novo (coluna/RPC/view/policy/cron.job)
+   - Se `list_tables` não mostrar `products` ou o servidor estiver `needsAuth`/`error`, autenticar (`mcp_auth`) e só então cair para a CLI.
+3. Fallback CLI se o MCP estiver indisponível:
+   - Se `db push` estiver saudável: `npx supabase db push --linked --yes`
+   - Se o histórico remoto divergir (`LegacyDbPushMissingLocalError`): `npx supabase db query --linked -f supabase/migrations/<arquivo>.sql` e validar com `npx supabase db query --linked "..."`.
+4. Após aplicar: confirmar objeto novo (coluna/RPC/view).
+5. Nunca aplicar stub/`SELECT 1` como migration.
+6. Commitar a migration no git **e** aplicá-la no remoto na mesma entrega.

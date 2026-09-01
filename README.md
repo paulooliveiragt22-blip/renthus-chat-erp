@@ -4,6 +4,11 @@
 - Planos e billing: docs/BILLING_PLANS.md
 - Estado atual do banco: docs/DB_CURRENT_STATE.md
 - Cadastro de produtos (implementação): docs/PRODUTOS_CADASTRO_IMPLEMENTACAO.md
+- ADR-0003 — Fila SQS + Lambda: [docs/ADR/0003-sqs-outbox-lambda.md](./docs/ADR/0003-sqs-outbox-lambda.md) (cutover 2026-09-01 ✅)
+- Runbook de incidentes:
+  - **SQS / DLQ / reconciler:** [docs/DR_RUNBOOK_SQS.md](./docs/DR_RUNBOOK_SQS.md)
+  - **Postgres / backup / PITR:** [docs/DR_RUNBOOK_POSTGRES.md](./docs/DR_RUNBOOK_POSTGRES.md)
+- Backlog de segurança/performance (advisors Supabase): [docs/SECURITY_PERF_BACKLOG.md](./docs/SECURITY_PERF_BACKLOG.md)
 
 
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).

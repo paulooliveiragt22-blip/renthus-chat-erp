@@ -4,5 +4,23 @@
     "sonarlint.connectedMode.project": {
         "connectionId": "paulooliveira935068",
         "projectKey": "paulooliveiragt22-blip_renthus-chat-erp"
-    }
+    },
+    "terminal.integrated.defaultProfile.windows": "PowerShell 7 (pwsh)",
+    "terminal.integrated.profiles.windows": {
+        "PowerShell 7 (pwsh)": {
+            "path": "pwsh.exe",
+            "args": [
+                "-NoLogo",
+                "-NoProfile"
+            ]
+        },
+        "PowerShell": {
+            "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "args": []
+        },
+        "Git Bash": {
+            "path": "C:\\Program Files\\Git\\bin\\bash.exe"
+        }
+    },
+    "terminal.integrated.agentHostProfile.windows": ""
 }

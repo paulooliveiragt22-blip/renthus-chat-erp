@@ -1,0 +1,64 @@
+---
+description: Checklist de segurança obrigatório para toda nova tabela/função criada em migrations Supabase
+alwaysApply: true
+---
+
+# Segurança em migrations Supabase — checklist obrigatório
+
+Complementa `supabase-migrations.mdc` (que cobre o *processo* de aplicar). Este arquivo é sobre
+**o que a migration precisa conter** ao criar tabela/função nova.
+
+**Contexto que motiva esta regra:** a migration `20260414071525_global_rls_revoke_views_rpcs.sql`
+fez hardening (RLS + REVOKE + policy) em **todas as tabelas existentes na época**, num loop
+`do $$ ... $$`. Isso não é retroativo — toda tabela criada **depois** dela precisa repetir o
+padrão manualmente, migration por migration. Achado real (auditoria 2026-08-11): 5 tabelas criadas
+após aquela migration (`whatsapp_order_confirmations`, `abandoned_carts`, `outbound_jobs`,
+`pipeline_turn_traces`, `pro_pipeline_metric_events`) ficaram com RLS habilitado mas **sem** policy
+nem `FORCE`, e com grants antigos a `anon`/`authenticated` ainda de pé.
+
+## Toda tabela nova em `public`
+
+1. `alter table public.<t> enable row level security;` **e** `force row level security;` — sem
+   `force`, dono/role com bypass ignora RLS mesmo havendo policy.
+2. `revoke all on table public.<t> from anon;` e `from authenticated;` — nunca deixar grant
+   implícito sobrar de um `GRANT ALL ON ALL TABLES` anterior.
+3. Policy única, exatamente no padrão já usado no projeto (não inventar variação nova):
+
+   ```sql
+   create policy rls_<tabela>_service_role_only on public.<tabela>
+     as permissive for all to public
+     using (auth.role() = 'service_role')
+     with check (auth.role() = 'service_role');
+   ```
+
+   Se o frontend precisar ler direto (evitar — preferir API/RPC server-side), criar
+   `v_sec_<tabela>` (view) com `grant select ... to authenticated`, nunca abrir a tabela base
+   (regra `governanca-seguranca-negocio.mdc`).
+4. Índice em toda coluna `company_id`/`thread_id`/tenant usada na policy RLS ou em filtros de
+   claim/busca — sem índice, RLS + filtro de tenant degrada rápido em tabela grande.
+
+## Funções (`CREATE FUNCTION`)
+
+5. `SECURITY DEFINER` **sempre** com `set search_path = public, pg_temp` explícito na definição —
+   sem isso a função fica vulnerável a search_path hijacking. Achado: nenhuma função do repo fixa
+   isso hoje — não copiar esse padrão antigo em função nova.
+6. `revoke all on function ... from public;` + `grant execute ... to service_role` (ou ao role
+   específico que precisa chamar) — nunca deixar `EXECUTE` aberto a `PUBLIC`/`anon`/`authenticated`
+   em função que muta dados ou já opera com privilégio de `service_role` internamente.
+
+## Dinheiro / dados sensíveis
+
+7. Mutação que cria pedido/cobrança/pagamento com chave de idempotência (`idempotency_key` ou
+   equivalente): precisa de **unique constraint/index** real — sem isso, retry/double-click
+   duplica registro financeiro. Documentar não substitui constraint.
+8. Nunca commitar secret/token em texto plano dentro do `.sql` (nem em comentário). Segredo em
+   runtime de função/cron → **Supabase Vault** (`vault.create_secret`, executado fora do arquivo
+   versionado, via `execute_sql`/dashboard); a migration só referencia o *nome* do secret.
+
+## Antes de marcar a migration como concluída
+
+- `select policyname from pg_policies where tablename = '<t>';` → exatamente 1 policy
+  `..._service_role_only` (zero = tudo bloqueado até alguém "resolver" com policy frouxa depois;
+  mais de uma = provável policy antiga não removida).
+- `select grantee, privilege_type from information_schema.role_table_grants where table_name =
+  '<t>';` → `anon`/`authenticated` não devem aparecer.

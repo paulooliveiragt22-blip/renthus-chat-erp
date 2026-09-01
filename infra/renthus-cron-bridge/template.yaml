@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  renthus-cron-bridge - Lambda bridge que aciona rotas cron na Vercel
+  via EventBridge Schedule. Substitui o plano manual via Console que
+  pedia Node 20.x (deprecated desde 30/04/2026). Usa Node 22.x LTS.
+
+Parameters:
+  ExistingRoleArn:
+    Type: String
+    Default: arn:aws:iam::696457893414:role/renthus-outbox-reconcile-role
+    Description: ARN da role IAM existente usada pela Lambda
+  BaseUrl:
+    Type: String
+    Default: https://app.renthus.com.br
+    Description: URL base da Vercel onde as rotas cron sao hospedadas
+  CronSecretSsmPath:
+    Type: String
+    Default: /renthus/cron-bridge/cron-secret
+    Description: Path do parametro SecureString no SSM com o Bearer token
+
+Resources:
+  CronBridgeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: renthus-cron-bridge
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Role: !Ref ExistingRoleArn
+      MemorySize: 128
+      Timeout: 30
+      Architectures:
+        - x86_64
+      CodeUri: ./src
+      Environment:
+        Variables:
+          CRON_SECRET: !Sub "{{resolve:ssm:${CronSecretSsmPath}:1}}"
+          DEFAULT_URL: !Sub "${BaseUrl}/api/chatbot/reactivate"
+      Description: >
+        Bridge Lambda (Node 22.x) que aciona endpoints cron na Vercel
+        via Authorization Bearer. ADR-0003 Fase 4.
+      Tags:
+        Project: renthus
+        Component: cron-bridge
+        ADR: "0003 Fase 4"
+
+  ReactivateRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: renthus-reactivate-5m
+      Description: Reativar bot em handover sem resposta > 5min (ADR-0003 Fase 4)
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Id: renthus-cron-bridge-reactivate
+          Arn: !GetAtt CronBridgeFunction.Arn
+          Input: !Sub '{"targetUrl":"${BaseUrl}/api/chatbot/reactivate"}'
+
+  DetectCartsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: renthus-detect-carts-5m
+      Description: Detectar carrinhos abandonados a cada 5 min (ADR-0003 Fase 4)
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Id: renthus-cron-bridge-detect-carts
+          Arn: !GetAtt CronBridgeFunction.Arn
+          Input: !Sub '{"targetUrl":"${BaseUrl}/api/chatbot/detect-abandoned-carts"}'
+
+  PlatformAlertsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: renthus-platform-alerts-15m
+      Description: Avaliar alertas de plataforma a cada 15 min (ADR-0003 Fase 4)
+      ScheduleExpression: rate(15 minutes)
+      State: ENABLED
+      Targets:
+        - Id: renthus-cron-bridge-platform-alerts
+          Arn: !GetAtt CronBridgeFunction.Arn
+          Input: !Sub '{"targetUrl":"${BaseUrl}/api/platform/alerts/check"}'
+
+  ReactivateInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CronBridgeFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReactivateRule.Arn
+
+  DetectCartsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CronBridgeFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DetectCartsRule.Arn
+
+  PlatformAlertsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CronBridgeFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PlatformAlertsRule.Arn
+
+Outputs:
+  CronBridgeFunctionArn:
+    Description: ARN da funcao renthus-cron-bridge
+    Value: !GetAtt CronBridgeFunction.Arn
+    Export:
+      Name: renthus-cron-bridge-arn
+  CronBridgeFunctionName:
+    Description: Nome da funcao
+    Value: !Ref CronBridgeFunction
+  ReactivateRuleName:
+    Description: Nome da Rule de reativacao
+    Value: !Ref ReactivateRule
+  DetectCartsRuleName:
+    Description: Nome da Rule de deteccao de carrinhos
+    Value: !Ref DetectCartsRule
+  PlatformAlertsRuleName:
+    Description: Nome da Rule de alertas de plataforma
+    Value: !Ref PlatformAlertsRule

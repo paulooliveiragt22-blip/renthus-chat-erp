@@ -248,7 +248,7 @@ function Ensure-Function {
         Invoke-AwsRaw @(
             "lambda", "create-function",
             "--function-name", $Name,
-            "--runtime", "nodejs20.x",
+            "--runtime", "nodejs22.x",
             "--role", $RoleArn,
             "--handler", "index.handler",
             "--zip-file", ("fileb://" + ($Zip -replace "\\", "/")),
@@ -272,7 +272,7 @@ function Ensure-Function {
             "--memory-size", "$Memory",
             "--environment", $envFileUri,
             "--handler", "index.handler",
-            "--runtime", "nodejs20.x"
+            "--runtime", "nodejs22.x"
         )
     }
 
@@ -354,23 +354,41 @@ function Ensure-EventSource {
         [string]$FnName,
         [string]$QueueArn,
         [int]$BatchSize,
-        [int]$Visibility
+        [int]$Visibility,
+        [int]$MaxConcurrency = 0
     )
     $list = Invoke-AwsJson @("lambda", "list-event-source-mappings", "--function-name", $FnName)
     $existing = $list.EventSourceMappings | Where-Object { $_.EventSourceArn -eq $QueueArn } | Select-Object -First 1
+
+    # ScalingConfig é objeto, não string — montar via temp file
+    $scalingJson = (@{ MaximumConcurrency = $MaxConcurrency } | ConvertTo-Json -Compress) if $MaxConcurrency -gt 0 else $null
+
+    # NOTA (Fase 7 — ADR-0003): SQS FIFO **não suporta** `--maximum-batching-window-in-seconds`
+    # nem `--bisect-batch-on-function-error` (esses só valem para Kinesis/DynamoDB Streams).
+    # A confirmação veio do erro real no update 2026-09-01:
+    #   "Batching window is not supported for FIFO queues"
+    #   "Unsupported BisectBatchOnFunctionError parameter for given event source mapping type"
+    # Por isso o script abaixo NÃO passa esses flags.
+
     if ($existing) {
-        Write-Host "Event source exists for $FnName ($($existing.UUID))" -ForegroundColor Yellow
-        Invoke-AwsRaw @(
+        Write-Host "Event source exists for $FnName ($($existing.UUID)) — updating full config" -ForegroundColor Yellow
+        $args = @(
             "lambda", "update-event-source-mapping",
             "--uuid", $existing.UUID,
             "--batch-size", "$BatchSize",
             "--function-response-types", "ReportBatchItemFailures",
             "--enabled"
         )
+        if ($scalingJson) {
+            $scFile = Join-Path $env:TEMP "renthus-scaling-config.json"
+            [System.IO.File]::WriteAllText($scFile, $scalingJson, [System.Text.UTF8Encoding]::new($false))
+            $args += @("--scaling-config", ("file://" + ($scFile -replace "\\", "/")))
+        }
+        Invoke-AwsRaw $args
         return
     }
     Write-Host "Creating event source $FnName ← $QueueArn" -ForegroundColor Cyan
-    Invoke-AwsRaw @(
+    $args = @(
         "lambda", "create-event-source-mapping",
         "--function-name", $FnName,
         "--event-source-arn", $QueueArn,
@@ -378,11 +396,21 @@ function Ensure-EventSource {
         "--function-response-types", "ReportBatchItemFailures",
         "--enabled"
     )
+    if ($scalingJson) {
+        $scFile = Join-Path $env:TEMP "renthus-scaling-config.json"
+        [System.IO.File]::WriteAllText($scFile, $scalingJson, [System.Text.UTF8Encoding]::new($false))
+        $args += @("--scaling-config", ("file://" + ($scFile -replace "\\", "/")))
+    }
+    Invoke-AwsRaw $args
 }
 
-# Visibility on queue already set by bootstrap; mapping batch sizes per ADR
-Ensure-EventSource -FnName $InboundFn -QueueArn $inArn -BatchSize 1 -Visibility 720
-Ensure-EventSource -FnName $OutboundFn -QueueArn $outArn -BatchSize 5 -Visibility 360
+# Fase 7 — ADR-0003 (parâmetros REAIS confirmados em prod 2026-09-01):
+#   inbound: BatchSize=5, MaxConcurrency=10 (free/pro usam mesma fila nesta fase; Fase 8 separa)
+#   outbound: BatchSize=10, MaxConcurrency=20
+# VisibilityTimeout vem do aws-bootstrap (180s = 1.5× timeout Lambda 120s).
+# FIFO NÃO suporta batching window nem bisect — omitido.
+Ensure-EventSource -FnName $InboundFn  -QueueArn $inArn  -BatchSize 5  -MaxConcurrency 10
+Ensure-EventSource -FnName $OutboundFn -QueueArn $outArn -BatchSize 10 -MaxConcurrency 20
 
 Write-Host ""
 Write-Host "Deploy OK" -ForegroundColor Green

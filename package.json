@@ -28,7 +28,21 @@
     "build:workers": "node scripts/build-workers.mjs",
     "deploy:workers": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-workers.ps1",
     "smoke:sqs-workers": "node scripts/smoke-sqs-worker.mjs",
-    "cleanup:cron-job-org": "node scripts/cleanup-cron-job-org.mjs"
+    "cleanup:cron-job-org": "node scripts/cleanup-cron-job-org.mjs",
+    "alarms:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-cloudwatch-alarms.ps1",
+    "alarms:setup:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-cloudwatch-alarms.ps1 -DryRun",
+    "alarms:setup:bat": "scripts\\setup-cloudwatch-alarms.bat",
+    "alarms:setup:bat:dry": "scripts\\setup-cloudwatch-alarms.bat -DryRun",
+    "alarms:setup:simple": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-cloudwatch-alarms-simple.ps1",
+    "alarms:setup:apply": "powershell -NoProfile -Command \"$env:DRY_RUN='0'; & './scripts/setup-cloudwatch-alarms-simple.ps1'",
+    "scheduler:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-eventbridge-scheduler.ps1",
+    "scheduler:setup:apply": "powershell -NoProfile -Command \"$env:DRY_RUN='0'; & './scripts/setup-eventbridge-scheduler.ps1'",
+    "scheduler:fix-iam": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/fix-scheduler-iam.ps1",
+    "scheduler:fix-iam:apply": "powershell -NoProfile -Command \"$env:DRY_RUN='0'; & './scripts/fix-scheduler-iam.ps1'\"",
+    "provisioned:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1",
+    "provisioned:setup:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1 -DryRun",
+    "provisioned:setup:2": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1 -Count 2",
+    "provisioned:teardown": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1 -Count 0"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.107",

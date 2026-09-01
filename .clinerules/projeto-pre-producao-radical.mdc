@@ -1,0 +1,44 @@
+---
+description: Postura de execução enquanto o projeto não tem clientes reais em produção — preferir correção radical/definitiva a patch conservador
+alwaysApply: true
+---
+
+# Projeto ainda não está em produção — preferir radical, não conservador
+
+**Decisão explícita do dono do projeto (2026-08-11):** enquanto não houver clientes reais em
+produção, ajustes técnicos (schema, RPC, contrato de API, remoção de coluna/dual-path) devem ser
+**radicais** — corrigir a causa raiz de uma vez — em vez de conservadores (shim de compatibilidade,
+flag para manter os dois comportamentos, migração "aditiva só por segurança"). Ser conservador aqui
+só gera trabalho duplicado depois. Contexto real que motivou a decisão:
+`docs/CHECKLIST_SEGURANCA_CONFIABILIDADE_P0.md` — itens 3 e 9 mudaram assinatura de RPC existente
+(`create_order_with_items`, `rpc_finalize_pdv_order`) e adicionaram coluna com unique index em
+produção, sem manter caminho legado paralelo.
+
+## O que isso significa na prática
+
+- **Migration que muda contrato de RPC/tabela:** `DROP FUNCTION` + `CREATE` com a assinatura nova
+  direto, atualizando **todos** os call sites no mesmo commit — não empilhar parâmetro opcional
+  "pra não quebrar quem já chama" quando dá pra atualizar quem chama agora mesmo (é código do
+  próprio repo, não integração de terceiro).
+- **Dívida técnica identificada (any, duplicação, god-file):** corrigir de vez quando o arquivo já
+  está sendo tocado por outro motivo, em vez de só remendar ao redor.
+- **Coluna/tabela que deveria ter existido desde o início (idempotência, RLS, índice):** criar com
+  o design correto agora (unique index real, `NOT NULL` quando fizer sentido) — não adiar pra
+  "quando tiver dado de produção pra decidir com calma". Não há dado de produção ainda; o design
+  correto já é conhecido pelas regras deste repo (`supabase-migrations-seguranca.mdc`,
+  `governanca-seguranca-negocio.mdc`).
+- **Sempre registrar a decisão** (checklist/plano correspondente em `docs/`) — radical não é
+  "sem documentar"; é "sem manter os dois caminhos ao mesmo tempo por precaução".
+
+## O que continua exigindo cautela mesmo pré-produção
+
+- **Nunca pular a verificação real** da migration (rodar `execute_sql`/query de confirmação, não só
+  aplicar e assumir que funcionou) — `supabase-migrations.mdc` continua valendo.
+- **Nunca pular `npm test`** antes de considerar um item concluído.
+- Radical é sobre *não manter compatibilidade desnecessária*, não sobre *pular validação*.
+
+## Quando essa regra deixa de valer
+
+No dia em que houver o primeiro cliente real com dado em produção, revisar este arquivo — mudanças
+de schema/contrato passam a exigir plano de migração de dado existente (backfill, dual-write
+temporário), não só `DROP`+`CREATE`.

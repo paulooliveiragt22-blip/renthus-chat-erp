@@ -1,0 +1,35 @@
+---
+description: Padrões do Agente PRO — hot path, tools, fila, segurança LLM. Aplicar ao editar código do bot.
+globs: src/pro/**/*,app/api/chatbot/**/*,app/api/whatsapp/**/*,lib/chatbot/**/*
+alwaysApply: false
+---
+
+# Agente PRO — regras de implementação
+
+Ao editar arquivos deste glob:
+
+## Hot path (proibido reintroduzir)
+- Não chamar `extractOrderLinesStructured` / dialogue-exec / bootstrap-order / swap-server no `runProPipeline`.
+- Offline/replay: apenas `src/pro/replay/*`.
+
+## Agent loop
+- Linguagem → `aiStage` / `AiServiceAdapter` (`src/pro/adapters/ai/ai.service.ts`) — Vercel AI SDK (`generateText` + `tools` + `stopWhen`/`prepareStep`); modelo via `modelProvider.ts` (`resolveLanguageModel`), sem `LlmPort` (deletado — ver `docs/PLANO_MIGRACAO_VERCEL_AI_SDK.md`).
+- Tool final obrigatória `respond_to_customer` (reply_text/address_free_text/understood) — não usar marcador de texto (`INTENT_OK`/`ADDR_FREE_TEXT`, removidos).
+- Forçar `prepare_order_draft` via `tool_choice`/`prepareStep` quando SKU único / pós-search unívoco.
+- Inbound do usuário: `wrapUserInboundForLlm` + truncagem; histórico: `budgetAiHistoryForLlm`.
+
+## Estado e fechamento
+- Draft em sessão; pedido real só em `orderStage` + `create_order_with_items`.
+- Confirmação: só IDs `pro_confirm_order` / aliases de botão — não “sim”/“ok”.
+- UI pós-modelo: `resolveCheckoutTurnOutcome` / `checkoutPostProcess`.
+
+## Fila e 429
+- Incoming: dedup `provider_message_id` (23505) antes de enqueue.
+- Claim: SKIP LOCKED + `scheduled_at <= now()`.
+- `AI_RATE_LIMIT` → `QueueRetryableError` + backoff; não engolir como “done” com bolha falsa de sucesso.
+
+## Ports
+- Novas leituras de config/hints: `CompanyPolicyPort` / `OrderHintsPort` (ou port novo) — evitar `admin.from` novo no orquestrador.
+- Catálogo / prepare draft no agent loop: `CatalogPort` / `OrderDraftPort` (adapters Supabase).
+- Histórico longo: `SessionMemoryPort` (`sessionMemory.llm.ts`, `generateText` sem tools) + `aiHistorySummary` na sessão.
+- Troca Anthropic↔OpenAI: `modelProvider.ts` (env `LLM_PROVIDER`/`LLM_MODEL`), não pipeline.
