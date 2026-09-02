@@ -535,8 +535,8 @@ Runbook: [`docs/SMOKE_BILLING_PAGARME_SANDBOX.md`](./SMOKE_BILLING_PAGARME_SANDB
 |---|------|--------|
 | S1 | Chaves `sk_test_` / `pk_test_` em `.env.local` + Vercel | [x] 2026-08-28 Production + `.env.pagarme.local` |
 | S2 | `npm run test:billing-sandbox` (API smoke) | [x] 2026-08-28 cartão paid; PIX EMV ou paid |
-| S3 | E2E cartão `/plano/pagar` | [ ] Playwright `e2e/billing.sandbox.spec.ts` (credenciais) |
-| S4 | E2E PIX + webhook | [ ] Playwright (credenciais) |
+| S3 | E2E cartão `/plano/pagar` | [~] 2026-09-02 — fix redirect trial+pending; aguarda deploy + re-run |
+| S4 | E2E PIX + webhook | [~] 2026-09-02 — mesmo gate; aguarda deploy |
 | S5 | PIX copia-e-cola (EMV) aparece na UI | [x] 2026-08-28 `PlanBillingPanel` + decode QR |
 | S6 | `/plano/pagar` standalone (sem sidebar) até pagar → `/ativar` | [x] 2026-08-28 `app/(admin)/plano/pagar/page.tsx` |
 
