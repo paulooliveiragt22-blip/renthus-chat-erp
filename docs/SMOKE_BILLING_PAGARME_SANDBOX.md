@@ -99,7 +99,9 @@ Eventos mínimos: `order.paid`, `charge.paid` (opcional `order.payment_failed`).
 
 **Replay (ops):** `POST /api/platform/billing/replay-fulfill` `{ "order_id": "or_..." }` (superadmin).
 
-Se `pagarme_webhook_events` = 0 após pagamento sandbox: conferir URL/POST no painel Pagar.me e logs Vercel (401 secret / 405 método). Não usar reconcile cego (ADR-0004).
+**Sync sob demanda:** `GET /api/billing/status` (paywall poll ~5s) e reentrada no checkout — se pending tem `pagarme_order_id` e o PSP está `paid`, roda o mesmo `FulfillPayment`. Campo `psp_sync` na resposta. Webhook continua canônico; sync evita tenant travado.
+
+Se `pagarme_webhook_events` = 0 após pagamento sandbox: conferir URL/POST no painel Pagar.me e logs Vercel (401 secret / 405 método). Não usar reconcile cego em massa (ADR-0004).
 
 ### PIX sem copia-e-cola (`pix_emv_unavailable` / `pix_gateway_stub`)
 

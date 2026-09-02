@@ -15,7 +15,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | # | Decisão |
 |---|--------|
 | O0.1 | Um `FulfillPayment` para webhook e sync cartão |
-| O0.2 | Webhook = caminho feliz; reconcile/replay = rede de segurança (não P0 de liberação) |
+| O0.2 | Webhook = caminho feliz; **status/checkout sync** + replay = rede de segurança (não cron “listar todos paid”) |
 | O0.3 | Preço mensal canônico = `plans.price_cents` (catálogo); env `MONTHLY_PRICE_*` legado a remover/ignorar |
 | O0.4 | Features booleanas na RPC = `plan_features`; cotas = `feature_limits` |
 | O0.5 | Catálogo comercial de `feature_key` por plano = **próxima rodada** |
@@ -83,6 +83,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | O5.1 | Confirmar webhook → `FulfillPayment` → `active` + `last_paid_at` + `is_active` | fluxo E1 | Conta teste: após `order.paid`, status local coerente | [ ] bloqueado por O1 |
 | O5.2 | Platform ou cron **Replay** `order_id` → `FulfillPayment` (CRON_SECRET / superadmin) | `app/api/…` | Órfãos em `billing_fulfill_failures` / paid sem linha recuperáveis sem reconcile-first | [x] 2026-09-02 — `POST /api/platform/billing/replay-fulfill` |
 | O5.3 | Watchdog (opcional após O1): não reprocessar massa; só alertar | cron RH | ADR-0004 B2 | [x] 2026-09-02 — webhook-health |
+| O5.4 | Sync sob demanda: pending+`pagarme_order_id` → GET PSP → `fulfillPayment` se paid | `syncPendingObligationFromPsp` + `GET /status` + checkout | Paywall poll libera sem webhook; idempotente | [x] 2026-09-02 |
 
 ---
 

@@ -56,8 +56,9 @@ Nova Edge Function que toque billing exige **novo ADR** + revisão de segurança
 Alinhado a E1 (`CHECKLIST_TENANT_ACCESS_SIGNUP_PAYMENTS`) e à lição do ADR-0003 (reconciler como primeira linha **mascara** ingestão morta):
 
 1. **P0 obrigatório:** webhook Pagar.me → `POST /api/billing/webhook` recebendo e persistindo em `pagarme_webhook_events` (HMAC + lifecycle E1).
-2. **Watchdog / replay** (não substituto): cron Route Handler com `CRON_SECRET` **ou** ação platform “Replay fulfill(`order_id`)” — só para dead-letter / órfãos; alerta Sentry se checkouts criados e **zero** eventos webhook em janela N.
-3. **Proibido no P0:** cron que lista “todos paid no PSP” como caminho feliz de liberação de plano.
+2. **Sync sob demanda (rede de segurança UX):** `GET /api/billing/status` e reentrada em `create-invoice-checkout` chamam `syncPendingObligationFromPsp` — se obrigação pending tem `pagarme_order_id` e o order no PSP está `paid`, roda o mesmo `FulfillPayment` (idempotente). O paywall já polla status ~5s; webhook morto não deixa o tenant eternamente travado após pagar.
+3. **Watchdog / replay** (ops): cron Route Handler com `CRON_SECRET` **ou** ação platform “Replay fulfill(`order_id`)” — dead-letter / órfãos; alerta Sentry se checkouts criados e **zero** eventos webhook em janela N.
+4. **Proibido no P0:** cron que lista “todos paid no PSP” como caminho feliz de liberação de plano.
 
 ### B3 — EnsureCheckout anti-órfão + PIX EMV
 

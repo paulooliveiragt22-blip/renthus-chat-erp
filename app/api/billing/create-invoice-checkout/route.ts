@@ -2,8 +2,8 @@
  * POST /api/billing/create-invoice-checkout
  *
  * Mensalidade Renthus — PIX ou cartão (token no browser).
- * Exige sessão + workspace (owner/admin). Libera o plano na hora se o cartão for aprovado
- * ou quando o webhook confirmar PIX / cartão em análise.
+ * Exige sessão + workspace (owner/admin). Libera o plano na hora se o cartão for aprovado;
+ * PIX / cartão em análise: webhook + sync sob demanda (status / reentrada no checkout).
  */
 
 import { NextResponse }      from "next/server";
@@ -24,6 +24,7 @@ import {
     cancelPagarmeChargeBestEffort,
 } from "@/lib/billing/pagarme";
 import { fulfillPayment } from "@/lib/billing/fulfillPayment";
+import { syncPendingObligationFromPsp } from "@/lib/billing/syncPendingObligationFromPsp";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { getPlanLabel } from "@/lib/billing/planCatalog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
@@ -238,6 +239,20 @@ export async function POST(req: Request) {
         const { sub, strategy, pendingSetup, pendingInv, pendingRecord } = checkout;
         const { isFirstPayment, amountCents } = strategy;
         const plan = sub.plan;
+
+        // Se já pagou no PSP e o webhook falhou: libera antes de reexibir QR / criar order.
+        if (pendingRecord?.pagarme_order_id) {
+            const sync = await syncPendingObligationFromPsp(admin, companyId);
+            if (sync.action === "fulfilled") {
+                return remember({
+                    ok: true,
+                    payment_method: paymentMethod,
+                    payment_status: "paid",
+                    message: "Pagamento confirmado. Plano liberado.",
+                    psp_sync: sync,
+                });
+            }
+        }
 
         const { data: company, error: compErr } = await admin
             .from("companies")

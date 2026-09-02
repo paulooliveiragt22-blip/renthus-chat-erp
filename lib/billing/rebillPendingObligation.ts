@@ -9,11 +9,9 @@ import {
     cancelPagarmeChargeBestEffort,
     centsToBRL,
     getMonthlyPriceCents,
-    getPagarmeOrder,
     getSetupPriceCents,
-    isOrderCreditPaid,
 } from "@/lib/billing/pagarme";
-import { fulfillPayment } from "@/lib/billing/fulfillPayment";
+import { fulfillIfPagarmeOrderPaid } from "@/lib/billing/syncPendingObligationFromPsp";
 import { billingLog } from "@/lib/billing/billingLog";
 import { normalizePlanKey } from "@/lib/billing/planCatalog";
 
@@ -30,25 +28,8 @@ async function maybeFulfillPaidOrder(
     orderId: string,
     metaType: "invoice" | "setup"
 ): Promise<boolean> {
-    try {
-        const order = await getPagarmeOrder(orderId);
-        if (!isOrderCreditPaid(order) && String(order.status).toLowerCase() !== "paid") {
-            return false;
-        }
-        await fulfillPayment(admin, {
-            id: order.id,
-            metadata: {
-                ...(order.metadata as Record<string, string> | undefined),
-                type: metaType,
-            },
-            customer: order.customer,
-        });
-        return true;
-    } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        billingLog("rebill", "fulfill_check_failed", { order_id: orderId, error: msg });
-        return false;
-    }
+    const r = await fulfillIfPagarmeOrderPaid(admin, orderId, metaType);
+    return r.fulfilled;
 }
 
 /**

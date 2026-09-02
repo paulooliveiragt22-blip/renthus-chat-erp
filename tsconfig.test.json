@@ -24,6 +24,7 @@
     "lib/billing/tenantAccess.ts",
     "lib/billing/canProcessInboundChannel.ts",
     "lib/billing/fulfillPayment.ts",
+    "lib/billing/syncPendingObligationFromPsp.ts",
     "lib/billing/collectPayment.ts",
     "lib/billing/ensureCheckout.ts",
     "lib/billing/collectionPolicy.ts",

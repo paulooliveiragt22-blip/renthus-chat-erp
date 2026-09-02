@@ -23,6 +23,14 @@ export type BillingStatusJson = {
         pix_qr_code?: string | null;
         amount: number;
     } | null;
+    /** Resultado do sync PSP sob demanda (rede de segurança se webhook falhou). */
+    psp_sync?: {
+        action: "fulfilled" | "pending" | "noop" | "error";
+        kind?: "setup" | "invoice";
+        order_id?: string;
+        error?: string;
+        alreadyDone?: boolean;
+    };
     invoice_history?: Array<{
         id: string;
         amount: number;

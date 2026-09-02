@@ -5,6 +5,7 @@ import { getMonthlyPriceCents, getSetupPriceCents, listCustomerCards } from "@/l
 import { PLAN_CATALOG, getPlanLabel, normalizePlanKey } from "@/lib/billing/planCatalog";
 import { ensureAiWallet } from "@/lib/billing/aiWallet";
 import { jsonAccessError } from "@/lib/api/errors";
+import { syncPendingObligationFromPsp } from "@/lib/billing/syncPendingObligationFromPsp";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,10 @@ export async function GET() {
         if (!ctx.ok) return jsonAccessError(ctx);
 
         const { admin, companyId } = ctx;
+
+        // Rede de segurança: paywall já polla status a cada 5s — se webhook falhou
+        // e o order PSP está paid, libera com o mesmo FulfillPayment.
+        const pspSync = await syncPendingObligationFromPsp(admin, companyId);
 
         const [sub, features, whatsappUsage, pagarmeSubRaw] = await Promise.all([
             getActiveSubscription(admin, companyId),
@@ -125,6 +130,7 @@ export async function GET() {
             pagarme_subscription: pagarmeSubRaw ?? null,
             pending_invoice: pendingInvoice,
             pending_setup_payment: pendingSetupPayment,
+            psp_sync: pspSync,
             obligation_amount_brl: obligationAmount,
             canonical_monthly_brl: canonicalMonthly,
             amount_mismatch: amountMismatch,
