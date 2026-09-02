@@ -93,7 +93,13 @@ Sem isso, `/plano/pagar` falha ao tokenizar cartão (`NEXT_PUBLIC_PAGARME_PUBLIC
 
 URL: `https://renthus-chat-erp.vercel.app/api/billing/webhook`
 
-Eventos: `order.paid`, `order.payment_failed`.
+Eventos mínimos: `order.paid`, `charge.paid` (opcional `order.payment_failed`).
+
+**Health:** `GET /api/billing/webhook-health` com `Authorization: Bearer $CRON_SECRET` — Sentry se pending+order e zero eventos/24h.
+
+**Replay (ops):** `POST /api/platform/billing/replay-fulfill` `{ "order_id": "or_..." }` (superadmin).
+
+Se `pagarme_webhook_events` = 0 após pagamento sandbox: conferir URL/POST no painel Pagar.me e logs Vercel (401 secret / 405 método). Não usar reconcile cego (ADR-0004).
 
 Em **localhost**, use túnel apontando para `:3000/api/billing/webhook`. No deploy Vercel (**recomendado**), o webhook já está no ar.
 

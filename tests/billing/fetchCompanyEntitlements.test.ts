@@ -15,7 +15,7 @@ const SAMPLE: CompanyEntitlementsPayload = {
     pagarme: {
         status: "trial",
         plan: "pro",
-        trial_ends_at: "2026-09-01T00:00:00.000Z",
+        trial_ends_at: "2026-12-01T00:00:00.000Z",
         last_paid_at: null,
         next_billing_at: null,
         activated_at: "2026-08-28T00:00:00.000Z",

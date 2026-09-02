@@ -13,6 +13,10 @@
             "schedule": "0 10 * * *"
         },
         {
+            "path": "/api/billing/webhook-health",
+            "schedule": "0 */6 * * *"
+        },
+        {
             "path": "/api/chatbot/detect-abandoned-carts",
             "schedule": "10 3 * * *"
         },

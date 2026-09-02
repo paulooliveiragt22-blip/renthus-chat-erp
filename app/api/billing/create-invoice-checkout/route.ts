@@ -21,6 +21,7 @@ import {
     centsToBRL,
     isOrderCreditPaid,
     listCustomerCards,
+    cancelPagarmeChargeBestEffort,
 } from "@/lib/billing/pagarme";
 import { fulfillPayment } from "@/lib/billing/fulfillPayment";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
@@ -454,6 +455,11 @@ export async function POST(req: Request) {
             || (company.name as string | null)?.trim()
             || "Renthus";
 
+        // Regenerar: cancela charge anterior (best-effort) para evitar QR stale
+        if (pendingRecord?.pagarme_order_id) {
+            await cancelPagarmeChargeBestEffort(pendingRecord.pagarme_order_id);
+        }
+
         const created = await createPixInvoiceOrder({
             amountCents,
             description: labels.description,
@@ -469,18 +475,7 @@ export async function POST(req: Request) {
 
         const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
 
-        // B3.7: EMV (copia-e-cola) obrigatório — URL sozinha não basta
-        if (!pixCode || !String(pixCode).trim()) {
-            return NextResponse.json(
-                {
-                    error: "pix_emv_unavailable",
-                    message:
-                        "Não foi possível obter o código PIX copia-e-cola. Tente novamente em alguns segundos.",
-                },
-                { status: 502 }
-            );
-        }
-
+        // ADR-0004 B3: vincular order_id local ANTES de falhar por EMV (anti-órfão)
         try {
             await persistPixBillingOrder(admin, {
                 companyId,
@@ -489,7 +484,7 @@ export async function POST(req: Request) {
                 amountCents,
                 orderId: order.id,
                 pixUrl,
-                pixCode,
+                pixCode: pixCode && String(pixCode).trim() ? pixCode : null,
                 isFirstPayment,
                 pendingSetup: pendingSetup ? { id: pendingSetup.id } : null,
                 pendingInv:   pendingInv ? { id: pendingInv.id } : null,
@@ -497,14 +492,13 @@ export async function POST(req: Request) {
         } catch (persistErr: unknown) {
             const pe = persistErr as { code?: string; message?: string };
             if (!isUniqueViolation(pe)) throw persistErr;
-            // Race: outro request já criou pending — devolve o PIX atual se existir
             const { data: raceInv } = await admin
                 .from("invoices")
                 .select("pagarme_payment_url, pix_qr_code")
                 .eq("company_id", companyId)
                 .eq("status", "pending")
                 .maybeSingle();
-            if (raceInv?.pagarme_payment_url || raceInv?.pix_qr_code) {
+            if (raceInv?.pix_qr_code) {
                 return remember({
                     ok:             true,
                     payment_method: "pix",
@@ -513,6 +507,19 @@ export async function POST(req: Request) {
                 });
             }
             throw persistErr;
+        }
+
+        if (!pixCode || !String(pixCode).trim()) {
+            return NextResponse.json(
+                {
+                    error: "pix_emv_unavailable",
+                    message:
+                        "Não foi possível obter o código PIX copia-e-cola. Tente novamente em alguns segundos.",
+                    order_id: order.id,
+                    pix_qr_url: pixUrl,
+                },
+                { status: 502 }
+            );
         }
 
         return remember({

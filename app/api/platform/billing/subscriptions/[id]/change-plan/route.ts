@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { withPlatformAccess } from "@/lib/platform/apiHelpers";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ConsoleBillingNotifier } from "@/lib/billing/adapters/consoleBillingNotifier";
 import { ChangeSubscriptionPlan, type RpcExecutor } from "@/lib/billing/use-cases/changeSubscriptionPlan";
+import { rebillPendingObligationAfterPlanChange } from "@/lib/billing/rebillPendingObligation";
 import type { SubscriptionPlanKey } from "@/lib/billing/contracts/status";
 
 export const runtime = "nodejs";
@@ -26,13 +28,23 @@ function makeRpc(): RpcExecutor {
         if (!res.ok) {
             let msg = text;
             try {
-                const parsed = JSON.parse(text);
+                const parsed = JSON.parse(text) as {
+                    message?: string;
+                    details?: string;
+                    hint?: string;
+                };
                 msg = parsed.message ?? parsed.details ?? parsed.hint ?? text;
-            } catch { /* keep text */ }
+            } catch {
+                /* keep text */
+            }
             return { data: null, error: { message: msg || `HTTP ${res.status}` } };
         }
         let data: unknown = text;
-        try { data = JSON.parse(text); } catch { /* keep text */ }
+        try {
+            data = JSON.parse(text);
+        } catch {
+            /* keep text */
+        }
         return { data, error: null };
     };
 }
@@ -44,7 +56,9 @@ export async function POST(req: Request, { params }: Ctx) {
             plan_key?: string;
             reason?: string;
         };
-        const planKey = (typeof body.plan_key === "string" ? body.plan_key.trim() : "") as SubscriptionPlanKey;
+        const planKey = (
+            typeof body.plan_key === "string" ? body.plan_key.trim() : ""
+        ) as SubscriptionPlanKey;
         if (!planKey) {
             return NextResponse.json({ error: "plan_key required" }, { status: 400 });
         }
@@ -52,6 +66,7 @@ export async function POST(req: Request, { params }: Ctx) {
         const rpc = makeRpc();
         const notifier = new ConsoleBillingNotifier();
         const uc = new ChangeSubscriptionPlan(rpc, notifier);
+        const admin = createAdminClient();
 
         try {
             await uc.execute({
@@ -67,7 +82,23 @@ export async function POST(req: Request, { params }: Ctx) {
                     userAgent: ctx.userAgent ?? "unknown",
                 },
             });
-            return NextResponse.json({ ok: true });
+
+            const { data: subRow } = await admin
+                .from("pagarme_subscriptions")
+                .select("company_id")
+                .eq("id", id)
+                .maybeSingle();
+
+            let rebill = null;
+            if (subRow?.company_id) {
+                rebill = await rebillPendingObligationAfterPlanChange(
+                    admin,
+                    String(subRow.company_id),
+                    planKey
+                );
+            }
+
+            return NextResponse.json({ ok: true, rebill });
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
             return NextResponse.json({ error: msg }, { status: 400 });

@@ -152,23 +152,34 @@ async function pagarmeRequest<T = unknown>(
     method: "GET" | "POST" | "PATCH" | "DELETE",
     body?: object
 ): Promise<T> {
-    const res = await fetch(`${BASE_URL}${path}`, {
-        method,
-        headers: {
-            Authorization: authHeader(),
-            "Content-Type": "application/json",
-        },
-        body: body ? JSON.stringify(body) : undefined,
-    });
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 25_000);
+    try {
+        const res = await fetch(`${BASE_URL}${path}`, {
+            method,
+            headers: {
+                Authorization: authHeader(),
+                "Content-Type": "application/json",
+            },
+            body: body ? JSON.stringify(body) : undefined,
+            signal: ac.signal,
+        });
 
-    const json = (await res.json().catch(() => ({}))) as T;
+        const json = (await res.json().catch(() => ({}))) as T;
 
-    if (!res.ok) {
-        const msg = (json as any)?.message ?? `Pagar.me HTTP ${res.status}`;
-        throw new Error(`[pagarme] ${msg} — ${JSON.stringify(json)}`);
+        if (!res.ok) {
+            const errObj = json as { message?: unknown };
+            const msg =
+                typeof errObj?.message === "string"
+                    ? errObj.message
+                    : `Pagar.me HTTP ${res.status}`;
+            throw new Error(`[pagarme] ${msg} — ${JSON.stringify(json)}`);
+        }
+
+        return json;
+    } finally {
+        clearTimeout(timer);
     }
-
-    return json;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +219,7 @@ export type PagarmeOrder = {
     charges?: PagarmeCharge[];
     checkouts?: PagarmeCheckout[];
     customer?: { id?: string };
+    metadata?: Record<string, string>;
 };
 
 export function extractOrderCustomerId(order: PagarmeOrder): string | null {
@@ -513,6 +525,21 @@ export async function getPagarmeCharge(chargeId: string): Promise<PagarmeCharge>
     return pagarmeRequest<PagarmeCharge>(`/charges/${encodeURIComponent(chargeId)}`, "GET");
 }
 
+/** Cancela cobrança aberta (PIX waiting_payment / void). Best-effort — não propaga erro. */
+export async function cancelPagarmeChargeBestEffort(orderId: string): Promise<void> {
+    try {
+        const order = await getPagarmeOrder(orderId);
+        const chargeId = order.charges?.[0]?.id;
+        if (!chargeId) return;
+        const st = String(order.charges?.[0]?.status ?? "").toLowerCase();
+        if (st === "paid" || st === "canceled" || st === "cancelled") return;
+        await pagarmeRequest(`/charges/${encodeURIComponent(chargeId)}`, "DELETE");
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn("[pagarme] cancel charge best-effort:", orderId, msg);
+    }
+}
+
 /**
  * Resolve QR + copia-e-cola conforme docs Pagar.me v5:
  * - `last_transaction.qr_code` = EMV (copia e cola)
@@ -633,16 +660,13 @@ export function getSetupPriceCents(plan: PlanInputKey | string): number {
     );
 }
 
+/**
+ * Mensalidade canônica = planCatalog / plans.price_cents (ADR-0004 B4).
+ * Env MONTHLY_PRICE_* legado ignorado (causava Market cobrando R$ 297 via BOT).
+ */
 export function getMonthlyPriceCents(plan: PlanInputKey | string): number {
     const key = normalizePlanKey(plan);
     if (!key) return getMonthlyPriceCentsForPlan("essencial");
-    const fromEnv =
-        key === "essencial"
-            ? process.env.MONTHLY_PRICE_ESSENCIAL_CENTS ?? process.env.MONTHLY_PRICE_BOT_CENTS
-            : key === "market"
-              ? process.env.MONTHLY_PRICE_MARKET_CENTS
-              : process.env.MONTHLY_PRICE_PRO_CENTS ?? process.env.MONTHLY_PRICE_COMPLETE_CENTS;
-    if (fromEnv && /^\d+$/.test(fromEnv)) return parseInt(fromEnv, 10);
     return getMonthlyPriceCentsForPlan(key);
 }
 

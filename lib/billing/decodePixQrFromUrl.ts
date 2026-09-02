@@ -1,5 +1,5 @@
 /**
- * Quando o Pagar.me/Mundipagg devolve só URL de imagem/página PIX (sem EMV),
+ * Quando o Pagar.me/Mundipagg/Stone devolve só URL de imagem/página PIX (sem EMV),
  * tenta recuperar o copia-e-cola decodificando o QR ou varrendo o HTML.
  */
 
@@ -8,13 +8,27 @@ import sharp, { type Sharp } from "sharp";
 import jsQR from "jsqr";
 import { isImageMagic, isPixEmvPayload, pickPixEmvFromText } from "@/lib/billing/pixEmv";
 
+const PIX_FETCH_HOST_SUFFIXES = [
+    "pagar.me",
+    "mundipagg.com",
+    "stone.com.br",
+    "stone.com",
+] as const;
+
+function isAllowedPixFetchHost(hostname: string): boolean {
+    const host = hostname.toLowerCase();
+    return PIX_FETCH_HOST_SUFFIXES.some(
+        (suffix) => host === suffix || host.endsWith(`.${suffix}`)
+    );
+}
+
 /**
  * QR do Pagar.me (`/core/v5/transactions/.../qrcode`) exige Basic auth com sk_*.
- * Sem isso o fetch devolve 401 e o EMV nunca é recuperado — só a URL vazia no textarea.
+ * Hosts Stone públicos costumam não precisar; hosts fora da allowlist → bloqueados (SSRF).
  */
 function pagarmeAuthHeaders(url: string): Record<string, string> {
     try {
-        const host = new URL(url).hostname;
+        const host = new URL(url).hostname.toLowerCase();
         if (!host.endsWith("pagar.me") && !host.endsWith("mundipagg.com")) {
             return {};
         }
@@ -29,13 +43,33 @@ function pagarmeAuthHeaders(url: string): Record<string, string> {
 }
 
 async function fetchPixResource(url: string, accept: string): Promise<Response> {
-    return fetch(url, {
-        redirect: "follow",
-        headers: {
-            Accept: accept,
-            ...pagarmeAuthHeaders(url),
-        },
-    });
+    let parsed: URL;
+    try {
+        parsed = new URL(url);
+    } catch {
+        throw new Error("invalid_pix_url");
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new Error("invalid_pix_url_protocol");
+    }
+    if (!isAllowedPixFetchHost(parsed.hostname)) {
+        throw new Error(`pix_fetch_host_denied:${parsed.hostname}`);
+    }
+
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 15_000);
+    try {
+        return await fetch(url, {
+            redirect: "follow",
+            signal: ac.signal,
+            headers: {
+                Accept: accept,
+                ...pagarmeAuthHeaders(url),
+            },
+        });
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 /** Pipelines → RGBA (jsQR exige 4 canais). */
@@ -90,7 +124,6 @@ export async function decodePixEmvFromImageUrl(url: string): Promise<string | nu
         if (isImageMagic(buf)) {
             return decodeEmvFromImageBuffer(buf);
         }
-        // Resposta não-imagem (HTML/JSON): só aceitar EMV textual
         return pickPixEmvFromText(buf.toString("utf8"));
     } catch (e) {
         console.warn("[pagarme] decode PIX QR image failed:", e);
@@ -104,7 +137,6 @@ export async function extractPixEmvFromPageUrl(url: string): Promise<string | nu
         const res = await fetchPixResource(url, "text/html,application/json,*/*");
         if (!res.ok) return null;
         const buf = Buffer.from(await res.arrayBuffer());
-        // Nunca tratar PNG/JPEG como “página” — isso gerava lixo �…IEND no textarea
         if (isImageMagic(buf)) {
             return decodeEmvFromImageBuffer(buf);
         }

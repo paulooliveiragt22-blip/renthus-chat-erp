@@ -96,6 +96,19 @@ export async function GET() {
         );
 
         const subStatus = String(pagarmeSubRaw?.status ?? "");
+        const canonicalMonthly =
+            planKey != null ? getMonthlyPriceCents(planKey) / 100 : null;
+        const obligationAmount =
+            pendingInvoice?.amount != null
+                ? Number(pendingInvoice.amount)
+                : pendingSetupPayment?.amount != null
+                  ? Number(pendingSetupPayment.amount)
+                  : null;
+        const amountMismatch =
+            canonicalMonthly != null &&
+            obligationAmount != null &&
+            Number.isFinite(obligationAmount) &&
+            Math.abs(obligationAmount - canonicalMonthly) > 0.02;
 
         return NextResponse.json({
             ok: true,
@@ -112,6 +125,9 @@ export async function GET() {
             pagarme_subscription: pagarmeSubRaw ?? null,
             pending_invoice: pendingInvoice,
             pending_setup_payment: pendingSetupPayment,
+            obligation_amount_brl: obligationAmount,
+            canonical_monthly_brl: canonicalMonthly,
+            amount_mismatch: amountMismatch,
             is_blocked:
                 subStatus === "blocked" ||
                 subStatus === "pending_payment" ||

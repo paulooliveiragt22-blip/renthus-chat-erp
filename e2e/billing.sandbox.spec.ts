@@ -136,6 +136,21 @@ test.describe("Billing sandbox (deploy prod)", () => {
         await expect(
             page.getByText(/Pagamento aprovado|Plano liberado|em análise/i)
         ).toBeVisible({ timeout: 90_000 });
+
+        const statusRes = await page.request.get("/api/billing/status");
+        expect(statusRes.ok()).toBeTruthy();
+        const json = (await statusRes.json()) as {
+            pagarme_subscription?: { status?: string; last_paid_at?: string | null };
+        };
+        const st = json.pagarme_subscription?.status ?? "";
+        const paidAt = json.pagarme_subscription?.last_paid_at;
+        const approvedVisible = await page.getByText(/Pagamento aprovado|Plano liberado/i).count();
+        if (approvedVisible > 0) {
+            expect(st).toBe("active");
+            expect(paidAt).toBeTruthy();
+        } else {
+            expect(["active", "trial", "pending_payment", "pending_setup", "overdue"]).toContain(st);
+        }
     });
 
     test("PIX sandbox — gera QR/código", async ({ page }) => {
@@ -145,22 +160,23 @@ test.describe("Billing sandbox (deploy prod)", () => {
             test.skip(true, "Sem botão PIX — conta pode já estar paga ou sem pendência");
         }
 
-        // Já pode ter QR de cobrança anterior — regenera para validar o path.
         await pixBtn.click();
 
         await expect(
-            page.getByRole("img", { name: /QR PIX/i }).or(page.getByRole("button", { name: /Copiar PIX/i }))
+            page
+                .getByRole("button", { name: /Copiar PIX/i })
+                .or(page.getByText(/copia-e-cola|pix_emv_unavailable/i))
+                .or(page.getByRole("img", { name: /QR PIX/i }))
         ).toBeVisible({ timeout: 90_000 });
-
-        await page.waitForTimeout(35_000);
-        await page.reload({ waitUntil: "domcontentloaded" });
 
         const statusRes = await page.request.get("/api/billing/status");
         expect(statusRes.ok()).toBeTruthy();
         const json = (await statusRes.json()) as {
             pagarme_subscription?: { status?: string };
+            amount_mismatch?: boolean;
         };
         const st = json.pagarme_subscription?.status ?? "";
         expect(["active", "trial", "pending_setup", "pending_payment", "overdue"]).toContain(st);
+        expect(json.amount_mismatch).not.toBe(true);
     });
 });

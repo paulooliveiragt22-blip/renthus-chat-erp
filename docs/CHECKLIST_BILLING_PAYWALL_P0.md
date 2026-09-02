@@ -54,7 +54,7 @@ Referências:
 | # | Tema | Decisão | Motivo |
 |---|------|---------|--------|
 | D1 | **Fonte de billing state** | `pagarme_subscriptions.status` é canônico para **acesso** (paywall) | É o que o cron/webhook mutam |
-| D2 | **Fonte de features** | `subscriptions` + `plan_features` (+ addons) continuam canônicos para **gates de plano** até P2 | Evitar big-bang; P0 só sincroniza no block |
+| D2 | **Fonte de features** | `plan_features` canônico para gates booleanos; `feature_limits` = cotas. **Plumbing:** ver `CHECKLIST_BILLING_ORCHESTRATION_P0` O2. **Conteúdo por plano:** próxima rodada produto. | ADR-0004 emenda 2026-09-02; RPC chegou a agregar `feature_limits` por engano |
 | D3 | **Trial dá features?** | **Sim** — **somente** enquanto `status=trial` e `trial_ends_at > now()` | Produto: experimentar valor no trial |
 | D6 | **HTTP status** | `402 Payment Required` + `error.code = "billing_inactive"` | Distingue de 403 plano/role; client redireciona `/plano/bloqueado` |
 | D7 | **Onde aplicar o gate** | **Dentro** de `requireCompanyAccess` (opt-out por flag) + wrappers plan/capability herdam | Uma linha de defesa; evita esquecer rota |
@@ -517,7 +517,7 @@ Detalhe de steps `/ativar` (soft skip):
 
 | # | Item | Estado |
 |---|------|--------|
-| P2.1 | RPC/view `get_company_entitlements` (billing + features + addons) | [x] 2026-08-28 |
+| P2.1 | RPC/view `get_company_entitlements` (billing + features + addons) | [x] 2026-09-02 — `plan_features` + `limits`; catálogo keys por plano = próxima rodada |
 | P2.2 | `entitlements.ts` passa a usar RPC; deprecar dual-read | [x] 2026-08-28 |
 | P2.3 | Remover `/signup/complete` + `onboarding_token` flow (após zero tenants) | [x] 2026-08-28 |
 | P2.4 | Unificar `TRIAL_DAYS` (15 vs 30 em `activateTrial`) | [x] 2026-08-28 (já usa `getDefaultTrialDays`) |
@@ -535,8 +535,8 @@ Runbook: [`docs/SMOKE_BILLING_PAGARME_SANDBOX.md`](./SMOKE_BILLING_PAGARME_SANDB
 |---|------|--------|
 | S1 | Chaves `sk_test_` / `pk_test_` em `.env.local` + Vercel | [x] 2026-08-28 Production + `.env.pagarme.local` |
 | S2 | `npm run test:billing-sandbox` (API smoke) | [x] 2026-08-28 cartão paid; PIX EMV ou paid |
-| S3 | E2E cartão `/plano/pagar` | [x] 2026-09-02 — `npm run test:e2e:billing` 3/3 PASS (Vercel) |
-| S4 | E2E PIX + webhook | [x] 2026-09-02 — QR PIX + status ok; assert por `img[alt=QR PIX]` |
+| S3 | E2E cartão `/plano/pagar` | [~] 2026-09-02 — UI PASS; **reabrir** até assert `active` + `last_paid_at` (ADR-0004 B6 / ORCH O6) |
+| S4 | E2E PIX + webhook | [~] 2026-09-02 — QR UI PASS; webhook local ainda 0 eventos; fulfill não comprovado |
 | S5 | PIX copia-e-cola (EMV) aparece na UI | [x] 2026-08-28 `PlanBillingPanel` + decode QR |
 | S6 | `/plano/pagar` standalone (sem sidebar) até pagar → `/ativar` | [x] 2026-08-28 `app/(admin)/plano/pagar/page.tsx` |
 
