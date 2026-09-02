@@ -229,12 +229,12 @@ export async function POST(req: Request) {
             return NextResponse.json(payload);
         };
 
-        const ctx = await loadCheckoutContext(admin, companyId);
-        if ("error" in ctx) {
-            return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+        const checkout = await loadCheckoutContext(admin, companyId);
+        if ("error" in checkout) {
+            return NextResponse.json({ error: checkout.error }, { status: checkout.status });
         }
 
-        const { sub, strategy, pendingSetup, pendingInv, pendingRecord } = ctx;
+        const { sub, strategy, pendingSetup, pendingInv, pendingRecord } = checkout;
         const { isFirstPayment, amountCents } = strategy;
         const plan = sub.plan;
 
