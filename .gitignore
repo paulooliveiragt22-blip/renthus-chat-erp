@@ -50,6 +50,16 @@ yarn-error.log*
 
 # saidas manuais de `npm test` redirecionadas a arquivo (debug local, nao versionar)
 test_output*.log
+# vercel
+.vercel
+# Vercel CLI local env export (gerado por `vercel env pull`);
+# contem SUPABASE_SERVICE_ROLE_KEY + VERCEL_OIDC_TOKEN em plaintext.
+# JAMAIS commitar -- usar Vercel Dashboard para gerenciar em prod.
+# Fase 14 (ADR-0003): descoberto em incident de secret scan no push.
+/production
+/production.local
+
+# typescript
 test_run*.log
 full_test_result.log
 
