@@ -361,7 +361,10 @@ function Ensure-EventSource {
     $existing = $list.EventSourceMappings | Where-Object { $_.EventSourceArn -eq $QueueArn } | Select-Object -First 1
 
     # ScalingConfig é objeto, não string — montar via temp file
-    $scalingJson = (@{ MaximumConcurrency = $MaxConcurrency } | ConvertTo-Json -Compress) if $MaxConcurrency -gt 0 else $null
+    $scalingJson = $null
+    if ($MaxConcurrency -gt 0) {
+        $scalingJson = (@{ MaximumConcurrency = $MaxConcurrency } | ConvertTo-Json -Compress)
+    }
 
     # NOTA (Fase 7 — ADR-0003): SQS FIFO **não suporta** `--maximum-batching-window-in-seconds`
     # nem `--bisect-batch-on-function-error` (esses só valem para Kinesis/DynamoDB Streams).
@@ -404,12 +407,13 @@ function Ensure-EventSource {
     Invoke-AwsRaw $args
 }
 
-# Fase 7 — ADR-0003 (parâmetros REAIS confirmados em prod 2026-09-01):
-#   inbound: BatchSize=5, MaxConcurrency=10 (free/pro usam mesma fila nesta fase; Fase 8 separa)
+# Fase 14 — ADR-0003 (retorno ao SQS FIFO + causa raiz resolvida):
+#   inbound: BatchSize=1 (FIFO ordem), MaxConcurrency=10
 #   outbound: BatchSize=10, MaxConcurrency=20
-# VisibilityTimeout vem do aws-bootstrap (180s = 1.5× timeout Lambda 120s).
+# VisibilityTimeout vem do aws-bootstrap (60s = 1× Lambda timeout; mensagem com 1 falha vai para DLQ).
 # FIFO NÃO suporta batching window nem bisect — omitido.
-Ensure-EventSource -FnName $InboundFn  -QueueArn $inArn  -BatchSize 5  -MaxConcurrency 10
+# Provisioned Concurrency=1 (resolve cold-start do container, sem precisar de keep-warm EventBridge).
+Ensure-EventSource -FnName $InboundFn  -QueueArn $inArn  -BatchSize 1  -MaxConcurrency 10
 Ensure-EventSource -FnName $OutboundFn -QueueArn $outArn -BatchSize 10 -MaxConcurrency 20
 
 Write-Host ""

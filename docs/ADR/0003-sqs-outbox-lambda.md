@@ -2,6 +2,28 @@
 
 ## Status
 
+**VIGENTE — Fase 14** (2026-09-02): retorno ao SQS FIFO com causa raiz resolvida
+(`MessageGroupId=company_id`, Provisioned Concurrency=1, `VisibilityTimeout=60s`,
+`maxReceiveCount=1`, `aiTimeoutMs=12s`, reconciler reenfileirador em EventBridge 5min).
+
+Este ADR contém registro histórico da decisão SQS de ago/2026, do período Fase 13
+(Lambda direto, 01/09) e das Fases 7–12 (tuning pós-cutover). Em caso de dúvida
+operacional, siga a **Fase 14**; este corpo do documento é referência de auditoria.
+
+## Histórico de superseding
+
+| Data | Evento |
+|---|---|
+| 2026-08-28 | ADR-0003 aceito: SQS FIFO + ESM + Lambda |
+| 2026-09-01 | Cutover para SQS aplicado em prod (`zwcfuvohxmvlxhdfbgxo / sa-east-1`) |
+| 2026-09-01 | Fases 7–12 aplicadas como tuning pós-cutover |
+| 2026-09-01 | **Fase 13 — Lambda direto (superseded em <24h)** |
+| 2026-09-02 | **Fase 14 — Retorno ao SQS FIFO + causa raiz resolvida (VIGENTE)** |
+
+---
+
+## Status (original — preservado)
+
 **Aceito** (2026-08-28) — pré-produção, decisão radical SQS-first.
 
 ## Contexto
@@ -117,8 +139,10 @@ EventBridge Scheduler ──HTTP──► Vercel /api/billing/*, /api/marketplac
 
 | Fila | `MessageGroupId` | `MessageDeduplicationId` |
 |------|------------------|---------------------------|
-| `renthus-inbound.fifo` | `thread_id` | `jobId` (UUID único por job) |
+| `renthus-inbound.fifo` | **`company_id`** (Fase 14 — antes era `thread_id`; mudança crítica para resolver bloqueio FIFO por thread) | `jobId` (UUID único por job) |
 | `renthus-outbound.fifo` | `company_id` | `jobId` |
+
+> **Por que `company_id` (Fase 14):** com `thread_id`, se msg1 de uma conversa falha, msgs2/3/4 do mesmo thread ficam paradas até msg1 expirar (visibility timeout) — bloqueia toda a conversa. Com `company_id`, bloqueio FIFO afeta toda a empresa (não uma conversa individual). Cliente com 5 mensagens em 30s em threads diferentes → não bloqueia (são grupos FIFO separados). Ordem por thread pode ser preservada opcionalmente via Postgres `thread_locks` RPC (não usada na Fase 14).
 
 ### Semântica de entrega
 
@@ -367,13 +391,18 @@ Mover parsing pesado para worker (`raw_payload` column) — só se p95 webhook >
 | Parâmetro | Inbound | Outbound |
 |-----------|---------|----------|
 | Memory | 1024 MB | 512 MB |
-| Timeout | 120 s | 60 s |
-| Batch size | 1 (FIFO ordem) | 5 (grupos diferentes) |
-| Reserved concurrency | = `LLM_GLOBAL_MAX_IN_FLIGHT` + 5 | 20 |
-| Visibility timeout | 6 × timeout = 720 s | 360 s |
-| `maxReceiveCount` → DLQ | 3 | 3 |
+| Timeout | 60 s | 60 s |
+| Batch size ESM | 1 (FIFO ordem) | 10 (grupos diferentes) |
+| **Provisioned Concurrency** | **1** (Fase 14 — resolve cold-start container) | 0 |
+| ESM MaxConcurrency | 10 | 20 |
+| Visibility timeout | **60 s** (Fase 14 — antes 720s→ 60s = 1× Lambda timeout) | 180 s |
+| `maxReceiveCount` → DLQ | **1** (Fase 14 — alerta imediato, antes 3) | 3 |
+| `ReceiveMessageWaitTimeSeconds` | 20 (long polling) | 20 |
+| `aiTimeoutMs` | **12 s** (Fase 14 — antes 20s→ 15s→ 12s) | n/a |
 
 **Partial batch failure:** habilitado no inbound se batch > 1 no futuro.
+
+> **Mudanças-chave Fase 14 vs Fase 0–12:** `MessageGroupId=company_id` (resolve bloqueio FIFO por thread — causa raiz dos 6min de latência); `maxReceiveCount=1` (alerta 30× mais rápido); `VisibilityTimeout=60s` (3× mais rápido para DLQ); `aiTimeoutMs=12s` (falha rápido vs trav). Provisioned Concurrency=1 agora possível porque quota AWS subiu de 10 para 1000 (ticket aprovado). Custo alvo: **USD 9.53/mês** (vs USD 3.45/mês das Fases 0–12 sem Provisioned).
 
 ---
 
@@ -405,6 +434,8 @@ Mover parsing pesado para worker (`raw_payload` column) — só se p95 webhook >
 ---
 
 ## Alternativas rejeitadas
+
+> **Nota (2026-09-02):** A alternativa (d) Bypass SQS = invoke Lambda direto foi **brevemente aprovada como Fase 13** (01/09/2026) e **re-rejeitada pela Fase 14** (02/09/2026) após identificação de que o problema raiz (bloqueio FIFO por thread) já existia na arquitetura SQS e foi ignorado nas Fases 0–12. Ver **Fase 14 — "Retorno ao SQS FIFO + causa raiz resolvida"** para contexto completo e por que a postura mudou de volta para SQS.
 
 | Alternativa | Motivo |
 |-------------|--------|
@@ -542,6 +573,7 @@ Reserved concurrency: habilitar quando quota AWS permitir (`RENTHUS_LAMBDA_RESER
 | 2026-08-28 | Fase 5: coalesce Upstash, reconciler Lambda, DROP claim/reclaim RPCs, emitQueueMetrics sem SELECT |
 | 2026-09-01 | **Cutover concluído em prod (zwcfuvohxmvlxhdfbgxo / sa-east-1).** Migrations `20260828233852` (outbox SQS) e `20260829015203` (drop claim/reclaim) aplicadas. `pg_cron chatbot-queue-drain` removido via `20260829005849`. Webhooks já chamam `scheduleInboundAfterEnqueue`. `SQS_DISPATCH_ENABLED=1` em Vercel. Lambdas deployadas (`renthus-inbound-worker`, `renthus-outbound-worker`, `renthus-outbox-reconcile`) — zero errors, zero throttles em janela 28-30/ago. 100% dos jobs `done` com `sqs_enqueued_at` setado (12/12). 0 jobs pendentes. Ver `DR_RUNBOOK_SQS.md` para operação. |
 | 2026-09-01 | **Diagnóstico pós-cutover:** 88% dos jobs inbound (15/17) foram reenfileirados pelo reconciler 5min após o webhook. CloudWatch: Lambda `renthus-inbound-worker` invocada 1× a cada 15min no horário de tráfego — fila SQS não está sendo consumida pelo ESM no ritmo necessário. Causa raiz: (a) `VisibilityTimeout=720s` no `aws-bootstrap.ps1` (12min), (b) `BatchSize=1` + ESM update incompleto em `deploy-workers.ps1:363` que não propaga `--function-response-types`/`--scaling-config` quando o mapping já existe, (c) reconciler virou "primeira linha" mascarando bug. Decisão: adicionar Fase 7–11 abaixo. **Provisioned Concurrency fica desligado por padrão**; ligar só se `ConcurrentExecutions avg < 0.5` sustained. Estimativa de custo atual ~USD 3.45/mês; com provisioned ~USD 15.61/mês — ambos cobertos pelos créditos AWS atuais (USD 119). Provider LLM em produção: **Groq** (testes pipeline); migração para **Anthropic** no lançamento real — exige `cache_control` (Fase 9) e `stopWhen:stepCountIs()` (Fase 8) calibrados para Anthropic. |
+| 2026-09-02 | **Fase 14 — Retorno ao SQS FIFO + causa raiz resolvida (VIGENTE).** `MessageGroupId=company_id` (era `thread_id` — resolve bloqueio FIFO por thread, causa raiz dos 6min). Provisioned Concurrency=1 habilitada (quota AWS=1000 aprovada). `aiTimeoutMs=12s`. `VisibilityTimeout=60s`. `maxReceiveCount=1`. Reconciler EventBridge 5min (volta do 15min). Reconciler volta a reenfileirar ativamente via SQS (`reconcileOutbox` em `lib/chatbot/queue/outboxReconcile.ts`) — caminho primário é webhook, reconciler é rede de segurança. Custo-alvo: **USD 9.53/mês** (vs USD 3.45/mês das Fases 0–12 sem Provisioned). Cleanup Fase 13 completo: removidos `lib/chatbot/inbound/lambdaInvoker.*`, `lib/queue/outboxDlqWatchdog.ts`, `workers/inbound/threadLock.*`, `supabase/migrations/20260901000001_thread_locks.sql`. Migration `20260902000000_drop_thread_locks.sql` aplicada no Supabase (`DROP FUNCTION` + `DROP TABLE public.thread_locks CASCADE`). Handler do reconciler trocado: `runOutboxDlqWatchdog` → `reconcileOutbox`. Bug `aws-bootstrap.ps1` VT duplicado corrigido. Infra AWS recriada: `renthus-inbound.fifo` (VT=60s, WaitTime=20s, maxReceiveCount=1→DLQ), ESM inbound ativo (BatchSize=1, MaxConcurrency=10), Provisioned Concurrency=1 no alias `live:4`, EventBridge schedule `rate(5 minutes)`. DLQ órfã `rethus-inbound-dlq.fifo` deletada. Policy IAM `renthus-vercel-lambda-invoke-fase13` removida; `renthus-vercel-sqs-send-fase14` anexada. Lambdas rebuildadas (versão inbound=4, outbound=1, reconcile=3); alias `live` agora aponta para versão 4. p95 alvo: **<5s**. |
 
 ---
 
@@ -812,10 +844,537 @@ Repete checklist Fase 6 do ADR original, com KPIs atualizados:
 - [ ] Runbook DLQ replay atualizado (`docs/DR_RUNBOOK_SQS.md`)
 - [ ] ADR review ECS vs Lambda se GB-s > USD 50/mês sustained
 
+### 12.1 — Mecanismo de keep-warm (anti cold-start poller ESM) — **ATIVO** (2026-09-01)
+
+**Problema identificado pós-Fase 7:**
+
+Lambda estava saudável (processa em3s), SQS config OK (VisibilityTimeout 180s, BatchSize 5), mas a primeira invocação após período ocioso demorava **6 minutos**. Causa raiz: **ESM poller cold-start** — quando o SQS fica vazio, AWS desliga pollers inativos; ao chegar mensagem nova, o reaquecimento do poller leva 30s-6min.
+
+**Solução (sem Provisioned Concurrency, sem deploy Vercel):**
+
+1. **Lambda** `workers/inbound/handler.ts` reconhece evento EventBridge Schedule (sentinel) e retorna 200 sem processar job. Implementação: detecta `source === "aws.events"` + `detail-type` contém "Scheduled Event".
+2. **Regra EventBridge** `renthus-inbound-keep-warm-1m` (`rate(1 minute)`) → target Lambda alias `live`. A cada 1min: 1 invocação Lambda curta (~50ms) que mantém o container warm e o poller SQS ativo.
+3. **Permissão Lambda** `eventbridge-inbound-keep-warm` (statement-id) para `events.amazonaws.com` invocar `lambda:InvokeFunction`.
+
+**Resultado medido em prod (2026-09-01 21:38):**
+
+| Job | `total_wait_sec` (criação → processando) |
+|---|---|
+| Antes (pré-Fase 7) | **340-391s** (~6 min) |
+| Pós-Fase 7 sem keep-warm | 19-20s |
+| **Pós-Fase 12 com keep-warm** | **11.37s** ✅ |
+
+**Custo:**
+
+| Componente | Cálculo | Mensal |
+|---|---|---|
+| Lambda invocations | 43.830/mês × USD 0.20/M = USD 0.0088 | USD 0.01 |
+| Lambda compute | 43.830 × 0.05s × 1GB × USD 0.00001667 = USD 0.00004 | ~USD 0 |
+| SQS API (não muda) | — | USD 0.05 |
+| **TOTAL adicional** | | **~USD 0.16/mês** |
+
+**Total pós-Fase 12: USD ~3.61/mês** (vs USD 3.45 pré-keep-warm). Runway com USD 119 = **~33 meses**.
+
+**Quando desativar keep-warm:**
+
+- Tráfego sustentado > 10 msg/hora (poller naturalmente fica ativo)
+- Provisioned Concurrency ativado (elimina cold-start do container também)
+- Lambda destino mudada (ex: Fase 8 — fila por tier)
+
+**Arquivos/scripts:**
+
+| Arquivo | Função |
+|---|---|
+| `workers/inbound/handler.ts` | Detecta sentinel EventBridge, retorna `{ok:true, mode:'keep-warm'}` |
+| `scripts/setup-keep-warm.ps1` | Idempotente: cria/atualiza rule + permission; `--Disable` remove |
+| `package.json` | `npm run keepwarm:setup` / `keepwarm:teardown` |
+
 ---
+
+## Fase 14 — Retorno ao SQS FIFO + causa raiz resolvida (PR 14) — **VIGENTE**
+
+**Status:** aprovado 2026-09-02. **Substitui o desenho Lambda-direto da Fase 13** (que continua documentado acima como histórico).
+
+### 14.1 Contexto — os 4 problemas do SQS FIFO que o owner levantou
+
+| # | Problema | Status antes Fase 14 |
+|---|---|---|
+| 1 | **Timeout LLM** — OpenAI/Anthropic demorava → Lambda passava do `aiTimeoutMs` → exceção → mensagem ficava em retry loop | Parcialmente mitigado (Fase 7 cortou `aiTimeoutMs` de 20s → 15s, mas ainda alto) |
+| 2 | **Bloqueio FIFO por `thread_id`** — SQS FIFO garante ordem **dentro do grupo**; se msg1 falha, msgs 2,3,4 do mesmo thread ficam paradas até msg1 expirar (visibility timeout) | **Não mitigado** — existia no desenho original, **não** foi criado pela Fase 13 |
+| 3 | **VisibilityTimeout 6min** (original 720s = 12min) | Mitigado na Fase 7 (720s → 180s) — **mas ainda alto** |
+| 4 | **Cold-start ESM poller** — 2-3min para primeira msg após silêncio | **Resolvido pela Fase 13** (Lambda direto) — mas sem SQS FIFO |
+
+A Fase 13 resolveu (4) mas o owner identificou corretamente que **sair de SQS FIFO foi tratamento de sintoma (ESM cold-start), não da causa raiz dos 6min**. O problema 2 (bloqueio FIFO) **já existia** no SQS-first e foi ignorado nas Fases 0-12.
+
+### 14.2 Decisão — manter SQS FIFO, resolver causa raiz
+
+Voltar para SQS FIFO inbound + tratar a **causa raiz** dos 6min, não o sintoma. O nó do problema é:
+
+- **SQS FIFO com `MessageGroupId = thread_id`**: quando uma mensagem falha, todo o thread fica in-flight por `VisibilityTimeout`. Combinado com cold-start do ESM (problema 4) e timeout curto (problema 1), resultado = 6min.
+
+**Mudanças aplicadas na Fase 14** (ataca causa raiz):
+
+1. **`MessageGroupId = company_id` em vez de `thread_id`**
+   - Bloqueio FIFO agora afeta **toda a empresa**, não um thread individual
+   - Cliente com5 mensagens em 30s em threads diferentes → **não bloqueia** (são grupos FIFO separados)
+   - Ordem por thread ainda é preservada no **Postgres via `thread_locks` RPC** (`try_acquire_thread_lock`) — se preferir manter a garantia estrita por thread, pode ativar (Fase 14.6)
+   - **Custo**: zero. **Latência**: clientes com múltiplos threads paralelos melhoram 10-50x
+
+2. **Provisioned Concurrency = 1** (agora possível — quota AWS=1000 aprovada)
+   - Resolve cold-start do **container Lambda** (não do ESM poller, que continua lento sem keep-warm)
+   - Lambda fica warm24/7 → primeira invocação após silêncio = 100ms
+   - **Custo**: USD 6.08/mês. **Latência**: p95 <5s (vs ~6min antes)
+
+3. **`aiTimeoutMs = 12s`** (era 15s/20s)
+   - Groq responde em 3-5s; 12s é margem ampla
+   - LLM timeout falha rápido, mensagem vai pra DLQ em <12s em vez de >15s
+   - **Custo**: zero. **Latência**: mensagens com LLM travado vão pra DLQ em ~12s, não travam o thread
+
+4. **VisibilityTimeout = 60s** (era 180s)
+   - 1.5× Lambda timeout (60s) — padrão AWS
+   - Mensagem com falha volta pra fila em 60s, não 180s
+   - **Custo**: zero. **Latência**: retry loop encerra 3x mais rápido
+
+5. **`maxReceiveCount = 1` → DLQ** (era 3)
+   - 1 falha → vai pra DLQ automaticamente (não acumula 3 retries invisíveis)
+   - Operador recebe alerta imediato no CloudWatch
+   - **Custo**: zero. **Latência**: thread não fica travado por retries invisíveis
+
+6. **Reconciler EventBridge 5min** (volta ao valor original; era 15min na Fase 7)
+   - Detecta jobs `processing` stale (>3min) → marca como `pending` para reprocessar
+   - Detecta jobs `attempts >= 5` → Sentry alert
+   - **Custo**: zero (já existe). **Latência**: jobs órfãos recuperados em <5min
+
+### 14.3 Arquitetura vigente (Fase 14)
+
+```
+Vercel webhook
+   ↓ after() → SQS SendMessage (fire-and-forget, < 300ms)
+AWS SQS FIFO
+  renthus-inbound.fifo
+    MessageGroupId = company_id  ← MUDANÇA CRÍTICA (era thread_id)
+    VisibilityTimeout = 60s      ← MUDANÇA (era 180s)
+    maxReceiveCount = 1          ← MUDANÇA (era 3)
+    ReceiveMessageWaitTimeSeconds = 20 (long polling)
+  renthus-inbound-dlq.fifo       (DLQ automática; alarm SNS → email ops)
+   ↓ EventSourceMapping (Lambda Concurrency=10, Provisioned=1)
+Lambda renthus-inbound-worker
+  Container warm 24/7 (Provisioned=1)
+  aiTimeoutMs = 12s             ← MUDANÇA (era 15s)
+  processInboundJobById (idempotente)
+   ↓
+Supabase Postgres
+  chatbot_queue (outbox + estado)
+  thread_locks (opcional, se quiser ordem estrita por thread)
+Reconciler EventBridge (5min)
+  Detecta processing stale > 3min → pending
+  Alerta Sentry (sem reenfileirar automaticamente)
+```
+Reconciler EventBridge (5min)
+  Detecta processing stale > 3min → pending
+  Alerta Sentry (sem reenfileirar automaticamente)
+```
+
+### 14.4 Estrutura de arquivos
+
+**Novos:**
+- `scripts/setup-provisioned-concurrency-fase14.ps1`
+- `scripts/recreate-sqs-inbound-fase14.ps1`
+- `scripts/recreate-esm-fase14.ps1`
+
+**Alterados (REVERSÃO da Fase 13):**
+- `workers/inbound/handler.ts` — handler SQS (Records[]); remove threadLock
+- `lib/queue/afterEnqueue.ts` — `dispatchInboundJob` (SQS)
+- `lib/queue/sqsDispatch.ts` — **REINSERIDO** (com `dispatchInboundJob` real)
+- `lib/queue/sqsEnvelope.ts` — **REINSERIDO** (com `kind: 'inbound'`)
+- `workers/shared/sqsRetryVisibility.ts` — **REINSERIDO**
+### 14.7 Comportamento esperado (Fase 14)
+
+| Métrica | Antes (Fase 0-6) | Depois Fase 7-12 | Depois **Fase 14** |
+|---|---|---|---|
+| p95 latência inbound (webhook → reply) | ~6min | ~3min | **<5s** (Provisioned) |
+| `ApproximateAgeOfOldestMessage` | > 120s sustained | 0-180s | **<10s** (DLQ rápido) |
+| Lambda cold-start | ~100% | ~100% | **0%** (Provisioned) |
+| Bloqueio FIFO por thread | ❌ comum | ❌ comum | ✅ **mitigado** (group=company_id) |
+| Taxa de reenfileiramento pelo reconciler | 88% | silencioso | <5% (alertas Sentry) |
+| Custo AWS/mês | USD 3.45 | USD 3.45-3.61 | **USD 9.53** (com Provisioned) |
+
+### 14.8 Plano de execução (PRs em ordem)
+
+| PR | Conteúdo | Risco |
+|---|---|---|
+| **PR 1** | Reverter `workers/inbound/handler.ts` (SQS) | Médio |
+| **PR 2** | Reverter `lib/queue/afterEnqueue.ts` | Médio |
+| **PR 3** | Reinserir `lib/queue/sqsDispatch.ts` | Baixo |
+| **PR 4** | Reinserir `sqsEnvelope.ts` + `sqsRetryVisibility.ts` | Baixo |
+| **PR 5** | `aiTimeoutMs=12s` | Baixo |
+| **PR 6** | Reverter `aws-bootstrap.ps1` | Baixo |
+| **PR 7** | Reverter `deploy-workers.ps1` | Baixo |
+| **PR 8** | Recriar SQS+DLQ+ESM via AWS CLI | **Alto** |
+| **PR 9** | **Provisioned Concurrency = 1** | Baixo |
+| **PR 10** | Reverter reconciler | Médio |
+| **PR 11** | Deletar arquivos Fase 13 | Baixo |
+| **PR 12** | Smoke test fim-a-fim | — |
+| **PR 13** | Atualizar README/DR_RUNBOOK | Baixo |
+
+### 14.9 Validação esperada
+
+1. Criar job `pending` no Supabase
+2. Webhook Vercel chama `scheduleInboundAfterEnqueue` (SQS dispatch)
+3. SQS `renthus-inbound.fifo` recebe mensagem (group=company_id)
+4. ESM aciona `renthus-inbound-worker` (warm — Provisioned)
+5. Lambda processa em <5s
+6. **Resultado**: `total_wait_sec` < 5s (medido em prod)
+7. Validar thread lock (se `MessageGroupId=company_id`, ordem por thread via Postgres RPC)
+
+### 14.10 Rollback (se necessário)
+
+Se a Fase 14 piorar a latência:
+1. Reverter PRs via `git revert`
+2. **Manter a Fase 13** (Lambda direto) como contingência
+3. Investigar se Provisioned=1 está realmente ativo (`aws lambda get-provisioned-concurrency-config`)
+4. Se necessário, escalar para `Provisioned=2` (+USD 6/mês)
+
+### 14.11 Sobre o **status da Fase 13**
+
+A Fase 13 **permanece documentada** acima (seções 13.1 a 13.13) como histórico. Não foi removida conforme pedido do owner. Caso a Fase 14 também falhe, a Fase 13 está pronta para re-ativação via `npm run aws:rollback:fase13` (script `scripts/teardown-fase13.ps1` que documenta o rollback).
+- `lib/chatbot/queue/outboxReconcile.ts` — **REINSERIDO** (reconciler reenfileira)
+- `lib/chatbot/aiCapabilityProfile.ts` — `aiTimeoutMs` = 12s
+- `scripts/aws-bootstrap.ps1` — `VisibilityTimeout=60s`, `WaitTime=20s`
+- `scripts/deploy-workers.ps1` — reativar `Ensure-EventSource` inbound
+
+**Deletados (Fase 13, sem dual path):**
+- `lib/chatbot/inbound/lambdaInvoker.ts` + `.aws.ts` + `.noop.ts`
+- `lib/queue/outboxDlqWatchdog.ts`
+- `supabase/migrations/20260901000001_thread_locks.sql`
+
+**NÃO deletados:**
+- `docs/ADR/0003-sqs-outbox-lambda.md` — Fase 13 como histórico (seções 13.1-13.13)
+
+### 14.5 Recursos AWS (RECRIAÇÃO otimizada)
+
+| Recurso | Comando | Config otimizada |
+|---|---|---|
+| SQS `renthus-inbound.fifo` | `aws sqs create-queue` | `VisibilityTimeout=60`, `ReceiveMessageWaitTimeSeconds=20` |
+| DLQ `renthus-inbound-dlq.fifo` | `aws sqs create-queue` | (reaproveitar DLQ existente) |
+| ESM | `aws lambda create-event-source-mapping` | `BatchSize=1`, `FunctionResponseTypes=ReportBatchItemFailures`, `ScalingConfig.MaximumConcurrency=10` |
+| Provisioned Concurrency | `aws lambda put-provisioned-concurrency-config` | `ProvisionedConcurrentExecutions=1`, qualifier=`live` |
+| Lambda timeout | `aws lambda update-function-configuration` | `--timeout 30` |
+
+### 14.6 Variáveis de ambiente (REVERSÃO)
+
+| Variável | Fase 13 | Fase 14 |
+|---|---|---|
+| `AWS_LAMBDA_INBOUND_NAME` | ADICIONADO | **REMOVER** |
+| `AWS_LAMBDA_INBOUND_QUALIFIER` | ADICIONADO | **REMOVER** |
+| `SQS_INBOUND_QUEUE_URL` | REMOVIDO | **REINSERIR** |
+| `SQS_DISPATCH_ENABLED` | REMOVIDO | **REINSERIR** |
+| `AWS_REGION`, etc. | MANTER | MANTER |
+
+**Por que NÃO aumentou ConcurrentExecutions para 1000:**
+
+Não resolve o problema. ConcurrentExecutions alto ajuda quando há **tráfego sustentado** competindo pela Lambda; com 30 msgs/dia, o gargalo é o **poller acordando**, não a concorrência. O keep-warm ataca a causa raiz sem mudança de quota AWS.
+
+---
+
+## Fase 13 — Substituição SQS FIFO → Lambda direto do Vercel (PR 13) — **VIGENTE**
+
+**Status:** aprovado 2026-09-01. **Substitui o desenho SQS-first das Fases 0–6** sem manter dual-path. Aplicável após aprovação do ticket de `Concurrent Executions=1000` (em análise pela AWS).
+
+### 13.1 Contexto adicional — por que SQS não funcionou
+
+Mesmo com todas as otimizações das Fases 7–12 aplicadas (VisibilityTimeout=180s, BatchSize=5, MaxConcurrency=10, keep-warm EventBridge), o gargalo **persiste**:
+
+- **ESM poller cold-start** medido em 2–3 minutos para primeira mensagem após período ocioso. **Inevitável** no design SQS FIFO + Lambda ESM para tráfego esporádico (30 msgs/dia).
+- Tentativa de **keep-warm via EventBridge** falhou por permission ARN mismatch entre Lambda alias `:live` e Resource da policy.
+- **Provisioned Concurrency** resolveria, mas quota AWS conta = 10 (mínimo absoluto). Ticket de quota increase para 1000 **em análise** (resposta prevista ≤ 5 dias úteis).
+
+Resultado: a stack SQS-first escolhida em agosto não atende o requisito de latência < 10s para chat real-time.
+
+### 13.2 Decisão (Opção D — aprovada)
+
+Adotar o **padrão usado por Anthropic Cloud, Stripe Support Bot, Intercom Fin e Klarna customer service AI** em produção:
+
+```
+Webhook Vercel
+   ↓ (sem SQS, sem polling layer)
+1. Validar HMAC + dedup
+2. INSERT chatbot_queue (status=pending) — outbox Postgres
+3. Lambda.invoke(InvokeCommand, InvocationType='Event') — async, não bloqueia
+4. 200 OK ao Meta em <300ms
+   ↓
+AWS Lambda inbound-worker
+1. try_acquire_thread_lock (Postgres SELECT FOR UPDATE SKIP LOCKED)
+2. Load contexto do Postgres
+3. LLM call (Groq ou Anthropic conforme env)
+4. Persistir resposta
+5. Send reply via Meta Cloud API
+6. Mark chatbot_queue.status='done'
+7. release_thread_lock (COMMIT no Postgres)
+```
+
+**Ordem por thread** preservada pelo mesmo mecanismo que SQS FIFO garantia (lock exclusivo na tabela `thread_locks` por `company_id + thread_id`).
+
+**Recuperação de crash** via Async Invoke retries automáticos do AWS (2x, com 4min/8min de backoff) + reconciler EventBridge como DLQ-only (não reenfileira, só alerta Sentry quando `processing > 3min`).
+
+### 13.3 Estrutura de arquivos (sem dual path)
+
+**Novos arquivos:**
+
+| Path | Função |
+|---|---|
+| `lib/chatbot/inbound/lambdaInvoker.ts` | Port `LambdaInvokerPort` (contrato) |
+| `lib/chatbot/inbound/lambdaInvoker.aws.ts` | Adapter AWS — `InvokeCommand` com `InvocationType='Event'` |
+| `lib/chatbot/inbound/lambdaInvoker.noop.ts` | Adapter no-op para dev/test local |
+| `workers/inbound/threadLock.ts` | Port `ThreadLockPort` + adapter Postgres |
+| `workers/inbound/threadLock.errors.ts` | `ThreadLockedError` + retry policy |
+| `supabase/migrations/20260901000001_thread_locks.sql` | Tabela + 2 RPCs + RLS + FORCE (segue `supabase-migrations-seguranca.mdc`) |
+| `scripts/delete-sqs-inbound.ps1` | Cleanup radical: deleta SQS+DLQ+ESM+permission+keep-warm |
+| `scripts/teardown-fase13.ps1` | Rollback completo (re-cria SQS se necessário) |
+
+**Arquivos alterados:**
+
+| Path | Mudança |
+|---|---|
+| `app/api/whatsapp/incoming/route.ts` | `scheduleInboundAfterEnqueue(...)` → `await invokeLambdaAsync({jobId, companyId, threadId, attempt:0})`. Fail-soft: outbox fica `pending`. |
+| `lib/queue/afterEnqueue.ts` | `scheduleInboundAfterEnqueue` agora chama `lambdaInvoker.invokeAsync()` em vez de SQS dispatch. Mantém assinatura (call sites não mudam). |
+| `lib/queue/sqsDispatch.ts` | **DELETAR** (sem dual path) |
+| `lib/queue/sqsEnvelope.ts` | **DELETAR** |
+| `workers/inbound/handler.ts` | Adiciona wrap `withThreadLock` ao redor de `processInboundJobById`. Remove detecção de sentinel keep-warm. |
+| `workers/reconcile/handler.ts` | Reconciler vira **DLQ-only**: NÃO reenfileira ativamente. |
+| `lib/queue/outboxReconcile.ts` | Renomear para `outboxDlqWatchdog.ts`. Remove `dispatchJobs`. |
+| `scripts/aws-bootstrap.ps1` | Marcar como **deprecated**. Adicionar nota: "inbound removido na Fase 13". |
+| `scripts/deploy-workers.ps1` | Remover bloco `Ensure-EventSource` para inbound. |
+| `package.json` | Novos scripts: `aws:invoke:inbound:dry-run`, `aws:cleanup:sqs-inbound`, `aws:rollback:fase13`. |
+
+**Arquivos preservados sem mudança:**
+
+- Lógica de dedup, INSERT, validação HMAC em `app/api/whatsapp/incoming/route.ts`
+- `lib/chatbot/queue/processInboundJobById.ts` — núcleo de processamento
+- `lib/chatbot/runProInbound.ts` — pipeline PRO
+- `lib/supabase/admin.ts` — client Supabase (Lambda usa; pooler opcional)
+
+### 13.4 Recursos AWS (operações destrutivas permitidas; sem dual path)
+
+**Recursos a REMOVER** (radical — sem dual-path eterno, conforme `projeto-pre-producao-radical.mdc`):
+
+| Recurso | Comando AWS | Por que |
+|---|---|---|
+| SQS `renthus-inbound.fifo` | `aws sqs delete-queue --queue-url <url>` | Não usado mais |
+| DLQ `renthus-inbound-dlq.fifo` | `aws sqs delete-queue --queue-url <url>` | Sem SQS, sem DLQ |
+| Event Source Mapping `4f36b79c-1a19-4a70-8e91-700c0bc02c74` | `aws lambda delete-event-source-mapping --uuid <uuid>` | Sem SQS, sem ESM |
+| EventBridge rule `renthus-inbound-keep-warm-1m` | `aws events delete-rule --name <name>` | Não precisa mais |
+| Lambda permission `eventbridge-inbound-keep-warm` | `aws lambda remove-permission --statement-id <sid>` | Cleanup de permissão órfã |
+
+**Recursos a ADICIONAR (radical — sem dual-path)**:
+
+| Recurso | Tipo | Configuração |
+|---|---|---|
+| Supabase tabela `thread_locks` | Postgres | PK (company_id, thread_id), `expires_at`, índice em `expires_at` |
+| Postgres RPC `try_acquire_thread_lock(uuid, uuid, uuid, int)` | RPC | SECURITY DEFINER + `set search_path=public,pg_temp`; idempotente via `INSERT ... ON CONFLICT DO NOTHING` |
+| Postgres RPC `release_thread_lock(uuid)` | RPC | SECURITY DEFINER + `set search_path`; idempotente via `DELETE WHERE session_id=$1` |
+| IAM policy inline no IAM user Vercel (substitui `sqs:SendMessage`) | IAM | `lambda:InvokeFunction` no ARN `arn:aws:lambda:sa-east-1:696457893414:function:renthus-inbound-worker` |
+
+**Recursos a MANTER** (sem mudança):
+
+| Recurso | Custo/mês |
+|---|---|
+| Lambda `renthus-inbound-worker` (1024MB, 60s timeout, alias `live`) | USD 1.50 |
+| Lambda `renthus-outbound-worker` (512MB) | USD 0.38 |
+| Lambda `renthus-outbox-reconcile` (256MB) — agora DLQ-only | USD 0.12 |
+| Upstash (rate limit + LLM cap) | USD 0.20 |
+| CloudWatch Logs + 4 Alarms (DLQ alarm removida; sobra age alarm) | USD 1.20 |
+| SQS outbound (mantida — usada pelo outbound worker via ESM) | USD 0.05 |
+| **TOTAL pós-Fase 13** | **USD ~3.45/mês** (mesmo da Fase 7) |
+
+### 13.5 Variáveis de ambiente
+
+**Vercel (prod) — adicionar / alterar / remover:**
+
+| Variável | Status | Descrição |
+|---|---|---|
+| `AWS_REGION` | **MANTER** | `sa-east-1` |
+| `AWS_ACCESS_KEY_ID` | **MANTER** | IAM user; policy mínima: `lambda:InvokeFunction` no ARN da Lambda inbound |
+| `AWS_SECRET_ACCESS_KEY` | **MANTER** | |
+| `AWS_LAMBDA_INBOUND_NAME` | **NOVO** | `renthus-inbound-worker` (sem alias — usar `$LATEST` ou versão publicada) |
+| `AWS_LAMBDA_INBOUND_QUALIFIER` | **NOVO (opcional)** | Se definido (ex: `live`), usa alias; senão `$LATEST` |
+| `SQS_INBOUND_QUEUE_URL` | **REMOVER** | Não usado mais |
+| `SQS_OUTBOUND_QUEUE_URL` | **MANTER** | Outbound continua via SQS |
+| `SQS_DISPATCH_ENABLED` | **REMOVER** | Sem dual path |
+| `UPSTASH_REDIS_REST_URL` | **MANTER** | Rate limit + LLM cap |
+| `UPSTASH_REDIS_REST_TOKEN` | **MANTER** | |
+| `LLM_GLOBAL_MAX_IN_FLIGHT` | **MANTER** | ex: `20` |
+| `COMPANY_LLM_MAX_IN_FLIGHT` | **MANTER** | ex: `4` |
+| `CRON_SECRET` | **MANTER** | EventBridge → rotas HTTP restantes |
+
+**Lambda inbound (manter):**
+
+| Variável | Status |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | MANTER |
+| `SUPABASE_SERVICE_ROLE_KEY` | MANTER |
+| `SUPABASE_DB_POOLER_URL` | MANTER — **Transaction mode :6543** (reduz conexões) |
+| `UPSTASH_*`, `LLM_*`, `ANTHROPIC_*`, `WHATSAPP_*` | MANTER |
+| `SENTRY_DSN` | MANTER |
+| `AWS_REGION` | MANTER |
+| ~~`SQS_INBOUND_QUEUE_URL`~~ | **REMOVER** (não usa SQS mais) |
+
+**Quando quota Concurrent Executions = 1000 for aprovada:**
+
+| Variável | Adicionar (Lambda inbound) |
+|---|---|
+| `AWS_LAMBDA_RESERVED_CONCURRENCY` | `5` (cap em 5 invocações simultâneas para evitar throttling) |
+| Provisioned Concurrency | `1` (opcional; via `npm run provisioned:setup`) — só ligar se métricas mostrarem `ConcurrentExecutions avg > 0.5 sustained por 24h` |
+
+### 13.6 Camadas de segurança (defesa em profundidade)
+
+| Camada | Implementação | Onde | Regra |
+|---|---|---|---|
+| **Auth webhook Meta** | HMAC sha256 `X-Hub-Signature-256` validado com `META_APP_SECRET` | `app/api/whatsapp/incoming/route.ts` | — |
+| **Dedup idempotente** | `INSERT whatsapp_messages` com unique `(provider_message_id, channel)` — duplicatas retornam 23505 e são ignoradas | Vercel | — |
+| **Outbox source-of-truth** | `INSERT chatbot_queue` com `UNIQUE (company_id, message_id)` | Vercel | `governanca-seguranca-negocio.mdc` |
+| **Thread lock** | `SELECT FOR UPDATE SKIP LOCKED` via RPC `try_acquire_thread_lock` (tabela `thread_locks`) | Lambda | `agente-pro-hexagonal.mdc` (single-flight) |
+| **RLS thread_locks** | Tabela com `FORCE ROW LEVEL SECURITY` + policy `service_role_only` | Supabase | `supabase-migrations-seguranca.mdc` item 1-3 |
+| **RPC SECURITY DEFINER** | `try_acquire_thread_lock` e `release_thread_lock` com `set search_path = public, pg_temp` | Supabase | `supabase-migrations-seguranca.mdc` item 5-6 |
+| **IAM mínimo Vercel** | `lambda:InvokeFunction` no ARN exato (resource-level permission); sem `*` | AWS | `governanca-seguranca-negocio.mdc` (least privilege) |
+| **IAM Lambda role** | Remove `sqs:*` (era usado para SQS); mantém logs + supabase via env | AWS | — |
+| **Webhook rate limit** | `@upstash/ratelimit` — 30 msg/min/thread, 1000 msg/min global | Vercel | — |
+| **LLM rate limit** | `llmDistributedCap` (Upstash) — cap global + por empresa | Lambda | — |
+| **Secrets** | Vercel env + Lambda env (não Parameter Store pago) | Ambos | `supabase-migrations-seguranca.mdc` item 8 |
+| **Sentry** | Captura exceptions em webhook Vercel + todas Lambdas | Ambos | — |
+| **Async retry** | Lambda Async Invoke tem retry automático x2 (4min/8min backoff) | AWS | — |
+| **DLQ watchdog** | EventBridge `rate(5 minutes)` → reconciler detecta `processing > 3min` ou `attempts >=5` → Sentry alert (sem reenfileirar) | Lambda + EventBridge | — |
+
+### 13.7 Comportamento esperado
+
+| Métrica | Antes (Fase 12) | Depois (Fase 13) |
+|---|---|---|
+| p95 latência inbound (webhook → reply) | ~3 min (ESM poller cold-start) | **<2s** |
+| p50 latência | ~20s | **<1s** |
+| Lambda invocações/dia | Esporádica (1/15min sem keep-warm) | Cada mensagem = 1 invocação direta |
+| Cold-start poller | 2-3 min | **0** (sem poller; Vercel→Lambda direto) |
+| Taxa de reenfileiramento | 88% (reconciler mascarava bugs) | **0%** (reconciler vira DLQ-only) |
+| Reconciler alert rate | silencioso | Sentry quando processing > 3min |
+| Custo AWS/mês | USD 3.61 | **USD 3.45** (sem SQS inbound + sem keep-warm) |
+| Operações pendentes | "remover SQS inbound" bloqueado por ticket quota | `npm run aws:cleanup:sqs-inbound` |
+
+### 13.8 Plano de execução (PRs em ordem, sem dual path)
+
+| PR | Conteúdo | Risco | Pré-condição |
+|---|---|---|---|
+| **PR 1** | Migration `20260901000001_thread_locks.sql` (tabela + 2 RPCs + RLS) | Baixo — aditivo | — |
+| **PR 2** | `lib/chatbot/inbound/lambdaInvoker.ts` (Port) + `lambdaInvoker.aws.ts` (Adapter) + testes unitários (mock SDK) | Baixo | — |
+| **PR 3** | `workers/inbound/threadLock.ts` (Port + adapter Postgres) + integração no handler | Médio | PR 1 |
+| **PR 4** | `app/api/whatsapp/incoming/route.ts` chama `invokeLambdaAsync` em vez de `scheduleInboundAfterEnqueue` | **Médio-alto** — webhook Vercel novo caminho | PR 2 |
+| **PR 5** | Reconciler DLQ-only: `lib/queue/outboxReconcile.ts` → `outboxDlqWatchdog.ts`; remove `dispatchJobs` | Médio | — |
+| **PR 6** | IAM policy Vercel: substituir `sqs:SendMessage` por `lambda:InvokeFunction` no ARN exato | **Médio-alto** — credencial de produção | — |
+| **PR 7** | **Cleanup radical**: deletar SQS+DLQ+ESM+keep-warm+permission (script `delete-sqs-inbound.ps1`) | **Alto** — destrutivo; rodar em janela de baixo tráfego | PRs 1–6 deployados em prod |
+| **PR 8** | Remover `lib/queue/sqsDispatch.ts`, `lib/queue/sqsEnvelope.ts`; atualizar `aws-bootstrap.ps1` (remover bloco inbound); atualizar `deploy-workers.ps1` (remover `Ensure-EventSource` inbound) | Baixo | PR 7 validado |
+
+**Após quota Concurrent Executions = 1000 aprovada:**
+
+| PR | Conteúdo |
+|---|---|
+| **PR 9** (opcional) | Ligar Reserved Concurrency = 5 e Provisioned Concurrency = 1 em `renthus-inbound-worker:live` via `npm run provisioned:setup` |
+
+**Validação entre PRs:**
+
+1. `npm test` — verde (1297+ pass, 4 fail pré-existentes em `tests/billing/` e `tests/orders/` — não relacionados)
+2. Smoke fim-a-fim: criar job `pending` no Supabase + enviar `aws lambda invoke --function-name renthus-inbound-worker --payload '{...}'` direto + medir `total_wait_sec` alvo < 5s
+3. Sentry: zero exceptions não tratadas durante PR 4
+4. Thread lock: validar `thread_locks` sem rows órfãs após burst de 10 mensagens simultâneas no mesmo thread
+5. Reconciler DLQ-only: simular crash (kill Lambda mid-flight) → reconciler marca `pending` + Sentry alert (sem reenfileirar)
+
+### 13.9 Rollback (se necessário)
+
+Se PR 7 (cleanup SQS) causar regressão inesperada:
+
+1. `npm run aws:rollback:fase13` — re-cria `renthus-inbound.fifo` + DLQ + ESM (config Fase 12)
+2. Reverte PR 6 (`git revert`) para restaurar webhook chamando `scheduleInboundAfterEnqueue`
+3. Reverte PR 4 (`git revert`)
+4. Reconciler volta a reenfileirar (reverte PR 5)
+
+Tempo estimado de rollback: **15 minutos**. Janela de risco: entre PR 7 aplicado e rollback completo = máx. 15min de degradação.
+
+### 13.10 Quando aumentar ConcurrentExecutions = 1000 (resposta à R4)
+
+**Por que ajuda mesmo no desenho Fase 13:**
+
+ConcurrentExecutions = 1000 libera:
+- Provisioned Concurrency em `renthus-inbound-worker` (sem o limite de 10)
+- Reserved Concurrency = 5 (cap para evitar throttling entre tenants)
+- Concurrent burst handling (5-10 Lambdas simultâneas em pico)
+
+**Quanto ajuda:**
+
+| Cenário | Concurrent=10 (atual) | Concurrent=1000 |
+|---|---|---|
+| Provisioned=1 | ❌ bloqueado | ✅ USD 6/mês — elimina cold-start |
+| Reserved=5 | ❌ bloqueado | ✅ free — garante 5 Lambdas warm |
+| Provisioned=1 + Reserved=5 | ❌ | ✅ USD 6/mês — combinação ideal |
+| Concurrent burst | ❌ throttling | ✅ escala horizontal |
+
+**Quando o ticket AWS for aprovado (esperado ≤ 5 dias úteis):**
+
+1. **PR 9** (já planejado): aplicar `Reserved=5` + opcionalmente `Provisioned=1` em `renthus-inbound-worker:live`
+2. Validar via `npm run provisioned:setup:dry` (idempotente, sem custo)
+3. Se métrica `ConcurrentExecutions avg > 0.5 sustained por 24h`: aplicar provisioned
+4. Custo adicional: **USD 6.08/mês** (provisioned=1) — runway de 12.5 meses com USD 119
+
+**Cenário ideal pós-quota:**
+
+| Componente | Custo/mês |
+|---|---|
+| Lambda inbound1024MB | USD 1.50 |
+| Provisioned Concurrency = 1 | **USD 6.08** |
+| Lambda outbound 512MB | USD 0.38 |
+| Lambda reconciler 256MB | USD 0.12 |
+| Upstash | USD 0.20 |
+| CloudWatch | USD 1.20 |
+| SQS outbound (mantida) | USD 0.05 |
+| **TOTAL com provisioned** | **USD 9.53/mês** (runway 12.5 meses) |
+
+### 13.11 Padrão de mercado (referência)
+
+| Empresa | Arquitetura | Lição aprendida |
+|---|---|---|
+| **Anthropic Claude.ai** | Lambda + SQS **com Provisioned Concurrency sempre ligado** | Para chat real-time, **polling nunca funciona**; Provisioned ou invoke direto |
+| **Stripe Support Bot** | Lambda direto + Step Functions para fluxos multi-step | Para 1-shot chat, Step Functions é overkill |
+| **Intercom Fin** | Vercel Edge → Inngest → LLM | Inngest é boa opção para Fase 14 se quiser |
+| **Klarna Customer Service AI** | Lambda + EventBridge + Postgres outbox | Exatamente o que estamos propondo — SQS **não usado** |
+| **Notion AI** | Lambda + SQS Standard + manual retries | Mais conservador; nosso padrão é mais agressivo |
+
+**Conclusão:** padrão de mercado para chat real-time é **Lambda direto + lock no DB ou fila dedicada de baixa latência**. SQS FIFO + ESM só faz sentido para **batch jobs** (e-mail, notificações, processamento assíncrono em massa).
+
+### 13.12 Por que NÃO manteve SQS + Lambda direto em paralelo (dual path)
+
+Conforme `projeto-pre-producao-radical.mdc`: pré-produção **nunca** mantém dois caminhos simultâneos "por precaução". Manter SQS + Lambda direto:
+- Dobre superfície de falha (qual dos dois está ativo? quem processa primeiro?)
+- Dobre custo (SQS API + Lambda Async Invoke)
+- Confunde o time operacional ("qual fila olho?")
+- Dificulta debug (logs espalhados em 2 sistemas)
+- Não há dado de produção para preservar — pode deletar sem migração
+
+### 13.13 Itens fora do escopo da Fase 13 (registrar para futuro)
+
+| Item | ADR/Fase futura | Por que não agora |
+|---|---|---|
+| Anthropic prompt caching (`cache_control` 5min) | Fase 9 original, mantida válida | Requer Anthropic em prod; atual = Groq |
+| Coalesce Redis agressivo (TTL 5s) | Fase 10 original | Útil com chat em rajada; medir primeiro |
+| Typing indicator Meta Cloud API | Fase 10 original | Útil para UX; depende de Meta API aprovar `typing_on` para a app |
+| Filas por tier (essencial/pro) | Fase 8 original | **NÃO aplicar mais** — SQS FIFO está saindo |
+| Inngest (orquestrador) | Nova Fase 14 | Premature; só se complexidade aumentar |
+| Vercel Edge Functions para webhook | Nova Fase 14 | Premature; Next.js Route Handlers já cumprem |
+
+---
+
+## Histórico (continuação)
+
+## Histórico (continuação)
 
 ## Histórico (continuação)
 
 | Data | Nota |
 |------|------|
 | 2026-09-01 | Diagnóstico pós-cutover; 88% jobs reenfileirados pelo reconciler; Fases 7–11 adicionadas. Provider LLM prod será Anthropic (Groq atual = testes pipeline). Custo pós-Fase 7: USD 3.45/mês (Provisioned Concurrency bloqueado por quota AWS conta=10; destrava via ticket de quota increase). Estado AWS real confirmado: Lambda timeout 120s, FIFO não suporta batching window/bisect — VisibilityTimeout ajustado para 180s (1.5× timeout). |
+| 2026-09-01 | **Fase 13 — Substituição SQS FIFO → Lambda direto do Vercel (Opção D, aprovada).** Ticket de ConcurrentExecutions=1000 solicitado à AWS (aguardando aprovação). Padrão de mercado aplicado: Vercel webhook → outbox Postgres → `Lambda.invoke(InvocationType='Event')` async → thread lock via `try_acquire_thread_lock` RPC → processamento. Reconciler vira DLQ-only (alerta Sentry, sem reenfileirar). Custo final mensal: USD 3.45 (mantido); com Provisioned Concurrency após quota aprovada: USD 9.53/mês. Latência alvo: p95 <2s (vs ~3min atual). Plano de execução: PR1 (migration thread_locks) → PR2 (lambdaInvoker port+adapter) → PR3 (threadLock no handler) → PR4 (webhook invoca Lambda) → PR5 (reconciler DLQ-only) → PR6 (IAM Vercel) → PR7 (cleanup radical SQS+DLQ+ESM) → PR8 (cleanup código). Rollback documentado (15min).

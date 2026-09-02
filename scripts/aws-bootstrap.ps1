@@ -98,13 +98,15 @@ $outDlqArn = Get-QueueArn $outDlqUrl
 
 Write-Host ""
 Write-Host "Main queues" -ForegroundColor Cyan
-$inRedrive = (@{ deadLetterTargetArn = $inDlqArn; maxReceiveCount = 3 } | ConvertTo-Json -Compress)
+$inRedrive = (@{ deadLetterTargetArn = $inDlqArn; maxReceiveCount = 1 } | ConvertTo-Json -Compress)  # Fase 14: 1 retry -> DLQ rapido
 $outRedrive = (@{ deadLetterTargetArn = $outDlqArn; maxReceiveCount = 3 } | ConvertTo-Json -Compress)
 
 $inUrl = New-FifoQueue "renthus-inbound.fifo" @{
-    VisibilityTimeout              = "180"
-    ReceiveMessageWaitTimeSeconds  = "20"
-    MessageRetentionPeriod         = "1209600"
+    # Fase 14 (ADR-0003 §14.2.4): VT=60s = 1× Lambda timeout (60s)
+    # Mensagem com falha volta pra fila em 60s (não 180s como na Fase 7)
+    VisibilityTimeout              = "60"
+    ReceiveMessageWaitTimeSeconds  = "20"  # long polling
+    MessageRetentionPeriod         = "1209600"  # 14 dias (máx SQS)
     RedrivePolicy                  = $inRedrive
 }
 $outUrl = New-FifoQueue "renthus-outbound.fifo" @{

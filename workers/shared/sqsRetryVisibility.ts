@@ -1,5 +1,9 @@
 /**
- * Ajusta visibility SQS para backoff alinhado a queueRetryDelayMs (ADR-0003).
+ * workers/shared/sqsRetryVisibility.ts
+ *
+ * ADR-0003 Fase 14 - Restaurado.
+ * Apply ChangeMessageVisibility para retry de mensagens SQS com backoff.
+ * Usado pelo inbound worker (workers/inbound/handler.ts) e outbound worker.
  */
 
 import {
@@ -21,16 +25,11 @@ function getClient(): SQSClient {
     return client;
 }
 
-/** Segundos de visibility (1–900) a partir de attempts. */
 export function visibilityTimeoutSecondsForAttempts(attempts: number): number {
     const ms = queueRetryDelayMs(attempts);
     return Math.min(900, Math.max(1, Math.ceil(ms / 1000)));
 }
 
-/**
- * Adia reentrega da mensagem (partial batch failure path).
- * Fail-open: log e segue — o visibility default da fila ainda vale.
- */
 export async function applySqsRetryVisibility(params: {
     queueUrl: string | undefined;
     receiptHandle: string | undefined;

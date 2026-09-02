@@ -1,13 +1,15 @@
 # Runbook — SQS (ADR-0003) — DLQ, reconciler e incidente de fila
 
+> **SUPERSEDED pela Fase 13 (2026-09-01).** A Fase 13 substitui SQS FIFO por Lambda direto do Vercel. Após o cutover, **a fila inbound `renthus-inbound.fifo` deixa de existir** (`npm run aws:cleanup:sqs-inbound`). O outbound continua usando SQS FIFO (DLQ ainda relevante). Este runbook é preservado como referência histórica e para diagnóstico da fila outbound. Para troubleshooting da nova arquitetura (Lambda direto + thread lock no Postgres), ver [ADR-0003 § Fase 13](./ADR/0003-sqs-outbox-lambda.md#fase-13--substituição-sqs-fifo--lambda-direto-do-vercel-pr-13--vigente) e este mesmo arquivo (seção 1-5).
+
 > Complementa `DR_RUNBOOK_POSTGRES.md`. Aqui ficam o ciclo de vida de mensagens na
 > fila SQS FIFO, o que fazer quando a DLQ dispara e como operar o reconciler Lambda.
 
 **Projeto:** Renthus Chat + ERP
-**Fila inbound:** `renthus-inbound.fifo` (`MessageGroupId = thread_id`)
-**Fila outbound:** `renthus-outbound.fifo` (`MessageGroupId = company_id`)
-**DLQ inbound:** `renthus-inbound-dlq.fifo`
-**DLQ outbound:** `renthus-outbound-dlq.fifo`
+**Fila inbound (Fase 12 — descontinuada):** `renthus-inbound.fifo` (`MessageGroupId = thread_id`) — **deletada na Fase 13**
+**Fila outbound (mantida):** `renthus-outbound.fifo` (`MessageGroupId = company_id`)
+**DLQ inbound (descontinuada):** `renthus-inbound-dlq.fifo` — **deletada na Fase 13**
+**DLQ outbound (mantida):** `renthus-outbound-dlq.fifo`
 **Região:** `sa-east-1`
 
 ---

@@ -1,5 +1,10 @@
 /**
- * Pós-enqueue outbox (ADR-0003) — só SQS; wake HTTP removido na Fase 4.
+ * Pós-enqueue outbox (ADR-0003).
+ *
+ * Fase 14: scheduleInboundAfterEnqueue → SQS dispatch (SendMessage).
+ * scheduleOutboundAfterEnqueue também usa SQS (outbound não mudou).
+ *
+ * Sem dual path: Vercel webhook → after() → SQS → ESM → Lambda.
  */
 
 import "server-only";

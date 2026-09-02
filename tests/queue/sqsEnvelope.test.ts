@@ -3,11 +3,28 @@ import { describe, it } from "node:test";
 import { parseSqsEnvelope } from "../../lib/queue/sqsEnvelope";
 import { visibilityTimeoutSecondsForAttempts } from "../../workers/shared/sqsRetryVisibility";
 
+// ADR-0003 Fase 14: SQS-first. inbound + outbound usam SQS (MessageGroupId=company_id).
 describe("sqsEnvelope", () => {
-    it("parses valid v1 envelope", () => {
+    it("parses valid v1 inbound envelope (Fase 14)", () => {
         const raw = JSON.stringify({
             v: 1,
             kind: "inbound",
+            jobId: "j1",
+            companyId: "c1",
+            threadId: "t1",
+            enqueuedAt: "2026-09-02T08:00:00.000Z",
+        });
+        const e = parseSqsEnvelope(raw);
+        assert.ok(e);
+        assert.strictEqual(e!.kind, "inbound");
+        assert.strictEqual(e!.jobId, "j1");
+        assert.strictEqual(e!.companyId, "c1");
+    });
+
+    it("parses valid v1 outbound envelope", () => {
+        const raw = JSON.stringify({
+            v: 1,
+            kind: "outbound",
             jobId: "j1",
             companyId: "c1",
             threadId: "t1",
@@ -15,15 +32,15 @@ describe("sqsEnvelope", () => {
         });
         const e = parseSqsEnvelope(raw);
         assert.ok(e);
-        assert.strictEqual(e!.kind, "inbound");
+        assert.strictEqual(e!.kind, "outbound");
         assert.strictEqual(e!.jobId, "j1");
     });
 
-    it("rejects invalid / wrong version", () => {
+    it("rejects invalid / wrong version / unknown kind", () => {
         assert.strictEqual(parseSqsEnvelope(""), null);
         assert.strictEqual(parseSqsEnvelope("{"), null);
         assert.strictEqual(
-            parseSqsEnvelope(JSON.stringify({ v: 2, kind: "inbound", jobId: "j", companyId: "c", threadId: "t", enqueuedAt: "x" })),
+            parseSqsEnvelope(JSON.stringify({ v: 2, kind: "outbound", jobId: "j", companyId: "c", threadId: "t", enqueuedAt: "x" })),
             null
         );
         assert.strictEqual(

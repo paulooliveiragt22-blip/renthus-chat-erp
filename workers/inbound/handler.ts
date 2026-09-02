@@ -1,5 +1,16 @@
 /**
  * Lambda handler — SQS FIFO inbound → processInboundJobById (ADR-0003).
+ *
+ * Fase 14: voltou a ser handler SQS (a Fase 13 com Lambda direto foi revertida
+ * pelo owner — ver ADR-0003 § 14). SQS FIFO garante ordem por thread; combinado
+ * com `MessageGroupId=company_id`, Provisioned Concurrency=1, VisibilityTimeout=60s,
+ * maxReceiveCount=1, e aiTimeoutMs=12s, a latência alvo é p95 <5s.
+ *
+ * Comportamento:
+ *  1. Parse envelope SQS ({v:1, kind:"inbound", jobId, companyId, threadId}).
+ *  2. processInboundJobById (idempotente; thread lock via Postgres opcional).
+ *  3. Se falhar: ReportBatchItemFailure → SQS aplica retry visibility (ChangeMessageVisibility).
+ *  4. Se maxReceiveCount atingido: mensagem vai para DLQ automática.
  */
 
 import type { SQSEvent, SQSBatchResponse, SQSRecord } from "aws-lambda";
@@ -12,7 +23,9 @@ import {
 import { parseSqsEnvelope } from "@/lib/queue/sqsEnvelope";
 import { applySqsRetryVisibility } from "../shared/sqsRetryVisibility";
 
-export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
+type HandlerEvent = SQSEvent;
+
+export async function handler(event: HandlerEvent): Promise<SQSBatchResponse> {
     const batchItemFailures: SQSBatchResponse["batchItemFailures"] = [];
     const admin = createAdminClient();
 

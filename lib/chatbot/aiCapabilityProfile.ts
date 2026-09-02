@@ -78,11 +78,12 @@ function profileForPlan(
          * shouldForcePrepareAfterEmbalagemChoice) podem adicionar 1-2 idas e voltas extras à
          * Anthropic no mesmo turno.
          *
-         * Fase 7 (ADR-0003): teto cortado de 20s → 15s (avancado) para falhar rápido em
-         * loops patológicos em vez de esperar. `maxSteps` em ai.service.ts continua sendo
-         * teto de segurança contra item irresolúvel (Fase 9 vai adicionar stopWhen explícito).
+         * Fase 14 (ADR-0003): teto de **12s** (avancado) — Groq responde em 3-5s; 12s é margem
+         * ampla. Falha rápido: LLM timeout em <12s, mensagem vai pra DLQ via SQS em vez de
+         * travar o `MessageGroupId` por minutos. `maxSteps` em ai.service.ts continua sendo
+         * teto de segurança.
          */
-        aiTimeoutMs: 15_000,
+        aiTimeoutMs: 12_000,
     };
     if (planKey === "essencial") {
         return {
@@ -90,7 +91,7 @@ function profileForPlan(
             tier: "basico",
             maxToolRounds: 3,
             maxHistoryTurns: 8,
-            aiTimeoutMs: 12_000,
+            aiTimeoutMs: 10_000,
         };
     }
     return {
@@ -113,7 +114,7 @@ function degradadoProfile(
         model: configuredModel(provider),
         maxToolRounds: 0,
         maxHistoryTurns: 0,
-        aiTimeoutMs: 10_000,
+        aiTimeoutMs: 8_000,
         tools: [],
         sttEnabled: false,
         llmEnabled: false,

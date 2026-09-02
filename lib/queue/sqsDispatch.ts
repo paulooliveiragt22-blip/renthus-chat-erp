@@ -1,16 +1,21 @@
 /**
- * Dispatch de jobs outbox → SQS FIFO (ADR-0003).
- * Ativo só com SQS_DISPATCH_ENABLED=1 e URLs + credenciais AWS.
- * Sem env → no-op (dev/test).
+ * lib/queue/sqsDispatch.ts
+ *
+ * ADR-0003 Fase 14 — RESTAURADO para inbound + outbound.
+ *
+ * O dispatchInboundJob (Fase 13 havia removido) agora está de volta. O fluxo completo:
+ *   Vercel webhook → after() → SendMessage SQS → ESM → Lambda.
+ *
+ * Sem dual path: NÃO há mais "lambdaInvoker". O único caminho é SQS.
  */
 
 import "server-only";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { AdminClient } from "@/lib/chatbot/queue/types";
-import type { SqsEnvelopeV1, SqsJobKind } from "@/lib/queue/sqsEnvelope";
+import type { SqsEnvelopeV1, SqsJobKind } from "./sqsEnvelope";
 
-export type { SqsEnvelopeV1, SqsJobKind } from "@/lib/queue/sqsEnvelope";
-export { parseSqsEnvelope } from "@/lib/queue/sqsEnvelope";
+export type { SqsEnvelopeV1, SqsJobKind } from "./sqsEnvelope";
+export { parseSqsEnvelope } from "./sqsEnvelope";
 
 export type DispatchJobInput = {
     kind: SqsJobKind;
@@ -39,31 +44,17 @@ export function resolveOutboundQueueUrl(): string {
 }
 
 function resolveAwsRegion(): string {
-    // Prioridade: env var > extrair do QueueUrl (region é confiável) > fallback
     const fromEnv = process.env.AWS_REGION?.trim() || process.env.AWS_DEFAULT_REGION?.trim();
     if (fromEnv) return fromEnv;
-
-    // Extrai região do QueueUrl (formato: https://sqs.<region>.amazonaws.com/...)
-    const queueUrl =
-        process.env.SQS_INBOUND_QUEUE_URL?.trim() || process.env.SQS_OUTBOUND_QUEUE_URL?.trim() || "";
-    const m = queueUrl.match(/^https?:\/\/sqs\.([a-z0-9-]+)\.amazonaws\.com\//i);
-    if (m?.[1]) return m[1];
-
-    return "sa-east-1"; // fallback final (fila conhecida está em SP)
+    return "sa-east-1";
 }
 
-function getSqsClient(): SQSClient {
+function getSqsClient(): SQSClient | null {
     if (!cachedClient) {
         const region = resolveAwsRegion();
-        console.log(`[sqsDispatch] init SQSClient region=${region} (resolved from env or queue url)`);
         cachedClient = new SQSClient({ region });
     }
     return cachedClient;
-}
-
-/** Test helper — reset client cache. */
-export function resetSqsClientForTests(): void {
-    cachedClient = null;
 }
 
 export function buildSqsEnvelope(input: DispatchJobInput, enqueuedAt = new Date().toISOString()): SqsEnvelopeV1 {
@@ -77,21 +68,28 @@ export function buildSqsEnvelope(input: DispatchJobInput, enqueuedAt = new Date(
     };
 }
 
+/**
+ * Fase 14 — MessageGroupId strategy:
+ *  - inbound: `company_id` (NÃO `thread_id`) — evita bloqueio FIFO por thread individual.
+ *    Cliente com5 msgs em30s em threads diferentes → grupos separados, não bloqueia.
+ *    Ordem por thread pode ser preservada via Postgres `thread_locks` RPC (opcional).
+ *  - outbound: `company_id` (igual à Fase 0-12).
+ */
 export function messageGroupIdFor(input: DispatchJobInput): string {
-    return input.kind === "inbound" ? input.threadId : input.companyId;
+    return input.companyId;
 }
 
 function queueUrlFor(kind: SqsJobKind): string {
-    return kind === "inbound" ? resolveInboundQueueUrl() : resolveOutboundQueueUrl();
+    return kind === "outbound" ? resolveOutboundQueueUrl() : resolveInboundQueueUrl();
 }
 
 function outboxTable(kind: SqsJobKind): "chatbot_queue" | "outbound_jobs" {
-    return kind === "inbound" ? "chatbot_queue" : "outbound_jobs";
+    return kind === "outbound" ? "outbound_jobs" : "chatbot_queue";
 }
 
 /**
- * SendMessage SQS + marca sqs_enqueued_at na outbox.
- * Fail-soft: erros de rede não lançam — caller decide se loga/reconciliation.
+ * SendMessage SQS + marca outbox stamp.
+ * Restaurado na Fase 14 — funciona para inbound e outbound.
  */
 export async function dispatchChatbotJob(
     admin: AdminClient,
@@ -109,7 +107,11 @@ export async function dispatchChatbotJob(
 
     const envelope = buildSqsEnvelope(input);
     try {
-        const res = await getSqsClient().send(
+        const client = getSqsClient();
+        if (!client) {
+            return { ok: false, error: "sqs_client_unavailable" };
+        }
+        const res = await client.send(
             new SendMessageCommand({
                 QueueUrl: queueUrl,
                 MessageBody: JSON.stringify(envelope),
@@ -136,7 +138,6 @@ export async function dispatchChatbotJob(
                 messageId,
                 error: error.message,
             });
-            // Message already in SQS — reconciler can ignore stamp later.
             return { ok: true, skipped: false, messageId };
         }
 
@@ -174,4 +175,8 @@ export async function dispatchOutboundJob(
         companyId: job.company_id,
         threadId: job.thread_id,
     });
+}
+
+export function resetSqsClientForTests(): void {
+    cachedClient = null;
 }

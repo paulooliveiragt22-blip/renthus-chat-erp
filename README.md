@@ -4,9 +4,9 @@
 - Planos e billing: docs/BILLING_PLANS.md
 - Estado atual do banco: docs/DB_CURRENT_STATE.md
 - Cadastro de produtos (implementação): docs/PRODUTOS_CADASTRO_IMPLEMENTACAO.md
-- ADR-0003 — Fila SQS + Lambda: [docs/ADR/0003-sqs-outbox-lambda.md](./docs/ADR/0003-sqs-outbox-lambda.md) (cutover 2026-09-01 ✅)
+- ADR-0003 — Fila SQS + Lambda: [docs/ADR/0003-sqs-outbox-lambda.md](./docs/ADR/0003-sqs-outbox-lambda.md) — desenho vigente é a **Fase 13** (Lambda direto do Vercel, sem SQS inbound); cutover original 2026-09-01 ✅ superseded em 2026-09-01
 - Runbook de incidentes:
-  - **SQS / DLQ / reconciler:** [docs/DR_RUNBOOK_SQS.md](./docs/DR_RUNBOOK_SQS.md)
+  - **SQS outbound / DLQ (legado):** [docs/DR_RUNBOOK_SQS.md](./docs/DR_RUNBOOK_SQS.md) — fila inbound removida na Fase 13
   - **Postgres / backup / PITR:** [docs/DR_RUNBOOK_POSTGRES.md](./docs/DR_RUNBOOK_POSTGRES.md)
 - Backlog de segurança/performance (advisors Supabase): [docs/SECURITY_PERF_BACKLOG.md](./docs/SECURITY_PERF_BACKLOG.md)
 

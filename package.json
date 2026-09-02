@@ -42,7 +42,10 @@
     "provisioned:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1",
     "provisioned:setup:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1 -DryRun",
     "provisioned:setup:2": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1 -Count 2",
-    "provisioned:teardown": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1 -Count 0"
+    "provisioned:teardown": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-provisioned-concurrency.ps1 -Count 0",
+    "keepwarm:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-keep-warm.ps1",
+    "keepwarm:teardown": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-keep-warm.ps1 -Disable",
+    "deploy:workers:skip-build": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-workers.ps1 -SkipBuild"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.107",
@@ -50,6 +53,7 @@
     "@ai-sdk/openai-compatible": "^1.0.52",
     "@ai-sdk/provider": "3.0.14",
     "@anthropic-ai/sdk": "^0.89.0",
+    "@aws-sdk/client-lambda": "^3.1124.0",
     "@aws-sdk/client-sqs": "^3.1121.0",
     "@ducanh2912/next-pwa": "^10.2.9",
     "@googlemaps/google-maps-services-js": "^3.4.2",

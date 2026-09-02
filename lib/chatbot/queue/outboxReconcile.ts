@@ -1,12 +1,16 @@
 /**
- * Reconciler outbox ADR-0003 Fase 5 — pending sem SQS + processing stale.
- * Usado pela Lambda `renthus-outbox-reconcile` (EventBridge).
+ * lib/chatbot/queue/outboxReconcile.ts
  *
- * Fase 7 (ADR-0003): schedule EventBridge alterado de 5min → 15min (operacional,
- * ver `scripts/setup-eventbridge-scheduler.ps1`). Reconciler deve ser REDE DE
- * SEGURANÇA, não caminho principal. Se `inboundNeverEnqueued > 0` em 3 janelas
- * consecutivas, log warning para Sentry/CloudWatch — investigar causa raiz
- * (visibility, ESM, IAM), não escalar reenfileiramento silencioso.
+ * ADR-0003 Fase 14 — RESTAURADO. O reconciler volta a reenfileirar ativamente
+ * jobs pendentes que ficaram sem `sqs_enqueued_at` (perdeu SendMessage) e
+ * marca `processing` stale (>3min) como `pending` para reprocessar.
+ *
+ * DIFERENÇA vs Fase 13 (DLQ-only):
+ *  - Fase 13: só alertava Sentry (Lambda direto não precisa de reenfileirar)
+ *  - Fase 14: reenfileira ativamente via SQS (caminho SQS-first; SQS pode perder mensagem
+ *    se reconciler não reenfileirar)
+ *
+ * Schedule EventBridge: `rate(5 minutes)` (volta ao original da Fase 0-6).
  */
 
 import "server-only";
@@ -55,7 +59,6 @@ function outboundMaxAttempts(): number {
     const n = Number.parseInt(raw, 10);
     return Number.isFinite(n) && n >= 1 ? n : 3;
 }
-
 async function reclaimStuckInbound(
     admin: AdminClient,
     staleMinutes: number,
@@ -112,7 +115,7 @@ async function reclaimStuckOutbound(
         .eq("status", "processing")
         .lt("attempts", maxAtt)
         .lt("processing_started_at", cutoff)
-        .limit(limit);
+        .limit(Math.min(limit * 3, 150));
 
     if (error || !data?.length) return [];
 
@@ -124,20 +127,23 @@ async function reclaimStuckOutbound(
             processing_started_at: null,
             sqs_enqueued_at: null,
             sqs_message_id: null,
-            last_error: "reclaimed_stuck_processing",
         })
         .in("id", ids);
 
-    return data as OutboxJobRef[];
+    return data.map(({ id, company_id, thread_id }) => ({
+        id: id as string,
+        company_id: company_id as string,
+        thread_id: thread_id as string,
+    }));
 }
 
 async function findNeverEnqueuedPending(
     admin: AdminClient,
     table: "chatbot_queue" | "outbound_jobs",
     minAgeIso: string,
+    maxAttempts: number,
     limit: number
 ): Promise<OutboxJobRef[]> {
-    const maxAtt = table === "chatbot_queue" ? MAX_ATTEMPTS : outboundMaxAttempts();
     const { data, error } = await admin
         .from(table)
         .select("id, company_id, thread_id")
@@ -145,7 +151,7 @@ async function findNeverEnqueuedPending(
         .is("sqs_enqueued_at", null)
         .lte("scheduled_at", new Date().toISOString())
         .lt("created_at", minAgeIso)
-        .lt("attempts", maxAtt)
+        .lt("attempts", maxAttempts)
         .order("created_at", { ascending: true })
         .limit(limit);
 
@@ -174,21 +180,21 @@ async function dispatchJobs(
     const dispatch = kind === "inbound" ? dispatchInboundJob : dispatchOutboundJob;
 
     for (const job of jobs) {
-        const res = await dispatch(admin, job);
-        if (res.ok && !res.skipped) {
-            dispatched += 1;
-        } else if (!res.ok) {
+        try {
+            const res = await dispatch(admin, job);
+            if (res.ok && !res.skipped) {
+                dispatched += 1;
+            } else if (!res.ok) {
+                errors += 1;
+                console.warn("[outboxReconcile] dispatch failed", kind, job.id, res.error);
+            }
+        } catch {
             errors += 1;
-            console.warn("[outboxReconcile] dispatch failed", kind, job.id, res.error);
         }
     }
     return { dispatched, errors };
 }
 
-/**
- * Scan outbox: reclaim stuck → re-dispatch pending sem SQS enfileirado.
- * No-op quando SQS dispatch desligado (dev/test).
- */
 export async function reconcileOutbox(
     admin: AdminClient,
     opts: ReconcileOptions = {}
@@ -222,8 +228,8 @@ export async function reconcileOutbox(
     stats.outboundStuckReclaimed = outboundStuck.length;
 
     const [inboundNever, outboundNever] = await Promise.all([
-        findNeverEnqueuedPending(admin, "chatbot_queue", minAgeIso, batchLimit),
-        findNeverEnqueuedPending(admin, "outbound_jobs", minAgeIso, batchLimit),
+        findNeverEnqueuedPending(admin, "chatbot_queue", minAgeIso, MAX_ATTEMPTS, batchLimit),
+        findNeverEnqueuedPending(admin, "outbound_jobs", minAgeIso, outboundMaxAttempts(), batchLimit),
     ]);
 
     const inboundToDispatch = dedupe([...inboundStuck, ...inboundNever], new Set<string>());
@@ -235,30 +241,6 @@ export async function reconcileOutbox(
     stats.inboundNeverEnqueued = inboundNever.length;
     stats.outboundNeverEnqueued = outboundNever.length;
     stats.dispatchErrors = inDispatch.errors + outDispatch.errors;
-
-    // Fase 7 (ADR-0003): alerta operacional quando reconciler está fazendo trabalho
-    // que deveria ter sido feito pela Lambda. Em prod saudável esses números são 0.
-    if (stats.inboundNeverEnqueued > 0 || stats.outboundNeverEnqueued > 0) {
-        console.warn(
-            "[outboxReconcile] ⚠️ jobs reenfileirados pelo reconciler — investigar ESM/SQS/visibility",
-            {
-                inboundNeverEnqueued: stats.inboundNeverEnqueued,
-                outboundNeverEnqueued: stats.outboundNeverEnqueued,
-                inboundStuckReclaimed: stats.inboundStuckReclaimed,
-                outboundStuckReclaimed: stats.outboundStuckReclaimed,
-            }
-        );
-    }
-    if (stats.inboundStuckReclaimed > 0 || stats.outboundStuckReclaimed > 0) {
-        console.warn(
-            "[outboxReconcile] ⚠️ jobs processing stale foram reclamados — investigar timeout ou crash",
-            {
-                inboundStuckReclaimed: stats.inboundStuckReclaimed,
-                outboundStuckReclaimed: stats.outboundStuckReclaimed,
-                staleMinutes,
-            }
-        );
-    }
 
     console.info("[outboxReconcile] done", stats);
     return stats;

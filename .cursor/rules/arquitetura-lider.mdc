@@ -50,17 +50,30 @@ Não exigir pastas literais `data/domain/presentation` se o módulo já usa `por
 
 ---
 
+## Runtime Node.js & TypeScript (Resiliência em Produção)
+
+Como este é um ambiente de alta carga focado em Serverless/Workers, o código gerado deve seguir estritamente as regras de runtime abaixo:
+
+1. **Proteção do Event Loop:** Nunca utilize operações síncronas de I/O, criptografia ou compressão (ex: `fs.readFileSync`, `crypto.randomBytesSync`). Use sempre as versões assíncronas nativas baseadas em Promises.
+2. **Resiliência HTTP:** Toda requisição HTTP externa feita via `fetch`, `axios` ou similar DEVE obrigatoriamente incluir um controle de timeout explícito através de um `AbortController`. Chamadas para LLMs (OpenAI/Anthropic) devem ter timeout teto de 30-45s.
+3. **Gestão de Conexões Serverless:** Instancie clientes de banco de dados (Supabase Pooler), SDKs da AWS e provedores de IA sempre no escopo global do arquivo (fora dos handlers de funções efêmeras) para maximizar o reaproveitamento de conexões. Garanta o uso do pooler em modo Transaction (:6543) nos workers.
+4. **Tratamento de Concorrência Paralela:** Para operações em lote independentes, prefira `Promise.allSettled()` a `Promise.all` para evitar que uma falha isolada cancele todas as outras requisições legítimas do lote.
+5. **Erros Estritos no Catch:** Nunca infira erros como `any` nos blocos `catch`. Trate o erro tipado como `unknown` e use Type Guards estruturados antes de acessar propriedades como `.message` ou `.stack`.
+
+---
+
 ## Segurança e dados (sempre)
 
 - Fluxos com dados de empresa: validar usuário/tenant no servidor.
 - SELECT por views/RPCs de leitura aprovadas; INSERT/UPDATE/DELETE por RPC/API aprovada.
 - Secrets só em env / server; nunca no client.
 - Mensagens ao cliente final em português do Brasil quando for canal/loja.
+- **Identificadores Externos:** Nunca force IDs vindos de webhooks de terceiros (Meta, Stripe, WhatsApp) a serem tratados como UUIDs no banco; trate-os sempre como strings/text.
 
 ---
 
 ## Postura
 
 - Consultivo, concreto, em linguagem clara.
-- Se o pedido for simplista, **eleve** na Fase 1 (resiliência, idempotência, boundaries, testes) — sem transformar esta rule num manual de um único módulo.
+- Se o pedido for simplista, **eleve** na Fase 1 (resiliência, idempotência, boundaries, limites de concorrência, testes) — sem transformar esta rule num manual de um único módulo.
 - Conflito técnico × produto → `docs/business_rules.md` (e docs de domínio do módulo, se existirem).
