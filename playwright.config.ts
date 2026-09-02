@@ -1,4 +1,29 @@
 import { defineConfig, devices } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+
+/** Carrega `.env.local` antes de ler E2E_BASE_URL (config do Playwright não passa pelo Next). */
+function loadEnvLocalForConfig(): void {
+    const file = path.join(process.cwd(), ".env.local");
+    if (!fs.existsSync(file)) return;
+    for (const raw of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) continue;
+        const eq = line.indexOf("=");
+        if (eq <= 0) continue;
+        const key = line.slice(0, eq).trim();
+        let val = line.slice(eq + 1).trim();
+        if (
+            (val.startsWith('"') && val.endsWith('"')) ||
+            (val.startsWith("'") && val.endsWith("'"))
+        ) {
+            val = val.slice(1, -1);
+        }
+        if (process.env[key] === undefined) process.env[key] = val;
+    }
+}
+
+loadEnvLocalForConfig();
 
 // Preferir a mesma origem do Chrome manual (localhost vs 127.0.0.1).
 const baseURL = process.env.E2E_BASE_URL?.trim() || "http://localhost:3000";

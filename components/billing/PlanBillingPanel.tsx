@@ -177,22 +177,30 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         void loadBilling();
     }, [loadBilling]);
 
-    // Gate /plano/pagar: após PIX, espera webhook liberar e manda para /ativar (não fica no ERP).
+    // Gate /plano/pagar: após pagamento (ou se não há obrigação), manda para /ativar.
+    // Trial/active COM invoice/setup pending deve permanecer na tela de pagamento.
     useEffect(() => {
         if (variant !== "pay") return;
         const st = billingData?.pagarme_subscription?.status;
-        if (st === "active" || st === "trial") {
-            window.location.assign("/ativar");
-            return;
+        if (st !== "active" && st !== "trial") return;
+        const hasPending =
+            Boolean(billingData?.pending_invoice) ||
+            Boolean(billingData?.pending_setup_payment) ||
+            Boolean(billingData?.pending_invoice?.pix_qr_code) ||
+            Boolean(pixLiveCode) ||
+            Boolean(pixLiveUrl);
+        if (hasPending) {
+            const id = window.setInterval(() => {
+                void loadBilling();
+            }, 5000);
+            return () => window.clearInterval(id);
         }
-        if (!pixLiveCode && !pixLiveUrl && !billingData?.pending_invoice?.pix_qr_code) return;
-        const id = window.setInterval(() => {
-            void loadBilling();
-        }, 5000);
-        return () => window.clearInterval(id);
+        window.location.assign("/ativar");
     }, [
         variant,
         billingData?.pagarme_subscription?.status,
+        billingData?.pending_invoice,
+        billingData?.pending_setup_payment,
         billingData?.pending_invoice?.pix_qr_code,
         pixLiveCode,
         pixLiveUrl,

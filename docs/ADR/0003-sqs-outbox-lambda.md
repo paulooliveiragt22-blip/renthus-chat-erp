@@ -409,7 +409,7 @@ Mover parsing pesado para worker (`raw_payload` column) — só se p95 webhook >
 
 **Partial batch failure:** habilitado no inbound se batch > 1 no futuro.
 
-> **Mudanças-chave Fase 14 vs Fase 0–12:** `MessageGroupId=company_id` (resolve bloqueio FIFO por thread — causa raiz dos 6min de latência); `maxReceiveCount=1` (alerta 30× mais rápido); `VisibilityTimeout=60s` (3× mais rápido para DLQ); `aiTimeoutMs=12s` (falha rápido vs trav). Provisioned Concurrency=1 agora possível porque quota AWS subiu de 10 para 1000 (ticket aprovado). Custo alvo: **USD 9.53/mês** (vs USD 3.45/mês das Fases 0–12 sem Provisioned).
+> **Mudanças-chave pós-cutover (vigente):** `MessageGroupId` inbound = **`thread_id`** (canônico; Fase 14 `company_id` revertida). Mantidos: `maxReceiveCount=1`, `VisibilityTimeout=60s`, `aiTimeoutMs=12s`, Provisioned Concurrency=1 (quota AWS=1000). Custo alvo ~USD 9.53/mês com PC.
 
 ---
 
@@ -547,7 +547,9 @@ Reserved concurrency: habilitar quando quota AWS permitir (`RENTHUS_LAMBDA_RESER
 
 ### Fase 6 — Validação escala (~100 empresas)
 
-- [x] Load test: fila synthetic N mensagens paralelas, p95 idade job < 60s — `npm run load-test:sqs-outbox` (2026-09-02: 50 msgs paralelas, p95 **6,6s**)
+- [x] Load test: fila synthetic N mensagens paralelas, p95 idade job < 60s — `npm run load-test:sqs-outbox`
+  - 2026-09-02 (pré-revert, group=company): 50 msgs, p95 **6,6s**
+  - 2026-09-02 (pós-revert, group=**thread_id**): 50 msgs, p50 **3,2s**, p95 **6,0s**, p99 **6,3s** — PASS
 - [x] Zero pedido duplicado replay `message_id` — unique `(company_id, message_id)` validado via SQL (2026-09-02)
 - [x] Alarmes DLQ e age testados — 8 alarmes `renthus-*` em **OK** (SNS `renthus-ops`)
 - [x] Runbook DLQ replay documentado em `docs/DR_RUNBOOK_SQS.md`
@@ -584,6 +586,7 @@ Reserved concurrency: habilitar quando quota AWS permitir (`RENTHUS_LAMBDA_RESER
 | 2026-09-02 | Fase 6 validada: load test 50 paralelas p95 6,6s, idempotência `message_id`, 8 alarmes OK, `npm run validate:fase6` |
 | 2026-09-02 | Fase 14: retorno SQS + VT=60s / PC=1 / maxReceive=1 (evolução). Inbound group→`company_id` (regressão, revertida no mesmo dia). |
 | 2026-09-02 | **Revert MessageGroupId inbound → `thread_id`** (volta ao ADR canônico aceito 2026-08-28). |
+| 2026-09-02 | Load test pós-revert (`MessageGroupId=thread_id`, 50 paralelas): p50 **3,2s**, p95 **6,0s**, p99 **6,3s** — PASS (&lt;30s). |
 
 ---
 
@@ -927,11 +930,10 @@ Voltar para SQS FIFO inbound + tratar a **causa raiz** dos 6min, não o sintoma.
 
 **Mudanças aplicadas na Fase 14** (ataca causa raiz):
 
-1. **`MessageGroupId = company_id` em vez de `thread_id`**
-   - Bloqueio FIFO agora afeta **toda a empresa**, não um thread individual
-   - Cliente com5 mensagens em 30s em threads diferentes → **não bloqueia** (são grupos FIFO separados)
-   - Ordem por thread ainda é preservada no **Postgres via `thread_locks` RPC** (`try_acquire_thread_lock`) — se preferir manter a garantia estrita por thread, pode ativar (Fase 14.6)
-   - **Custo**: zero. **Latência**: clientes com múltiplos threads paralelos melhoram 10-50x
+1. **`MessageGroupId = company_id` em vez de `thread_id`** — **REJEITADO / revertido 2026-09-02**
+   - Hipótese: bloquear por empresa em vez de por thread reduziria latência
+   - Resultado medido: **não resolveu latência**; serializa todos os clientes da loja
+   - Owner reverteu para `thread_id` (ADR canônico). Texto abaixo preserva a intenção original da fase.
 
 2. **Provisioned Concurrency = 1** (agora possível — quota AWS=1000 aprovada)
    - Resolve cold-start do **container Lambda** (não do ESM poller, que continua lento sem keep-warm)
@@ -1090,9 +1092,9 @@ Não resolve o problema. ConcurrentExecutions alto ajuda quando há **tráfego s
 
 ---
 
-## Fase 13 — Substituição SQS FIFO → Lambda direto do Vercel (PR 13) — **VIGENTE**
+## Fase 13 — Substituição SQS FIFO → Lambda direto do Vercel (PR 13) — **HISTÓRICO / superseded**
 
-**Status:** aprovado 2026-09-01. **Substitui o desenho SQS-first das Fases 0–6** sem manter dual-path. Aplicável após aprovação do ticket de `Concurrent Executions=1000` (em análise pela AWS).
+**Status:** aprovado 2026-09-01; **superseded em &lt;24h** pela Fase 14 (retorno ao SQS). Não é o contrato vigente.
 
 ### 13.1 Contexto adicional — por que SQS não funcionou
 

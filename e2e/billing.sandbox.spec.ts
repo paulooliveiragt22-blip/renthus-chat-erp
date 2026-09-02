@@ -3,15 +3,15 @@
  *
  * Não precisa de PAGARME_* no .env.local: o app usa as env vars do deploy.
  *
- * PowerShell:
- *   $env:E2E_SKIP_WEBSERVER="1"
- *   $env:E2E_BASE_URL="https://renthus-chat-erp.vercel.app"
- *   $env:E2E_EMAIL="owner@loja.com"
- *   $env:E2E_PASSWORD="..."
- *   npm run test:e2e -- e2e/billing.sandbox.spec.ts
+ * .env.local (formato dotenv, sem `$env:`):
+ *   E2E_SKIP_WEBSERVER=1
+ *   E2E_BASE_URL=https://renthus-chat-erp.vercel.app
+ *   E2E_EMAIL=...
+ *   E2E_PASSWORD=...
+ *   E2E_COMPANY_ID=...   # opcional — força workspace never-paid / pending
  *
- * Conta ideal: empresa com pagarme_subscriptions em pending_setup, pending_payment ou overdue.
- * Cartão sandbox: 4000000000000010 · 12/30 · CVV 123
+ * Conta ideal: empresa com pending_setup / pending_payment / overdue
+ * (ou trial com invoice pending). Cartão sandbox: 4000000000000010 · 12/30 · CVV 123
  */
 
 import { test as base, expect } from "@playwright/test";
@@ -34,6 +34,56 @@ const SANDBOX_CARD = {
     uf: "SP",
 };
 
+async function selectBillingWorkspace(page: import("@playwright/test").Page): Promise<void> {
+    const forced = process.env.E2E_COMPANY_ID?.trim();
+    if (forced) {
+        const res = await page.request.post("/api/workspace/select", {
+            data: { company_id: forced },
+            failOnStatusCode: false,
+        });
+        expect(res.ok(), `workspace/select ${forced}`).toBeTruthy();
+        return;
+    }
+
+    const listRes = await page.request.get("/api/workspace/list");
+    expect(listRes.ok()).toBeTruthy();
+    const list = (await listRes.json()) as { companies?: Array<{ id: string; name?: string }> };
+    const companies = Array.isArray(list.companies) ? list.companies : [];
+    expect(companies.length, "usuário E2E sem empresas").toBeGreaterThan(0);
+
+    let chosen = companies[0]!.id;
+    for (const c of companies) {
+        await page.request.post("/api/workspace/select", {
+            data: { company_id: c.id },
+            failOnStatusCode: false,
+        });
+        const stRes = await page.request.get("/api/billing/status");
+        if (!stRes.ok()) continue;
+        const stJson = (await stRes.json()) as {
+            pagarme_subscription?: { status?: string };
+            pending_invoice?: unknown;
+            pending_setup_payment?: unknown;
+        };
+        const status = stJson.pagarme_subscription?.status ?? "";
+        if (
+            status === "pending_setup" ||
+            status === "pending_payment" ||
+            status === "overdue" ||
+            stJson.pending_invoice ||
+            stJson.pending_setup_payment
+        ) {
+            chosen = c.id;
+            break;
+        }
+    }
+
+    const sel = await page.request.post("/api/workspace/select", {
+        data: { company_id: chosen },
+        failOnStatusCode: false,
+    });
+    expect(sel.ok(), `workspace/select final ${chosen}`).toBeTruthy();
+}
+
 async function fillCardCheckout(page: import("@playwright/test").Page) {
     await page.getByRole("button", { name: /Cartão de crédito/i }).click();
     await page.getByLabel("Nome no cartão").fill(SANDBOX_CARD.holder);
@@ -52,10 +102,15 @@ test.describe("Billing sandbox (deploy prod)", () => {
     test.beforeEach(async ({ page }) => {
         test.skip(!creds, "Defina E2E_EMAIL e E2E_PASSWORD");
         await loginAsAdmin(page);
+        await selectBillingWorkspace(page);
         await gotoApp(page, "/plano/pagar");
+        await expect(page).toHaveURL(/\/plano\/pagar/, { timeout: 30_000 });
     });
 
     test("plano/pagar carrega e Pagar.me está configurado", async ({ page }) => {
+        await expect(
+            page.getByRole("heading", { name: /Concluir pagamento|pagamento|plano/i }).first()
+        ).toBeVisible({ timeout: 60_000 });
         await expect(page.getByRole("button", { name: /^PIX$/i })).toBeVisible({ timeout: 60_000 });
         await expect(page.getByRole("button", { name: /Cartão de crédito/i })).toBeVisible();
         await expect(
@@ -83,19 +138,18 @@ test.describe("Billing sandbox (deploy prod)", () => {
     });
 
     test("PIX sandbox — gera QR/código", async ({ page }) => {
+        await page.getByRole("button", { name: /^PIX$/i }).click();
         const pixBtn = page.getByRole("button", { name: /Gerar código PIX|Gerar novo/i });
         if ((await pixBtn.count()) === 0) {
             test.skip(true, "Sem botão PIX — conta pode já estar paga ou sem pendência");
         }
 
-        await page.getByRole("button", { name: /^PIX$/i }).click();
         await pixBtn.click();
 
         await expect(
             page.getByText(/PIX gerado|copiar|QR PIX/i).first()
         ).toBeVisible({ timeout: 90_000 });
 
-        // Simulador Pagar.me confirma PIX em segundos; webhook no deploy libera o plano.
         await page.waitForTimeout(35_000);
         await page.reload({ waitUntil: "domcontentloaded" });
 
