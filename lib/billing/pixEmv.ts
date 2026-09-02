@@ -5,9 +5,10 @@
 
 /** EMV PIX válido (docs BCB / Pagar.me: começa com 000201…). */
 export function isPixEmvPayload(raw: string): boolean {
-    const s = raw.trim();
+    const s = raw.replace(/\s+/g, "").trim();
     if (!s.startsWith("000201")) return false;
-    if (s.length < 50 || s.length > 600) return false;
+    // Dinâmicos Stone/Pagar.me podem passar de 600 chars
+    if (s.length < 50 || s.length > 1200) return false;
     // Só ASCII imprimível (rejeita PNG/binário com � / IEND etc.)
     if (!/^[\x20-\x7E]+$/.test(s)) return false;
     const lower = s.toLowerCase();
@@ -15,15 +16,26 @@ export function isPixEmvPayload(raw: string): boolean {
     return true;
 }
 
+/** URL stub Mundipagg (legado) — não é copia-e-cola; DNS frequentemente ENOTFOUND. */
+export function isMundipaggPixStubUrl(raw: string | null | undefined): boolean {
+    if (!raw || typeof raw !== "string") return false;
+    try {
+        const host = new URL(raw.trim()).hostname.toLowerCase();
+        return host === "digital.mundipagg.com" || host.endsWith(".mundipagg.com");
+    } catch {
+        return false;
+    }
+}
+
 /** Extrai o primeiro EMV válido de um texto (HTML/JSON). */
 export function pickPixEmvFromText(text: string): string | null {
-    if (!text || text.includes("\uFFFD") && !text.includes("000201")) return null;
-    const trimmed = text.trim();
+    if (!text || (text.includes("\uFFFD") && !text.includes("000201"))) return null;
+    const trimmed = text.replace(/\s+/g, "").trim();
     if (isPixEmvPayload(trimmed)) return trimmed;
-    const re = /000201[\x20-\x7E]{48,598}/g;
+    const re = /000201[\x20-\x7E]{48,1198}/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) != null) {
-        const candidate = m[0].trim();
+        const candidate = m[0].replace(/\s+/g, "").trim();
         if (isPixEmvPayload(candidate)) return candidate;
     }
     return null;

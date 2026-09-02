@@ -4,6 +4,7 @@ import {
     extractPixCode,
     extractPixUrl,
     isPixEmvPayload,
+    isMundipaggPixStubUrl,
     type PagarmeOrder,
 } from "../../lib/billing/pagarme";
 
@@ -13,6 +14,8 @@ describe("PIX extract (Pagar.me)", () => {
             "00020126580014br.gov.bcb.pix013612345678901234567890123456520400005303986540510.005802BR5913TESTE PIX6009SAO PAULO62070503***6304ABCD";
         assert.equal(isPixEmvPayload(emv), true);
         assert.equal(isPixEmvPayload("https://digital.mundipagg.com/pix/abc"), false);
+        assert.equal(isMundipaggPixStubUrl("https://digital.mundipagg.com/pix/"), true);
+        assert.equal(isMundipaggPixStubUrl("00020126580014br.gov.bcb.pix"), false);
         // PNG interpretado como texto (IEND) NÃO pode virar copia-e-cola
         assert.equal(isPixEmvPayload("\uFFFDPNG\r\n....IEND\uFFFD"), false);
         assert.equal(isPixEmvPayload("x".repeat(80)), false);

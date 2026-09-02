@@ -101,6 +101,16 @@ Eventos mínimos: `order.paid`, `charge.paid` (opcional `order.payment_failed`).
 
 Se `pagarme_webhook_events` = 0 após pagamento sandbox: conferir URL/POST no painel Pagar.me e logs Vercel (401 secret / 405 método). Não usar reconcile cego (ADR-0004).
 
+### PIX sem copia-e-cola (`pix_emv_unavailable` / `pix_gateway_stub`)
+
+Se a API devolver `qr_code` = `https://digital.mundipagg.com/pix/` (e a PNG só embutir essa URL), **não há EMV recuperável** — o domínio Mundipagg está morto (ENOTFOUND).
+
+Causa típica: meio PIX no gateway legado Mundipagg em vez do gateway **Pagar.me / Stone** (docs: PIX só com gateway Pagar.me).
+
+No [painel Pagar.me](https://id.pagar.me/) → Configurações → Meios de pagamento: ative **PIX** no gateway correto, regenerar cobrança. Enquanto isso use **cartão** no `/plano/pagar`.
+
+EMV saudável começa com `000201…` e contém `br.gov.bcb.pix` (ver [docs PIX](https://docs.pagar.me/reference/pix-2)).
+
 Em **localhost**, use túnel apontando para `:3000/api/billing/webhook`. No deploy Vercel (**recomendado**), o webhook já está no ar.
 
 ---

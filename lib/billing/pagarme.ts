@@ -13,9 +13,9 @@ import {
     normalizePlanKey,
     type PlanInputKey,
 } from "@/lib/billing/planCatalog";
-import { isPixEmvPayload } from "@/lib/billing/pixEmv";
+import { isPixEmvPayload, isMundipaggPixStubUrl } from "@/lib/billing/pixEmv";
 
-export { isPixEmvPayload };
+export { isPixEmvPayload, isMundipaggPixStubUrl };
 
 const BASE_URL = "https://api.pagar.me/core/v5";
 
@@ -466,7 +466,12 @@ function extractPixCodeFromTx(tx: PagarmePixTransaction | undefined): string | n
     if (!tx) return null;
     const candidates = [tx.qr_code, tx.qrCode];
     for (const raw of candidates) {
-        if (typeof raw === "string" && isPixEmvPayload(raw)) return raw.trim();
+        if (typeof raw !== "string") continue;
+        // Stub Mundipagg / URL — nunca tratar como EMV
+        if (isMundipaggPixStubUrl(raw) || raw.startsWith("http")) continue;
+        const normalized = raw.replace(/\s+/g, "").trim();
+        if (isPixEmvPayload(normalized)) return normalized;
+        if (isPixEmvPayload(raw.trim())) return raw.trim();
     }
     return null;
 }
@@ -542,15 +547,18 @@ export async function cancelPagarmeChargeBestEffort(orderId: string): Promise<vo
 
 /**
  * Resolve QR + copia-e-cola conforme docs Pagar.me v5:
- * - `last_transaction.qr_code` = EMV (copia e cola)
+ * - `last_transaction.qr_code` = EMV (copia e cola) começando com 000201…
  * - `last_transaction.qr_code_url` = imagem do QR
- * Se o create só devolver URL Mundipagg, refetch GET /orders/{id} e GET /charges/{id}.
- * Fallback: decodifica o QR da imagem/página (Mundipagg às vezes omite o EMV no JSON).
+ *
+ * Contas com gateway legado às vezes devolvem `qr_code` = URL
+ * `digital.mundipagg.com/pix/` (DNS morto) e a PNG só embute essa URL —
+ * nesse caso não há EMV recuperável via API; é misconfig do meio PIX no painel.
  */
 export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
     order: PagarmeOrder;
     pixCode: string | null;
     pixUrl: string | null;
+    gatewayStub?: boolean;
 }> {
     const { recoverPixEmvFromUrl } = await import("@/lib/billing/decodePixQrFromUrl");
 
@@ -591,13 +599,23 @@ export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
         }
     }
 
+    const rawQr = String(current.charges?.[0]?.last_transaction?.qr_code ?? "");
+    const gatewayStub = isMundipaggPixStubUrl(rawQr);
+
     if (!pixCode) {
-        const urls = new Set<string>();
-        if (pixUrl) urls.add(pixUrl);
+        // Preferir api.pagar.me (auth + PNG); ignorar stubs Mundipagg
+        const urls: string[] = [];
         const tx = current.charges?.[0]?.last_transaction;
-        for (const raw of [tx?.qr_code_url, tx?.qrCodeUrl, tx?.qr_code, tx?.qrCode, tx?.pdf]) {
-            if (typeof raw === "string" && raw.startsWith("http")) urls.add(raw);
+        for (const raw of [tx?.qr_code_url, tx?.qrCodeUrl, pixUrl, tx?.qr_code, tx?.qrCode, tx?.pdf]) {
+            if (typeof raw !== "string" || !raw.startsWith("http")) continue;
+            if (isMundipaggPixStubUrl(raw)) continue;
+            if (!urls.includes(raw)) urls.push(raw);
         }
+        // api.pagar.me primeiro
+        urls.sort((a, b) => {
+            const score = (u: string) => (u.includes("api.pagar.me") ? 0 : 1);
+            return score(a) - score(b);
+        });
         for (const url of urls) {
             const recovered = await recoverPixEmvFromUrl(url);
             if (recovered && isPixEmvPayload(recovered)) {
@@ -610,12 +628,13 @@ export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
     if (!pixCode) {
         console.warn("[pagarme] PIX sem EMV (copia e cola). order=", current.id, {
             charge: current.charges?.[0]?.id,
-            qr_code_sample: String(current.charges?.[0]?.last_transaction?.qr_code ?? "").slice(0, 80),
+            qr_code_sample: rawQr.slice(0, 80),
             qr_code_url: current.charges?.[0]?.last_transaction?.qr_code_url ?? null,
+            gateway_stub: gatewayStub,
         });
     }
 
-    return { order: current, pixCode, pixUrl };
+    return { order: current, pixCode, pixUrl, gatewayStub };
 }
 
 /** Verifica assinatura HMAC-SHA256 do webhook do Pagar.me */

@@ -473,7 +473,7 @@ export async function POST(req: Request) {
             metadata: orderMeta,
         });
 
-        const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
+        const { order, pixCode, pixUrl, gatewayStub } = await resolvePixFromOrder(created);
 
         // ADR-0004 B3: vincular order_id local ANTES de falhar por EMV (anti-órfão)
         try {
@@ -510,11 +510,13 @@ export async function POST(req: Request) {
         }
 
         if (!pixCode || !String(pixCode).trim()) {
+            const message = gatewayStub
+                ? "A conta Pagar.me devolveu QR legado (Mundipagg) sem código PIX copia-e-cola. No painel Pagar.me → Configurações → Meios de pagamento, ative PIX no gateway Pagar.me/Stone (não página Mundipagg) e tente de novo. Enquanto isso use cartão."
+                : "Não foi possível obter o código PIX copia-e-cola. Tente novamente em alguns segundos.";
             return NextResponse.json(
                 {
-                    error: "pix_emv_unavailable",
-                    message:
-                        "Não foi possível obter o código PIX copia-e-cola. Tente novamente em alguns segundos.",
+                    error: gatewayStub ? "pix_gateway_stub" : "pix_emv_unavailable",
+                    message,
                     order_id: order.id,
                     pix_qr_url: pixUrl,
                 },

@@ -6,7 +6,7 @@
 import "server-only";
 import sharp, { type Sharp } from "sharp";
 import jsQR from "jsqr";
-import { isImageMagic, isPixEmvPayload, pickPixEmvFromText } from "@/lib/billing/pixEmv";
+import { isImageMagic, isPixEmvPayload, isMundipaggPixStubUrl, pickPixEmvFromText } from "@/lib/billing/pixEmv";
 
 const PIX_FETCH_HOST_SUFFIXES = [
     "pagar.me",
@@ -150,8 +150,18 @@ export async function extractPixEmvFromPageUrl(url: string): Promise<string | nu
 /** Tenta imagem e, se falhar / URL for página, HTML. */
 export async function recoverPixEmvFromUrl(url: string): Promise<string | null> {
     if (!url.startsWith("http")) return null;
+    // Mundipagg digital.* está morto (ENOTFOUND em Vercel e local) — não gastar timeout.
+    if (isMundipaggPixStubUrl(url)) {
+        console.warn("[pagarme] skip Mundipagg stub URL (sem EMV):", url.slice(0, 80));
+        return null;
+    }
     const fromImage = await decodePixEmvFromImageUrl(url);
     if (fromImage && isPixEmvPayload(fromImage)) return fromImage;
+    // QR imagem às vezes só contém URL Mundipagg — não é EMV
+    if (fromImage && isMundipaggPixStubUrl(fromImage)) {
+        console.warn("[pagarme] QR imagem só tem stub Mundipagg, sem EMV");
+        return null;
+    }
     const fromPage = await extractPixEmvFromPageUrl(url);
     if (fromPage && isPixEmvPayload(fromPage)) return fromPage;
     return null;
