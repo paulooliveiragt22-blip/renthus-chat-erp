@@ -53,21 +53,31 @@ function getSqsClient(): SQSClient | null {
     if (cachedClient) return cachedClient;
     const region = resolveAwsRegion();
 
-    // AWS SDK v3: sem `credentials` explícito, o cliente busca via cadeia de providers:
-    //   1. env vars (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY) — funciona em Lambda SOMENTE se já houver
-    //   2. ~/.aws/credentials (AWS CLI profile) — funciona em dev local, NÃO na Vercel
-    //   3. EC2/ECS/Lambda instance metadata — só funciona em compute AWS
+    // AWS SDK v3 default credential chain:
+    //   env → shared config → IMDS / Lambda execution role
     //
-    // Vercel NÃO é AWS: roda Node.js puro em container serverless sem IAM Role.
-    // Sem credentials explícitas, SQSClient falha silenciosamente em runtime.
+    // Em Lambda NÃO passar credentials explícitas: o runtime injeta
+    // AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_SESSION_TOKEN temporários.
+    // Se passarmos só accessKeyId/secretAccessKey (sem sessionToken), o SQS
+    // responde "The security token included in the request is invalid".
     //
-    // Workaround: se as env vars existirem (caso Vercel), passar credentials explícitas.
-    // Em Lambda, deixa o SDK pegar via IAM Role automaticamente.
+    // Vercel/local: não há IAM Role — aí sim usamos chaves estáticas das env.
     const config: SQSClientConfig = { region };
-    const accessKeyId = process.env.AWS_ACCESS_KEY_ID?.trim();
-    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY?.trim();
-    if (accessKeyId && secretAccessKey) {
-        config.credentials = { accessKeyId, secretAccessKey };
+    const onLambda = Boolean(
+        process.env.AWS_LAMBDA_FUNCTION_NAME?.trim() ||
+            process.env.AWS_EXECUTION_ENV?.trim()
+    );
+    if (!onLambda) {
+        const accessKeyId = process.env.AWS_ACCESS_KEY_ID?.trim();
+        const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY?.trim();
+        if (accessKeyId && secretAccessKey) {
+            const sessionToken = process.env.AWS_SESSION_TOKEN?.trim();
+            config.credentials = {
+                accessKeyId,
+                secretAccessKey,
+                ...(sessionToken ? { sessionToken } : {}),
+            };
+        }
     }
 
     cachedClient = new SQSClient(config);

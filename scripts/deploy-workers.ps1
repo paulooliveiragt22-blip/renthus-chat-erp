@@ -286,15 +286,22 @@ function Publish-InboundLiveAlias {
         --function-name $InboundFn --name $InboundAlias --query "Name" --output text 2>$null
     $ErrorActionPreference = $prevEap
 
-    # RoutingConfig com pesos bloqueia Provisioned Concurrency — limpar sempre.
-    $routingClear = "AdditionalVersionWeights={}"
+    # RoutingConfig com pesos bloqueia Provisioned Concurrency — limpar via arquivo JSON
+    # (PowerShell engole `{}` em string inline e deixa pesos residuais).
+    $routingFile = Join-Path $env:TEMP "renthus-alias-routing.json"
+    [System.IO.File]::WriteAllText(
+        $routingFile,
+        '{"AdditionalVersionWeights":{}}',
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $routingUri = "file://" + ($routingFile -replace "\\", "/")
     if ($aliasExists -eq $InboundAlias) {
         Invoke-AwsRaw @(
             "lambda", "update-alias",
             "--function-name", $InboundFn,
             "--name", $InboundAlias,
             "--function-version", "$ver",
-            "--routing-config", $routingClear
+            "--routing-config", $routingUri
         ) | Out-Null
     } else {
         Invoke-AwsRaw @(

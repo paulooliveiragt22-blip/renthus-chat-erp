@@ -42,6 +42,9 @@ aws --profile renthus --region sa-east-1 lambda get-provisioned-concurrency-conf
 
 # 5) Se reconciler logar "Unregistered API key": SUPABASE_SERVICE_ROLE_KEY
 #    na Lambda esta invalida/rotacionada — atualizar .env.local e re-rodar deploy-workers.ps1
+#    (nao validar sb_secret_ com curl/browser UA: secret keys retornam 401 em User-Agent de browser)
+# 6) Se dispatch falhar com "security token ... invalid" no reconcile Lambda:
+#    bug de credentials sem sessionToken — workers devem usar IAM Role (nao env AWS_* estaticas)
 ```
 
 ---
