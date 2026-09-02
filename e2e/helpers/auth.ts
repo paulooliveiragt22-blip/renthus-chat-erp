@@ -131,19 +131,27 @@ export async function loginAsAdmin(page: Page): Promise<void> {
         });
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (!/405|HTML|não-JSON/i.test(msg)) throw err;
+        if (!/405|HTML|não-JSON|Unregistered|401|500/i.test(msg)) throw err;
         await loginViaUi(page, creds);
         return;
     }
 
-    const list = (await requestJson(page, "workspace/list", "GET", "/api/workspace/list")) as {
-        companies?: Array<{ id: string }>;
-    };
-    const companies = Array.isArray(list.companies) ? list.companies : [];
-    if (companies.length >= 1) {
-        await requestJson(page, "workspace/select", "POST", "/api/workspace/select", {
-            company_id: companies[0].id,
-        });
+    try {
+        const list = (await requestJson(page, "workspace/list", "GET", "/api/workspace/list")) as {
+            companies?: Array<{ id: string }>;
+        };
+        const companies = Array.isArray(list.companies) ? list.companies : [];
+        if (companies.length >= 1) {
+            await requestJson(page, "workspace/select", "POST", "/api/workspace/select", {
+                company_id: companies[0].id,
+            });
+        }
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Deploy com service_role inválida / drift de keys → UI login ainda funciona.
+        if (!/Unregistered|401|500|HTML/i.test(msg)) throw err;
+        await loginViaUi(page, creds);
+        return;
     }
 
     const cookies = await page.context().cookies();

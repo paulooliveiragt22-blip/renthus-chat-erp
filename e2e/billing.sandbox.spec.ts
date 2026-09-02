@@ -119,6 +119,7 @@ test.describe("Billing sandbox (deploy prod)", () => {
     });
 
     test("cartão sandbox — pagamento aprovado", async ({ page }) => {
+        await page.getByRole("button", { name: /Cartão de crédito/i }).click();
         const payBlock = page.getByRole("button", { name: /Pagar com cartão/i });
         const noPayment = page.getByText(/nenhuma cobrança|plano ativo|sem pendência/i);
 
@@ -144,10 +145,11 @@ test.describe("Billing sandbox (deploy prod)", () => {
             test.skip(true, "Sem botão PIX — conta pode já estar paga ou sem pendência");
         }
 
+        // Já pode ter QR de cobrança anterior — regenera para validar o path.
         await pixBtn.click();
 
         await expect(
-            page.getByText(/PIX gerado|copiar|QR PIX/i).first()
+            page.getByRole("img", { name: /QR PIX/i }).or(page.getByRole("button", { name: /Copiar PIX/i }))
         ).toBeVisible({ timeout: 90_000 });
 
         await page.waitForTimeout(35_000);

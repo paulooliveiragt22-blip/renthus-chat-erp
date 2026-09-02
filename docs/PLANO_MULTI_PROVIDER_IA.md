@@ -381,6 +381,24 @@ continua só com `anthropic|openai`. Selecionar Groq em Configurações → Chat
 
 ---
 
+## 2.2. Revisão 2026-09-02 — `hasLlmApiKey` + env Lambda para Groq
+
+**Problema:** WhatsApp respondia *"Estou sem conexão com IA…"* (`AI_PROVIDER_ERROR`,
+`toolRoundsUsed: 0`). `hasLlmApiKey` não tinha branch `groq` (caía em Anthropic); e
+`deploy-workers.ps1` não propagava `GROQ_API_KEY` / `LLM_PROVIDER` / `LLM_MODEL` /
+`OPENAI_API_KEY`, então `update-function-configuration` podia limpar as keys da plataforma.
+
+**Decisão (radical):**
+
+- [x] `src/pro/adapters/llm/llmText.ts` — branches explícitas alinhadas a
+  `resolveLanguageModel` (`openai`/`groq`/`ollama`/`anthropic`; desconhecido → false).
+- [x] `scripts/deploy-workers.ps1` — inclui as keys LLM na lista; merge com env já
+  publicada na inbound antes do overlay do `.env.local` (não wipe).
+- Keys continuam **globais da plataforma** (não por empresa). Tenant só escolhe provider
+  em `company_settings.llm_provider`.
+
+---
+
 ## 3. O que fica fora de escopo aqui (não abrir sem métrica/pedido novo)
 
 - BYOK (empresa trazer a própria API key) — precisaria de `lib/security/credentialCrypto.ts` pra

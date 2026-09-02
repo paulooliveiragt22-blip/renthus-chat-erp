@@ -181,12 +181,18 @@ function Read-DotEnv([string]$Path) {
     return $map
 }
 
+# Platform LLM keys (shared across all companies; per-tenant only chooses provider via
+# company_settings.llm_provider). Must be listed or update-function-configuration wipes them.
 $envKeys = @(
     "NEXT_PUBLIC_SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
     "UPSTASH_REDIS_REST_URL",
     "UPSTASH_REDIS_REST_TOKEN",
     "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+    "LLM_PROVIDER",
+    "LLM_MODEL",
     "WHATSAPP_TOKEN",
     "WHATSAPP_PHONE_NUMBER_ID",
     "WHATSAPP_APP_SECRET",
@@ -205,15 +211,30 @@ $envKeys = @(
 $dotenvPath = if ($EnvFile) { $EnvFile } else { Join-Path $Root ".env.local" }
 $dotenv = Read-DotEnv $dotenvPath
 
-$variables = @{
-    AWS_REGION_OVERRIDE = $Region  # avoid clash — use custom if needed
-    SQS_INBOUND_QUEUE_URL = $inUrl
-    SQS_OUTBOUND_QUEUE_URL = $outUrl
-    CHATBOT_QUEUE_ENABLED = "1"
-    SQS_DISPATCH_ENABLED = "1"
+# Base = env already on inbound Lambda (avoid wiping manual / unlisted keys).
+# Overlay = non-empty .env.local + forced SQS URLs.
+$variables = @{}
+$prevEapEnv = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
+$existingJson = aws --profile $Profile --region $Region lambda get-function-configuration --function-name $InboundFn --query "Environment.Variables" --output json 2>$null
+$ErrorActionPreference = $prevEapEnv
+if ($existingJson) {
+    $existing = $existingJson | ConvertFrom-Json
+    if ($existing) {
+        foreach ($prop in $existing.PSObject.Properties) {
+            if ($null -ne $prop.Value -and "$($prop.Value)" -ne "") {
+                $variables[$prop.Name] = "$($prop.Value)"
+            }
+        }
+    }
 }
 
-# Lambda reserves AWS_REGION — do not set it in Environment.Variables
+$variables["SQS_INBOUND_QUEUE_URL"] = $inUrl
+$variables["SQS_OUTBOUND_QUEUE_URL"] = $outUrl
+$variables["CHATBOT_QUEUE_ENABLED"] = "1"
+$variables["SQS_DISPATCH_ENABLED"] = "1"
+
+# Lambda reserves AWS_REGION - do not set it in Environment.Variables
 foreach ($k in $envKeys) {
     if ($dotenv.ContainsKey($k) -and $dotenv[$k]) {
         $variables[$k] = $dotenv[$k]
@@ -224,7 +245,6 @@ $variables["SQS_DISPATCH_ENABLED"] = "1"
 if (-not $variables.ContainsKey("LLM_GLOBAL_MAX_IN_FLIGHT")) {
     $variables["LLM_GLOBAL_MAX_IN_FLIGHT"] = "$LlmGlobalMax"
 }
-$variables.Remove("AWS_REGION_OVERRIDE")
 
 $envJson = @{ Variables = $variables } | ConvertTo-Json -Depth 4 -Compress
 $envFilePath = Join-Path $env:TEMP "renthus-lambda-env.json"
@@ -289,7 +309,7 @@ function Ensure-Function {
     }
 }
 
-# Contas novas: UnreservedConcurrentExecution mínimo 10 — reserved alto quebra o deploy.
+# Contas novas: UnreservedConcurrentExecution mínimo 10 - reserved alto quebra o deploy.
 # Preferir 0 (sem reserved) e calibrar depois via Service Quotas / RENTHUS_LAMBDA_RESERVED=1.
 $inboundReserved = 0
 $outboundReserved = 0
@@ -360,13 +380,13 @@ function Ensure-EventSource {
     $list = Invoke-AwsJson @("lambda", "list-event-source-mappings", "--function-name", $FnName)
     $existing = $list.EventSourceMappings | Where-Object { $_.EventSourceArn -eq $QueueArn } | Select-Object -First 1
 
-    # ScalingConfig é objeto, não string — montar via temp file
+    # ScalingConfig é objeto, não string - montar via temp file
     $scalingJson = $null
     if ($MaxConcurrency -gt 0) {
         $scalingJson = (@{ MaximumConcurrency = $MaxConcurrency } | ConvertTo-Json -Compress)
     }
 
-    # NOTA (Fase 7 — ADR-0003): SQS FIFO **não suporta** `--maximum-batching-window-in-seconds`
+    # NOTA (Fase 7 - ADR-0003): SQS FIFO **não suporta** `--maximum-batching-window-in-seconds`
     # nem `--bisect-batch-on-function-error` (esses só valem para Kinesis/DynamoDB Streams).
     # A confirmação veio do erro real no update 2026-09-01:
     #   "Batching window is not supported for FIFO queues"
@@ -374,7 +394,7 @@ function Ensure-EventSource {
     # Por isso o script abaixo NÃO passa esses flags.
 
     if ($existing) {
-        Write-Host "Event source exists for $FnName ($($existing.UUID)) — updating full config" -ForegroundColor Yellow
+        Write-Host "Event source exists for $FnName ($($existing.UUID)) - updating full config" -ForegroundColor Yellow
         $args = @(
             "lambda", "update-event-source-mapping",
             "--uuid", $existing.UUID,
@@ -407,11 +427,11 @@ function Ensure-EventSource {
     Invoke-AwsRaw $args
 }
 
-# Fase 14 — ADR-0003 (retorno ao SQS FIFO + causa raiz resolvida):
+# Fase 14 - ADR-0003 (retorno ao SQS FIFO + causa raiz resolvida):
 #   inbound: BatchSize=1 (FIFO ordem), MaxConcurrency=10
 #   outbound: BatchSize=10, MaxConcurrency=20
 # VisibilityTimeout vem do aws-bootstrap (60s = 1× Lambda timeout; mensagem com 1 falha vai para DLQ).
-# FIFO NÃO suporta batching window nem bisect — omitido.
+# FIFO NÃO suporta batching window nem bisect - omitido.
 # Provisioned Concurrency=1 (resolve cold-start do container, sem precisar de keep-warm EventBridge).
 Ensure-EventSource -FnName $InboundFn  -QueueArn $inArn  -BatchSize 1  -MaxConcurrency 10
 Ensure-EventSource -FnName $OutboundFn -QueueArn $outArn -BatchSize 10 -MaxConcurrency 20

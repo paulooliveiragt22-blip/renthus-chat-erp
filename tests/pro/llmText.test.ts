@@ -2,41 +2,66 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { hasLlmApiKey } from "../../src/pro/adapters/llm/llmText";
 
-describe("hasLlmApiKey", () => {
-    it("respeita provider configurado", () => {
-        const prevP = process.env.LLM_PROVIDER;
-        const prevA = process.env.ANTHROPIC_API_KEY;
-        const prevO = process.env.OPENAI_API_KEY;
-        try {
-            process.env.LLM_PROVIDER = "openai";
-            delete process.env.OPENAI_API_KEY;
-            assert.equal(hasLlmApiKey(), false);
-            process.env.OPENAI_API_KEY = "sk-test";
-            assert.equal(hasLlmApiKey(), true);
-        } finally {
-            if (prevP === undefined) delete process.env.LLM_PROVIDER;
-            else process.env.LLM_PROVIDER = prevP;
-            if (prevA === undefined) delete process.env.ANTHROPIC_API_KEY;
-            else process.env.ANTHROPIC_API_KEY = prevA;
-            if (prevO === undefined) delete process.env.OPENAI_API_KEY;
-            else process.env.OPENAI_API_KEY = prevO;
+function withEnv(patch: Record<string, string | undefined>, fn: () => void): void {
+    const prev: Record<string, string | undefined> = {};
+    for (const k of Object.keys(patch)) {
+        prev[k] = process.env[k];
+        const v = patch[k];
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+    }
+    try {
+        fn();
+    } finally {
+        for (const k of Object.keys(patch)) {
+            const v = prev[k];
+            if (v === undefined) delete process.env[k];
+            else process.env[k] = v;
         }
+    }
+}
+
+describe("hasLlmApiKey", () => {
+    it("respeita provider openai via env", () => {
+        withEnv(
+            { LLM_PROVIDER: "openai", OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: "sk-ant" },
+            () => {
+                assert.equal(hasLlmApiKey(), false);
+                process.env.OPENAI_API_KEY = "sk-test";
+                assert.equal(hasLlmApiKey(), true);
+            }
+        );
     });
 
     it("default anthropic quando provider não definido", () => {
-        const prevP = process.env.LLM_PROVIDER;
-        const prevA = process.env.ANTHROPIC_API_KEY;
-        try {
-            delete process.env.LLM_PROVIDER;
-            delete process.env.ANTHROPIC_API_KEY;
+        withEnv({ LLM_PROVIDER: undefined, ANTHROPIC_API_KEY: undefined }, () => {
             assert.equal(hasLlmApiKey(), false);
             process.env.ANTHROPIC_API_KEY = "sk-ant-test";
             assert.equal(hasLlmApiKey(), true);
-        } finally {
-            if (prevP === undefined) delete process.env.LLM_PROVIDER;
-            else process.env.LLM_PROVIDER = prevP;
-            if (prevA === undefined) delete process.env.ANTHROPIC_API_KEY;
-            else process.env.ANTHROPIC_API_KEY = prevA;
-        }
+        });
+    });
+
+    it("groq exige GROQ_API_KEY (não cai em Anthropic)", () => {
+        withEnv(
+            {
+                LLM_PROVIDER: "anthropic",
+                ANTHROPIC_API_KEY: "sk-ant-present",
+                GROQ_API_KEY: undefined,
+            },
+            () => {
+                assert.equal(hasLlmApiKey("groq"), false);
+                process.env.GROQ_API_KEY = "gsk-test";
+                assert.equal(hasLlmApiKey("groq"), true);
+                // Sem override: env LLM_PROVIDER=anthropic ainda usa ANTHROPIC_API_KEY
+                assert.equal(hasLlmApiKey(), true);
+            }
+        );
+    });
+
+    it("ollama sempre true; provider desconhecido = false", () => {
+        withEnv({ ANTHROPIC_API_KEY: "sk-ant", GROQ_API_KEY: "gsk", OPENAI_API_KEY: "sk" }, () => {
+            assert.equal(hasLlmApiKey("ollama"), true);
+            assert.equal(hasLlmApiKey("gemini"), false);
+        });
     });
 });
