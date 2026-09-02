@@ -1,6 +1,9 @@
 /**
  * Aviso PT-BR quando a fila da empresa está atrasada (pico).
  * Cooldown por thread em chatbot_sessions.context — sem Redis.
+ *
+ * ADR-0003 Fase 15: idade sozinha com poucos pending (lag ESM/cold path) NÃO deve
+ * soar como "bastante movimento". Age só dispara com profundidade mínima.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -26,6 +29,11 @@ export function getBacklogAgeSeconds(): number {
     return getPositiveIntEnv("CHATBOT_BACKLOG_AGE_SECONDS", 45);
 }
 
+/** Mínimo de pending para o critério de idade (Fase 15). Default 3. */
+export function getBacklogAgeMinPending(): number {
+    return getPositiveIntEnv("CHATBOT_BACKLOG_AGE_MIN_PENDING", 3);
+}
+
 export function getBacklogNoticeCooldownSec(): number {
     return getPositiveIntEnv("CHATBOT_BACKLOG_NOTICE_COOLDOWN_SEC", 120);
 }
@@ -44,9 +52,12 @@ export function evaluateBacklogPressure(input: {
     nowMs?: number;
     depthThreshold?: number;
     ageSeconds?: number;
+    /** Só aplica critério de idade se pendingCount >= este valor (Fase 15). */
+    ageMinPending?: number;
 }): BacklogPressure {
     const depthThreshold = input.depthThreshold ?? getBacklogDepthThreshold();
     const ageSeconds = input.ageSeconds ?? getBacklogAgeSeconds();
+    const ageMinPending = input.ageMinPending ?? getBacklogAgeMinPending();
     const nowMs = input.nowMs ?? Date.now();
     const oldestAgeSec =
         input.oldestScheduledAt != null
@@ -64,7 +75,11 @@ export function evaluateBacklogPressure(input: {
             reason: "depth",
         };
     }
-    if (input.oldestScheduledAt && oldestAgeSec >= ageSeconds) {
+    if (
+        input.oldestScheduledAt &&
+        input.pendingCount >= ageMinPending &&
+        oldestAgeSec >= ageSeconds
+    ) {
         return {
             pendingCount: input.pendingCount,
             oldestAgeSec,

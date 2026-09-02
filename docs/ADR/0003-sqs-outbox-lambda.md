@@ -8,6 +8,12 @@ Contrato operacional de `MessageGroupId`:
 - **inbound = `thread_id`** (canônico; isolamento por conversa)
 - **outbound = `company_id`**
 
+Contrato operacional de **alvo Lambda** (aprovado owner 2026-09-02 — Fase 15):
+- Event source mapping (ESM) inbound **deve** invocar o alias **`renthus-inbound-worker:live`**
+- Provisioned Concurrency=1 fica **somente** nesse alias (nunca em `$LATEST`)
+- Deploy: publish version → apontar alias `live` → PC permanece no alias
+- ESM em `$LATEST` com PC no `:live` é **config inválida** (PC ocioso; cold start no tráfego real)
+
 A tentativa da Fase 14 de usar `company_id` no inbound foi **revertida 2026-09-02**
 (não resolveu latência; piorou isolamento multi-cliente). Mantidos como evolução válida:
 Provisioned Concurrency=1, `VisibilityTimeout=60s`, `maxReceiveCount=1`, reconciler 5min.
@@ -24,6 +30,7 @@ como histórico — **não** são o contrato vigente.
 | 2026-09-01 | **Fase 13 — Lambda direto (superseded em &lt;24h)** |
 | 2026-09-02 | Fase 14 — retorno SQS + VT/PC/maxReceive (evolução); inbound group→`company_id` (regressão) |
 | 2026-09-02 | **Revert MessageGroupId inbound → `thread_id`** (volta ao canônico; owner) |
+| 2026-09-02 | **Fase 15 — Wiring ESM→`:live` + PC no alias** (aprovado + implementado) |
 
 ---
 
@@ -1383,13 +1390,95 @@ Conforme `projeto-pre-producao-radical.mdc`: pré-produção **nunca** mantém d
 
 ---
 
-## Histórico (continuação)
+## Fase 15 — Wiring ESM ↔ Provisioned Concurrency (aprovado 2026-09-02)
 
-## Histórico (continuação)
+**Status:** decisão **aprovada** e **implementada** (2026-09-02) — wiring ESM→`:live`,
+deploy publish+alias, backlog notice com `ageMinPending`. Seguir
+`projeto-pre-producao-radical.mdc` e `arquitetura-lider.mdc`: causa raiz, sem dual-path
+`$LATEST` + `:live`.
+
+### 15.1 Sintomas medidos (produção)
+
+- Primeira mensagem após ociosidade demora (dezenas de segundos a ~6 min).
+- “Oii” eventualmente responde com saudação padrão (regex, sem LLM).
+- Perguntas: atraso longo ou só a bolha de backlog
+  (`BACKLOG_NOTICE_TEXT` — “bastante movimento… já está na fila”).
+- Jobs com `sqs_enqueued_at` setado e `processing_started_at` null (SQS recebeu; Lambda não
+  consumiu a tempo).
+- DLQ inbound com mensagens; `maxReceiveCount=1`.
+
+### 15.2 Diagnóstico (estado AWS real no momento da decisão)
+
+| Peça | Estado observado | Problema |
+|---|---|---|
+| ESM inbound | FunctionArn = `…/renthus-inbound-worker` (**`$LATEST`**) | Tráfego real |
+| Provisioned Concurrency=1 | Alias **`:live` → version publicada antiga** | **Não** recebe o tráfego do ESM |
+| Keep-warm EventBridge | Ausente (`renthus-inbound*` vazio) | Poller ESM pode esfriar |
+| VisibilityTimeout | 60s → **120s** no cutover | AWS exige VT ≥ Function timeout (120s) ao apontar ESM; VT=60 bloqueava update |
+| MessageGroupId inbound | `thread_id` | Canônico (mantido) |
+
+Docs AWS ([Configuring provisioned concurrency](https://docs.aws.amazon.com/lambda/latest/dg/provisioned-concurrency.html)):
+
+- PC **não** se aplica a `$LATEST`.
+- Se a event source não aponta para o **alias/versão** com PC, as invocações **não** usam
+  os ambientes provisionados — cold start continua no caminho quente.
+
+Conclusão: PC estava **pago e ocioso**; o sintoma “primeira msg lenta” é wiring, não
+“falta de PC” nem “MessageGroupId errado”.
+
+### 15.3 Decisão (contrato vigente — implementar nesta ordem)
+
+| # | Ação | Tipo | Notas |
+|---|---|---|---|
+| 1 | ESM inbound → **`renthus-inbound-worker:live`** | Obrigatório | Cutover único; sem dual-path |
+| 2 | Deploy: `update-function-code` → **publish version** → **alias `live` = nova versão** → PC permanece no alias | Obrigatório | Codificar em `scripts/deploy-workers.ps1` |
+| 3 | Ops: reprocessar/limpar `pending` stuck + DLQ após cutover | Ops | Evita falso negativo no teste |
+| 4 | Ajustar `backlogNotice`: não tratar só `age≥45s` com `pendingCount` baixo (1–2) como “bastante movimento” | App | Bolha hoje mente sob lag ESM |
+| 5 | Keep-warm EventBridge **ou** `ProvisionedPollerConfig` (pollers dedicados) | **Adiado** | Só se p95 pós-idle ainda ruim **depois** de 1–2 |
+| 6 | Reabrir `MessageGroupId=company_id` | **Proibido** | Regressão já medida 2026-09-02 |
+| 7 | Reabrir Fase 13 (Lambda invoke direto) | **Proibido** | Tratava sintoma; wiring (1–2) ataca causa |
+
+### 15.4 Por que esta ordem (e não keep-warm / pollers primeiro)
+
+| Opção | Risco prod | Efeito |
+|---|---|---|
+| ESM → `:live` + publish no deploy | Baixo se scriptado | PC passa a valer; cold start de container some no caminho real |
+| Só keep-warm de novo | Médio (histórico de permission/alias) | Trata poller; PC continua inútil se ESM=$LATEST |
+| Só subir PC / reserved | Custo sem efeito | Continua invocando `$LATEST` |
+| Voltar `company_id` no group id | Alto | Serializa a loja inteira |
+
+Pré-produção radical = **corrigir o wiring**, não empilhar mitigações.
+
+### 15.5 Escopo de entrega (quando implementar — não nesta atualização de ADR)
+
+- **Ops/IaC:** `scripts/deploy-workers.ps1` (+ alinhar `setup-provisioned-concurrency.ps1` se necessário).
+- **App:** somente regra de pressão em `lib/chatbot/backlogNotice.ts` (item 4).
+- **Docs/runbook:** checklist cutover ESM→`:live` em `docs/DR_RUNBOOK_SQS.md`.
+- **Sem** nova abstração de fila; **sem** dual-path SQS/`$LATEST`.
+
+### 15.6 Critérios de aceite (pós-implementação)
+
+- ESM `FunctionArn` termina em `:live`.
+- Alias `live` aponta para a **mesma** versão recém-publicada do último deploy.
+- PC=1 em `:live` com `Status=READY`; invocações SQS **não** mostram `Init Duration` sistemático em cold path (amostra pós-idle).
+- p95 webhook→reply pós-idle &lt; alvo operacional do load test vigente (referência recente: p95 ~6s em carga paralela; pós-idle deve deixar de ser minutos).
+- Bolha de backlog não dispara em `pendingCount≤2` só por idade curta (após item 4).
+
+### 15.7 Fora de escopo desta fase
+
+- BYOK / key por empresa.
+- Mudança de `MessageGroupId`.
+- Troca Groq→Anthropic (independente; ver `hasLlmApiKey` / `CHATBOT_PROD.md`).
+- Filas por tier comercial.
+
+---
 
 ## Histórico (continuação)
 
 | Data | Nota |
 |------|------|
 | 2026-09-01 | Diagnóstico pós-cutover; 88% jobs reenfileirados pelo reconciler; Fases 7–11 adicionadas. Provider LLM prod será Anthropic (Groq atual = testes pipeline). Custo pós-Fase 7: USD 3.45/mês (Provisioned Concurrency bloqueado por quota AWS conta=10; destrava via ticket de quota increase). Estado AWS real confirmado: Lambda timeout 120s, FIFO não suporta batching window/bisect — VisibilityTimeout ajustado para 180s (1.5× timeout). |
-| 2026-09-01 | **Fase 13 — Substituição SQS FIFO → Lambda direto do Vercel (Opção D, aprovada).** Ticket de ConcurrentExecutions=1000 solicitado à AWS (aguardando aprovação). Padrão de mercado aplicado: Vercel webhook → outbox Postgres → `Lambda.invoke(InvocationType='Event')` async → thread lock via `try_acquire_thread_lock` RPC → processamento. Reconciler vira DLQ-only (alerta Sentry, sem reenfileirar). Custo final mensal: USD 3.45 (mantido); com Provisioned Concurrency após quota aprovada: USD 9.53/mês. Latência alvo: p95 <2s (vs ~3min atual). Plano de execução: PR1 (migration thread_locks) → PR2 (lambdaInvoker port+adapter) → PR3 (threadLock no handler) → PR4 (webhook invoca Lambda) → PR5 (reconciler DLQ-only) → PR6 (IAM Vercel) → PR7 (cleanup radical SQS+DLQ+ESM) → PR8 (cleanup código). Rollback documentado (15min).
+| 2026-09-01 | **Fase 13 — Substituição SQS FIFO → Lambda direto do Vercel (Opção D, aprovada).** Ticket de ConcurrentExecutions=1000 solicitado à AWS (aguardando aprovação). Padrão de mercado aplicado: Vercel webhook → outbox Postgres → `Lambda.invoke(InvocationType='Event')` async → thread lock via `try_acquire_thread_lock` RPC → processamento. Reconciler vira DLQ-only (alerta Sentry, sem reenfileirar). Custo final mensal: USD 3.45 (mantido); com Provisioned Concurrency após quota aprovada: USD 9.53/mês. Latência alvo: p95 &lt;2s (vs ~3min atual). Plano de execução: PR1–PR8. Rollback documentado (15min). **Superseded em &lt;24h pela Fase 14 (retorno SQS).** |
+| 2026-09-02 | Fase 14: retorno SQS + VT=60 + PC=1 + maxReceive=1; inbound group `company_id` (regressão) depois **revertido** para `thread_id`. |
+| 2026-09-02 | Fix plataforma LLM: `hasLlmApiKey` com branch `groq`; `deploy-workers.ps1` propaga `GROQ_API_KEY`/`LLM_PROVIDER`/`LLM_MODEL` (merge env). |
+| 2026-09-02 | **Fase 15 implementada:** ESM inbound → `:live`; `deploy-workers.ps1` publish+alias+PC (sem RoutingConfig weights); VT inbound **120s** (mínimo AWS vs timeout 120); `backlogNotice` exige `CHATBOT_BACKLOG_AGE_MIN_PENDING` (default 3); runbook checklist cutover. |

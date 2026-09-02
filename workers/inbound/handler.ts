@@ -2,7 +2,8 @@
  * Lambda handler — SQS FIFO inbound → processInboundJobById (ADR-0003).
  *
  * MessageGroupId = thread_id (ADR canônico 2026-08-28; revert da Fase 14 em 2026-09-02).
- * Mantidos: Provisioned Concurrency=1, VisibilityTimeout=60s, maxReceiveCount=1.
+ * Mantidos: Provisioned Concurrency=1 no alias :live, VisibilityTimeout=120s, maxReceiveCount=1.
+ * Fase 15: ESM deve invocar renthus-inbound-worker:live (nao $LATEST).
  */
 
 import type { SQSEvent, SQSBatchResponse, SQSRecord } from "aws-lambda";

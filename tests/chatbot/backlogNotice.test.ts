@@ -17,13 +17,28 @@ describe("backlogNotice", () => {
         assert.equal(p.reason, "depth");
     });
 
-    it("dispara por idade do pending mais antigo", () => {
+    it("idade sozinha com poucos pending NAO dispara (Fase 15)", () => {
         const old = new Date(Date.now() - 60_000).toISOString();
         const p = evaluateBacklogPressure({
             pendingCount: 2,
             oldestScheduledAt: old,
             depthThreshold: 8,
             ageSeconds: 45,
+            ageMinPending: 3,
+            nowMs: Date.now(),
+        });
+        assert.equal(p.triggered, false);
+        assert.equal(p.reason, null);
+    });
+
+    it("idade + profundidade minima dispara por age", () => {
+        const old = new Date(Date.now() - 60_000).toISOString();
+        const p = evaluateBacklogPressure({
+            pendingCount: 3,
+            oldestScheduledAt: old,
+            depthThreshold: 8,
+            ageSeconds: 45,
+            ageMinPending: 3,
             nowMs: Date.now(),
         });
         assert.equal(p.triggered, true);

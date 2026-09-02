@@ -18,6 +18,7 @@ $AccountId = "696457893414"
 $InboundFn = "renthus-inbound-worker"
 $OutboundFn = "renthus-outbound-worker"
 $ReconcileFn = "renthus-outbox-reconcile"
+$InboundAlias = "live"
 $RoleName = "renthus-lambda-sqs-worker"
 $InboundQueue = "renthus-inbound.fifo"
 $OutboundQueue = "renthus-outbound.fifo"
@@ -251,6 +252,76 @@ $envFilePath = Join-Path $env:TEMP "renthus-lambda-env.json"
 [System.IO.File]::WriteAllText($envFilePath, $envJson, [System.Text.UTF8Encoding]::new($false))
 $envFileUri = "file://" + ($envFilePath -replace "\\", "/")
 
+function Wait-LambdaUpdated {
+    param([string]$Name)
+    Write-Host "  waiting LastUpdateStatus=Successful for $Name ..." -ForegroundColor DarkGray
+    $deadline = (Get-Date).AddMinutes(5)
+    do {
+        Start-Sleep -Seconds 2
+        $st = Invoke-AwsText @(
+            "lambda", "get-function-configuration",
+            "--function-name", $Name,
+            "--query", "LastUpdateStatus"
+        )
+        if ($st -eq "Successful") { return }
+        if ($st -eq "Failed") { throw "Lambda update failed: $Name" }
+    } while ((Get-Date) -lt $deadline)
+    throw "Timeout waiting for Lambda update: $Name"
+}
+
+# ADR-0003 Fase 15: publish $LATEST -> alias live (PC vive no alias; ESM deve apontar para ele).
+function Publish-InboundLiveAlias {
+    Wait-LambdaUpdated -Name $InboundFn
+    Write-Host "Publishing inbound version + alias '$InboundAlias'" -ForegroundColor Cyan
+    $ver = Invoke-AwsText @(
+        "lambda", "publish-version",
+        "--function-name", $InboundFn,
+        "--query", "Version"
+    )
+    Write-Host "  published version=$ver" -ForegroundColor DarkGray
+
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    $aliasExists = aws --profile $Profile --region $Region lambda get-alias `
+        --function-name $InboundFn --name $InboundAlias --query "Name" --output text 2>$null
+    $ErrorActionPreference = $prevEap
+
+    # RoutingConfig com pesos bloqueia Provisioned Concurrency — limpar sempre.
+    $routingClear = "AdditionalVersionWeights={}"
+    if ($aliasExists -eq $InboundAlias) {
+        Invoke-AwsRaw @(
+            "lambda", "update-alias",
+            "--function-name", $InboundFn,
+            "--name", $InboundAlias,
+            "--function-version", "$ver",
+            "--routing-config", $routingClear
+        ) | Out-Null
+    } else {
+        Invoke-AwsRaw @(
+            "lambda", "create-alias",
+            "--function-name", $InboundFn,
+            "--name", $InboundAlias,
+            "--function-version", "$ver"
+        ) | Out-Null
+    }
+
+    # Re-apply PC on alias (put is idempotent if already set).
+    $prevEap2 = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & aws --profile $Profile --region $Region lambda put-provisioned-concurrency-config `
+        --function-name $InboundFn `
+        --qualifier $InboundAlias `
+        --provisioned-concurrent-executions 1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  warn: put-provisioned-concurrency-config failed (check quota/alias)" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Provisioned Concurrency=1 on :$InboundAlias" -ForegroundColor DarkGray
+    }
+    $ErrorActionPreference = $prevEap2
+
+    return "arn:aws:lambda:${Region}:${AccountId}:function:${InboundFn}:${InboundAlias}"
+}
+
 function Ensure-Function {
     param(
         [string]$Name,
@@ -284,7 +355,7 @@ function Ensure-Function {
             "--function-name", $Name,
             "--zip-file", ("fileb://" + ($Zip -replace "\\", "/"))
         )
-        Start-Sleep -Seconds 3
+        Wait-LambdaUpdated -Name $Name
         Invoke-AwsRaw @(
             "lambda", "update-function-configuration",
             "--function-name", $Name,
@@ -294,9 +365,9 @@ function Ensure-Function {
             "--handler", "index.handler",
             "--runtime", "nodejs22.x"
         )
+        Wait-LambdaUpdated -Name $Name
     }
 
-    Start-Sleep -Seconds 2
     if ($Reserved -gt 0) {
         Write-Host "Reserved concurrency $Name = $Reserved (best-effort)" -ForegroundColor DarkGray
         $prevEap2 = $ErrorActionPreference
@@ -318,6 +389,7 @@ if ($LlmGlobalMax -gt 0 -and $env:RENTHUS_LAMBDA_RESERVED -eq "1") {
     $outboundReserved = 3
 }
 Ensure-Function -Name $InboundFn -Zip $inboundZip -Memory 1024 -Timeout 120 -Reserved $inboundReserved
+$InboundLiveArn = Publish-InboundLiveAlias
 Ensure-Function -Name $OutboundFn -Zip $outboundZip -Memory 512 -Timeout 60 -Reserved $outboundReserved
 Ensure-Function -Name $ReconcileFn -Zip $reconcileZip -Memory 256 -Timeout 60 -Reserved 0
 
@@ -371,33 +443,28 @@ Ensure-EventBridgeReconcile -FnArn $reconcileArn
 
 function Ensure-EventSource {
     param(
-        [string]$FnName,
+        [string]$FunctionNameOrArn,
         [string]$QueueArn,
         [int]$BatchSize,
-        [int]$Visibility,
         [int]$MaxConcurrency = 0
     )
-    $list = Invoke-AwsJson @("lambda", "list-event-source-mappings", "--function-name", $FnName)
-    $existing = $list.EventSourceMappings | Where-Object { $_.EventSourceArn -eq $QueueArn } | Select-Object -First 1
+    # List by queue ARN so we find mapping even when retargeting $LATEST -> :live
+    $list = Invoke-AwsJson @("lambda", "list-event-source-mappings", "--event-source-arn", $QueueArn)
+    $existing = $list.EventSourceMappings | Select-Object -First 1
 
-    # ScalingConfig é objeto, não string - montar via temp file
     $scalingJson = $null
     if ($MaxConcurrency -gt 0) {
         $scalingJson = (@{ MaximumConcurrency = $MaxConcurrency } | ConvertTo-Json -Compress)
     }
 
-    # NOTA (Fase 7 - ADR-0003): SQS FIFO **não suporta** `--maximum-batching-window-in-seconds`
-    # nem `--bisect-batch-on-function-error` (esses só valem para Kinesis/DynamoDB Streams).
-    # A confirmação veio do erro real no update 2026-09-01:
-    #   "Batching window is not supported for FIFO queues"
-    #   "Unsupported BisectBatchOnFunctionError parameter for given event source mapping type"
-    # Por isso o script abaixo NÃO passa esses flags.
+    # NOTA (Fase 7 - ADR-0003): SQS FIFO nao suporta batching window nem bisect.
 
     if ($existing) {
-        Write-Host "Event source exists for $FnName ($($existing.UUID)) - updating full config" -ForegroundColor Yellow
+        Write-Host "Event source exists ($($existing.UUID)) -> $FunctionNameOrArn" -ForegroundColor Yellow
         $args = @(
             "lambda", "update-event-source-mapping",
             "--uuid", $existing.UUID,
+            "--function-name", $FunctionNameOrArn,
             "--batch-size", "$BatchSize",
             "--function-response-types", "ReportBatchItemFailures",
             "--enabled"
@@ -410,10 +477,10 @@ function Ensure-EventSource {
         Invoke-AwsRaw $args
         return
     }
-    Write-Host "Creating event source $FnName ← $QueueArn" -ForegroundColor Cyan
+    Write-Host "Creating event source $FunctionNameOrArn <- $QueueArn" -ForegroundColor Cyan
     $args = @(
         "lambda", "create-event-source-mapping",
-        "--function-name", $FnName,
+        "--function-name", $FunctionNameOrArn,
         "--event-source-arn", $QueueArn,
         "--batch-size", "$BatchSize",
         "--function-response-types", "ReportBatchItemFailures",
@@ -427,18 +494,25 @@ function Ensure-EventSource {
     Invoke-AwsRaw $args
 }
 
-# Fase 14 - ADR-0003 (retorno ao SQS FIFO + causa raiz resolvida):
+# Fase 15 - ADR-0003: inbound ESM -> alias :live (onde vive PC=1).
+# AWS exige VisibilityTimeout >= Function timeout ao criar/atualizar ESM.
+# Lambda inbound timeout=120s → VT minimo 120 (VT=60 da Fase 14 era incompativel).
+$inboundTimeoutSec = 120
+Write-Host "Aligning inbound VisibilityTimeout >= $inboundTimeoutSec" -ForegroundColor Cyan
+Invoke-AwsRaw @(
+    "sqs", "set-queue-attributes",
+    "--queue-url", $inUrl,
+    "--attributes", ("VisibilityTimeout=" + $inboundTimeoutSec)
+) | Out-Null
+
 #   inbound: BatchSize=1 (FIFO ordem), MaxConcurrency=10
 #   outbound: BatchSize=10, MaxConcurrency=20
-# VisibilityTimeout vem do aws-bootstrap (60s = 1× Lambda timeout; mensagem com 1 falha vai para DLQ).
-# FIFO NÃO suporta batching window nem bisect - omitido.
-# Provisioned Concurrency=1 (resolve cold-start do container, sem precisar de keep-warm EventBridge).
-Ensure-EventSource -FnName $InboundFn  -QueueArn $inArn  -BatchSize 1  -MaxConcurrency 10
-Ensure-EventSource -FnName $OutboundFn -QueueArn $outArn -BatchSize 10 -MaxConcurrency 20
+Ensure-EventSource -FunctionNameOrArn $InboundLiveArn -QueueArn $inArn  -BatchSize 1  -MaxConcurrency 10
+Ensure-EventSource -FunctionNameOrArn $OutboundFn     -QueueArn $outArn -BatchSize 10 -MaxConcurrency 20
 
 Write-Host ""
 Write-Host "Deploy OK" -ForegroundColor Green
-Write-Host "  $InboundFn  memory=1024 timeout=120 reserved=$inboundReserved"
+Write-Host "  ${InboundFn}:${InboundAlias}  memory=1024 timeout=120 PC=1 ESM->:live"
 Write-Host "  $OutboundFn memory=512  timeout=60  reserved=$outboundReserved"
 Write-Host "  $ReconcileFn memory=256 timeout=60  EventBridge every 5 min"
 Write-Host "  Vercel: SQS_DISPATCH_ENABLED=1 (prod cutover)"

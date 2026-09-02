@@ -102,9 +102,9 @@ $inRedrive = (@{ deadLetterTargetArn = $inDlqArn; maxReceiveCount = 1 } | Conver
 $outRedrive = (@{ deadLetterTargetArn = $outDlqArn; maxReceiveCount = 3 } | ConvertTo-Json -Compress)
 
 $inUrl = New-FifoQueue "renthus-inbound.fifo" @{
-    # Fase 14 (ADR-0003 §14.2.4): VT=60s = 1× Lambda timeout (60s)
-    # Mensagem com falha volta pra fila em 60s (não 180s como na Fase 7)
-    VisibilityTimeout              = "60"
+    # Fase 15: VT >= Lambda inbound timeout (120s). AWS rejeita ESM se VT < Function timeout.
+    # (Fase 14 pediu VT=60 sob premissa incorreta de Lambda timeout=60.)
+    VisibilityTimeout              = "120"
     ReceiveMessageWaitTimeSeconds  = "20"  # long polling
     MessageRetentionPeriod         = "1209600"  # 14 dias (máx SQS)
     RedrivePolicy                  = $inRedrive

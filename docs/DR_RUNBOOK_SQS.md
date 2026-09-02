@@ -1,6 +1,8 @@
 # Runbook — SQS (ADR-0003) — DLQ, reconciler e incidente de fila
 
-> **SUPERSEDED pela Fase 13 (2026-09-01).** A Fase 13 substitui SQS FIFO por Lambda direto do Vercel. Após o cutover, **a fila inbound `renthus-inbound.fifo` deixa de existir** (`npm run aws:cleanup:sqs-inbound`). O outbound continua usando SQS FIFO (DLQ ainda relevante). Este runbook é preservado como referência histórica e para diagnóstico da fila outbound. Para troubleshooting da nova arquitetura (Lambda direto + thread lock no Postgres), ver [ADR-0003 § Fase 13](./ADR/0003-sqs-outbox-lambda.md#fase-13--substituição-sqs-fifo--lambda-direto-do-vercel-pr-13--vigente) e este mesmo arquivo (seção 1-5).
+> **Vigente:** SQS FIFO outbox + Lambda (ADR-0003). Fase 13 (Lambda direto) foi superseded.
+> **Fase 15 (2026-09-02):** ESM inbound **deve** apontar para alias `renthus-inbound-worker:live`
+> (onde vive Provisioned Concurrency=1). ESM em `$LATEST` com PC no `:live` = config inválida.
 
 > Complementa `DR_RUNBOOK_POSTGRES.md`. Aqui ficam o ciclo de vida de mensagens na
 > fila SQS FIFO, o que fazer quando a DLQ dispara e como operar o reconciler Lambda.
@@ -8,9 +10,39 @@
 **Projeto:** Renthus Chat + ERP
 **Fila inbound (vigente):** `renthus-inbound.fifo` (`MessageGroupId = thread_id` — ADR canônico; Fase 14 `company_id` revertida)
 **Fila outbound (mantida):** `renthus-outbound.fifo` (`MessageGroupId = company_id`)
+**Lambda inbound:** alias `renthus-inbound-worker:live` (PC=1); deploy via `scripts/deploy-workers.ps1` (publish + alias)
+**SQS inbound VT:** `120s` (deve ser ≥ Lambda timeout 120s — senão AWS bloqueia update do ESM)
 **DLQ inbound:** `renthus-inbound-dlq.fifo`
 **DLQ outbound:** `renthus-outbound-dlq.fifo`
 **Região:** `sa-east-1`
+
+### Checklist cutover Fase 15 (ops)
+
+```powershell
+# 1) Deploy (build + publish + alias live + ESM -> :live + PC=1)
+.\scripts\deploy-workers.ps1
+
+# 2) Conferir wiring
+aws --profile renthus --region sa-east-1 lambda list-event-source-mappings `
+  --event-source-arn arn:aws:sqs:sa-east-1:696457893414:renthus-inbound.fifo `
+  --query "EventSourceMappings[0].FunctionArn" --output text
+# esperado: ...:function:renthus-inbound-worker:live
+
+aws --profile renthus --region sa-east-1 lambda get-alias `
+  --function-name renthus-inbound-worker --name live --query "{Ver:FunctionVersion}" --output json
+
+aws --profile renthus --region sa-east-1 lambda get-provisioned-concurrency-config `
+  --function-name renthus-inbound-worker --qualifier live `
+  --query "{Status:Status,Allocated:AllocatedProvisionedConcurrentExecutions}" --output json
+
+# 3) Pending stuck (sqs_enqueued mas sem processing): zerar sqs_* para o reconciler reenviar
+#    (execute_sql / dashboard) — ver ADR-0003 §15.3 item 3
+
+# 4) DLQ: inspecionar + purge se jobs ja foram reclaimados no Postgres
+
+# 5) Se reconciler logar "Unregistered API key": SUPABASE_SERVICE_ROLE_KEY
+#    na Lambda esta invalida/rotacionada — atualizar .env.local e re-rodar deploy-workers.ps1
+```
 
 ---
 
@@ -20,7 +52,7 @@
 |---|---|---|
 | Outbox transacional | `public.chatbot_queue`, `public.outbound_jobs` (Supabase) | Vercel (webhooks) enqueue; Lambda reconciler reenvia |
 | Transporte | AWS SQS FIFO | Vercel envia via `lib/queue/sqsDispatch.ts` (`SQS_DISPATCH_ENABLED=1`) |
-| Consumo | AWS Lambda (`renthus-inbound-worker`, `renthus-outbound-worker`) | Event source mapping da SQS |
+| Consumo | AWS Lambda alias `renthus-inbound-worker:live` (+ outbound worker) | Event source mapping da SQS (Fase 15: ESM inbound **não** usa `$LATEST`) |
 | Reconciler | Lambda `renthus-outbox-reconcile` (a cada 5 min via EventBridge) | Limpa stuck + reenvia pendentes sem SQS |
 | Cleanup diário | `pg_cron` `chatbot-queue-cleanup` (04:15 UTC) | Apaga jobs terminais `done`/`failed` > 24h |
 
