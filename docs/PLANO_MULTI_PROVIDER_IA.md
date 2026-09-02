@@ -1,8 +1,9 @@
 # Plano: seleção de provider de IA por empresa (Claude ↔ GPT-5 mini)
 
 Documento de execução. Decisão de produto já tomada: **coexistência** — cada empresa escolhe
-`anthropic` (Claude Haiku 4.5) ou `openai` (GPT-5 mini); default global continua Anthropic.
-Não é migração total (Plano B foi descartado nesta rodada).
+o provider; default global continua Anthropic (`LLM_PROVIDER`). Providers suportados hoje:
+`anthropic` (Claude Haiku 4.5), `openai` (GPT-5 mini), `ollama` (local) e `groq`
+(GPT-OSS via Groq Cloud). Não é migração total (Plano B foi descartado nesta rodada).
 
 **Origem da decisão:** chat "Comparação e migração de IA no agente delivery" (2026-08-09).
 Não reabra a discussão "por que duas IAs, por que GPT-5 mini e não gpt-4o-mini" — já decidido lá.
@@ -58,8 +59,8 @@ opção), está no histórico daquele chat, não repita aqui.
 depender dela. Zero risco — nada lê essa coluna ainda.
 
 - [x] Migration nova (`supabase/migrations/20260809140000_company_settings_llm_provider.sql`):
-  `llm_provider TEXT CHECK (... IN ('anthropic','openai'))` em `company_settings`. RLS existente
-  reaproveitada (sem policy nova).
+  `llm_provider TEXT CHECK (... IN ('anthropic','openai'))` em `company_settings` (CHECK
+  ampliado depois — ver "Revisão 2026-09-02"). RLS existente reaproveitada (sem policy nova).
 - [x] Aplicada no remoto — `db push --linked` bateu em `LegacyDbPushMissingLocalError` (histórico
   remoto divergente, esperado por `supabase-migrations.mdc`); aplicado via
   `supabase db query --linked -f <arquivo>` e confirmado via `information_schema.columns`
@@ -362,14 +363,32 @@ grep de log.
 
 ---
 
+## 2.1. Revisão 2026-09-02 — CHECK `llm_provider` inclui `ollama` e `groq`
+
+**Problema:** UI/API/`modelProvider.ts` já aceitavam `ollama` e `groq`, mas o CHECK da Fase 0
+continua só com `anthropic|openai`. Selecionar Groq em Configurações → Chatbot falhava com
+`company_settings_llm_provider_check`.
+
+**Decisão (radical, causa raiz):** ampliar o CHECK — sem shim, sem dual-path.
+
+- [x] Migration `supabase/migrations/20260902180000_company_settings_llm_provider_groq_ollama.sql`:
+  `DROP CONSTRAINT` + `ADD CONSTRAINT` com
+  `IN ('anthropic','openai','ollama','groq')` (NULL = default global).
+- [x] Aplicada no remoto via MCP `apply_migration`; confirmada com
+  `pg_get_constraintdef` em `company_settings_llm_provider_check`.
+- Call sites de app já estavam alinhados (`VALID_LLM_PROVIDERS`, seletor da UI,
+  `configuredProvider` / `resolveLanguageModel`) — sem mudança de runtime nesta revisão.
+
+---
+
 ## 3. O que fica fora de escopo aqui (não abrir sem métrica/pedido novo)
 
 - BYOK (empresa trazer a própria API key) — precisaria de `lib/security/credentialCrypto.ts` pra
   guardar a chave; não foi pedido.
 - Coordenação de concorrência entre réplicas (Redis/semáforo global) — continua exigindo métrica
   de multi-réplica antes de justificar, igual já registrado em `CHATBOT_PROD.md`.
-- Terceiro provider (Gemini etc.) — a estrutura das Fases 1-5 já suporta adicionar sem redesenho,
-  mas não é escopo desta entrega.
+- Outro provider cloud (Gemini etc.) — a estrutura das Fases 1-5 + CHECK já permite estender;
+  `ollama`/`groq` já entraram depois deste plano original. Gemini continua fora até pedido/métrica.
 - Troca de provider no meio de uma conversa em andamento — aplicar override só em conversas novas
   é o comportamento natural (perfil é resolvido 1x por mensagem, no início do `runProInbound`),
   não precisa de tratamento especial adicional.
