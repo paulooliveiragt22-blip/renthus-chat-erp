@@ -214,8 +214,8 @@ Detalhe D-R4: transitório → HTTP **500** + evento `failed_retryable` (PSP ret
 | R3.1 | `/plano/pagar`: PIX + lista cartões + adicionar + retry | Um painel | [x] 2026-08-28 |
 | R3.2 | `POST /api/billing/payment-methods` (add/list/default) | Rate limit + billing_self | [x] 2026-08-28 set_default; list via status |
 | R3.3 | Set `default_card_id` após cartão aprovado no 1º pagamento | Persistido | [x] 2026-08-28 |
-| R3.4 | PIX: response sempre com `pix_qr_code` ou erro | Sem sucesso mudo | [~] já no checkout |
-| R3.5 | Banner overdue: CTA pagar / trocar cartão | Visível | [~] painel /plano/pagar |
+| R3.4 | PIX: response sempre com `pix_qr_code` ou erro | Sem sucesso mudo | [x] 2026-09-02 EMV obrigatório |
+| R3.5 | Banner overdue: CTA pagar / trocar cartão | Visível | [x] 2026-08-28 `BillingStatusBanner` → `/plano/pagar` |
 
 ### R4 — Fulfillment único
 

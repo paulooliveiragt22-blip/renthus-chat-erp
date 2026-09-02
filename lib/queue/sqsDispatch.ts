@@ -86,14 +86,15 @@ export function buildSqsEnvelope(input: DispatchJobInput, enqueuedAt = new Date(
 }
 
 /**
- * Fase 14 — MessageGroupId strategy:
- *  - inbound: `company_id` (NÃO `thread_id`) — evita bloqueio FIFO por thread individual.
- *    Cliente com5 msgs em30s em threads diferentes → grupos separados, não bloqueia.
- *    Ordem por thread pode ser preservada via Postgres `thread_locks` RPC (opcional).
- *  - outbound: `company_id` (igual à Fase 0-12).
+ * ADR-0003 canônico — MessageGroupId:
+ *  - inbound: `thread_id` (isolamento por conversa; falha não serializa a empresa)
+ *  - outbound: `company_id` (ordem/proativo por loja)
+ *
+ * Fase 14 havia trocado inbound → company_id (diagnóstico incorreto de latência).
+ * Revertido 2026-09-02 por decisão do owner — volta ao ADR original aceito 2026-08-28.
  */
 export function messageGroupIdFor(input: DispatchJobInput): string {
-    return input.companyId;
+    return input.kind === "inbound" ? input.threadId : input.companyId;
 }
 
 function queueUrlFor(kind: SqsJobKind): string {

@@ -28,6 +28,8 @@
     "build:workers": "node scripts/build-workers.mjs",
     "deploy:workers": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-workers.ps1",
     "smoke:sqs-workers": "node scripts/smoke-sqs-worker.mjs",
+    "load-test:sqs-outbox": "node scripts/load-test-sqs-outbox.mjs --count=50 --p95-max-ms=30000",
+    "validate:fase6": "node scripts/validate-fase6.mjs",
     "cleanup:cron-job-org": "node scripts/cleanup-cron-job-org.mjs",
     "alarms:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-cloudwatch-alarms.ps1",
     "alarms:setup:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-cloudwatch-alarms.ps1 -DryRun",

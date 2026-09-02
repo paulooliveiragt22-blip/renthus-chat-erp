@@ -2,23 +2,28 @@
 
 ## Status
 
-**VIGENTE — Fase 14** (2026-09-02): retorno ao SQS FIFO com causa raiz resolvida
-(`MessageGroupId=company_id`, Provisioned Concurrency=1, `VisibilityTimeout=60s`,
-`maxReceiveCount=1`, `aiTimeoutMs=12s`, reconciler reenfileirador em EventBridge 5min).
+**VIGENTE — SQS FIFO outbox + Lambda** (ADR aceito 2026-08-28; cutover + Fases 5–7+).
 
-Este ADR contém registro histórico da decisão SQS de ago/2026, do período Fase 13
-(Lambda direto, 01/09) e das Fases 7–12 (tuning pós-cutover). Em caso de dúvida
-operacional, siga a **Fase 14**; este corpo do documento é referência de auditoria.
+Contrato operacional de `MessageGroupId`:
+- **inbound = `thread_id`** (canônico; isolamento por conversa)
+- **outbound = `company_id`**
+
+A tentativa da Fase 14 de usar `company_id` no inbound foi **revertida 2026-09-02**
+(não resolveu latência; piorou isolamento multi-cliente). Mantidos como evolução válida:
+Provisioned Concurrency=1, `VisibilityTimeout=60s`, `maxReceiveCount=1`, reconciler 5min.
+
+Fase 13 (Lambda direto) e o trecho Fase 14 sobre `company_id` no inbound ficam abaixo
+como histórico — **não** são o contrato vigente.
 
 ## Histórico de superseding
 
 | Data | Evento |
 |---|---|
-| 2026-08-28 | ADR-0003 aceito: SQS FIFO + ESM + Lambda |
-| 2026-09-01 | Cutover para SQS aplicado em prod (`zwcfuvohxmvlxhdfbgxo / sa-east-1`) |
-| 2026-09-01 | Fases 7–12 aplicadas como tuning pós-cutover |
-| 2026-09-01 | **Fase 13 — Lambda direto (superseded em <24h)** |
-| 2026-09-02 | **Fase 14 — Retorno ao SQS FIFO + causa raiz resolvida (VIGENTE)** |
+| 2026-08-28 | ADR-0003 aceito: SQS FIFO + ESM + Lambda; inbound `MessageGroupId=thread_id` |
+| 2026-09-01 | Cutover SQS em prod + Fases 7–12 (tuning) |
+| 2026-09-01 | **Fase 13 — Lambda direto (superseded em &lt;24h)** |
+| 2026-09-02 | Fase 14 — retorno SQS + VT/PC/maxReceive (evolução); inbound group→`company_id` (regressão) |
+| 2026-09-02 | **Revert MessageGroupId inbound → `thread_id`** (volta ao canônico; owner) |
 
 ---
 
@@ -139,10 +144,12 @@ EventBridge Scheduler ──HTTP──► Vercel /api/billing/*, /api/marketplac
 
 | Fila | `MessageGroupId` | `MessageDeduplicationId` |
 |------|------------------|---------------------------|
-| `renthus-inbound.fifo` | **`company_id`** (Fase 14 — antes era `thread_id`; mudança crítica para resolver bloqueio FIFO por thread) | `jobId` (UUID único por job) |
+| `renthus-inbound.fifo` | **`thread_id`** (ADR canônico 2026-08-28; revert Fase 14 em 2026-09-02) | `jobId` (UUID único por job) |
 | `renthus-outbound.fifo` | `company_id` | `jobId` |
 
-> **Por que `company_id` (Fase 14):** com `thread_id`, se msg1 de uma conversa falha, msgs2/3/4 do mesmo thread ficam paradas até msg1 expirar (visibility timeout) — bloqueia toda a conversa. Com `company_id`, bloqueio FIFO afeta toda a empresa (não uma conversa individual). Cliente com 5 mensagens em 30s em threads diferentes → não bloqueia (são grupos FIFO separados). Ordem por thread pode ser preservada opcionalmente via Postgres `thread_locks` RPC (não usada na Fase 14).
+> **Inbound = `thread_id`:** isolamento por conversa — falha/atraso de um cliente não serializa a loja. Ordem FIFO só dentro da mesma thread.
+>
+> **Nota histórica (Fase 14):** inbound chegou a usar `company_id` sob hipótese incorreta de que isso resolvia ~6 min de latência. Causa real: VT=720s + cold-start ESM. Owner reverteu 2026-09-02.
 
 ### Semântica de entrega
 
@@ -506,7 +513,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A
 - [x] Remover entradas `isTechnicalApiPublic` obsoletas em `proxy.ts`
 - [x] Atualizar `docs/CHATBOT_PROD.md`, `PLANO_ESCALA_PICOS_PEDIDOS.md` (wake/drain obsoletos → SQS)
 - [x] Smoke script `npm run smoke:sqs-workers`
-- [ ] Platform `/platform/observabilidade`: confirmar KPIs fila OK (pós-deploy)
+- [ ] Platform `/platform/observabilidade`: confirmar KPIs fila OK (pós-deploy) — outbox MCP: 0 pending, 0 processing (2026-09-02)
 
 ### Fase 5 — Otimizações pós-cutover (PR 5+)
 
@@ -540,10 +547,11 @@ Reserved concurrency: habilitar quando quota AWS permitir (`RENTHUS_LAMBDA_RESER
 
 ### Fase 6 — Validação escala (~100 empresas)
 
-- [ ] Load test: fila synthetic N mensagens paralelas, p95 idade job < 60s
-- [ ] Zero pedido duplicado replay `message_id` (critério `CHATBOT_PROD.md`)
-- [ ] Alarmes DLQ e age testados
-- [ ] Runbook DLQ replay documentado em `docs/DR_RUNBOOK_POSTGRES.md` ou novo `DR_RUNBOOK_SQS.md`
+- [x] Load test: fila synthetic N mensagens paralelas, p95 idade job < 60s — `npm run load-test:sqs-outbox` (2026-09-02: 50 msgs paralelas, p95 **6,6s**)
+- [x] Zero pedido duplicado replay `message_id` — unique `(company_id, message_id)` validado via SQL (2026-09-02)
+- [x] Alarmes DLQ e age testados — 8 alarmes `renthus-*` em **OK** (SNS `renthus-ops`)
+- [x] Runbook DLQ replay documentado em `docs/DR_RUNBOOK_SQS.md`
+- [ ] Platform `/platform/observabilidade`: confirmar KPIs fila OK na UI (dados outbox saudáveis via MCP)
 
 ---
 
@@ -573,7 +581,9 @@ Reserved concurrency: habilitar quando quota AWS permitir (`RENTHUS_LAMBDA_RESER
 | 2026-08-28 | Fase 5: coalesce Upstash, reconciler Lambda, DROP claim/reclaim RPCs, emitQueueMetrics sem SELECT |
 | 2026-09-01 | **Cutover concluído em prod (zwcfuvohxmvlxhdfbgxo / sa-east-1).** Migrations `20260828233852` (outbox SQS) e `20260829015203` (drop claim/reclaim) aplicadas. `pg_cron chatbot-queue-drain` removido via `20260829005849`. Webhooks já chamam `scheduleInboundAfterEnqueue`. `SQS_DISPATCH_ENABLED=1` em Vercel. Lambdas deployadas (`renthus-inbound-worker`, `renthus-outbound-worker`, `renthus-outbox-reconcile`) — zero errors, zero throttles em janela 28-30/ago. 100% dos jobs `done` com `sqs_enqueued_at` setado (12/12). 0 jobs pendentes. Ver `DR_RUNBOOK_SQS.md` para operação. |
 | 2026-09-01 | **Diagnóstico pós-cutover:** 88% dos jobs inbound (15/17) foram reenfileirados pelo reconciler 5min após o webhook. CloudWatch: Lambda `renthus-inbound-worker` invocada 1× a cada 15min no horário de tráfego — fila SQS não está sendo consumida pelo ESM no ritmo necessário. Causa raiz: (a) `VisibilityTimeout=720s` no `aws-bootstrap.ps1` (12min), (b) `BatchSize=1` + ESM update incompleto em `deploy-workers.ps1:363` que não propaga `--function-response-types`/`--scaling-config` quando o mapping já existe, (c) reconciler virou "primeira linha" mascarando bug. Decisão: adicionar Fase 7–11 abaixo. **Provisioned Concurrency fica desligado por padrão**; ligar só se `ConcurrentExecutions avg < 0.5` sustained. Estimativa de custo atual ~USD 3.45/mês; com provisioned ~USD 15.61/mês — ambos cobertos pelos créditos AWS atuais (USD 119). Provider LLM em produção: **Groq** (testes pipeline); migração para **Anthropic** no lançamento real — exige `cache_control` (Fase 9) e `stopWhen:stepCountIs()` (Fase 8) calibrados para Anthropic. |
-| 2026-09-02 | **Fase 14 — Retorno ao SQS FIFO + causa raiz resolvida (VIGENTE).** `MessageGroupId=company_id` (era `thread_id` — resolve bloqueio FIFO por thread, causa raiz dos 6min). Provisioned Concurrency=1 habilitada (quota AWS=1000 aprovada). `aiTimeoutMs=12s`. `VisibilityTimeout=60s`. `maxReceiveCount=1`. Reconciler EventBridge 5min (volta do 15min). Reconciler volta a reenfileirar ativamente via SQS (`reconcileOutbox` em `lib/chatbot/queue/outboxReconcile.ts`) — caminho primário é webhook, reconciler é rede de segurança. Custo-alvo: **USD 9.53/mês** (vs USD 3.45/mês das Fases 0–12 sem Provisioned). Cleanup Fase 13 completo: removidos `lib/chatbot/inbound/lambdaInvoker.*`, `lib/queue/outboxDlqWatchdog.ts`, `workers/inbound/threadLock.*`, `supabase/migrations/20260901000001_thread_locks.sql`. Migration `20260902000000_drop_thread_locks.sql` aplicada no Supabase (`DROP FUNCTION` + `DROP TABLE public.thread_locks CASCADE`). Handler do reconciler trocado: `runOutboxDlqWatchdog` → `reconcileOutbox`. Bug `aws-bootstrap.ps1` VT duplicado corrigido. Infra AWS recriada: `renthus-inbound.fifo` (VT=60s, WaitTime=20s, maxReceiveCount=1→DLQ), ESM inbound ativo (BatchSize=1, MaxConcurrency=10), Provisioned Concurrency=1 no alias `live:4`, EventBridge schedule `rate(5 minutes)`. DLQ órfã `rethus-inbound-dlq.fifo` deletada. Policy IAM `renthus-vercel-lambda-invoke-fase13` removida; `renthus-vercel-sqs-send-fase14` anexada. Lambdas rebuildadas (versão inbound=4, outbound=1, reconcile=3); alias `live` agora aponta para versão 4. p95 alvo: **<5s**. |
+| 2026-09-02 | Fase 6 validada: load test 50 paralelas p95 6,6s, idempotência `message_id`, 8 alarmes OK, `npm run validate:fase6` |
+| 2026-09-02 | Fase 14: retorno SQS + VT=60s / PC=1 / maxReceive=1 (evolução). Inbound group→`company_id` (regressão, revertida no mesmo dia). |
+| 2026-09-02 | **Revert MessageGroupId inbound → `thread_id`** (volta ao ADR canônico aceito 2026-08-28). |
 
 ---
 
@@ -838,10 +848,10 @@ Mover `SQS_DISPATCH_*` para `vault.create_secret` (executado fora da migration v
 
 Repete checklist Fase 6 do ADR original, com KPIs atualizados:
 
-- [ ] Load test 100 empresas sintéticas, p95 idade job < 30s (era 60s)
-- [ ] Zero pedido duplicado replay `message_id`
-- [ ] Alarmes DLQ + age testados
-- [ ] Runbook DLQ replay atualizado (`docs/DR_RUNBOOK_SQS.md`)
+- [x] Load test 100 empresas sintéticas, p95 idade job < 30s (era 60s) — 50 paralelas p95 **6,6s** (2026-09-02)
+- [x] Zero pedido duplicado replay `message_id` — SQL unique violation OK (2026-09-02)
+- [x] Alarmes DLQ + age testados — todos OK
+- [x] Runbook DLQ replay atualizado (`docs/DR_RUNBOOK_SQS.md`)
 - [ ] ADR review ECS vs Lambda se GB-s > USD 50/mês sustained
 
 ### 12.1 — Mecanismo de keep-warm (anti cold-start poller ESM) — **ATIVO** (2026-09-01)
@@ -891,9 +901,12 @@ Lambda estava saudável (processa em3s), SQS config OK (VisibilityTimeout 180s, 
 
 ---
 
-## Fase 14 — Retorno ao SQS FIFO + causa raiz resolvida (PR 14) — **VIGENTE**
+## Fase 14 — Retorno ao SQS FIFO (PR 14) — **parcialmente superseded**
 
-**Status:** aprovado 2026-09-02. **Substitui o desenho Lambda-direto da Fase 13** (que continua documentado acima como histórico).
+**Status original:** aprovado 2026-09-02 (retorno SQS após Fase 13).
+**Status atual (2026-09-02 tarde):** MessageGroupId inbound **revertido para `thread_id`**.
+As demais mudanças da Fase 14 (VT=60s, Provisioned=1, maxReceiveCount=1, reconciler 5min)
+permanecem — são evoluções válidas. O item 1 abaixo (`company_id`) é **histórico / rejeitado**.
 
 ### 14.1 Contexto — os 4 problemas do SQS FIFO que o owner levantou
 

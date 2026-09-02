@@ -6,10 +6,10 @@
 > fila SQS FIFO, o que fazer quando a DLQ dispara e como operar o reconciler Lambda.
 
 **Projeto:** Renthus Chat + ERP
-**Fila inbound (Fase 12 — descontinuada):** `renthus-inbound.fifo` (`MessageGroupId = thread_id`) — **deletada na Fase 13**
+**Fila inbound (vigente):** `renthus-inbound.fifo` (`MessageGroupId = thread_id` — ADR canônico; Fase 14 `company_id` revertida)
 **Fila outbound (mantida):** `renthus-outbound.fifo` (`MessageGroupId = company_id`)
-**DLQ inbound (descontinuada):** `renthus-inbound-dlq.fifo` — **deletada na Fase 13**
-**DLQ outbound (mantida):** `renthus-outbound-dlq.fifo`
+**DLQ inbound:** `renthus-inbound-dlq.fifo`
+**DLQ outbound:** `renthus-outbound-dlq.fifo`
 **Região:** `sa-east-1`
 
 ---

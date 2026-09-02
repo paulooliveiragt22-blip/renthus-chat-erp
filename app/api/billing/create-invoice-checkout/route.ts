@@ -18,8 +18,6 @@ import {
     getPagarmeOrder,
     extractOrderCustomerId,
     extractCardIdFromOrder,
-    getMonthlyPriceCents,
-    getSetupPriceCents,
     centsToBRL,
     isOrderCreditPaid,
     listCustomerCards,
@@ -28,6 +26,10 @@ import { fulfillPayment } from "@/lib/billing/fulfillPayment";
 import { buildPagarmeCustomerPayload } from "@/lib/billing/buildPagarmeCustomerFromCompany";
 import { getPlanLabel } from "@/lib/billing/planCatalog";
 import { isUniqueViolation } from "@/lib/billing/isUniqueViolation";
+import {
+    loadCheckoutContext,
+    checkoutOrderLabels,
+} from "@/lib/billing/ensureCheckout";
 
 export const runtime = "nodejs";
 
@@ -227,55 +229,14 @@ export async function POST(req: Request) {
             return NextResponse.json(payload);
         };
 
-        const { data: sub, error: subErr } = await admin
-            .from("pagarme_subscriptions")
-            .select("id, plan, status, pagarme_customer_id")
-            .eq("company_id", companyId)
-            .maybeSingle();
-
-        if (subErr) return NextResponse.json({ error: subErr.message }, { status: 500 });
-        if (!sub) {
-            return NextResponse.json({ error: "Assinatura não encontrada" }, { status: 404 });
+        const ctx = await loadCheckoutContext(admin, companyId);
+        if ("error" in ctx) {
+            return NextResponse.json({ error: ctx.error }, { status: ctx.status });
         }
 
-        // Primeiro pagamento = taxa de setup (pending_setup ou trial com setup > 0).
-        // pending_payment (pay-to-start) e mensalidade = invoice.
-        const plan = String(sub.plan ?? "essencial");
-        const setupCents = getSetupPriceCents(plan);
-        const isFirstPayment =
-            sub.status === "pending_setup" ||
-            (sub.status === "trial" && setupCents > 0);
-
-        // Busca registro pendente de acordo com o tipo de pagamento
-        const [{ data: pendingSetup }, { data: pendingInv }] = await Promise.all([
-            admin
-                .from("setup_payments")
-                .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
-                .eq("company_id", companyId)
-                .eq("status", "pending")
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle(),
-            admin
-                .from("invoices")
-                .select("id, amount, pagarme_order_id, pagarme_payment_url, pix_qr_code")
-                .eq("company_id", companyId)
-                .eq("status", "pending")
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle(),
-        ]);
-
-        const pendingRecord = isFirstPayment ? pendingSetup : pendingInv;
-
-        let amountCents: number;
-        if (pendingRecord?.amount) {
-            amountCents = Math.round(Number(pendingRecord.amount) * 100);
-        } else if (isFirstPayment) {
-            amountCents = getSetupPriceCents(plan);
-        } else {
-            amountCents = getMonthlyPriceCents(plan);
-        }
+        const { sub, strategy, pendingSetup, pendingInv, pendingRecord } = ctx;
+        const { isFirstPayment, amountCents } = strategy;
+        const plan = sub.plan;
 
         const { data: company, error: compErr } = await admin
             .from("companies")
@@ -299,7 +260,7 @@ export async function POST(req: Request) {
             meta:             (company.meta as Record<string, unknown> | null) ?? null,
         });
 
-        const metaType = isFirstPayment ? "setup" : "invoice";
+        const metaType = strategy.metaType;
         const orderMeta = {
             type:            metaType,
             company_id:      companyId,
@@ -307,6 +268,7 @@ export async function POST(req: Request) {
             plan:            String(plan),
         };
         const planLabel = getPlanLabel(plan);
+        const labels = checkoutOrderLabels(strategy, planLabel);
 
         if (paymentMethod === "credit_card") {
             const token = body.card_token?.trim();
@@ -339,10 +301,8 @@ export async function POST(req: Request) {
                 }
                 order = await createOrderWithSavedCard({
                     amountCents,
-                    description: isFirstPayment
-                        ? `Taxa de ativação Renthus — Plano ${planLabel}`
-                        : `Mensalidade Renthus — Plano ${planLabel}`,
-                    itemCode: isFirstPayment ? "setup" : "mensalidade",
+                    description: labels.description,
+                    itemCode: labels.itemCode,
                     customerId,
                     cardId: savedCardId,
                     recurrence: !isFirstPayment,
@@ -376,12 +336,10 @@ export async function POST(req: Request) {
 
                 order = await createSetupOrder({
                     amountCents,
-                    description:     isFirstPayment
-                        ? `Taxa de ativação Renthus — Plano ${planLabel}`
-                        : `Mensalidade Renthus — Plano ${planLabel}`,
+                    description:     labels.description,
                     installments,
                     cardToken:       token!,
-                    itemCode:        isFirstPayment ? "setup" : "mensalidade",
+                    itemCode:        labels.itemCode,
                     holderDocument:  cnpjDigits || undefined,
                     customerId:      sub.pagarme_customer_id ?? undefined,
                     customer:        !sub.pagarme_customer_id ? customerBase : undefined,
@@ -498,23 +456,29 @@ export async function POST(req: Request) {
 
         const created = await createPixInvoiceOrder({
             amountCents,
-            description: isFirstPayment
-                ? `Taxa de ativação Renthus — Plano ${planLabel}`
-                : `Mensalidade Renthus — Plano ${planLabel}`,
-            itemCode:   isFirstPayment ? "setup" : "mensalidade",
+            description: labels.description,
+            itemCode:   labels.itemCode,
             customerId: sub.pagarme_customer_id ?? undefined,
             customer:   !sub.pagarme_customer_id ? customerBase : undefined,
             additionalInfo: [
                 { name: "Empresa", value: companyLabel },
-                { name: "Tipo",    value: isFirstPayment ? "Taxa de ativação" : "Mensalidade" },
+                { name: "Tipo",    value: labels.tipoLabel },
             ],
             metadata: orderMeta,
         });
 
         const { order, pixCode, pixUrl } = await resolvePixFromOrder(created);
 
-        if (!pixCode && !pixUrl) {
-            return NextResponse.json({ error: "Erro ao gerar PIX" }, { status: 500 });
+        // B3.7: EMV (copia-e-cola) obrigatório — URL sozinha não basta
+        if (!pixCode || !String(pixCode).trim()) {
+            return NextResponse.json(
+                {
+                    error: "pix_emv_unavailable",
+                    message:
+                        "Não foi possível obter o código PIX copia-e-cola. Tente novamente em alguns segundos.",
+                },
+                { status: 502 }
+            );
         }
 
         try {

@@ -12,9 +12,18 @@ As variáveis `PAGARME_*` já estão na Vercel — **não precisa** replicar no 
 | Página | `/plano/pagar` |
 | Webhook | `https://renthus-chat-erp.vercel.app/api/billing/webhook` |
 
-**Conta de teste:** owner/admin de loja com `pagarme_subscriptions.status` em `pending_setup`, `pending_payment` ou `overdue` (várias lojas de teste no banco).
+**Conta de teste sugerida (never-paid / pending_setup):**  
+`paulooliveiragt22@gmail.com` — empresas `pending_setup` com `setup_payments` pending no banco.
 
-> Confirme no dashboard Pagar.me que as chaves na Vercel são **`sk_test_` / `pk_test_`** (sandbox). Se forem `sk_` / `pk_` live, os testes cobram de verdade.
+```powershell
+$env:E2E_SKIP_WEBSERVER="1"
+$env:E2E_BASE_URL="https://renthus-chat-erp.vercel.app"
+$env:E2E_EMAIL="paulooliveiragt22@gmail.com"
+$env:E2E_PASSWORD="..."   # senha do owner — não versionar
+npm run test:e2e:billing
+```
+
+> Sem `E2E_PASSWORD` o Playwright faz skip. Defina no shell (não commit no `.env.local` se o repo for compartilhado).
 
 ---
 

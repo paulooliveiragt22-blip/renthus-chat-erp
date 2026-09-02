@@ -8,7 +8,8 @@
  *
  * Usage:
  *   node scripts/load-test-sqs-outbox.mjs
- *   node scripts/load-test-sqs-outbox.mjs --count=50 --p95-max-ms=60000
+ *   node scripts/load-test-sqs-outbox.mjs --count=50 --p95-max-ms=30000
+ *   node scripts/load-test-sqs-outbox.mjs --count=30 --sequential
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -44,11 +45,22 @@ function loadDotEnv(path) {
 }
 
 function parseArgs(argv) {
-    const out = { count: 30, p95MaxMs: 60_000, pollMs: 2_000, timeoutMs: 120_000 };
+    const out = {
+        count: 30,
+        p95MaxMs: 60_000,
+        pollMs: 2_000,
+        timeoutMs: 180_000,
+        sequential: false,
+        skipIdempotency: false,
+        companyId: "",
+    };
     for (const a of argv) {
         if (a.startsWith("--count=")) out.count = Math.max(1, Number(a.slice(8)) || 30);
         if (a.startsWith("--p95-max-ms=")) out.p95MaxMs = Math.max(1000, Number(a.slice(13)) || 60_000);
-        if (a.startsWith("--timeout-ms=")) out.timeoutMs = Math.max(10_000, Number(a.slice(13)) || 120_000);
+        if (a.startsWith("--timeout-ms=")) out.timeoutMs = Math.max(10_000, Number(a.slice(13)) || 180_000);
+        if (a.startsWith("--company-id=")) out.companyId = a.slice(13).trim();
+        if (a === "--sequential") out.sequential = true;
+        if (a === "--skip-idempotency") out.skipIdempotency = true;
     }
     return out;
 }
@@ -65,16 +77,22 @@ function sleep(ms) {
 
 const env = { ...loadDotEnv(join(root, ".env.local")), ...process.env };
 const region = env.AWS_REGION || "sa-east-1";
+const awsProfile = env.AWS_PROFILE || "renthus";
+if (!env.AWS_ACCESS_KEY_ID) {
+    process.env.AWS_PROFILE = awsProfile;
+}
 const opts = parseArgs(process.argv.slice(2));
 
 const sqs = new SQSClient({
     region,
-    credentials: env.AWS_ACCESS_KEY_ID
+    ...(env.AWS_ACCESS_KEY_ID
         ? {
-              accessKeyId: env.AWS_ACCESS_KEY_ID,
-              secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+              credentials: {
+                  accessKeyId: env.AWS_ACCESS_KEY_ID,
+                  secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+              },
           }
-        : undefined,
+        : {}),
 });
 
 const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -92,18 +110,26 @@ async function visibleCount(queueUrl) {
     const r = await sqs.send(
         new GetQueueAttributesCommand({
             QueueUrl: queueUrl,
-            AttributeNames: [
-                "ApproximateNumberOfMessages",
-                "ApproximateNumberOfMessagesNotVisible",
-                "ApproximateAgeOfOldestMessage",
-            ],
+            AttributeNames: ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"],
         })
     );
     const a = r.Attributes ?? {};
+    let ageSec = 0;
+    try {
+        const ageRes = await sqs.send(
+            new GetQueueAttributesCommand({
+                QueueUrl: queueUrl,
+                AttributeNames: ["ApproximateAgeOfOldestMessage"],
+            })
+        );
+        ageSec = Number(ageRes.Attributes?.ApproximateAgeOfOldestMessage ?? 0);
+    } catch {
+        /* empty FIFO queue may not expose age */
+    }
     return {
         visible: Number(a.ApproximateNumberOfMessages ?? 0),
         inFlight: Number(a.ApproximateNumberOfMessagesNotVisible ?? 0),
-        ageSec: Number(a.ApproximateAgeOfOldestMessage ?? 0),
+        ageSec,
     };
 }
 
@@ -158,12 +184,18 @@ async function assertMessageIdIdempotency(companyId) {
 
 async function main() {
     const queueUrl = await resolveQueueUrl(env.SQS_INBOUND_QUEUE_URL?.trim());
-    const seed = await seedCompanyThread();
+    const seed = opts.companyId
+        ? { company_id: opts.companyId, thread_id: randomUUID() }
+        : await seedCompanyThread();
     console.log("[load] queue", queueUrl);
     console.log("[load] seed company/thread", seed.company_id, seed.thread_id);
-    console.log("[load] count", opts.count, "p95 max ms", opts.p95MaxMs);
+    console.log("[load] count", opts.count, "p95 max ms", opts.p95MaxMs, "mode", opts.sequential ? "sequential" : "parallel");
 
-    await assertMessageIdIdempotency(seed.company_id);
+    if (!opts.skipIdempotency) {
+        await assertMessageIdIdempotency(seed.company_id);
+    } else {
+        console.log("[load] skip idempotency probe (--skip-idempotency)");
+    }
 
     const before = await visibleCount(queueUrl);
     if (before.visible + before.inFlight > 5) {
@@ -174,13 +206,16 @@ async function main() {
     const t0 = Date.now();
     for (let i = 0; i < opts.count; i++) {
         const jobId = randomUUID();
-        const groupId = `loadtest-${seed.thread_id}`;
+        // ADR canônico: MessageGroupId = thread_id (parallel = synthetic thread per msg)
+        const companyId = seed.company_id;
+        const threadId = opts.sequential ? seed.thread_id : randomUUID();
+        const groupId = threadId;
         const body = JSON.stringify({
             v: 1,
             kind: "inbound",
             jobId,
-            companyId: seed.company_id,
-            threadId: seed.thread_id,
+            companyId,
+            threadId,
             enqueuedAt: new Date().toISOString(),
         });
         const sent = Date.now();
@@ -189,7 +224,6 @@ async function main() {
                 QueueUrl: queueUrl,
                 MessageBody: body,
                 MessageGroupId: groupId,
-                // FIFO: same group → ordered; unique dedup per message
                 MessageDeduplicationId: jobId,
             })
         );

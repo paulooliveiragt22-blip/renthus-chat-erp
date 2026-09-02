@@ -3,9 +3,9 @@ import { describe, it } from "node:test";
 import { parseSqsEnvelope } from "../../lib/queue/sqsEnvelope";
 import { visibilityTimeoutSecondsForAttempts } from "../../workers/shared/sqsRetryVisibility";
 
-// ADR-0003 Fase 14: SQS-first. inbound + outbound usam SQS (MessageGroupId=company_id).
+// ADR-0003: SQS-first. inbound MessageGroupId=thread_id; outbound=company_id.
 describe("sqsEnvelope", () => {
-    it("parses valid v1 inbound envelope (Fase 14)", () => {
+    it("parses valid v1 inbound envelope", () => {
         const raw = JSON.stringify({
             v: 1,
             kind: "inbound",

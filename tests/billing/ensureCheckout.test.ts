@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import { afterEach, describe, it } from "node:test";
+import { resolveCheckoutStrategy, checkoutOrderLabels } from "../../lib/billing/ensureCheckout";
+
+describe("resolveCheckoutStrategy (B3.6)", () => {
+    const prev = { ...process.env };
+
+    afterEach(() => {
+        process.env = { ...prev };
+    });
+
+    it("pending_setup → setup mesmo com SETUP=0", () => {
+        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "0";
+        const s = resolveCheckoutStrategy("pending_setup", "essencial", null);
+        assert.equal(s.kind, "setup");
+        assert.equal(s.isFirstPayment, true);
+        assert.equal(s.metaType, "setup");
+    });
+
+    it("pending_payment → invoice (1ª fatura)", () => {
+        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "49700";
+        const s = resolveCheckoutStrategy("pending_payment", "essencial", null);
+        assert.equal(s.kind, "invoice");
+        assert.equal(s.isFirstPayment, false);
+        assert.equal(s.metaType, "invoice");
+    });
+
+    it("trial + setup>0 → setup", () => {
+        process.env.SETUP_PRICE_PRO_CENTS = "10000";
+        const s = resolveCheckoutStrategy("trial", "pro", null);
+        assert.equal(s.kind, "setup");
+        assert.equal(s.isFirstPayment, true);
+    });
+
+    it("trial + setup=0 → invoice", () => {
+        process.env.SETUP_PRICE_ESSENCIAL_CENTS = "0";
+        process.env.SETUP_PRICE_BOT_CENTS = "0";
+        const s = resolveCheckoutStrategy("trial", "essencial", null);
+        assert.equal(s.kind, "invoice");
+        assert.equal(s.isFirstPayment, false);
+    });
+
+    it("overdue/active → invoice (renovação)", () => {
+        const a = resolveCheckoutStrategy("active", "market", 197);
+        const o = resolveCheckoutStrategy("overdue", "market", null);
+        assert.equal(a.kind, "invoice");
+        assert.equal(o.kind, "invoice");
+        assert.equal(a.amountCents, 19700);
+    });
+
+    it("checkoutOrderLabels alinhado", () => {
+        const setup = resolveCheckoutStrategy("pending_setup", "essencial", null);
+        assert.match(checkoutOrderLabels(setup, "Essencial").description, /Taxa de ativação/);
+        const inv = resolveCheckoutStrategy("pending_payment", "essencial", null);
+        assert.match(checkoutOrderLabels(inv, "Essencial").description, /Mensalidade/);
+    });
+});

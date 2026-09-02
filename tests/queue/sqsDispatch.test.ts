@@ -41,10 +41,10 @@ describe("sqsDispatch", () => {
         assert.strictEqual(isSqsDispatchEnabled(), true);
     });
 
-    it("buildSqsEnvelope v1 contract — outbound (Fase 13: inbound removido)", () => {
+    it("buildSqsEnvelope v1 contract", () => {
         const env = buildSqsEnvelope(
             {
-                kind: "outbound",
+                kind: "inbound",
                 jobId: "job-1",
                 companyId: "co-1",
                 threadId: "th-1",
@@ -53,7 +53,7 @@ describe("sqsDispatch", () => {
         );
         assert.deepStrictEqual(env, {
             v: 1,
-            kind: "outbound",
+            kind: "inbound",
             jobId: "job-1",
             companyId: "co-1",
             threadId: "th-1",
@@ -61,15 +61,15 @@ describe("sqsDispatch", () => {
         });
     });
 
-    it("messageGroupId: outbound=company (Fase 13: inbound=thread não existe mais)", () => {
+    it("messageGroupId: inbound=thread, outbound=company (ADR-0003 canônico)", () => {
         assert.strictEqual(
             messageGroupIdFor({
-                kind: "outbound",
+                kind: "inbound",
                 jobId: "j",
                 companyId: "c",
                 threadId: "t",
             }),
-            "c"
+            "t"
         );
         assert.strictEqual(
             messageGroupIdFor({

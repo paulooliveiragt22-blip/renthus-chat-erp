@@ -25,6 +25,7 @@
     "lib/billing/canProcessInboundChannel.ts",
     "lib/billing/fulfillPayment.ts",
     "lib/billing/collectPayment.ts",
+    "lib/billing/ensureCheckout.ts",
     "lib/billing/collectionPolicy.ts",
     "lib/billing/contracts/**/*.ts",
     "lib/billing/ports/**/*.ts",

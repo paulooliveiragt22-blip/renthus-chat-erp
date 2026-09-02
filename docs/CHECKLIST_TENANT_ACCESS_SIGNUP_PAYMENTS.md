@@ -177,12 +177,12 @@ DELETE / deprecar
 | B3.3 | Idempotência setup_payments igual | idem | [x] 2026-08-28 |
 | B3.4 | Checkout sync card paid **só** chama `FulfillPayment` (não lógica paralela) | Diff limpo | [x] 2026-08-28 |
 | B3.5 | Webhook: erro transitório → **500** + `failed_retryable`; permanente → **200** + `billing_fulfill_failures`; lifecycle do event (E1) | Retries PSP seguros; sem evento perdido | [x] 2026-08-28 |
-| B3.6 | `EnsureCheckout`: uma estratégia first_invoice vs setup vs renewal | Sem misturar tabelas |
-| B3.7 | PIX: EMV obrigatório no response ou erro explícito + retry | UI sempre com copia-e-cola ou mensagem clara |
-| B3.8 | Metadata order: `type`, `company_id`, `subscription_id` sempre | Webhook roteável |
-| B3.9 | Pós-pago: inválido cache entitlements; redirect `/ativar` | UX + gate |
-| B3.10 | Testes: webhook duplo, sync+webhook race, PIX backfill EMV | Verde |
-| B3.11 | Smoke sandbox cartão + PIX no deploy | Runbook S3/S4 |
+| B3.6 | `EnsureCheckout`: uma estratégia first_invoice vs setup vs renewal | Sem misturar tabelas | [x] 2026-09-02 `lib/billing/ensureCheckout.ts` |
+| B3.7 | PIX: EMV obrigatório no response ou erro explícito + retry | UI sempre com copia-e-cola ou mensagem clara | [x] 2026-09-02 checkout 502 sem EMV |
+| B3.8 | Metadata order: `type`, `company_id`, `subscription_id` sempre | Webhook roteável | [x] 2026-08-28 `orderMeta` |
+| B3.9 | Pós-pago: inválido cache entitlements; redirect `/ativar` | UX + gate | [x] 2026-08-28 panel + proxy |
+| B3.10 | Testes: webhook duplo, sync+webhook race, PIX backfill EMV | Verde | [x] gate matrix + pixExtract + ensureCheckout |
+| B3.11 | Smoke sandbox cartão + PIX no deploy | Runbook S3/S4 | [x] API smoke; E2E S3/S4 pendente credenciais |
 
 ### B4 — Canais / side effects pós-signup
 
