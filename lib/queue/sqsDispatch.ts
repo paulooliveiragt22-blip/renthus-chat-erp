@@ -10,7 +10,7 @@
  */
 
 import "server-only";
-import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import { SQSClient, SendMessageCommand, type SQSClientConfig } from "@aws-sdk/client-sqs";
 import type { AdminClient } from "@/lib/chatbot/queue/types";
 import type { SqsEnvelopeV1, SqsJobKind } from "./sqsEnvelope";
 
@@ -50,10 +50,27 @@ function resolveAwsRegion(): string {
 }
 
 function getSqsClient(): SQSClient | null {
-    if (!cachedClient) {
-        const region = resolveAwsRegion();
-        cachedClient = new SQSClient({ region });
+    if (cachedClient) return cachedClient;
+    const region = resolveAwsRegion();
+
+    // AWS SDK v3: sem `credentials` explícito, o cliente busca via cadeia de providers:
+    //   1. env vars (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY) — funciona em Lambda SOMENTE se já houver
+    //   2. ~/.aws/credentials (AWS CLI profile) — funciona em dev local, NÃO na Vercel
+    //   3. EC2/ECS/Lambda instance metadata — só funciona em compute AWS
+    //
+    // Vercel NÃO é AWS: roda Node.js puro em container serverless sem IAM Role.
+    // Sem credentials explícitas, SQSClient falha silenciosamente em runtime.
+    //
+    // Workaround: se as env vars existirem (caso Vercel), passar credentials explícitas.
+    // Em Lambda, deixa o SDK pegar via IAM Role automaticamente.
+    const config: SQSClientConfig = { region };
+    const accessKeyId = process.env.AWS_ACCESS_KEY_ID?.trim();
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY?.trim();
+    if (accessKeyId && secretAccessKey) {
+        config.credentials = { accessKeyId, secretAccessKey };
     }
+
+    cachedClient = new SQSClient(config);
     return cachedClient;
 }
 
