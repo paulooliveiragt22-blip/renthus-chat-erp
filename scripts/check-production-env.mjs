@@ -18,13 +18,24 @@ const required = [
     "CRON_SECRET",
     "SUPABASE_SERVICE_ROLE_KEY",
     "WHATSAPP_APP_SECRET",
-    "PAGARME_WEBHOOK_SECRET",
+    "PAGARME_API_KEY",
 ];
 
 const missing = required.filter((k) => !process.env[k]?.trim());
 if (missing.length) {
     console.error("[check-production-env] Variáveis ausentes:", missing.join(", "));
     process.exit(1);
+}
+
+// Pagar.me Core v5: sem secret HMAC no painel. HMAC opcional/legado.
+if (process.env.PAGARME_WEBHOOK_SECRET?.trim()) {
+    console.log(
+        "[check-production-env] PAGARME_WEBHOOK_SECRET set (legado/opcional) — só rejeita se X-Hub-Signature vier e não bater."
+    );
+} else {
+    console.log(
+        "[check-production-env] Sem PAGARME_WEBHOOK_SECRET — webhook v5 OK; pago confirmado via GET /orders na API."
+    );
 }
 
 if (!process.env.PLATFORM_ADMIN_IP_ALLOWLIST?.trim()) {

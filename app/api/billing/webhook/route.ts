@@ -1,14 +1,23 @@
 /**
  * POST /api/billing/webhook
  *
- * Eventos: order.paid / charge.paid → FulfillPayment
+ * Pagar.me Core v5: o webhook é **notificação**, não fonte da verdade.
+ * Em `order.paid` / `charge.paid` → GET `/orders/:id` na API → só então `FulfillPayment`.
+ *
+ * Auth: sem Basic Auth no painel. HMAC `PAGARME_WEBHOOK_SECRET` é opcional/legado
+ * (só rejeita se header + secret estiverem presentes e não baterem).
+ *
  * Política E1: transitório → 500 + failed_retryable; permanente → 200 + dead-letter
  */
 
 import { NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyWebhookSignature } from "@/lib/billing/pagarme";
+import {
+    getPagarmeOrder,
+    isPagarmeOrderPaid,
+    verifyWebhookSignature,
+} from "@/lib/billing/pagarme";
 import { billingLog } from "@/lib/billing/billingLog";
 import {
     tryConsumePagarmeWebhookEvent,
@@ -20,7 +29,8 @@ import { extractWebhookOrderId, webhookConsumeKey } from "@/lib/billing/webhookI
 import {
     fulfillPayment,
     isPermanentFulfillError,
-    isRetryableFulfillError,
+    RetryableFulfillError,
+    PermanentFulfillError,
 } from "@/lib/billing/fulfillPayment";
 import {
     enforceIpRateLimitAsync,
@@ -41,16 +51,10 @@ export async function POST(req: Request) {
     );
     if (limited) return limited;
 
-    const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
-    if (isProd && !process.env.PAGARME_WEBHOOK_SECRET?.trim()) {
-        console.error("[billing/webhook] PAGARME_WEBHOOK_SECRET obrigatório em produção");
-        return NextResponse.json({ error: "server_misconfigured" }, { status: 500 });
-    }
-
     const rawBody = await req.text();
     const signature = req.headers.get("x-hub-signature") ?? "";
 
-    const valid = await verifyWebhookSignature(rawBody, signature.replaceAll("sha256=", ""));
+    const valid = await verifyWebhookSignature(rawBody, signature);
     if (!valid) {
         return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
     }
@@ -122,7 +126,7 @@ export async function POST(req: Request) {
                         customer: (data?.customer ?? ord.customer) as { id?: string } | undefined,
                     });
                 } else {
-                    throw new Error("charge.paid sem id do pedido");
+                    throw new PermanentFulfillError("charge.paid sem id do pedido");
                 }
                 break;
             }
@@ -172,19 +176,50 @@ export async function POST(req: Request) {
     }
 }
 
+/**
+ * Notificação → confirma paid na API → FulfillPayment (mesmo núcleo do sync).
+ */
 async function handleOrderPaid(
     admin: ReturnType<typeof createAdminClient>,
-    order: Record<string, unknown>
+    orderHint: Record<string, unknown>
 ) {
+    const orderId = typeof orderHint.id === "string" ? orderHint.id.trim() : "";
+    if (!orderId) {
+        throw new PermanentFulfillError("order.paid sem order.id");
+    }
+
+    let apiOrder;
+    try {
+        apiOrder = await getPagarmeOrder(orderId);
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new RetryableFulfillError(`GET order PSP falhou: ${msg}`);
+    }
+
+    if (!isPagarmeOrderPaid(apiOrder)) {
+        billingLog("webhook", "psp_not_paid_yet", {
+            order_id: orderId,
+            status: apiOrder.status,
+            charge_status: apiOrder.charges?.[0]?.status,
+        });
+        throw new RetryableFulfillError(
+            `order ${orderId} ainda não paid na API (status=${apiOrder.status})`
+        );
+    }
+
     const result = await fulfillPayment(admin, {
-        id: order.id as string | undefined,
-        metadata: (order.metadata ?? {}) as Record<string, string>,
-        customer: order.customer as { id?: string } | undefined,
+        id: apiOrder.id,
+        metadata: {
+            ...((orderHint.metadata as Record<string, string> | undefined) ?? {}),
+            ...((apiOrder.metadata as Record<string, string> | undefined) ?? {}),
+        },
+        customer: apiOrder.customer ?? (orderHint.customer as { id?: string } | undefined),
     });
     billingLog("webhook", "fulfill_ok", {
-        order_id: order.id,
+        order_id: apiOrder.id,
         kind: result.kind,
         already_done: result.alreadyDone ?? false,
+        source: "api_confirmed",
     });
 }
 

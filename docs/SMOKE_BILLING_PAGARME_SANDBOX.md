@@ -59,9 +59,9 @@ npm run test:billing-sandbox
 
 | Variável | Exemplo | Onde |
 |----------|---------|------|
-| `PAGARME_API_KEY` | `sk_test_...` | **Vercel** (já configurado na main) |
-| `NEXT_PUBLIC_PAGARME_PUBLIC_KEY` | `pk_test_...` | **Vercel** |
-| `PAGARME_WEBHOOK_SECRET` | (HMAC do painel) | Vercel |
+| `PAGARME_API_KEY` | `sk_test_…` / `sk_live_…` | **Vercel** (+ local smoke) |
+| `NEXT_PUBLIC_PAGARME_PUBLIC_KEY` | `pk_test_…` | **Vercel** |
+| `PAGARME_WEBHOOK_SECRET` | (opcional/legado) | Vercel — **não** existe no painel Core v5; HMAC só se `X-Hub-Signature` vier |
 
 Local `.env.local` **opcional** — só para `npm run test:billing-sandbox` ou Playwright com `E2E_BASE_URL` local.
 
@@ -94,6 +94,8 @@ Sem isso, `/plano/pagar` falha ao tokenizar cartão (`NEXT_PUBLIC_PAGARME_PUBLIC
 URL: `https://renthus-chat-erp.vercel.app/api/billing/webhook`
 
 Eventos mínimos: `order.paid`, `charge.paid` (opcional `order.payment_failed`).
+
+**Auth v5:** sem usuário/senha no hook e sem secret HMAC no painel. O handler confirma `paid` via `GET /orders/:id` antes de liberar. `PAGARME_WEBHOOK_SECRET` no env é legado/opcional.
 
 **Health:** `GET /api/billing/webhook-health` com `Authorization: Bearer $CRON_SECRET` — Sentry se pending+order e zero eventos/24h.
 

@@ -637,13 +637,24 @@ export async function resolvePixFromOrder(order: PagarmeOrder): Promise<{
     return { order: current, pixCode, pixUrl, gatewayStub };
 }
 
-/** Verifica assinatura HMAC-SHA256 do webhook do Pagar.me */
+/**
+ * Assinatura HMAC do webhook — legado / opcional.
+ *
+ * Pagar.me Core **v5** (hookset no painel) **não** documenta secret HMAC nem exige
+ * `X-Hub-Signature`. Autenticação opcional no painel = Basic Auth (user/senha) que o
+ * PSP envia para a nossa URL — não é o mesmo que HMAC.
+ *
+ * Postbacks v3/v4 usavam HMAC-SHA1 com a Secret Key. Se o header vier e
+ * `PAGARME_WEBHOOK_SECRET` estiver setado, valida SHA-256 (compat). Sem header /
+ * sem secret → `true` (fonte da verdade do pago = GET `/orders/:id`).
+ */
 export async function verifyWebhookSignature(
     rawBody: string,
     signature: string
 ): Promise<boolean> {
-    const secret = process.env.PAGARME_WEBHOOK_SECRET;
-    if (!secret) return true; // sem segredo configurado: ignora verificação (dev)
+    const secret = process.env.PAGARME_WEBHOOK_SECRET?.trim();
+    const sig = signature.replaceAll(/^sha256=/i, "").trim();
+    if (!secret || !sig) return true;
 
     const key = await crypto.subtle.importKey(
         "raw",
@@ -661,7 +672,12 @@ export async function verifyWebhookSignature(
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
 
-    return computed === signature;
+    return computed === sig;
+}
+
+/** Order/charge considerado pago na API Pagar.me (fonte da verdade). */
+export function isPagarmeOrderPaid(order: PagarmeOrder): boolean {
+    return isOrderCreditPaid(order);
 }
 
 /** Preço em centavos para cada plano (configurável via env nos legados) */
