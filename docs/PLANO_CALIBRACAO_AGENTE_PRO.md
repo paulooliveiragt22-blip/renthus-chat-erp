@@ -6,7 +6,7 @@
 
 Cronologia de aplicação dos quatro pilares. Marcar `[x]` só com evidência. Emenda = linha na §5 + nota datada.
 
-**Implementação em curso (2026-09-03):** C1 + C1b + C1c feitos. Pendente: C2+.
+**Implementação em curso (2026-09-03):** C1–C4 eng feitos. Pendente: C4.4 smoke E (ops) + C5.
 
 ---
 
@@ -113,23 +113,38 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A · `[~]` decisão só (sem c
 - [x] **C1c.2** CTA degradado alinhado a D6; métrica `pro_pipeline.ai_degraded` com `reason`
 - [x] **C1c.3** Testes: wallet empty → outbound com web; `no_subscription` sem CTA
 
-### C2 — Matching e dados
+### C2 — Matching e dados (P0.1, P0.2)
 
-- [ ] C2.1–C2.4 (checklist loja, fixtures, picks, métricas) — inalterados em intenção; ver histórico ADR
+- [-] **C2.1** Checklist dados loja piloto (ops: sigla, volume, fator, preço, estoque, EAN/código) — fora do hot path de código
+- [x] **C2.2** Fixtures B: corpus versionado `matching-corpus.v1` (≥15 casos)
+- [x] **C2.3** Pending picks → prepare allowlist-safe (texto / opção / hábito)
+- [x] **C2.4** Métricas: `prepare_blocked_allowlist`, `search_hits_zero`, `pending_pick_abandon`
+
+**Saída C2:** corpus mínimo no lab; allowlist nunca bypass no hot path.
 
 ### C3 — Prompts e tools
 
-- [ ] C3.1–C3.4 — sem afrouxar allowlist/confirmação
+- [x] **C3.1** System curto / proibições: preamble alinhado (não listar opções); `SYSTEM_HARD_RULES_PT` + testes
+- [x] **C3.2** Force path: prepare unívoco só com qty explícita; `resolve_pending_picks` sem qty=1 silencioso; `shouldForceResolvePendingPicks` exportado; nudge search sem repetir
+- [x] **C3.3** Guidance `ok:false` já canónico (prepare/search) — sem afrouxar allowlist
+- [x] **C3.4** `respond_to_customer` description: proíbe “pedido criado” / “digite sim”; botões no servidor (C1)
+
+**Saída C3:** force-prepare alinhado a qty; allowlist/confirmação intactos.
 
 ### C4 — Avaliação / smoke
 
-- [ ] C4.1–C4.4 — traces, cassetes, smoke SQS
+- [x] **C4.1** Trace: `PRO_PIPELINE_TURN_TRACE` em `CHATBOT_PROD` + `deploy-workers.ps1`; testes upsert mock; validação SQL staging documentada no runbook
+- [x] **C4.2** ≥3 cassetes CI: `tests/fixtures/replay/cassettes.v1.json` + `c4CassetteReplay.test.ts` (nível C; threads PII = ops via `npm run replay`)
+- [x] **C4.3** Smoke/runbook: caminho feliz = SQS + Lambda (ADR-0003); `process-queue` removido dos pré-voos
+- [ ] **C4.4** Matriz E mínima (S1–S3 + S5/S5b + handover) executada no WA e datada na §5 — **ops / você**
+
+**Saída C4 eng:** pirâmide A–C no repo; E checklist pronta; transporte alinhado.
 
 ### C5 — Resiliência de efeito
 
-- [ ] **C5.1** Idempotência create/outbound sob SQS
-- [ ] **C5.2** 429 → retry; esgotado → caminho D6 (não bolha falsa)
-- [ ] **C5.3** STT fail-safe
+- [x] **C5.1** Idempotência: `create_order_with_items` usa `companyId:threadId:messageId` como chave — wamid único garante sem duplicata em redelivery SQS; `outbound_jobs` tem `dedup_key` + unique index; `processOutboundJobById` retorna `job_not_runnable` se já terminal. Testes de regressão em `c5Resilience.test.ts`.
+- [x] **C5.2** `QueueRetryableError` + `isQueueRetryableError`: 429/rate-limit/circuit → retry com backoff exponencial (teto 120s); `runProInbound` propaga sem bolha falsa; circuit esgotado → `AI_RATE_LIMIT` → `QueueRetryableError` → D6 após redeliveries. Testes `c5Resilience` + `runQueueEntry` + `llmResilience` cobrem.
+- [x] **C5.3** STT fail-safe: qualquer exceção em `tryTranscribeInboundAudio` → `null` (catch silencioso); transcrição vazia detectada no adapter (`SttProviderError`); wallet debit best-effort (warn sem bloquear); limites documentados em `CHATBOT_PROD`. Testes `c5Resilience`.
 
 ---
 
@@ -172,13 +187,16 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A · `[~]` decisão só (sem c
 | 2026-09-03 | C1b.3 | `consumeCheckoutHandoff` + 3 testes | Pedido web com `hc` limpa draft WA |
 | 2026-09-03 | C1c | `degradedReason` + CTA `cta_url` + testes D6 | 429 continua retry; `no_subscription` sem CTA |
 | 2026-09-03 | C1.5–C1.6 | R2 hints/handoff/finalize + métricas outcome/HITL | |
-| | C2… | | |
+| 2026-09-03 | C2 eng | corpus v1 + métricas matching + volume/habit pending | C2.1 = ops loja |
+| 2026-09-03 | C3 | preamble/force qty/respond description | allowlist intacta |
+| 2026-09-03 | C4.1–C4.3 | trace env+test, cassettes.v1 CI, smoke SQS | C4.4 = smoke E manual |
+| 2026-09-03 | C5.1–C5.3 | idempotência + retry + STT fail-safe + testes | `c5Resilience.test.ts` 14/14 |
 
 ---
 
 ## 6. Definição de pronto (épico)
 
-- [ ] C1 + C1b + C1c + C2–C4 com evidência na §5  
+- [x] C1 + C1b + C1c + C2–C5 eng com evidência na §5  
 - [ ] P0.1–P0.5 e P0.11 fechados ou aceitos com data  
 - [ ] Smoke E em SQS cutover  
 - [ ] Nenhum caminho prosa fecha pedido; D6 não mascara paywall  
@@ -194,6 +212,10 @@ Fora de escopo agora: fine-tune; reescrever `pipeline_*`; retorno WebView; marke
 | Slots / confirm / HITL | `orderSlotStep`, `orderConfirmationText`, `resolvePendingOrderConfirmation`, `hitlConfirmationMetrics` |
 | Canal checkout / handoff / R2 | `checkoutChannelPolicy`, `consumeCheckoutHandoff`, `orderDraftGate` |
 | D6 degradado | `aiCapabilityProfile.degraded` |
+| Matching / corpus | `matchingCorpus`, `pendingPickPrepareAllowlist` |
+| Prompts / force (C3) | `c3PromptsAndForcePaths`, `forcePrepareAfterEmbalagemChoice` |
+| Avaliação C4 | `pipelineTurnTrace`, `c4CassetteReplay`, `replayRecorder`; smoke E: `SMOKE_AGENT_LOOP_WHATSAPP.md` §C4.4 |
+| Resiliência C5 | `c5Resilience`; `runQueueEntry`; `llmResilience`; `agentSecurityResilience` |
 | Pipeline / allowlist / picks | `proPipeline`, `prepareOrderDraftAllowlist`, `pendingPickGroups`, … |
 | Degradado / capability | `aiCapabilityProfile` tests, `aiOrderModePolicy` |
 | Handoff / menu | `tests/public-menu/*` |

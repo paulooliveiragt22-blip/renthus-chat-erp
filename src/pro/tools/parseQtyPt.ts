@@ -50,3 +50,15 @@ export function parsePtQuantity(value: unknown): number | null {
     }
     return null;
 }
+
+/**
+ * C3.2 — true se a mensagem do cliente traz quantidade explícita (dígito, por extenso,
+ * ou artigo numeral "um/uma"). Alinha force-prepare à regra do system prompt
+ * ("não assuma quantity=1").
+ */
+export function hasExplicitOrderQuantityInText(text: string): boolean {
+    const raw = String(text ?? "").trim();
+    if (!raw) return false;
+    if (/\b\d{1,3}\b/u.test(raw)) return true;
+    return parsePtQuantity(raw) != null;
+}

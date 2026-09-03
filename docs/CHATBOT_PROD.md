@@ -296,12 +296,13 @@ Entrada: `lib/chatbot/processMessage.ts` — se o plano for **PRO**, chama só `
 | Variável | Valor | Comportamento |
 |----------|--------|----------------|
 | `PRO_PIPELINE_METRICS_STORE` | `supabase` | Grava eventos de métrica do PRO em `pro_pipeline_metric_events` (camada 2). Omitir ou outro valor ⇒ só `ConsoleMetricsAdapter` (log + ingest HTTP opcional). |
+| `PRO_PIPELINE_TURN_TRACE` | (off) | `1` / `true` / `on` grava turno em `pipeline_turn_traces` (replay). **Só staging / calibração** — custo de storage + PII no payload. Workers: incluir em `.env.local` e redeploy (`deploy-workers.ps1`). |
 | `LLM_PROVIDER` | (omissão = **anthropic**) | Fallback global. **Cada empresa pode sobrescrever via `company_settings.llm_provider`** (Configurações → Chatbot → "Motor de IA", RBAC owner/admin — sem allowlist, qualquer empresa pode escolher `openai`/`groq`/…). Resolvido em `src/pro/adapters/ai/modelProvider.ts` (`resolveLanguageModel`, Vercel AI SDK); consumido por `AiServiceAdapter` (PRO), `intentClassifier.service.ts` (intent) e `sessionMemory.llm.ts`. Workers Lambda: propagado por `deploy-workers.ps1` a partir do `.env.local`. |
 | `LLM_MODEL` | default do provider | Ex.: `claude-haiku-4-5-20251001` (Anthropic), `gpt-5-mini` (OpenAI) ou `openai/gpt-oss-120b` (Groq). |
 | `OPENAI_API_KEY` | — | Obrigatório se provider efetivo = `openai` e/ou STT Whisper. |
 | `GROQ_API_KEY` | — | Obrigatório se provider efetivo = `groq` (`hasLlmApiKey` + `resolveLanguageModel`). Plataforma (não por empresa). |
-| `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. |
-| `LLM_STT_MODEL` | `gpt-4o-mini-transcribe` | Modelo STT OpenAI (`whisper-1`, `gpt-4o-transcribe`, …). Debita carteira IA por minuto. |
+| `LLM_STT_PROVIDER` | auto | `openai` se houver `OPENAI_API_KEY`; `none` desliga. Transcreve áudio WhatsApp → texto no `incoming`. **Fail-safe C5.3:** qualquer falha de rede/API/transcrição vazia retorna `null` silenciosamente — pipeline continua sem texto de áudio, sem criar draft. |
+| `LLM_STT_MODEL` | `gpt-4o-mini-transcribe` | Modelo STT OpenAI (`whisper-1`, `gpt-4o-transcribe`, …). Debita carteira IA por minuto. Débito best-effort: se carteira vazia, transcrição é pulada (`[stt] skipped: AI wallet empty`); se débito falhar pós-transcrição, loga warn e retorna texto normalmente (sem bloquear). |
 | `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Teto de chamadas Anthropic em paralelo **por instância** (gate próprio, não compartilhado com OpenAI). Não substitui quota Anthropic nem coordena entre réplicas serverless. |
 | `OPENAI_CHATBOT_MAX_IN_FLIGHT` | (omissão = **8**) | Mesmo teto acima, gate independente pra chamadas OpenAI (empresas com `llm_provider="openai"`). |
 | `ANTHROPIC_CIRCUIT_OPEN_MS` | (omissão = **30000**) | Após 3× HTTP 429 seguidos numa chamada Anthropic, abre circuit breaker local por N ms (`anthropic_circuit_open`) — só afeta empresas no provider Anthropic. |

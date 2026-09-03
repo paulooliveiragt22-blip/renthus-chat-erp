@@ -101,9 +101,10 @@ describe("shouldForcePrepareAfterUnambiguousSearch", () => {
         prepareInvokedThisTurn: false,
         searchInvokedThisTurn: true,
         allowlistNowCount: 1,
+        userText: "quero 2 heineken",
     };
 
-    it("força prepare após search unívoco sem prepare", () => {
+    it("força prepare após search unívoco sem prepare (com qty)", () => {
         assert.equal(shouldForcePrepareAfterUnambiguousSearch(base), true);
     });
 
@@ -124,6 +125,13 @@ describe("shouldForcePrepareAfterUnambiguousSearch", () => {
     it("não força sem search neste turno", () => {
         assert.equal(
             shouldForcePrepareAfterUnambiguousSearch({ ...base, searchInvokedThisTurn: false }),
+            false
+        );
+    });
+
+    it("não força sem quantidade explícita (C3.2)", () => {
+        assert.equal(
+            shouldForcePrepareAfterUnambiguousSearch({ ...base, userText: "quero heineken" }),
             false
         );
     });

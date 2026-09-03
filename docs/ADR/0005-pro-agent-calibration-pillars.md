@@ -59,16 +59,16 @@ Bug em E desce para A/B/C.
 
 | ID | Tema | Nota |
 |----|------|------|
-| P0.1 | Multi-item + embalagem ambígua | |
-| P0.2 | Matching catálogo | |
+| P0.1 | Multi-item + embalagem ambígua | Fechado em C2 (corpus + pending→prepare) |
+| P0.2 | Matching catálogo | Fechado em C2 eng (fixtures B); C2.1 ops loja permanece |
 | P0.3 | HITL regex → **só botão** | Decisão tomada; código pendente C1.2 |
 | P0.4 | Slots vs mensagens curtas | |
 | P0.5 | Endereço / zona / mínimo | Fechado em C1.5 (hints R2 + handoff gating + finalize estrutural; zona/min já em prepare) |
 | P0.6 | Idempotência efeito (SQS) | |
 | P0.7 | LLM 429 / falha API | Ver **D6** (retry vs cardápio) |
 | P0.8 | STT | |
-| P0.9 | Traces | |
-| P0.10 | Smoke ≠ `process-queue` | ADR-0003 |
+| P0.9 | Traces | C4.1: flag documentada + write path testado; staging liga `PRO_PIPELINE_TURN_TRACE=1` no Lambda |
+| P0.10 | Smoke ≠ `process-queue` | C4.3: smoke/runbook alinhados a SQS+Lambda |
 | P0.11 | Reason codes de degradação | Hoje `degradado` mistura sem plano / sem crédito / IA off — ver D6 |
 
 Handover e Starter: **não** reabrir como P0.
@@ -197,10 +197,10 @@ Handover e Starter: **não** reabrir como P0.
 | **C1** | Gates + HITL botão + slots (R1–R2 policy no doc) |
 | **C1b** | `resolveCheckoutChannel` + handoff meta + consume `hc` (feito) |
 | **C1c** | D6 reason codes + CTA degradado → web (feito) |
-| **C2** | Matching/dados |
-| **C3** | Prompts/tools |
-| **C4** | Avaliação / smoke ADR-0003 |
-| **C5** | Idempotência, 429→retry, STT |
+| **C2** | Matching corpus + métricas + volume/habit (feito; C2.1 ops loja) |
+| **C3** | Prompts/force qty/`respond_to_customer` (feito; allowlist intacta) |
+| **C4** | Avaliação: traces + cassettes CI + smoke SQS docs (C4.4 E = ops) |
+| **C5** | Idempotência (create + outbound), 429→retry→D6, STT fail-safe |
 
 Detalhe: [`PLANO_CALIBRACAO_AGENTE_PRO.md`](../PLANO_CALIBRACAO_AGENTE_PRO.md).
 

@@ -10,6 +10,7 @@ import {
     groupsPastSafetyNet,
     resolvePendingPickGroupsFromFreeText,
 } from "./pendingPickGroups";
+import { loadCompanySiglas } from "./customerPackagingHabit";
 import { buildClarificationButtons } from "./stages/checkoutPostProcess";
 
 function groupToLegacyPicks(group: PendingPickGroup) {
@@ -26,6 +27,8 @@ export type ServerResolvePendingPicksResult = {
     /** Não-vazio ⇒ turno resolvido no servidor (chamador deve encerrar sem chamar a IA). */
     outbound: OutboundMessage[];
     handled: boolean;
+    /** C2.4 — grupos que passaram do teto e viraram botão (abandono do free-text). */
+    escalatedToButtons: boolean;
 };
 
 /**
@@ -52,10 +55,19 @@ export async function serverResolvePendingPicksFromFreeText(params: {
     const { admin, companyId, customerId, userText } = params;
     const groups = params.state.pendingPickGroups ?? [];
     if (!groups.length) {
-        return { state: params.state, outbound: [], handled: false };
+        return { state: params.state, outbound: [], handled: false, escalatedToButtons: false };
     }
 
-    const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(groups, userText);
+    let companySiglas: Awaited<ReturnType<typeof loadCompanySiglas>> = [];
+    try {
+        companySiglas = await loadCompanySiglas(admin, companyId);
+    } catch {
+        companySiglas = [];
+    }
+
+    const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(groups, userText, {
+        companySiglas,
+    });
 
     let state = params.state;
     if (resolved.length) {
@@ -88,6 +100,7 @@ export async function serverResolvePendingPicksFromFreeText(params: {
             state: { ...state, pendingPickGroups: [], lastSearchPicks: [] },
             outbound: [],
             handled: false,
+            escalatedToButtons: false,
         };
     }
 
@@ -100,12 +113,23 @@ export async function serverResolvePendingPicksFromFreeText(params: {
         if (card) outbound.push(card);
     }
     if (stillFreeText.length) {
-        outbound.push({ kind: "text", text: buildPickClarificationFreeText(stillFreeText) });
+        outbound.push({
+            kind: "text",
+            text: buildPickClarificationFreeText(stillFreeText),
+        });
     }
 
     return {
-        state: { ...state, pendingPickGroups: stillFreeText },
+        state: {
+            ...state,
+            /** Grupos escalados saem do pending (UI de botão usa outbound); free-text permanece. */
+            pendingPickGroups: stillFreeText,
+            lastSearchPicks: escalate.length
+                ? escalate.flatMap((g) => groupToLegacyPicks(g))
+                : [],
+        },
         outbound,
         handled: true,
+        escalatedToButtons: escalate.length > 0,
     };
 }

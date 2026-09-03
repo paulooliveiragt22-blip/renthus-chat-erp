@@ -14,6 +14,7 @@ import {
     buildPrepareDraftGuidanceForModel,
     type PrepareOrderDraftCatalogPolicy,
 } from "@/src/pro/tools/prepareOrderDraft";
+import { countAllowlistRejectionErrors } from "@/src/pro/pipeline/matchingMetrics";
 import type { TurnState } from "./turnState";
 
 /**
@@ -138,6 +139,11 @@ export function createPrepareOrderDraftTool(deps: {
             deps.turnState.prepareInvokedThisTurn = true;
             deps.turnState.lastPrepareOutcome = { ok: prepared.ok, errors: [...prepared.errors] };
 
+            const allowlistRejectedCount = countAllowlistRejectionErrors(prepared.errors);
+            if (allowlistRejectedCount > 0) {
+                deps.turnState.matchingMetrics.prepareBlockedAllowlist += allowlistRejectedCount;
+            }
+
             deps.onPrepareDraftToolResult?.({
                 companyId: deps.companyId,
                 threadId: deps.threadId,
@@ -147,6 +153,7 @@ export function createPrepareOrderDraftTool(deps: {
                 hasAddress: hasAddressPayload,
                 payment_method: toolInput.paymentMethod ?? null,
                 draftItemCount: nextDraft?.items?.length ?? 0,
+                allowlistRejectedCount,
             });
 
             const allowedIds = allowedEmbalagemIds.length ? [...allowedEmbalagemIds] : [];

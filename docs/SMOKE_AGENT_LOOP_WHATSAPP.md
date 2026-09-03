@@ -6,14 +6,19 @@ Checklist operacional pós-refatoração (ReAct + tools). Complementa [`SMOKE_RU
 
 ## Pré-voo (2 min)
 
+Transporte canónico = **SQS FIFO + Lambda** ([ADR-0003](./ADR/0003-sqs-outbox-lambda.md)).  
+`GET /api/chatbot/process-queue` **não existe** no cutover — não use cron-job.org nesse path.
+
 | Check | OK? |
 |-------|-----|
 | Empresa `tier === "pro"`, bot ativo, catálogo com ≥1 produto UN e (ideal) CX | ☐ |
-| `CHATBOT_QUEUE_ENABLED=1`, `CRON_SECRET`, chave LLM | ☐ |
-| Wake ou cron → `GET /api/chatbot/process-queue` 200 | ☐ |
+| `CHATBOT_QUEUE_ENABLED=1`, `SQS_DISPATCH_ENABLED=1`, filas + workers Lambda | ☐ |
+| Chave LLM no worker; opcional calibração: `PRO_PIPELINE_TURN_TRACE=1` (staging) | ☐ |
 | Número de teste limpo (ou sessão idle / cancelar rascunho antes) | ☐ |
 
-**Onde olhar se falhar:** logs do worker, `chatbot_queue.status`, `context.__pro_v2_state` na sessão, métricas `pro_ai.prepare_order_draft`.
+**Sanidade transporte:** após 1 msg WA → `chatbot_queue` `pending`→`done`; CloudWatch Lambda inbound sem erro; opcional `npm run smoke:sqs-workers` (skip path).
+
+**Onde olhar se falhar:** CloudWatch Lambda, `chatbot_queue.status` / `sqs_enqueued_at`, `context.__pro_v2_state`, métricas `pro_ai.prepare_order_draft`, traces se flag ligada.
 
 ---
 
@@ -179,9 +184,26 @@ Automação de lab: `tests/pro/orderConfirmationText.test.ts` + HITL intent. Est
 
 ---
 
+## Matriz E mínima (C4.4) — antes do piloto
+
+Checklist curto para datar no [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) §5. Rode no WA real (SQS cutover).
+
+| ID | Passos smoke | OK? |
+|----|--------------|-----|
+| E1 | **S1** saudação + FAQ entrega | ☐ |
+| E2 | **S2** qty+SKU unívoco | ☐ |
+| E3 | **S3** multi-item / ambiguidade (botão pick) | ☐ |
+| E4 | **S5** + **S5b** — prosa `sim` não fecha; botão Confirmar (bot + HITL) fecha | ☐ |
+| E5 | Handover / cardápio: botão Abrir cardápio ou degradado D6 com `cta_url` (se forçar) | ☐ |
+
+Lab A–C (não substitui E): `npm test` cobre gates, corpus matching, `c4CassetteReplay`, traces mock.
+
+---
+
 ## GO / NO-GO (agent loop)
 
-**GO** se S1–S8 passam (S9 opcional) e S4 criou exatamente 1 pedido pelo botão Confirmar.
+**GO** se S1–S8 passam (S9 opcional) e S4 criou exatamente 1 pedido pelo botão Confirmar.  
+**Piloto mínimo:** matriz E (C4.4) acima + S5/S5b verdes.
 
 **NO-GO** se:
 - `sim`/`ok` finalizou pedido  

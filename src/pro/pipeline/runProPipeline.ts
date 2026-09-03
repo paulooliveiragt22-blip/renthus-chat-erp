@@ -17,6 +17,8 @@ import {
     type AiOrderModePolicy,
 } from "@/lib/chatbot/aiOrderModePolicy";
 import { buildAiDegradedOutbound } from "@/lib/chatbot/aiCapabilityProfile";
+import { MATCHING_METRICS } from "./matchingMetrics";
+import { hasExplicitOrderQuantityInText } from "@/src/pro/tools/parseQtyPt";
 import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, policiesFromAiCapability, DEFAULT_PRO_POLICIES, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -665,6 +667,13 @@ export async function runProPipeline(
                     { name: "pro_pipeline.pending_pick_free_text", value: 1 },
                     { name: "pro_pipeline.outbound_count", value: pendingResolve.outbound.length },
                 ];
+                if (pendingResolve.escalatedToButtons) {
+                    metrics.push({
+                        name: "pro_pipeline.pending_pick_abandon",
+                        value: 1,
+                        tags: { reason: "safety_net" },
+                    });
+                }
                 flushPipelineRunMetrics(
                     deps.metrics,
                     input.tenant,
@@ -945,6 +954,8 @@ export async function runProPipeline(
     let checkoutOrderHints: Record<string, unknown> | null = null;
     let aiLimitExceeded = false;
     let addressFreeTextSignaled = false;
+    let matchingPrepareBlocked = 0;
+    let matchingSearchHitsZero = 0;
     /** Sem crédito / IA off: menu/status/handover ok; pedido por IA bloqueado (D6). */
     let aiDegradedThisTurn = false;
     if (routed.mode === "ai" && !llmEnabled) {
@@ -1030,6 +1041,7 @@ export async function runProPipeline(
                 decision.intent === "order_intent" &&
                 !infoOnly &&
                 singleOfferAllowlist &&
+                hasExplicitOrderQuantityInText(inboundTextForPipeline) &&
                 (nextState.step === "pro_collecting_order" ||
                     nextState.step === "pro_idle" ||
                     nextState.checkoutEditHold === true);
@@ -1052,6 +1064,10 @@ export async function runProPipeline(
             aiServiceErrorCode = ai.aiResult.errorCode;
             aiToolRoundsUsed = Number(ai.aiResult.signals.toolRoundsUsed ?? 0) || 0;
             addressFreeTextSignaled = ai.aiResult.signals.addressFreeText === true;
+            matchingPrepareBlocked =
+                Number(ai.aiResult.signals.matchingMetrics?.prepareBlockedAllowlist ?? 0) || 0;
+            matchingSearchHitsZero =
+                Number(ai.aiResult.signals.matchingMetrics?.searchHitsZero ?? 0) || 0;
             nextState = bumpAiTurnCount(ai.state, aiPolicy, nowMs);
             outbound.push(...ai.outbound);
             logSessionDraftSnapshot(deps.logger, "pro_pipeline.post_ai_session", input.tenant, nextState, {
@@ -1252,6 +1268,20 @@ export async function runProPipeline(
             name: "pro_pipeline.ai_turn_limit_exceeded",
             value: 1,
             tags: { intent: decision.intent, reason: "ai_turn_limit" },
+        });
+    }
+    if (matchingPrepareBlocked > 0) {
+        runMetrics.push({
+            name: MATCHING_METRICS.prepareBlockedAllowlist,
+            value: matchingPrepareBlocked,
+            tags: { intent: decision.intent },
+        });
+    }
+    if (matchingSearchHitsZero > 0) {
+        runMetrics.push({
+            name: MATCHING_METRICS.searchHitsZero,
+            value: matchingSearchHitsZero,
+            tags: { intent: decision.intent },
         });
     }
     appendAiOutcomeMetrics(runMetrics, decision.intent, invalidAiSanitized, aiServiceErrorCode);

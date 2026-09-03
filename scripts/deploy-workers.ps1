@@ -206,7 +206,9 @@ $envKeys = @(
     "SENTRY_DSN",
     "NEXT_PUBLIC_APP_URL",
     "SQS_DISPATCH_ENABLED",
-    "CHATBOT_QUEUE_STALE_MINUTES"
+    "CHATBOT_QUEUE_STALE_MINUTES",
+    "PRO_PIPELINE_METRICS_STORE",
+    "PRO_PIPELINE_TURN_TRACE"
 )
 
 $dotenvPath = if ($EnvFile) { $EnvFile } else { Join-Path $Root ".env.local" }

@@ -20,6 +20,8 @@ export type ChatCatalogPublicItem = {
     preco_venda: number | null;
     volume_quantidade: number | string | null;
     unit_type_sigla: string | null;
+    /** Ex.: "350 ml" — composto no servidor para UI/clarify (C2). */
+    volume_label: string | null;
     fator_conversao: number | null;
     tags: string | null;
     /** Só booleano de disponibilidade — nunca quantidade em estoque. */
@@ -54,6 +56,23 @@ const SENSITIVE_KEYS = new Set([
     "is_active",
 ]);
 
+/** Compõe rótulo de volume para busca/clarify (ex.: "350 ml"). */
+export function formatCatalogVolumeLabel(
+    volumeQuantidade: number | string | null | undefined,
+    unitTypeSigla: string | null | undefined
+): string | null {
+    if (volumeQuantidade == null || volumeQuantidade === "") return null;
+    const qty =
+        typeof volumeQuantidade === "number"
+            ? Number.isFinite(volumeQuantidade)
+                ? String(volumeQuantidade)
+                : ""
+            : String(volumeQuantidade).trim();
+    if (!qty) return null;
+    const unit = String(unitTypeSigla ?? "").trim();
+    return unit ? `${qty} ${unit}` : qty;
+}
+
 export function toChatCatalogPublicItem(row: Record<string, unknown>): ChatCatalogPublicItem {
     const id = String(row.id ?? "").trim();
     const estoque = Number(row.estoque_unidades);
@@ -65,6 +84,11 @@ export function toChatCatalogPublicItem(row: Record<string, unknown>): ChatCatal
 
     const preco = Number(row.preco_venda);
     const fator = Number(row.fator_conversao);
+    const volume_quantidade =
+        row.volume_quantidade == null || row.volume_quantidade === ""
+            ? null
+            : (row.volume_quantidade as number | string);
+    const unit_type_sigla = String(row.unit_type_sigla ?? "").trim() || null;
 
     return {
         id,
@@ -76,11 +100,9 @@ export function toChatCatalogPublicItem(row: Record<string, unknown>): ChatCatal
         informacoes: String(row.informacoes ?? "").trim() || null,
         sigla_comercial: String(row.sigla_comercial ?? "").trim() || null,
         preco_venda: Number.isFinite(preco) ? preco : null,
-        volume_quantidade:
-            row.volume_quantidade == null || row.volume_quantidade === ""
-                ? null
-                : (row.volume_quantidade as number | string),
-        unit_type_sigla: String(row.unit_type_sigla ?? "").trim() || null,
+        volume_quantidade,
+        unit_type_sigla,
+        volume_label: formatCatalogVolumeLabel(volume_quantidade, unit_type_sigla),
         fator_conversao: Number.isFinite(fator) && fator > 0 ? fator : null,
         tags: String(row.tags ?? "").trim() || null,
         disponivel,

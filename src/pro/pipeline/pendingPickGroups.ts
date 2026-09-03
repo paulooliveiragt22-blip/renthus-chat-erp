@@ -12,6 +12,8 @@
  */
 import { resolveSegmentPick } from "./resolveSegmentPick";
 import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
+import { formatCatalogVolumeLabel } from "@/src/pro/tools/catalogPublicDto";
+import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
 import type { PendingPickGroup, PendingPickOption } from "@/src/types/contracts";
 
 export type { PendingPickGroup, PendingPickOption };
@@ -58,6 +60,9 @@ type SourceRow = {
     sigla_comercial?: string | null;
     preco_venda?: number | string | null;
     fator_conversao?: number | string | null;
+    volume_quantidade?: number | string | null;
+    unit_type_sigla?: string | null;
+    volume_label?: string | null;
 };
 
 export function buildPendingPickGroup(
@@ -69,16 +74,22 @@ export function buildPendingPickGroup(
         productKey,
         productLabel,
         unresolvedTurns: 0,
-        options: rows.slice(0, MAX_OPTIONS_PER_GROUP).map((r) => ({
-            embalagemId: String(r.id),
-            displayName: String(r.display_name ?? "").trim() || null,
-            productName: String(r.product_name ?? "").trim() || null,
-            siglaComercial: String(r.sigla_comercial ?? "").trim() || null,
-            precoVenda: Number.isFinite(Number(r.preco_venda)) ? Number(r.preco_venda) : null,
-            fatorConversao: Number.isFinite(Number(r.fator_conversao))
-                ? Number(r.fator_conversao)
-                : null,
-        })),
+        options: rows.slice(0, MAX_OPTIONS_PER_GROUP).map((r) => {
+            const volumeLabel =
+                String(r.volume_label ?? "").trim() ||
+                formatCatalogVolumeLabel(r.volume_quantidade, r.unit_type_sigla);
+            return {
+                embalagemId: String(r.id),
+                displayName: String(r.display_name ?? "").trim() || null,
+                productName: String(r.product_name ?? "").trim() || null,
+                siglaComercial: String(r.sigla_comercial ?? "").trim() || null,
+                precoVenda: Number.isFinite(Number(r.preco_venda)) ? Number(r.preco_venda) : null,
+                fatorConversao: Number.isFinite(Number(r.fator_conversao))
+                    ? Number(r.fator_conversao)
+                    : null,
+                volumeLabel,
+            };
+        }),
     };
 }
 
@@ -108,12 +119,16 @@ export function removePendingPickGroupsByKeys(
 }
 
 function siglaLabelPt(option: PendingPickOption): string {
+    const vol = (option.volumeLabel ?? "").trim();
     const sigla = (option.siglaComercial ?? "").trim().toUpperCase();
-    if (sigla === "UN") return "unidade";
-    if (sigla === "CX") return "caixa";
-    if (sigla === "FARD") return "fardo";
-    if (sigla === "PAC") return "pacote";
-    return option.displayName?.trim() || sigla.toLowerCase() || "opção";
+    let base = "opção";
+    if (sigla === "UN") base = "unidade";
+    else if (sigla === "CX") base = "caixa";
+    else if (sigla === "FARD") base = "fardo";
+    else if (sigla === "PAC") base = "pacote";
+    else if (option.displayName?.trim()) base = option.displayName.trim();
+    else if (sigla) base = sigla.toLowerCase();
+    return vol ? `${base} (${vol})` : base;
 }
 
 /**
@@ -266,7 +281,11 @@ function looksLikeAvailabilityQuestion(text: string): boolean {
 
 function resolveOne(
     group: PendingPickGroup,
-    segment: string
+    segment: string,
+    opts?: {
+        habitSigla?: CustomerSiglaHabit | null;
+        companySiglas?: CompanySigla[] | null;
+    }
 ): { embalagemId: string; quantity: number } | null {
     if (looksLikeAvailabilityQuestion(segment)) return null;
     /**
@@ -281,6 +300,8 @@ function resolveOne(
     const result = resolveSegmentPick(segment, hitRows, {
         quantity: explicitQty,
         formatHintText: segment,
+        habitSigla: opts?.habitSigla ?? null,
+        companySiglas: opts?.companySiglas ?? null,
     });
     if (result.kind !== "unique") return null;
     return { embalagemId: result.pick.embalagemId, quantity: explicitQty ?? 1 };
@@ -294,13 +315,17 @@ function resolveOne(
  */
 export function resolvePendingPickGroupsFromFreeText(
     groups: readonly PendingPickGroup[],
-    userText: string
+    userText: string,
+    opts?: {
+        habitSigla?: CustomerSiglaHabit | null;
+        companySiglas?: CompanySigla[] | null;
+    }
 ): { resolved: ResolvedPendingPick[]; remaining: PendingPickGroup[] } {
     if (!groups.length) return { resolved: [], remaining: [] };
 
     if (groups.length === 1) {
         const group = groups[0]!;
-        const hit = resolveOne(group, userText);
+        const hit = resolveOne(group, userText, opts);
         if (hit) {
             return {
                 resolved: [{ productKey: group.productKey, embalagemId: hit.embalagemId, quantity: hit.quantity }],
@@ -321,7 +346,7 @@ export function resolvePendingPickGroupsFromFreeText(
             remaining.push({ ...group, unresolvedTurns: group.unresolvedTurns + 1 });
             continue;
         }
-        const hit = resolveOne(group, segment);
+        const hit = resolveOne(group, segment, opts);
         if (!hit) {
             remaining.push({ ...group, unresolvedTurns: group.unresolvedTurns + 1 });
             continue;
@@ -335,7 +360,7 @@ export function resolvePendingPickGroupsFromFreeText(
         const leftoverSegments = segments.filter((s) => !usedSegments.has(s));
         if (leftoverSegments.length === 1) {
             const group = remaining[0]!;
-            const hit = resolveOne(group, leftoverSegments[0]!);
+            const hit = resolveOne(group, leftoverSegments[0]!, opts);
             if (hit) {
                 resolved.push({ productKey: group.productKey, embalagemId: hit.embalagemId, quantity: hit.quantity });
                 remaining.length = 0;

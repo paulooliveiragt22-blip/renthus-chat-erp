@@ -53,6 +53,11 @@ export type TurnState = {
     pendingPickGroups: PendingPickGroup[];
     /** Escrito só por `ai.service.ts` — evita repetir o nudge de resolve_pending_picks no mesmo turno. */
     forceResolvePendingPicksNudgeInjected: boolean;
+    /** C2.4 — acumuladores do turno (flush no pipeline após AI). */
+    matchingMetrics: {
+        prepareBlockedAllowlist: number;
+        searchHitsZero: number;
+    };
 };
 
 export function createInitialTurnState(seed: {
@@ -77,5 +82,6 @@ export function createInitialTurnState(seed: {
         pendingTermsFromSearch: [...(seed.pendingOrderMentions ?? [])],
         pendingPickGroups: [...(seed.pendingPickGroups ?? [])],
         forceResolvePendingPicksNudgeInjected: false,
+        matchingMetrics: { prepareBlockedAllowlist: 0, searchHitsZero: 0 },
     };
 }

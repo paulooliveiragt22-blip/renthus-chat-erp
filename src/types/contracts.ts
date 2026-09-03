@@ -135,6 +135,8 @@ export type PendingPickOption = {
     siglaComercial: string | null;
     precoVenda: number | null;
     fatorConversao: number | null;
+    /** Ex.: "350 ml" — opcional, melhora clarify UN vs volume (C2). */
+    volumeLabel?: string | null;
 };
 
 export type PendingPickGroup = {
@@ -420,6 +422,8 @@ export type PrepareDraftToolTelemetryPayload = {
     hasAddress: boolean;
     payment_method: string | null;
     draftItemCount: number;
+    /** C2.4 — quantas linhas rejeitadas por allowlist neste prepare. */
+    allowlistRejectedCount?: number;
 };
 
 export interface AiServiceInput {
@@ -482,6 +486,11 @@ export interface AiServiceResult {
          * O servidor não sobrepõe com os botões de escolha de endereço neste turno.
          */
         addressFreeText?: boolean;
+        /** C2.4 — contadores acumulados pelas tools neste turno. */
+        matchingMetrics?: {
+            prepareBlockedAllowlist: number;
+            searchHitsZero: number;
+        };
     };
     errorCode?: "AI_TIMEOUT" | "AI_RATE_LIMIT" | "AI_PROVIDER_ERROR" | "TOOL_FAILED";
 }

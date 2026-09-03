@@ -46,20 +46,21 @@ function baseState(overrides: Partial<ProSessionState> = {}): ProSessionState {
 
 /** Sem dados reais: qualquer prepare falha no load do pack, mas nunca lança exceção. */
 function fakeAdminAlwaysEmpty(): SupabaseClient {
+    const terminal = {
+        maybeSingle: async () => ({ data: null }),
+        order: async () => ({ data: [], error: null }),
+        limit: async () => ({ data: [], error: null }),
+    };
+    const eqChain: Record<string, unknown> = {
+        eq: () => eqChain,
+        ...terminal,
+        order: () => terminal,
+    };
     return {
         from() {
             return {
                 select() {
-                    return {
-                        eq() {
-                            return {
-                                eq() {
-                                    return { maybeSingle: async () => ({ data: null }) };
-                                },
-                                maybeSingle: async () => ({ data: null }),
-                            };
-                        },
-                    };
+                    return eqChain;
                 },
             };
         },

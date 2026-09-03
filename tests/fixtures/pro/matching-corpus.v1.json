@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "description": "C2.2 golden matching corpus — casos sintéticos (sem catálogo live)",
+  "cases": [
+    {
+      "id": "un_vs_cx_longneck_assume_un",
+      "kind": "disambiguate",
+      "query": "heineken long neck",
+      "userText": "quero 2 heineken long neck",
+      "rows": [
+        { "id": "cx6", "display_name": "HEINEKEN LONGNECK (CX c/6)", "product_name": "HEINEKEN", "sigla_comercial": "CX", "fator_conversao": 6 },
+        { "id": "un", "display_name": "HEINEKEN LONG NECK", "product_name": "HEINEKEN", "sigla_comercial": "UN", "fator_conversao": 1 }
+      ],
+      "expectIds": ["un"]
+    },
+    {
+      "id": "un_vs_cx_explicit_caixa",
+      "kind": "disambiguate",
+      "query": "heineken",
+      "userText": "quero uma caixa de heineken",
+      "rows": [
+        { "id": "cx6", "display_name": "HEINEKEN CX", "product_name": "HEINEKEN", "sigla_comercial": "CX", "fator_conversao": 6 },
+        { "id": "un", "display_name": "HEINEKEN UN", "product_name": "HEINEKEN", "sigla_comercial": "UN", "fator_conversao": 1 }
+      ],
+      "expectIds": ["cx6"]
+    },
+    {
+      "id": "ambiguous_qty1_prefers_un",
+      "kind": "disambiguate",
+      "query": "salgadinho",
+      "userText": "quero um salgadinho",
+      "rows": [
+        { "id": "un", "display_name": "SALGADINHO", "product_name": "SALGADINHO", "sigla_comercial": "UN", "fator_conversao": 1 },
+        { "id": "cx", "display_name": "SALGADINHO CX 15UN", "product_name": "SALGADINHO", "sigla_comercial": "CX", "fator_conversao": 15 }
+      ],
+      "expectIds": ["un"]
+    },
+    {
+      "id": "ambiguous_keep_both_no_qty_hint",
+      "kind": "disambiguate",
+      "query": "salgadinho",
+      "userText": "salgadinho",
+      "rows": [
+        { "id": "un", "display_name": "SALGADINHO", "product_name": "SALGADINHO", "sigla_comercial": "UN", "fator_conversao": 1 },
+        { "id": "cx", "display_name": "SALGADINHO CX 15UN", "product_name": "SALGADINHO", "sigla_comercial": "CX", "fator_conversao": 15 }
+      ],
+      "expectIds": ["un", "cx"]
+    },
+    {
+      "id": "different_products_untouched",
+      "kind": "disambiguate",
+      "query": "cerveja",
+      "userText": "quero cerveja",
+      "rows": [
+        { "id": "a", "display_name": "HEINEKEN", "product_name": "HEINEKEN", "sigla_comercial": "UN" },
+        { "id": "b", "display_name": "SKOL", "product_name": "SKOL", "sigla_comercial": "UN" }
+      ],
+      "expectIds": ["a", "b"]
+    },
+    {
+      "id": "pending_a_lata_resolves_un",
+      "kind": "pending_free_text",
+      "userText": "quero a lata",
+      "group": {
+        "productKey": "skol lata",
+        "productLabel": "SKOL LATA",
+        "unresolvedTurns": 0,
+        "options": [
+          { "embalagemId": "skol-un", "displayName": "SKOL LATA", "productName": "SKOL LATA", "siglaComercial": "UN", "precoVenda": 5, "fatorConversao": 1 },
+          { "embalagemId": "skol-cx", "displayName": "SKOL LATA CX", "productName": "SKOL LATA", "siglaComercial": "CX", "precoVenda": 60, "fatorConversao": 15 }
+        ]
+      },
+      "expectResolvedId": "skol-un"
+    },
+    {
+      "id": "pending_caixa_resolves_cx",
+      "kind": "pending_free_text",
+      "userText": "a caixa",
+      "group": {
+        "productKey": "skol lata",
+        "productLabel": "SKOL LATA",
+        "unresolvedTurns": 0,
+        "options": [
+          { "embalagemId": "skol-un", "displayName": "SKOL LATA", "productName": "SKOL LATA", "siglaComercial": "UN", "precoVenda": 5, "fatorConversao": 1 },
+          { "embalagemId": "skol-cx", "displayName": "SKOL LATA CX", "productName": "SKOL LATA", "siglaComercial": "CX", "precoVenda": 60, "fatorConversao": 15 }
+        ]
+      },
+      "expectResolvedId": "skol-cx"
+    },
+    {
+      "id": "pending_habit_un",
+      "kind": "pending_free_text",
+      "userText": "a de sempre",
+      "habitSigla": "UN",
+      "group": {
+        "productKey": "heineken",
+        "productLabel": "HEINEKEN",
+        "unresolvedTurns": 0,
+        "options": [
+          { "embalagemId": "h-un", "displayName": "HEINEKEN UN", "productName": "HEINEKEN", "siglaComercial": "UN", "precoVenda": 10, "fatorConversao": 1 },
+          { "embalagemId": "h-cx", "displayName": "HEINEKEN CX", "productName": "HEINEKEN", "siglaComercial": "CX", "precoVenda": 55, "fatorConversao": 6 }
+        ]
+      },
+      "expectResolvedId": "h-un"
+    },
+    {
+      "id": "pending_availability_no_auto",
+      "kind": "pending_free_text",
+      "userText": "vc tem skol?",
+      "group": {
+        "productKey": "skol",
+        "productLabel": "SKOL",
+        "unresolvedTurns": 0,
+        "options": [
+          { "embalagemId": "s-un", "displayName": "SKOL UN", "productName": "SKOL", "siglaComercial": "UN", "precoVenda": 4, "fatorConversao": 1 },
+          { "embalagemId": "s-cx", "displayName": "SKOL CX", "productName": "SKOL", "siglaComercial": "CX", "precoVenda": 40, "fatorConversao": 12 }
+        ]
+      },
+      "expectResolvedId": null
+    },
+    {
+      "id": "segment_explicit_un",
+      "kind": "segment_pick",
+      "segment": "1 unidade",
+      "rows": [
+        { "id": "u1", "display_name": "ITEM UN", "product_name": "ITEM", "sigla_comercial": "UN", "fator_conversao": 1 },
+        { "id": "c1", "display_name": "ITEM CX", "product_name": "ITEM", "sigla_comercial": "CX", "fator_conversao": 12 }
+      ],
+      "expectKind": "unique",
+      "expectId": "u1"
+    },
+    {
+      "id": "segment_explicit_cx",
+      "kind": "segment_pick",
+      "segment": "1 caixa",
+      "rows": [
+        { "id": "u1", "display_name": "ITEM UN", "product_name": "ITEM", "sigla_comercial": "UN", "fator_conversao": 1 },
+        { "id": "c1", "display_name": "ITEM CX", "product_name": "ITEM", "sigla_comercial": "CX", "fator_conversao": 12 }
+      ],
+      "expectKind": "unique",
+      "expectId": "c1"
+    },
+    {
+      "id": "segment_ambiguous",
+      "kind": "segment_pick",
+      "segment": "quero item",
+      "rows": [
+        { "id": "u1", "display_name": "ITEM UN", "product_name": "ITEM", "sigla_comercial": "UN", "fator_conversao": 1 },
+        { "id": "c1", "display_name": "ITEM CX", "product_name": "ITEM", "sigla_comercial": "CX", "fator_conversao": 12 }
+      ],
+      "expectKind": "ambiguous"
+    },
+    {
+      "id": "mixed_original_lata_vs_600",
+      "kind": "pending_free_text",
+      "userText": "a lata",
+      "group": {
+        "productKey": "original",
+        "productLabel": "ORIGINAL",
+        "unresolvedTurns": 0,
+        "options": [
+          { "embalagemId": "orig-lata", "displayName": "ORIGINAL LATA", "productName": "ORIGINAL LATA", "siglaComercial": "UN", "precoVenda": 8, "fatorConversao": 1 },
+          { "embalagemId": "orig-600", "displayName": "ORIGINAL 600ML", "productName": "ORIGINAL 600ML", "siglaComercial": "UN", "precoVenda": 9, "fatorConversao": 1, "volumeLabel": "600 ml" }
+        ]
+      },
+      "expectResolvedId": "orig-lata"
+    },
+    {
+      "id": "volume_label_format",
+      "kind": "volume_label",
+      "volumeQuantidade": 350,
+      "unitTypeSigla": "ml",
+      "expectLabel": "350 ml"
+    },
+    {
+      "id": "volume_label_null",
+      "kind": "volume_label",
+      "volumeQuantidade": null,
+      "unitTypeSigla": "ml",
+      "expectLabel": null
+    },
+    {
+      "id": "allowlist_error_count",
+      "kind": "allowlist_errors",
+      "errors": [
+        "produto_embalagem_id não consta na última busca do catálogo: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "Endereço incompleto"
+      ],
+      "expectCount": 1
+    },
+    {
+      "id": "fardo_explicit",
+      "kind": "segment_pick",
+      "segment": "1 fardo",
+      "rows": [
+        { "id": "un", "display_name": "AGUA UN", "product_name": "AGUA", "sigla_comercial": "UN", "fator_conversao": 1 },
+        { "id": "fd", "display_name": "AGUA FARD", "product_name": "AGUA", "sigla_comercial": "FARD", "fator_conversao": 12 }
+      ],
+      "expectKind": "unique",
+      "expectId": "fd"
+    }
+  ]
+}

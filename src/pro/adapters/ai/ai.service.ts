@@ -37,6 +37,7 @@ import {
     buildDeliverySpecialistSystemPreamble,
     buildPhasePlaybookForModel,
 } from "@/src/pro/tools/checkoutPhasePolicy";
+import { hasExplicitOrderQuantityInText } from "@/src/pro/tools/parseQtyPt";
 import {
     formatPrepareErrorsForClientReply,
     shouldPreferPrepareErrorsOverModelText,
@@ -120,7 +121,8 @@ export function shouldForcePrepareAfterEmbalagemChoice(params: {
 }
 
 /**
- * Search neste turno com exatamente 1 SKU e sem prepare → força `prepare_order_draft`.
+ * Search neste turno com exatamente 1 SKU e sem prepare → força `prepare_order_draft`
+ * **só** se o cliente já disse a quantidade (C3.2 — alinhado ao system prompt).
  */
 export function shouldForcePrepareAfterUnambiguousSearch(params: {
     intent: string;
@@ -128,12 +130,15 @@ export function shouldForcePrepareAfterUnambiguousSearch(params: {
     prepareInvokedThisTurn: boolean;
     searchInvokedThisTurn: boolean;
     allowlistNowCount: number;
+    /** Texto do cliente neste turno — precisa de qty explícita. */
+    userText: string;
 }): boolean {
     if (params.intent !== "order_intent") return false;
     if (params.step !== "pro_collecting_order" && params.step !== "pro_idle") return false;
     if (params.prepareInvokedThisTurn) return false;
     if (!params.searchInvokedThisTurn) return false;
-    return params.allowlistNowCount === 1;
+    if (params.allowlistNowCount !== 1) return false;
+    return hasExplicitOrderQuantityInText(params.userText);
 }
 
 /**
@@ -174,8 +179,11 @@ function buildForceSearchPendingNudge(pendingTerms: readonly string[]): string {
  * schema-enforced) antes de deixar fechar o turno — não é loop forçado (ver
  * `forceResolvePendingPicksNudgeInjected`): se o modelo não resolver nesta tentativa, o grupo
  * continua pendente e a rede de segurança por turnos (`groupsPastSafetyNet`) assume depois.
+ *
+ * Exportada p/ testes C3.2 — o caller deve passar só grupos de **carryover** (não os criados
+ * por search neste mesmo turno).
  */
-function shouldForceResolvePendingPicks(params: {
+export function shouldForceResolvePendingPicks(params: {
     infoOnly: boolean;
     pendingPickGroups: readonly PendingPickGroup[];
 }): boolean {
@@ -446,10 +454,15 @@ function isRateLimitError(error: unknown): boolean {
     return false;
 }
 
+const RESPOND_TO_CUSTOMER_TOOL_DESCRIPTION =
+    "Tool final OBRIGATÓRIA: use para enviar a resposta ao cliente. Chame sempre por último, " +
+    "inclusive em saudação, erro ou dúvida — nunca responda em texto puro sem esta tool. " +
+    "NÃO diga que o pedido foi criado/confirmado/entregue (só o botão Confirmar + RPC no servidor). " +
+    "NÃO peça para digitar sim/confirmar — o servidor envia botões.";
+
 function createRespondToCustomerTool() {
     return tool({
-        description:
-            "Tool final OBRIGATÓRIA: use para enviar a resposta ao cliente. Chame sempre por último, inclusive em saudação, erro ou dúvida — nunca responda em texto puro sem esta tool.",
+        description: RESPOND_TO_CUSTOMER_TOOL_DESCRIPTION,
         inputSchema: z.object({
             reply_text: z.string().describe("Mensagem final ao cliente, em PT-BR."),
             address_free_text: z
@@ -465,6 +478,11 @@ function createRespondToCustomerTool() {
         }),
         execute: async (args) => args,
     });
+}
+
+/** Descrição canónica da tool final — testes C3.4. */
+export function respondToCustomerToolDescription(): string {
+    return RESPOND_TO_CUSTOMER_TOOL_DESCRIPTION;
 }
 
 type StepLike = { toolCalls?: ReadonlyArray<{ toolName: string }> };
@@ -564,6 +582,7 @@ export class AiServiceAdapter implements AiService {
             addressFreeText: boolean;
             pendingOrderMentions: string[];
             pendingPickGroups: PendingPickGroup[];
+            matchingMetrics?: { prepareBlockedAllowlist: number; searchHitsZero: number };
         }
     ): Promise<AiServiceResult> {
         const nextHistoryRaw = buildNextHistory(input, replyText);
@@ -574,6 +593,12 @@ export class AiServiceAdapter implements AiService {
         const nextHistory = compacted.history;
         const nextSummary = compacted.summary;
         const addrUiOk = input.context.session.deliveryAddressUiConfirmed === true;
+        const matchingSignals =
+            turn.matchingMetrics &&
+            (turn.matchingMetrics.prepareBlockedAllowlist > 0 ||
+                turn.matchingMetrics.searchHitsZero > 0)
+                ? { matchingMetrics: turn.matchingMetrics }
+                : {};
 
         if (shouldEscalate(input, marker)) {
             return {
@@ -589,7 +614,12 @@ export class AiServiceAdapter implements AiService {
                 emptySearchStreak: turn.emptySearchStreak,
                 updatedPendingOrderMentions: turn.pendingOrderMentions,
                 updatedPendingPickGroups: turn.pendingPickGroups,
-                signals: { toolRoundsUsed, intentMarker: marker, addressFreeText: turn.addressFreeText },
+                signals: {
+                    toolRoundsUsed,
+                    intentMarker: marker,
+                    addressFreeText: turn.addressFreeText,
+                    ...matchingSignals,
+                },
             };
         }
 
@@ -610,7 +640,12 @@ export class AiServiceAdapter implements AiService {
             emptySearchStreak: turn.emptySearchStreak,
             updatedPendingOrderMentions: turn.pendingOrderMentions,
             updatedPendingPickGroups: turn.pendingPickGroups,
-            signals: { toolRoundsUsed, intentMarker: marker, addressFreeText: turn.addressFreeText },
+            signals: {
+                toolRoundsUsed,
+                intentMarker: marker,
+                addressFreeText: turn.addressFreeText,
+                ...matchingSignals,
+            },
         };
     }
 
@@ -725,6 +760,7 @@ export class AiServiceAdapter implements AiService {
                         prepareInvokedThisTurn: turnState.prepareInvokedThisTurn,
                         searchInvokedThisTurn: turnState.searchInvokedThisTurn,
                         allowlistNowCount: turnState.allowlistIds.length,
+                        userText: input.userText,
                     })
                 );
             };
@@ -856,16 +892,27 @@ export class AiServiceAdapter implements AiService {
 
                         const respondedOnLastStep = lastStepCalledRespond(steps);
 
-                        const forcePendingSearchStep = () => ({
-                            toolChoice: { type: "tool" as const, toolName: "search_produtos" as const },
-                            messages: [
-                                ...stepMessages,
-                                {
-                                    role: "user" as const,
-                                    content: buildForceSearchPendingNudge(turnState.pendingTermsFromSearch),
+                        const forcePendingSearchStep = () => {
+                            const withNudge = !turnState.forceSearchPendingNudgeInjected;
+                            turnState.forceSearchPendingNudgeInjected = true;
+                            return {
+                                toolChoice: {
+                                    type: "tool" as const,
+                                    toolName: "search_produtos" as const,
                                 },
-                            ],
-                        });
+                                messages: withNudge
+                                    ? [
+                                          ...stepMessages,
+                                          {
+                                              role: "user" as const,
+                                              content: buildForceSearchPendingNudge(
+                                                  turnState.pendingTermsFromSearch
+                                              ),
+                                          },
+                                      ]
+                                    : stepMessages,
+                            };
+                        };
 
                         const forceResolvePendingPicksStep = () => ({
                             toolChoice: { type: "tool" as const, toolName: "resolve_pending_picks" as const },
@@ -1012,6 +1059,7 @@ export class AiServiceAdapter implements AiService {
                 addressFreeText,
                 pendingOrderMentions: updatedPendingOrderMentions,
                 pendingPickGroups: turnState.pendingPickGroups,
+                matchingMetrics: { ...turnState.matchingMetrics },
             });
         } catch (error) {
             const errMsg = error instanceof Error ? error.message : String(error);

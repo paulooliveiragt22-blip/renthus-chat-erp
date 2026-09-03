@@ -1,205 +1,159 @@
 # Smoke Runbook - PRO Pipeline V2
 
-Decisões de arquitetura (Hobby vs escala, wake + scheduler, limites honestos): [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
+Decisões de arquitetura (limites honestos): [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).  
+Transporte: **outbox Postgres → SQS FIFO → Lambda** ([ADR-0003](./ADR/0003-sqs-outbox-lambda.md)).
 
-**Evidências para release (p95 do webhook, replay de `message_id`, carga leve):** ver em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md#como-obter-evidências-p95-carga-replay) a secção *Como obter evidências (p95, carga, replay)*.
+**Evidências para release (p95 do webhook, replay de `message_id`, carga leve):** ver em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md#como-obter-evidências-p95-carga-replay).
 
-**Refatoração do fecho de pedido PRO (estado + IA):** [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+**Refatoração do fecho de pedido PRO:** [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
 
-**Smoke do agent loop (prompts WhatsApp pós-ReAct):** [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md) — use esse doc para cenários de pedido/HITL; este runbook cobre fila/wake/dedup.
+**Smoke do agent loop (prompts WhatsApp):** [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md) — cenários de pedido/HITL. Este runbook cobre **fila / SQS / dedup**.
 
 ## Objetivo
-Validar em ambiente real que o fluxo assíncrono do PRO V2 está saudável:
-- `incoming` enfileira rápido
-- `process-queue` consome sem erro
+Validar em ambiente real que o fluxo assíncrono do PRO está saudável:
+- `incoming` enfileira rápido (`chatbot_queue` + `SendMessage` SQS)
+- Lambda inbound consome sem erro (`status=done`)
 - chatbot responde sem duplicidade
-- **Orquestrador PRO V2 (já no código):** saudação com botões (`routeStage`), checkout com botões / troco (`runProPipeline` + `checkoutPostProcess`) e **slots de passo** (`orderSlotStep` — ver [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md); decisão de produto em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) secção *Order Finalization Orchestrator*).
+- Orquestrador: saudação com botões, checkout/slots (`orderSlotStep` — [`PRO_ORDER_SLOT_MACHINE.md`](./PRO_ORDER_SLOT_MACHINE.md))
 
 ## Pré-requisitos obrigatórios
-- Empresa com plano/crédito que resolva `tier === "pro"` (motor = `runProPipeline`, sem flags V2)
-- `CHATBOT_QUEUE_ENABLED=1`
-- `CRON_SECRET` configurado
-- `ANTHROPIC_API_KEY` válido
-- `INBOUND_DEDUP_WINDOW_SECONDS` (opcional, default `20` — coalescing de texto igual na thread; ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) secção PRO / decisões operacionais)
-- `PRO_PIPELINE_METRICS_STORE=supabase` (opcional; Super Admin «Métricas PRO pipeline»)
-- `NEXT_PUBLIC_PRO_METRICS_ALERT_*` (opcional; thresholds de alerta na UI — defaults 3/2, podem subir para reduzir ruído)
-- **Wake (local):** `NEXT_PUBLIC_APP_URL` (ex.: `http://localhost:3000`) ou `CHATBOT_QUEUE_WAKE_URL`; em Vercel usa-se `VERCEL_URL` automaticamente. Opcional: `CHATBOT_QUEUE_WAKE_ENABLED=0` para forçar só scheduler.
-- rota `GET /api/chatbot/process-queue` acessível com header:
-  - `Authorization: Bearer <CRON_SECRET>`
+- Empresa com plano/crédito que resolva `tier === "pro"` (motor = `runProPipeline`)
+- `CHATBOT_QUEUE_ENABLED=1` + `SQS_DISPATCH_ENABLED=1`
+- Filas `SQS_INBOUND_QUEUE_URL` / `SQS_OUTBOUND_QUEUE_URL` + workers `renthus-inbound-worker` / `renthus-outbound-worker`
+- `ANTHROPIC_API_KEY` (ou provider da empresa) no **Lambda**
+- `INBOUND_DEDUP_WINDOW_SECONDS` (opcional, default `20`)
+- `PRO_PIPELINE_METRICS_STORE=supabase` (opcional; Super Admin)
+- Calibração staging: `PRO_PIPELINE_TURN_TRACE=1` no worker (ver `deploy-workers.ps1`)
+
+**Removido no cutover ADR-0003:** `GET /api/chatbot/process-queue`, wake HTTP e cron-job.org nesse path. Rede de segurança = DLQ + reconciler EventBridge (`renthus-outbox-reconcile`).
 
 ### Env opcionais de pico / resiliência (defaults no código)
 | Variável | Default | Papel |
 |----------|---------|--------|
 | `CHATBOT_QUEUE_MAX_PER_COMPANY` | `2` | Fairness no claim SQL |
-| `CHATBOT_QUEUE_STALE_MINUTES` | `3` | Reclaim de `processing` stuck |
-| `CHATBOT_QUEUE_DRAIN_MAX` | `5` | Teto da cadeia self-wake |
+| `CHATBOT_QUEUE_STALE_MINUTES` | `3` | Reclaim de `processing` stuck (reconciler) |
 | `CHATBOT_BACKLOG_DEPTH` / `_AGE_SECONDS` / `_NOTICE_COOLDOWN_SEC` | `8` / `45` / `120` | Aviso WhatsApp de fila |
 | `CHATBOT_CATALOG_CACHE_TTL_SEC` | `60` | Cache in-memory de busca |
 | `ANTHROPIC_CHATBOT_MAX_IN_FLIGHT` / `ANTHROPIC_CIRCUIT_OPEN_MS` | `8` / `30000` | Gate + circuit Anthropic |
 | `WHATSAPP_MIN_GAP_MS` / `WHATSAPP_429_MAX_RETRIES` | `100` / `3` | Throttle Meta Graph |
 
-## Modo Hobby (rede de segurança = cron-job.org ~1 min)
-- **Wake:** com `CHATBOT_QUEUE_ENABLED=1` e wake ligado (default), o `incoming` agenda `GET /api/chatbot/process-queue` após responder ao Meta (`after()`). Defina **`NEXT_PUBLIC_APP_URL`** (ou `CHATBOT_QUEUE_WAKE_URL` / deploy na Vercel com `VERCEL_URL`) e **`CRON_SECRET`**.
-- **Self-wake / reclaim:** o worker drena pending remanescente e recupera jobs `processing` stuck — ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md).
-- Em teste local sem wake: chamar `GET /api/chatbot/process-queue` após cada mensagem.
-- **Produção Hobby:** scheduler externo (cron-job.org) a cada **1 minuto** é a rede de segurança obrigatória (Vercel cron nativo do repo é só diário).
-  - método: `GET`
-  - URL: `https://SEU_DOMINIO/api/chatbot/process-queue`
-  - header: `Authorization: Bearer <CRON_SECRET>`
-- Sequência recomendada (teste):
-  1. enviar mensagem no WhatsApp
-  2. confirmar wake ou chamar `process-queue` manual
-  3. validar resposta no WhatsApp e status da fila (`reclaimed` / `continued` no JSON se aplicável)
+## Caminho feliz (produção / staging cutover)
+1. Enviar mensagem no WhatsApp de teste.
+2. Confirmar: webhook `incoming` 200 → row `chatbot_queue` com `sqs_enqueued_at` preenchido.
+3. Lambda consome → `status=done`; resposta no WA.
+4. Smoke sintético (sem LLM/WA): `npm run smoke:sqs-workers`.
 
 ## Plano de execução (15-20 min)
 
 ### Passo 1 - Sanidade inicial
-1. Verificar logs sem erro de configuração:
-   - `server_misconfigured`
-   - `invalid_signature`
-   - `unauthorized` no `process-queue`
-2. Confirmar que cron/manual consegue chamar `GET /api/chatbot/process-queue`.
+1. Logs sem `server_misconfigured` / `invalid_signature`.
+2. CloudWatch: Lambda inbound sem erro de config; reconciler sem backlog crónico.
+3. Opcional: `npm run smoke:sqs-workers` → skip path OK.
 
-**Aprovado se:**
-- resposta HTTP 200
-- payload com `ok: true`
+**Aprovado se:** enqueue + consume sem 5xx no worker.
 
 ---
 
 ### Passo 2 - Enfileiramento inbound
-1. Enviar mensagem real no WhatsApp de teste:  
-   `quero 2 heineken`
-2. Verificar rapidamente:
-   - webhook `incoming` respondeu 200
-   - houve insert em `chatbot_queue` com `status=pending`
+1. Enviar no WA: `quero 2 heineken`
+2. Verificar: webhook 200; `chatbot_queue` com `status` pending→processing→done; `sqs_enqueued_at` set.
 
-**Aprovado se:**
-- mensagem entrou na fila em até 2s
+**Aprovado se:** mensagem na outbox em até 2s e SQS enqueued.
 
 ---
 
-### Passo 3 - Consumo da fila
-1. Disparar `GET /api/chatbot/process-queue` (manual no Hobby).
-2. Conferir resposta:
-   - `processed >= 1`
-   - `failed = 0` (ideal)
-3. Conferir job processado:
-   - `chatbot_queue.status = done`
+### Passo 3 - Consumo da fila (Lambda)
+1. Não chamar `process-queue` — esperar event source SQS (ou forçar mensagem via smoke script).
+2. Conferir job: `chatbot_queue.status = done`, `failed = 0` na janela.
 
-**Aprovado se:**
-- job sai de `pending` para `done` na primeira execução
+**Aprovado se:** job sai de `pending` para `done` sem intervenção HTTP.
 
 ---
 
 ### Passo 4 - Cenários críticos mínimos
-Preferir a matriz completa em [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md).
+Preferir a matriz em [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md) (incl. **C4.4**).
 Mínimo rápido:
-1. `quero pedir` / produto do catálogo (força agent loop + tools)
-2. Com draft completo: texto `sim` **não** deve finalizar (só botão `pro_confirm_order`)
-3. Draft incompleto na confirmação: não chama RPC
+1. produto do catálogo (agent loop + tools)
+2. draft completo: texto `sim` **não** finaliza (só botão `pro_confirm_order`)
+3. draft incompleto na confirmação: não chama RPC
 
-**Aprovado se:**
-- comportamento corresponde aos testes + smoke agent-loop
-- sem erro 5xx
+**Aprovado se:** alinhado aos testes + smoke agent-loop; sem 5xx.
 
 ---
 
 ### Passo 4.1 - Confirmação HITL (botão)
-Com sessão em `pro_awaiting_confirmation`, executar:
-1. texto: `sim` / `ok` / `confirmar` → **não** finaliza
-2. botão: id `pro_confirm_order` (ou `btn_confirm_order` / `btn_confirmar`) → finaliza via RPC
-3. negação/ambíguo: `não confirma ainda` → **não** finaliza
+Com sessão em `pro_awaiting_confirmation` / confirmação inbox:
+1. texto `sim` / `ok` / `CONFIRMAR` → **não** finaliza
+2. botão `pro_confirm_order` → finaliza via RPC
+3. botão cancelar / negação → não cria pedido
 
-**Aprovado se:**
-- zero finalize por texto livre
-- comportamento alinhado com `orderConfirmationText.ts` / testes PRO
+**Aprovado se:** zero finalize por prosa.
 
 ---
 
 ### Passo 4.2 - Matriz padrão de falhas reais
-Executar, no mínimo, os 4 cenários abaixo em ambiente de validação:
-1. IA com JSON inválido (payload quebrado / sem contrato esperado)
-2. produto inexistente no fechamento (`PRODUCT_NOT_FOUND`)
-3. timeout de API da IA (`AI_TIMEOUT`)
-4. dados inconsistentes no draft (`INCONSISTENT_DRAFT`)
+1. IA com JSON inválido  
+2. `PRODUCT_NOT_FOUND`  
+3. `AI_TIMEOUT` → degradado D6 / retry conforme política  
+4. `INCONSISTENT_DRAFT`  
 
-Conferir para cada caso:
-- onde quebra (estágio/adapter)
-- mensagem ao cliente em PT-BR sem vazar detalhe técnico
-- métrica/erro correspondente no retorno do pipeline
-
-**Aprovado se:**
-- todos os 4 cenários têm teste automatizado e comportamento reproduzível no smoke
+Conferir mensagem PT-BR sem vazar detalhe técnico + métrica.
 
 ---
 
 ### Passo 4.3 - Replay de `message_id` (idempotência)
-Reutilizar o procedimento canónico em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md#como-obter-evidências-p95-carga-replay) (subsecção **“2) Replay de `message_id`”**): guardar body + assinatura, enviar o mesmo `POST` duas vezes, verificar na base **um** efeito de negócio (sem segundo pedido / sem segunda resposta duplicada fora da política de dedup).
+Procedimento em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md#como-obter-evidências-p95-carga-replay).
 
-**Aprovado se:**
-- o segundo envio não duplica pedido nem gera outbound incoerente com a política de idempotência
-- evidência anotada na homologação (timestamp, `company_id`, `message_id`)
+**Aprovado se:** segundo POST não duplica pedido.
 
 ---
 
 ### Passo 5 - Duplicidade outbound
 1. Repetir a mesma mensagem inbound rapidamente (2x).
-2. Verificar `whatsapp_messages` outbound:
-   - não repetir texto bot idêntico em janela curta
-3. Verificar retorno do worker:
-   - `processed=1` no cenário duplicado
-   - `coalesced` pode ficar `0` (dedup no enqueue) ou `1` (coalescing no worker)
-4. Verificar métrica/log:
-   - `[metric] wa_incoming_dedup` quando o duplicado é barrado no webhook
-   - `[metric] chatbot_process_queue` com `processed/failed/coalesced`
+2. Sem bolha duplicada óbvia; dedup/coalesce conforme política.
+3. Métricas: `wa_incoming_dedup` / coalesce na outbox.
 
-**Aprovado se:**
-- sem duplicidade visível ao cliente
+**Aprovado se:** sem duplicidade visível ao cliente.
 
 ---
 
 ## Critérios de GO / NO-GO
 
 ## GO
-- `processed` estável e `failed` baixo
-- sem duplicidade de resposta
-- sem 5xx recorrente
-- tempo ponta a ponta aceitável para teste
+- Jobs `done` estáveis, `failed` baixo
+- Sem duplicidade de resposta
+- Sem 5xx recorrente no Lambda
+- Tempo ponta a ponta aceitável
 
 ## NO-GO
 - `failed > 5%` na janela de 15 min
-- erro de autorização/configuração recorrente
-- duplicidade frequente de outbound
-- respostas inconsistentes no fluxo de pedido
+- Erro de autorização/configuração recorrente
+- Duplicidade frequente de outbound
+- Respostas inconsistentes no fluxo de pedido
+- Dependência de `process-queue` HTTP (caminho morto)
 
 ## Rollback mínimo
-Se qualquer critério NO-GO ocorrer:
-1. Se necessário, desativar fila assíncrona: `CHATBOT_QUEUE_ENABLED=0` (dev/local; não é o alvo de produção).
-2. Manter coleta de logs por 30 min.
-3. Corrigir o V2 e repetir smoke — não há modo shadow nem motor PRO legado.
+1. Investigar DLQ + reconciler; não reabrir wake HTTP.
+2. Se necessário em emergência local: `CHATBOT_QUEUE_ENABLED=0` (dev only).
+3. Corrigir e repetir smoke — sem motor PRO legado.
 
 ## Consultas rápidas sugeridas (opcional)
-- Fila pendente:
-  - `select count(*) from chatbot_queue where status='pending';`
-- Falhas recentes:
-  - `select count(*) from chatbot_queue where status='failed' and created_at > now() - interval '15 minutes';`
-- Jobs recentes:
-  - `select id,status,attempts,created_at from chatbot_queue order by created_at desc limit 20;`
+```sql
+select count(*) from chatbot_queue where status='pending';
+select count(*) from chatbot_queue where status='failed' and created_at > now() - interval '15 minutes';
+select id, status, attempts, sqs_enqueued_at, created_at from chatbot_queue order by created_at desc limit 20;
+-- C4.1 staging:
+select count(*) from pipeline_turn_traces where created_at > now() - interval '1 hour';
+```
 
 ## Checklist pós-migração de índices (dedup/queue)
-1. Aplicar migration:
-   - `supabase db push`
-2. Confirmar criação dos índices:
-   - `select indexname from pg_indexes where tablename='chatbot_queue' and indexname like 'chatbot_queue_%dedup%';`
-   - `select indexname from pg_indexes where tablename='chatbot_queue' and indexname like 'chatbot_queue_coalesce_%';`
-3. Smoke rápido:
-   - repetir mensagem 2x em <= 10s
-   - executar `GET /api/chatbot/process-queue`
-   - esperado: `processed=1` e `failed=0`
+1. Aplicar migration (`supabase` MCP / CLI).
+2. Confirmar índices `chatbot_queue_%dedup%` / `chatbot_queue_coalesce_%`.
+3. Smoke: repetir mensagem 2x ≤10s; esperado 1 efeito + Lambda `done`.
 
 ## Execução automatizada local (referência)
-- Suíte usada para validar este runbook no repositório:
-  - `tests/integration/chatbot-queue-e2e.test.ts`
-  - `tests/pro/proPipeline.test.ts`
-  - `tests/pro/proPipeline.failure-regression.test.ts`
-
+- `tests/integration/chatbot-queue-e2e.test.ts`
+- `tests/pro/proPipeline.test.ts`
+- `tests/pro/proPipeline.failure-regression.test.ts`
+- `tests/pro/c4CassetteReplay.test.ts` (nível C)
+- `npm run smoke:sqs-workers` (transporte)

@@ -80,7 +80,14 @@ export function createResolvePendingPicksTool(deps: {
                     continue;
                 }
                 const qtyNum = Number(p?.quantity);
-                const qty = Number.isFinite(qtyNum) && qtyNum > 0 ? Math.floor(qtyNum) : 1;
+                if (!Number.isFinite(qtyNum) || qtyNum < 1) {
+                    rejected.push({
+                        product_key: key,
+                        reason: "quantity inválida — informe a quantidade que o cliente disse (inteiro ≥ 1)",
+                    });
+                    continue;
+                }
+                const qty = Math.floor(qtyNum);
                 validItems.push({ produtoEmbalagemId: embId, quantity: qty });
                 appliedKeys.push(key);
             }

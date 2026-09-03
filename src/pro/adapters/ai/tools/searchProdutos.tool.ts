@@ -55,6 +55,9 @@ export function createSearchProdutosTool(deps: {
             deps.turnState.emptySearchStreak = result.wasEmpty
                 ? deps.turnState.emptySearchStreak + 1
                 : 0;
+            if (result.wasEmpty) {
+                deps.turnState.matchingMetrics.searchHitsZero += 1;
+            }
             deps.turnState.searchInvokedThisTurn = true;
             deps.turnState.searchCallCount += 1;
             deps.turnState.pendingTermsFromSearch = (

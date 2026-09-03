@@ -1,0 +1,90 @@
+{
+  "v": 1,
+  "description": "C4.2 — cassetes LLM sintéticas (sem PII). Replay via createReplayModel + AiServiceAdapter; ≥3 cenários alinhados à matriz E mínima (saudação, FAQ, pedido em texto).",
+  "cassettes": [
+    {
+      "id": "s1_greeting",
+      "userText": "oi",
+      "intent": "greeting",
+      "expectedAction": "reply",
+      "expectedReplySubstring": "Bem-vindo",
+      "entries": [
+        {
+          "requestFingerprint": "s1|oi",
+          "result": {
+            "content": [
+              {
+                "type": "tool-call",
+                "toolCallId": "call-s1-respond",
+                "toolName": "respond_to_customer",
+                "input": "{\"reply_text\":\"Oi! Bem-vindo. O que você gostaria de pedir hoje?\"}"
+              }
+            ],
+            "finishReason": { "unified": "tool-calls", "raw": null },
+            "usage": {
+              "inputTokens": { "total": 0, "noCache": 0 },
+              "outputTokens": { "total": 0, "text": 0 }
+            },
+            "warnings": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "s1_faq_delivery",
+      "userText": "vocês entregam no Centro?",
+      "intent": "faq",
+      "expectedAction": "reply",
+      "expectedReplySubstring": "Centro",
+      "entries": [
+        {
+          "requestFingerprint": "s1faq|entregam",
+          "result": {
+            "content": [
+              {
+                "type": "tool-call",
+                "toolCallId": "call-s1faq-respond",
+                "toolName": "respond_to_customer",
+                "input": "{\"reply_text\":\"Sim, entregamos no Centro. Qual produto você quer?\"}"
+              }
+            ],
+            "finishReason": { "unified": "tool-calls", "raw": null },
+            "usage": {
+              "inputTokens": { "total": 0, "noCache": 0 },
+              "outputTokens": { "total": 0, "text": 0 }
+            },
+            "warnings": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "s2_order_clarify",
+      "userText": "quero 2 heineken",
+      "intent": "order_intent",
+      "expectedAction": "reply",
+      "expectedReplySubstring": "opção",
+      "entries": [
+        {
+          "requestFingerprint": "s2|heineken",
+          "result": {
+            "content": [
+              {
+                "type": "tool-call",
+                "toolCallId": "call-s2-respond",
+                "toolName": "respond_to_customer",
+                "input": "{\"reply_text\":\"Encontrei mais de uma opção de Heineken. Toque na embalagem que você quer.\"}"
+              }
+            ],
+            "finishReason": { "unified": "tool-calls", "raw": null },
+            "usage": {
+              "inputTokens": { "total": 0, "noCache": 0 },
+              "outputTokens": { "total": 0, "text": 0 }
+            },
+            "warnings": []
+          }
+        }
+      ]
+    }
+  ]
+}
