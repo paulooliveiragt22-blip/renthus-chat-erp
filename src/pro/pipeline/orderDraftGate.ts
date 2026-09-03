@@ -1,5 +1,18 @@
-import type { OrderDraft, ProSessionState } from "@/src/types/contracts";
+import type { DraftAddress, OrderDraft, ProSessionState } from "@/src/types/contracts";
 import { isPickupDraft } from "@/lib/delivery/fulfillment";
+
+/** Endereço mínimo para entrega (rua, número, bairro, cidade, UF — alinhado a prepare/slots). */
+export function isAddressStructurallyComplete(address: DraftAddress | null): boolean {
+    if (!address) return false;
+    const uf = address.estado?.trim().toUpperCase() ?? "";
+    return Boolean(
+        address.logradouro?.trim() &&
+            address.numero?.trim() &&
+            address.bairro?.trim() &&
+            address.cidade?.trim() &&
+            uf.length === 2
+    );
+}
 
 /** Total do rascunho abaixo do pedido mínimo de entrega (quando a política define um). */
 export function isDraftBelowMinimumOrder(draft: OrderDraft): boolean {
@@ -15,11 +28,13 @@ export function isDraftBelowMinimumOrder(draft: OrderDraft): boolean {
  * Também nunca considera "pronto" um rascunho abaixo do pedido mínimo de entrega — é a mesma
  * checagem usada pelo slot machine (`resolveProStepFromDraft`) e serve de rede de segurança
  * final antes de criar o pedido, caso o passo da sessão fique dessincronizado.
+ *
+ * C1.5: entrega exige endereço **estruturalmente** completo (não só `Boolean(address)`).
  */
 export function isDraftStructurallyCompleteForFinalize(draft: OrderDraft): boolean {
     const addressOk =
         isPickupDraft(draft) ||
-        (draft.fulfillmentType === "delivery" && Boolean(draft.address));
+        (draft.fulfillmentType === "delivery" && isAddressStructurallyComplete(draft.address));
     return (
         draft.items.length > 0 &&
         addressOk &&

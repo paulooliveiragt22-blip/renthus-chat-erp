@@ -36,6 +36,12 @@ import {
 } from "./stages/checkoutPostProcess";
 import { createCheckoutHandoff } from "@/lib/public-menu/handoff/createCheckoutHandoff";
 import {
+    checkoutChannelInputFromState,
+    isNewAddressCheckoutAction,
+    resolveCheckoutChannel,
+    shouldOfferWebAddressHandoff,
+} from "./checkoutChannelPolicy";
+import {
     isAddressStructurallyComplete,
     withResolvedSlotStep,
     withResolvedSlotStepUnlessAwaitingConfirmation,
@@ -589,7 +595,10 @@ export async function runProPipeline(
         }
     }
 
-    const handoffUrl = await resolveCheckoutHandoffUrl(deps, input, stateAfterPick);
+    const handoffUrl = await resolveCheckoutHandoffUrl(deps, input, stateAfterPick, {
+        intentNewAddress: isNewAddressCheckoutAction(inboundTextForPipeline),
+        orderHints: null,
+    });
     const quick = applyQuickAction(inboundTextForPipeline, stateAfterPick, {
         checkoutHandoffUrl: handoffUrl,
         fulfillmentPolicy,
@@ -836,6 +845,13 @@ export async function runProPipeline(
     pipelineState = preOrder.state;
 
     const preOrderSideMetrics: Array<{ name: string; value: number; tags?: Record<string, string> }> = [];
+    if (preOrder.outcome !== "skipped_not_awaiting") {
+        preOrderSideMetrics.push({
+            name: "pro_pipeline.order_outcome",
+            value: 1,
+            tags: { intent: decision.intent, outcome: preOrder.outcome },
+        });
+    }
     if (preOrder.outcome === "skipped_weak_confirmation") {
         const reason: ProPipelineTelemetryReason = preOrder.state.checkoutEditHold
             ? "confirmation_revision"
@@ -908,6 +924,7 @@ export async function runProPipeline(
         };
     }
 
+    const stepBeforeRoute = pipelineState.step;
     const routed = routeStage({
         state: pipelineState,
         decision,
@@ -1105,10 +1122,13 @@ export async function runProPipeline(
         });
     }
 
-    const checkoutHandoffUrl = await resolveCheckoutHandoffUrl(deps, input, nextState);
+    const checkoutHandoffUrl = await resolveCheckoutHandoffUrl(deps, input, nextState, {
+        orderHints: checkoutOrderHints,
+        intentNewAddress: false,
+    });
     const skipCheckoutUi = aiLimitExceeded || aiDegradedThisTurn;
     const checkout = skipCheckoutUi
-        ? { state: nextState, outbound }
+        ? { state: nextState, outbound, checkoutTurnKind: "none" as const }
         : checkoutPostProcess({
               state: nextState,
               outbound,
@@ -1116,6 +1136,7 @@ export async function runProPipeline(
               checkoutHandoffUrl,
               orderHints: checkoutOrderHints,
               addressFreeTextSignaled,
+              intentNewAddress: false,
               fulfillmentPolicy,
             acceptedPayments,
           });
@@ -1198,6 +1219,20 @@ export async function runProPipeline(
             tags: { intent: decision.intent, step: nextState.step },
         },
     ];
+    if (stepBeforeRoute !== nextState.step) {
+        runMetrics.push({
+            name: "pro_pipeline.slot_transition",
+            value: 1,
+            tags: { from: stepBeforeRoute, to: nextState.step },
+        });
+    }
+    if (checkout.checkoutTurnKind && checkout.checkoutTurnKind !== "none") {
+        runMetrics.push({
+            name: "pro_pipeline.checkout_turn",
+            value: 1,
+            tags: { kind: checkout.checkoutTurnKind },
+        });
+    }
     if (decision.reasonCode === "defer_to_agent") {
         runMetrics.push({
             name: "pro_pipeline.intent_llm_skipped",
@@ -1240,11 +1275,28 @@ export async function runProPipeline(
 async function resolveCheckoutHandoffUrl(
     deps: PipelineDependencies,
     input: ProPipelineInput,
-    state: ProSessionState
+    state: ProSessionState,
+    opts?: {
+        orderHints?: Record<string, unknown> | null;
+        intentNewAddress?: boolean;
+    }
 ): Promise<string | null> {
     const web = String(input.webMenuUrl ?? "").trim();
     if (!web) return null;
     if (!state.draft?.items.length || !deps.admin) return web;
+
+    const decision = resolveCheckoutChannel(
+        checkoutChannelInputFromState({
+            draft: state.draft,
+            orderHints: opts?.orderHints ?? null,
+            intentNewAddress: opts?.intentNewAddress === true,
+        })
+    );
+    /** C1.5 / ADR G3: só cria handoff `hc` quando o canal de checkout é web. */
+    if (!shouldOfferWebAddressHandoff(decision)) {
+        return null;
+    }
+
     return createCheckoutHandoff({
         admin: deps.admin,
         companyId: input.tenant.companyId,

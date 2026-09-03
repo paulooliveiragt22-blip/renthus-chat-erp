@@ -101,6 +101,7 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
      */
     if (messagingChannel === "whatsapp" && phone_e164) {
         try {
+            const { makeMetricsPort } = await import("@/src/pro/pipeline/deps.factory");
             const handled = await tryResolvePendingOrderConfirmation({
                 admin,
                 companyId: company_id,
@@ -110,6 +111,7 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
                 channelUserId,
                 inboundText: body_text ?? "",
                 waConfig,
+                metrics: makeMetricsPort(admin),
             });
             if (handled) return;
         } catch (err) {

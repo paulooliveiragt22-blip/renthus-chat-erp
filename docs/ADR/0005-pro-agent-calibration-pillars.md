@@ -63,7 +63,7 @@ Bug em E desce para A/B/C.
 | P0.2 | Matching catálogo | |
 | P0.3 | HITL regex → **só botão** | Decisão tomada; código pendente C1.2 |
 | P0.4 | Slots vs mensagens curtas | |
-| P0.5 | Endereço / zona / mínimo | Alinhar a R1–R2 |
+| P0.5 | Endereço / zona / mínimo | Fechado em C1.5 (hints R2 + handoff gating + finalize estrutural; zona/min já em prepare) |
 | P0.6 | Idempotência efeito (SQS) | |
 | P0.7 | LLM 429 / falha API | Ver **D6** (retry vs cardápio) |
 | P0.8 | STT | |

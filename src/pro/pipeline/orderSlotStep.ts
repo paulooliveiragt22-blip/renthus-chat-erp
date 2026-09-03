@@ -1,19 +1,13 @@
 import type { DraftAddress, OrderDraft, ProSessionState, ProStep } from "@/src/types/contracts";
 import { isPickupDraft } from "@/lib/delivery/fulfillment";
-import { isDraftBelowMinimumOrder, isDraftStructurallyCompleteForFinalize } from "./orderDraftGate";
+import {
+    isAddressStructurallyComplete,
+    isDraftBelowMinimumOrder,
+    isDraftStructurallyCompleteForFinalize,
+} from "./orderDraftGate";
 
-/** Endereço mínimo para entrega (rua, número, bairro, cidade, UF — colunas em `enderecos_cliente`). */
-export function isAddressStructurallyComplete(address: DraftAddress | null): boolean {
-    if (!address) return false;
-    const uf = address.estado?.trim().toUpperCase() ?? "";
-    return Boolean(
-        address.logradouro?.trim() &&
-            address.numero?.trim() &&
-            address.bairro?.trim() &&
-            address.cidade?.trim() &&
-            uf.length === 2
-    );
-}
+/** Re-export — canónico em `orderDraftGate` (C1.5 finalize + slots). */
+export { isAddressStructurallyComplete } from "./orderDraftGate";
 
 /** Impressão digital do bloco de endereço + vínculo salvo (para invalidar confirmação na UI). */
 export function deliveryAddressFingerprint(address: DraftAddress | null): string {

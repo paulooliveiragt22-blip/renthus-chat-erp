@@ -39,9 +39,13 @@ export async function buildOrderHintsPayload(params: {
     const statsById = new Map(addressStats.map((s) => [s.address.id, s]));
 
     const saved_addresses_incomplete: Array<{ id: string; reason_pt: string }> = [];
+    let hasCompleteSavedAddress = false;
     for (const r of savedList) {
         const parsed = buildAiAddressFromSavedClienteRow(r);
-        if (parsed) continue;
+        if (parsed) {
+            hasCompleteSavedAddress = true;
+            continue;
+        }
         if (!(r.logradouro?.trim() || r.numero?.trim() || r.bairro?.trim())) continue;
         const missingCity = !r.cidade?.trim();
         const missingUf = !r.estado?.trim() || String(r.estado).trim().length < 2;
@@ -53,12 +57,16 @@ export async function buildOrderHintsPayload(params: {
         });
     }
 
+    /**
+     * C1.5 / R2: só força cadastro web quando **não** há nenhum endereço utilizável.
+     * Endereços incompletos coexistem com um completo → fica no WA (escolha/confirmação).
+     */
     const requires_address_flow_registration =
-        savedList.length === 0 || saved_addresses_incomplete.length > 0;
+        savedList.length === 0 || !hasCompleteSavedAddress;
     const address_registration_reason_pt = requires_address_flow_registration
         ? savedList.length === 0
             ? "Cliente sem enderecos cadastrados; use o Flow ou colete rua, numero, bairro, cidade e UF."
-            : "Ha endereco cadastral incompleto (ex.: falta cidade ou UF); peca para completar pelo Flow ou texto estruturado."
+            : "Nenhum endereco cadastral completo (ex.: falta cidade ou UF); peca para completar pelo Flow ou texto estruturado."
         : null;
 
     const favorite_lines = await loadCustomerFavoriteLinesSafe(admin, companyId, phoneE164);

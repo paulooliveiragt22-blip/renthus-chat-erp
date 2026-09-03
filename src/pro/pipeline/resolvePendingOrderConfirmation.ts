@@ -15,6 +15,7 @@ import type { OrderDraft, TenantRef } from "@/src/types/contracts";
 import { OrderServiceV2Adapter } from "@/src/pro/adapters/order/order.service.v2";
 import { sendAndPersistWaText } from "@/lib/whatsapp/sendAndPersist";
 import type { WaConfig } from "@/lib/whatsapp/send";
+import type { MetricsPort } from "@/src/pro/ports/metrics.port";
 import { detectStructuredCheckoutAction } from "./orderConfirmationText";
 
 const CONFIRMATION_TTL_MS = 60 * 60 * 1000;
@@ -26,6 +27,19 @@ export function detectPendingConfirmationIntent(text: string): PendingOrderConfi
     return detectStructuredCheckoutAction(text);
 }
 
+function emitHitlMetric(
+    metrics: MetricsPort | undefined,
+    companyId: string,
+    threadId: string,
+    action: "confirm" | "cancel" | "expired" | "failed"
+): void {
+    metrics?.increment("pro_pipeline.hitl_confirmation", 1, {
+        companyId,
+        threadId,
+        action,
+    });
+}
+
 export async function tryResolvePendingOrderConfirmation(params: {
     admin: SupabaseClient;
     companyId: string;
@@ -35,8 +49,19 @@ export async function tryResolvePendingOrderConfirmation(params: {
     channelUserId?: string;
     inboundText: string;
     waConfig?: WaConfig;
+    metrics?: MetricsPort;
 }): Promise<boolean> {
-    const { admin, companyId, threadId, phoneE164, messageId, channelUserId, inboundText, waConfig } = params;
+    const {
+        admin,
+        companyId,
+        threadId,
+        phoneE164,
+        messageId,
+        channelUserId,
+        inboundText,
+        waConfig,
+        metrics,
+    } = params;
 
     const intent = detectStructuredCheckoutAction(inboundText);
     if (!intent) return false;
@@ -64,6 +89,7 @@ export async function tryResolvePendingOrderConfirmation(params: {
             .from("whatsapp_order_confirmations")
             .update({ status: "expired", resolved_at: new Date().toISOString() })
             .eq("id", confirmationId);
+        emitHitlMetric(metrics, companyId, threadId, "expired");
         await sendAndPersistWaText(admin, {
             threadId,
             phoneE164,
@@ -79,6 +105,7 @@ export async function tryResolvePendingOrderConfirmation(params: {
             .from("whatsapp_order_confirmations")
             .update({ status: "cancelled", resolved_at: new Date().toISOString() })
             .eq("id", confirmationId);
+        emitHitlMetric(metrics, companyId, threadId, "cancel");
         await sendAndPersistWaText(admin, {
             threadId,
             phoneE164,
@@ -115,6 +142,8 @@ export async function tryResolvePendingOrderConfirmation(params: {
             resolved_at: new Date().toISOString(),
         })
         .eq("id", confirmationId);
+
+    emitHitlMetric(metrics, companyId, threadId, result.ok ? "confirm" : "failed");
 
     await sendAndPersistWaText(admin, {
         threadId,

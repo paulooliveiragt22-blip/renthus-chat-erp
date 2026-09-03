@@ -4,6 +4,8 @@
  */
 
 import type { FulfillmentType } from "@/lib/delivery/fulfillment";
+import type { OrderDraft } from "@/src/types/contracts";
+import { isAddressStructurallyComplete } from "./orderDraftGate";
 
 export type CheckoutChannelDecision =
     | {
@@ -28,10 +30,13 @@ export type ResolveCheckoutChannelInput = {
     addressStructurallyComplete: boolean;
     /**
      * De `orderHints.requires_address_flow_registration`:
-     * zero endereços salvos **ou** há cadastro incompleto.
+     * zero endereços salvos **ou** nenhum completo utilizável (C1.5).
      */
     requiresAddressRegistration: boolean;
-    /** Há endereços salvos mas pelo menos um incompleto (hint opcional p/ reason). */
+    /**
+     * Há incompletos e `requiresAddressRegistration` (nenhum completo).
+     * Não usar sozinho — um completo + incompletos → registration false / WA.
+     */
     hasIncompleteSavedAddress?: boolean;
     /** Cliente pediu “outro endereço” / `pro_new_address_flow` / `pro_edit_delivery_address`. */
     intentNewAddress: boolean;
@@ -82,4 +87,34 @@ export function shouldOfferWebAddressHandoff(
     decision: CheckoutChannelDecision
 ): boolean {
     return decision.channel === "web_menu";
+}
+
+/** True quando o inbound é o botão de outro/editar endereço (R2 → web). */
+export function isNewAddressCheckoutAction(text: string): boolean {
+    const t = text.trim();
+    return t === "pro_new_address_flow" || t === "pro_edit_delivery_address";
+}
+
+/**
+ * Inputs de canal a partir do draft + hints (puro).
+ * `hasIncompleteSavedAddress` só afeta reason quando registration é true.
+ */
+export function checkoutChannelInputFromState(params: {
+    draft: OrderDraft | null | undefined;
+    orderHints?: Record<string, unknown> | null;
+    intentNewAddress: boolean;
+}): ResolveCheckoutChannelInput {
+    const draft = params.draft ?? null;
+    const needAddrRegistration = params.orderHints?.requires_address_flow_registration === true;
+    const incompleteSaved = Array.isArray(params.orderHints?.saved_addresses_incomplete)
+        ? (params.orderHints!.saved_addresses_incomplete as unknown[]).length > 0
+        : false;
+    return {
+        hasItems: Boolean(draft?.items.length),
+        fulfillmentType: draft?.fulfillmentType ?? null,
+        addressStructurallyComplete: isAddressStructurallyComplete(draft?.address ?? null),
+        requiresAddressRegistration: needAddrRegistration,
+        hasIncompleteSavedAddress: incompleteSaved,
+        intentNewAddress: params.intentNewAddress,
+    };
 }

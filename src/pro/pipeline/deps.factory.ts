@@ -38,6 +38,8 @@ function makeMetricsPort(admin: ProcessMessageParams["admin"]): MetricsPort {
     return new ConsoleMetricsAdapter();
 }
 
+/** Exportado para HITL (`resolvePendingOrderConfirmation`) e testes — mesmo store do pipeline. */
+export { makeMetricsPort };
 /**
  * Extraída pra ser testável sem precisar simular o loop inteiro de `generateText`/429 (ver
  * docs/PLANO_MULTI_PROVIDER_IA.md, Fase 9 — pendência trazida da Fase 7).

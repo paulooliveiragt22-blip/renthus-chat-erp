@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+    checkoutChannelInputFromState,
+    isNewAddressCheckoutAction,
     resolveCheckoutChannel,
     shouldOfferWebAddressHandoff,
 } from "../../src/pro/pipeline/checkoutChannelPolicy";
@@ -85,5 +87,32 @@ describe("resolveCheckoutChannel (ADR-0005 R1–R2 / C1b)", () => {
         });
         assert.equal(d.channel, "whatsapp");
         assert.equal(d.reason, "address_complete_on_wa");
+    });
+
+    it("C1.5: completo + incompletos nos hints → registration false → WA (não web)", () => {
+        const input = checkoutChannelInputFromState({
+            draft: {
+                items: [{ produtoEmbalagemId: "x" }],
+                fulfillmentType: "delivery",
+                address: null,
+            } as never,
+            orderHints: {
+                requires_address_flow_registration: false,
+                saved_addresses_incomplete: [{ id: "bad", reason_pt: "sem UF" }],
+            },
+            intentNewAddress: false,
+        });
+        assert.equal(input.requiresAddressRegistration, false);
+        assert.equal(input.hasIncompleteSavedAddress, true);
+        const d = resolveCheckoutChannel(input);
+        assert.equal(d.channel, "whatsapp");
+        assert.equal(d.reason, "saved_address_ok");
+        assert.equal(shouldOfferWebAddressHandoff(d), false);
+    });
+
+    it("isNewAddressCheckoutAction reconhece botões R2", () => {
+        assert.equal(isNewAddressCheckoutAction("pro_new_address_flow"), true);
+        assert.equal(isNewAddressCheckoutAction("pro_edit_delivery_address"), true);
+        assert.equal(isNewAddressCheckoutAction("pro_confirm_order"), false);
     });
 });

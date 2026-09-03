@@ -17,9 +17,10 @@ import {
     looksLikeNonMoneyWhileAwaitingChange,
     parsePtMoneyInput,
 } from "../paymentFromUserText";
-import { resolveCheckoutTurnOutcome } from "../resolveCheckoutTurnOutcome";
+import { resolveCheckoutTurnOutcome, type CheckoutTurnOutcomeKind } from "../resolveCheckoutTurnOutcome";
 import { buildPickClarificationFreeText } from "../pendingPickGroups";
 import {
+    checkoutChannelInputFromState,
     resolveCheckoutChannel,
     shouldOfferWebAddressHandoff,
 } from "../checkoutChannelPolicy";
@@ -781,9 +782,11 @@ export function checkoutPostProcess(params: {
      * Suprime os botões de escolha de endereço para não duplicar a pergunta.
      */
     addressFreeTextSignaled?: boolean;
+    /** R2: cliente pediu outro endereço / edit (só relevante se handoff já criado). */
+    intentNewAddress?: boolean;
     fulfillmentPolicy?: FulfillmentPolicy;
     acceptedPayments?: AcceptedCustomerPayments;
-}): { state: ProSessionState; outbound: OutboundMessage[] } {
+}): { state: ProSessionState; outbound: OutboundMessage[]; checkoutTurnKind: CheckoutTurnOutcomeKind } {
     const policy = params.fulfillmentPolicy ?? DEFAULT_FULFILLMENT_POLICY;
     const accepted = params.acceptedPayments ?? DEFAULT_ACCEPTED_CUSTOMER_PAYMENTS;
     let nextState = params.state;
@@ -802,31 +805,23 @@ export function checkoutPostProcess(params: {
         });
     }
 
-    const addrComplete =
-        Boolean(nextState.draft?.address) && isAddressStructurallyComplete(nextState.draft!.address);
     const skipAddressUi =
         isPickupDraft(nextState.draft) ||
         needsFulfillmentChoice(policy, nextState.draft?.fulfillmentType);
-    const needAddrRegistration = params.orderHints?.requires_address_flow_registration === true;
-    const incompleteSaved = Array.isArray(params.orderHints?.saved_addresses_incomplete)
-        ? (params.orderHints!.saved_addresses_incomplete as unknown[]).length > 0
-        : false;
     const handoffUrl = params.checkoutHandoffUrl?.trim() ?? "";
-    const channelDecision = resolveCheckoutChannel({
-        hasItems: Boolean(nextState.draft?.items.length),
-        fulfillmentType: nextState.draft?.fulfillmentType ?? null,
-        addressStructurallyComplete: addrComplete,
-        requiresAddressRegistration: needAddrRegistration,
-        hasIncompleteSavedAddress: incompleteSaved,
-        intentNewAddress: false,
-    });
+    const channelDecision = resolveCheckoutChannel(
+        checkoutChannelInputFromState({
+            draft: nextState.draft,
+            orderHints: params.orderHints,
+            intentNewAddress: params.intentNewAddress === true,
+        })
+    );
     const showAddressRegistrationPrompt =
         params.mode === "ai" &&
         Boolean(handoffUrl) &&
         shouldOfferWebAddressHandoff(channelDecision) &&
         nextState.draft &&
         nextState.draft.items.length > 0 &&
-        !addrComplete &&
         !skipAddressUi &&
         nextState.deliveryAddressUiConfirmed !== true;
     if (showAddressRegistrationPrompt && handoffUrl) {
@@ -915,7 +910,7 @@ export function checkoutPostProcess(params: {
             [...outbound, ...checkoutCards],
             nextState.draft
         );
-        return { state: nextState, outbound: composed };
+        return { state: nextState, outbound: composed, checkoutTurnKind: turnOutcome.kind };
     }
 
     const cardsToAdd = outboundHasPaymentButtons(outbound)
@@ -933,7 +928,11 @@ export function checkoutPostProcess(params: {
         if (clarify) outbound.push(clarify);
     }
 
-    return { state: nextState, outbound: prioritizeInteractiveFirst(outbound) };
+    return {
+        state: nextState,
+        outbound: prioritizeInteractiveFirst(outbound),
+        checkoutTurnKind: turnOutcome.kind,
+    };
 }
 
 export function checkoutPostProcessForQuickAction(params: {

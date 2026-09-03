@@ -101,19 +101,37 @@ export async function GET() {
         );
 
         const subStatus = String(pagarmeSubRaw?.status ?? "");
+        // Mesma precedência da UI (PlanBillingPanel): setup no 1º pagamento, invoice no restante.
+        const isFirstPayment =
+            subStatus === "trial" ||
+            subStatus === "pending_setup" ||
+            subStatus === "pending_payment";
+        const usingSetup =
+            subStatus === "pending_payment"
+                ? pendingInvoice == null && pendingSetupPayment != null
+                : isFirstPayment
+                  ? pendingSetupPayment != null
+                  : false;
+        const obligationAmount = usingSetup
+            ? Number(pendingSetupPayment!.amount)
+            : pendingInvoice?.amount != null
+              ? Number(pendingInvoice.amount)
+              : pendingSetupPayment?.amount != null
+                ? Number(pendingSetupPayment.amount)
+                : null;
+        const canonicalObligationBrl =
+            planKey == null
+                ? null
+                : usingSetup
+                  ? getSetupPriceCents(planKey) / 100
+                  : getMonthlyPriceCents(planKey) / 100;
         const canonicalMonthly =
             planKey != null ? getMonthlyPriceCents(planKey) / 100 : null;
-        const obligationAmount =
-            pendingInvoice?.amount != null
-                ? Number(pendingInvoice.amount)
-                : pendingSetupPayment?.amount != null
-                  ? Number(pendingSetupPayment.amount)
-                  : null;
         const amountMismatch =
-            canonicalMonthly != null &&
+            canonicalObligationBrl != null &&
             obligationAmount != null &&
             Number.isFinite(obligationAmount) &&
-            Math.abs(obligationAmount - canonicalMonthly) > 0.02;
+            Math.abs(obligationAmount - canonicalObligationBrl) > 0.02;
 
         return NextResponse.json({
             ok: true,

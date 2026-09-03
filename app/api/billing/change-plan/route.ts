@@ -4,12 +4,17 @@
  * Trial: qualquer plano comercial.
  * Active: só upgrade (essencial → pro → market).
  * Overdue / pending_payment / blocked: proibido (pague primeiro — D11).
+ *
+ * Após update de plano (ou noop no mesmo plano): rebill da obrigação pending
+ * (mesmo fluxo da rota platform), cancelando PIX/order stale e o tipo órfão
+ * (setup XOR invoice).
  */
 
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/workspace/requireCompanyAccess";
 import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { normalizePlanKey, parseCommercialPlanInput, planRank } from "@/lib/billing/planCatalog";
+import { rebillPendingObligationAfterPlanChange } from "@/lib/billing/rebillPendingObligation";
 import { jsonAccessError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
@@ -65,7 +70,9 @@ export async function POST(req: Request) {
         }
 
         if (current === planKey) {
-            return NextResponse.json({ ok: true, action: "noop", plan: current });
+            // Alinha obrigação stale mesmo sem trocar de plano (ex.: pending com valor antigo).
+            const rebill = await rebillPendingObligationAfterPlanChange(admin, companyId, planKey);
+            return NextResponse.json({ ok: true, action: "noop", plan: current, rebill });
         }
 
         if (st === "trial") {
@@ -76,7 +83,8 @@ export async function POST(req: Request) {
 
             if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
             await syncLogicalSubscription(admin, companyId, planKey);
-            return NextResponse.json({ ok: true, action: "changed", plan: planKey });
+            const rebill = await rebillPendingObligationAfterPlanChange(admin, companyId, planKey);
+            return NextResponse.json({ ok: true, action: "changed", plan: planKey, rebill });
         }
 
         if (st === "active" && planRank(planKey) > planRank(current)) {
@@ -87,7 +95,8 @@ export async function POST(req: Request) {
 
             if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
             await syncLogicalSubscription(admin, companyId, planKey);
-            return NextResponse.json({ ok: true, action: "upgraded", plan: planKey });
+            const rebill = await rebillPendingObligationAfterPlanChange(admin, companyId, planKey);
+            return NextResponse.json({ ok: true, action: "upgraded", plan: planKey, rebill });
         }
 
         return NextResponse.json(

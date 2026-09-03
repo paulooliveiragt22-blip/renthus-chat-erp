@@ -32,6 +32,70 @@ async function maybeFulfillPaidOrder(
     return r.fulfilled;
 }
 
+/** Cancela obrigações pending do tipo errado (setup XOR invoice) pra não somar/mostrar valor velho. */
+async function voidOppositePending(
+    admin: Admin,
+    companyId: string,
+    keep: "setup" | "invoice"
+): Promise<void> {
+    if (keep === "setup") {
+        const { data: rows } = await admin
+            .from("invoices")
+            .select("id, pagarme_order_id")
+            .eq("company_id", companyId)
+            .eq("status", "pending");
+
+        for (const row of rows ?? []) {
+            if (row.pagarme_order_id) {
+                await cancelPagarmeChargeBestEffort(String(row.pagarme_order_id));
+            }
+            await admin
+                .from("invoices")
+                .update({
+                    status: "cancelled",
+                    pagarme_order_id: null,
+                    pagarme_payment_url: null,
+                    pix_qr_code: null,
+                })
+                .eq("id", row.id);
+        }
+        if ((rows ?? []).length > 0) {
+            billingLog("rebill", "voided_orphan_invoices", {
+                company_id: companyId,
+                count: (rows ?? []).length,
+            });
+        }
+        return;
+    }
+
+    const { data: rows } = await admin
+        .from("setup_payments")
+        .select("id, pagarme_order_id")
+        .eq("company_id", companyId)
+        .eq("status", "pending");
+
+    for (const row of rows ?? []) {
+        if (row.pagarme_order_id) {
+            await cancelPagarmeChargeBestEffort(String(row.pagarme_order_id));
+        }
+        await admin
+            .from("setup_payments")
+            .update({
+                status: "cancelled",
+                pagarme_order_id: null,
+                pagarme_payment_url: null,
+                pix_qr_code: null,
+            })
+            .eq("id", row.id);
+    }
+    if ((rows ?? []).length > 0) {
+        billingLog("rebill", "voided_orphan_setups", {
+            company_id: companyId,
+            count: (rows ?? []).length,
+        });
+    }
+}
+
 /**
  * Rebill invoice/setup pending da company após mudança de plano.
  */
@@ -56,6 +120,8 @@ export async function rebillPendingObligationAfterPlanChange(
         st === "pending_setup" || (st === "trial" && setupCents > 0);
 
     if (isSetupPath) {
+        await voidOppositePending(admin, companyId, "setup");
+
         const { data: setup } = await admin
             .from("setup_payments")
             .select("id, amount, pagarme_order_id")
@@ -100,6 +166,8 @@ export async function rebillPendingObligationAfterPlanChange(
         });
         return { ok: true, action: "rebilled", amount_brl: targetBrl };
     }
+
+    await voidOppositePending(admin, companyId, "invoice");
 
     const { data: inv } = await admin
         .from("invoices")

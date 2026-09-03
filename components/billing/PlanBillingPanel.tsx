@@ -230,6 +230,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                 setBillingErr((json as { error?: string }).error ?? "Não foi possível alterar o plano.");
                 return;
             }
+            // QR local / order antigo fica inválido após rebill — força novo PIX no valor do plano.
+            setPixLiveCode(null);
+            setPixLiveUrl(null);
             await loadBilling();
             invalidatePlanFeatures();
         } catch {

@@ -6,7 +6,7 @@
 
 Cronologia de aplicação dos quatro pilares. Marcar `[x]` só com evidência. Emenda = linha na §5 + nota datada.
 
-**Implementação em curso (2026-09-03):** C1.2–C1.4 + C1b + C1c feitos. Pendente: C1.5–C1.6, C2+.
+**Implementação em curso (2026-09-03):** C1 + C1b + C1c feitos. Pendente: C2+.
 
 ---
 
@@ -86,8 +86,12 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A · `[~]` decisão só (sem c
 - [x] **C1.2** Código: `detectStructuredCheckoutAction`; `send-confirmation` envia interactive buttons; coalescer só IDs de botão
 - [x] **C1.3** Testes A: prosa não fecha; botão confirma/cancela (`orderConfirmationText`, HITL intent, `queueCoalesce`)
 - [x] **C1.4** Matriz slots mensagens curtas (`orderSlotStep` C1.4)
-- [ ] **C1.5** Endereço / zona / mínimo alinhados a prepare + R2
-- [ ] **C1.6** Métricas outcome / slot / HITL
+- [x] **C1.5** Endereço / zona / mínimo alinhados a prepare + R2
+  - `requires_address_flow_registration` só sem endereço completo utilizável
+  - handoff `hc` só se `resolveCheckoutChannel` → `web_menu`
+  - finalize exige `isAddressStructurallyComplete` (não só `Boolean(address)`)
+- [x] **C1.6** Métricas outcome / slot / HITL
+  - `pro_pipeline.order_outcome`, `slot_transition`, `checkout_turn`, `hitl_confirmation`
 
 **Saída C1:** um contrato de finalize/cancel.
 
@@ -167,7 +171,8 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` N/A · `[~]` decisão só (sem c
 | 2026-09-03 | C1.4 + C1b.1–2 | slots matrix + `resolveCheckoutChannel` + `menu_handoffs.meta` | |
 | 2026-09-03 | C1b.3 | `consumeCheckoutHandoff` + 3 testes | Pedido web com `hc` limpa draft WA |
 | 2026-09-03 | C1c | `degradedReason` + CTA `cta_url` + testes D6 | 429 continua retry; `no_subscription` sem CTA |
-| | C1.5 / C2… | | |
+| 2026-09-03 | C1.5–C1.6 | R2 hints/handoff/finalize + métricas outcome/HITL | |
+| | C2… | | |
 
 ---
 
@@ -186,8 +191,8 @@ Fora de escopo agora: fine-tune; reescrever `pipeline_*`; retorno WebView; marke
 
 | Área | Testes |
 |------|--------|
-| Slots / confirm / HITL | `orderSlotStep`, `orderConfirmationText`, `resolvePendingOrderConfirmation` |
-| Canal checkout / handoff | `checkoutChannelPolicy`, `consumeCheckoutHandoff` |
+| Slots / confirm / HITL | `orderSlotStep`, `orderConfirmationText`, `resolvePendingOrderConfirmation`, `hitlConfirmationMetrics` |
+| Canal checkout / handoff / R2 | `checkoutChannelPolicy`, `consumeCheckoutHandoff`, `orderDraftGate` |
 | D6 degradado | `aiCapabilityProfile.degraded` |
 | Pipeline / allowlist / picks | `proPipeline`, `prepareOrderDraftAllowlist`, `pendingPickGroups`, … |
 | Degradado / capability | `aiCapabilityProfile` tests, `aiOrderModePolicy` |

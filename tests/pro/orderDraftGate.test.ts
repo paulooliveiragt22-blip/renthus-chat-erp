@@ -24,6 +24,8 @@ function minimalDraft(overrides: Partial<OrderDraft> = {}): OrderDraft {
             logradouro: "Rua A",
             numero: "1",
             bairro: "Centro",
+            cidade: "Sorriso",
+            estado: "MT",
             complemento: null,
         },
         paymentMethod: "pix",
@@ -56,6 +58,22 @@ describe("orderDraftGate (R1)", () => {
         assert.equal(isDraftStructurallyCompleteForFinalize(minimalDraft({ paymentMethod: null })), false);
         assert.equal(
             isDraftStructurallyCompleteForFinalize(minimalDraft({ fulfillmentType: null })),
+            false
+        );
+    });
+
+    it("C1.5: endereço parcial (sem cidade/UF) não finaliza", () => {
+        assert.equal(
+            isDraftStructurallyCompleteForFinalize(
+                minimalDraft({
+                    address: {
+                        logradouro: "Rua A",
+                        numero: "1",
+                        bairro: "Centro",
+                        complemento: null,
+                    },
+                })
+            ),
             false
         );
     });
