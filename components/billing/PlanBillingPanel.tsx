@@ -161,13 +161,25 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
                 return;
             }
             setBillingData(json);
+            // PSP sync liberou / não há mais obrigação: limpa QR local (senão o gate não redireciona).
+            const syncAction = json.psp_sync?.action;
+            const noObligation =
+                !json.pending_invoice && !json.pending_setup_payment;
+            if (syncAction === "fulfilled" || noObligation) {
+                setPixLiveCode(null);
+                setPixLiveUrl(null);
+            }
+            if (syncAction === "fulfilled") {
+                setBillingSuccessMsg("Pagamento confirmado. Plano liberado.");
+                invalidatePlanFeatures();
+            }
         } catch {
             setBillingErr("Erro de rede ao carregar cobrança.");
             setBillingData(null);
         } finally {
             setBillingLoading(false);
         }
-    }, [companyId]);
+    }, [companyId, invalidatePlanFeatures]);
 
     useEffect(() => {
         void loadCompany();
@@ -178,18 +190,16 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
     }, [loadBilling]);
 
     // Gate /plano/pagar: após pagamento (ou se não há obrigação), manda para /ativar.
-    // Trial/active COM invoice/setup pending deve permanecer na tela de pagamento.
+    // Trial/active COM invoice/setup pending no servidor permanece na tela.
+    // pixLive* sozinho NÃO bloqueia redirect (estado local stale após pago).
     useEffect(() => {
         if (variant !== "pay") return;
         const st = billingData?.pagarme_subscription?.status;
         if (st !== "active" && st !== "trial") return;
-        const hasPending =
+        const hasServerPending =
             Boolean(billingData?.pending_invoice) ||
-            Boolean(billingData?.pending_setup_payment) ||
-            Boolean(billingData?.pending_invoice?.pix_qr_code) ||
-            Boolean(pixLiveCode) ||
-            Boolean(pixLiveUrl);
-        if (hasPending) {
+            Boolean(billingData?.pending_setup_payment);
+        if (hasServerPending) {
             const id = window.setInterval(() => {
                 void loadBilling();
             }, 5000);
@@ -201,9 +211,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         billingData?.pagarme_subscription?.status,
         billingData?.pending_invoice,
         billingData?.pending_setup_payment,
-        billingData?.pending_invoice?.pix_qr_code,
-        pixLiveCode,
-        pixLiveUrl,
+        billingData?.psp_sync?.action,
         loadBilling,
     ]);
 
@@ -266,6 +274,21 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
                 setBillingErr((json as { error?: string }).error ?? "Erro ao gerar PIX.");
+                return;
+            }
+            if ((json as { payment_status?: string }).payment_status === "paid") {
+                setPixLiveCode(null);
+                setPixLiveUrl(null);
+                setBillingSuccessMsg(
+                    (json as { message?: string }).message ??
+                        "Pagamento confirmado. Plano liberado."
+                );
+                invalidatePlanFeatures();
+                if (variant === "pay") {
+                    window.location.assign("/ativar");
+                    return;
+                }
+                await loadBilling();
                 return;
             }
             const code =

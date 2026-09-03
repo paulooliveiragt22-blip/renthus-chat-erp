@@ -240,6 +240,25 @@ export async function POST(req: Request) {
         const { isFirstPayment, amountCents } = strategy;
         const plan = sub.plan;
 
+        // Já ativo no período pago: não abrir nova cobrança (evita multi-pay).
+        const nextBillingMs = sub.next_billing_at
+            ? Date.parse(sub.next_billing_at)
+            : NaN;
+        const prepaidActive =
+            String(sub.status).toLowerCase() === "active" &&
+            Number.isFinite(nextBillingMs) &&
+            nextBillingMs > Date.now() &&
+            !pendingRecord;
+        if (prepaidActive) {
+            return remember({
+                ok: true,
+                payment_status: "paid",
+                already_paid: true,
+                message: "Plano já está ativo. Nenhuma cobrança adicional agora.",
+                next_billing_at: sub.next_billing_at,
+            });
+        }
+
         // Se já pagou no PSP e o webhook falhou: libera antes de reexibir QR / criar order.
         if (pendingRecord?.pagarme_order_id) {
             const sync = await syncPendingObligationFromPsp(admin, companyId);

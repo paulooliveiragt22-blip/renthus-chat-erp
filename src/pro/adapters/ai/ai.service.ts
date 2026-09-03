@@ -6,7 +6,7 @@
  * texto `INTENT_OK`/`INTENT_UNKNOWN`/`ADDR_FREE_TEXT`.
  */
 
-import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
+import { generateText, stepCountIs, tool, InvalidToolInputError, NoSuchToolError, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -453,14 +453,14 @@ function createRespondToCustomerTool() {
             reply_text: z.string().describe("Mensagem final ao cliente, em PT-BR."),
             address_free_text: z
                 .boolean()
-                .optional()
+                .nullable()
                 .describe(
-                    "true só quando esta resposta é o texto livre de confirmação de endereço (cliente questionou endereço diferente do cadastrado)."
+                    "true só quando esta resposta é o texto livre de confirmação de endereço (cliente questionou endereço diferente do cadastrado); null caso contrário."
                 ),
             understood: z
                 .boolean()
-                .optional()
-                .describe("false só quando não entendeu a mensagem do cliente."),
+                .nullable()
+                .describe("false só quando não entendeu a mensagem do cliente; null = entendeu."),
         }),
         execute: async (args) => args,
     });
@@ -724,6 +724,45 @@ export class AiServiceAdapter implements AiService {
                     maxRetries: 3,
                     abortSignal: AbortSignal.timeout(input.limits.timeoutMs),
                     /**
+                     * Groq/OpenAI às vezes mandam `null` em arrays obrigatórios (ex.:
+                     * outros_produtos_pendentes). Sem repair o generateText aborta o turno
+                     * depois do search já ter rodado — UX: "Tive uma falha…".
+                     * Docs AI SDK: repairToolCall + InvalidToolInputError.
+                     */
+                    repairToolCall: async ({ toolCall, error }) => {
+                        if (NoSuchToolError.isInstance(error)) return null;
+                        if (!InvalidToolInputError.isInstance(error)) return null;
+                        let args: Record<string, unknown>;
+                        try {
+                            args =
+                                typeof toolCall.input === "string"
+                                    ? (JSON.parse(toolCall.input) as Record<string, unknown>)
+                                    : (toolCall.input as Record<string, unknown>);
+                        } catch {
+                            return null;
+                        }
+                        if (!args || typeof args !== "object") return null;
+                        const next: Record<string, unknown> = { ...args };
+                        let changed = false;
+                        for (const [k, v] of Object.entries(next)) {
+                            if (v !== null) continue;
+                            if (
+                                k === "outros_produtos_pendentes" ||
+                                k === "items" ||
+                                k === "picks"
+                            ) {
+                                next[k] = [];
+                                changed = true;
+                            }
+                        }
+                        if (!changed) return null;
+                        console.warn("[ai.service] repairToolCall null→[]", {
+                            toolName: toolCall.toolName,
+                            keys: Object.keys(next).filter((k) => next[k] !== args[k]),
+                        });
+                        return { ...toolCall, input: JSON.stringify(next) };
+                    },
+                    /**
                      * `respond_to_customer` é obrigatoriamente a última tool do turno — sem isso o
                      * modelo pode devolvê-la junto de `search_produtos`/`prepare_order_draft` no
                      * mesmo step (rodam em paralelo via `Promise.all`) e a resposta ao cliente sairia
@@ -897,6 +936,16 @@ export class AiServiceAdapter implements AiService {
                 pendingPickGroups: turnState.pendingPickGroups,
             });
         } catch (error) {
+            const errMsg = error instanceof Error ? error.message : String(error);
+            const errName = error instanceof Error ? error.name : typeof error;
+            console.warn("[ai.service] generateText failed", {
+                companyId,
+                provider: this.providerOverride ?? getConfiguredLlmProviderName(),
+                errName,
+                errMsg: errMsg.slice(0, 500),
+                invalidToolInput: InvalidToolInputError.isInstance(error),
+                allowlistSize: turnState.allowlistIds.length,
+            });
             if (error instanceof LlmProviderConfigError) {
                 return this.buildProviderError(input, 0, turnState.allowlistIds);
             }
@@ -920,6 +969,18 @@ export class AiServiceAdapter implements AiService {
                     updatedSearchProdutoEmbalagemIds: turnState.allowlistIds,
                     signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
                     errorCode: "AI_RATE_LIMIT",
+                };
+            }
+            if (InvalidToolInputError.isInstance(error)) {
+                return {
+                    action: "error",
+                    replyText:
+                        "Não consegui montar a consulta automática nesta mensagem. Pode repetir de forma mais curta?",
+                    updatedDraft: input.draft,
+                    updatedHistory: input.history,
+                    updatedSearchProdutoEmbalagemIds: turnState.allowlistIds,
+                    signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
+                    errorCode: "TOOL_FAILED",
                 };
             }
             return this.buildProviderError(input, 0, turnState.allowlistIds);

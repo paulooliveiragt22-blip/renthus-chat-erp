@@ -58,12 +58,14 @@ async function withRedisCounter<T>(
         return await fn();
     } catch (err) {
         if ((err as { status?: number }).status === 429) throw err;
+        // Se já adquiriu o slot Redis, o erro veio de `fn` (ex.: tool schema) — não mascarar
+        // como falha de Upstash. Só fail-open quando o próprio Redis falhou antes de adquirir.
+        if (acquired) throw err;
         console.warn(
             "[llmCap] Upstash falhou — fail-open",
             err instanceof Error ? err.message : err
         );
-        if (!acquired) return fn();
-        throw err;
+        return fn();
     } finally {
         if (acquired) {
             try {

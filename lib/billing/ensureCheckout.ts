@@ -77,6 +77,7 @@ export type CheckoutContext = {
         plan: string;
         status: string;
         pagarme_customer_id: string | null;
+        next_billing_at: string | null;
     };
     strategy: CheckoutStrategy;
     pendingSetup: PendingCheckoutRow | null;
@@ -91,7 +92,7 @@ export async function loadCheckoutContext(
 ): Promise<CheckoutContext | { error: string; status: number }> {
     const { data: sub, error: subErr } = await admin
         .from("pagarme_subscriptions")
-        .select("id, plan, status, pagarme_customer_id")
+        .select("id, plan, status, pagarme_customer_id, next_billing_at")
         .eq("company_id", companyId)
         .maybeSingle();
 
@@ -139,6 +140,7 @@ export async function loadCheckoutContext(
             plan: String(sub.plan ?? "essencial"),
             status: String(sub.status),
             pagarme_customer_id: (sub.pagarme_customer_id as string | null) ?? null,
+            next_billing_at: (sub.next_billing_at as string | null) ?? null,
         },
         strategy,
         pendingSetup: setupRow,

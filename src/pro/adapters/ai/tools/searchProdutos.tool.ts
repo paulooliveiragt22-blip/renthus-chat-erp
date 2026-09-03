@@ -24,14 +24,20 @@ export function createSearchProdutosTool(deps: {
             "Busca catálogo real da empresa. Em `query` mantenha o termo do cliente completo (ex.: 'Heineken long neck caixa'), não só a marca. A resposta inclui guidance_for_model_pt.",
         inputSchema: z.object({
             query: z.string().describe("Termo de busca completo, como o cliente escreveu."),
-            category_hint: z.string().optional().describe("Categoria sugerida, se o cliente citou."),
+            // AI SDK + Groq/OpenAI strict tools: use .nullable(), not .optional()
+            // (modelo manda null → "expected string, got null"). Docs: prompt-engineering tip.
+            category_hint: z
+                .string()
+                .nullable()
+                .describe("Categoria sugerida, se o cliente citou; null se não citou."),
             outros_produtos_pendentes: z
                 .array(z.string())
+                .nullable()
                 .describe(
                     "OBRIGATÓRIO a cada chamada: releia a mensagem do cliente e liste TODO OUTRO produto que ele citou " +
                         "e que você ainda NÃO buscou nesta busca nem em busca anterior deste atendimento (ex.: cliente disse " +
                         "'quero skol e original', você está buscando 'original' agora -> outros_produtos_pendentes=['skol']). " +
-                        "Array vazio [] quando não sobrar nenhum. NÃO omita este campo."
+                        "Array vazio [] (ou null) quando não sobrar nenhum. NÃO omita este campo."
                 ),
         }),
         execute: async ({ query, category_hint, outros_produtos_pendentes }) => {

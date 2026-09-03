@@ -22,26 +22,28 @@ import type { TurnState } from "./turnState";
  * que já tolera sinônimos snake_case/camelCase do modelo). Um schema Zod estrito aqui só
  * arriscaria `InvalidToolInputError` abortando o turno por causa de formatação, não de negócio.
  */
+// AI SDK tip (strict tools / Groq+OpenAI): .nullable() em vez de .optional() —
+// modelos enviam null em campos ausentes e o schema .optional() rejeita.
 const prepareOrderDraftInputSchema = z.object({
     items: z
         .array(z.unknown())
-        .optional()
+        .nullable()
         .describe(
             "Itens do pedido: cada um com produto_embalagem_id (UUID do último search_produtos) e quantity."
         ),
     address: z
         .unknown()
-        .optional()
+        .nullable()
         .describe("Endereço estruturado: logradouro, numero, bairro, complemento, cidade, estado, cep."),
-    address_raw: z.string().optional().describe("Endereço em uma linha, texto livre do cliente."),
-    saved_address_id: z.string().optional().describe("UUID de um endereço salvo (get_order_hints)."),
-    use_saved_address: z.unknown().optional().describe("true para usar o endereço padrão salvo do cliente."),
-    payment_method: z.string().optional().describe("pix | cash | card — só se o cliente já informou."),
-    change_for: z.unknown().optional().describe("Valor do troco em reais — só se o cliente pediu."),
-    ready_for_confirmation: z.unknown().optional(),
+    address_raw: z.string().nullable().describe("Endereço em uma linha, texto livre do cliente."),
+    saved_address_id: z.string().nullable().describe("UUID de um endereço salvo (get_order_hints)."),
+    use_saved_address: z.unknown().nullable().describe("true para usar o endereço padrão salvo do cliente."),
+    payment_method: z.string().nullable().describe("pix | cash | card — só se o cliente já informou."),
+    change_for: z.unknown().nullable().describe("Valor do troco em reais — só se o cliente pediu."),
+    ready_for_confirmation: z.unknown().nullable(),
     order_notes: z
         .string()
-        .optional()
+        .nullable()
         .describe(
             "Observação do pedido inteiro, texto livre do cliente (ex.: sem alface, tocar campainha). Não é por item."
         ),

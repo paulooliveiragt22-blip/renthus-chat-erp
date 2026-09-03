@@ -416,6 +416,24 @@ de `openai/gpt-oss-120b` (docs AI SDK / vercel/ai#8056; cherry-studio#13735).
 
 ---
 
+## 2.4. Revisão 2026-09-02 — Groq tool schema: `.nullable()` vs `.optional()`
+
+**Problema:** `quero skol lata` → `AI_PROVIDER_ERROR` com
+`Tool call validation failed: … category_hint: expected string, but got null`.
+Groq **fez** tool calling (`search_produtos`), mas o Zod rejeitou `null` em campo
+marcado só como `.optional()` (undefined ok, null não).
+
+**Causa / docs:** AI SDK prompt-engineering tip — em strict tool schemas (OpenAI/Groq)
+usar `.nullable()` em parâmetros opcionais, não `.optional()`.
+
+**Decisão (radical):**
+
+- [x] `search_produtos.category_hint`, campos opcionais de `prepare_order_draft` e
+  `respond_to_customer` → `.nullable()`.
+- [x] `llmCap`: não logar erro de `fn` (tool schema) como “Upstash falhou”.
+
+---
+
 ## 3. O que fica fora de escopo aqui (não abrir sem métrica/pedido novo)
 
 - BYOK (empresa trazer a própria API key) — precisaria de `lib/security/credentialCrypto.ts` pra
