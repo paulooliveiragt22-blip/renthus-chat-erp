@@ -15,6 +15,7 @@ import { installBillingFetchInterceptor } from "@/lib/billing/installBillingFetc
 export default function AdminShell({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
 
+    // Paywall / onboarding standalone (sem sidebar). Hub `/plano` fica no AdminShell.
     const isStandalone =
         pathname === "/login" ||
         pathname === "/billing/blocked" ||
@@ -22,8 +23,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         pathname.startsWith("/onboarding") ||
         pathname === "/ativar" ||
         pathname.startsWith("/ativar/") ||
-        pathname === "/plano" ||
-        pathname.startsWith("/plano/") ||
+        pathname === "/plano/pagar" ||
+        pathname === "/plano/bloqueado" ||
+        pathname === "/plano/reativar" ||
         pathname.startsWith("/c/") ||
         pathname === "/c" ||
         pathname.startsWith("/superadmin") ||

@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useWorkspace } from "@/lib/workspace/useWorkspace";
 
 export const PLAN_FEATURES_STALE_MS = 15 * 60 * 1000;
@@ -89,7 +89,7 @@ export async function fetchPlanFeatures(companyId: string): Promise<PlanFeatures
 export function useInvalidatePlanFeatures() {
     const qc = useQueryClient();
     const { currentCompanyId } = useWorkspace();
-    return () => {
+    return useCallback(() => {
         if (!currentCompanyId) return;
         try {
             sessionStorage.removeItem(storageKey(currentCompanyId));
@@ -97,7 +97,7 @@ export function useInvalidatePlanFeatures() {
             /* ignore */
         }
         void qc.invalidateQueries({ queryKey: planFeaturesQueryKey(currentCompanyId) });
-    };
+    }, [qc, currentCompanyId]);
 }
 
 /**

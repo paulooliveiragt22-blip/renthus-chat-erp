@@ -148,9 +148,9 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
         }
     }, [companyId]);
 
-    const loadBilling = useCallback(async () => {
+    const loadBilling = useCallback(async (opts?: { silent?: boolean }) => {
         if (!companyId) return;
-        setBillingLoading(true);
+        if (!opts?.silent) setBillingLoading(true);
         setBillingErr(null);
         try {
             const res = await fetch("/api/billing/status", { credentials: "include", cache: "no-store" });
@@ -177,7 +177,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             setBillingErr("Erro de rede ao carregar cobrança.");
             setBillingData(null);
         } finally {
-            setBillingLoading(false);
+            if (!opts?.silent) setBillingLoading(false);
         }
     }, [companyId, invalidatePlanFeatures]);
 
@@ -201,7 +201,7 @@ export default function PlanBillingPanel({ variant = "full" }: PlanBillingPanelP
             Boolean(billingData?.pending_setup_payment);
         if (hasServerPending) {
             const id = window.setInterval(() => {
-                void loadBilling();
+                void loadBilling({ silent: true });
             }, 5000);
             return () => window.clearInterval(id);
         }
