@@ -42,6 +42,16 @@ describe("isSamePackagingFamily", () => {
     it("false com menos de 2 linhas", () => {
         assert.equal(isSamePackagingFamily([{ id: "a", product_name: "HEINEKEN" }]), false);
     });
+
+    it("true quando product_name divergiu (display) mas produto_id é o mesmo", () => {
+        assert.equal(
+            isSamePackagingFamily([
+                { id: "p", product_name: "MARMITA P", produto_id: "prod-1" },
+                { id: "g", product_name: "MARMITA G", produto_id: "prod-1" },
+            ]),
+            true
+        );
+    });
 });
 
 describe("disambiguatePackagingForSearchRows", () => {
@@ -119,5 +129,108 @@ describe("disambiguatePackagingForSearchRows", () => {
         );
         assert.equal(out.length, 1);
         assert.equal(out[0]!.id, "cx6");
+    });
+
+    it("'quero 2 MARMITA P' → casa embalagem P exata (variantes P/M/G, todas UN)", () => {
+        const marmitaRows = [
+            {
+                id: "m-g",
+                display_name: "MARMITA G",
+                product_name: "MARMITA",
+                descricao: "G",
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                preco_venda: 45,
+            },
+            {
+                id: "m-p",
+                display_name: "MARMITA P",
+                product_name: "MARMITA",
+                descricao: "P",
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                preco_venda: 30,
+            },
+            {
+                id: "m-m",
+                display_name: "MARMITA M",
+                product_name: "MARMITA",
+                descricao: "M",
+                sigla_comercial: "UN",
+                fator_conversao: 1,
+                preco_venda: 35,
+            },
+        ];
+        const out = disambiguatePackagingForSearchRows(
+            marmitaRows,
+            "MARMITA P",
+            "quero 2 MARMITA P"
+        );
+        assert.equal(out.length, 1);
+        assert.equal(out[0]!.id, "m-p");
+    });
+
+    it("'quero marmita' sem tamanho → mantém P/M/G (ambiguidade real)", () => {
+        const marmitaRows = [
+            {
+                id: "m-g",
+                display_name: "MARMITA G",
+                product_name: "MARMITA",
+                descricao: "G",
+                sigla_comercial: "UN",
+            },
+            {
+                id: "m-p",
+                display_name: "MARMITA P",
+                product_name: "MARMITA",
+                descricao: "P",
+                sigla_comercial: "UN",
+            },
+            {
+                id: "m-m",
+                display_name: "MARMITA M",
+                product_name: "MARMITA",
+                descricao: "M",
+                sigla_comercial: "UN",
+            },
+        ];
+        const out = disambiguatePackagingForSearchRows(marmitaRows, "marmita", "quero marmita");
+        assert.equal(out.length, 3);
+    });
+
+    it("após enrich (product_name=display_name) ainda casa 'quero 2 MARMITA P'", () => {
+        const afterEnrich = [
+            {
+                id: "m-g",
+                display_name: "MARMITA G",
+                product_name: "MARMITA G",
+                descricao: "G",
+                sigla_comercial: "UN",
+                produto_id: "marmita-pai",
+            },
+            {
+                id: "m-p",
+                display_name: "MARMITA P",
+                product_name: "MARMITA P",
+                descricao: "P",
+                sigla_comercial: "UN",
+                produto_id: "marmita-pai",
+            },
+            {
+                id: "m-m",
+                display_name: "MARMITA M",
+                product_name: "MARMITA M",
+                descricao: "M",
+                sigla_comercial: "UN",
+                produto_id: "marmita-pai",
+            },
+        ];
+        const out = disambiguatePackagingForSearchRows(
+            afterEnrich,
+            "marmita",
+            "quero 2 MARMITA P"
+        );
+        assert.equal(out.length, 1);
+        assert.equal(out[0]!.id, "m-p");
     });
 });

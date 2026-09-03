@@ -85,11 +85,20 @@ export async function runSearchProdutosForAi(
     const detailed = await deps.catalog.searchDetailed(deps.companyId, query, { categoryHint, limit: 8 });
 
     let rows = detailed.items;
-    if (isSamePackagingFamily(rows)) {
-        const [companySiglas, habitSigla] = await Promise.all([
-            loadCompanySiglas(deps.admin, deps.companyId),
-            resolvePackagingHabitForRows(deps, rows),
-        ]);
+    if (rows.length >= 2) {
+        let companySiglas: Awaited<ReturnType<typeof loadCompanySiglas>> = [];
+        let habitSigla: string | null = null;
+        try {
+            [companySiglas, habitSigla] = await Promise.all([
+                loadCompanySiglas(deps.admin, deps.companyId),
+                resolvePackagingHabitForRows(deps, rows),
+            ]);
+        } catch (err: unknown) {
+            console.warn(
+                "[searchProdutosForAi] sigla/habit load failed",
+                err instanceof Error ? err.message : err
+            );
+        }
         rows = disambiguatePackagingForSearchRows(rows, query, deps.userText, {
             companySiglas,
             habitSigla,

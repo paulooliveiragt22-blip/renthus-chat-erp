@@ -2,10 +2,20 @@
  * Resumo canónico do rascunho para o cliente (totais do servidor, não da IA).
  */
 
-import type { OrderDraft } from "@/src/types/contracts";
+import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
+import type { DraftItem, OrderDraft } from "@/src/types/contracts";
 
 function brl(n: number): string {
     return n.toFixed(2).replace(".", ",");
+}
+
+/** Linha de item: `1× HEINEKEN LONG NECK (CX:15) — R$ 60,00`. */
+export function formatDraftItemLine(it: DraftItem): string {
+    const name = String(it.productName ?? "Item").trim() || "Item";
+    const qty = Number(it.quantity) || 0;
+    const lineTotal = Number(it.unitPrice) * qty;
+    const pack = formatPackSiglaLabel(it.siglaComercial, it.fatorConversao);
+    return `• ${qty}× ${name} (${pack}) — R$ ${brl(lineTotal)}`;
 }
 
 function paymentLabel(pm: OrderDraft["paymentMethod"]): string {
@@ -39,11 +49,7 @@ export function formatCanonicalDraftSummary(draft: OrderDraft): string {
     const lines: string[] = ["*Resumo do pedido* (ainda não confirmado):", ""];
 
     for (const it of draft.items) {
-        const name = String(it.productName ?? "Item").trim() || "Item";
-        const lineTotal = Number(it.unitPrice) * Number(it.quantity);
-        lines.push(
-            `• ${it.quantity}x ${name} — R$ ${brl(lineTotal)}`
-        );
+        lines.push(formatDraftItemLine(it));
     }
 
     lines.push("");

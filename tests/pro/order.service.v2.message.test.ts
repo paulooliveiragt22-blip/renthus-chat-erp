@@ -17,6 +17,7 @@ function sampleDraft(): OrderDraft {
                 quantity: 2,
                 unitPrice: 16,
                 fatorConversao: 1,
+                siglaComercial: "UN",
                 productVolumeId: "pv-1",
                 estoqueUnidades: 20,
             },
@@ -26,6 +27,7 @@ function sampleDraft(): OrderDraft {
                 quantity: 1,
                 unitPrice: 8,
                 fatorConversao: 1,
+                siglaComercial: "UN",
                 productVolumeId: "pv-2",
                 estoqueUnidades: 20,
             },
@@ -58,7 +60,7 @@ describe("OrderServiceV2Adapter message snapshot", () => {
             draft: sampleDraft(),
         });
         assert.ok(text.includes("Pedido #ABC123 confirmado."));
-        assert.ok(text.includes("Itens: 2x Heineken 600ml; 1x Skol Lata."));
+        assert.ok(text.includes("Itens: 2× Heineken 600ml (UN:1); 1× Skol Lata (UN:1)."));
         assert.ok(text.includes("Total R$ 45,00 via PIX."));
         assert.ok(text.includes("Taxa R$ 5,00."));
     });

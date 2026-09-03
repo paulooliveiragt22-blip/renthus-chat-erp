@@ -167,29 +167,71 @@ describe("pendingPickGroups: build/upsert/remove", () => {
 });
 
 describe("pendingPickGroups: buildPickClarificationFreeText", () => {
-    it("gera pergunta consolidada para 1 grupo, sem preço/opções na prosa", () => {
+    it("gera lista numerada para 1 grupo (sem preço)", () => {
         const text = buildPickClarificationFreeText([skolGroup()]);
-        assert.match(text, /SKOL LATA/);
-        assert.match(text, /unidade/);
-        assert.match(text, /caixa/);
+        assert.match(text, /^Encontrei mais de uma opção:/u);
+        assert.match(text, /^1\. SKOL LATA \(UN:1\)$/mu);
+        assert.match(text, /^2\. SKOL LATA \(CX c\/15\) \(CX:15\)$/mu);
+        assert.match(text, /Selecione qual deseja/);
         assert.doesNotMatch(text, /R\$/);
     });
 
-    it("gera pergunta consolidada para 2+ grupos, um por linha", () => {
+    it("gera lista numerada global para 2+ grupos, com cabeçalho por produto", () => {
         const text = buildPickClarificationFreeText([skolGroup(), originalGroup()]);
-        assert.match(text, /SKOL LATA/);
-        assert.match(text, /ORIGINAL 600ML/);
-        assert.equal(text.split("\n").filter((l) => l.startsWith("•")).length, 2);
+        assert.match(text, /• SKOL LATA/);
+        assert.match(text, /• ORIGINAL 600ML/);
+        assert.match(text, /^1\. /mu);
+        assert.match(text, /^2\. /mu);
+        assert.match(text, /^3\. /mu);
+        assert.match(text, /Selecione qual deseja/);
     });
 
-    it("grupo com nomes DISTINTOS (não mesma família): lista o nome real de cada opção, não sigla genérica duplicada", () => {
+    it("grupo com nomes DISTINTOS: lista o nome real de cada opção numerada", () => {
         const text = buildPickClarificationFreeText([mixedOriginalGroup()]);
-        assert.match(text, /ORIGINAL 600ML \(CX c\/24\)/);
-        assert.match(text, /ORIGINAL LATA/);
-        // duas opções UN com nomes diferentes não podem colapsar na mesma palavra "unidade"
-        const line = text.split("\n").find((l) => l.startsWith("•"))!;
-        assert.doesNotMatch(line, /unidade, unidade|unidade,\s*unidade/);
+        assert.match(text, /1\. ORIGINAL 600ML \(UN:1\)$/mu);
+        assert.match(text, /2\. ORIGINAL 600ML \(CX c\/24\) \(CX:24\)/u);
+        assert.match(text, /3\. ORIGINAL LATA \(UN:1\)/u);
+        assert.doesNotMatch(text, /unidade, unidade|unidade,\s*unidade/);
         assert.doesNotMatch(text, /R\$/);
+    });
+
+    it("variantes do mesmo produto (MARMITA P/M/G): lista display_name, não 'unidade' repetida", () => {
+        const marmita: PendingPickGroup = {
+            productKey: "marmita",
+            productLabel: "MARMITA",
+            unresolvedTurns: 0,
+            options: [
+                {
+                    embalagemId: "m-p",
+                    displayName: "MARMITA P",
+                    productName: "MARMITA",
+                    siglaComercial: "UN",
+                    precoVenda: 30,
+                    fatorConversao: 1,
+                },
+                {
+                    embalagemId: "m-m",
+                    displayName: "MARMITA M",
+                    productName: "MARMITA",
+                    siglaComercial: "UN",
+                    precoVenda: 35,
+                    fatorConversao: 1,
+                },
+                {
+                    embalagemId: "m-g",
+                    displayName: "MARMITA G",
+                    productName: "MARMITA",
+                    siglaComercial: "UN",
+                    precoVenda: 45,
+                    fatorConversao: 1,
+                },
+            ],
+        };
+        const text = buildPickClarificationFreeText([marmita]);
+        assert.match(text, /1\. MARMITA P \(UN:1\)/);
+        assert.match(text, /2\. MARMITA M \(UN:1\)/);
+        assert.match(text, /3\. MARMITA G \(UN:1\)/);
+        assert.doesNotMatch(text, /^1\. unidade$/mu);
     });
 });
 
@@ -221,6 +263,68 @@ describe("pendingPickGroups: resolvePendingPickGroupsFromFreeText", () => {
         assert.equal(remaining.length, 0);
         assert.equal(resolved.length, 1);
         assert.equal(resolved[0]!.embalagemId, "skol-cx");
+    });
+
+    it("1 grupo, resposta só com número da lista: resolve opção N", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [skolGroup()],
+            "2"
+        );
+        assert.equal(remaining.length, 0);
+        assert.equal(resolved.length, 1);
+        assert.equal(resolved[0]!.embalagemId, "skol-cx");
+        assert.equal(resolved[0]!.quantity, 1);
+    });
+
+    it("1 grupo, 'opção 1': resolve primeira opção", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [skolGroup()],
+            "opção 1"
+        );
+        assert.equal(remaining.length, 0);
+        assert.equal(resolved[0]!.embalagemId, "skol-un");
+    });
+
+    it("MARMITA P/M/G: '2 MARMITA P' casa pelo tamanho P (token curto)", () => {
+        const marmita: PendingPickGroup = {
+            productKey: "marmita",
+            productLabel: "MARMITA",
+            unresolvedTurns: 0,
+            options: [
+                {
+                    embalagemId: "m-p",
+                    displayName: "MARMITA P",
+                    productName: "MARMITA",
+                    siglaComercial: "UN",
+                    precoVenda: 30,
+                    fatorConversao: 1,
+                },
+                {
+                    embalagemId: "m-m",
+                    displayName: "MARMITA M",
+                    productName: "MARMITA",
+                    siglaComercial: "UN",
+                    precoVenda: 35,
+                    fatorConversao: 1,
+                },
+                {
+                    embalagemId: "m-g",
+                    displayName: "MARMITA G",
+                    productName: "MARMITA",
+                    siglaComercial: "UN",
+                    precoVenda: 45,
+                    fatorConversao: 1,
+                },
+            ],
+        };
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [marmita],
+            "2 MARMITA P"
+        );
+        assert.equal(remaining.length, 0);
+        assert.equal(resolved.length, 1);
+        assert.equal(resolved[0]!.embalagemId, "m-p");
+        assert.equal(resolved[0]!.quantity, 2);
     });
 
     it("1 grupo, texto ambíguo (quantidade maior que qualquer fator, sem sigla explícita): mantém pendente e incrementa unresolvedTurns", () => {

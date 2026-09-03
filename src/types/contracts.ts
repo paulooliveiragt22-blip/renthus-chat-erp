@@ -71,6 +71,8 @@ export interface DraftItem {
     quantity: number;
     unitPrice: number;
     fatorConversao: number;
+    /** Sigla comercial da embalagem (UN/CX/FARD…) — badge cliente `CX:15`. */
+    siglaComercial?: string | null;
     productVolumeId: string | null;
     estoqueUnidades: number;
 }

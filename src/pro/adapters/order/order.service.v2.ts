@@ -7,6 +7,7 @@ import { resolveOrCreateCustomerByIdentity } from "@/lib/chatbot/db/channelIdent
 import { loadPackRowForValidation } from "@/src/pro/tools/prepareOrderDraft";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { sanitizeOrderNotes } from "@/lib/orders/sanitizeOrderNotes";
+import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 
 type OrderFailCode = Extract<OrderServiceResult, { ok: false }>["errorCode"];
 
@@ -80,7 +81,10 @@ function asCurrency(value: number): number {
 function buildItemsSummary(items: OrderDraft["items"]): string {
     return items
         .slice(0, 3)
-        .map((item) => `${item.quantity}x ${item.productName}`)
+        .map((item) => {
+            const pack = formatPackSiglaLabel(item.siglaComercial, item.fatorConversao);
+            return `${item.quantity}× ${item.productName} (${pack})`;
+        })
         .join("; ");
 }
 

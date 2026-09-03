@@ -5,6 +5,10 @@
  * Mantidos: Provisioned Concurrency=1 no alias :live, VisibilityTimeout=120s, maxReceiveCount=1.
  * Fase 15: ESM deve invocar renthus-inbound-worker:live (nao $LATEST).
  * Fase 15.3 #5: keep-warm EventBridge (poller ESM) — sentinel sem Records.
+ *
+ * Retryable (ex.: LLM 429): com maxReceiveCount=1, `return false` manda pra DLQ e o job
+ * fica órfão. Padrão correto = ACK (`return true`) + re-dispatch após backoff (job já
+ * voltou `pending` com `sqs_enqueued_at=null` em runQueueEntry).
  */
 
 import type { SQSEvent, SQSBatchResponse, SQSRecord } from "aws-lambda";
@@ -15,6 +19,8 @@ import {
     runWithCompanyWorkerCap,
 } from "@/lib/chatbot/queue/companyWorkerCap";
 import { parseSqsEnvelope } from "@/lib/queue/sqsEnvelope";
+import { dispatchInboundJob } from "@/lib/queue/sqsDispatch";
+import { queueRetryDelayMs } from "@/lib/chatbot/queueRetry";
 import { applySqsRetryVisibility } from "../shared/sqsRetryVisibility";
 
 type KeepWarmResult = { ok: true; mode: "keep-warm" };
@@ -27,6 +33,10 @@ function isKeepWarmEvent(event: unknown): boolean {
     if (e.source === "aws.events") return true;
     if (e["detail-type"] === "Scheduled Event") return true;
     return false;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function handler(
@@ -91,16 +101,36 @@ async function processRecord(
         if (result.outcome === "failed") {
             const { data } = await admin
                 .from("chatbot_queue")
-                .select("status, attempts")
+                .select("status, attempts, company_id, thread_id, scheduled_at")
                 .eq("id", envelope.jobId)
                 .maybeSingle();
             if (data?.status === "pending") {
-                await applySqsRetryVisibility({
-                    queueUrl,
-                    receiptHandle: record.receiptHandle,
-                    attempts: Number(data.attempts ?? 1) || 1,
+                const attempts = Number(data.attempts ?? 1) || 1;
+                const scheduledAtMs = data.scheduled_at
+                    ? new Date(String(data.scheduled_at)).getTime()
+                    : Date.now();
+                const waitMs = Math.max(
+                    0,
+                    Math.min(queueRetryDelayMs(attempts), scheduledAtMs - Date.now())
+                );
+                // Cap sleep in-Lambda: VisibilityTimeout=120s; keep headroom.
+                const sleepMs = Math.min(waitMs, 25_000);
+                if (sleepMs > 0) await sleep(sleepMs);
+                const dispatch = await dispatchInboundJob(admin, {
+                    id: envelope.jobId,
+                    company_id: String(data.company_id ?? envelope.companyId),
+                    thread_id: String(data.thread_id ?? envelope.threadId),
                 });
-                return false;
+                console.info("[inbound-worker] retryable re-dispatch", {
+                    jobId: envelope.jobId,
+                    attempts,
+                    sleepMs,
+                    dispatchOk: dispatch.ok,
+                    skipped: "skipped" in dispatch ? dispatch.skipped : undefined,
+                    error: dispatch.ok ? undefined : dispatch.error,
+                });
+                // ACK: não devolver false (maxReceiveCount=1 → DLQ + pending órfão).
+                return true;
             }
         }
 

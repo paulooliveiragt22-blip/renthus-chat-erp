@@ -1175,7 +1175,7 @@ export async function runProPipeline(
         const { QueueRetryableError } = await import("@/lib/chatbot/queueRetry");
         throw new QueueRetryableError(
             "AI_RATE_LIMIT",
-            "Anthropic rate limited — requeue with backoff"
+            "LLM rate limited — requeue with backoff"
         );
     }
 

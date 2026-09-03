@@ -13,6 +13,7 @@
 import { resolveSegmentPick } from "./resolveSegmentPick";
 import { parsePtQuantity } from "@/src/pro/tools/parseQtyPt";
 import { formatCatalogVolumeLabel } from "@/src/pro/tools/catalogPublicDto";
+import { formatPackSiglaLabel } from "@/lib/products/packDisplayName";
 import type { CompanySigla, CustomerSiglaHabit } from "./customerPackagingHabit";
 import type { PendingPickGroup, PendingPickOption } from "@/src/types/contracts";
 
@@ -121,6 +122,7 @@ export function removePendingPickGroupsByKeys(
 function siglaLabelPt(option: PendingPickOption): string {
     const vol = (option.volumeLabel ?? "").trim();
     const sigla = (option.siglaComercial ?? "").trim().toUpperCase();
+    const pack = formatPackSiglaLabel(sigla || "UN", option.fatorConversao);
     let base = "opção";
     if (sigla === "UN") base = "unidade";
     else if (sigla === "CX") base = "caixa";
@@ -128,58 +130,134 @@ function siglaLabelPt(option: PendingPickOption): string {
     else if (sigla === "PAC") base = "pacote";
     else if (option.displayName?.trim()) base = option.displayName.trim();
     else if (sigla) base = sigla.toLowerCase();
-    return vol ? `${base} (${vol})` : base;
+    const withPack = `${base} (${pack})`;
+    return vol ? `${withPack} · ${vol}` : withPack;
 }
 
 /**
- * `true` quando as opções do grupo NÃO são só embalagens (UN/CX/Fardo) do mesmo
- * produto, mas produtos/variantes com nomes distintos batendo no mesmo termo de busca
- * (ex.: "original" → "ORIGINAL 600ML" e "ORIGINAL LATA", cadastros diferentes). Nesse
- * caso, uma palavra de sigla genérica ("unidade"/"caixa") não basta pra diferenciar —
- * precisa do nome real de cada opção.
+ * `true` quando as opções NÃO se diferenciam só por sigla comercial (UN/CX/Fardo), e sim
+ * por nome/rótulo distinto — produtos diferentes no mesmo termo (ORIGINAL 600ML vs LATA)
+ * OU variantes do mesmo produto com display distinto (MARMITA P / M / G, todos UN).
  */
 function isMixedProductGroup(group: PendingPickGroup): boolean {
-    const names = new Set(
+    const productNames = new Set(
         group.options.map((o) => normalize(o.productName ?? "")).filter((n) => n.length > 0)
     );
-    return names.size > 1;
+    if (productNames.size > 1) return true;
+    const displayNames = new Set(
+        group.options.map((o) => normalize(o.displayName ?? "")).filter((n) => n.length > 0)
+    );
+    return displayNames.size > 1;
 }
 
 function optionDisplayLabel(option: PendingPickOption): string {
-    return option.displayName?.trim() || option.productName?.trim() || siglaLabelPt(option);
+    const name = option.displayName?.trim() || option.productName?.trim() || siglaLabelPt(option);
+    const pack = formatPackSiglaLabel(option.siglaComercial, option.fatorConversao);
+    /** Já veio de siglaLabelPt com (UN:1) — não duplicar. */
+    if (name.includes(`(${pack})`)) return name;
+    return `${name} (${pack})`;
 }
 
-function groupOptionLabels(group: PendingPickGroup): string[] {
-    const labelFn = isMixedProductGroup(group) ? optionDisplayLabel : siglaLabelPt;
-    return [...new Set(group.options.map(labelFn))];
+function optionClarifyLabel(group: PendingPickGroup, option: PendingPickOption): string {
+    return isMixedProductGroup(group) ? optionDisplayLabel(option) : siglaLabelPt(option);
 }
 
-/** Fragmento de exemplo ("1 caixa de Skol" ou, p/ produtos distintos, "1 ORIGINAL LATA"). */
-function exampleFragment(group: PendingPickGroup, qty: number): string {
-    if (isMixedProductGroup(group)) {
-        return `${qty} ${optionDisplayLabel(group.options[0]!)}`;
+type FlatPendingPick = {
+    group: PendingPickGroup;
+    option: PendingPickOption;
+    /** Índice 1-based na lista enviada ao cliente. */
+    index: number;
+};
+
+/** Achata opções na mesma ordem da mensagem numerada (cap global = MAX_GROUPS * MAX_OPTIONS). */
+export function flattenPendingPickOptions(
+    groups: readonly PendingPickGroup[]
+): FlatPendingPick[] {
+    const out: FlatPendingPick[] = [];
+    let index = 1;
+    for (const group of groups.slice(0, MAX_GROUPS)) {
+        for (const option of group.options.slice(0, MAX_OPTIONS_PER_GROUP)) {
+            out.push({ group, option, index });
+            index += 1;
+        }
     }
-    return `${qty} ${siglaLabelPt(group.options[0]!)} de ${group.productLabel}`;
+    return out;
 }
 
 /**
- * Mensagem consolidada 100% determinística (nunca a prosa da IA) — evita tanto a
- * alucinação de disponibilidade quanto a redundância com um card de botões paralelo
- * (ver Frente 1 do diagnóstico do bug S2/redundância de mensagens). Cobre tanto
- * ambiguidade de embalagem de 1 produto quanto múltiplos produtos/variantes distintos
- * batendo no mesmo termo — texto livre não tem o teto de 3 opções dos botões do WhatsApp.
+ * Índice 1-based quando a mensagem é só escolha ("1", "opção 2", "segunda") —
+ * não casa "2 MARMITA P" (qty + nome).
+ */
+export function parsePendingPickIndex(text: string, maxIndex: number): number | null {
+    const t = normalize(text);
+    if (!t || maxIndex < 1) return null;
+
+    if (/^\d{1,2}$/u.test(t)) {
+        const n = Number(t);
+        return n >= 1 && n <= maxIndex ? n : null;
+    }
+
+    const mOpcao = t.match(/^(?:opcao|op)\s*(\d{1,2})$/u);
+    if (mOpcao) {
+        const n = Number(mOpcao[1]);
+        return n >= 1 && n <= maxIndex ? n : null;
+    }
+
+    const mNumero = t.match(/^(?:numero|n[uº]?)\s*(\d{1,2})$/u);
+    if (mNumero) {
+        const n = Number(mNumero[1]);
+        return n >= 1 && n <= maxIndex ? n : null;
+    }
+
+    const ordinalWord: Record<string, number> = {
+        primeira: 1,
+        primeiro: 1,
+        segunda: 2,
+        segundo: 2,
+        terceira: 3,
+        terceiro: 3,
+        quarta: 4,
+        quarto: 4,
+    };
+    if (ordinalWord[t] != null) {
+        const n = ordinalWord[t]!;
+        return n <= maxIndex ? n : null;
+    }
+    const mOrd = t.match(
+        /^(primeira|primeiro|segunda|segundo|terceira|terceiro|quarta|quarto)(?:\s+opcao)?$/u
+    );
+    if (mOrd) {
+        const n = ordinalWord[mOrd[1]!] ?? null;
+        return n != null && n <= maxIndex ? n : null;
+    }
+    return null;
+}
+
+/**
+ * Mensagem consolidada 100% determinística (nunca a prosa da IA). Lista numerada para o
+ * cliente responder com o número (ex.: "1") — cobre embalagem UN/CX e variantes P/M/G.
+ * Sem card de botões (teto WA = 3; ver bug S2 / PLANO_MIGRACAO_VERCEL_AI_SDK).
  */
 export function buildPickClarificationFreeText(groups: readonly PendingPickGroup[]): string {
-    const lines = groups.map((g) => `• ${g.productLabel}: ${groupOptionLabels(g).join(", ")}`);
-    const first = groups[0]!;
-    const second = groups[1];
-    const example = second
-        ? `"${exampleFragment(first, 1)} e ${exampleFragment(second, 2)}"`
-        : `"${exampleFragment(first, 1)}"`;
+    if (!groups.length) return "Encontrei mais de uma opção. Me diga qual deseja.";
+
+    const flat = flattenPendingPickOptions(groups);
+    const showGroupHeaders = groups.length > 1;
+    const lines: string[] = [];
+    let currentKey: string | null = null;
+
+    for (const row of flat) {
+        if (showGroupHeaders && row.group.productKey !== currentKey) {
+            currentKey = row.group.productKey;
+            lines.push(`• ${row.group.productLabel}`);
+        }
+        lines.push(`${row.index}. ${optionClarifyLabel(row.group, row.option)}`);
+    }
+
     return (
-        "Encontrei mais de uma opção pra alguns itens:\n\n" +
+        "Encontrei mais de uma opção:\n\n" +
         lines.join("\n") +
-        `\n\nMe diz o que você quer de cada um, com a quantidade (ex.: ${example}).`
+        "\n\nSelecione qual deseja (digite o número, ex.: 1)."
     );
 }
 
@@ -243,22 +321,37 @@ function matchMixedGroupOptionByName(
     segment: string
 ): PendingPickOption | null {
     if (!isMixedProductGroup(group)) return null;
-    const segTokens = new Set(normalize(segment).split(" ").filter((t) => t.length >= 3));
+    /** Inclui tokens curtos (P/M/G) — filtrar só ≥3 quebrava "2 MARMITA P" na Ferrester. */
+    const segTokens = new Set(normalize(segment).split(" ").filter((t) => t.length >= 1));
     if (!segTokens.size) return null;
     const scored = group.options
         .map((o) => {
             const nameTokens = normalize(o.displayName ?? o.productName ?? "")
                 .split(" ")
-                .filter((t) => t.length >= 3);
+                .filter((t) => t.length >= 1);
             const hits = nameTokens.filter((t) => segTokens.has(t)).length;
-            return { option: o, hits };
+            return { option: o, hits, nameTokens };
         })
         .filter((s) => s.hits > 0)
         .sort((a, b) => b.hits - a.hits);
     if (!scored.length) return null;
     const best = scored[0]!;
     const second = scored[1];
-    if (second && second.hits === best.hits) return null;
+    if (second && second.hits === best.hits) {
+        /** Empate no total: desempata por token distintivo curto (ex.: p vs m vs g). */
+        const distinctive = [...segTokens].filter((t) => t.length <= 2);
+        if (!distinctive.length) return null;
+        const byDistinct = scored
+            .map((s) => ({
+                ...s,
+                dHits: distinctive.filter((t) => s.nameTokens.includes(t)).length,
+            }))
+            .filter((s) => s.dHits > 0)
+            .sort((a, b) => b.dHits - a.dHits);
+        if (!byDistinct.length) return null;
+        if (byDistinct[1] && byDistinct[1]!.dHits === byDistinct[0]!.dHits) return null;
+        return byDistinct[0]!.option;
+    }
     return best.option;
 }
 
@@ -322,6 +415,26 @@ export function resolvePendingPickGroupsFromFreeText(
     }
 ): { resolved: ResolvedPendingPick[]; remaining: PendingPickGroup[] } {
     if (!groups.length) return { resolved: [], remaining: [] };
+
+    const flat = flattenPendingPickOptions(groups);
+    const pickIdx = parsePendingPickIndex(userText, flat.length);
+    if (pickIdx != null) {
+        const row = flat[pickIdx - 1];
+        if (row) {
+            return {
+                resolved: [
+                    {
+                        productKey: row.group.productKey,
+                        embalagemId: row.option.embalagemId,
+                        quantity: 1,
+                    },
+                ],
+                remaining: groups
+                    .filter((g) => g.productKey !== row.group.productKey)
+                    .map((g) => ({ ...g, unresolvedTurns: g.unresolvedTurns + 1 })),
+            };
+        }
+    }
 
     if (groups.length === 1) {
         const group = groups[0]!;

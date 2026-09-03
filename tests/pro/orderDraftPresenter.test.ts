@@ -12,10 +12,11 @@ describe("orderDraftPresenter", () => {
             items: [
                 {
                     produtoEmbalagemId: "pe-1",
-                    productName: "HEINEKEN LONGNECK (CX c/6)",
+                    productName: "HEINEKEN LONGNECK",
                     quantity: 1,
                     unitPrice: 60,
                     fatorConversao: 6,
+                    siglaComercial: "CX",
                     productVolumeId: null,
                     estoqueUnidades: 10,
                 },
@@ -41,6 +42,7 @@ describe("orderDraftPresenter", () => {
             version: 1,
         };
         const s = formatCanonicalDraftSummary(draft);
+        assert.match(s, /1× HEINEKEN LONGNECK \(CX:6\) — R\$ 60,00/);
         assert.match(s, /Taxa de entrega: R\$ 15,00/);
         assert.match(s, /Total: R\$ 75,00/);
         assert.match(s, /PIX/);

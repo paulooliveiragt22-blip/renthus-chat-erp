@@ -83,6 +83,12 @@ export async function runQueueEntryWithOutcome(
         const retryable = isQueueRetryableError(err);
         const delayMs = retryable ? queueRetryDelayMs(attempts) : 0;
         const terminal = attempts >= MAX_ATTEMPTS;
+        /**
+         * ADR-0003: maxReceiveCount=1 → falha SQS vai pra DLQ. Em retryable o job volta
+         * `pending` com backoff; limpar `sqs_enqueued_at` deixa o reconciler (ou o
+         * re-dispatch do worker) reenfileirar. Sem isso o pending fica órfão e dispara
+         * backlogNotice falso (“bastante movimento”).
+         */
         await admin
             .from("chatbot_queue")
             .update({
@@ -93,6 +99,8 @@ export async function runQueueEntryWithOutcome(
                     : {
                           scheduled_at: new Date(Date.now() + delayMs).toISOString(),
                           processing_started_at: null,
+                          sqs_enqueued_at: null,
+                          sqs_message_id: null,
                       }),
             })
             .eq("id", job.id);

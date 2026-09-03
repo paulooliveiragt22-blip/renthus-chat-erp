@@ -99,15 +99,28 @@ describe("runQueueEntryWithOutcome", () => {
         processJobEntryMock = async () => {
             throw new Error("rate limit atingido (429)");
         };
-        const tables: Tables = { chatbot_queue: [asRow(baseJob({ attempts: 0 }))] };
+        const tables: Tables = {
+            chatbot_queue: [
+                asRow(
+                    baseJob({
+                        attempts: 0,
+                        sqs_enqueued_at: "2026-09-03T12:00:00.000Z",
+                        sqs_message_id: "sqs-1",
+                    })
+                ),
+            ],
+        };
         const { client } = makeMockAdmin(tables);
-        const job = baseJob({ attempts: 0 });
+        const job = baseJob({ attempts: 0, sqs_enqueued_at: "2026-09-03T12:00:00.000Z", sqs_message_id: "sqs-1" });
 
         const outcome = await runQueueEntryWithOutcome(client as unknown as AdminClient, job, new Set());
 
         assert.equal(outcome, "failed");
         assert.equal(tables.chatbot_queue[0]?.status, "pending");
         assert.ok(tables.chatbot_queue[0]?.scheduled_at);
+        // maxReceiveCount=1: limpar enqueue pra reconciler/worker re-dispatchar (não órfão).
+        assert.equal(tables.chatbot_queue[0]?.sqs_enqueued_at, null);
+        assert.equal(tables.chatbot_queue[0]?.sqs_message_id, null);
     });
 
     it("falha terminal: marca failed quando attempts atinge MAX_ATTEMPTS", async () => {

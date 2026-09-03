@@ -64,7 +64,12 @@ export async function loadPackRowForValidation(
     packId: string
 ): Promise<{
     row: {
-        id: string; product_name: string; preco_venda: number; fator_conversao: number; product_volume_id: string | null;
+        id: string;
+        product_name: string;
+        preco_venda: number;
+        fator_conversao: number;
+        sigla_comercial: string | null;
+        product_volume_id: string | null;
     };
     estoque: number;
     venderComEstoqueZero: boolean;
@@ -156,10 +161,11 @@ export async function loadPackRowForValidation(
 
     return {
         row: {
-            id:                pe.id as string,
-            product_name:      displayName,
-            preco_venda:       roundBrl(Number.parseFloat(String(peRow.preco_venda ?? "0"))),
-            fator_conversao:   Number.parseFloat(String(peRow.fator_conversao ?? "1")) || 1,
+            id: pe.id as string,
+            product_name: displayName,
+            preco_venda: roundBrl(Number.parseFloat(String(peRow.preco_venda ?? "0"))),
+            fator_conversao: Number.parseFloat(String(peRow.fator_conversao ?? "1")) || 1,
+            sigla_comercial: String(peRow.sigla_comercial ?? "").trim().toUpperCase() || null,
             product_volume_id: productVolumeId,
         },
         estoque,
@@ -368,12 +374,13 @@ export async function prepareOrderDraftFromTool(
         }
         itemsOut.push({
             produtoEmbalagemId: row.id,
-            productName:        row.product_name,
-            quantity:           qty,
-            unitPrice:          row.preco_venda,
-            fatorConversao:     row.fator_conversao,
-            productVolumeId:    row.product_volume_id,
-            estoqueUnidades:    estoque,
+            productName: row.product_name,
+            quantity: qty,
+            unitPrice: row.preco_venda,
+            fatorConversao: row.fator_conversao,
+            siglaComercial: row.sigla_comercial,
+            productVolumeId: row.product_volume_id,
+            estoqueUnidades: estoque,
         });
     }
 

@@ -124,7 +124,7 @@ describe("runSearchProdutosForAi", () => {
         const result = await runSearchProdutosForAi(
             { query: "original" },
             {
-                admin: fakeAdmin(),
+                admin: fakeAdminWithSiglas(),
                 catalog: catalogWith([
                     makeRow({
                         id: "id-600ml-un",
@@ -156,6 +156,44 @@ describe("runSearchProdutosForAi", () => {
         assert.equal(result.pendingPickGroup?.options.length, 3);
         assert.equal(result.pendingPickGroup?.productKey, "original");
         assert.equal(result.pendingPickGroup?.productLabel, "original");
+    });
+
+    it("'quero 2 MARMITA P' após enrich (product_name=display): 1 SKU, sem pending pick", async () => {
+        const result = await runSearchProdutosForAi(
+            { query: "marmita" },
+            {
+                admin: fakeAdminWithSiglas(),
+                catalog: catalogWith([
+                    makeRow({
+                        id: "m-g",
+                        product_name: "MARMITA G",
+                        display_name: "MARMITA G",
+                        descricao: "G",
+                        produto_id: "marmita-pai",
+                    }),
+                    makeRow({
+                        id: "m-p",
+                        product_name: "MARMITA P",
+                        display_name: "MARMITA P",
+                        descricao: "P",
+                        produto_id: "marmita-pai",
+                    }),
+                    makeRow({
+                        id: "m-m",
+                        product_name: "MARMITA M",
+                        display_name: "MARMITA M",
+                        descricao: "M",
+                        produto_id: "marmita-pai",
+                    }),
+                ]),
+                companyId: "company-1",
+                customerId: null,
+                userText: "quero 2 MARMITA P",
+            }
+        );
+        assert.equal(result.allowlistIds.length, 1);
+        assert.equal(result.allowlistIds[0], "m-p");
+        assert.equal(result.pendingPickGroup, null);
     });
 
     it("did_you_mean presente: guidance cita as opções sugeridas", async () => {
