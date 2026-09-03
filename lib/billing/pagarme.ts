@@ -653,7 +653,8 @@ export async function verifyWebhookSignature(
     signature: string
 ): Promise<boolean> {
     const secret = process.env.PAGARME_WEBHOOK_SECRET?.trim();
-    const sig = signature.replaceAll(/^sha256=/i, "").trim();
+    // `replace` (não replaceAll sem /g): Node exige flag `g` em replaceAll(RegExp).
+    const sig = signature.replace(/^sha256=/i, "").trim();
     if (!secret || !sig) return true;
 
     const key = await crypto.subtle.importKey(
