@@ -60,6 +60,7 @@ import {
 import { debitFromAnthropicUsage } from "@/lib/billing/aiWallet";
 import { wrapUserInboundForLlm } from "./userInboundGuard";
 import { budgetAiHistoryForLlm } from "./aiHistoryBudget";
+import { buildPickClarificationFreeText } from "@/src/pro/pipeline/pendingPickGroups";
 
 export type AiServiceOptions = {
     catalog?: CatalogPort;
@@ -493,7 +494,13 @@ function formatBrl(value: number): string {
 }
 
 /** Resposta determinística quando o modelo buscou o catálogo mas não chamou respond_to_customer (Groq). */
-function buildSearchPicksFallbackReply(picks: SearchPickSummary[]): string {
+function buildSearchPicksFallbackReply(
+    picks: SearchPickSummary[],
+    pendingGroups: readonly PendingPickGroup[] = []
+): string {
+    if (pendingGroups.length > 0) {
+        return buildPickClarificationFreeText(pendingGroups);
+    }
     if (picks.length === 0) {
         return "Não encontrei esse item no cardápio agora. Quer ver o cardápio completo ou tentar outro nome?";
     }
@@ -760,7 +767,12 @@ export class AiServiceAdapter implements AiService {
                     messages,
                     tools,
                     toolChoice: "required",
-                    maxRetries: 3,
+                    /**
+                     * Retry do SDK em cima do mesmo AbortSignal queima o orçamento do turno
+                     * (ex.: tool-choice fail → sleep → "Delay was aborted" → AI_TIMEOUT).
+                     * Rate-limit 429 já é tratado por `runLlmWithResilience`.
+                     */
+                    maxRetries: 0,
                     abortSignal: AbortSignal.timeout(input.limits.timeoutMs),
                     /**
                      * Groq/OpenAI às vezes mandam `null` em arrays obrigatórios (ex.:
@@ -1016,6 +1028,36 @@ export class AiServiceAdapter implements AiService {
                 return this.buildProviderError(input, 0, turnState.allowlistIds);
             }
             if (isTimeoutError(error)) {
+                if (
+                    turnState.searchInvokedThisTurn &&
+                    (turnState.lastSearchPicks.length > 0 || turnState.pendingPickGroups.length > 0)
+                ) {
+                    console.warn("[ai.service] timeout fallback after search", {
+                        companyId,
+                        pickCount: turnState.lastSearchPicks.length,
+                        pendingGroups: turnState.pendingPickGroups.length,
+                    });
+                    const fallbackText = buildSearchPicksFallbackReply(
+                        turnState.lastSearchPicks,
+                        turnState.pendingPickGroups
+                    );
+                    return await this.buildSuccess(
+                        input,
+                        fallbackText,
+                        "ok",
+                        1,
+                        turnState.pendingPickGroups.length > 0
+                            ? input.draft
+                            : (turnState.currentDraft ?? input.draft),
+                        {
+                        allowlistIds: turnState.allowlistIds,
+                        lastSearchPicks: turnState.lastSearchPicks,
+                        emptySearchStreak: turnState.emptySearchStreak,
+                        addressFreeText: false,
+                        pendingOrderMentions: turnState.pendingTermsFromSearch,
+                        pendingPickGroups: turnState.pendingPickGroups,
+                    });
+                }
                 return {
                     action: "error",
                     replyText: "A IA demorou para responder. Tente novamente em instantes.",
@@ -1053,10 +1095,14 @@ export class AiServiceAdapter implements AiService {
                 console.warn("[ai.service] fallback reply after search without respond_to_customer", {
                     companyId,
                     pickCount: turnState.lastSearchPicks.length,
+                    pendingGroups: turnState.pendingPickGroups.length,
                 });
-                const fallbackText = buildSearchPicksFallbackReply(turnState.lastSearchPicks);
+                const fallbackText = buildSearchPicksFallbackReply(
+                    turnState.lastSearchPicks,
+                    turnState.pendingPickGroups
+                );
                 const updatedPendingOrderMentions = turnState.pendingTermsFromSearch;
-                return await this.buildSuccess(input, fallbackText, "ok", 1, input.draft, {
+                return await this.buildSuccess(input, fallbackText, "ok", 1, turnState.currentDraft ?? input.draft, {
                     allowlistIds: turnState.allowlistIds,
                     lastSearchPicks: turnState.lastSearchPicks,
                     emptySearchStreak: turnState.emptySearchStreak,

@@ -31,7 +31,7 @@ export const DEFAULT_PRO_POLICIES: PipelinePolicies = {
     locale: "pt-BR",
     maxToolRounds: 12,
     maxHistoryTurns: 24,
-    aiTimeoutMs: 15_000,
+    aiTimeoutMs: 45_000,
     llmEnabled: true,
     escalationRule: {
         /** Dois `INTENT_UNKNOWN` seguidos escalavam cedo demais (ex.: produto válido após busca). */

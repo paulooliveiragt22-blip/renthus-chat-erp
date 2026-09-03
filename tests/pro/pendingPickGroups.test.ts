@@ -194,6 +194,25 @@ describe("pendingPickGroups: buildPickClarificationFreeText", () => {
 });
 
 describe("pendingPickGroups: resolvePendingPickGroupsFromFreeText", () => {
+    it("1 grupo, pergunta de disponibilidade ('vc tem skol?'): NÃO resolve UN com qty=1", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [skolGroup()],
+            "vc tem skol?"
+        );
+        assert.equal(resolved.length, 0);
+        assert.equal(remaining.length, 1);
+        assert.equal(remaining[0]!.unresolvedTurns, 1);
+    });
+
+    it("1 grupo, só o nome do produto sem embalagem: NÃO usa qty default=1 pra preferir UN", () => {
+        const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
+            [skolGroup()],
+            "skol"
+        );
+        assert.equal(resolved.length, 0, "não deve fechar embalagem só porque qty implícita=1 < fator CX");
+        assert.equal(remaining.length, 1);
+    });
+
     it("1 grupo, texto explícito de embalagem: resolve", () => {
         const { resolved, remaining } = resolvePendingPickGroupsFromFreeText(
             [skolGroup()],

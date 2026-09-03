@@ -75,15 +75,14 @@ function profileForPlan(
          * `generateText` cobre o turno inteiro (todas as etapas do loop de tools) numa única
          * chamada — o abortSignal usa este teto por completo, não por etapa. Forces
          * determinísticos (ver ai.service.ts: shouldForceSearchForDeclaredPendingTerms /
-         * shouldForcePrepareAfterEmbalagemChoice) podem adicionar 1-2 idas e voltas extras à
-         * Anthropic no mesmo turno.
+         * shouldForcePrepareAfterEmbalagemChoice) podem adicionar 1-2 idas e voltas extras
+         * no mesmo turno (search → force respond_to_customer → prepare).
          *
-         * Fase 14 (ADR-0003): teto de **12s** (avancado) — Groq responde em 3-5s; 12s é margem
-         * ampla. Falha rápido: LLM timeout em <12s, mensagem vai pra DLQ via SQS em vez de
-         * travar o `MessageGroupId` por minutos. `maxSteps` em ai.service.ts continua sendo
-         * teto de segurança.
+         * 45s (avançado) / 30s (básico): Groq multi-step + toolChoice costuma 8–25s; 12s
+         * (Fase 14) gerava `AI_TIMEOUT` / "Delay was aborted" em pedidos reais. Lambda
+         * inbound tem timeout 120s — este teto ainda falha rápido sem travar o groupId.
          */
-        aiTimeoutMs: 12_000,
+        aiTimeoutMs: 45_000,
     };
     if (planKey === "essencial") {
         return {
@@ -91,7 +90,7 @@ function profileForPlan(
             tier: "basico",
             maxToolRounds: 3,
             maxHistoryTurns: 8,
-            aiTimeoutMs: 10_000,
+            aiTimeoutMs: 30_000,
         };
     }
     return {

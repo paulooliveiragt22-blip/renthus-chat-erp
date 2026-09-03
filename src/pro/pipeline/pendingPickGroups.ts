@@ -247,20 +247,43 @@ function matchMixedGroupOptionByName(
     return best.option;
 }
 
+/**
+ * Pergunta de disponibilidade ("tem skol?", "vc tem X") não é escolha de embalagem —
+ * resolver aqui inventava UN com qty=1 e pulava pro checkout (bug real WhatsApp 2026-09-02).
+ */
+function looksLikeAvailabilityQuestion(text: string): boolean {
+    const n = normalize(text);
+    if (!n) return false;
+    if (/\b(caixa|caixas|cx|unidade|unidades|\bun\b|fardo|pack|pacote|lata|garrafa|pet|long\s*neck)\b/u.test(n)) {
+        return false;
+    }
+    return (
+        /^(vc|voce|voces)\s+(tem|têm|vende)\b/u.test(n) ||
+        /^(tem|têm|vende)\b/u.test(n) ||
+        /\b(tem|têm|vende)\b.+\?$/u.test(n)
+    );
+}
+
 function resolveOne(
     group: PendingPickGroup,
     segment: string
 ): { embalagemId: string; quantity: number } | null {
-    const quantity = extractQuantityFromText(segment) ?? 1;
+    if (looksLikeAvailabilityQuestion(segment)) return null;
+    /**
+     * Qty só entra no motor de sigla quando o cliente DIGITOU um número. Default `1` aqui
+     * ativava `qty < fator_CX → prefer UN` e fechava embalagem sem o cliente escolher
+     * (ex.: "vc tem skol?" → 1× SKOL LATA + botões de entrega).
+     */
+    const explicitQty = extractQuantityFromText(segment);
     const byName = matchMixedGroupOptionByName(group, segment);
-    if (byName) return { embalagemId: byName.embalagemId, quantity };
+    if (byName) return { embalagemId: byName.embalagemId, quantity: explicitQty ?? 1 };
     const hitRows = group.options.map(optionToHitRow);
     const result = resolveSegmentPick(segment, hitRows, {
-        quantity,
+        quantity: explicitQty,
         formatHintText: segment,
     });
     if (result.kind !== "unique") return null;
-    return { embalagemId: result.pick.embalagemId, quantity };
+    return { embalagemId: result.pick.embalagemId, quantity: explicitQty ?? 1 };
 }
 
 /**
