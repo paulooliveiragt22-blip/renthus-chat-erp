@@ -32,6 +32,7 @@ import {
     type LlmProviderName,
 } from "@/src/pro/adapters/ai/modelProvider";
 import type { OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
+import type { GroqLanguageModelOptions } from "@ai-sdk/groq";
 import {
     buildDeliverySpecialistSystemPreamble,
     buildPhasePlaybookForModel,
@@ -733,13 +734,20 @@ export class AiServiceAdapter implements AiService {
                     providerOptions:
                         provider === "anthropic"
                             ? { anthropic: { disableParallelToolUse: true } }
-                            : {
-                                  openai: {
-                                      parallelToolCalls: false,
-                                      reasoningEffort: "minimal",
-                                      textVerbosity: "low",
-                                  } satisfies OpenAILanguageModelResponsesOptions,
-                              },
+                            : provider === "groq"
+                              ? ({
+                                    groq: {
+                                        parallelToolCalls: false,
+                                        reasoningEffort: "low",
+                                    },
+                                } satisfies { groq: GroqLanguageModelOptions })
+                              : {
+                                    openai: {
+                                        parallelToolCalls: false,
+                                        reasoningEffort: "minimal",
+                                        textVerbosity: "low",
+                                    } satisfies OpenAILanguageModelResponsesOptions,
+                                },
                     stopWhen: [
                         ({ steps }) => {
                             if (!lastStepCalledRespond(steps)) return false;

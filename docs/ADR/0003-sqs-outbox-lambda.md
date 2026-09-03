@@ -1434,7 +1434,7 @@ Conclusão: PC estava **pago e ocioso**; o sintoma “primeira msg lenta” é w
 | 2 | Deploy: `update-function-code` → **publish version** → **alias `live` = nova versão** → PC permanece no alias | Obrigatório | Codificar em `scripts/deploy-workers.ps1` |
 | 3 | Ops: reprocessar/limpar `pending` stuck + DLQ após cutover | Ops | Evita falso negativo no teste |
 | 4 | Ajustar `backlogNotice`: não tratar só `age≥45s` com `pendingCount` baixo (1–2) como “bastante movimento” | App | Bolha hoje mente sob lag ESM |
-| 5 | Keep-warm EventBridge **ou** `ProvisionedPollerConfig` (pollers dedicados) | **Adiado** | Só se p95 pós-idle ainda ruim **depois** de 1–2 |
+| 5 | Keep-warm EventBridge **ou** `ProvisionedPollerConfig` (pollers dedicados) | **Ativo (keep-warm)** | Destravado após evidência pós-1–2: ~27–29s `sqs→processing` na 1ª msg pós-idle (2026-09-02). PC≠poller. |
 | 6 | Reabrir `MessageGroupId=company_id` | **Proibido** | Regressão já medida 2026-09-02 |
 | 7 | Reabrir Fase 13 (Lambda invoke direto) | **Proibido** | Tratava sintoma; wiring (1–2) ataca causa |
 
@@ -1482,3 +1482,4 @@ Pré-produção radical = **corrigir o wiring**, não empilhar mitigações.
 | 2026-09-02 | Fase 14: retorno SQS + VT=60 + PC=1 + maxReceive=1; inbound group `company_id` (regressão) depois **revertido** para `thread_id`. |
 | 2026-09-02 | Fix plataforma LLM: `hasLlmApiKey` com branch `groq`; `deploy-workers.ps1` propaga `GROQ_API_KEY`/`LLM_PROVIDER`/`LLM_MODEL` (merge env). |
 | 2026-09-02 | **Fase 15 implementada:** ESM inbound → `:live`; `deploy-workers.ps1` publish+alias+PC (sem RoutingConfig weights); VT inbound **120s** (mínimo AWS vs timeout 120); `backlogNotice` exige `CHATBOT_BACKLOG_AGE_MIN_PENDING` (default 3); runbook checklist cutover. |
+| 2026-09-02 | Pós-cutover: 1ª msg pós-idle ainda ~27–29s (`sqs→processing`) = poller ESM; keep-warm reativado (15.3 #5). Groq tool-loop: `AI_PROVIDER_ERROR` por `reasoning_content` → `@ai-sdk/groq`. |

@@ -399,6 +399,23 @@ continua só com `anthropic|openai`. Selecionar Groq em Configurações → Chat
 
 ---
 
+## 2.3. Revisão 2026-09-02 — Groq `reasoning_content` no tool loop
+
+**Problema:** após saudação, perguntas de produto (`Cerveja Heineken`, `Tem skol?`)
+chamavam Groq (`ai_tokens_*` ok no 1º step) e falhavam no 2º step do `generateText`
+com `AI_PROVIDER_ERROR` / `property 'reasoning_content' is unsupported`.
+
+**Causa:** `createOpenAICompatible` apontando para Groq replayava `reasoning_content`
+de `openai/gpt-oss-120b` (docs AI SDK / vercel/ai#8056; cherry-studio#13735).
+
+**Decisão (radical):**
+
+- [x] Trocar Groq para provider dedicado `@ai-sdk/groq` em `modelProvider.ts`.
+- [x] `providerOptions.groq` (não `openai`) em `ai.service.ts` para
+  `parallelToolCalls: false` + `reasoningEffort`.
+
+---
+
 ## 3. O que fica fora de escopo aqui (não abrir sem métrica/pedido novo)
 
 - BYOK (empresa trazer a própria API key) — precisaria de `lib/security/credentialCrypto.ts` pra

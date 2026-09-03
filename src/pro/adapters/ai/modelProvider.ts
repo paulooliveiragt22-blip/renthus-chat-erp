@@ -5,7 +5,8 @@
  * - `LLM_PROVIDER=anthropic` (default) → Claude via `@ai-sdk/anthropic`
  * - `LLM_PROVIDER=openai` → GPT via `@ai-sdk/openai`
  * - `LLM_PROVIDER=ollama` → Modelo local (Llama 3.1, Qwen2.5-Coder, etc.) via Ollama + @ai-sdk/openai-compatible
- * - `LLM_PROVIDER=groq` → Groq Cloud (openai/gpt-oss-120b) via @ai-sdk/openai-compatible
+ * - `LLM_PROVIDER=groq` → Groq Cloud (openai/gpt-oss-120b) via **@ai-sdk/groq**
+ *   (não usar openai-compatible genérico: replay de `reasoning_content` quebra tool loops)
  * - `LLM_MODEL` (opcional) sobrepõe o modelo default do provider escolhido.
  *
  * Mesmos nomes de env var que `createLlmPort.ts` já usava — não introduzir nomes novos.
@@ -26,6 +27,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createGroq } from "@ai-sdk/groq";
 import type { LanguageModel } from "ai";
 
 export type LlmProviderName = "anthropic" | "openai" | "ollama" | "groq";
@@ -94,16 +96,13 @@ export function resolveLanguageModel(modelOverrideOrOpts?: string | ResolveLangu
     }
 
     if (provider === "groq") {
-        // Groq Cloud — endpoint OpenAI-compatible em https://api.groq.com/openai/v1
-        // Tier grátis generoso, latência ~200-500ms, OpenAI-compatible (drop-in).
+        // @ai-sdk/groq (não openai-compatible): evita replay de reasoning_content
+        // que o Chat Completions da Groq rejeita no 2º step do tool loop.
+        // Docs AI SDK + issues: vercel/ai#8056, cherry-studio#13735.
         const apiKey = process.env.GROQ_API_KEY?.trim();
         if (!apiKey) throw new LlmProviderConfigError("GROQ_API_KEY missing");
         const model = opts.model?.trim() || process.env.LLM_MODEL?.trim() || DEFAULT_GROQ_MODEL;
-        return createOpenAICompatible({
-            name: "groq",
-            baseURL: "https://api.groq.com/openai/v1",
-            apiKey,
-        })(model);
+        return createGroq({ apiKey })(model);
     }
 
     // provider === "ollama" — local via Ollama (Llama 3.1, Qwen2.5-Coder, etc.)

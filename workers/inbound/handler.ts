@@ -4,6 +4,7 @@
  * MessageGroupId = thread_id (ADR canônico 2026-08-28; revert da Fase 14 em 2026-09-02).
  * Mantidos: Provisioned Concurrency=1 no alias :live, VisibilityTimeout=120s, maxReceiveCount=1.
  * Fase 15: ESM deve invocar renthus-inbound-worker:live (nao $LATEST).
+ * Fase 15.3 #5: keep-warm EventBridge (poller ESM) — sentinel sem Records.
  */
 
 import type { SQSEvent, SQSBatchResponse, SQSRecord } from "aws-lambda";
@@ -16,13 +17,30 @@ import {
 import { parseSqsEnvelope } from "@/lib/queue/sqsEnvelope";
 import { applySqsRetryVisibility } from "../shared/sqsRetryVisibility";
 
-type HandlerEvent = SQSEvent;
+type KeepWarmResult = { ok: true; mode: "keep-warm" };
 
-export async function handler(event: HandlerEvent): Promise<SQSBatchResponse> {
+function isKeepWarmEvent(event: unknown): boolean {
+    if (!event || typeof event !== "object") return false;
+    const e = event as Record<string, unknown>;
+    if (Array.isArray(e.Records)) return false;
+    if (e.source === "renthus.keep-warm") return true;
+    if (e.source === "aws.events") return true;
+    if (e["detail-type"] === "Scheduled Event") return true;
+    return false;
+}
+
+export async function handler(
+    event: SQSEvent | Record<string, unknown>
+): Promise<SQSBatchResponse | KeepWarmResult> {
+    if (isKeepWarmEvent(event)) {
+        return { ok: true, mode: "keep-warm" };
+    }
+
+    const sqsEvent = event as SQSEvent;
     const batchItemFailures: SQSBatchResponse["batchItemFailures"] = [];
     const admin = createAdminClient();
 
-    for (const record of event.Records ?? []) {
+    for (const record of sqsEvent.Records ?? []) {
         const ok = await processRecord(admin, record);
         if (!ok) {
             batchItemFailures.push({ itemIdentifier: record.messageId });

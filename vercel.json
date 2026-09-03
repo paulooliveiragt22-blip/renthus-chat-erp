@@ -14,7 +14,7 @@
         },
         {
             "path": "/api/billing/webhook-health",
-            "schedule": "0 */6 * * *"
+            "schedule": "0 12 * * *"
         },
         {
             "path": "/api/chatbot/detect-abandoned-carts",

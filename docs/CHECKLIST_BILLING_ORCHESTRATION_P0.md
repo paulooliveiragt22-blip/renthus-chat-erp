@@ -32,7 +32,7 @@ Estado: `[ ]` pendente · `[~]` parcial · `[x]` feito + data · `[!]` bloqueado
 | O1.2 | `PAGARME_WEBHOOK_SECRET` presente na Vercel Production | Env Vercel | Rota não retorna `server_misconfigured`; HMAC rejeita body forjado (401) | [!] ops — validar no dashboard Vercel |
 | O1.3 | Prova de ingestão | 1 checkout sandbox + wait | `pagarme_webhook_events` count **> 0**; linha `completed` ou `failed_*` documentada | [ ] bloqueado por O1.1 |
 | O1.4 | Se O1.3 falhar: logs Vercel da rota + status HTTP no painel PSP | Runbook | Causa raiz escrita no checklist (não “implementar reconcile” como atalho) | [x] 2026-09-02 — zero ingestão; 405 isolado |
-| O1.5 | Alerta mínimo | Sentry message ou cron watchdog | Se houve create-checkout e **0** eventos webhook em 24h → alerta (pode ser `[~]` após O1.3 verde) | [x] 2026-09-02 — `GET /api/billing/webhook-health` + cron 6h |
+| O1.5 | Alerta mínimo | Sentry message ou cron watchdog | Se houve create-checkout e **0** eventos webhook em 24h → alerta (pode ser `[~]` após O1.3 verde) | [x] 2026-09-02 — `GET /api/billing/webhook-health` + cron **1x/dia** (`0 12 * * *`; Hobby não aceita `*/6`) |
 
 ---
 
