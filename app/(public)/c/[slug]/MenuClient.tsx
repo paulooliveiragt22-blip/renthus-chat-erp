@@ -109,6 +109,9 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
     const [cartReady, setCartReady] = useState(false);
     const [checkoutOpen, setCheckoutOpen] = useState(false);
     const [ordersOpen, setOrdersOpen] = useState(false);
+    const [handoffFulfillmentType, setHandoffFulfillmentType] = useState<
+        "delivery" | "pickup" | null
+    >(null);
     const [addresses, setAddresses] = useState<PublicMenuSavedAddress[]>([]);
     const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
     const [addressPickerOpen, setAddressPickerOpen] = useState(false);
@@ -153,9 +156,16 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     ok?: boolean;
                     purpose?: string;
                     cart?: PublicMenuCartLine[];
+                    fulfillmentType?: "delivery" | "pickup" | null;
                 };
                 if (json.ok && Array.isArray(json.cart) && json.cart.length > 0) {
                     setCart(json.cart);
+                    if (
+                        json.fulfillmentType === "delivery" ||
+                        json.fulfillmentType === "pickup"
+                    ) {
+                        setHandoffFulfillmentType(json.fulfillmentType);
+                    }
                     if (json.purpose === "checkout" || wantCheckout) setCheckoutOpen(true);
                 } else {
                     setCart(loadCart(store.slug));
@@ -617,6 +627,7 @@ export default function MenuClient({ menu }: { menu: PublicMenuResponse }) {
                     }
                     cart={cart}
                     preferredSavedAddressId={selectedAddressId}
+                    preferredFulfillmentType={handoffFulfillmentType}
                     onPreferredAddressChange={(id) => {
                         setSelectedAddressId(id);
                         savePickedAddressId(store.slug, id);

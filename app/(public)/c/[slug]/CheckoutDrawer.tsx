@@ -55,7 +55,8 @@ type Props = {
     onDec: (embalagemId: string) => void;
     onRemove: (embalagemId: string) => void;
     onAddMore: () => void;
-    /** Endereço escolhido no header do cardápio (se houver). */
+    /** Prefill vindo do handoff bot (`hc` + meta.fulfillment_type). */
+    preferredFulfillmentType?: FulfillmentType | null;
     preferredSavedAddressId?: string | null;
     onPreferredAddressChange?: (id: string) => void;
 };
@@ -88,12 +89,22 @@ export default function CheckoutDrawer({
     onDec,
     onRemove,
     onAddMore,
+    preferredFulfillmentType = null,
     preferredSavedAddressId,
     onPreferredAddressChange,
 }: Props) {
     const [step, setStep] = useState<Step>("cart");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const handoffTokenFromUrl = useMemo(() => {
+        if (typeof globalThis.location === "undefined") return null;
+        try {
+            return new URLSearchParams(globalThis.location.search).get("hc")?.trim() || null;
+        } catch {
+            return null;
+        }
+    }, []);
 
     const [sessionToken, setSessionToken] = useState<string | null>(null);
     const [needsPhone, setNeedsPhone] = useState(false);
@@ -266,6 +277,19 @@ export default function CheckoutDrawer({
     const fulfillmentPolicy = { deliveriesEnabled, pickupEnabled };
 
     function goAfterIdentify() {
+        const preferred = preferredFulfillmentType;
+        if (preferred === "delivery" && deliveriesEnabled) {
+            setFulfillmentType("delivery");
+            setStep("address");
+            return;
+        }
+        if (preferred === "pickup" && pickupEnabled) {
+            setFulfillmentType("pickup");
+            setDeliveryFee(0);
+            setDeliveryMsg(null);
+            setStep("payment");
+            return;
+        }
         const next = nextMenuCheckoutStep(fulfillmentPolicy);
         if (next === "unavailable") {
             setError("A loja não está aceitando pedidos de entrega nem de retirada no momento.");
@@ -553,6 +577,7 @@ export default function CheckoutDrawer({
                               ? newAddress
                               : null,
                     notes: orderNotes.trim() || null,
+                    handoffToken: handoffTokenFromUrl,
                 }),
             });
             const json = (await res.json()) as PublicMenuCheckoutResult;

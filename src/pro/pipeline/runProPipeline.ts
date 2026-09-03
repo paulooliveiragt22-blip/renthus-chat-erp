@@ -16,8 +16,7 @@ import {
     parseAiOrderModePolicy,
     type AiOrderModePolicy,
 } from "@/lib/chatbot/aiOrderModePolicy";
-import { AI_DEGRADED_ORDER_MESSAGE_PT_BR } from "@/lib/chatbot/aiCapabilityProfile";
-import { buildWebMenuOfferText } from "@/lib/public-menu/menuOfferText";
+import { buildAiDegradedOutbound } from "@/lib/chatbot/aiCapabilityProfile";
 import type { LoggerPort } from "../ports/logger.port";
 import { buildPipelineContext, policiesFromAiCapability, DEFAULT_PRO_POLICIES, type PipelineDependencies } from "./context";
 import type { MetricsPort } from "../ports/metrics.port";
@@ -929,23 +928,21 @@ export async function runProPipeline(
     let checkoutOrderHints: Record<string, unknown> | null = null;
     let aiLimitExceeded = false;
     let addressFreeTextSignaled = false;
-    /** Sem crédito / IA off: menu/status/handover ok; pedido por IA bloqueado. */
+    /** Sem crédito / IA off: menu/status/handover ok; pedido por IA bloqueado (D6). */
+    let aiDegradedThisTurn = false;
     if (routed.mode === "ai" && !llmEnabled) {
+        aiDegradedThisTurn = true;
         outbound.length = 0;
-        if (input.webMenuUrl) {
-            outbound.push({
-                kind: "text",
-                text:
-                    AI_DEGRADED_ORDER_MESSAGE_PT_BR +
-                    "\n\n" +
-                    buildWebMenuOfferText({ url: input.webMenuUrl }),
-            });
-        } else {
-            outbound.push({ kind: "text", text: AI_DEGRADED_ORDER_MESSAGE_PT_BR });
-        }
+        outbound.push(
+            ...buildAiDegradedOutbound({
+                webMenuUrl: input.webMenuUrl,
+                reason: input.aiCapability?.degradedReason ?? null,
+            })
+        );
         deps.metrics.increment("pro_pipeline.ai_degraded", 1, {
             companyId: input.tenant.companyId,
             tier: input.aiCapability?.tier ?? "degradado",
+            reason: input.aiCapability?.degradedReason ?? "unknown",
         });
     } else if (routed.mode === "ai") {
         if (isAiTurnLimitExceeded(nextState, aiPolicy, nowMs)) {
@@ -1084,8 +1081,33 @@ export async function runProPipeline(
             }
         }
     }
+
+    /**
+     * D6: falha de provider/timeout após retries in-process → cardápio (não 429 — esse requeue).
+     */
+    if (
+        aiServiceErrorCode === "AI_PROVIDER_ERROR" ||
+        aiServiceErrorCode === "AI_TIMEOUT"
+    ) {
+        aiDegradedThisTurn = true;
+        outbound.length = 0;
+        outbound.push(
+            ...buildAiDegradedOutbound({
+                webMenuUrl: input.webMenuUrl,
+                reason: "llm_error",
+            })
+        );
+        deps.metrics.increment("pro_pipeline.ai_degraded", 1, {
+            companyId: input.tenant.companyId,
+            tier: "degradado",
+            reason: "llm_error",
+            errorCode: aiServiceErrorCode,
+        });
+    }
+
     const checkoutHandoffUrl = await resolveCheckoutHandoffUrl(deps, input, nextState);
-    const checkout = aiLimitExceeded
+    const skipCheckoutUi = aiLimitExceeded || aiDegradedThisTurn;
+    const checkout = skipCheckoutUi
         ? { state: nextState, outbound }
         : checkoutPostProcess({
               state: nextState,

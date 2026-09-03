@@ -3,6 +3,8 @@
 Documento de execução. Premissa do dono: **app ainda sem clientes reais em produção** — toda mudança apaga o legado em vez de manter compatibilidade.
 
 > **Status 2026-08-06:** hot path PRO = **agent loop único** (ReAct + tools). Extract/dialogue/bootstrap/swap-server **removidos** do `runProPipeline`. Extrator estruturado vive só em `src/pro/replay/` (offline). Confirmação final = botão Confirmar. Ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) § cérebro.
+>
+> **Sucessor (2026-09-03):** calibração e fortalecimento contínuo → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). O P0 de handover descrito abaixo foi **corrigido** (`applyProHandover`); não tratar como bug aberto.
 
 Decisões canónicas de arquitetura ficam em [`CHATBOT_PROD.md`](./CHATBOT_PROD.md). Este arquivo é o **plano de corte e construção**, com o estado verificado no código em 2026-08-06.
 

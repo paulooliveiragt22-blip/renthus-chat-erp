@@ -95,9 +95,9 @@ export async function processQueueJobEntry(admin: AdminClient, job: ChatbotQueue
     /**
      * Confirmação de pedido montado pelo atendente (whatsapp_order_confirmations): roda ANTES
      * do gate de handover porque funciona independente do bot estar ativo — o atendente pode
-     * estar em atendimento humano e ainda assim o cliente confirma/cancela por CONFIRMAR/CANCELAR
-     * sem IA nenhuma envolvida. Se resolveu (true), a mensagem já foi tratada — não passa pro
-     * bot nem fica esperando handover expirar.
+     * estar em atendimento humano e ainda assim o cliente confirma/cancela pelos botões
+     * (`pro_confirm_order` / `pro_cancel_order`) sem IA. Se resolveu (true), a mensagem
+     * já foi tratada — não passa pro bot nem fica esperando handover expirar.
      */
     if (messagingChannel === "whatsapp" && phone_e164) {
         try {

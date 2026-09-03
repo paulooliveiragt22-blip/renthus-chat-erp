@@ -114,6 +114,7 @@ export async function runProInbound(params: ProcessMessageParams): Promise<void>
                     model: aiCapability.model,
                     provider: aiCapability.provider,
                     planKey: aiCapability.planKey,
+                    degradedReason: aiCapability.degradedReason ?? null,
                 },
             },
             deps

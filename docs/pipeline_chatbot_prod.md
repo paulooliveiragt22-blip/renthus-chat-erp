@@ -1,7 +1,9 @@
 # Pipeline de processamento de mensagem (chatbot — produção)
 
 Documento para **execução**: ordem real no código, responsabilidades, falhas prováveis.  
-Relacionado: [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (fases, SLOs), [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (refatoração estado/pedido PRO), [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) (ficheiros e checklist).
+Relacionado: [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (fases, SLOs), [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico refatoração), [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) (mapa de pastas).
+
+> **Aviso de atualidade (2026-09-03):** este ficheiro é o **mais desatualizado** entre `structure_*` e `pipeline_*` no que toca ao **gatilho do worker** (wake HTTP / `process-queue` / cron-job.org). **Canónico de transporte:** [`ADR/0003-sqs-outbox-lambda.md`](./ADR/0003-sqs-outbox-lambda.md) (outbox → SQS FIFO → Lambda). Motor Starter removido do hot path — só PRO. **Não** usar este doc como plano de calibração de IA; usar [`ADR/0005`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Secções abaixo de “wake” ficam como **histórico** até limpeza dedicada.
 
 ---
 
@@ -10,22 +12,24 @@ Relacionado: [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (fases, SLOs), [`REFACTOR_ST
 | Entrada | Ficheiro |
 |---------|----------|
 | **A — Webhook Meta** | `app/api/whatsapp/incoming/route.ts` |
-| **B — Worker fila** | `app/api/chatbot/process-queue/route.ts` → `processJob` |
+| **B — Worker fila (legado HTTP)** | `app/api/chatbot/process-queue/route.ts` → `processJob` — **supersedido em prod pelo Lambda** (ADR-0003) |
+| **B′ — Worker fila (vigente)** | Lambda `renthus-inbound-worker` → `processInboundJobById` |
 | **C — Resolve API** | `app/api/chatbot/resolve/route.ts` (interno / sessão) |
 
-Todas convergem em **`processInboundMessage`** (`lib/chatbot/processMessage.ts`).
+Todas convergem em **`processInboundMessage`** (`lib/chatbot/processMessage.ts`) → **`runProInbound`** / `runProPipeline`.
 
-### Gatilho do worker (decisão alinhada a [`CHATBOT_PROD.md`](./CHATBOT_PROD.md))
+### Gatilho do worker
+
+**Vigente (ADR-0003):** enqueue outbox → `SendMessage` SQS → Lambda; reconciler + DLQ como rede de segurança. Ver `CHATBOT_PROD.md` § arquitetura alvo.
+
+**Histórico (pré-cutover — não usar como runbook):**
 
 | Peça | Função |
 |------|--------|
-| **Wake imediato** (feito) | Após `enqueue` bem-sucedido: `after()` → `lib/chatbot/queueWorkerWake.ts` → `GET /api/chatbot/process-queue` com `Bearer CRON_SECRET`. |
-| **Self-wake** (feito) | Worker agenda outra invocação se ainda há `pending` (`?drain=N`, teto `CHATBOT_QUEUE_DRAIN_MAX`) — batch cheio ou claim parcial (fairness / skip-busy). |
-| **Reclaim stuck** (feito) | `reclaim_stuck_chatbot_queue_jobs` no início do worker (`CHATBOT_QUEUE_STALE_MINUTES`). |
-| **Scheduler** | **Rede de segurança:** cron-job.org ≈1 min (Hobby); Vercel Cron `0 3 * * *` terciário. Cobre falha do wake, burst e jobs reclaimados. |
-| **Worker** | Uma invocação: reclaim → claim justo (batch) → processar lote → self-wake se pending; `maxDuration` limita o request serverless. |
-
-*Nota:* se URL/secret do wake faltarem, o scheduler é o único gatilho útil — ver [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) e runbook.
+| **Wake imediato** | Após `enqueue`: `after()` → wake HTTP `GET /api/chatbot/process-queue`. |
+| **Self-wake** | Worker agendava outra invocação se ainda havia `pending`. |
+| **Reclaim stuck** | RPC reclaim no início do worker HTTP. |
+| **Scheduler** | cron-job.org / Vercel Cron como rede de segurança do wake. |
 
 ---
 

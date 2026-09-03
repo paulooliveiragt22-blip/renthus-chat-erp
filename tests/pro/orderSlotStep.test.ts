@@ -213,3 +213,95 @@ describe("orderSlotStep / resolveProStepFromDraft", () => {
         assert.equal(withResolvedSlotStepUnlessAwaitingConfirmation(s).step, "pro_awaiting_confirmation");
     });
 });
+
+/**
+ * C1.4 — matriz “mensagem curta / estado de draft → ProStep”.
+ * Não simula NLU; valida que o slot machine (fonte de verdade) posiciona o checkout
+ * para respostas curtas (“2”, “pix”, “o de sempre”) quando o draft já carrega o efeito.
+ */
+describe("orderSlotStep C1.4 matriz curta (draft → step)", () => {
+    it("qty já no draft (cliente disse “2”): collecting → payment se endereço+fulfillment ok", () => {
+        const d = draft({
+            items: [
+                {
+                    produtoEmbalagemId: "pe-1",
+                    productName: "X",
+                    quantity: 2,
+                    unitPrice: 10,
+                    fatorConversao: 1,
+                    productVolumeId: null,
+                    estoqueUnidades: 99,
+                },
+            ],
+            totalItems: 20,
+            grandTotal: 20,
+        });
+        assert.equal(
+            resolveProStepFromDraft({ step: "pro_collecting_order", draft: d }),
+            "pro_awaiting_payment_method"
+        );
+    });
+
+    it("pix já no draft (cliente disse “pix”): → confirmação", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_awaiting_payment_method",
+                draft: draft({ paymentMethod: "pix" }),
+            }),
+            "pro_awaiting_confirmation"
+        );
+    });
+
+    it("dinheiro sem troco (cliente escolheu cash): → awaiting_change_amount", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_awaiting_payment_method",
+                draft: draft({ paymentMethod: "cash", changeFor: null }),
+            }),
+            "pro_awaiting_change_amount"
+        );
+    });
+
+    it("endereço incompleto (ainda coletando “o de sempre” sem resolve): collecting", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: draft({
+                    address: {
+                        logradouro: "Rua A",
+                        numero: "",
+                        bairro: "Centro",
+                        cidade: "Sorriso",
+                        estado: "MT",
+                        complemento: null,
+                    },
+                }),
+            }),
+            "pro_collecting_order"
+        );
+    });
+
+    it("retirada: sem endereço → payment quando payment null", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: draft({
+                    fulfillmentType: "pickup",
+                    address: null,
+                    paymentMethod: null,
+                }),
+            }),
+            "pro_awaiting_payment_method"
+        );
+    });
+
+    it("sem fulfillment ainda: collecting mesmo com endereço completo", () => {
+        assert.equal(
+            resolveProStepFromDraft({
+                step: "pro_collecting_order",
+                draft: draft({ fulfillmentType: null }),
+            }),
+            "pro_collecting_order"
+        );
+    });
+});

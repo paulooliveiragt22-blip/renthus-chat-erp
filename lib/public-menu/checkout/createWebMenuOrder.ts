@@ -22,6 +22,7 @@ import {
 import { persistEnderecoCliente } from "@/lib/customers/persistEnderecoCliente";
 import { formatDeliveryAddressText, listCustomerAddressesForMenu } from "./addresses";
 import { notifyWebMenuOrder } from "./notifyWhatsApp";
+import { consumeCheckoutHandoffAfterWebOrder } from "@/lib/public-menu/handoff/consumeCheckoutHandoff";
 import { verifyWebMenuCheckoutSession } from "../sessionToken";
 import { canFulfillQty } from "@/lib/products/stockPolicy";
 import { buildOrderIdempotencyKey } from "@/lib/orders/buildOrderIdempotencyKey";
@@ -374,6 +375,20 @@ export async function createWebMenuOrder(
         fulfillmentType,
         notes: sanitizeOrderNotes(params.input.notes),
     });
+
+    // C1b.3: um efeito — handoff consumido + draft WA limpo (best-effort; não falha o pedido)
+    try {
+        await consumeCheckoutHandoffAfterWebOrder(admin, {
+            companyId: params.companyId,
+            slug: params.slug,
+            handoffToken: params.input.handoffToken,
+        });
+    } catch (err) {
+        console.warn(
+            "[public-menu] consumeCheckoutHandoffAfterWebOrder:",
+            err instanceof Error ? err.message : err
+        );
+    }
 
     return {
         ok: true,

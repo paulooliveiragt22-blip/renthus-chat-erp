@@ -1,17 +1,9 @@
 /**
- * Confirmação forte de pedido no PRO: só IDs estruturados de botão (HITL) —
- * eventos de `interactive.button_reply.id` do WhatsApp, nunca texto digitado.
- * Texto livre (“sim”, “ok”, “confirmar”) não finaliza — vai para o agent loop /
- * revisão; a IA responde normalmente e pode reforçar o botão Confirmar, mas só
- * o clique estruturado dispara a RPC de criar pedido (mutação financeira +
- * baixa de estoque é irreversível — não delegamos esse gatilho a NLU/regex).
- * Contexto: só é chamado quando `step === pro_awaiting_confirmation`.
+ * Confirmação / cancelamento estruturados (bot PRO + HITL atendente→cliente).
+ * Só IDs de `interactive.button_reply.id` do WhatsApp — nunca prosa
+ * (“sim”, “ok”, “CONFIRMAR”, “1”). Mutação financeira só via clique.
  *
- * `confirmar` / `confirmar_pedido` / `confirm_order` eram aliases de tela nativa
- * antiga do WhatsApp — removidos daqui porque também casavam com texto puro
- * digitado pelo cliente. Único ID real que os botões do PRO enviam hoje:
- * `pro_confirm_order` (`checkoutPostProcess.ts`); `btn_confirm_order`/`btn_confirmar`
- * seguem como aliases de compatibilidade.
+ * Contrato único (ADR-0005 C1): `detectStructuredCheckoutAction`.
  */
 
 const CONFIRMATION_BUTTON_IDS = new Set([
@@ -20,19 +12,46 @@ const CONFIRMATION_BUTTON_IDS = new Set([
     "btn_confirmar",
 ]);
 
-export function isExplicitOrderConfirmation(text: string): boolean {
-    const raw = text.trim();
-    if (!raw || raw.length > 96) return false;
+const CANCEL_BUTTON_IDS = new Set([
+    "pro_cancel_order",
+    "btn_cancel_order",
+]);
 
-    const normalized = raw
+export type StructuredCheckoutAction = "confirm" | "cancel";
+
+function normalizeButtonPayload(text: string): string {
+    return text
+        .trim()
         .toLowerCase()
         .normalize("NFD")
         .replaceAll(/\p{Diacritic}/gu, "")
         .replaceAll(/\s+/g, " ")
         .trim();
-
-    return CONFIRMATION_BUTTON_IDS.has(normalized);
 }
+
+/** Confirmar ou cancelar pedido por ID de botão; `null` = prosa / outro inbound. */
+export function detectStructuredCheckoutAction(text: string): StructuredCheckoutAction | null {
+    const raw = text.trim();
+    if (!raw || raw.length > 96) return null;
+    const normalized = normalizeButtonPayload(raw);
+    if (CONFIRMATION_BUTTON_IDS.has(normalized)) return "confirm";
+    if (CANCEL_BUTTON_IDS.has(normalized)) return "cancel";
+    return null;
+}
+
+export function isExplicitOrderConfirmation(text: string): boolean {
+    return detectStructuredCheckoutAction(text) === "confirm";
+}
+
+export function isExplicitOrderCancellation(text: string): boolean {
+    return detectStructuredCheckoutAction(text) === "cancel";
+}
+
+/** Botões Meta no envio HITL (`send-confirmation`) e alinhados ao PRO. */
+export const HITL_ORDER_CONFIRM_BUTTONS: ReadonlyArray<{ id: string; title: string }> = [
+    { id: "pro_confirm_order", title: "Confirmar" },
+    { id: "pro_cancel_order", title: "Cancelar" },
+];
 
 /**
  * Texto livre na confirmação que parece revisão/novo pedido (não botão Confirmar).
@@ -41,7 +60,7 @@ export function isExplicitOrderConfirmation(text: string): boolean {
 export function looksLikeCheckoutRevisionText(text: string): boolean {
     const raw = text.trim();
     if (!raw || raw.length < 4) return false;
-    if (isExplicitOrderConfirmation(raw)) return false;
+    if (detectStructuredCheckoutAction(raw) != null) return false;
 
     const normalized = raw
         .toLowerCase()

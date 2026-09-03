@@ -2,17 +2,22 @@
 
 Este ficheiro descreve **a estrutura real do repositório**, **fluxo entre módulos** e **o que executar** para cumprir [`CHATBOT_PROD.md`](./CHATBOT_PROD.md). Decisões de produto e fases detalhadas continuam no `CHATBOT_PROD.md`.
 
+> **Aviso de atualidade (2026-09-03):** trechos sobre **Starter ativo**, `GET /api/chatbot/process-queue` como caminho feliz e wake HTTP estão **desatualizados**. Transporte canónico: [`ADR/0003-sqs-outbox-lambda.md`](./ADR/0003-sqs-outbox-lambda.md). Motor: só PRO (`processMessage` → `runProInbound`). **Calibração / fortalecimento do agente:** [`ADR/0005`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) — **não** expandir este ficheiro com esse épico. Veredito: este doc é **mais útil que** [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) como mapa de pastas, mas **menos atual** que `CHATBOT_PROD.md` + ADR-0003/0005.
+
 ---
 
 ## 1. Documentos relacionados
 
 | Ficheiro | Uso |
 |----------|-----|
-| [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | **Decisões canónicas:** princípios, arquitetura por horizonte (Hobby / médio prazo / escala), gatilho wake + scheduler, **pedido PRO / IA**, fases 0–3, tetos externos, limites honestos, evidências p95/replay/carga |
-| [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) | **Estratégia de refatoração** do fecho de pedido PRO: fases R0–R4, gates, anti-padrões, critérios de “feito” |
-| [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) | **Checklist operacional** (fila, claim justo, canal no worker, V2 `active`, resiliência Anthropic/Meta, P2-peak; pendências P0.4b / P1.4 / Redis) |
-| [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md) | **P1.4** — tabela para fechar critérios de aceite em `CHATBOT_PROD.md` (p95, replay, runbook) com evidência real |
-| Este ficheiro | Árvore de código, responsabilidades, fluxo atual vs alvo, checklist por ficheiro |
+| [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) | **Decisões canónicas:** princípios, arquitetura por horizonte, **pedido PRO / IA**, fases 0–3, tetos externos, evidências |
+| [`ADR/0003-sqs-outbox-lambda.md`](./ADR/0003-sqs-outbox-lambda.md) | **Transporte** outbox → SQS → Lambda (substitui wake/`process-queue` como caminho feliz) |
+| [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) | **Decisão** dos quatro pilares de calibração do agente |
+| [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) | **Cronologia C0–C5** de fortalecimento (gates, matching, prompts, avaliação) |
+| [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) | **Histórico** de refatoração R0–R4 (não é o plano de calibração vigente) |
+| [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) | **Checklist operacional** (fila, resiliência, P2-peak) |
+| [`EVIDENCE_CHECKLIST_P14.md`](./EVIDENCE_CHECKLIST_P14.md) | **P1.4** — evidência p95/replay/runbook |
+| Este ficheiro | Árvore de código, ownership — **mapa**, não fonte de transporte/calibração |
 
 ---
 

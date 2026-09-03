@@ -2,9 +2,11 @@
 
 Documento de decisão e checklist para o time executar. Alinhado ao código atual (`processInboundMessage`, `chatbot_queue`, motor em `lib/chatbot/`).
 
-**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (plano de refatoração).
+**Ordem de leitura:** princípios → **arquitetura por horizonte (Hobby / médio prazo / escala)** → **pedido PRO / cérebro IA** → fases 0–3 → evidências / riscos → [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md) (histórico de refatoração) → [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) (**calibração / fortalecimento vigente**).
 
-> **Plano de corte e construção em aberto:** [`PLANO_LIMPEZA_AGENTE_IA.md`](./PLANO_LIMPEZA_AGENTE_IA.md) — remoção do motor Starter, harness de replay e migração da interpretação de intenção para LLM. Contém um **P0**: o handover no PRO não desliga o bot nem abre ticket.
+> **Calibração do agente (vigente 2026-09-03):** quatro pilares (gates → matching → prompts → avaliação) e cronologia C0–C5 em [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Decisão: [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md). Transporte: [`ADR-0003`](./ADR/0003-sqs-outbox-lambda.md).
+>
+> **Plano de limpeza (histórico):** [`PLANO_LIMPEZA_AGENTE_IA.md`](./PLANO_LIMPEZA_AGENTE_IA.md) — Starter removido, replay/harness e handover (`applyProHandover`) em grande parte **feitos**; não usar o P0 de handover desse doc como bug ainda aberto.
 
 ---
 
@@ -284,7 +286,8 @@ Implementação actual no PRO (`runProPipeline` — único motor para plano PRO)
 
 ### Plano de execução
 
-**Estratégia de refatoração por fases** (ordem, gates, entregáveis, riscos): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).
+**Estratégia de refatoração por fases** (histórico R0–R4): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md).  
+**Calibração / fortalecimento (cronologia C0–C5):** [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md) · [`ADR-0005`](./ADR/0005-pro-agent-calibration-pillars.md).
 
 ### PRO Pipeline — env e fronteira
 
@@ -460,7 +463,8 @@ Manter fronteiras claras sem microserviço:
 - Typing indicator (WA Cloud API): `lib/whatsapp/send.ts` (`sendTypingIndicator`, best-effort) disparado no núcleo do worker inbound antes de `processInboundMessage`, só quando o job vai ser efetivamente respondido (após o gate de handover). Marca a mensagem inbound como lida + "digitando..."; a Meta encerra sozinha ao enviarmos a resposta ou após 25s. Só WhatsApp (IG/Messenger usam mecanismo próprio, não implementado).
 - Venda ativa: `app/api/chatbot/detect-abandoned-carts/route.ts`, `lib/chatbot/outbound/`, Lambda outbound; migration `20260805160000_active_sales_cart_recovery.sql`
 - Templates HSM + campanhas (Pro/Market): `lib/whatsapp-templates/*`, `lib/campaigns/*`, `lib/channels/messageConsent*`, APIs `/api/admin/whatsapp-templates`, `/api/admin/campaigns`; UI `/templates`, `/campanhas`; Canais tenant em Configurações → Canais — checklists [`CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md`](./CHECKLIST_WHATSAPP_TEMPLATES_CAMPAIGNS.md), [`ENV_META_CHANNELS.md`](./ENV_META_CHANNELS.md)
-- Refatoração pedido PRO / IA: [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
+- Refatoração pedido PRO / IA (histórico): [`REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md`](./REFACTOR_STRATEGY_PRO_ORDER_AND_IA.md)
+- Calibração agente PRO (vigente): [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md), [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md)
 - Checklist escala: [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md)
 
 ---

@@ -18,6 +18,8 @@ export async function createCheckoutHandoff(params: {
     threadId: string;
     webMenuUrl: string;
     draft: OrderDraft;
+    /** Prefill do CheckoutDrawer (ADR-0005 C1b.2). */
+    fulfillmentType?: "delivery" | "pickup" | null;
 }): Promise<string> {
     const web = params.webMenuUrl.trim();
     const slug = parseSlugFromPublicMenuUrl(web);
@@ -25,6 +27,10 @@ export async function createCheckoutHandoff(params: {
     if (!slug || cart.length === 0) {
         return withMenuSearchParams(web, { checkout: "1" });
     }
+
+    const ft = params.fulfillmentType ?? params.draft.fulfillmentType ?? null;
+    const meta: Record<string, unknown> =
+        ft === "delivery" || ft === "pickup" ? { fulfillment_type: ft } : {};
 
     const expiresAt = new Date(Date.now() + HANDOFF_TTL_SEC * 1000).toISOString();
     const { data, error } = await params.admin
@@ -35,6 +41,7 @@ export async function createCheckoutHandoff(params: {
             thread_id: params.threadId,
             purpose: "checkout",
             cart,
+            meta,
             expires_at: expiresAt,
         })
         .select("id")

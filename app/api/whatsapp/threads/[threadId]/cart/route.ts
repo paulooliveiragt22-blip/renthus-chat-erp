@@ -53,7 +53,7 @@ export async function GET(
 
         const customer = { phone: thread.phone_e164 as string | null, name: thread.profile_name as string | null };
 
-        // Confirmação de pedido em aberto (atendente já pediu, aguardando CONFIRMAR/CANCELAR do cliente).
+        // Confirmação em aberto (atendente enviou; aguarda botão Confirmar/Cancelar do cliente).
         const { data: pending } = await admin
             .from("whatsapp_order_confirmations")
             .select("id, summary_text, created_at")

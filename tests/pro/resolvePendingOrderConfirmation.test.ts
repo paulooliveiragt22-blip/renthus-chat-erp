@@ -1,41 +1,50 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { detectPendingConfirmationIntent } from "../../src/pro/pipeline/resolvePendingOrderConfirmation";
+/**
+ * HITL usa o mesmo contrato que o bot (`detectStructuredCheckoutAction`).
+ * Este ficheiro cobre o contrato do interceptor sem importar o módulo
+ * `resolvePendingOrderConfirmation` (puxa adapters/server-only).
+ */
+import { detectStructuredCheckoutAction } from "../../src/pro/pipeline/orderConfirmationText";
 
-describe("detectPendingConfirmationIntent", () => {
-    it("reconhece variações de confirmação", () => {
-        for (const t of ["confirmar", "Confirmo", "CONFIRMA", "confirmado", "isso", "sim", "ok", "Okay", "1"]) {
-            assert.equal(detectPendingConfirmationIntent(t), "confirm", `esperava "confirm" para "${t}"`);
+/** Espelha `detectPendingConfirmationIntent` (re-export no interceptor). */
+function detectPendingConfirmationIntent(text: string) {
+    return detectStructuredCheckoutAction(text);
+}
+
+describe("HITL pending confirmation intent (ADR-0005 C1)", () => {
+    it("reconhece só botões de confirmação", () => {
+        for (const t of ["pro_confirm_order", "btn_confirm_order", "btn_confirmar"]) {
+            assert.equal(detectPendingConfirmationIntent(t), "confirm", t);
         }
     });
 
-    it("reconhece variações de cancelamento", () => {
-        for (const t of ["cancelar", "Cancela", "cancelado", "não", "nao", "2"]) {
-            assert.equal(detectPendingConfirmationIntent(t), "cancel", `esperava "cancel" para "${t}"`);
+    it("reconhece só botões de cancelamento", () => {
+        for (const t of ["pro_cancel_order", "btn_cancel_order"]) {
+            assert.equal(detectPendingConfirmationIntent(t), "cancel", t);
         }
     });
 
-    it("ignora respostas com prefixo/sufixo — precisa ser a mensagem toda", () => {
-        assert.equal(detectPendingConfirmationIntent("confirmar por favor"), null);
-        assert.equal(detectPendingConfirmationIntent("acho que sim, confirmar"), null);
+    it("ignora prosa que antes fechava pedido (sim/ok/CONFIRMAR/1)", () => {
+        for (const t of [
+            "confirmar",
+            "Confirmo",
+            "CONFIRMA",
+            "confirmado",
+            "isso",
+            "sim",
+            "ok",
+            "Okay",
+            "1",
+            "  confirmar!  ",
+        ]) {
+            assert.equal(detectPendingConfirmationIntent(t), null, `não deve confirmar: "${t}"`);
+        }
     });
 
-    it('não trata "s"/"n" isolados como confirmação/cancelamento (falso positivo perigoso)', () => {
-        assert.equal(detectPendingConfirmationIntent("s"), null);
-        assert.equal(detectPendingConfirmationIntent("n"), null);
-        assert.equal(detectPendingConfirmationIntent("S"), null);
-        assert.equal(detectPendingConfirmationIntent("N"), null);
-    });
-
-    it("ignora mensagens vazias, sem intenção ou de negócio (ex.: perguntas sobre o pedido)", () => {
-        assert.equal(detectPendingConfirmationIntent(""), null);
-        assert.equal(detectPendingConfirmationIntent("   "), null);
-        assert.equal(detectPendingConfirmationIntent("quanto vai demorar?"), null);
-        assert.equal(detectPendingConfirmationIntent("quero trocar o endereço"), null);
-    });
-
-    it("aceita pontuação/espaços nas bordas", () => {
-        assert.equal(detectPendingConfirmationIntent("  confirmar!  "), "confirm");
-        assert.equal(detectPendingConfirmationIntent("cancelar."), "cancel");
+    it("ignora prosa de cancelamento legada", () => {
+        for (const t of ["cancelar", "Cancela", "cancelado", "não", "nao", "2", "cancelar."]) {
+            assert.equal(detectPendingConfirmationIntent(t), null, `não deve cancelar: "${t}"`);
+        }
     });
 });

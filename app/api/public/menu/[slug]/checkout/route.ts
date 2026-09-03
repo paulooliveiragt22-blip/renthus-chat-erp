@@ -64,6 +64,7 @@ export async function POST(
             newAddress: body.newAddress,
             idempotencyKey: body.idempotencyKey,
             notes: body.notes,
+            handoffToken: body.handoffToken,
         },
     });
 

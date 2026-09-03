@@ -70,7 +70,7 @@ export async function GET(
 
     const { data, error } = await admin
         .from("menu_handoffs")
-        .select("id, purpose, cart, expires_at")
+        .select("id, purpose, cart, meta, expires_at")
         .eq("id", payload.handoffId)
         .eq("company_id", payload.companyId)
         .eq("slug", slugParsed.slug)
@@ -86,9 +86,18 @@ export async function GET(
     const cartRaw = Array.isArray(data.cart) ? data.cart : [];
     const cart = cartRaw.filter(isCartLine);
 
+    const meta =
+        data.meta && typeof data.meta === "object" && !Array.isArray(data.meta)
+            ? (data.meta as Record<string, unknown>)
+            : {};
+    const ftRaw = String(meta.fulfillment_type ?? "").trim().toLowerCase();
+    const fulfillmentType =
+        ftRaw === "delivery" || ftRaw === "pickup" ? (ftRaw as "delivery" | "pickup") : null;
+
     return NextResponse.json({
         ok: true,
         purpose: "checkout",
         cart,
+        ...(fulfillmentType ? { fulfillmentType } : {}),
     });
 }

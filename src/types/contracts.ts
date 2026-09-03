@@ -337,6 +337,14 @@ export interface ProPipelineInput {
          */
         provider?: "anthropic" | "openai" | "ollama" | "groq";
         planKey?: string | null;
+        /** ADR-0005 D6 — motivo de degradação (só relevante se `tier === "degradado"`). */
+        degradedReason?:
+            | "no_subscription"
+            | "ai_disabled"
+            | "ai_wallet_empty"
+            | "profile_resolve_error"
+            | "llm_error"
+            | null;
     } | null;
 }
 

@@ -248,6 +248,11 @@ export interface PublicMenuCheckoutInput {
     idempotencyKey?: string | null;
     /** Observação do cliente no resumo (opcional, máx. 500). */
     notes?: string | null;
+    /**
+     * Token `hc` do handoff bot→cardápio (query da URL).
+     * Após pedido ok: consome handoff e limpa draft WA (ADR-0005 C1b.3).
+     */
+    handoffToken?: string | null;
 }
 
 export type PublicMenuCheckoutResult =

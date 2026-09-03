@@ -19,24 +19,19 @@ function normalizeInboundText(text: string): string {
         .trim();
 }
 
+/** Nunca coalescer IDs que fecham/cancelam pedido ou confirmam endereço (ADR-0005 C1). */
 function isCriticalOrderConfirmationText(normalizedText: string): boolean {
     if (!normalizedText) return false;
-    const confirmationIds = new Set([
-        "sim",
-        "ok",
-        "okay",
-        "confirmar",
-        "confirmo",
-        "confirmar_pedido",
-        "confirm_order",
+    const criticalIds = new Set([
         "pro_confirm_order",
         "btn_confirm_order",
         "btn_confirmar",
+        "pro_cancel_order",
+        "btn_cancel_order",
         "pro_confirm_saved_address",
         "pro_confirm_typed_address",
     ]);
-    if (confirmationIds.has(normalizedText)) return true;
-    return /^(sim|ok|confirmo|confirmar|pode confirmar|pode fechar|fechar pedido?)$/u.test(normalizedText);
+    return criticalIds.has(normalizedText);
 }
 
 function shouldSkipCoalesceByPayload(params: {

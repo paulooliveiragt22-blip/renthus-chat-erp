@@ -108,10 +108,26 @@ Pré-requisito: cliente de teste com **2 endereços cadastrados** em `enderecos_
 
 | | |
 |--|--|
-| **Setup** | Sessão com draft completo + card de confirmação (antes de tocar Confirmar). |
-| **Enviar** | `sim` |
-| **Esperado** | **Não** cria pedido. Pode pedir o botão Confirmar ou continuar diálogo. |
-| **Repetir com** | `ok`, `confirmar` (texto livre). |
+| **Enviar** | Com draft em `pro_awaiting_confirmation`: digite `sim` ou `ok` ou `confirmar` (texto). |
+| **Esperado** | **Não** cria pedido; botão Confirmar continua válido. |
+| **Falha se** | Pedido criado só com prosa. |
+| ☐ | |
+
+---
+
+### S5b — HITL atendente→cliente (só botão) — **você roda no WA**
+
+Automação de lab: `tests/pro/orderConfirmationText.test.ts` + HITL intent. Este smoke valida Meta + Graph.
+
+1. Inbox: montar carrinho no modal → **Enviar para confirmação**.  
+2. No telemóvel: deve aparecer resumo + botões **Confirmar** / **Cancelar** (não instrução “responda CONFIRMAR”).  
+3. Digite `sim` ou `CONFIRMAR` → **não** cria pedido.  
+4. Toque **Confirmar** → pedido criado.  
+5. (Nova tentativa) Enviar confirmação de novo → toque **Cancelar** → pending cancelado, sem pedido.
+
+| | |
+|--|--|
+| **Falha se** | Texto `sim`/`ok`/`1` fecha pedido; mensagem sem botões; bot Confirmar não cria. |
 | ☐ | |
 
 ---

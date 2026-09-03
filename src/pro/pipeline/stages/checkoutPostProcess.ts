@@ -20,6 +20,10 @@ import {
 import { resolveCheckoutTurnOutcome } from "../resolveCheckoutTurnOutcome";
 import { buildPickClarificationFreeText } from "../pendingPickGroups";
 import {
+    resolveCheckoutChannel,
+    shouldOfferWebAddressHandoff,
+} from "../checkoutChannelPolicy";
+import {
     applyFulfillmentPolicyToDraft,
     applyPickupTotals,
     assertFulfillmentAllowed,
@@ -804,11 +808,22 @@ export function checkoutPostProcess(params: {
         isPickupDraft(nextState.draft) ||
         needsFulfillmentChoice(policy, nextState.draft?.fulfillmentType);
     const needAddrRegistration = params.orderHints?.requires_address_flow_registration === true;
+    const incompleteSaved = Array.isArray(params.orderHints?.saved_addresses_incomplete)
+        ? (params.orderHints!.saved_addresses_incomplete as unknown[]).length > 0
+        : false;
     const handoffUrl = params.checkoutHandoffUrl?.trim() ?? "";
+    const channelDecision = resolveCheckoutChannel({
+        hasItems: Boolean(nextState.draft?.items.length),
+        fulfillmentType: nextState.draft?.fulfillmentType ?? null,
+        addressStructurallyComplete: addrComplete,
+        requiresAddressRegistration: needAddrRegistration,
+        hasIncompleteSavedAddress: incompleteSaved,
+        intentNewAddress: false,
+    });
     const showAddressRegistrationPrompt =
         params.mode === "ai" &&
         Boolean(handoffUrl) &&
-        needAddrRegistration &&
+        shouldOfferWebAddressHandoff(channelDecision) &&
         nextState.draft &&
         nextState.draft.items.length > 0 &&
         !addrComplete &&

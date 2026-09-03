@@ -371,7 +371,7 @@ export default function CartEditModal({
                 {msg && <span className="ml-auto text-xs font-medium text-rose-600">{msg}</span>}
             </div>
             <p className="mt-2 text-[11px] text-zinc-400 dark:text-zinc-500">
-                O pedido só é criado depois que o cliente confirmar pelo WhatsApp (CONFIRMAR/CANCELAR).
+                O pedido só é criado depois que o cliente tocar em Confirmar (botão) no WhatsApp.
             </p>
         </Modal>
     );

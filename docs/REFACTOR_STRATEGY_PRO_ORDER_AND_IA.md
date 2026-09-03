@@ -2,13 +2,15 @@
 
 Este documento define **fases**, **entregáveis**, **gates** e **o que não fazer** para alinhar o motor PRO ao fecho de pedido, em coerência com:
 
-- [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) — decisões de transporte (fila, worker, wake) e princípios do pedido PRO.
-- [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) — ordem dos blocos no código.
-- [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) — pastas e ownership.
+- [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) — decisões de transporte e princípios do pedido PRO.
+- [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) — ordem dos blocos no código (**parcialmente obsoleto**; ver aviso no ficheiro).
+- [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) — pastas e ownership (**mapa**; transporte em ADR-0003).
 
-**Escopo:** apenas **tier PRO** e caminhos que levam a **draft / confirmação / finalização**; Starter permanece congelado salvo bug crítico.
+> **Vigente para calibração / qualidade (2026-09-03):** [`ADR/0005-pro-agent-calibration-pillars.md`](./ADR/0005-pro-agent-calibration-pillars.md) + [`PLANO_CALIBRACAO_AGENTE_PRO.md`](./PLANO_CALIBRACAO_AGENTE_PRO.md). Este `REFACTOR_STRATEGY_*` permanece como **histórico R0–R4**, não como cronologia de fortalecimento.
 
-**Referências cruzadas:** [`structure_chatbot_prod.md`](./structure_chatbot_prod.md) (árvore), [`pipeline_chatbot_prod.md`](./pipeline_chatbot_prod.md) (blocos 0–5), [`SMOKE_RUNBOOK_PRO_PIPELINE_V2.md`](./SMOKE_RUNBOOK_PRO_PIPELINE_V2.md) (homologação), [`CHATBOT_PROD.md`](./CHATBOT_PROD.md) (decisões), [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md) (execução contínua: fila, worker, V2, limites Anthropic).
+**Escopo histórico:** tier PRO e caminhos draft / confirmação / finalização. Motor Starter foi removido do hot path (ver `PLANO_LIMPEZA_AGENTE_IA.md`).
+
+**Referências cruzadas:** [`ADR/0003`](./ADR/0003-sqs-outbox-lambda.md) (fila), [`ADR/0005`](./ADR/0005-pro-agent-calibration-pillars.md) (calibração), [`SMOKE_AGENT_LOOP_WHATSAPP.md`](./SMOKE_AGENT_LOOP_WHATSAPP.md), [`CHATBOT_PROD.md`](./CHATBOT_PROD.md), [`CHECKLIST_ARCH_PRO_SCALE.md`](./CHECKLIST_ARCH_PRO_SCALE.md).
 
 ---
 

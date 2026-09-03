@@ -1,16 +1,13 @@
 /**
- * src/pro/pipeline/resolvePendingOrderConfirmation.ts
+ * Fecha o loop "atendente monta o carrinho → cliente confirma pelo WhatsApp"
+ * (`whatsapp_order_confirmations`). Roda ANTES do gate de handover no worker:
+ * independente de `bot_active`; sem IA.
  *
- * Fecha o loop do fluxo "atendente monta o carrinho → cliente confirma pelo
- * WhatsApp" (ver whatsapp_order_confirmations). Roda ANTES do gate de handover
- * em process-queue: funciona independente do bot estar ativo/inativo e não
- * usa IA — só regex determinística (CONFIRMAR/CANCELAR) + a mesma RPC de
- * criação de pedido que o bot já usa (`OrderServiceV2Adapter.createFromDraft`,
- * que revalida estoque/preço e chama `create_order_with_items`).
+ * ADR-0005 C1: só IDs de botão (`pro_confirm_order` / `pro_cancel_order`).
+ * Prosa (`sim` / `ok` / `CONFIRMAR`) não cria nem cancela pedido.
  *
  * Claim atômico (`UPDATE ... WHERE status='pending'`) evita duplo
- * processamento em retries/duplicidade de webhook: a segunda chamada não
- * encontra mais a linha em 'pending' e retorna false sem efeito.
+ * processamento em retries: a segunda chamada não encontra `pending`.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -18,21 +15,15 @@ import type { OrderDraft, TenantRef } from "@/src/types/contracts";
 import { OrderServiceV2Adapter } from "@/src/pro/adapters/order/order.service.v2";
 import { sendAndPersistWaText } from "@/lib/whatsapp/sendAndPersist";
 import type { WaConfig } from "@/lib/whatsapp/send";
-
-const CONFIRM_RE = /^\s*(confirmar|confirmo|confirma|confirmado|isso|sim|ok|okay|1)\W*$/iu;
-const CANCEL_RE = /^\s*(cancelar|cancela|cancelado|n[aã]o|nao|2)\W*$/iu;
+import { detectStructuredCheckoutAction } from "./orderConfirmationText";
 
 const CONFIRMATION_TTL_MS = 60 * 60 * 1000;
 
 export type PendingOrderConfirmationIntent = "confirm" | "cancel" | null;
 
-/** Exportado para teste unitário direto (sem precisar montar admin client). */
+/** @deprecated Prefer `detectStructuredCheckoutAction` — mantido p/ testes e call sites. */
 export function detectPendingConfirmationIntent(text: string): PendingOrderConfirmationIntent {
-    const t = (text ?? "").trim();
-    if (!t) return null;
-    if (CONFIRM_RE.test(t)) return "confirm";
-    if (CANCEL_RE.test(t)) return "cancel";
-    return null;
+    return detectStructuredCheckoutAction(text);
 }
 
 export async function tryResolvePendingOrderConfirmation(params: {
@@ -47,7 +38,7 @@ export async function tryResolvePendingOrderConfirmation(params: {
 }): Promise<boolean> {
     const { admin, companyId, threadId, phoneE164, messageId, channelUserId, inboundText, waConfig } = params;
 
-    const intent = detectPendingConfirmationIntent(inboundText);
+    const intent = detectStructuredCheckoutAction(inboundText);
     if (!intent) return false;
 
     const { data: claimed, error: claimErr } = await admin

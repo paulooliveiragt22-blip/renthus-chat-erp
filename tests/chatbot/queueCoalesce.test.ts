@@ -22,11 +22,17 @@ describe("normalizeInboundText", () => {
 });
 
 describe("isCriticalOrderConfirmationText", () => {
-    it("reconhece confirmações críticas de pedido", () => {
-        assert.equal(isCriticalOrderConfirmationText("sim"), true);
-        assert.equal(isCriticalOrderConfirmationText("confirmar"), true);
-        assert.equal(isCriticalOrderConfirmationText("pode confirmar"), true);
+    it("reconhece só IDs de botão que fecham/cancelam pedido (ADR-0005 C1)", () => {
+        assert.equal(isCriticalOrderConfirmationText("pro_confirm_order"), true);
         assert.equal(isCriticalOrderConfirmationText("btn_confirm_order"), true);
+        assert.equal(isCriticalOrderConfirmationText("pro_cancel_order"), true);
+        assert.equal(isCriticalOrderConfirmationText("btn_cancel_order"), true);
+    });
+
+    it("prosa sim/ok/confirmar NÃO é crítica (já não finaliza pedido)", () => {
+        assert.equal(isCriticalOrderConfirmationText("sim"), false);
+        assert.equal(isCriticalOrderConfirmationText("confirmar"), false);
+        assert.equal(isCriticalOrderConfirmationText("pode confirmar"), false);
     });
 
     it("não marca texto normal como confirmação crítica", () => {
@@ -36,8 +42,8 @@ describe("isCriticalOrderConfirmationText", () => {
 });
 
 describe("buildCoalesceKey", () => {
-    it("retorna null para confirmação crítica (nunca coalescer)", () => {
-        const key = buildCoalesceKey("thread-1", "5511999999999", "company-1", "sim");
+    it("retorna null para confirmação crítica por botão (nunca coalescer)", () => {
+        const key = buildCoalesceKey("thread-1", "5511999999999", "company-1", "pro_confirm_order");
         assert.equal(key, null);
     });
 

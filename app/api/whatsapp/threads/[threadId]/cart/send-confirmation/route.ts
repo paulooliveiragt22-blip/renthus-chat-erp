@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/workspace/rbac/requireCapability";
 import { getOrCreateCustomer } from "@/lib/chatbot/db/orders";
 import { loadWaConfigForCompany } from "@/lib/whatsapp/channelCredentials";
-import { sendAndPersistWaText } from "@/lib/whatsapp/sendAndPersist";
+import { sendAndPersistWaButtons } from "@/lib/whatsapp/sendAndPersist";
 import { formatEnderecoLine } from "@/lib/orders/helpers";
 import { validateDraftConsistency } from "@/src/pro/adapters/order/order.service.v2";
+import { HITL_ORDER_CONFIRM_BUTTONS } from "@/src/pro/pipeline/orderConfirmationText";
 import type { DraftAddress, DraftItem, OrderDraft, PaymentMethod } from "@/src/types/contracts";
 import { jsonAccessError, jsonError, jsonInternalError } from "@/lib/api/errors";
 
@@ -32,19 +33,33 @@ function asMoney(n: unknown): number {
     return Number((Number(n) || 0).toFixed(2));
 }
 
-function buildSummaryText(params: { items: BodyItem[]; address: DraftAddress; paymentMethod: PaymentMethod; deliveryFee: number; grandTotal: number }): string {
+function buildSummaryText(params: {
+    items: BodyItem[];
+    address: DraftAddress;
+    paymentMethod: PaymentMethod;
+    deliveryFee: number;
+    grandTotal: number;
+}): string {
     const { items, address, paymentMethod, deliveryFee, grandTotal } = params;
-    const paymentLabel = paymentMethod === "pix" ? "PIX" : paymentMethod === "card" ? "Cartão" : "Dinheiro";
-    const lines = items.map((it) => `• ${it.quantity}x ${it.productName} — R$ ${asMoney(it.quantity * it.unitPrice).toFixed(2).replace(".", ",")}`);
+    const paymentLabel =
+        paymentMethod === "pix" ? "PIX" : paymentMethod === "card" ? "Cartão" : "Dinheiro";
+    const lines = items.map(
+        (it) =>
+            `• ${it.quantity}x ${it.productName} — R$ ${asMoney(it.quantity * it.unitPrice)
+                .toFixed(2)
+                .replace(".", ",")}`
+    );
     const parts = [
         "Confere seu pedido pra eu finalizar:",
         ...lines,
-        deliveryFee > 0 ? `Taxa de entrega: R$ ${deliveryFee.toFixed(2).replace(".", ",")}` : null,
+        deliveryFee > 0
+            ? `Taxa de entrega: R$ ${deliveryFee.toFixed(2).replace(".", ",")}`
+            : null,
         `Total: R$ ${grandTotal.toFixed(2).replace(".", ",")}`,
         `Pagamento: ${paymentLabel}`,
         `Entrega: ${formatEnderecoLine(address)}`,
         "",
-        "Responda *CONFIRMAR* para fechar o pedido ou *CANCELAR* para não fechar agora.",
+        "Toque em *Confirmar* ou *Cancelar* nos botões abaixo.",
     ].filter(Boolean);
     return parts.join("\n");
 }
@@ -52,12 +67,9 @@ function buildSummaryText(params: { items: BodyItem[]; address: DraftAddress; pa
 /**
  * POST /api/whatsapp/threads/:threadId/cart/send-confirmation
  *
- * Atendente monta/edita o carrinho (itens, endereço, pagamento) no
- * `CartEditModal` e pede confirmação do cliente pelo WhatsApp. Não cria o
- * pedido agora — só grava o rascunho em `whatsapp_order_confirmations`
- * (status pending) e envia a mensagem determinística de confirmação. O
- * pedido só é criado quando o cliente responder CONFIRMAR (ver
- * `resolvePendingOrderConfirmation.ts`, plugado em process-queue).
+ * Atendente monta o carrinho e pede confirmação do cliente. Não cria o pedido —
+ * grava `whatsapp_order_confirmations` (pending) e envia interactive buttons.
+ * Pedido só com clique em `pro_confirm_order` (ADR-0005 C1).
  */
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
     const { threadId } = await params;
@@ -73,8 +85,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         return jsonError("invalid_payment_method", "Selecione uma forma de pagamento válida.", 400);
     }
     const addr = body.address;
-    if (!addr?.logradouro?.trim() || !addr?.numero?.trim() || !addr?.bairro?.trim() || !addr?.cidade?.trim() || !addr?.estado?.trim() || addr.estado.trim().length < 2) {
-        return jsonError("invalid_address", "Preencha o endereço completo (rua, número, bairro, cidade e estado).", 400);
+    if (
+        !addr?.logradouro?.trim() ||
+        !addr?.numero?.trim() ||
+        !addr?.bairro?.trim() ||
+        !addr?.cidade?.trim() ||
+        !addr?.estado?.trim() ||
+        addr.estado.trim().length < 2
+    ) {
+        return jsonError(
+            "invalid_address",
+            "Preencha o endereço completo (rua, número, bairro, cidade e estado).",
+            400
+        );
     }
 
     const { data: thread, error: threadErr } = await admin
@@ -83,7 +106,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         .eq("id", threadId)
         .eq("company_id", companyId)
         .maybeSingle();
-    if (threadErr) return jsonInternalError(threadErr, { route: "whatsapp/threads/:id/cart/send-confirmation:POST" });
+    if (threadErr) {
+        return jsonInternalError(threadErr, {
+            route: "whatsapp/threads/:id/cart/send-confirmation:POST",
+        });
+    }
     if (!thread?.phone_e164) return jsonError("thread_not_found", "Conversa não encontrada.", 404);
 
     const items: DraftItem[] = body.items.map((it) => ({
@@ -115,7 +142,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         items,
         address,
         paymentMethod: body.paymentMethod,
-        changeFor: body.paymentMethod === "cash" && body.changeFor != null ? asMoney(body.changeFor) : null,
+        changeFor:
+            body.paymentMethod === "cash" && body.changeFor != null ? asMoney(body.changeFor) : null,
         deliveryFee,
         deliveryZoneId: null,
         deliveryAddressText: formatEnderecoLine(address),
@@ -132,16 +160,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         return jsonError("inconsistent_draft", consistency.message, 400);
     }
 
-    const customer = await getOrCreateCustomer(admin, companyId, thread.phone_e164 as string, thread.profile_name as string | null);
+    const customer = await getOrCreateCustomer(
+        admin,
+        companyId,
+        thread.phone_e164 as string,
+        thread.profile_name as string | null
+    );
 
-    // No máximo 1 confirmação em aberto por thread — supersede qualquer pendência anterior.
     await admin
         .from("whatsapp_order_confirmations")
         .update({ status: "cancelled", resolved_at: new Date().toISOString() })
         .eq("thread_id", threadId)
         .eq("status", "pending");
 
-    const summaryText = buildSummaryText({ items: body.items, address, paymentMethod: body.paymentMethod, deliveryFee, grandTotal });
+    const summaryText = buildSummaryText({
+        items: body.items,
+        address,
+        paymentMethod: body.paymentMethod,
+        deliveryFee,
+        grandTotal,
+    });
 
     const { data: inserted, error: insertErr } = await admin
         .from("whatsapp_order_confirmations")
@@ -163,12 +201,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         });
     }
 
-    /**
-     * Desliga o bot enquanto aguarda a confirmação: o interceptor determinístico
-     * (resolvePendingOrderConfirmation) já funciona independente do bot_active, mas deixar o
-     * bot ativo permitiria ele responder/agir sobre qualquer outra coisa que o cliente mande
-     * nesse meio-tempo, competindo com o atendente que assumiu o fechamento deste pedido.
-     */
     if (thread.bot_active !== false) {
         await admin
             .from("whatsapp_threads")
@@ -177,10 +209,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     }
 
     const waConfig = await loadWaConfigForCompany(admin, companyId);
-    const sendResult = await sendAndPersistWaText(admin, {
+    const sendResult = await sendAndPersistWaButtons(admin, {
         threadId,
         phoneE164: thread.phone_e164 as string,
-        text: summaryText,
+        bodyText: summaryText,
+        buttons: [...HITL_ORDER_CONFIRM_BUTTONS],
         waConfig,
         senderType: "human",
     });
