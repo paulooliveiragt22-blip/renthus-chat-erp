@@ -472,6 +472,45 @@ function lastStepCalledRespond(steps: readonly StepLike[]): boolean {
     return Boolean(steps.at(-1)?.toolCalls?.some((c) => c.toolName === "respond_to_customer"));
 }
 
+function stepsHadBusinessTool(steps: readonly StepLike[]): boolean {
+    return steps.some((s) =>
+        s.toolCalls?.some(
+            (c) =>
+                c.toolName === "search_produtos" ||
+                c.toolName === "prepare_order_draft" ||
+                c.toolName === "resolve_pending_picks"
+        )
+    );
+}
+
+function isModelSkippedRequiredToolError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    return msg.includes("did not call a tool");
+}
+
+function formatBrl(value: number): string {
+    return value.toFixed(2).replace(".", ",");
+}
+
+/** Resposta determinística quando o modelo buscou o catálogo mas não chamou respond_to_customer (Groq). */
+function buildSearchPicksFallbackReply(picks: SearchPickSummary[]): string {
+    if (picks.length === 0) {
+        return "Não encontrei esse item no cardápio agora. Quer ver o cardápio completo ou tentar outro nome?";
+    }
+    if (picks.length === 1) {
+        const p = picks[0];
+        const price =
+            p.price != null && Number.isFinite(p.price) ? ` por R$ ${formatBrl(p.price)}` : "";
+        return `Sim! Temos ${p.label}${price}. Quantas unidades você quer?`;
+    }
+    const lines = picks.map((p) => {
+        const price =
+            p.price != null && Number.isFinite(p.price) ? ` — R$ ${formatBrl(p.price)}` : "";
+        return `• ${p.label}${price}`;
+    });
+    return `Encontrei estas opções:\n${lines.join("\n")}\nQual você prefere?`;
+}
+
 export class AiServiceAdapter implements AiService {
     private readonly catalog: CatalogPort;
     private readonly orderDraft: OrderDraftPort;
@@ -727,9 +766,9 @@ export class AiServiceAdapter implements AiService {
                      * Groq/OpenAI às vezes mandam `null` em arrays obrigatórios (ex.:
                      * outros_produtos_pendentes). Sem repair o generateText aborta o turno
                      * depois do search já ter rodado — UX: "Tive uma falha…".
-                     * Docs AI SDK: repairToolCall + InvalidToolInputError.
+                     * Docs AI SDK: experimental_repairToolCall + InvalidToolInputError.
                      */
-                    repairToolCall: async ({ toolCall, error }) => {
+                    experimental_repairToolCall: async ({ toolCall, error }) => {
                         if (NoSuchToolError.isInstance(error)) return null;
                         if (!InvalidToolInputError.isInstance(error)) return null;
                         let args: Record<string, unknown>;
@@ -802,47 +841,74 @@ export class AiServiceAdapter implements AiService {
                         if (stepNumber === 0 && firstToolChoice) {
                             return { toolChoice: firstToolChoice };
                         }
-                        if (!lastStepCalledRespond(steps)) return undefined;
+
+                        const respondedOnLastStep = lastStepCalledRespond(steps);
+
+                        const forcePendingSearchStep = () => ({
+                            toolChoice: { type: "tool" as const, toolName: "search_produtos" as const },
+                            messages: [
+                                ...stepMessages,
+                                {
+                                    role: "user" as const,
+                                    content: buildForceSearchPendingNudge(turnState.pendingTermsFromSearch),
+                                },
+                            ],
+                        });
+
+                        const forceResolvePendingPicksStep = () => ({
+                            toolChoice: { type: "tool" as const, toolName: "resolve_pending_picks" as const },
+                            messages: [
+                                ...stepMessages,
+                                {
+                                    role: "user" as const,
+                                    content: buildForceResolvePendingPicksNudge(carryoverPendingPickGroups()),
+                                },
+                            ],
+                        });
+
+                        const forcePrepareStep = () => ({
+                            toolChoice: { type: "tool" as const, toolName: "prepare_order_draft" as const },
+                            messages: [...stepMessages, { role: "user" as const, content: FORCE_PREPARE_NUDGE }],
+                        });
+
                         /**
-                         * Prioridade: 1) produto pendente (carryover ou declarado agora por
-                         * search_produtos), 2) embalagem pendente por produto ambíguo (tentativa
-                         * única via IA — o resolvedor determinístico já rodou antes da IA), 3)
-                         * prepare do pick atual. (1) não usa flag de "só uma vez" — a lista
-                         * `pendingTermsFromSearch` só esvazia quando o próprio search_produtos
-                         * declarar `outros_produtos_pendentes: []`, então o force natural para assim
-                         * que resolvido (maxSteps é o teto de segurança).
+                         * Fase A — respond ainda não foi chamado neste step: após search/prepare/
+                         * resolve neste turno, força `respond_to_customer` (Groq/gpt-oss devolve
+                         * texto puro com toolChoice=required). Não força search/prepare/picks aqui —
+                         * isso é Fase B, só depois que o modelo tentou fechar cedo demais.
+                         */
+                        if (!respondedOnLastStep) {
+                            if (
+                                stepNumber > 0 &&
+                                stepsHadBusinessTool(steps) &&
+                                !shouldForcePendingSearch() &&
+                                !shouldForcePendingPicks() &&
+                                !shouldForcePrepare()
+                            ) {
+                                return {
+                                    toolChoice: {
+                                        type: "tool" as const,
+                                        toolName: "respond_to_customer" as const,
+                                    },
+                                };
+                            }
+                            return undefined;
+                        }
+
+                        /**
+                         * Fase B — respond foi chamado cedo demais: força mais trabalho de negócio
+                         * antes de permitir stopWhen encerrar o turno.
                          */
                         if (shouldForcePendingSearch()) {
-                            return {
-                                toolChoice: { type: "tool", toolName: "search_produtos" },
-                                messages: [
-                                    ...stepMessages,
-                                    {
-                                        role: "user",
-                                        content: buildForceSearchPendingNudge(turnState.pendingTermsFromSearch),
-                                    },
-                                ],
-                            };
+                            return forcePendingSearchStep();
                         }
                         if (!turnState.forceResolvePendingPicksNudgeInjected && shouldForcePendingPicks()) {
                             turnState.forceResolvePendingPicksNudgeInjected = true;
-                            return {
-                                toolChoice: { type: "tool", toolName: "resolve_pending_picks" },
-                                messages: [
-                                    ...stepMessages,
-                                    {
-                                        role: "user",
-                                        content: buildForceResolvePendingPicksNudge(carryoverPendingPickGroups()),
-                                    },
-                                ],
-                            };
+                            return forceResolvePendingPicksStep();
                         }
                         if (!turnState.forcePrepareNudgeInjected && shouldForcePrepare()) {
                             turnState.forcePrepareNudgeInjected = true;
-                            return {
-                                toolChoice: { type: "tool", toolName: "prepare_order_draft" },
-                                messages: [...stepMessages, { role: "user", content: FORCE_PREPARE_NUDGE }],
-                            };
+                            return forcePrepareStep();
                         }
                         return undefined;
                     },
@@ -982,6 +1048,22 @@ export class AiServiceAdapter implements AiService {
                     signals: { toolRoundsUsed: 0, intentMarker: "unknown" },
                     errorCode: "TOOL_FAILED",
                 };
+            }
+            if (isModelSkippedRequiredToolError(error) && turnState.searchInvokedThisTurn) {
+                console.warn("[ai.service] fallback reply after search without respond_to_customer", {
+                    companyId,
+                    pickCount: turnState.lastSearchPicks.length,
+                });
+                const fallbackText = buildSearchPicksFallbackReply(turnState.lastSearchPicks);
+                const updatedPendingOrderMentions = turnState.pendingTermsFromSearch;
+                return await this.buildSuccess(input, fallbackText, "ok", 1, input.draft, {
+                    allowlistIds: turnState.allowlistIds,
+                    lastSearchPicks: turnState.lastSearchPicks,
+                    emptySearchStreak: turnState.emptySearchStreak,
+                    addressFreeText: false,
+                    pendingOrderMentions: updatedPendingOrderMentions,
+                    pendingPickGroups: turnState.pendingPickGroups,
+                });
             }
             return this.buildProviderError(input, 0, turnState.allowlistIds);
         }
