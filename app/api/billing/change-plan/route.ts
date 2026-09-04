@@ -2,7 +2,7 @@
  * POST /api/billing/change-plan
  *
  * Trial: qualquer plano comercial (imediato).
- * Active + upgrade: imediato (limpa pending downgrade).
+ * Active + upgrade: proration PIX (BN-11) — plano só após pagar.
  * Active + downgrade: agenda fim do ciclo (keep_user_ids se excesso). BN-12/R3-4.
  */
 
@@ -12,6 +12,7 @@ import { syncLogicalSubscription } from "@/lib/billing/pagarmeSetupPaid";
 import { normalizePlanKey, parseCommercialPlanInput, planRank } from "@/lib/billing/planCatalog";
 import { rebillPendingObligationAfterPlanChange } from "@/lib/billing/rebillPendingObligation";
 import { scheduleDowngrade } from "@/lib/billing/scheduleDowngrade";
+import { ensurePlanUpgradeCheckout } from "@/lib/billing/ensurePlanUpgradeCheckout";
 import { jsonAccessError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
@@ -92,20 +93,63 @@ export async function POST(req: Request) {
         }
 
         if (st === "active" && planRank(planKey) > planRank(current)) {
-            const { error: upErr } = await admin
-                .from("pagarme_subscriptions")
-                .update({
-                    plan: planKey,
-                    pending_plan_key: null,
-                    pending_plan_change_at: null,
-                    pending_keep_user_ids: null,
-                })
-                .eq("id", row.id);
+            const { data: company } = await admin
+                .from("companies")
+                .select("id, name, nome_fantasia, email, cnpj, whatsapp_phone, phone")
+                .eq("id", companyId)
+                .maybeSingle();
+            if (!company) {
+                return NextResponse.json({ error: "company_not_found" }, { status: 404 });
+            }
 
-            if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
-            await syncLogicalSubscription(admin, companyId, planKey);
-            const rebill = await rebillPendingObligationAfterPlanChange(admin, companyId, planKey);
-            return NextResponse.json({ ok: true, action: "upgraded", plan: planKey, rebill });
+            try {
+                const checkout = await ensurePlanUpgradeCheckout(admin, {
+                    companyId,
+                    targetPlan: planKey,
+                    company: {
+                        name: company.name as string | null,
+                        nome_fantasia: company.nome_fantasia as string | null,
+                        email: company.email as string | null,
+                        whatsapp_phone: company.whatsapp_phone as string | null,
+                        phone: company.phone as string | null,
+                        cnpj: company.cnpj as string | null,
+                    },
+                });
+
+                if (checkout.mode === "applied_free") {
+                    return NextResponse.json({
+                        ok: true,
+                        action: "upgraded",
+                        plan: checkout.toPlan,
+                        from_plan: checkout.fromPlan,
+                    });
+                }
+
+                return NextResponse.json({
+                    ok: true,
+                    action: "upgrade_checkout",
+                    from_plan: checkout.fromPlan,
+                    to_plan: checkout.toPlan,
+                    invoice_id: checkout.invoiceId,
+                    order_id: checkout.orderId,
+                    amount_cents: checkout.amountCents,
+                    amount_brl: checkout.amountBrl,
+                    pix_qr_code: checkout.pixQrCode,
+                    pix_url: checkout.pixUrl,
+                    next_billing_at: checkout.nextBillingAt,
+                    message:
+                        "Pague o PIX do upgrade (prorata). Após confirmação o plano sobe; a renovação segue na data atual.",
+                });
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : String(e);
+                const status =
+                    msg === "subscription_not_eligible" ||
+                    msg === "not_an_upgrade" ||
+                    msg === "plan_invalid"
+                        ? 400
+                        : 500;
+                return NextResponse.json({ error: msg }, { status });
+            }
         }
 
         if (st === "active" && planRank(planKey) < planRank(current)) {

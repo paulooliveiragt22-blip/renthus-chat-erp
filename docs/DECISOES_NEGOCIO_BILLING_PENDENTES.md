@@ -22,7 +22,7 @@ Estado: `[i]` implementado · `[>]` adiado · sem marca = decidido, código pend
 | **BN-08** | **A** — Courtesy 30d (platform) |
 | **BN-09** | **A** — Abandoned atual |
 | **BN-10** | **A** — Signup só via RPC |
-| **BN-11** | **C** — Upgrade com **proration** |
+| **BN-11** `[i]` | **C** — Upgrade com **proration** |
 | **BN-12** | **A** + — Downgrade **agendado** para o fim do ciclo; até a data X pode **voltar** ao plano anterior, **subir** ou **cancelar** o agendamento |
 | **BN-13** | **D0** tenta cobrar (cartão/PIX) · **D1 e D3** retry cartão + notifica se falhar · **D5+** = mesmo padrão D1/D3 · **D7 bloqueia** |
 | **BN-14** | **A** — Reativa: paga **ciclo cheio**; se venceu dia 1, bloqueou D7 e pagou dia 15 → próximo vencimento = **dia 15** (`next_billing_at` = data do pagamento) |
@@ -166,6 +166,7 @@ Se o superadmin **editar** a lista mensal do plano (R3-5), o 10% passa a usar o 
 | Promo toggle kill-switch + signup De/por | `[i]` C1-fix — `active` + `/api/billing/public-plans` |
 | Promo Switch UI + editar campanha (PATCH full) | `[i]` C1-fix2 |
 | Downgrade com seleção de users | `[i]` BN-12 — pending_* + apply no fulfill + UI /plano |
+| Upgrade mid-cycle com proration (BN-11) | `[i]` plan_upgrade + PIX pay-to-unlock |
 
 ---
 

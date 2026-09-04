@@ -55,6 +55,14 @@ export function PlanChangeCatalog({
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [saving, setSaving] = useState(false);
     const [cancelling, setCancelling] = useState(false);
+    const [upgradePix, setUpgradePix] = useState<{
+        to_plan: string;
+        from_plan: string;
+        amount_brl: number;
+        pix_qr_code: string | null;
+        pix_url: string | null;
+        message?: string;
+    } | null>(null);
 
     const loadMembers = useCallback(
         async (plan: CommercialPlanKey) => {
@@ -151,6 +159,47 @@ export function PlanChangeCatalog({
         });
     }
 
+    async function startUpgradeCheckout(key: CommercialPlanKey) {
+        setSaving(true);
+        setUpgradePix(null);
+        try {
+            const res = await fetch("/api/billing/change-plan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ plan: key }),
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                action?: string;
+                to_plan?: string;
+                from_plan?: string;
+                amount_brl?: number;
+                pix_qr_code?: string | null;
+                pix_url?: string | null;
+                message?: string;
+            };
+            if (!res.ok) {
+                onError(json.error ?? "Não foi possível iniciar o upgrade.");
+                return;
+            }
+            if (json.action === "upgrade_checkout") {
+                setUpgradePix({
+                    to_plan: String(json.to_plan ?? key),
+                    from_plan: String(json.from_plan ?? currentPlan),
+                    amount_brl: Number(json.amount_brl ?? 0),
+                    pix_qr_code: json.pix_qr_code ?? null,
+                    pix_url: json.pix_url ?? null,
+                    message: json.message,
+                });
+                return;
+            }
+            await onReload();
+        } finally {
+            setSaving(false);
+        }
+    }
+
     function onSelectPlan(key: CommercialPlanKey) {
         if (key === currentPlan) return;
         const rankDiff = planRank(key) - planRank(currentPlan);
@@ -158,8 +207,12 @@ export function PlanChangeCatalog({
             onError("Regularize o pagamento antes de alterar o plano.");
             return;
         }
-        if (status === "trial" || rankDiff > 0) {
+        if (status === "trial") {
             void onUpgradeOrTrial(key);
+            return;
+        }
+        if (rankDiff > 0 && status === "active") {
+            void startUpgradeCheckout(key);
             return;
         }
         if (rankDiff < 0 && status === "active") {
@@ -263,6 +316,63 @@ export function PlanChangeCatalog({
                     );
                 })}
             </div>
+
+            {upgradePix ? (
+                <div className="space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-800 dark:bg-violet-950/30">
+                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                        Upgrade {getPlanLabel(upgradePix.from_plan)} →{" "}
+                        {getPlanLabel(upgradePix.to_plan)}
+                    </p>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                        Prorata até a renovação:{" "}
+                        <span className="font-semibold">
+                            {upgradePix.amount_brl.toLocaleString("pt-BR", {
+                                style: "currency",
+                                currency: "BRL",
+                            })}
+                        </span>
+                        . O plano sobe após o pagamento.
+                    </p>
+                    {upgradePix.pix_qr_code ? (
+                        <p className="break-all rounded-lg bg-white p-2 font-mono text-[10px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                            {upgradePix.pix_qr_code}
+                        </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                        {upgradePix.pix_url ? (
+                            <a
+                                href={upgradePix.pix_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white"
+                            >
+                                Abrir PIX
+                            </a>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void navigator.clipboard.writeText(
+                                    upgradePix.pix_qr_code ?? upgradePix.pix_url ?? ""
+                                );
+                            }}
+                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
+                        >
+                            Copiar código
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setUpgradePix(null);
+                                void onReload();
+                            }}
+                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold dark:border-zinc-600"
+                        >
+                            Já paguei / fechar
+                        </button>
+                    </div>
+                </div>
+            ) : null}
 
             {downgradeTo ? (
                 <div className="space-y-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
