@@ -699,7 +699,7 @@ export async function getPlans(admin: SupabaseClient) {
     const { data, error } = await admin
         .from("plans")
         .select(
-            "id, key, name, price_cents, price_year_cents, included_seats, seat_extra_cents, description"
+            "id, key, name, price_cents, price_year_cents, included_seats, seat_extra_cents, yearly_discount_mode, yearly_discount_value, description"
         )
         .in("key", ["essencial", "pro", "market"])
         .order("price_cents");

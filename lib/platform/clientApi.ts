@@ -282,6 +282,8 @@ export const platformApi = {
                 name: string;
                 price_cents: number;
                 price_year_cents: number | null;
+                yearly_discount_mode?: "percent" | "fixed_brl";
+                yearly_discount_value?: number;
                 included_seats: number | null;
                 seat_extra_cents: number | null;
                 description?: string | null;
@@ -291,9 +293,10 @@ export const platformApi = {
         id: string,
         body: {
             price_cents?: number;
-            price_year_cents?: number | null;
             included_seats?: number;
             seat_extra_cents?: number | null;
+            yearly_discount_mode?: "percent" | "fixed_brl";
+            yearly_discount_value?: number;
         }
     ) =>
         platformFetch<{
@@ -304,6 +307,8 @@ export const platformApi = {
                 name: string;
                 price_cents: number;
                 price_year_cents: number | null;
+                yearly_discount_mode?: "percent" | "fixed_brl";
+                yearly_discount_value?: number;
                 included_seats: number | null;
                 seat_extra_cents: number | null;
             };
@@ -317,6 +322,11 @@ export const platformApi = {
         platformFetch<{ ok: boolean; promotion: unknown }>(
             "/api/platform/billing/promotions",
             { method: "POST", body: JSON.stringify(body) }
+        ),
+    setPromotionActive: (id: string, active: boolean) =>
+        platformFetch<{ ok: boolean; promotion: unknown }>(
+            `/api/platform/billing/promotions/${id}`,
+            { method: "PATCH", body: JSON.stringify({ active }) }
         ),
     channels: () => platformFetch<{ channels: unknown[] }>("/api/platform/channels"),
     createChannel: (data: Record<string, unknown>) =>
