@@ -34,6 +34,15 @@ export default function TeamMembersPanel() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
+    const [seatOffer, setSeatOffer] = useState<{
+        seat_extra_cents: number;
+        message?: string;
+    } | null>(null);
+    const [seatPix, setSeatPix] = useState<{
+        amount_brl: number;
+        pix_qr_code: string | null;
+        pix_url: string | null;
+    } | null>(null);
     const [email, setEmail] = useState("");
     const [role, setRole] = useState<CompanyRole>("member");
     const [profileId, setProfileId] = useState("");
@@ -93,12 +102,58 @@ export default function TeamMembersPanel() {
         const json = await res.json().catch(() => ({}));
         setSaving(false);
         if (!res.ok) {
+            if (res.status === 402 && json?.error === "seat_limit_reached") {
+                const extra = json.seat_extra_cents as number | null | undefined;
+                if (extra != null && extra > 0) {
+                    setSeatOffer({
+                        seat_extra_cents: extra,
+                        message: String(json.message ?? ""),
+                    });
+                    setMsg(
+                        json.message ??
+                            "Limite de usuários atingido. Compre um seat adicional para continuar."
+                    );
+                    return;
+                }
+                setSeatOffer(null);
+                setMsg(
+                    json.message ??
+                        "Limite do plano atingido. Faça upgrade para adicionar equipe."
+                );
+                return;
+            }
             setMsg(json?.error ?? "Falha ao convidar");
             return;
         }
+        setSeatOffer(null);
+        setSeatPix(null);
         setEmail("");
         setMsg(json.invited ? "Convite enviado por e-mail." : "Usuário vinculado à empresa.");
         await load();
+    }
+
+    async function purchaseSeat() {
+        setSaving(true);
+        setMsg(null);
+        const res = await fetch("/api/billing/seats/purchase", {
+            method: "POST",
+            credentials: "include",
+        });
+        const json = await res.json().catch(() => ({}));
+        setSaving(false);
+        if (!res.ok) {
+            setMsg(json?.error ?? "Falha ao gerar PIX do seat");
+            return;
+        }
+        setSeatPix({
+            amount_brl: Number(json.amount_brl),
+            pix_qr_code: json.pix_qr_code ?? null,
+            pix_url: json.pix_url ?? null,
+        });
+        setMsg(
+            json.message ??
+                "PIX gerado. Após o pagamento, tente o convite novamente."
+        );
     }
 
     async function patchMember(
@@ -167,6 +222,50 @@ export default function TeamMembersPanel() {
                 {msg && (
                     <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                         {msg}
+                    </div>
+                )}
+
+                {seatOffer && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                        <p className="font-semibold">Seat adicional necessário</p>
+                        <p className="mt-1 opacity-90">
+                            Lista R$ {(seatOffer.seat_extra_cents / 100).toFixed(2).replace(".", ",")}
+                            /mês — na compra cobramos o prorata até a próxima renovação.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => void purchaseSeat()}
+                            disabled={saving}
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+                        >
+                            {saving ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            Gerar PIX do seat
+                        </button>
+                        {seatPix && (
+                            <div className="mt-3 space-y-1 rounded-md bg-white/70 p-2 dark:bg-zinc-900/50">
+                                <p className="font-medium">
+                                    Valor agora: R${" "}
+                                    {Number(seatPix.amount_brl).toFixed(2).replace(".", ",")}
+                                </p>
+                                {seatPix.pix_qr_code && (
+                                    <p className="break-all font-mono text-[10px] leading-relaxed">
+                                        {seatPix.pix_qr_code}
+                                    </p>
+                                )}
+                                {seatPix.pix_url && (
+                                    <a
+                                        href={seatPix.pix_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-amber-800 underline dark:text-amber-200"
+                                    >
+                                        Abrir link PIX
+                                    </a>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 
